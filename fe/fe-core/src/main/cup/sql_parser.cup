@@ -4534,13 +4534,9 @@ show_param ::=
     {:
         RESULT = new ShowWorkloadGroupsStmt(parser.wild, parser.where);
     :}
-    | KW_BACKENDS KW_VERBOSE
-    {:
-        RESULT = new ShowBackendsStmt(true);
-    :}
     | KW_BACKENDS
     {:
-        RESULT = new ShowBackendsStmt(false);
+        RESULT = new ShowBackendsStmt();
     :}
     | KW_TRASH KW_ON STRING_LITERAL:backend
     {:

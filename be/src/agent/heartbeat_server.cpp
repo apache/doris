@@ -263,30 +263,19 @@ Status HeartbeatServer::_heartbeat(const TMasterInfo& master_info) {
             LOG(INFO) << "set config meta_service_endpoing " << master_info.meta_service_endpoint
                       << " " << st;
         }
+    }
 
-        if (config::cluster_id == -1 && master_info.cluster_id != -1) {
-            auto st =
-                    config::set_config("cluster_id", std::to_string(master_info.cluster_id), true);
-            config::set_cloud_unique_id(std::to_string(master_info.cluster_id));
-            LOG(INFO) << "set config cluster_id " << master_info.cluster_id << " " << st;
-        }
-
-        if (config::cluster_id == -1 && master_info.cluster_id != -1) {
-            auto st =
-                    config::set_config("cluster_id", std::to_string(master_info.cluster_id), true);
-            config::set_cloud_unique_id(std::to_string(master_info.cluster_id));
-            LOG(INFO) << "set config unique_id according to cluster_id " << master_info.cluster_id
-                      << " " << st;
-        }
-
-        if (config::cluster_id != master_info.cluster_id && master_info.cluster_id != -1) {
-            LOG(WARNING) << "fe and be run in different cluster, fe in cluster_id: "
-                         << master_info.cluster_id
-                         << " while be in cluster_id: " << config::cluster_id;
+    if (master_info.__isset.cloud_unique_id) {
+        if (!config::cloud_unique_id.empty() && config::cloud_unique_id != master_info.cloud_unique_id) {
+            LOG(ERROR) << "Cloud unique ID mismatch between FE and BE. FE cloud unique ID: "
+                       << master_info.cloud_unique_id << ", BE cloud unique ID: " << config::cloud_unique_id;
             return Status::InvalidArgument<false>(
-                    "cluster_id in be and fe are different, fe: {}, be : {}",
-                    master_info.cluster_id, config::cluster_id);
+                    "fe and be do not work with same cloud unique ID, fe cloud unique ID: {},"
+                    " be cloud unique ID: {}",
+                    master_info.cloud_unique_id, config::cloud_unique_id);
         }
+        auto st = config::set_config("cloud_unique_id", master_info.cloud_unique_id, true);
+        LOG(INFO) << "set config cloud_unique_id " << master_info.cloud_unique_id << " " << st;
     }
 
     return Status::OK();

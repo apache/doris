@@ -313,19 +313,22 @@ public class CloudSystemInfoService extends SystemInfoService {
         }
     }
 
-    private void alterBackendCluster(List<HostInfo> hostInfos, String clusterId,
+    private void alterBackendCluster(List<HostInfo> hostInfos, String computeGroupId,
                                      Cloud.AlterClusterRequest.Operation operation) throws DdlException {
         if (Strings.isNullOrEmpty(((CloudEnv) Env.getCurrentEnv()).getCloudInstanceId())) {
             throw new DdlException("unable to alter backends due to empty cloud_instance_id");
         }
         // Issue rpc to meta to alter node, then fe master would add this node to its frontends
         Cloud.ClusterPB clusterPB = Cloud.ClusterPB.newBuilder()
-                .setClusterId(clusterId)
+                .setClusterId(computeGroupId)
                 .setType(Cloud.ClusterPB.Type.COMPUTE)
                 .build();
 
         for (HostInfo hostInfo : hostInfos) {
+            String cloudUniqueId = "1" + Config.cluster_id
+                    + RandomIdentifierGenerator.generateRandomIdentifier(8);
             Cloud.NodeInfoPB nodeInfoPB = Cloud.NodeInfoPB.newBuilder()
+                    .setCloudUniqueId(cloudUniqueId)
                     .setIp(hostInfo.getHost())
                     .setHost(hostInfo.getHost())
                     .setHeartbeatPort(hostInfo.getPort())
@@ -367,8 +370,9 @@ public class CloudSystemInfoService extends SystemInfoService {
             throw new UserException("ComputeGroup'name can not be empty");
         }
 
-        String clusterId = tryCreateComputeGroup(clusterName, RandomIdentifierGenerator.generateRandomIdentifier(8));
-        alterBackendCluster(hostInfos, clusterId, Cloud.AlterClusterRequest.Operation.ADD_NODE);
+        String computeGroupId = tryCreateComputeGroup(clusterName,
+                RandomIdentifierGenerator.generateRandomIdentifier(8));
+        alterBackendCluster(hostInfos, computeGroupId, Cloud.AlterClusterRequest.Operation.ADD_NODE);
     }
 
     // final entry of dropping backend
@@ -381,28 +385,28 @@ public class CloudSystemInfoService extends SystemInfoService {
             throw new DdlException("backend does not exists[" + NetUtils
                     .getHostPortInAccessibleFormat(host, heartbeatPort) + "]");
         }
-        String clusterId = droppedBackend.getTagMap().get(Tag.CLOUD_CLUSTER_ID);
-        if (clusterId == null || clusterId.isEmpty()) {
+        String computeGroupId = droppedBackend.getTagMap().get(Tag.CLOUD_CLUSTER_ID);
+        if (computeGroupId == null || computeGroupId.isEmpty()) {
             throw new DdlException("Failed to get cluster ID for backend: " + droppedBackend.getId());
         }
 
         List<HostInfo> hostInfos = new ArrayList<>();
         hostInfos.add(new HostInfo(host, heartbeatPort));
 
-        alterBackendCluster(hostInfos, clusterId, Cloud.AlterClusterRequest.Operation.DROP_NODE);
+        alterBackendCluster(hostInfos, computeGroupId, Cloud.AlterClusterRequest.Operation.DROP_NODE);
     }
 
     @Override
     public void decommissionBackend(Backend backend) throws UserException {
-        String clusterId = backend.getTagMap().get(Tag.CLOUD_CLUSTER_ID);
-        if (clusterId == null || clusterId.isEmpty()) {
+        String computeGroupId = backend.getTagMap().get(Tag.CLOUD_CLUSTER_ID);
+        if (computeGroupId == null || computeGroupId.isEmpty()) {
             throw new UserException("Failed to get cluster ID for backend: " + backend.getId());
         }
 
         List<HostInfo> hostInfos = new ArrayList<>();
         hostInfos.add(new HostInfo(backend.getHost(), backend.getHeartbeatPort()));
         try {
-            alterBackendCluster(hostInfos, clusterId, Cloud.AlterClusterRequest.Operation.DECOMMISSION_NODE);
+            alterBackendCluster(hostInfos, computeGroupId, Cloud.AlterClusterRequest.Operation.DECOMMISSION_NODE);
         } catch (DdlException e) {
             String errorMessage = e.getMessage();
             LOG.warn("Failed to decommission backend: {}", errorMessage);
@@ -839,13 +843,13 @@ public class CloudSystemInfoService extends SystemInfoService {
         alterFrontendCluster(role, host, editLogPort, Cloud.AlterClusterRequest.Operation.DROP_NODE);
     }
 
-    private String tryCreateComputeGroup(String clusterName, String clusterId) throws UserException {
+    private String tryCreateComputeGroup(String clusterName, String computeGroupId) throws UserException {
         if (Strings.isNullOrEmpty(((CloudEnv) Env.getCurrentEnv()).getCloudInstanceId())) {
             throw new DdlException("unable to create compute group due to empty cluster_id");
         }
 
         Cloud.ClusterPB clusterPB = Cloud.ClusterPB.newBuilder()
-                .setClusterId(clusterId)
+                .setClusterId(computeGroupId)
                 .setClusterName(clusterName)
                 .setType(Cloud.ClusterPB.Type.COMPUTE)
                 .build();
@@ -868,7 +872,7 @@ public class CloudSystemInfoService extends SystemInfoService {
             }
 
             if (response.getStatus().getCode() == Cloud.MetaServiceCode.OK) {
-                return clusterId;
+                return computeGroupId;
             } else if (response.getStatus().getCode() == Cloud.MetaServiceCode.ALREADY_EXISTED) {
                 Cloud.GetClusterResponse clusterResponse = getCloudCluster(clusterName, "", "");
                 if (clusterResponse.getStatus().getCode() == Cloud.MetaServiceCode.OK) {

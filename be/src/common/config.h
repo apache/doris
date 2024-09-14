@@ -89,7 +89,7 @@ DECLARE_String(custom_config_dir);
 DECLARE_String(jdbc_drivers_dir);
 
 // cluster id
-DECLARE_mInt32(cluster_id);
+DECLARE_Int32(cluster_id);
 // port on which BackendService is exported
 DECLARE_Int32(be_port);
 

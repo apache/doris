@@ -250,6 +250,10 @@ public class HeartbeatMgr extends MasterDaemon {
                 copiedMasterInfo.setHeartbeatFlags(flags);
                 copiedMasterInfo.setBackendId(backendId);
                 copiedMasterInfo.setFrontendInfos(feInfos);
+                if (Config.isCloudMode()) {
+                    String cloudUniqueId = backend.getTagMap().get(Tag.CLOUD_UNIQUE_ID);
+                    copiedMasterInfo.setCloudUniqueId(cloudUniqueId);
+                }
                 THeartbeatResult result;
                 if (!FeConstants.runningUnitTest) {
                     client = ClientPool.backendHeartbeatPool.borrowObject(beAddr);

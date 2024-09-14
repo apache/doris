@@ -71,10 +71,4 @@ DEFINE_mInt32(remove_expired_tablet_txn_info_interval_seconds, "300");
 
 DEFINE_mInt32(tablet_txn_info_min_expired_seconds, "120");
 
-void set_cloud_unique_id(std::string instance_id) {
-    if (cloud_unique_id.empty() && !instance_id.empty() && instance_id != "-1") {
-        static_cast<void>(set_config("cloud_unique_id", "1:" + instance_id + ":compute", true));
-    }
-}
-
 } // namespace doris::config

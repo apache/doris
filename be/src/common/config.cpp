@@ -54,7 +54,7 @@ DEFINE_String(custom_config_dir, "${DORIS_HOME}/conf");
 DEFINE_String(jdbc_drivers_dir, "${DORIS_HOME}/jdbc_drivers");
 
 // cluster id
-DEFINE_mInt32(cluster_id, "-1");
+DEFINE_Int32(cluster_id, "-1");
 // port on which BackendService is exported
 DEFINE_Int32(be_port, "9060");
 
@@ -1669,9 +1669,6 @@ bool init(const char* conf_file, bool fill_conf_map, bool must_exist, bool set_t
         SET_FIELD(it.second, std::vector<double>, fill_conf_map, set_to_default);
         SET_FIELD(it.second, std::vector<std::string>, fill_conf_map, set_to_default);
     }
-
-    std::string cluster_id_str = std::to_string(cluster_id);
-    set_cloud_unique_id(cluster_id_str);
 
     return true;
 }

@@ -29,8 +29,6 @@ static inline bool is_cloud_mode() {
     return deploy_mode == "cloud" || !cloud_unique_id.empty();
 }
 
-void set_cloud_unique_id(std::string instance_id);
-
 // Set the endpoint of meta service.
 //
 // If meta services are deployed behind a load balancer, set this config to "host:port" of the load balancer.
