@@ -191,9 +191,6 @@ struct DateFormatImpl {
         if constexpr (std::is_same_v<Impl, time_format_type::NoneImpl>) {
             // Handle non-special formats.
             const auto& dt = (DateType&)t;
-            if (format.size > 128) {
-                return true;
-            }
             char buf[100 + SAFE_FORMAT_STRING_MARGIN];
             if (!dt.to_format_string_conservative(format.data, format.size, buf,
                                                   100 + SAFE_FORMAT_STRING_MARGIN)) {
@@ -239,7 +236,7 @@ struct FromUnixTimeImpl {
                                size_t& offset, const cctz::time_zone& time_zone) {
         if constexpr (std::is_same_v<Impl, time_format_type::NoneImpl>) {
             DateType dt;
-            if (format.size > 128 || val < 0 || val > TIMESTAMP_VALID_MAX) {
+            if (val < 0 || val > TIMESTAMP_VALID_MAX) {
                 return true;
             }
             dt.from_unixtime(val, time_zone);

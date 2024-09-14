@@ -91,13 +91,22 @@ public:
         }
 
         const auto* column_string = context->get_constant_col(1);
+
         if (column_string == nullptr) {
+            return Status::InvalidArgument(
+                    "The second parameter of the function {} must be a constant.", get_name());
+        }
+
+        auto string_vale = column_string->column_ptr->get_data_at(0);
+        if (string_vale.data == nullptr) {
             // func(col , null);
             state->is_valid = false;
             return IFunction::open(context, scope);
         }
 
-        auto format_str = column_string->column_ptr->get_data_at(0).trim();
+        string_vale = string_vale.trim();
+        auto format_str =
+                time_format_type::rewrite_specific_format(string_vale.data, string_vale.size);
         if (format_str.size > 128) {
             //  exceeds the length limit.
             state->is_valid = false;
@@ -136,6 +145,7 @@ public:
                                         col_res->get_offsets(), vec_null_map_to));
 
         if (nullable_column) {
+            // input column is nullable
             const auto& origin_null_map = nullable_column->get_null_map_column().get_data();
             for (int i = 0; i < origin_null_map.size(); ++i) {
                 vec_null_map_to[i] |= origin_null_map[i];
@@ -161,14 +171,16 @@ public:
 
         StringRef format(format_state->format_str);
 
-        auto len = ts.size();
+        const auto len = ts.size();
+
+        if (!format_state->is_valid) {
+            res_offsets.resize_fill(len, 0);
+            null_map.resize_fill(len, true);
+            return Status::OK();
+        }
         res_offsets.resize(len);
         res_data.reserve(len * format.size + len);
         null_map.resize_fill(len, false);
-
-        if (!format_state->is_valid) {
-            return Status::OK();
-        }
 
         std::visit(
                 [&](auto type) {

@@ -20,12 +20,26 @@
 #include <variant>
 
 #include "vec/common/string_ref.h"
-namespace doris::vectorized {
 
-namespace time_format_type {
+namespace doris::vectorized::time_format_type {
+// Used to optimize commonly used date formats.
+
+inline StringRef rewrite_specific_format(const char* raw_str, size_t str_size) {
+    const static std::string specific_format_strs[3] = {"%Y%m%d", "%Y-%m-%d", "%Y-%m-%d %H:%i:%s"};
+    const static std::string specific_format_rewrite[3] = {"yyyyMMdd", "yyyy-MM-dd",
+                                                           "yyyy-MM-dd HH:mm:ss"};
+    for (int i = 0; i < 3; i++) {
+        const StringRef specific_format {specific_format_strs[i].data(),
+                                         specific_format_strs[i].size()};
+        if (specific_format == StringRef {raw_str, str_size}) {
+            return {specific_format_rewrite[i].data(), specific_format_rewrite[i].size()};
+        }
+    }
+    return {raw_str, str_size};
+}
 
 template <typename T>
-void inline put_year(T y, char* buf, int& i) {
+void put_year(T y, char* buf, int& i) {
     int t = y / 100;
     buf[i++] = t / 10 + '0';
     buf[i++] = t % 10 + '0';
@@ -36,11 +50,12 @@ void inline put_year(T y, char* buf, int& i) {
 }
 
 template <typename T>
-void inline put_other(T m, char* buf, int& i) {
+void put_other(T m, char* buf, int& i) {
     buf[i++] = m / 10 + '0';
     buf[i++] = m % 10 + '0';
 }
 
+// NoneImpl indicates that no specific optimization has been applied, and the general logic is used for processing.
 struct NoneImpl {};
 
 struct yyyyMMddImpl {
@@ -138,6 +153,4 @@ inline FormatImplVariant string_to_impl(const std::string& format) {
     }
 }
 
-} // namespace time_format_type
-
-} // namespace doris::vectorized
+} // namespace doris::vectorized::time_format_type
