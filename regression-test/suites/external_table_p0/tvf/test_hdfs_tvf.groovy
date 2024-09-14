@@ -312,6 +312,28 @@ suite("test_hdfs_tvf","external,hive,tvf,external_docker") {
                         "column_separator" = ",",
                         "format" = "${format}"); """
 
+
+            // test create view from tvf and alter view from tvf
+            uri = "${defaultFS}" + "/user/doris/preinstalled_data/csv_format_test/all_types.csv"
+            format = "csv"
+            sql """ DROP VIEW IF EXISTS test_hdfs_tvf_create_view;"""
+            sql """
+                create view test_hdfs_tvf_create_view as
+                select * from HDFS(
+                        "uri" = "${uri}",
+                        "hadoop.username" = "${hdfsUserName}",
+                        "column_separator" = ",",
+                        "format" = "${format}") order by c1;
+                """
+
+            sql """
+                alter view test_hdfs_tvf_create_view as
+                select c1 from HDFS(
+                        "uri" = "${uri}",
+                        "hadoop.username" = "${hdfsUserName}",
+                        "column_separator" = ",",
+                        "format" = "${format}") order by c1;
+                """
         } finally {
         }
     }
