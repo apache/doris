@@ -971,9 +971,9 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                         entry.getValue().get());
             }
         }
-        increaseCount(tableList);
+        increaseWaitingLockCount(tableList);
         if (!MetaLockUtils.tryCommitLockTables(tableList, timeoutMillis, TimeUnit.MILLISECONDS)) {
-            decreaseCount(tableList);
+            decreaseWaitingLockCount(tableList);
             // DELETE_BITMAP_LOCK_ERR will be retried on be
             throw new UserException(InternalErrorCode.DELETE_BITMAP_LOCK_ERR,
                     "get table cloud commit lock timeout, tableList=("
@@ -982,7 +982,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         try {
             commitTransaction(db.getId(), tableList, transactionId, tabletCommitInfos, txnCommitAttachment);
         } finally {
-            decreaseCount(tableList);
+            decreaseWaitingLockCount(tableList);
             MetaLockUtils.commitUnlockTables(tableList);
         }
         return true;
@@ -1737,7 +1737,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         return TxnUtil.transactionStateFromPb(response.getTxnInfo());
     }
 
-    private void increaseCount(List<Table> tableList) {
+    private void increaseWaitingLockCount(List<Table> tableList) {
         for (int i = 0; i < tableList.size(); i++) {
             long tableId = tableList.get(i).getId();
             if (waitToCommitTxnCountMap.containsKey(tableId)) {
@@ -1749,7 +1749,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         }
     }
 
-    private void decreaseCount(List<Table> tableList) {
+    private void decreaseWaitingLockCount(List<Table> tableList) {
         for (int i = 0; i < tableList.size(); i++) {
             long tableId = tableList.get(i).getId();
             waitToCommitTxnCountMap.get(tableId).decrementAndGet();
