@@ -2102,6 +2102,9 @@ public class DatabaseTransactionMgr {
                                 }
                             }
                             replica.updateVersionWithFailed(newVersion, lastFailedVersion, lastSuccessVersion);
+                            if (newVersion == Partition.PARTITION_INIT_VERSION + 1) {
+                                index.setRowCountReported(false);
+                            }
                             Set<Long> partitionIds = backendPartitions.get(replica.getBackendId());
                             if (partitionIds == null) {
                                 partitionIds = Sets.newHashSet();
