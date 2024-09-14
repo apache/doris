@@ -1467,7 +1467,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
                         .add("msg", "Job need to be rescheduled")
                         .build());
                 unprotectUpdateProgress();
-                executeNeedSchedule();
+                unprotectUpdateState(JobState.NEED_SCHEDULE, null, false);
             }
         } finally {
             writeUnlock();
