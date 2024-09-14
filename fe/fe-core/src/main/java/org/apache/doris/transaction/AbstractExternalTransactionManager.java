@@ -38,7 +38,7 @@ public abstract class AbstractExternalTransactionManager<T extends Transaction> 
     public long begin() {
         long id = Env.getCurrentEnv().getNextId();
         T transaction = createTransaction();
-        transactions.put(id, createTransaction());
+        transactions.put(id, transaction);
         Env.getCurrentEnv().getGlobalExternalTransactionInfoMgr().putTxnById(id, transaction);
         return id;
     }
