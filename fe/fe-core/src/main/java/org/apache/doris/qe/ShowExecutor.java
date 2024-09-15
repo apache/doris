@@ -1722,6 +1722,8 @@ public class ShowExecutor {
                     + " in db " + showRoutineLoadStmt.getDbFullName()
                     + ". Include history? " + showRoutineLoadStmt.isIncludeHistory());
         }
+        // sort by create time
+        rows.sort(Comparator.comparing(x -> x.get(2)));
         resultSet = new ShowResultSet(showRoutineLoadStmt.getMetaData(), rows);
     }
 
