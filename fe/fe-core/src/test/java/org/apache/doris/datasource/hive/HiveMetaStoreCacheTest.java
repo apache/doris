@@ -32,9 +32,9 @@ public class HiveMetaStoreCacheTest {
     @Test
     public void testInvalidateTableCache() {
         ThreadPoolExecutor executor = ThreadPoolManager.newDaemonFixedThreadPool(
-                1, 1, "refresh", 10, false);
+                1, 1, "refresh", 1, false);
         ThreadPoolExecutor listExecutor = ThreadPoolManager.newDaemonFixedThreadPool(
-                1, 1, "file", 10, false);
+                1, 1, "file", 1, false);
 
         HiveMetaStoreCache hiveMetaStoreCache = new HiveMetaStoreCache(
                 new HMSExternalCatalog(1L, "catalog", null, new HashMap<>(), null), executor, listExecutor);
@@ -43,11 +43,38 @@ public class HiveMetaStoreCacheTest {
         LoadingCache<HiveMetaStoreCache.PartitionCacheKey, HivePartition> partitionCache = hiveMetaStoreCache.getPartitionCache();
         LoadingCache<HiveMetaStoreCache.PartitionValueCacheKey, HiveMetaStoreCache.HivePartitionValues> partitionValuesCache = hiveMetaStoreCache.getPartitionValuesCache();
 
-        String tbName = "tb";
         String dbName = "db";
+        String tbName = "tb";
+        String tbName2 = "tb2";
 
-        HiveMetaStoreCache.FileCacheKey fileCacheKey1 = new HiveMetaStoreCache.FileCacheKey(dbName, tbName, "", "", new ArrayList<>(), null);
-        HiveMetaStoreCache.FileCacheKey fileCacheKey2 = HiveMetaStoreCache.FileCacheKey.createDummyCacheKey(dbName, tbName, "", "", null);
+        putCache(fileCache, partitionCache, partitionValuesCache, dbName, tbName);
+        Assertions.assertEquals(2, fileCache.asMap().size());
+        Assertions.assertEquals(1, partitionCache.asMap().size());
+        Assertions.assertEquals(1, partitionValuesCache.asMap().size());
+
+        putCache(fileCache, partitionCache, partitionValuesCache, dbName, tbName2);
+        Assertions.assertEquals(4, fileCache.asMap().size());
+        Assertions.assertEquals(2, partitionCache.asMap().size());
+        Assertions.assertEquals(2, partitionValuesCache.asMap().size());
+
+        hiveMetaStoreCache.invalidateTableCache(dbName, tbName2);
+        Assertions.assertEquals(2, fileCache.asMap().size());
+        Assertions.assertEquals(1, partitionCache.asMap().size());
+        Assertions.assertEquals(1, partitionValuesCache.asMap().size());
+
+        hiveMetaStoreCache.invalidateTableCache(dbName, tbName);
+        Assertions.assertEquals(0, fileCache.asMap().size());
+        Assertions.assertEquals(0, partitionCache.asMap().size());
+        Assertions.assertEquals(0, partitionValuesCache.asMap().size());
+    }
+
+    private void putCache(
+            LoadingCache<HiveMetaStoreCache.FileCacheKey, HiveMetaStoreCache.FileCacheValue> fileCache,
+            LoadingCache<HiveMetaStoreCache.PartitionCacheKey, HivePartition> partitionCache,
+            LoadingCache<HiveMetaStoreCache.PartitionValueCacheKey, HiveMetaStoreCache.HivePartitionValues> partitionValuesCache,
+            String dbName, String tbName) {
+        HiveMetaStoreCache.FileCacheKey fileCacheKey1 = new HiveMetaStoreCache.FileCacheKey(dbName, tbName, tbName, "", new ArrayList<>(), null);
+        HiveMetaStoreCache.FileCacheKey fileCacheKey2 = HiveMetaStoreCache.FileCacheKey.createDummyCacheKey(dbName, tbName, tbName, "", null);
         fileCache.put(fileCacheKey1, new HiveMetaStoreCache.FileCacheValue());
         fileCache.put(fileCacheKey2, new HiveMetaStoreCache.FileCacheValue());
 
@@ -61,14 +88,5 @@ public class HiveMetaStoreCacheTest {
         HiveMetaStoreCache.PartitionValueCacheKey partitionValueCacheKey = new HiveMetaStoreCache.PartitionValueCacheKey(dbName, tbName, new ArrayList<>());
         partitionValuesCache.put(partitionValueCacheKey, new HiveMetaStoreCache.HivePartitionValues());
 
-        Assertions.assertEquals(2, fileCache.asMap().size());
-        Assertions.assertEquals(1, partitionCache.asMap().size());
-        Assertions.assertEquals(1, partitionValuesCache.asMap().size());
-
-        hiveMetaStoreCache.invalidateTableCache(dbName, tbName);
-
-        Assertions.assertEquals(0, fileCache.asMap().size());
-        Assertions.assertEquals(0, partitionCache.asMap().size());
-        Assertions.assertEquals(0, partitionValuesCache.asMap().size());
     }
 }
