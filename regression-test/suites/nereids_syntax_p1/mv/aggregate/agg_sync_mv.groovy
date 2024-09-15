@@ -534,6 +534,19 @@ suite("agg_sync_mv") {
 
 
     sql "insert into agg_mv_test select * from agg_mv_test;"
+    sql "insert into agg_mv_test select * from agg_mv_test;"
+    sql "insert into agg_mv_test select * from agg_mv_test;"
+    sql "insert into agg_mv_test select * from agg_mv_test;"
+    sql "insert into agg_mv_test select * from agg_mv_test;"
+    sql "insert into agg_mv_test select * from agg_mv_test;"
+    sql "insert into agg_mv_test select * from agg_mv_test;"
+    sql "insert into agg_mv_test select * from agg_mv_test;"
+    sql "insert into agg_mv_test select * from agg_mv_test;"
+    sql "insert into agg_mv_test select * from agg_mv_test;"
+    sql "insert into agg_mv_test select * from agg_mv_test;"
+    sql "insert into agg_mv_test select * from agg_mv_test;"
+    sql "insert into agg_mv_test select * from agg_mv_test;"
+
     sql "set parallel_pipeline_task_num=1"
     qt_test "select kbint, map_agg(id, kstr) from agg_mv_test group by kbint order by kbint;"
 }
