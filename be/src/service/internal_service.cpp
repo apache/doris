@@ -785,7 +785,8 @@ void PInternalServiceImpl::fetch_table_schema(google::protobuf::RpcController* c
 
         std::shared_ptr<MemTrackerLimiter> mem_tracker = MemTrackerLimiter::create_shared(
                 MemTrackerLimiter::Type::OTHER,
-                fmt::format("{}#{}", params.format_type, params.file_type));
+                fmt::format("InternalService::fetch_table_schema:{}#{}", params.format_type,
+                            params.file_type));
         SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(mem_tracker);
 
         // make sure profile is desctructed after reader cause PrefetchBufferedReader

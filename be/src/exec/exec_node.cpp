@@ -463,6 +463,10 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
         return Status::OK();
 
     case TPlanNodeType::GROUP_COMMIT_SCAN_NODE:
+#ifndef NDEBUG
+        DCHECK(state->get_query_ctx() != nullptr);
+        state->get_query_ctx()->query_mem_tracker->is_group_commit_load = true;
+#endif
         *node = pool->add(new vectorized::GroupCommitScanNode(pool, tnode, descs));
         return Status::OK();
 
