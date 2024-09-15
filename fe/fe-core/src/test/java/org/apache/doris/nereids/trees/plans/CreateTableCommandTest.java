@@ -291,7 +291,7 @@ public class CreateTableCommandTest extends TestWithFeService {
                 () -> createTable("create table test.tb7(key1 int, key2 varchar(10)) distributed by hash(key1) \n"
                         + "buckets 1 properties('replication_num' = '1', 'storage_medium' = 'ssd');"));
 
-        checkThrow(org.apache.doris.common.DdlException.class, "sequence column only support UNIQUE_KEYS",
+        Assertions.assertDoesNotThrow(
                 () -> createTable("create table test.atbl8\n" + "(k1 varchar(40), k2 int, v1 int sum)\n"
                         + "aggregate key(k1, k2)\n"
                         + "partition by range(k2)\n" + "(partition p1 values less than(\"10\"))\n"

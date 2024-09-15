@@ -316,7 +316,7 @@ public class CreateTableTest extends TestWithFeService {
                                 + "buckets 1 properties('replication_num' = '1', 'storage_medium' = 'ssd');"));
 
         ExceptionChecker
-                .expectThrowsWithMsg(DdlException.class, "sequence column only support UNIQUE_KEYS",
+                .expectThrowsNoException(
                         () -> createTable("create table test.atbl8\n" + "(k1 varchar(40), k2 int, v1 int sum)\n"
                         + "aggregate key(k1, k2)\n"
                         + "partition by range(k2)\n" + "(partition p1 values less than(\"10\"))\n"
@@ -325,7 +325,7 @@ public class CreateTableTest extends TestWithFeService {
 
         ExceptionChecker
                 .expectThrowsWithMsg(DdlException.class, "sequence type only support integer types and date types",
-                        () -> createTable("create table test.atbl8\n" + "(k1 varchar(40), k2 int, v1 int)\n"
+                        () -> createTable("create table test.atbl9\n" + "(k1 varchar(40), k2 int, v1 int)\n"
                                 + "unique key(k1, k2)\n"
                                 + "partition by range(k2)\n" + "(partition p1 values less than(\"10\"))\n"
                                 + "distributed by hash(k2) buckets 1\n" + "properties('replication_num' = '1',\n"
@@ -333,7 +333,7 @@ public class CreateTableTest extends TestWithFeService {
 
         ExceptionChecker
                 .expectThrowsWithMsg(DdlException.class, "The sequence_col and sequence_type cannot be set at the same time",
-                        () -> createTable("create table test.atbl8\n" + "(k1 varchar(40), k2 int, v1 int)\n"
+                        () -> createTable("create table test.atbl9\n" + "(k1 varchar(40), k2 int, v1 int)\n"
                                 + "unique key(k1, k2)\n"
                                 + "partition by range(k2)\n" + "(partition p1 values less than(\"10\"))\n"
                                 + "distributed by hash(k2) buckets 1\n" + "properties('replication_num' = '1',\n"
@@ -341,7 +341,7 @@ public class CreateTableTest extends TestWithFeService {
 
         ExceptionChecker
                 .expectThrowsWithMsg(DdlException.class, "The specified sequence column[v3] not exists",
-                        () -> createTable("create table test.atbl8\n" + "(k1 varchar(40), k2 int, v1 int)\n"
+                        () -> createTable("create table test.atbl9\n" + "(k1 varchar(40), k2 int, v1 int)\n"
                                 + "unique key(k1, k2)\n"
                                 + "partition by range(k2)\n" + "(partition p1 values less than(\"10\"))\n"
                                 + "distributed by hash(k2) buckets 1\n" + "properties('replication_num' = '1',\n"
@@ -349,7 +349,7 @@ public class CreateTableTest extends TestWithFeService {
 
         ExceptionChecker
                 .expectThrowsWithMsg(DdlException.class, "Sequence type only support integer types and date types",
-                        () -> createTable("create table test.atbl8\n" + "(k1 varchar(40), k2 int, v1 int)\n"
+                        () -> createTable("create table test.atbl9\n" + "(k1 varchar(40), k2 int, v1 int)\n"
                                 + "unique key(k1, k2)\n"
                                 + "partition by range(k2)\n" + "(partition p1 values less than(\"10\"))\n"
                                 + "distributed by hash(k2) buckets 1\n" + "properties('replication_num' = '1',\n"
