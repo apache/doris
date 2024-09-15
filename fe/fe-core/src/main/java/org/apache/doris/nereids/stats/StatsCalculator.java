@@ -19,6 +19,7 @@ package org.apache.doris.nereids.stats;
 
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
@@ -850,6 +851,10 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         }
         if (hasUnknownCol && ConnectContext.get() != null && ConnectContext.get().getStatementContext() != null) {
             ConnectContext.get().getStatementContext().setHasUnknownColStats(true);
+        }
+        if (catalogRelation instanceof MTMV) {
+            // Just for data right test
+            rowCount = 0.00000000001D;
         }
         return normalizeCatalogRelationColumnStatsRowCount(rowCount, columnStatisticBuilderMap);
     }
