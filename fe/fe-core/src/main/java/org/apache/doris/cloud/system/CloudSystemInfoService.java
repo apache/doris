@@ -52,6 +52,7 @@ import org.apache.commons.lang3.time.StopWatch;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
@@ -794,18 +795,29 @@ public class CloudSystemInfoService extends SystemInfoService {
 
     // FrontendCluster = SqlServerCluster
     private void alterFrontendCluster(FrontendNodeType role, String host, int editLogPort,
-            Cloud.AlterClusterRequest.Operation op) throws DdlException {
+            String cloudUnqiueID, Cloud.AlterClusterRequest.Operation op) throws DdlException {
         if (Strings.isNullOrEmpty(((CloudEnv) Env.getCurrentEnv()).getCloudInstanceId())) {
             throw new DdlException("unable to alter frontend due to empty cloud_instance_id");
         }
 
+        Cloud.NodeInfoPB.NodeType nodeType;
+        if (role == FrontendNodeType.MASTER) {
+            nodeType = Cloud.NodeInfoPB.NodeType.FE_MASTER;
+        } else if (role == FrontendNodeType.FOLLOWER) {
+            nodeType = Cloud.NodeInfoPB.NodeType.FE_FOLLOWER;
+        } else if (role == FrontendNodeType.OBSERVER) {
+            nodeType = Cloud.NodeInfoPB.NodeType.FE_OBSERVER;
+        } else {
+            throw new DdlException("unable to alter frontend due to invalid role");
+        }
+
         // Issue rpc to meta to add this node, then fe master would add this node to its frontends
         Cloud.NodeInfoPB nodeInfoPB = Cloud.NodeInfoPB.newBuilder()
+                .setCloudUniqueId(cloudUnqiueID)
                 .setIp(host)
                 .setHost(host)
                 .setEditLogPort(editLogPort)
-                .setNodeType(role == FrontendNodeType.MASTER ? Cloud.NodeInfoPB.NodeType.FE_MASTER
-                        : Cloud.NodeInfoPB.NodeType.FE_OBSERVER)
+                .setNodeType(nodeType)
                 .setCtime(System.currentTimeMillis() / 1000)
                 .build();
 
@@ -840,11 +852,12 @@ public class CloudSystemInfoService extends SystemInfoService {
         Cloud.AlterClusterRequest.Operation op;
         op = role == FrontendNodeType.MASTER ? Cloud.AlterClusterRequest.Operation.ADD_CLUSTER
                             : Cloud.AlterClusterRequest.Operation.ADD_NODE;
-        alterFrontendCluster(role, host, editLogPort, op);
+        alterFrontendCluster(role, host, editLogPort, Config.cloud_unique_id, op);
     }
 
-    public void dropFrontend(FrontendNodeType role, String host, int editLogPort) throws DdlException {
-        alterFrontendCluster(role, host, editLogPort, Cloud.AlterClusterRequest.Operation.DROP_NODE);
+    public void dropFrontend(Frontend frontend) throws DdlException {
+        alterFrontendCluster(frontend.getRole(), frontend.getHost(), frontend.getEditLogPort(),
+                frontend.getCloudUniqueId(), Cloud.AlterClusterRequest.Operation.DROP_NODE);
     }
 
     private String tryCreateComputeGroup(String clusterName, String computeGroupId) throws UserException {
@@ -1094,6 +1107,26 @@ public class CloudSystemInfoService extends SystemInfoService {
         } catch (RpcException e) {
             LOG.warn("Failed to create instance {}", instanceId, e);
             throw new DdlException("Failed to create instance");
+        }
+    }
+
+    public String getInstanceId(String cloudUniqueId) throws IOException {
+        Cloud.GetInstanceRequest.Builder builder = Cloud.GetInstanceRequest.newBuilder();
+        builder.setCloudUniqueId(cloudUniqueId);
+
+        Cloud.GetInstanceResponse response;
+        try {
+            Cloud.GetInstanceRequest request = builder.build();
+            response = MetaServiceProxy.getInstance().getInstance(request);
+            LOG.info("get instance info, request: {}, response: {}", request, response);
+            if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
+                LOG.warn("Failed to get instance info, response: {}", response);
+                throw new IOException("Failed to get instance info");
+            }
+            return response.getInstance().getInstanceId();
+        } catch (RpcException e) {
+            LOG.warn("Failed to get instance info {}", cloudUniqueId, e);
+            throw new IOException("Failed to get instance info");
         }
     }
 }

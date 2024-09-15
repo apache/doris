@@ -263,19 +263,21 @@ Status HeartbeatServer::_heartbeat(const TMasterInfo& master_info) {
             LOG(INFO) << "set config meta_service_endpoing " << master_info.meta_service_endpoint
                       << " " << st;
         }
+
+        if (master_info.meta_service_endpoint != config::meta_service_endpoint) {
+            LOG(WARNING) << "Detected mismatch in meta_service_endpoint configuration between FE and BE. "
+                        << "FE meta_service_endpoint: "
+                        << master_info.meta_service_endpoint
+                        << ", BE meta_service_endpoint: "
+                        << config::meta_service_endpoint;
+            return Status::InvalidArgument<false>(
+                    "fe and be do not work in same mode, fe meta_service_endpoint: {},"
+                    " be meta_service_endpoint: {}",
+                    master_info.meta_service_endpoint, config::meta_service_endpoint);
+        }
     }
 
-    if (master_info.__isset.cloud_unique_id) {
-        if (!config::cloud_unique_id.empty() &&
-            config::cloud_unique_id != master_info.cloud_unique_id) {
-            LOG(ERROR) << "Cloud unique ID mismatch between FE and BE. FE cloud unique ID: "
-                       << master_info.cloud_unique_id
-                       << ", BE cloud unique ID: " << config::cloud_unique_id;
-            return Status::InvalidArgument<false>(
-                    "fe and be do not work with same cloud unique ID, fe cloud unique ID: {},"
-                    " be cloud unique ID: {}",
-                    master_info.cloud_unique_id, config::cloud_unique_id);
-        }
+    if (master_info.__isset.cloud_unique_id && config::cloud_unique_id.empty()) {
         auto st = config::set_config("cloud_unique_id", master_info.cloud_unique_id, true);
         LOG(INFO) << "set config cloud_unique_id " << master_info.cloud_unique_id << " " << st;
     }

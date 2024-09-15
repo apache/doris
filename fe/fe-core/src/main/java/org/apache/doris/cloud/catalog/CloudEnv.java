@@ -38,9 +38,11 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.CountingDataOutputStream;
+import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.system.Frontend;
 import org.apache.doris.system.SystemInfoService.HostInfo;
 
 import com.google.common.base.Preconditions;
@@ -71,6 +73,8 @@ public class CloudEnv extends Env {
 
     private CleanCopyJobScheduler cleanCopyJobScheduler;
 
+    private String cloudInstanceId;
+
     public CloudEnv(boolean isCheckpointCatalog) {
         super(isCheckpointCatalog);
         this.cleanCopyJobScheduler = new CleanCopyJobScheduler();
@@ -92,7 +96,11 @@ public class CloudEnv extends Env {
     }
 
     public String getCloudInstanceId() {
-        return String.valueOf(Config.cluster_id);
+        return cloudInstanceId;
+    }
+
+    private void setCloudInstanceId(String cloudInstanceId) {
+        this.cloudInstanceId = cloudInstanceId;
     }
 
     @Override
@@ -102,12 +110,17 @@ public class CloudEnv extends Env {
                                     + "in cloud mode, because FE should known to which it belongs");
         }
 
-        if (Strings.isNullOrEmpty(Config.cloud_unique_id)) {
-            Config.cloud_unique_id = "1:" + getCloudInstanceId() + ":sqlserver";
+        if (Config.cluster_id != -1) {
+            setCloudInstanceId(String.valueOf(Config.cluster_id));
+        }
+
+        if (Strings.isNullOrEmpty(Config.cloud_unique_id) && !Strings.isNullOrEmpty(cloudInstanceId)) {
+            Config.cloud_unique_id = "1:" + cloudInstanceId + ":fe";
             LOG.info("cloud_unique_id is empty, setting it to: {}", Config.cloud_unique_id);
         }
 
-        LOG.info("Initializing CloudEnv with cloud_unique_id: {}", Config.cloud_unique_id);
+        LOG.info("Initializing CloudEnv with cloud_unique_id: {}, cluster_id: {}, cloudInstanceId: {}",
+                Config.cloud_unique_id, Config.cluster_id, cloudInstanceId);
 
         super.initialize(args);
     }
@@ -231,8 +244,18 @@ public class CloudEnv extends Env {
                 }
                 continue;
             }
+
             type = nodeInfoPB.getNodeType();
             break;
+        }
+
+        try {
+            String instanceId;
+            instanceId = getCloudSystemInfoService().getInstanceId(Config.cloud_unique_id);
+            setCloudInstanceId(instanceId);
+        } catch (IOException e) {
+            LOG.error("Failed to get instance ID from cloud_unique_id: {}", Config.cloud_unique_id, e);
+            throw e;
         }
 
         LOG.info("current fe's role is {}", type == NodeInfoPB.NodeType.FE_MASTER ? "MASTER" :
@@ -402,7 +425,17 @@ public class CloudEnv extends Env {
             throw new DdlException("can not drop current master node.");
         }
 
-        getCloudSystemInfoService().dropFrontend(role, host, port);
+        Frontend frontend = checkFeExist(host, port);
+        if (frontend == null) {
+            throw new DdlException("Frontend does not exist.");
+        }
+
+        if (frontend.getRole() != role) {
+            throw new DdlException(role.toString() + " does not exist[" + NetUtils
+                    .getHostPortInAccessibleFormat(host, port) + "]");
+        }
+
+        getCloudSystemInfoService().dropFrontend(frontend);
     }
 
     @Override

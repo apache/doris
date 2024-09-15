@@ -52,6 +52,8 @@ public class CloudClusterChecker extends MasterDaemon {
 
     private CloudSystemInfoService cloudSystemInfoService;
 
+    boolean isUpdateCloudUniqueId = false;
+
     public CloudClusterChecker(CloudSystemInfoService cloudSystemInfoService) {
         super("cloud cluster check", Config.cloud_cluster_check_interval_second * 1000L);
         this.cloudSystemInfoService = cloudSystemInfoService;
@@ -394,6 +396,21 @@ public class CloudClusterChecker extends MasterDaemon {
         List<Frontend> toAdd = new ArrayList<>();
         List<Frontend> toDel = new ArrayList<>();
         List<Cloud.NodeInfoPB> expectedFes = cpb.getNodesList();
+
+        if (!isUpdateCloudUniqueId) {
+            // just run once and number of fes is small, so iterating is ok.
+            for (Frontend fe : currentFes) {
+                for (Cloud.NodeInfoPB node : expectedFes) {
+                    if (fe.getHost().equals(Config.enable_fqdn_mode ? node.getHost() : node.getIp())
+                            && fe.getEditLogPort() == node.getEditLogPort()) {
+                        fe.setCloudUniqueId(node.getCloudUniqueId());
+                        break;
+                    }
+                }
+            }
+            isUpdateCloudUniqueId = true;
+        }
+
         diffNodes(toAdd, toDel, () -> {
             // memory
             Map<String, Frontend> currentMap = new HashMap<>();
@@ -432,6 +449,7 @@ public class CloudClusterChecker extends MasterDaemon {
                 Frontend fe = new Frontend(role,
                         CloudEnv.genFeNodeNameFromMeta(host, node.getEditLogPort(),
                         node.getCtime() * 1000), host, node.getEditLogPort());
+                fe.setCloudUniqueId(node.getCloudUniqueId());
                 // add type to map key, for diff
                 endpoint = endpoint + "_" + fe.getRole();
                 nodeMap.put(endpoint, fe);

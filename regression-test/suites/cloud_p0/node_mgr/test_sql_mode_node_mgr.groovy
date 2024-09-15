@@ -26,6 +26,8 @@ suite('test_sql_mode_node_mgr', 'docker,p1') {
     def clusterOptions = [
         new ClusterOptions(),
         new ClusterOptions(),
+        new ClusterOptions(),
+        new ClusterOptions(),
     ]
 
     for (options in clusterOptions) {
@@ -40,11 +42,21 @@ suite('test_sql_mode_node_mgr', 'docker,p1') {
                 "heartbeat_interval_second=1",]
     }
 
+    clusterOptions[0].sqlModeNodeMgr = true;
     clusterOptions[0].beClusterId = true;
     clusterOptions[0].beMetaServiceEndpoint = true;
 
+    clusterOptions[1].sqlModeNodeMgr = true;
     clusterOptions[1].beClusterId = false;
     clusterOptions[1].beMetaServiceEndpoint = false;
+
+    clusterOptions[2].sqlModeNodeMgr = false;
+    clusterOptions[2].beClusterId = true;
+    clusterOptions[2].beMetaServiceEndpoint = true;
+
+    clusterOptions[3].sqlModeNodeMgr = false;
+    clusterOptions[3].beClusterId = false;
+    clusterOptions[3].beMetaServiceEndpoint = false;
 
     for (options in clusterOptions) {
         docker(options) {
@@ -217,8 +229,8 @@ suite('test_sql_mode_node_mgr', 'docker,p1') {
             assert computeGroups.size() >= 2, "Expected at least 2 compute groups, but got ${computeGroups.size()}"
 
             // Verify that we have a 'default_compute_group' and 'another_compute_group'
-            def defaultGroup = computeGroups.find { it['Name'] == 'default_compute_group' }
-            def anotherGroup = computeGroups.find { it['Name'] == 'another_compute_group' }
+            def defaultGroup = computeGroups.find { it['IsCurrent'] == "TRUE" }
+            def anotherGroup = computeGroups.find { it['IsCurrent'] == "FALSE" }
 
             assert defaultGroup != null, "Expected to find 'default_compute_group'"
             assert anotherGroup != null, "Expected to find 'another_compute_group'"
@@ -242,11 +254,12 @@ suite('test_sql_mode_node_mgr', 'docker,p1') {
 
             def feHost = feToDropMap['Host']
             def feEditLogPort = feToDropMap['EditLogPort']
+            def feRole = feToDropMap['Role']
 
             logger.info("Dropping non-master frontend: {}:{}", feHost, feEditLogPort)
 
             // Drop the selected non-master frontend
-            sql """ ALTER SYSTEM DROP FOLLOWER "${feHost}:${feEditLogPort}"; """
+            sql """ ALTER SYSTEM DROP ${feRole} "${feHost}:${feEditLogPort}"; """
 
             // Wait for the frontend to be fully dropped
             maxWaitSeconds = 300
@@ -310,6 +323,57 @@ suite('test_sql_mode_node_mgr', 'docker,p1') {
 
             logger.info("Frontend successfully added back and cluster status verified")
 
+            // CASE 6. Drop frontend and add back again
+            logger.info("Dropping frontend and adding back again")
+
+            // Get the frontend to be dropped
+            def frontendToDrop = frontends.find { it['Host'] == feHost && it['EditLogPort'] == feEditLogPort }
+            assert frontendToDrop != null, "Could not find the frontend to drop"
+
+            // Drop the frontend
+            sql """ ALTER SYSTEM DROP FOLLOWER "${feHost}:${feEditLogPort}"; """
+
+            // Wait for the frontend to be fully dropped
+            maxWaitSeconds = 300
+            waited = 0
+            while (waited < maxWaitSeconds) {
+                def updatedFrontends = sql_return_maparray("SHOW FRONTENDS")
+                if (!updatedFrontends.any { it['Host'] == feHost && it['EditLogPort'] == feEditLogPort }) {
+                    logger.info("Frontend successfully dropped")
+                    break
+                }
+                sleep(10000)
+                waited += 10
+            }
+
+            if (waited >= maxWaitSeconds) {
+                throw new Exception("Timeout waiting for frontend to be dropped")
+            }
+
+            // Add the frontend back
+            sql """ ALTER SYSTEM ADD FOLLOWER "${feHost}:${feEditLogPort}"; """
+
+            // Wait for the frontend to be fully added back
+            maxWaitSeconds = 300
+            waited = 0
+            while (waited < maxWaitSeconds) {
+                def updatedFrontends = sql_return_maparray("SHOW FRONTENDS")
+                if (updatedFrontends.any { it['Host'] == feHost && it['EditLogPort'] == feEditLogPort }) {
+                    logger.info("Frontend successfully added back")
+                    break
+                }
+                sleep(10000)
+                waited += 10
+            }
+
+            if (waited >= maxWaitSeconds) {
+                throw new Exception("Timeout waiting for frontend to be added back")
+            }
+
+            // Verify cluster status after adding the frontend back
+            checkClusterStatus(3, 3, 5)
+
+            logger.info("Frontend successfully added back and cluster status verified")
             // CASE 6. If fe can not drop itself.
             // 6. Attempt to drop the master FE and expect an exception
             logger.info("Attempting to drop the master frontend")
