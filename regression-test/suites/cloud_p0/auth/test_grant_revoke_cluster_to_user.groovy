@@ -107,7 +107,7 @@ suite("test_grant_revoke_cluster_to_user", "cloud_auth") {
     connect(user = "${user3}", password = 'Cloud12345', url = context.config.jdbcUrl) {
         test {
             sql """select * from ${db}.${tbl}"""
-            exception "or you may not have permission to access the current cluster"
+            exception "or you may not have permission to access the current compute group"
         }
     }
 

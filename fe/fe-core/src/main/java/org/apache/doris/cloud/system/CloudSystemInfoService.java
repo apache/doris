@@ -313,7 +313,7 @@ public class CloudSystemInfoService extends SystemInfoService {
         }
     }
 
-    private void alterBackendCluster(List<HostInfo> hostInfos, String computeGroupId,
+    private void alterBackendCluster(List<HostInfo> hostInfos, String computeGroupId, String cloudUniqueId,
                                      Cloud.AlterClusterRequest.Operation operation) throws DdlException {
         if (Strings.isNullOrEmpty(((CloudEnv) Env.getCurrentEnv()).getCloudInstanceId())) {
             throw new DdlException("unable to alter backends due to empty cloud_instance_id");
@@ -325,8 +325,6 @@ public class CloudSystemInfoService extends SystemInfoService {
                 .build();
 
         for (HostInfo hostInfo : hostInfos) {
-            String cloudUniqueId = "1" + Config.cluster_id
-                    + RandomIdentifierGenerator.generateRandomIdentifier(8);
             Cloud.NodeInfoPB nodeInfoPB = Cloud.NodeInfoPB.newBuilder()
                     .setCloudUniqueId(cloudUniqueId)
                     .setIp(hostInfo.getHost())
@@ -372,7 +370,9 @@ public class CloudSystemInfoService extends SystemInfoService {
 
         String computeGroupId = tryCreateComputeGroup(clusterName,
                 RandomIdentifierGenerator.generateRandomIdentifier(8));
-        alterBackendCluster(hostInfos, computeGroupId, Cloud.AlterClusterRequest.Operation.ADD_NODE);
+        String cloudUniqueId = "1:" + Config.cluster_id + ":"
+                + RandomIdentifierGenerator.generateRandomIdentifier(8);
+        alterBackendCluster(hostInfos, computeGroupId, cloudUniqueId, Cloud.AlterClusterRequest.Operation.ADD_NODE);
     }
 
     // final entry of dropping backend
@@ -393,7 +393,9 @@ public class CloudSystemInfoService extends SystemInfoService {
         List<HostInfo> hostInfos = new ArrayList<>();
         hostInfos.add(new HostInfo(host, heartbeatPort));
 
-        alterBackendCluster(hostInfos, computeGroupId, Cloud.AlterClusterRequest.Operation.DROP_NODE);
+        String cloudUniqueId = droppedBackend.getCloudUniqueId();
+        alterBackendCluster(hostInfos, computeGroupId, cloudUniqueId,
+                Cloud.AlterClusterRequest.Operation.DROP_NODE);
     }
 
     @Override
@@ -406,7 +408,9 @@ public class CloudSystemInfoService extends SystemInfoService {
         List<HostInfo> hostInfos = new ArrayList<>();
         hostInfos.add(new HostInfo(backend.getHost(), backend.getHeartbeatPort()));
         try {
-            alterBackendCluster(hostInfos, computeGroupId, Cloud.AlterClusterRequest.Operation.DECOMMISSION_NODE);
+            String cloudUniqueId = backend.getCloudUniqueId();
+            alterBackendCluster(hostInfos, computeGroupId, cloudUniqueId,
+                                Cloud.AlterClusterRequest.Operation.DECOMMISSION_NODE);
         } catch (DdlException e) {
             String errorMessage = e.getMessage();
             LOG.warn("Failed to decommission backend: {}", errorMessage);
