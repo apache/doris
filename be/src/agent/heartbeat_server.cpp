@@ -265,11 +265,10 @@ Status HeartbeatServer::_heartbeat(const TMasterInfo& master_info) {
         }
 
         if (master_info.meta_service_endpoint != config::meta_service_endpoint) {
-            LOG(WARNING) << "Detected mismatch in meta_service_endpoint configuration between FE and BE. "
-                        << "FE meta_service_endpoint: "
-                        << master_info.meta_service_endpoint
-                        << ", BE meta_service_endpoint: "
-                        << config::meta_service_endpoint;
+            LOG(WARNING) << "Detected mismatch in meta_service_endpoint configuration between FE "
+                            "and BE. "
+                        << "FE meta_service_endpoint: " << master_info.meta_service_endpoint
+                        << ", BE meta_service_endpoint: " << config::meta_service_endpoint;
             return Status::InvalidArgument<false>(
                     "fe and be do not work in same mode, fe meta_service_endpoint: {},"
                     " be meta_service_endpoint: {}",

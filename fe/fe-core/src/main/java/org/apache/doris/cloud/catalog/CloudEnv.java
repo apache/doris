@@ -184,7 +184,7 @@ public class CloudEnv extends Env {
         if (allNodes.stream().anyMatch(n -> n.getNodeType() == NodeInfoPB.NodeType.FE_FOLLOWER)) {
             // multi followers mode, select first
             Optional<HostInfo> helperNode = allNodes.stream()
-                    .filter(nodeInfoPB -> nodeInfoPB.getNodeType() == NodeInfoPB.NodeType.FE_FOLLOWER)
+                    .filter(nodeInfoPB -> nodeInfoPB.getNodeType() != NodeInfoPB.NodeType.FE_OBSERVER)
                     .map(nodeInfoPB -> new HostInfo(
                     Config.enable_fqdn_mode ? nodeInfoPB.getHost() : nodeInfoPB.getIp(), nodeInfoPB.getEditLogPort()))
                     .min(Comparator.comparing(HostInfo::getHost));
