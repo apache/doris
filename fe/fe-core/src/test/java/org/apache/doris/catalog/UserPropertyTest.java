@@ -101,6 +101,7 @@ public class UserPropertyTest {
     public void testUpdate() throws UserException {
         List<Pair<String, String>> properties = Lists.newArrayList();
         properties.add(Pair.of("MAX_USER_CONNECTIONS", "100"));
+        properties.add(Pair.of("max_user_ip_connections", "20"));
         properties.add(Pair.of("load_cluster.dpp-cluster.hadoop_palo_path", "/user/palo2"));
         properties.add(Pair.of("default_load_cluster", "dpp-cluster"));
         properties.add(Pair.of("max_qUERY_instances", "3000"));
@@ -112,6 +113,7 @@ public class UserPropertyTest {
         UserProperty userProperty = new UserProperty();
         userProperty.update(properties);
         Assert.assertEquals(100, userProperty.getMaxConn());
+        Assert.assertEquals(20, userProperty.getMaxIpConn());
         Assert.assertEquals("/user/palo2", userProperty.getLoadClusterInfo("dpp-cluster").second.getPaloPath());
         Assert.assertEquals("dpp-cluster", userProperty.getDefaultLoadCluster());
         Assert.assertEquals(3000, userProperty.getMaxQueryInstances());
@@ -121,6 +123,15 @@ public class UserPropertyTest {
         Assert.assertEquals(500, userProperty.getQueryTimeout());
         Assert.assertEquals(Sets.newHashSet(), userProperty.getCopiedResourceTags());
 
+        properties.add(Pair.of("max_user_ip_connections", "120"));
+        try {
+            userProperty.update(properties);
+            Assert.fail();
+        } catch (Exception e) {
+            Assert.assertTrue(e.getMessage().contains("max_user_ip_connections should not be larger than max_user_connections"));
+        }
+
+
         // fetch property
         List<List<String>> rows = userProperty.fetchProperty();
         for (List<String> row : rows) {
@@ -129,6 +140,8 @@ public class UserPropertyTest {
 
             if (key.equalsIgnoreCase("max_user_connections")) {
                 Assert.assertEquals("100", value);
+            } else if (key.equalsIgnoreCase("max_user_ip_connections")) {
+                Assert.assertEquals("20", value);
             } else if (key.equalsIgnoreCase("load_cluster.dpp-cluster.hadoop_palo_path")) {
                 Assert.assertEquals("/user/palo2", value);
             } else if (key.equalsIgnoreCase("default_load_cluster")) {

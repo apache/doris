@@ -118,6 +118,15 @@ public class UserPropertyMgr implements Writable {
         return existProperty.getMaxConn();
     }
 
+    public long getMaxIpConn(String qualifiedUser) {
+        UserProperty existProperty = propertyMap.get(qualifiedUser);
+        existProperty = getLdapPropertyIfNull(qualifiedUser, existProperty);
+        if (existProperty == null) {
+            return 0;
+        }
+        return existProperty.getMaxIpConn();
+    }
+
     public long getMaxQueryInstances(String qualifiedUser) {
         UserProperty existProperty = propertyMap.get(qualifiedUser);
         existProperty = getLdapPropertyIfNull(qualifiedUser, existProperty);

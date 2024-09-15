@@ -1138,6 +1138,15 @@ public class Auth implements Writable {
         }
     }
 
+    public long getMaxIpConn(String qualifiedUser) {
+        readLock();
+        try {
+            return propertyMgr.getMaxIpConn(qualifiedUser);
+        } finally {
+            readUnlock();
+        }
+    }
+
     public int getQueryTimeout(String qualifiedUser) {
         readLock();
         try {

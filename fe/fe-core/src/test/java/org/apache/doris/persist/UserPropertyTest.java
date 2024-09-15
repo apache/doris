@@ -43,6 +43,7 @@ public class UserPropertyTest {
 
         List<Pair<String, String>> properties = Lists.newArrayList();
         properties.add(Pair.of(UserProperty.PROP_MAX_USER_CONNECTIONS, "100"));
+        properties.add(Pair.of(UserProperty.PROP_MAX_USER_IP_CONNECTIONS, "100"));
         properties.add(Pair.of(UserProperty.PROP_MAX_QUERY_INSTANCES, "2"));
         properties.add(Pair.of(UserProperty.PROP_PARALLEL_FRAGMENT_EXEC_INSTANCE_NUM, "8"));
         properties.add(Pair.of(UserProperty.PROP_SQL_BLOCK_RULES, "r1,r2"));
@@ -60,6 +61,7 @@ public class UserPropertyTest {
         UserProperty prop2 = UserProperty.read(in);
 
         Assert.assertEquals(100, prop2.getMaxConn());
+        Assert.assertEquals(100, prop2.getMaxIpConn());
         Assert.assertEquals(2, prop2.getMaxQueryInstances());
         Assert.assertEquals(8, prop2.getParallelFragmentExecInstanceNum());
         Assert.assertEquals(Lists.newArrayList("r1", "r2"),
