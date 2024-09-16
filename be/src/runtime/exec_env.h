@@ -78,6 +78,7 @@ class LoadPathMgr;
 class NewLoadStreamMgr;
 class MemTrackerLimiter;
 class MemTracker;
+struct TrackerLimiterGroup;
 class BaseStorageEngine;
 class ResultBufferMgr;
 class ResultQueueMgr;
@@ -174,9 +175,10 @@ public:
     std::vector<TrackerLimiterGroup> mem_tracker_limiter_pool;
     void init_mem_tracker();
     std::shared_ptr<MemTrackerLimiter> orphan_mem_tracker() { return _orphan_mem_tracker; }
-    MemTrackerLimiter* details_mem_tracker_set() { return _details_mem_tracker_set.get(); }
     std::shared_ptr<MemTracker> page_no_cache_mem_tracker() { return _page_no_cache_mem_tracker; }
-    MemTracker* brpc_iobuf_block_memory_tracker() { return _brpc_iobuf_block_memory_tracker.get(); }
+    std::shared_ptr<MemTrackerLimiter> brpc_iobuf_block_memory_tracker() {
+        return _brpc_iobuf_block_memory_tracker;
+    }
     std::shared_ptr<MemTrackerLimiter> segcompaction_mem_tracker() {
         return _segcompaction_mem_tracker;
     }
@@ -359,10 +361,9 @@ private:
     // Ideally, all threads are expected to attach to the specified tracker, so that "all memory has its own ownership",
     // and the consumption of the orphan mem tracker is close to 0, but greater than 0.
     std::shared_ptr<MemTrackerLimiter> _orphan_mem_tracker;
-    std::shared_ptr<MemTrackerLimiter> _details_mem_tracker_set;
     // page size not in cache, data page/index page/etc.
     std::shared_ptr<MemTracker> _page_no_cache_mem_tracker;
-    std::shared_ptr<MemTracker> _brpc_iobuf_block_memory_tracker;
+    std::shared_ptr<MemTrackerLimiter> _brpc_iobuf_block_memory_tracker;
     // Count the memory consumption of segment compaction tasks.
     std::shared_ptr<MemTrackerLimiter> _segcompaction_mem_tracker;
     std::shared_ptr<MemTrackerLimiter> _stream_load_pipe_tracker;

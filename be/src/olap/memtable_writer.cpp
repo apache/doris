@@ -187,25 +187,12 @@ Status MemTableWriter::wait_flush() {
 }
 
 void MemTableWriter::_reset_mem_table() {
-#ifndef BE_TEST
-    auto mem_table_insert_tracker = std::make_shared<MemTracker>(
-            fmt::format("MemTableManualInsert:TabletId={}:MemTableNum={}#loadID={}",
-                        std::to_string(tablet_id()), _mem_table_num,
-                        UniqueId(_req.load_id).to_string()),
-            ExecEnv::GetInstance()->memtable_memory_limiter()->memtable_tracker_set());
-    auto mem_table_flush_tracker = std::make_shared<MemTracker>(
-            fmt::format("MemTableHookFlush:TabletId={}:MemTableNum={}#loadID={}",
-                        std::to_string(tablet_id()), _mem_table_num++,
-                        UniqueId(_req.load_id).to_string()),
-            ExecEnv::GetInstance()->memtable_memory_limiter()->memtable_tracker_set());
-#else
     auto mem_table_insert_tracker = std::make_shared<MemTracker>(fmt::format(
             "MemTableManualInsert:TabletId={}:MemTableNum={}#loadID={}",
             std::to_string(tablet_id()), _mem_table_num, UniqueId(_req.load_id).to_string()));
     auto mem_table_flush_tracker = std::make_shared<MemTracker>(fmt::format(
             "MemTableHookFlush:TabletId={}:MemTableNum={}#loadID={}", std::to_string(tablet_id()),
             _mem_table_num++, UniqueId(_req.load_id).to_string()));
-#endif
     {
         std::lock_guard<SpinLock> l(_mem_table_tracker_lock);
         _mem_table_insert_trackers.push_back(mem_table_insert_tracker);
