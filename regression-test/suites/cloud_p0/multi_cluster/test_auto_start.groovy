@@ -40,8 +40,8 @@ suite('test_auto_start_in_cloud', 'multi_cluster, docker') {
 
     def getClusterFragementStatus = { def fe -> 
         def (feHost, feHttpPort) = fe.getHttpAddress()
-        // curl -X GET -u root: '128.1.1.1:8030/rest/v2/manager/cluster/cluster_info/compute_group_status'
-        def url = 'http://' + feHost + ':' + feHttpPort + '/rest/v2/manager/cluster/cluster_info/compute_group_status'
+        // curl -X GET -u root: '128.1.1.1:8030/rest/v2/manager/cluster/cluster_info/cloud_cluster_status'
+        def url = 'http://' + feHost + ':' + feHttpPort + '/rest/v2/manager/cluster/cluster_info/cloud_cluster_status'
         def result = Http.GET(url, true)
         result
     }
