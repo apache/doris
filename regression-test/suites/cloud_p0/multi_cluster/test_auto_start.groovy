@@ -40,8 +40,8 @@ suite('test_auto_start_in_cloud', 'multi_cluster, docker') {
 
     def getClusterFragementStatus = { def fe -> 
         def (feHost, feHttpPort) = fe.getHttpAddress()
-        // curl -X GET -u root: '128.1.1.1:8030/rest/v2/manager/cluster/cluster_info/cloud_cluster_status'
-        def url = 'http://' + feHost + ':' + feHttpPort + '/rest/v2/manager/cluster/cluster_info/cloud_cluster_status'
+        // curl -X GET -u root: '128.1.1.1:8030/rest/v2/manager/cluster/cluster_info/compute_group_status'
+        def url = 'http://' + feHost + ':' + feHttpPort + '/rest/v2/manager/cluster/cluster_info/compute_group_status'
         def result = Http.GET(url, true)
         result
     }
@@ -130,7 +130,7 @@ suite('test_auto_start_in_cloud', 'multi_cluster, docker') {
             tag = getCloudBeTagByName(clusterName)
             logger.info("tag = {}", tag) 
             jsonObject = jsonSlurper.parseText(tag)
-            String cluster_status = jsonObject.cloud_cluster_status
+            String cluster_status = jsonObject.compute_group_status
             cluster_status == "SUSPENDED"
         }
 
@@ -158,7 +158,7 @@ suite('test_auto_start_in_cloud', 'multi_cluster, docker') {
                 tag = getCloudBeTagByName(clusterName)
                 logger.info("tag = {}", tag) 
                 jsonObject = jsonSlurper.parseText(tag)
-                String cluster_status = jsonObject.cloud_cluster_status
+                String cluster_status = jsonObject.compute_group_status
                 cluster_status == "TO_RESUME"
             }
             sleep(5 * 1000)
@@ -172,7 +172,7 @@ suite('test_auto_start_in_cloud', 'multi_cluster, docker') {
         tag = getCloudBeTagByName(clusterName)
         logger.info("tag check = {}", tag) 
         jsonObject = jsonSlurper.parseText(tag)
-        String cluster_status = jsonObject.cloud_cluster_status
+        String cluster_status = jsonObject.compute_group_status
         assertEquals("NORMAL", cluster_status)
 
         // add 1 nodes, check it status NORMAL
@@ -189,7 +189,7 @@ suite('test_auto_start_in_cloud', 'multi_cluster, docker') {
                 return
             }
             jsonObject = jsonSlurper.parseText(tag)
-            cluster_status = jsonObject.cloud_cluster_status
+            cluster_status = jsonObject.compute_group_status
             assertEquals("NORMAL", cluster_status)
         }
     }
