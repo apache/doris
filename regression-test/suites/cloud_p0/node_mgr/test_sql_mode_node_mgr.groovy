@@ -157,8 +157,24 @@ suite('test_sql_mode_node_mgr', 'docker,p1') {
             cluster.restartFrontends();
             cluster.restartBackends();
 
-            sleep(30000)
-            context.reconnectFe()
+            def reconnectFe = {
+                sleep(10000)
+                logger.info("Reconnecting to a new frontend...")
+                def newFe = cluster.getMasterFe()
+                if (newFe) {
+                    logger.info("New frontend found: ${newFe.host}:${newFe.httpPort}")
+                    def url = String.format(
+                            "jdbc:mysql://%s:%s/?useLocalSessionState=true&allowLoadLocalInfile=false",
+                            newFe.host, newFe.queryPort)
+                    url = context.config.buildUrlWithDb(url, context.dbName)
+                    context.connectTo(url, context.config.jdbcUser, context.config.jdbcPassword)
+                    logger.info("Successfully reconnected to the new frontend")
+                } else {
+                    logger.error("No new frontend found to reconnect")
+                }
+            }
+
+            reconnectFe()
 
             checkClusterStatus(3, 3, 1)
 
@@ -265,6 +281,7 @@ suite('test_sql_mode_node_mgr', 'docker,p1') {
             maxWaitSeconds = 300
             waited = 0
             while (waited < maxWaitSeconds) {
+                reconnectFe()
                 def currentFrontends = sql_return_maparray("SHOW FRONTENDS")
                 if (currentFrontends.size() == frontends.size() - 1) {
                     logger.info("Non-master frontend successfully dropped")
@@ -332,6 +349,8 @@ suite('test_sql_mode_node_mgr', 'docker,p1') {
 
             // Drop the frontend
             sql """ ALTER SYSTEM DROP FOLLOWER "${feHost}:${feEditLogPort}"; """
+            sleep(30000)
+            reconnectFe()
 
             // Wait for the frontend to be fully dropped
             maxWaitSeconds = 300
@@ -371,7 +390,7 @@ suite('test_sql_mode_node_mgr', 'docker,p1') {
             }
 
             // Verify cluster status after adding the frontend back
-            checkClusterStatus(3, 3, 5)
+            checkClusterStatus(3, 3, 6)
 
             logger.info("Frontend successfully added back and cluster status verified")
             // CASE 6. If fe can not drop itself.
@@ -421,7 +440,7 @@ suite('test_sql_mode_node_mgr', 'docker,p1') {
             def originalBackendCount = 3 // As per the initial setup in this test
             assert currentBackends.size() == originalBackendCount, "Number of backends should remain unchanged after attempting to drop a non-existent backend"
 
-            checkClusterStatus(3, 3, 6)
+            checkClusterStatus(3, 3, 7)
 
             // CASE 8. Decommission a backend and verify the process
             logger.info("Attempting to decommission a backend")
@@ -469,7 +488,7 @@ suite('test_sql_mode_node_mgr', 'docker,p1') {
 
             logger.info("Successfully decommissioned backend and verified its status")
 
-            checkClusterStatus(3, 3, 7)
+            checkClusterStatus(3, 3, 8)
         }
     }
 

@@ -104,4 +104,6 @@ DECLARE_mInt32(remove_expired_tablet_txn_info_interval_seconds);
 
 DECLARE_mInt32(tablet_txn_info_min_expired_seconds);
 
+DECLARE_mBool(enable_use_cloud_unique_id_from_fe);
+
 } // namespace doris::config

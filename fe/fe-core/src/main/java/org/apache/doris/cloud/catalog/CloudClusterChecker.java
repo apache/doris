@@ -398,12 +398,14 @@ public class CloudClusterChecker extends MasterDaemon {
         List<Cloud.NodeInfoPB> expectedFes = cpb.getNodesList();
 
         if (!isUpdateCloudUniqueId) {
-            // just run once and number of fes is small, so iterating is ok.
+            // Just run once and number of fes is small, so iterating is ok.
+            // newly addde fe has cloudUniqueId.
             for (Frontend fe : currentFes) {
                 for (Cloud.NodeInfoPB node : expectedFes) {
                     if (fe.getHost().equals(Config.enable_fqdn_mode ? node.getHost() : node.getIp())
                             && fe.getEditLogPort() == node.getEditLogPort()) {
                         fe.setCloudUniqueId(node.getCloudUniqueId());
+                        LOG.info("update cloud unique id result {}", fe);
                         break;
                     }
                 }
@@ -424,6 +426,7 @@ public class CloudClusterChecker extends MasterDaemon {
                 endpoint = endpoint + "_" + fe.getRole();
                 currentMap.put(endpoint, fe);
             }
+            LOG.info("fes in memory {}", currentMap);
             return currentMap;
         }, () -> {
             // meta service
@@ -442,10 +445,10 @@ public class CloudClusterChecker extends MasterDaemon {
                 Cloud.NodeInfoPB.NodeType type = node.getNodeType();
                 // ATTN: just allow to add follower or observer
                 if (Cloud.NodeInfoPB.NodeType.FE_MASTER.equals(type)) {
-                    LOG.warn("impossible !!!,  get fe node {} type equel master from ms", node);
+                    LOG.warn("impossible !!!,  get fe node {} type equal master from ms", node);
                 }
-                FrontendNodeType role = type == Cloud.NodeInfoPB.NodeType.FE_FOLLOWER
-                        ? FrontendNodeType.FOLLOWER :  FrontendNodeType.OBSERVER;
+                FrontendNodeType role = type == Cloud.NodeInfoPB.NodeType.FE_OBSERVER
+                        ? FrontendNodeType.OBSERVER :  FrontendNodeType.FOLLOWER;
                 Frontend fe = new Frontend(role,
                         CloudEnv.genFeNodeNameFromMeta(host, node.getEditLogPort(),
                         node.getCtime() * 1000), host, node.getEditLogPort());
@@ -454,6 +457,8 @@ public class CloudClusterChecker extends MasterDaemon {
                 endpoint = endpoint + "_" + fe.getRole();
                 nodeMap.put(endpoint, fe);
             }
+            LOG.info("fes in ms {}", nodeMap);
+
             return nodeMap;
         });
         LOG.info("diffFrontends nodes: {}, current: {}, toAdd: {}, toDel: {}, enable auto start: {}",

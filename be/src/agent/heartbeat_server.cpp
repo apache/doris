@@ -276,7 +276,9 @@ Status HeartbeatServer::_heartbeat(const TMasterInfo& master_info) {
         }
     }
 
-    if (master_info.__isset.cloud_unique_id && config::cloud_unique_id.empty()) {
+    if (master_info.__isset.cloud_unique_id &&
+        config::cloud_unique_id != master_info.cloud_unique_id &&
+        config::enable_use_cloud_unique_id_from_fe) {
         auto st = config::set_config("cloud_unique_id", master_info.cloud_unique_id, true);
         LOG(INFO) << "set config cloud_unique_id " << master_info.cloud_unique_id << " " << st;
     }

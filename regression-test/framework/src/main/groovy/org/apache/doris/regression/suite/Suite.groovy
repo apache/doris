@@ -833,6 +833,11 @@ class Suite implements GroovyInterceptable {
         return s3Url
     }
 
+    String getJdbcPassword() {
+        String sk = context.config.otherConfigs.get("jdbcPassword");
+        return sk
+    }
+
     static void scpFiles(String username, String host, String files, String filePath, boolean fromDst=true) {
         String cmd = "scp -o StrictHostKeyChecking=no -r ${username}@${host}:${files} ${filePath}"
         if (!fromDst) {
@@ -1769,7 +1774,7 @@ class Suite implements GroovyInterceptable {
 
         drop_cluster_api.call(js) {
             respCode, body ->
-                log.info("dorp cluster resp: ${body} ${respCode}".toString())
+                log.info("drop cluster resp: ${body} ${respCode}".toString())
                 def json = parseJson(body)
                 assertTrue(json.code.equalsIgnoreCase("OK") || json.code.equalsIgnoreCase("ALREADY_EXISTED"))
         }

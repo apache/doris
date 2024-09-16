@@ -100,7 +100,7 @@ suite('test_auto_start_in_cloud', 'multi_cluster, docker') {
 
         def jsonSlurper = new JsonSlurper()
         def jsonObject = jsonSlurper.parseText(tag)
-        String cloudClusterId = jsonObject.cloud_cluster_id
+        String cloudClusterId = jsonObject.compute_group_id
         String uniqueId = jsonObject.cloud_unique_id
 
         sleep(5 * 1000)

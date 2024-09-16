@@ -52,7 +52,6 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.DataInputStream;
 import java.io.IOException;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -181,23 +180,12 @@ public class CloudEnv extends Env {
                 .stream().filter(NodeInfoPB::hasNodeType).collect(Collectors.toList());
 
         helperNodes.clear();
-        if (allNodes.stream().anyMatch(n -> n.getNodeType() == NodeInfoPB.NodeType.FE_FOLLOWER)) {
-            // multi followers mode, select first
-            Optional<HostInfo> helperNode = allNodes.stream()
-                    .filter(nodeInfoPB -> nodeInfoPB.getNodeType() != NodeInfoPB.NodeType.FE_OBSERVER)
-                    .map(nodeInfoPB -> new HostInfo(
-                    Config.enable_fqdn_mode ? nodeInfoPB.getHost() : nodeInfoPB.getIp(), nodeInfoPB.getEditLogPort()))
-                    .min(Comparator.comparing(HostInfo::getHost));
-            helperNode.ifPresent(hostInfo -> helperNodes.add(hostInfo));
-        } else {
-            // master observers mode
-            // helper node select follower's first, just one
-            helperNodes.addAll(allNodes.stream()
-                    .filter(nodeInfoPB -> nodeInfoPB.getNodeType() == NodeInfoPB.NodeType.FE_MASTER)
-                    .map(nodeInfoPB -> new HostInfo(
-                    Config.enable_fqdn_mode ? nodeInfoPB.getHost() : nodeInfoPB.getIp(), nodeInfoPB.getEditLogPort()))
-                    .collect(Collectors.toList()));
-            // check only have one master node.
+        Optional<Cloud.NodeInfoPB> firstNonObserverNode = allNodes.stream().findFirst();
+        if (firstNonObserverNode.isPresent()) {
+            helperNodes.add(new HostInfo(
+                    Config.enable_fqdn_mode ? firstNonObserverNode.get().getHost()
+                            : firstNonObserverNode.get().getIp(),
+                    firstNonObserverNode.get().getEditLogPort()));
         }
         Preconditions.checkState(helperNodes.size() == 1);
 
@@ -433,6 +421,10 @@ public class CloudEnv extends Env {
         if (frontend.getRole() != role) {
             throw new DdlException(role.toString() + " does not exist[" + NetUtils
                     .getHostPortInAccessibleFormat(host, port) + "]");
+        }
+
+        if (Strings.isNullOrEmpty(frontend.getCloudUniqueId())) {
+            throw new DdlException("Frontend does not have a cloudUniqueId, wait for a minute.");
         }
 
         getCloudSystemInfoService().dropFrontend(frontend);

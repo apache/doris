@@ -306,7 +306,7 @@ public class CloudSystemInfoService extends SystemInfoService {
             }
             try {
                 Env.getCurrentEnv().addFrontend(fe.getRole(),
-                        fe.getHost(), fe.getEditLogPort(), fe.getNodeName());
+                        fe.getHost(), fe.getEditLogPort(), fe.getNodeName(), fe.getCloudUniqueId());
                 LOG.info("added cloud frontend={} ", fe);
             } catch (DdlException e) {
                 LOG.warn("failed to add cloud frontend={} ", fe);
