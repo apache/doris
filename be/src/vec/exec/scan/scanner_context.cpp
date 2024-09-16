@@ -42,7 +42,8 @@ ScannerContext::ScannerContext(
         RuntimeState* state, pipeline::ScanLocalStateBase* local_state,
         const TupleDescriptor* output_tuple_desc, const RowDescriptor* output_row_descriptor,
         const std::list<std::shared_ptr<vectorized::ScannerDelegate>>& scanners, int64_t limit_,
-        std::shared_ptr<pipeline::Dependency> dependency, bool ignore_data_distribution)
+        int64_t max_bytes_in_blocks_queue, std::shared_ptr<pipeline::Dependency> dependency,
+        const int num_parallel_instances)
         : HasTaskExecutionCtx(state),
           _state(state),
           _local_state(local_state),
@@ -52,18 +53,70 @@ ScannerContext::ScannerContext(
           _output_row_descriptor(output_row_descriptor),
           _batch_size(state->batch_size()),
           limit(limit_),
+          _max_bytes_in_queue(std::max(max_bytes_in_blocks_queue, (int64_t)1024) *
+                              num_parallel_instances),
           _scanner_scheduler(state->exec_env()->scanner_scheduler()),
           _all_scanners(scanners.begin(), scanners.end()),
-          _ignore_data_distribution(ignore_data_distribution) {
+          _num_parallel_instances(num_parallel_instances) {
     DCHECK(_output_row_descriptor == nullptr ||
            _output_row_descriptor->tuple_descriptors().size() == 1);
     _query_id = _state->get_query_ctx()->query_id();
     ctx_id = UniqueId::gen_uid().to_string();
+    // Provide more memory for wide tables, increase proportionally by multiples of 300
+    _max_bytes_in_queue *= _output_tuple_desc->slots().size() / 300 + 1;
+    if (scanners.empty()) {
+        _is_finished = true;
+        _set_scanner_done();
+    }
     _scanners.enqueue_bulk(scanners.begin(), scanners.size());
     if (limit < 0) {
         limit = -1;
     }
     MAX_SCALE_UP_RATIO = _state->scanner_scale_up_ratio();
+    // _max_thread_num controls how many scanners of this ScanOperator can be submitted to scheduler at a time.
+    // The overall target of our system is to make full utilization of the resources.
+    // At the same time, we dont want too many tasks are queued by scheduler, that makes the query
+    // waiting too long, and existing task can not be scheduled in time.
+    // First of all, we try to make sure _max_thread_num of a ScanNode of a query on a single backend is less than
+    // config::doris_scanner_thread_pool_thread_num.
+    // For example, on a 64-core machine, the default value of config::doris_scanner_thread_pool_thread_num will be 64*2 =128.
+    // and the num_parallel_instances of this scan operator will be 64/2=32.
+    // For a query who has two scan nodes, the _max_thread_num of each scan node instance will be 128 / 32 = 4.
+    // We have 32 instances of this scan operator, so for the ScanNode, we have 4 * 32 = 128 scanner tasks can be submitted at a time.
+    // Remember that we have to ScanNode in this query, so the total number of scanner tasks can be submitted at a time is 128 * 2 = 256.
+    _max_thread_num =
+            _state->num_scanner_threads() > 0
+                    ? _state->num_scanner_threads()
+                    : config::doris_scanner_thread_pool_thread_num / num_parallel_instances;
+    _max_thread_num = _max_thread_num == 0 ? 1 : _max_thread_num;
+    // In some situation, there are not too many big tablets involed, so we can reduce the thread number.
+    _max_thread_num = std::min(_max_thread_num, (int32_t)scanners.size());
+    // 1. Calculate max concurrency
+    // For select * from table limit 10; should just use one thread.
+    if (_local_state->should_run_serial()) {
+        _max_thread_num = 1;
+    }
+    // when user not specify scan_thread_num, so we can try downgrade _max_thread_num.
+    // becaue we found in a table with 5k columns, column reader may ocuppy too much memory.
+    // you can refer https://github.com/apache/doris/issues/35340 for details.
+    int32_t max_column_reader_num = state->query_options().max_column_reader_num;
+    if (_max_thread_num != 1 && max_column_reader_num > 0) {
+        int32_t scan_column_num = _output_tuple_desc->slots().size();
+        int32_t current_column_num = scan_column_num * _max_thread_num;
+        if (current_column_num > max_column_reader_num) {
+            int32_t new_max_thread_num = max_column_reader_num / scan_column_num;
+            new_max_thread_num = new_max_thread_num <= 0 ? 1 : new_max_thread_num;
+            if (new_max_thread_num < _max_thread_num) {
+                int32_t origin_max_thread_num = _max_thread_num;
+                _max_thread_num = new_max_thread_num;
+                LOG(INFO) << "downgrade query:" << print_id(state->query_id())
+                          << " scan's max_thread_num from " << origin_max_thread_num << " to "
+                          << _max_thread_num << ",column num: " << scan_column_num
+                          << ", max_column_reader_num: " << max_column_reader_num;
+            }
+        }
+    }
+
     _query_thread_context = {_query_id, _state->query_mem_tracker(),
                              _state->get_query_ctx()->workload_group()};
     _dependency = dependency;
@@ -89,83 +142,10 @@ Status ScannerContext::init() {
         _remote_scan_task_scheduler = _state->get_query_ctx()->get_remote_scan_scheduler();
     }
 #endif
-    _local_state->_runtime_profile->add_info_string("UseSpecificThreadToken",
-                                                    thread_token == nullptr ? "False" : "True");
-
-    int num_parallel_instances = _state->query_parallel_instance_num();
-
-    // NOTE: When ignore_data_distribution is true, the parallelism
-    // of the scan operator is regarded as 1 (actually maybe not).
-    // That will make the number of scan task can be submitted to the scheduler
-    // in a vary large value. This logicl is kept from the older implementation.
-    // https://github.com/apache/doris/pull/28266
-    if (_ignore_data_distribution) {
-        num_parallel_instances = 1;
-    }
-
-    // _max_bytes_in_queue controls the maximum memory that can be used by a single scan instance.
-    // scan_queue_mem_limit on FE is 100MB by default, on backend we will make sure its actual value
-    // is larger than 10MB.
-    _max_bytes_in_queue = std::max(_state->scan_queue_mem_limit(), (int64_t)1024 * 1024 * 10);
-
-    // Provide more memory for wide tables, increase proportionally by multiples of 300
-    _max_bytes_in_queue *= _output_tuple_desc->slots().size() / 300 + 1;
-
-    // TODO: Where is the proper position to place this code?
-    if (_all_scanners.empty()) {
-        _is_finished = true;
-        _set_scanner_done();
-    }
-
-    // _max_thread_num controls how many scanners of this ScanOperator can be submitted to scheduler at a time.
-    // The overall target of our system is to make full utilization of the resources.
-    // At the same time, we dont want too many tasks are queued by scheduler, that is not necessary.
-    // So, first of all, we try to make sure _max_thread_num of a ScanNode of a query on a single backend is less than
-    // 2 * config::doris_scanner_thread_pool_thread_num, so that we can make all io threads busy.
-    // For example, on a 64-core machine, the default value of config::doris_scanner_thread_pool_thread_num will be 64*2 =128.
-    // and the num_parallel_instances of this scan operator will be 64/2=32.
-    // For a query who has one scan nodes, the _max_thread_num of each scan node instance will be 2 * 128 / 32 = 8.
-    // We have 32 instances of this scan operator, so for the ScanNode, we have 8 * 32 = 256 scanner tasks can be submitted at a time.
-    // The thread pool of scanner is 128, that means we will have 128 tasks running in parallel and another 128 tasks are waiting in the queue.
-    // When first 128 tasks are finished, the next 128 tasks will be extricated from the queue and be executed,
-    // and another 128 tasks will be submitted to the queue if there are remaining.
-    _max_thread_num =
-            _state->num_scanner_threads() > 0
-                    ? _state->num_scanner_threads()
-                    : 2 * (config::doris_scanner_thread_pool_thread_num / num_parallel_instances);
-    _max_thread_num = _max_thread_num == 0 ? 1 : _max_thread_num;
-    // In some situation, there are not too many big tablets involed, so we can reduce the thread number.
-    // NOTE: when _all_scanners.size is zero, the _max_thread_num will be 0.
-    _max_thread_num = std::min(_max_thread_num, (int32_t)_all_scanners.size());
-
-    // 1. Calculate max concurrency
-    // For select * from table limit 10; should just use one thread.
-    if (_local_state->should_run_serial()) {
-        _max_thread_num = 1;
-    }
-
-    // when user not specify scan_thread_num, so we can try downgrade _max_thread_num.
-    // becaue we found in a table with 5k columns, column reader may ocuppy too much memory.
-    // you can refer https://github.com/apache/doris/issues/35340 for details.
-    int32_t max_column_reader_num = _state->query_options().max_column_reader_num;
-    if (_max_thread_num != 1 && max_column_reader_num > 0) {
-        int32_t scan_column_num = _output_tuple_desc->slots().size();
-        int32_t current_column_num = scan_column_num * _max_thread_num;
-        if (current_column_num > max_column_reader_num) {
-            int32_t new_max_thread_num = max_column_reader_num / scan_column_num;
-            new_max_thread_num = new_max_thread_num <= 0 ? 1 : new_max_thread_num;
-            if (new_max_thread_num < _max_thread_num) {
-                int32_t origin_max_thread_num = _max_thread_num;
-                _max_thread_num = new_max_thread_num;
-                LOG(INFO) << "downgrade query:" << print_id(_state->query_id())
-                          << " scan's max_thread_num from " << origin_max_thread_num << " to "
-                          << _max_thread_num << ",column num: " << scan_column_num
-                          << ", max_column_reader_num: " << max_column_reader_num;
-            }
-        }
-    }
 
     COUNTER_SET(_local_state->_max_scanner_thread_num, (int64_t)_max_thread_num);
+    _local_state->_runtime_profile->add_info_string("UseSpecificThreadToken",
+                                                    thread_token == nullptr ? "False" : "True");
 
     // submit `_max_thread_num` running scanners to `ScannerScheduler`
     // When a running scanners is finished, it will submit one of the remaining scanners.

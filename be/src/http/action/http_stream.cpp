@@ -197,7 +197,12 @@ Status HttpStreamAction::_on_header(HttpRequest* http_req, std::shared_ptr<Strea
     ctx->body_bytes = 0;
     size_t csv_max_body_bytes = config::streaming_load_max_mb * 1024 * 1024;
     if (!http_req->header(HttpHeaders::CONTENT_LENGTH).empty()) {
-        ctx->body_bytes = std::stol(http_req->header(HttpHeaders::CONTENT_LENGTH));
+        try {
+            ctx->body_bytes = std::stol(http_req->header(HttpHeaders::CONTENT_LENGTH));
+        } catch (const std::exception& e) {
+            return Status::InvalidArgument("invalid HTTP header CONTENT_LENGTH={}: {}",
+                                           http_req->header(HttpHeaders::CONTENT_LENGTH), e.what());
+        }
         // csv max body size
         if (ctx->body_bytes > csv_max_body_bytes) {
             LOG(WARNING) << "body exceed max size." << ctx->brief();
@@ -352,7 +357,13 @@ Status HttpStreamAction::process_put(HttpRequest* http_req,
         // FIXME find a way to avoid chunked stream load write large WALs
         size_t content_length = 0;
         if (!http_req->header(HttpHeaders::CONTENT_LENGTH).empty()) {
-            content_length = std::stol(http_req->header(HttpHeaders::CONTENT_LENGTH));
+            try {
+                content_length = std::stol(http_req->header(HttpHeaders::CONTENT_LENGTH));
+            } catch (const std::exception& e) {
+                return Status::InvalidArgument("invalid HTTP header CONTENT_LENGTH={}: {}",
+                                               http_req->header(HttpHeaders::CONTENT_LENGTH),
+                                               e.what());
+            }
             if (ctx->format == TFileFormatType::FORMAT_CSV_GZ ||
                 ctx->format == TFileFormatType::FORMAT_CSV_LZO ||
                 ctx->format == TFileFormatType::FORMAT_CSV_BZ2 ||
