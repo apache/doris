@@ -229,7 +229,6 @@ void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::throw_b
     throw doris::Exception(doris::ErrorCode::MEM_ALLOC_FAILED, err);
 }
 
-#ifndef NDEBUG
 template <bool clear_memory_, bool mmap_populate, bool use_mmap, typename MemoryAllocator>
 void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::add_address_sanitizers(
         void* buf, size_t size) const {
@@ -251,7 +250,6 @@ void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::remove_
 #endif
     doris::thread_context()->thread_mem_tracker()->remove_address_sanitizers(buf, size);
 }
-#endif
 
 template <bool clear_memory_, bool mmap_populate, bool use_mmap, typename MemoryAllocator>
 void* Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::alloc(size_t size,

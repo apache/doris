@@ -520,13 +520,12 @@ public:
 
     void remove_sentinel_marks();
 
-    class AggCachePolicy : public LRUCachePolicyTrackingManual {
+    class AggCachePolicy : public LRUCachePolicy {
     public:
         AggCachePolicy(size_t capacity)
-                : LRUCachePolicyTrackingManual(CachePolicy::CacheType::DELETE_BITMAP_AGG_CACHE,
-                                               capacity, LRUCacheType::SIZE,
-                                               config::delete_bitmap_agg_cache_stale_sweep_time_sec,
-                                               256) {}
+                : LRUCachePolicy(CachePolicy::CacheType::DELETE_BITMAP_AGG_CACHE, capacity,
+                                 LRUCacheType::SIZE,
+                                 config::delete_bitmap_agg_cache_stale_sweep_time_sec, 256) {}
     };
 
     class AggCache {
