@@ -49,7 +49,9 @@ import java.util.Optional;
  * The derived class should implement the abstract method for certain type of target table
  */
 public abstract class AbstractInsertExecutor {
+    protected static final long INVALID_TXN_ID = -1L;
     private static final Logger LOG = LogManager.getLogger(AbstractInsertExecutor.class);
+
     protected long jobId;
     protected final ConnectContext ctx;
     protected final Coordinator coordinator;
@@ -63,6 +65,7 @@ public abstract class AbstractInsertExecutor {
     protected String errMsg = "";
     protected Optional<InsertCommandContext> insertCtx;
     protected final boolean emptyInsert;
+    protected long txnId = INVALID_TXN_ID;
 
     /**
      * Constructor
@@ -94,7 +97,9 @@ public abstract class AbstractInsertExecutor {
         return labelName;
     }
 
-    public abstract long getTxnId();
+    public long getTxnId() {
+        return txnId;
+    }
 
     /**
      * begin transaction if necessary
@@ -194,19 +199,14 @@ public abstract class AbstractInsertExecutor {
             execImpl(executor, jobId);
             checkStrictModeAndFilterRatio();
             int retryTimes = 0;
-            while (true) {
+            while (retryTimes < Config.mow_insert_into_commit_retry_times) {
                 try {
                     onComplete();
                     break;
                 } catch (UserException e) {
-                    LOG.warn("failed to commit txn, txnId={}, jobId={}, retryTimes={}",
-                            getTxnId(), jobId, retryTimes, e);
+                    LOG.warn("failed to commit txn", e);
                     if (e.getErrorCode() == InternalErrorCode.DELETE_BITMAP_LOCK_ERR) {
                         retryTimes++;
-                        if (retryTimes >= Config.mow_insert_into_commit_retry_times) {
-                            // should throw exception after running out of retry times
-                            throw e;
-                        }
                     } else {
                         throw e;
                     }

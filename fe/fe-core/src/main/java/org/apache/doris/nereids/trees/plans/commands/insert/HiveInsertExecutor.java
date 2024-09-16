@@ -49,12 +49,6 @@ public class HiveInsertExecutor extends BaseExternalTableInsertExecutor {
     }
 
     @Override
-    public void setCollectCommitInfoFunc() {
-        HMSTransaction transaction = (HMSTransaction) transactionManager.getTransaction(txnId);
-        coordinator.setHivePartitionUpdateFunc(transaction::updateHivePartitionUpdates);
-    }
-
-    @Override
     protected void beforeExec() {
         // check params
         HMSTransaction transaction = (HMSTransaction) transactionManager.getTransaction(txnId);

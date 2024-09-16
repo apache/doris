@@ -237,6 +237,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
         executor.setProfileType(ProfileType.LOAD);
         // We exposed @StmtExecutor#cancel as a unified entry point for statement interruption,
         // so we need to set this here
+        insertExecutor.getCoordinator().setTxnId(insertExecutor.getTxnId());
         executor.setCoord(insertExecutor.getCoordinator());
         return insertExecutor;
     }
