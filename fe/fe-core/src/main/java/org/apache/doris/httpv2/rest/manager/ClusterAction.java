@@ -42,7 +42,7 @@ import javax.servlet.http.HttpServletResponse;
  * Used to return the cluster information for the manager.
  */
 @RestController
-@RequestMapping(path={"/rest/v2/manager/cluster", "/rest/v2/manager/compute_group"})
+@RequestMapping(path = {"/rest/v2/manager/cluster", "/rest/v2/manager/compute_group"})
 public class ClusterAction extends RestBaseController {
 
     // Returns mysql and http connection information for the cluster.
