@@ -144,6 +144,10 @@ class DebugPoint {
     def disableDebugPointForAllFEs(String name) {
         operateDebugPointForAllFEs { host, port ->
             logger.info("disable debug point ${name} for FE $host:$port")
+            if (port == -1) {
+                logger.info("skip for BE $host:$port")
+                return
+            }
             disableDebugPoint(host, port, NodeType.FE, name)
         }
     }
@@ -151,6 +155,10 @@ class DebugPoint {
     def clearDebugPointsForAllFEs() {
         operateDebugPointForAllFEs { host, port ->
             logger.info("clear debug point for FE $host:$port")
+            if (port == -1) {
+                logger.info("skip for BE $host:$port")
+                return
+            }
             clearDebugPoints(host, port, NodeType.FE)
         }
     }

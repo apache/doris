@@ -24,17 +24,21 @@ suite("test_backend", "nonConcurrent") {
         logger.info("result:${result}")
 
         sql """ALTER SYSTEM ADD BACKEND "${address}:${notExistPort}";"""
+        waitAddBeFinished(address, notExistPort)
 
         result = sql """SHOW BACKENDS;"""
         logger.info("result:${result}")
 
-        sql """ALTER SYSTEM MODIFY BACKEND "${address}:${notExistPort}" SET ("disable_query" = "true"); """
-        sql """ALTER SYSTEM MODIFY BACKEND "${address}:${notExistPort}" SET ("disable_load" = "true"); """
+        if (!isCoudMode()) {
+            sql """ALTER SYSTEM MODIFY BACKEND "${address}:${notExistPort}" SET ("disable_query" = "true"); """
+            sql """ALTER SYSTEM MODIFY BACKEND "${address}:${notExistPort}" SET ("disable_load" = "true"); """
+        }
 
         result = sql """SHOW BACKENDS;"""
         logger.info("result:${result}")
 
         sql """ALTER SYSTEM DROPP BACKEND "${address}:${notExistPort}";"""
+        waitDropBeFinished(address, notExistPort)
 
         result = sql """SHOW BACKENDS;"""
         logger.info("result:${result}")

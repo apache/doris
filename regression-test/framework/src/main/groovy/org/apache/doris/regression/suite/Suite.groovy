@@ -944,6 +944,7 @@ class Suite implements GroovyInterceptable {
 
     void getBackendIpHttpPort(Map<String, String> backendId_to_backendIP, Map<String, String> backendId_to_backendHttpPort) {
         List<List<Object>> backends = sql("show backends");
+        logger.info("Content of backends: ${backends}")
         for (List<Object> backend : backends) {
             backendId_to_backendIP.put(String.valueOf(backend[0]), String.valueOf(backend[1]));
             backendId_to_backendHttpPort.put(String.valueOf(backend[0]), String.valueOf(backend[4]));
@@ -1473,6 +1474,62 @@ class Suite implements GroovyInterceptable {
         } finally {
             updateConfig oldConfig
         }
+    }
+
+    void waitAddFeFinished(String host, int port) {
+        Awaitility.await().atMost(60, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).and()
+                .pollInterval(100, TimeUnit.MILLISECONDS).await().until(() -> {
+            def frontends = getFrontendIpHttpPort()
+            for (frontend: frontends) {
+                if (frontend == "$host:$port") {
+                    return true;
+                }
+            }
+            return false;
+        });
+    }
+
+    void waitDropFeFinished(String host, int port) {
+        Awaitility.await().atMost(60, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).and()
+                .pollInterval(100, TimeUnit.MILLISECONDS).await().until(() -> {
+            def frontends = getFrontendIpHttpPort()
+            for (frontend: frontends) {
+                if (frontend == "$host:$port") {
+                    return false;
+                }
+            }
+            return true;
+        });
+    }
+
+    void waitAddBeFinished(String host, int port) {
+        Awaitility.await().atMost(60, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).and()
+                .pollInterval(100, TimeUnit.MILLISECONDS).await().until(() -> {
+            def ipList = [:]
+            def portList = [:]
+            (ipList, portList) = getBEHostAndHTTPPort()
+            ipList.each { beid, ip ->
+                if (ip == host && portList[beid] as int == port) {
+                    return true;
+                }
+            }
+            return false;
+        });
+    }
+
+    void waiteDropBeFinished(String host, int port) {
+        Awaitility.await().atMost(60, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).and()
+                .pollInterval(100, TimeUnit.MILLISECONDS).await().until(() -> {
+            def ipList = [:]
+            def portList = [:]
+            (ipList, portList) = getBEHostAndHTTPPort()
+            ipList.each { beid, ip ->
+                if (ip == host && portList[beid] as int == port) {
+                    return false;
+                }
+            }
+            return true;
+        });
     }
 
     void waiteCreateTableFinished(String tableName) {
