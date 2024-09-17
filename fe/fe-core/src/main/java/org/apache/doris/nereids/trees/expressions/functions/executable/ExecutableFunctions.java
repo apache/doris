@@ -107,11 +107,14 @@ public class ExecutableFunctions {
 
     @ExecFunction(name = "append_trailing_char_if_absent", argTypes = {"VARCHAR", "VARCHAR"}, returnType = "VARCHAR")
     public static Expression appendTrailingIfCharAbsent(StringLikeLiteral literal, StringLikeLiteral chr) {
-        if (literal.getValue().length() != 1) {
-            return null;
+        if (chr.getValue().length() != 1) {
+            return new NullLiteral(literal.getDataType());
         }
-        return literal.getValue().endsWith(chr.getValue()) ? literal
-                : new VarcharLiteral(literal.getValue() + chr.getValue());
+        if (literal.getValue().endsWith(chr.getValue())) {
+            return literal;
+        } else {
+            return new VarcharLiteral( literal.getValue() + chr.getValue());
+        }
     }
 
     @ExecFunction(name = "e", argTypes = {}, returnType = "DOUBLE")
