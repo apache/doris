@@ -261,6 +261,12 @@ public class OutFileClause {
             case "rcbinary":
                 fileFormatType = TFileFormatType.FORMAT_RCBINARY;
                 break;
+            case "rctext":
+                fileFormatType = TFileFormatType.FORMAT_RCTEXT;
+                break;
+            case "sequence":
+                fileFormatType = TFileFormatType.FORMAT_SEQUENCE;
+                break;
             default:
                 throw new AnalysisException("format:" + this.format + " is not supported.");
         }

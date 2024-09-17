@@ -50,6 +50,8 @@ public class FileFormatConstants {
     public static final String PROP_COMPRESS = "compress";
     public static final String PROP_COMPRESS_TYPE = "compress_type";
     public static final String PROP_PATH_PARTITION_KEYS = "path_partition_keys";
+    public static final String PROP_HIVE_COLNAMES = "hive_colnames";
+    public static final String PROP_HIVE_COLTYPES = "hive_coltypes";
 
     // decimal(p,s)
     public static final Pattern DECIMAL_TYPE_PATTERN = Pattern.compile("decimal\\((\\d+),(\\d+)\\)");

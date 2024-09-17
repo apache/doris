@@ -110,16 +110,13 @@ Status JniConnector::init(
 Status JniConnector::get_next_block(Block* block, size_t* read_rows, bool* eof) {
     // Call org.apache.doris.common.jni.JniScanner#getNextBatchMeta
     // return the address of meta information
-    LOG(WARNING) << "jniconnector start get next block";
     JNIEnv* env = nullptr;
     RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
-    LOG(WARNING) << "success get jni env";
     long meta_address = 0;
     {
         SCOPED_TIMER(_java_scan_time);
         meta_address = env->CallLongMethod(_jni_scanner_obj, _jni_scanner_get_next_batch);
     }
-    LOG(WARNING) << "success get next bath";
     RETURN_ERROR_IF_EXC(env);
     if (meta_address == 0) {
         // Address == 0 when there's no data in scanner
@@ -128,7 +125,6 @@ Status JniConnector::get_next_block(Block* block, size_t* read_rows, bool* eof) 
         return Status::OK();
     }
     _set_meta(meta_address);
-    LOG(WARNING) << "success set meta addr";
     long num_rows = _table_meta.next_meta_as_long();
     if (num_rows == 0) {
         *read_rows = 0;
@@ -136,11 +132,9 @@ Status JniConnector::get_next_block(Block* block, size_t* read_rows, bool* eof) 
         return Status::OK();
     }
     RETURN_IF_ERROR(_fill_block(block, num_rows));
-    LOG(WARNING) << "success fill block, num rows = " << num_rows;
     *read_rows = num_rows;
     *eof = false;
     env->CallVoidMethod(_jni_scanner_obj, _jni_scanner_release_table);
-    LOG(WARNING) << "success release table";
     RETURN_ERROR_IF_EXC(env);
     _has_read += num_rows;
     return Status::OK();

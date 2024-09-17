@@ -113,6 +113,8 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
             .add(FileFormatConstants.PROP_CSV_SCHEMA)
             .add(FileFormatConstants.PROP_COMPRESS_TYPE)
             .add(FileFormatConstants.PROP_PATH_PARTITION_KEYS)
+            .add(FileFormatConstants.PROP_HIVE_COLNAMES)
+            .add(FileFormatConstants.PROP_HIVE_COLTYPES)
             .build();
 
     // Columns got from file and path(if has)
@@ -179,7 +181,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         }
     }
 
-    //The keys in properties map need to be lowercase.
+    // The keys in properties map need to be lowercase.
     protected Map<String, String> parseCommonProperties(Map<String, String> properties) throws AnalysisException {
         Map<String, String> mergedProperties = Maps.newHashMap();
         if (properties.containsKey("resource")) {
@@ -229,8 +231,14 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
             case "wal":
                 this.fileFormatType = TFileFormatType.FORMAT_WAL;
                 break;
+            case "sequence":
+                this.fileFormatType = TFileFormatType.FORMAT_SEQUENCE;
+                break;
             case "rcbinary":
                 this.fileFormatType = TFileFormatType.FORMAT_RCBINARY;
+                break;
+            case "rctext":
+                this.fileFormatType = TFileFormatType.FORMAT_RCTEXT;
                 break;
             default:
                 throw new AnalysisException("format:" + formatString + " is not supported.");
@@ -270,7 +278,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         try {
             compressionType = Util.getFileCompressType(compressTypeStr);
         } catch (IllegalArgumentException e) {
-            throw new AnalysisException("Compress type : " +  compressTypeStr + " is not supported.");
+            throw new AnalysisException("Compress type : " + compressTypeStr + " is not supported.");
         }
         if (FileFormatUtils.isCsv(formatString)) {
             FileFormatUtils.parseCsvSchema(csvSchema, getOrDefaultAndRemove(copiedProps,
@@ -281,7 +289,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         }
 
         pathPartitionKeys = Optional.ofNullable(
-                getOrDefaultAndRemove(copiedProps, FileFormatConstants.PROP_PATH_PARTITION_KEYS, null))
+                        getOrDefaultAndRemove(copiedProps, FileFormatConstants.PROP_PATH_PARTITION_KEYS, null))
                 .map(str -> Arrays.stream(str.split(","))
                         .map(String::trim)
                         .collect(Collectors.toList()))
@@ -454,7 +462,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
                 Pair<Type, Integer> fieldType = getColumnType(typeNodes, start + parsedNodes);
                 PStructField structField = typeNodes.get(start).getStructFields(i);
                 fields.add(new StructField(structField.getName(), fieldType.key(), structField.getComment(),
-                                            structField.getContainsNull()));
+                        structField.getContainsNull()));
                 parsedNodes += fieldType.value();
             }
             type = new StructType(fields);

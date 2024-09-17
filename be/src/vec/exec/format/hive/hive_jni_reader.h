@@ -49,22 +49,22 @@ struct TypeDescriptor;
 namespace doris::vectorized {
 
 /**
- *  Read rcbinary-format file
+ *  Read hive-format file: rcbinary, rctext, sequencefile
  */
-class RCBinaryJNIReader : public JniReader {
-    ENABLE_FACTORY_CREATOR(RCBinaryJNIReader);
+class HiveJNIReader : public JniReader {
+    ENABLE_FACTORY_CREATOR(HiveJNIReader);
 
 public:
     /**
      *  Call java side by jni to get table data
      */
-    RCBinaryJNIReader(RuntimeState* state, RuntimeProfile* profile, const TFileScanRangeParams& params,
+    HiveJNIReader(RuntimeState* state, RuntimeProfile* profile, const TFileScanRangeParams& params,
                   const std::vector<SlotDescriptor*>& file_slot_descs, const TFileRangeDesc& range);
 
-    RCBinaryJNIReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
+    HiveJNIReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
                   const TFileRangeDesc& range, const std::vector<SlotDescriptor*>& file_slot_descs);
 
-    ~RCBinaryJNIReader() override;
+    ~HiveJNIReader() override;
 
     Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
 

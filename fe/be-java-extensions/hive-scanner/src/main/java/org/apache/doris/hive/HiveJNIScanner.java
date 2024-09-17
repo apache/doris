@@ -19,7 +19,6 @@ package org.apache.doris.hive;
 
 import org.apache.doris.common.jni.JniScanner;
 import org.apache.doris.common.jni.vec.ColumnType;
-import org.apache.doris.common.jni.vec.ColumnType.Type;
 import org.apache.doris.common.jni.vec.TableSchema;
 import org.apache.doris.common.jni.vec.TableSchema.SchemaColumn;
 import org.apache.doris.thrift.TFileType;
@@ -29,6 +28,8 @@ import io.trino.spi.classloader.ThreadContextClassLoader;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hive.common.JavaUtils;
+import org.apache.hadoop.hive.serde.serdeConstants;
+import org.apache.hadoop.hive.serde2.ColumnProjectionUtils;
 import org.apache.hadoop.hive.serde2.Deserializer;
 import org.apache.hadoop.hive.serde2.objectinspector.ObjectInspector;
 import org.apache.hadoop.hive.serde2.objectinspector.StructField;
@@ -98,7 +99,7 @@ public class HiveJNIScanner extends JniScanner {
                 "col_date",
                 "col_array",
                 "col_map",
-                "col_struct"
+                "col_struct",
         };
         this.columnTypes = new String[] {
                 "tinyint",
@@ -112,14 +113,23 @@ public class HiveJNIScanner extends JniScanner {
                 "char(10)",
                 "varchar(20)",
                 "boolean",
-                "datetime",
+                "timestamp",
                 "date",
                 "array<string>",
                 "map<string,int>",
-                "struct<name:string,age:int>"
+                "struct<name:string,age:int>",
         };
         this.requiredFields = new String[] {
                 "col_tinyint",
+                "col_smallint",
+                "col_int",
+                "col_bigint",
+                "col_float",
+                "col_double",
+                "col_decimal",
+                "col_string",
+                "col_char",
+                "col_varchar",
         };
         this.uri = requiredParams.get(HiveProperties.URI);
         this.requiredTypes = new ColumnType[requiredFields.length];
@@ -138,9 +148,6 @@ public class HiveJNIScanner extends JniScanner {
                 return TPrimitiveType.UNSUPPORTED;
             case BOOLEAN:
                 return TPrimitiveType.BOOLEAN;
-            case BYTE:
-            case BINARY:
-                return TPrimitiveType.BINARY;
             case TINYINT:
                 return TPrimitiveType.TINYINT;
             case SMALLINT:
@@ -167,6 +174,8 @@ public class HiveJNIScanner extends JniScanner {
                 return TPrimitiveType.CHAR;
             case VARCHAR:
                 return TPrimitiveType.VARCHAR;
+            case STRING:
+                return TPrimitiveType.STRING;
             case DECIMALV2:
                 return TPrimitiveType.DECIMALV2;
             case DECIMAL32:
@@ -175,8 +184,6 @@ public class HiveJNIScanner extends JniScanner {
                 return TPrimitiveType.DECIMAL64;
             case DECIMAL128:
                 return TPrimitiveType.DECIMAL128I;
-            case STRING:
-                return TPrimitiveType.STRING;
             case ARRAY:
                 SchemaColumn arrayChildColumn = new SchemaColumn();
                 schemaColumn.addChildColumns(Collections.singletonList(arrayChildColumn));
@@ -195,7 +202,7 @@ public class HiveJNIScanner extends JniScanner {
                 for (ColumnType field : fields) {
                     SchemaColumn structChildColumn = new SchemaColumn();
                     structChildColumn.setName(field.getName());
-                    schemaColumn.setType(typeFromColumnType(field, structChildColumn));
+                    structChildColumn.setType(typeFromColumnType(field, structChildColumn));
                     childSchemaColumn.add(structChildColumn);
                 }
                 schemaColumn.addChildColumns(childSchemaColumn);
@@ -236,22 +243,12 @@ public class HiveJNIScanner extends JniScanner {
 
     private Properties createProperties() {
         Properties properties = new Properties();
-        properties.setProperty(HiveProperties.COLUMNS,
-                "col_tinyint,col_smallint,col_int,"
-                        + "col_bigint,col_float,col_double,"
-                        + "col_decimal,col_string,col_char,col_varchar,"
-                        + "col_boolean,col_timestamp,"
-                        + "col_date,col_array,col_map,col_struct");
-        properties.setProperty(HiveProperties.COLUMNS2TYPES, "tinyint,"
-                + "smallint,int,bigint,float,double,"
-                + "decimal(10,2),string,char(10),varchar(20),boolean,timestamp,date,"
-                + "array<string>,map<string,int>,struct<name:string,age:int>");
-        properties.setProperty("hive.io.file.readcolumn.ids",
-                Arrays.stream(this.requiredColumnIds)
-                        .mapToObj(String::valueOf)
-                        .collect(Collectors.joining(",")));
-        properties.setProperty("hive.io.readcolumn.names", String.join(",", this.requiredFields));
-        properties.setProperty("serialization.lib", this.serde);
+        properties.setProperty(ColumnProjectionUtils.READ_COLUMN_IDS_CONF_STR,
+                Arrays.stream(this.requiredColumnIds).mapToObj(String::valueOf).collect(Collectors.joining(",")));
+        properties.setProperty(ColumnProjectionUtils.READ_COLUMN_NAMES_CONF_STR, String.join(",", requiredFields));
+        properties.setProperty(HiveProperties.COLUMNS, String.join(",", columnNames));
+        properties.setProperty(HiveProperties.COLUMNS2TYPES, String.join(",", columnTypes));
+        properties.setProperty(serdeConstants.SERIALIZATION_LIB, this.serde);
         return properties;
     }
 
@@ -302,8 +299,8 @@ public class HiveJNIScanner extends JniScanner {
     @Override
     public int getNext() throws IOException {
         try (ThreadContextClassLoader ignored = new ThreadContextClassLoader(classLoader)) {
-            Writable key = (Writable) reader.createKey();
-            Writable value = (Writable) reader.createValue();
+            Writable key = reader.createKey();
+            Writable value = reader.createValue();
             int numRows = 0;
             for (; numRows < getBatchSize(); numRows++) {
                 if (!reader.next(key, value)) {
@@ -330,7 +327,6 @@ public class HiveJNIScanner extends JniScanner {
 
     @Override
     protected TableSchema parseTableSchema() throws UnsupportedOperationException {
-        LOG.error("Start to parse table schema");
         return createTableSchema(requiredFields, requiredTypes);
     }
 
@@ -343,22 +339,23 @@ public class HiveJNIScanner extends JniScanner {
         }
 
         for (int i = 0; i < requiredFields.length; i++) {
-            requiredColumnIds[i] = hiveColumnNameToIndex.get(requiredFields[i]);
-            requiredTypes[i] = new ColumnType(requiredFields[i], Type.TINYINT);
+            String fieldName = requiredFields[i];
+            requiredColumnIds[i] = hiveColumnNameToIndex.get(fieldName);
+            String typeStr = hiveColumnNameToType.get(fieldName);
+            requiredTypes[i] = ColumnType.parseType(fieldName, typeStr);
         }
     }
 
     private TableSchema createTableSchema(String[] requiredFields, ColumnType[] requiredTypes) {
-        LOG.error("Start to create table schema");
         List<SchemaColumn> schemaColumns = new ArrayList<>();
         for (int i = 0; i < requiredFields.length; i++) {
             SchemaColumn schemaColumn = new SchemaColumn();
             schemaColumn.setName(requiredFields[i]);
-            schemaColumn.setType(TPrimitiveType.TINYINT);
-            LOG.error("type value = " + schemaColumn.getType());
+            schemaColumn.setType(typeFromColumnType(requiredTypes[i], schemaColumn));
+            schemaColumn.setPrecision(requiredTypes[i].getPrecision());
+            schemaColumn.setScale(requiredTypes[i].getScale());
             schemaColumns.add(schemaColumn);
         }
-        LOG.error("schema columns size = " + schemaColumns.size());
         return new TableSchema(schemaColumns);
     }
 }

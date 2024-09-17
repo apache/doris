@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "rcbinary_jni_reader.h"
+#include "hive_jni_reader.h"
 
 #include <map>
 #include <ostream>
@@ -26,7 +26,7 @@
 
 namespace doris::vectorized {
 
-RCBinaryJNIReader::RCBinaryJNIReader(RuntimeState* state, RuntimeProfile* profile,
+HiveJNIReader::HiveJNIReader(RuntimeState* state, RuntimeProfile* profile,
                              const TFileScanRangeParams& params,
                              const std::vector<SlotDescriptor*>& file_slot_descs,
                              const TFileRangeDesc& range)
@@ -34,15 +34,15 @@ RCBinaryJNIReader::RCBinaryJNIReader(RuntimeState* state, RuntimeProfile* profil
             // TODO: process _column_names & _column_types
         }
 
-RCBinaryJNIReader::RCBinaryJNIReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
+HiveJNIReader::HiveJNIReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
               const TFileRangeDesc& range, const std::vector<SlotDescriptor*>& file_slot_descs)
     : JniReader(file_slot_descs, nullptr, profile), _params(params), _range(range) {
             // TODO: process _column_names & _column_types
     }
 
-RCBinaryJNIReader::~RCBinaryJNIReader() = default;
+HiveJNIReader::~HiveJNIReader() = default;
 
-TFileType::type RCBinaryJNIReader::get_file_type() {
+TFileType::type HiveJNIReader::get_file_type() {
     TFileType::type type;
     if (_range.__isset.file_type) {
         type = _range.file_type;
@@ -52,7 +52,7 @@ TFileType::type RCBinaryJNIReader::get_file_type() {
     return type;
 }
 
-Status RCBinaryJNIReader::init_fetch_table_reader(
+Status HiveJNIReader::init_fetch_table_reader(
             std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range)
 {
     _colname_to_value_range = colname_to_value_range;
@@ -88,7 +88,7 @@ Status RCBinaryJNIReader::init_fetch_table_reader(
     return _jni_connector->open(_state, _profile);
 }
 
-Status RCBinaryJNIReader::init_fetch_table_schema_reader() {
+Status HiveJNIReader::init_fetch_table_schema_reader() {
     std::map<String, String> required_params = {
         {"uri", _range.path},
         {"file_type", std::to_string(get_file_type())},
@@ -100,28 +100,23 @@ Status RCBinaryJNIReader::init_fetch_table_schema_reader() {
     return _jni_connector->open(nullptr, _profile);                                                    
 }
 
-Status RCBinaryJNIReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
-    LOG(WARNING) << "rcbinary start get next block";
+Status HiveJNIReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
     RETURN_IF_ERROR(_jni_connector->get_next_block(block, read_rows, eof));
-    LOG(WARNING) << "success get next block";
     if (*eof) {
-        LOG(WARNING) << "start close jni connector";
         RETURN_IF_ERROR(_jni_connector->close());
-        LOG(WARNING) << "end close jni connector";
     }
     return Status::OK();
 }
 
-Status RCBinaryJNIReader::get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
+Status HiveJNIReader::get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
                                   std::unordered_set<std::string>* missing_cols) {
     for (auto& desc : _file_slot_descs) {
         name_to_type->emplace(desc->col_name(), desc->type());
-        LOG(WARNING) << "RCBINARY slot name : " << desc->col_name();
     }
     return Status::OK();
 }
 
-Status RCBinaryJNIReader::get_parsed_schema(std::vector<std::string>* col_names,
+Status HiveJNIReader::get_parsed_schema(std::vector<std::string>* col_names,
                                             std::vector<TypeDescriptor>* col_types) {
     std::string table_schema_str;
     RETURN_IF_ERROR(_jni_connector->get_table_schema(table_schema_str));
@@ -137,22 +132,33 @@ Status RCBinaryJNIReader::get_parsed_schema(std::vector<std::string>* col_names,
     return _jni_connector->close();
 }
 
-TypeDescriptor RCBinaryJNIReader::convert_to_doris_type(const rapidjson::Value& column_schema) {
+ TypeDescriptor HiveJNIReader::convert_to_doris_type(const rapidjson::Value& column_schema) {
     auto schema_type = static_cast< ::doris::TPrimitiveType::type>(column_schema["type"].GetInt());
+    auto precision = column_schema["precision"].GetInt();
+    auto scale = column_schema["scale"].GetInt();
     switch (schema_type) {
     case TPrimitiveType::TINYINT:
     case TPrimitiveType::INT:
     case TPrimitiveType::STRING:
     case TPrimitiveType::BIGINT:
+    case TPrimitiveType::SMALLINT:
+    case TPrimitiveType::LARGEINT:
     case TPrimitiveType::BOOLEAN:
     case TPrimitiveType::DOUBLE:
     case TPrimitiveType::FLOAT:
     case TPrimitiveType::BINARY:
     case TPrimitiveType::DATE:
+    case TPrimitiveType::DATEV2:
     case TPrimitiveType::DATETIME:
+    case TPrimitiveType::DATETIMEV2:
     case TPrimitiveType::CHAR:
     case TPrimitiveType::VARCHAR:
         return {thrift_to_type(schema_type)};
+    case TPrimitiveType::DECIMALV2:
+    case TPrimitiveType::DECIMAL32:
+    case TPrimitiveType::DECIMAL64:
+    case TPrimitiveType::DECIMAL128I:
+        return TypeDescriptor::create_decimalv3_type(precision, scale);
     case TPrimitiveType::ARRAY: {
         TypeDescriptor list_type(PrimitiveType::TYPE_ARRAY);
         const rapidjson::Value& childColumns = column_schema["childColumns"];
@@ -162,7 +168,7 @@ TypeDescriptor RCBinaryJNIReader::convert_to_doris_type(const rapidjson::Value& 
     case TPrimitiveType::MAP: {
         TypeDescriptor map_type(PrimitiveType::TYPE_MAP);
         const rapidjson::Value& childColumns = column_schema["childColumns"];
-        // The default type of AVRO MAP structure key is STRING
+        // The default type of MAP structure key is STRING
         map_type.add_sub_type(PrimitiveType::TYPE_STRING);
         map_type.add_sub_type(convert_to_doris_type(childColumns[1]));
         return map_type;
@@ -181,5 +187,4 @@ TypeDescriptor RCBinaryJNIReader::convert_to_doris_type(const rapidjson::Value& 
         return {PrimitiveType::INVALID_TYPE};
     }
 }
-
 }

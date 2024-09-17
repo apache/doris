@@ -122,6 +122,8 @@ enum TFileFormatType {
     FORMAT_WAL,
     FORMAT_ARROW,
     FORMAT_RCBINARY,
+    FORMAT_RCTEXT,
+    FORMAT_SEQUENCE,
 }
 
 // In previous versions, the data compression format and file format were stored together, as TFileFormatType,

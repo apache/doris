@@ -55,7 +55,7 @@
 #include "vec/data_types/data_type_string.h"
 #include "vec/exec/format/arrow/arrow_stream_reader.h"
 #include "vec/exec/format/avro/avro_jni_reader.h"
-#include "vec/exec/format/rcbinary/rcbinary_jni_reader.h"
+#include "vec/exec/format/hive/hive_jni_reader.h"
 #include "vec/exec/format/csv/csv_reader.h"
 #include "vec/exec/format/json/new_json_reader.h"
 #include "vec/exec/format/orc/vorc_reader.h"
@@ -949,11 +949,12 @@ Status VFileScanner::_get_next_reader() {
                                   ->init_fetch_table_reader(_colname_to_value_range);
             break;
         }
+        case TFileFormatType::FORMAT_SEQUENCE:
+        case TFileFormatType::FORMAT_RCTEXT:
         case TFileFormatType::FORMAT_RCBINARY: {
-            LOG(WARNING) << "Step into VFile FORMAT RCBINARY";
-            _cur_reader = RCBinaryJNIReader::create_unique(_state, _profile, *_params, _file_slot_descs,
+            _cur_reader = HiveJNIReader::create_unique(_state, _profile, *_params, _file_slot_descs,
                                                            range);
-            init_status = ((RCBinaryJNIReader*)(_cur_reader.get()))
+            init_status = ((HiveJNIReader*)(_cur_reader.get()))
                                             ->init_fetch_table_reader(_colname_to_value_range);
             break;
         }
@@ -971,7 +972,6 @@ Status VFileScanner::_get_next_reader() {
         default:
             return Status::InternalError("Not supported file format: {}", _params->format_type);
         }
-        LOG(WARNING) << "Break after VFile FORMAT RCBINARY";
         COUNTER_UPDATE(_file_counter, 1);
         // The VFileScanner for external table may try to open not exist files,
         // Because FE file cache for external table may out of date.
