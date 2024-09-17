@@ -66,6 +66,7 @@ suite("test_grant_revoke_compute_group_to_user", "cloud_auth") {
     }
 
     def groups = sql " SHOW COMPUTE GROUPS; "
+    logger.info("compute groups {}", groups);
     assertTrue(!groups.isEmpty())
     def validCluster = groups[0][0]
 
