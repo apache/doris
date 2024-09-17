@@ -242,10 +242,8 @@ public:
     void consume_memory(size_t size) const;
     void release_memory(size_t size) const;
     void throw_bad_alloc(const std::string& err) const;
-#ifndef NDEBUG
     void add_address_sanitizers(void* buf, size_t size) const;
     void remove_address_sanitizers(void* buf, size_t size) const;
-#endif
 
     void* alloc(size_t size, size_t alignment = 0);
     void* realloc(void* buf, size_t old_size, size_t new_size, size_t alignment = 0);
@@ -289,9 +287,7 @@ public:
                 if constexpr (MemoryAllocator::need_record_actual_size()) {
                     record_size = MemoryAllocator::allocated_size(buf);
                 }
-#ifndef NDEBUG
                 add_address_sanitizers(buf, record_size);
-#endif
             } else {
                 buf = nullptr;
                 int res = MemoryAllocator::posix_memalign(&buf, alignment, size);
@@ -307,9 +303,7 @@ public:
                 if constexpr (MemoryAllocator::need_record_actual_size()) {
                     record_size = MemoryAllocator::allocated_size(buf);
                 }
-#ifndef NDEBUG
                 add_address_sanitizers(buf, record_size);
-#endif
             }
         }
         if constexpr (MemoryAllocator::need_record_actual_size()) {
@@ -325,9 +319,7 @@ public:
                 throw_bad_alloc(fmt::format("Allocator: Cannot munmap {}.", size));
             }
         } else {
-#ifndef NDEBUG
             remove_address_sanitizers(buf, size);
-#endif
             MemoryAllocator::free(buf);
         }
         release_memory(size);
@@ -351,9 +343,7 @@ public:
         if (!use_mmap ||
             (old_size < doris::config::mmap_threshold && new_size < doris::config::mmap_threshold &&
              alignment <= MALLOC_MIN_ALIGNMENT)) {
-#ifndef NDEBUG
             remove_address_sanitizers(buf, old_size);
-#endif
             /// Resize malloc'd memory region with no special alignment requirement.
             void* new_buf = MemoryAllocator::realloc(buf, new_size);
             if (nullptr == new_buf) {
@@ -361,11 +351,8 @@ public:
                 throw_bad_alloc(fmt::format("Allocator: Cannot realloc from {} to {}.", old_size,
                                             new_size));
             }
-#ifndef NDEBUG
-            add_address_sanitizers(
-                    new_buf,
-                    new_size); // usually, buf addr = new_buf addr, asan maybe not equal.
-#endif
+            // usually, buf addr = new_buf addr, asan maybe not equal.
+            add_address_sanitizers(new_buf, new_size);
 
             buf = new_buf;
             if constexpr (clear_memory)
@@ -395,10 +382,8 @@ public:
             // Big allocs that requires a copy.
             void* new_buf = alloc(new_size, alignment);
             memcpy(new_buf, buf, std::min(old_size, new_size));
-#ifndef NDEBUG
             add_address_sanitizers(new_buf, new_size);
             remove_address_sanitizers(buf, old_size);
-#endif
             free(buf, old_size);
             buf = new_buf;
         }

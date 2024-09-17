@@ -232,9 +232,9 @@ void WorkloadGroupMgr::refresh_wg_weighted_memory_limit() {
             // check whether queries need to revoke memory for task group
             for (const auto& query_mem_tracker : wgs_mem_info[wg.first].tracker_snapshots) {
                 debug_msg += fmt::format(
-                        "\n    MemTracker Label={}, Parent Label={}, Used={}, SpillThreshold={}, "
+                        "\n    MemTracker Label={}, Used={}, SpillThreshold={}, "
                         "Peak={}",
-                        query_mem_tracker->label(), query_mem_tracker->parent_label(),
+                        query_mem_tracker->label(),
                         PrettyPrinter::print(query_mem_tracker->consumption(), TUnit::BYTES),
                         PrettyPrinter::print(query_spill_threshold, TUnit::BYTES),
                         PrettyPrinter::print(query_mem_tracker->peak_consumption(), TUnit::BYTES));

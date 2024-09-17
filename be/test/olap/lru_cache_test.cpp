@@ -88,18 +88,18 @@ public:
         void* value;
     };
 
-    class CacheTestSizePolicy : public LRUCachePolicyTrackingManual {
+    class CacheTestSizePolicy : public LRUCachePolicy {
     public:
         CacheTestSizePolicy(size_t capacity)
-                : LRUCachePolicyTrackingManual(CachePolicy::CacheType::FOR_UT_CACHE_SIZE, capacity,
-                                               LRUCacheType::SIZE, -1) {}
+                : LRUCachePolicy(CachePolicy::CacheType::FOR_UT_CACHE_SIZE, capacity,
+                                 LRUCacheType::SIZE, -1) {}
     };
 
-    class CacheTestNumberPolicy : public LRUCachePolicyTrackingManual {
+    class CacheTestNumberPolicy : public LRUCachePolicy {
     public:
         CacheTestNumberPolicy(size_t capacity, uint32_t num_shards)
-                : LRUCachePolicyTrackingManual(CachePolicy::CacheType::FOR_UT_CACHE_NUMBER,
-                                               capacity, LRUCacheType::NUMBER, -1, num_shards) {}
+                : LRUCachePolicy(CachePolicy::CacheType::FOR_UT_CACHE_NUMBER, capacity,
+                                 LRUCacheType::NUMBER, -1, num_shards) {}
     };
 
     // there is 16 shards in ShardedLRUCache

@@ -210,21 +210,21 @@ int64_t WorkloadGroup::gc_memory(int64_t need_free_mem, RuntimeProfile* profile,
         cancel_str = fmt::format(
                 "MinorGC kill overcommit query, wg id:{}, name:{}, used:{}, limit:{}, "
                 "backend:{}.",
-                _id, _name, MemTracker::print_bytes(used_memory),
-                MemTracker::print_bytes(_memory_limit), BackendOptions::get_localhost());
+                _id, _name, MemCounter::print_bytes(used_memory),
+                MemCounter::print_bytes(_memory_limit), BackendOptions::get_localhost());
     } else {
         if (_enable_memory_overcommit) {
             cancel_str = fmt::format(
                     "FullGC release wg overcommit mem, wg id:{}, name:{}, "
                     "used:{},limit:{},backend:{}.",
-                    _id, _name, MemTracker::print_bytes(used_memory),
-                    MemTracker::print_bytes(_memory_limit), BackendOptions::get_localhost());
+                    _id, _name, MemCounter::print_bytes(used_memory),
+                    MemCounter::print_bytes(_memory_limit), BackendOptions::get_localhost());
         } else {
             cancel_str = fmt::format(
                     "GC wg for hard limit, wg id:{}, name:{}, used:{}, limit:{}, "
                     "backend:{}.",
-                    _id, _name, MemTracker::print_bytes(used_memory),
-                    MemTracker::print_bytes(_memory_limit), BackendOptions::get_localhost());
+                    _id, _name, MemCounter::print_bytes(used_memory),
+                    MemCounter::print_bytes(_memory_limit), BackendOptions::get_localhost());
         }
     }
     auto cancel_top_overcommit_str = [cancel_str](int64_t mem_consumption,
@@ -232,14 +232,14 @@ int64_t WorkloadGroup::gc_memory(int64_t need_free_mem, RuntimeProfile* profile,
         return fmt::format(
                 "{} cancel top memory overcommit tracker <{}> consumption {}. details:{}, Execute "
                 "again after enough memory, details see be.INFO.",
-                cancel_str, label, MemTracker::print_bytes(mem_consumption),
+                cancel_str, label, MemCounter::print_bytes(mem_consumption),
                 GlobalMemoryArbitrator::process_limit_exceeded_errmsg_str());
     };
     auto cancel_top_usage_str = [cancel_str](int64_t mem_consumption, const std::string& label) {
         return fmt::format(
                 "{} cancel top memory used tracker <{}> consumption {}. details:{}, Execute again "
                 "after enough memory, details see be.INFO.",
-                cancel_str, label, MemTracker::print_bytes(mem_consumption),
+                cancel_str, label, MemCounter::print_bytes(mem_consumption),
                 GlobalMemoryArbitrator::process_soft_limit_exceeded_errmsg_str());
     };
 
