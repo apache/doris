@@ -140,6 +140,7 @@ Status RCBinaryJNIReader::get_parsed_schema(std::vector<std::string>* col_names,
 TypeDescriptor RCBinaryJNIReader::convert_to_doris_type(const rapidjson::Value& column_schema) {
     auto schema_type = static_cast< ::doris::TPrimitiveType::type>(column_schema["type"].GetInt());
     switch (schema_type) {
+    case TPrimitiveType::TINYINT:
     case TPrimitiveType::INT:
     case TPrimitiveType::STRING:
     case TPrimitiveType::BIGINT:
@@ -147,6 +148,10 @@ TypeDescriptor RCBinaryJNIReader::convert_to_doris_type(const rapidjson::Value& 
     case TPrimitiveType::DOUBLE:
     case TPrimitiveType::FLOAT:
     case TPrimitiveType::BINARY:
+    case TPrimitiveType::DATE:
+    case TPrimitiveType::DATETIME:
+    case TPrimitiveType::CHAR:
+    case TPrimitiveType::VARCHAR:
         return {thrift_to_type(schema_type)};
     case TPrimitiveType::ARRAY: {
         TypeDescriptor list_type(PrimitiveType::TYPE_ARRAY);

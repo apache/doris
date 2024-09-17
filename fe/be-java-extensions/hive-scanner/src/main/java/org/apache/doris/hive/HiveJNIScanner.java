@@ -51,6 +51,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
+import java.util.stream.Collectors;
 
 public class HiveJNIScanner extends JniScanner {
 
@@ -115,7 +116,7 @@ public class HiveJNIScanner extends JniScanner {
                 "date",
                 "array<string>",
                 "map<string,int>",
-                "struct<name string, age int>"
+                "struct<name:string,age:int>"
         };
         this.requiredFields = new String[] {
                 "col_tinyint",
@@ -243,8 +244,13 @@ public class HiveJNIScanner extends JniScanner {
                         + "col_date,col_array,col_map,col_struct");
         properties.setProperty(HiveProperties.COLUMNS2TYPES, "tinyint,"
                 + "smallint,int,bigint,float,double,"
-                + "decimal(10,2),string,char(10),varchar(20),boolean,timestamp,date:"
+                + "decimal(10,2),string,char(10),varchar(20),boolean,timestamp,date,"
                 + "array<string>,map<string,int>,struct<name:string,age:int>");
+        properties.setProperty("hive.io.file.readcolumn.ids",
+                Arrays.stream(this.requiredColumnIds)
+                        .mapToObj(String::valueOf)
+                        .collect(Collectors.joining(",")));
+        properties.setProperty("hive.io.readcolumn.names", String.join(",", this.requiredFields));
         properties.setProperty("serialization.lib", this.serde);
         return properties;
     }
@@ -348,7 +354,7 @@ public class HiveJNIScanner extends JniScanner {
         for (int i = 0; i < requiredFields.length; i++) {
             SchemaColumn schemaColumn = new SchemaColumn();
             schemaColumn.setName(requiredFields[i]);
-            schemaColumn.setType(TPrimitiveType.STRING);
+            schemaColumn.setType(TPrimitiveType.TINYINT);
             LOG.error("type value = " + schemaColumn.getType());
             schemaColumns.add(schemaColumn);
         }
