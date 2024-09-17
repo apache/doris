@@ -23,7 +23,6 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunctio
 import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeAcquire;
 import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeArithmetic;
 import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeExtractAndTransform;
-import org.apache.doris.nereids.trees.expressions.functions.executable.ExecutableFunctions;
 import org.apache.doris.nereids.trees.expressions.functions.executable.NumericArithmetic;
 import org.apache.doris.nereids.trees.expressions.functions.executable.StringArithmetic;
 import org.apache.doris.nereids.trees.expressions.functions.executable.TimeRoundSeries;
@@ -192,7 +191,6 @@ public enum ExpressionEvaluator {
         List<Class<?>> classes = ImmutableList.of(
                 DateTimeAcquire.class,
                 DateTimeExtractAndTransform.class,
-                ExecutableFunctions.class,
                 DateLiteral.class,
                 DateTimeArithmetic.class,
                 NumericArithmetic.class,

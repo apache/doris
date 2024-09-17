@@ -45,6 +45,54 @@ import java.nio.charset.StandardCharsets;
  */
 public class NumericArithmetic {
     /**
+     * other scalar function
+     */
+    @ExecFunction(name = "abs")
+    public static Expression abs(TinyIntLiteral literal) {
+        return new SmallIntLiteral((short) Math.abs(literal.getValue()));
+    }
+
+    @ExecFunction(name = "abs")
+    public static Expression abs(SmallIntLiteral literal) {
+        return new IntegerLiteral(Math.abs(literal.getValue()));
+    }
+
+    @ExecFunction(name = "abs")
+    public static Expression abs(IntegerLiteral literal) {
+        return new BigIntLiteral(Math.abs((long) literal.getValue()));
+    }
+
+    @ExecFunction(name = "abs")
+    public static Expression abs(BigIntLiteral literal) {
+        return new LargeIntLiteral(BigInteger.valueOf(literal.getValue()).abs());
+    }
+
+    @ExecFunction(name = "abs")
+    public static Expression abs(LargeIntLiteral literal) {
+        return new LargeIntLiteral(literal.getValue().abs());
+    }
+
+    @ExecFunction(name = "abs")
+    public static Expression abs(FloatLiteral literal) {
+        return new FloatLiteral(Math.abs(literal.getValue()));
+    }
+
+    @ExecFunction(name = "abs")
+    public static Expression abs(DoubleLiteral literal) {
+        return new DoubleLiteral(Math.abs(literal.getValue()));
+    }
+
+    @ExecFunction(name = "abs")
+    public static Expression abs(DecimalLiteral literal) {
+        return new DecimalLiteral(literal.getValue().abs());
+    }
+
+    @ExecFunction(name = "abs")
+    public static Expression abs(DecimalV3Literal literal) {
+        return new DecimalV3Literal(literal.getValue().abs());
+    }
+
+    /**
      * Executable arithmetic functions add
      */
     @ExecFunction(name = "add")
@@ -734,7 +782,7 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "ln")
     public static Expression ln(DoubleLiteral first) {
-        return new DoubleLiteral(Math.log1p(first.getValue()));
+        return new DoubleLiteral(Math.log(first.getValue()));
     }
 
     /**
