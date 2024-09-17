@@ -1508,7 +1508,7 @@ class Suite implements GroovyInterceptable {
                 .pollInterval(100, TimeUnit.MILLISECONDS).await().until(() -> {
             def ipList = [:]
             def portList = [:]
-            (ipList, portList) = getBEHostAndHTTPPort()
+            getBackendIpHttpPort(ipList, portList)
             ipList.each { beid, ip ->
                 if (ip == host && portList[beid] as int == port) {
                     return true;
@@ -1523,7 +1523,7 @@ class Suite implements GroovyInterceptable {
                 .pollInterval(100, TimeUnit.MILLISECONDS).await().until(() -> {
             def ipList = [:]
             def portList = [:]
-            (ipList, portList) = getBEHostAndHTTPPort()
+            getBackendIpHttpPort(ipList, portList)
             ipList.each { beid, ip ->
                 if (ip == host && portList[beid] as int == port) {
                     return false;
