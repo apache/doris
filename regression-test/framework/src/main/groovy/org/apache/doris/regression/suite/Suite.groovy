@@ -19,6 +19,7 @@ package org.apache.doris.regression.suite
 
 import org.awaitility.Awaitility
 import static java.util.concurrent.TimeUnit.SECONDS
+import static java.util.concurrent.TimeUnit
 import groovy.json.JsonOutput
 import com.google.common.collect.Maps
 import com.google.common.util.concurrent.Futures

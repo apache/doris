@@ -21,9 +21,9 @@ suite("test_grant_revoke_compute_group_to_user", "cloud_auth") {
         return
     }
     def role = "admin"
-    def user1 = "regression_test_cloud_user1"
-    def user2 = "regression_test_cloud_user2"
-    def user3 = "regression_test_cloud_user3"
+    def user1 = "regression_test_compute_group_user1"
+    def user2 = "regression_test_compute_group_user2"
+    def user3 = "regression_test_compute_group_user3"
     def tbl = "test_auth_tbl"
 
     def logAndExecuteSql = { sqlStatement ->
