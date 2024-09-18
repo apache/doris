@@ -18,6 +18,7 @@ suite("test_cte_filter_pushdown") {
     sql "SET enable_nereids_planner=true"
     sql "SET enable_pipeline_engine=true"
     sql "SET enable_fallback_to_original_planner=false"
+    sql "set runtime_filter_type=2;"
     sql "set ignore_shape_nodes='PhysicalDistribute, PhysicalProject'"
     sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
 
