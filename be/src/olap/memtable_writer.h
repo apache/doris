@@ -130,6 +130,7 @@ private:
     std::shared_ptr<FlushToken> _flush_token;
     // Save the not active memtable that is in flush queue or under flushing.
     std::vector<std::weak_ptr<MemTable>> _freezed_mem_tables;
+    // The lock to protect _memtable and _freezed_mem_tables structure to avoid concurrency modification or read
     SpinLock _mem_table_ptr_lock;
     QueryThreadContext _query_thread_context;
 

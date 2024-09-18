@@ -351,7 +351,7 @@ int64_t MemTableWriter::mem_consumption(MemType mem) {
         for (const auto& mem_table : _freezed_mem_tables) {
             auto mem_table_sptr = mem_table.lock();
             if (mem_table_sptr != nullptr && mem_table_sptr->get_mem_type() == mem) {
-                mem_usage += mem_table_sptr->consumption();
+                mem_usage += mem_table_sptr->memory_usage();
             }
         }
     }

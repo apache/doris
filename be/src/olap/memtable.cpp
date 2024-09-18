@@ -163,7 +163,6 @@ MemTable::~MemTable() {
     }
     std::for_each(_row_in_blocks.begin(), _row_in_blocks.end(), std::default_delete<RowInBlock>());
     _arena.reset();
-    _agg_buffer_pool.clear();
     _vec_row_comparator.reset();
     _row_in_blocks.clear();
     _agg_functions.clear();
