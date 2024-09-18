@@ -114,7 +114,7 @@ public abstract class AbstractInsertExecutor {
     /**
      * Do something before exec
      */
-    protected abstract void beforeExec();
+    protected abstract void beforeExec() throws UserException;
 
     /**
      * Do something after exec finished
@@ -199,14 +199,19 @@ public abstract class AbstractInsertExecutor {
             execImpl(executor, jobId);
             checkStrictModeAndFilterRatio();
             int retryTimes = 0;
-            while (retryTimes < Config.mow_insert_into_commit_retry_times) {
+            while (true) {
                 try {
                     onComplete();
                     break;
                 } catch (UserException e) {
-                    LOG.warn("failed to commit txn", e);
+                    LOG.warn("failed to commit txn, txnId={}, jobId={}, retryTimes={}",
+                            getTxnId(), jobId, retryTimes, e);
                     if (e.getErrorCode() == InternalErrorCode.DELETE_BITMAP_LOCK_ERR) {
                         retryTimes++;
+                        if (retryTimes >= Config.mow_insert_into_commit_retry_times) {
+                            // should throw exception after running out of retry times
+                            throw e;
+                        }
                     } else {
                         throw e;
                     }

@@ -47,7 +47,7 @@ public class IcebergInsertExecutor extends BaseExternalTableInsertExecutor {
     }
 
     @Override
-    protected void beforeExec() {
+    protected void beforeExec() throws UserException {
         String dbName = ((IcebergExternalTable) table).getDbName();
         String tbName = table.getName();
         SimpleTableInfo tableInfo = new SimpleTableInfo(dbName, tbName);

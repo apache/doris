@@ -21,10 +21,14 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.operations.ExternalMetadataOps;
 
+import org.apache.log4j.LogManager;
+import org.apache.log4j.Logger;
+
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 public abstract class AbstractExternalTransactionManager<T extends Transaction> implements TransactionManager {
+    private static final Logger LOG = LogManager.getLogger(AbstractExternalTransactionManager.class);
     private final Map<Long, T> transactions = new ConcurrentHashMap<>();
     protected final ExternalMetadataOps ops;
 
@@ -54,6 +58,8 @@ public abstract class AbstractExternalTransactionManager<T extends Transaction> 
     public void rollback(long id) {
         try {
             getTransactionWithException(id).rollback();
+        } catch (TransactionNotFoundException e) {
+            LOG.warn(e.getMessage(), e);
         } finally {
             transactions.remove(id);
             Env.getCurrentEnv().getGlobalExternalTransactionInfoMgr().removeTxnById(id);
@@ -61,14 +67,14 @@ public abstract class AbstractExternalTransactionManager<T extends Transaction> 
     }
 
     @Override
-    public Transaction getTransaction(long id) {
+    public Transaction getTransaction(long id) throws UserException {
         return getTransactionWithException(id);
     }
 
-    private Transaction getTransactionWithException(long id) {
+    private Transaction getTransactionWithException(long id) throws TransactionNotFoundException {
         Transaction txn = transactions.get(id);
         if (txn == null) {
-            throw new RuntimeException("Can't find transaction for " + id);
+            throw new TransactionNotFoundException("Can't find transaction for " + id);
         }
         return txn;
     }
