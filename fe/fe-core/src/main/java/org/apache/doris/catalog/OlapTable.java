@@ -1865,6 +1865,17 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         if (isAutoBucket()) {
             defaultDistributionInfo.markAutoBucket();
         }
+        if (isUniqKeyMergeOnWrite() && getSequenceMapCol() != null) {
+            // set the hidden sequence column's default value the same with
+            // the sequence map column's for partial update
+            String seqMapColName = getSequenceMapCol();
+            Column seqMapCol = getBaseSchema().stream().filter(col -> col.getName().equalsIgnoreCase(seqMapColName))
+                    .findFirst().orElse(null);
+            Column hiddenSeqCol = getSequenceCol();
+            if (seqMapCol != null && hiddenSeqCol != null) {
+                hiddenSeqCol.setDefaultValueInfo(seqMapCol);
+            }
+        }
         RangePartitionInfo tempRangeInfo = tempPartitions.getPartitionInfo();
         if (tempRangeInfo != null) {
             for (long partitionId : tempRangeInfo.getIdToItem(false).keySet()) {
