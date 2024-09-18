@@ -30,7 +30,7 @@ suite("test_cte_filter_pushdown") {
            select * from (
                select m1.* from main m1, main m2
                where m1.k1 = m2.k1
-           ) temp
+           ) temp1
            where k1 = 1;
     """
     qt_cte_filter_pushdown_2 """
@@ -42,7 +42,7 @@ suite("test_cte_filter_pushdown") {
            select * from (
                select m1.* from main m1, main m2
                where m1.k1 = m2.k1
-           ) temp
+           ) temp1
            where k1 = 1;
     """
     sql 'set exec_mem_limit=21G'

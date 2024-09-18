@@ -29,11 +29,11 @@ suite("test_cte_reuse_with_window") {
     """
 
     sql """
-        with temp as (select * from test_cte_reuse_with_window)
+        with temp1 as (select * from test_cte_reuse_with_window)
         select * from
-            (select t.id, row_number() over(order by t.id) as num from temp t limit 20) a
+            (select t.id, row_number() over(order by t.id) as num from temp1 t limit 20) a
             left join
-                (select t.id, row_number() over(order by t.id desc) as num from temp t where t.id = 5) b
+                (select t.id, row_number() over(order by t.id desc) as num from temp1 t where t.id = 5) b
                 on a.id = b.id
     """
 }
