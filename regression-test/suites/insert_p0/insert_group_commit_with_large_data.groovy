@@ -48,12 +48,11 @@ suite("insert_group_commit_with_large_data") {
         assertTrue(serverInfo.contains("'label':'group_commit_"))
     }
 
-    for (item in ["legacy", "nereids"]) { 
-        try {
-            // create table
-            sql """ drop table if exists ${table}; """
+    try {
+        // create table
+        sql """ drop table if exists ${table}; """
 
-            sql """
+        sql """
             CREATE TABLE `${table}` (
                 `id` int(11) NOT NULL,
                 `name` varchar(1100) NULL,
@@ -67,40 +66,33 @@ suite("insert_group_commit_with_large_data") {
             );
             """
 
-            connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url = context.config.jdbcUrl) {
-                sql """ set group_commit = async_mode; """
-                if (item == "nereids") {
-                    sql """ set enable_nereids_planner=true; """
-                    sql """ set enable_fallback_to_original_planner=false; """
-                } else {
-                    sql """ set enable_nereids_planner = false; """
-                }
-                sql """ use ${db}; """
+        connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url = context.config.jdbcUrl) {
+            sql """ set group_commit = async_mode; """
+            sql """ use ${db}; """
 
-                // insert into 5000 rows
-                def insert_sql = """ insert into ${table} values(1, 'a', 10)  """
-                for (def i in 2..5000) {
-                    insert_sql += """, (${i}, 'a', 10) """
-                }
-                group_commit_insert insert_sql, 5000
-                getRowCount(5000)
-
-                // data size is large than 4MB, need " set global max_allowed_packet = 5508950 "
-                /*def name_value = ""
-                for (def i in 0..1024) {
-                    name_value += 'a'
-                }
-                insert_sql = """ insert into ${table} values(1, '${name_value}', 10)  """
-                for (def i in 2..5000) {
-                    insert_sql += """, (${i}, '${name_value}', 10) """
-                }
-                result = sql """ ${insert_sql} """
-                group_commit_insert insert_sql, 5000
-                getRowCount(10000)
-                */
+            // insert into 5000 rows
+            def insert_sql = """ insert into ${table} values(1, 'a', 10)  """
+            for (def i in 2..5000) {
+                insert_sql += """, (${i}, 'a', 10) """
             }
-        } finally {
-            // try_sql("DROP TABLE ${table}")
+            group_commit_insert insert_sql, 5000
+            getRowCount(5000)
+
+            // data size is large than 4MB, need " set global max_allowed_packet = 5508950 "
+            /*def name_value = ""
+            for (def i in 0..1024) {
+                name_value += 'a'
+            }
+            insert_sql = """ insert into ${table} values(1, '${name_value}', 10)  """
+            for (def i in 2..5000) {
+                insert_sql += """, (${i}, '${name_value}', 10) """
+            }
+            result = sql """ ${insert_sql} """
+            group_commit_insert insert_sql, 5000
+            getRowCount(10000)
+            */
         }
+    } finally {
+        // try_sql("DROP TABLE ${table}")
     }
 }
