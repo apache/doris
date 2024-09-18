@@ -893,6 +893,9 @@ public class StringArithmetic {
      */
     @ExecFunction(name = "append_trailing_char_if_absent")
     public static Expression appendTrailingCharIfAbsent(StringLikeLiteral first, StringLikeLiteral second) {
+        if (second.getValue().length() != 1) {
+            return new NullLiteral(first.getDataType());
+        }
         if (first.getValue().endsWith(second.getValue())) {
             return first;
         } else {
