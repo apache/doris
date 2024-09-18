@@ -32,13 +32,15 @@ suite("test_clean_trash", "docker") {
     options.beConfigs += [
         'max_garbage_sweep_interval=2',
         'min_garbage_sweep_interval=1',
-        'report_disk_state_interval_seconds=1'
+        'report_disk_state_interval_seconds=1',
+        'trash_file_expire_time_sec=600'
     ]
     options.beNum = 3
     docker(options) {
+
         def checkFunc = { boolean trashZero ->
             def succ = false
-            for (int i=0; i < 300; ++i) {
+            dockerAwaitUntil(300) {
                 def bes = sql_return_maparray """show backends"""
                 succ = bes.every {
                     if (trashZero) {
@@ -47,10 +49,7 @@ suite("test_clean_trash", "docker") {
                         return !"0.000".equals((it.TrashUsedCapacity).trim())
                     }
                 }
-                if (succ) {
-                    break;
-                }
-                sleep(1000)
+                succ
             }
             Assert.assertTrue(succ) 
         }
