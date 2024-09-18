@@ -93,6 +93,7 @@ public abstract class RangerAccessController implements CatalogAccessController 
             String tbl) {
         RangerAccessResourceImpl resource = createResource(ctl, db, tbl);
         RangerAccessRequestImpl request = createRequest(currentUser);
+        request.setAccessType(DorisAccessType.SELECT.name());
         request.setResource(resource);
 
         if (LOG.isDebugEnabled()) {
@@ -126,9 +127,7 @@ public abstract class RangerAccessController implements CatalogAccessController 
         if (LOG.isDebugEnabled()) {
             LOG.debug("ranger request: {}", request);
         }
-        long start = System.currentTimeMillis();
         RangerAccessResult policy = getPlugin().evalDataMaskPolicies(request, getAccessResultProcessor());
-        LOG.warn("datamask for col: {} use : {}", col, System.currentTimeMillis() - start);
         if (LOG.isDebugEnabled()) {
             LOG.debug("ranger response: {}", policy);
         }
