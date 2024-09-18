@@ -18,6 +18,7 @@
 package org.apache.doris.mysql.authenticate;
 
 import org.apache.doris.common.EnvUtils;
+import org.apache.doris.common.util.ClassLoaderUtils;
 import org.apache.doris.mysql.MysqlAuthPacket;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlHandshakePacket;
@@ -33,6 +34,7 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Paths;
+import java.util.List;
 import java.util.Optional;
 import java.util.Properties;
 import java.util.ServiceLoader;
@@ -69,6 +71,23 @@ public class AuthenticatorManager {
                 return factory.create(loadConfigFile());
             }
         }
+        return loadCustomerFactories(identifier);
+
+    }
+
+    private Authenticator loadCustomerFactories(String identifier) throws Exception {
+        List<AuthenticatorFactory> factories = ClassLoaderUtils.loadServicesFromDirectory(AuthenticatorFactory.class);
+        if (factories.isEmpty()) {
+            LOG.info("No customer authenticator found, using default authenticator");
+            return defaultAuthenticator;
+        }
+        for (AuthenticatorFactory factory : factories) {
+            LOG.info("Found Customer Authenticator Plugin Factory: {}", factory.factoryIdentifier());
+            if (factory.factoryIdentifier().equalsIgnoreCase(identifier)) {
+                return factory.create(loadConfigFile());
+            }
+        }
+
         throw new RuntimeException("No AuthenticatorFactory found for identifier: " + identifier);
     }
 
