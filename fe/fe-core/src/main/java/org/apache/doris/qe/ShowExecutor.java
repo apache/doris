@@ -1714,6 +1714,37 @@ public class ShowExecutor {
                 // get routine load info
                 rows.add(routineLoadJob.getShowInfo());
             }
+            // order by
+            List<OrderByPair> orderByPairs = showRoutineLoadStmt.getOrderByPairs();
+            if (orderByPairs != null && !orderByPairs.isEmpty()) {
+                rows.sort((row1, row2) -> {
+                    for (OrderByPair orderByPair : orderByPairs) {
+                        int index = orderByPair.getIndex();
+                        boolean isDesc = orderByPair.isDesc();
+                        int comparison = row1.get(index).compareTo(row2.get(index));
+                        if (comparison != 0) {
+                            return isDesc ? comparison * -1 : comparison;
+                        }
+                    }
+                    return 0;
+                });
+            } else {
+                // default order by create time
+                rows.sort(Comparator.comparing(row -> row.get(2)));
+            }
+
+            // filter by limit
+            long limit = showRoutineLoadStmt.getLimit();
+            long offset = showRoutineLoadStmt.getOffset() == -1L ? 0 : showRoutineLoadStmt.getOffset();
+            if (offset >= rows.size()) {
+                rows = Lists.newArrayList();
+            } else if (limit != -1L) {
+                if ((limit + offset) < rows.size()) {
+                    rows = rows.subList((int) offset, (int) (limit + offset));
+                } else {
+                    rows = rows.subList((int) offset, rows.size());
+                }
+            }
         }
 
         if (!Strings.isNullOrEmpty(showRoutineLoadStmt.getName()) && rows.size() == 0) {
@@ -1722,8 +1753,6 @@ public class ShowExecutor {
                     + " in db " + showRoutineLoadStmt.getDbFullName()
                     + ". Include history? " + showRoutineLoadStmt.isIncludeHistory());
         }
-        // sort by create time
-        rows.sort(Comparator.comparing(x -> x.get(2)));
         resultSet = new ShowResultSet(showRoutineLoadStmt.getMetaData(), rows);
     }
 

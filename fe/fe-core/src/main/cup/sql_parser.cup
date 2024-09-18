@@ -2921,21 +2921,21 @@ stop_routine_load_stmt ::=
     ;
 
 show_routine_load_stmt ::=
-    KW_SHOW KW_ROUTINE KW_LOAD KW_FOR job_label:jobLabel
+    KW_SHOW KW_ROUTINE KW_LOAD KW_FOR job_label:jobLabel order_by_clause:orderByClause limit_clause:limitClause
     {:
-        RESULT = new ShowRoutineLoadStmt(jobLabel, false, null);
+        RESULT = new ShowRoutineLoadStmt(jobLabel, false, null, orderByClause, limitClause);
     :}
-    | KW_SHOW KW_ALL KW_ROUTINE KW_LOAD KW_FOR job_label:jobLabel
+    | KW_SHOW KW_ALL KW_ROUTINE KW_LOAD KW_FOR job_label:jobLabel order_by_clause:orderByClause limit_clause:limitClause
     {:
-        RESULT = new ShowRoutineLoadStmt(jobLabel, true, null);
+        RESULT = new ShowRoutineLoadStmt(jobLabel, true, null, orderByClause, limitClause);
     :}
-    | KW_SHOW KW_ROUTINE KW_LOAD opt_wild_where
+    | KW_SHOW KW_ROUTINE KW_LOAD opt_wild_where order_by_clause:orderByClause limit_clause:limitClause
     {:
-        RESULT = new ShowRoutineLoadStmt(null, false, parser.wild);
+        RESULT = new ShowRoutineLoadStmt(null, false, parser.wild, orderByClause, limitClause);
     :}
-    | KW_SHOW KW_ALL KW_ROUTINE KW_LOAD opt_wild_where
+    | KW_SHOW KW_ALL KW_ROUTINE KW_LOAD opt_wild_where order_by_clause:orderByClause limit_clause:limitClause
     {:
-        RESULT = new ShowRoutineLoadStmt(null, true, parser.wild);
+        RESULT = new ShowRoutineLoadStmt(null, true, parser.wild, orderByClause, limitClause);
     :}
     ;
 
