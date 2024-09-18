@@ -1045,7 +1045,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
             //
             // Keep the storage medium of the new olap table the same as the old one, so that
             // the replicas in the new olap table will not be migrated to other storage mediums.
-            localOlapTbl.setStorageMedium(localOlapTbl.getStorageMedium());
+            remoteOlapTbl.setStorageMedium(localOlapTbl.getStorageMedium());
             for (Partition partition : remoteOlapTbl.getPartitions()) {
                 Partition localPartition = localOlapTbl.getPartition(partition.getName());
                 if (localPartition == null) {
