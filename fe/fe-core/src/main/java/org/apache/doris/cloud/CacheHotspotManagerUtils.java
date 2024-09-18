@@ -232,7 +232,6 @@ public class CacheHotspotManagerUtils {
         sessionVariable.setEnableInsertStrict(true);
         sessionVariable.setInsertMaxFilterRatio(1);
         // sessionVariable.parallelExecInstanceNum = StatisticConstants.STATISTIC_PARALLEL_EXEC_INSTANCE_NUM;
-        sessionVariable.setEnableNereidsPlanner(false);
         sessionVariable.enableProfile = false;
         connectContext.setEnv(Env.getCurrentEnv());
         connectContext.setDatabase(FeConstants.INTERNAL_DB_NAME);

@@ -543,7 +543,7 @@ public class StmtExecutorTest {
     public void testStmtWithUserInfo(@Mocked StatementBase stmt, @Mocked ConnectContext context) throws Exception {
         StmtExecutor stmtExecutor = new StmtExecutor(ctx, stmt);
         Deencapsulation.setField(stmtExecutor, "parsedStmt", null);
-        Deencapsulation.setField(stmtExecutor, "originStmt", new OriginStatement("show databases;", 1));
+        Deencapsulation.setField(stmtExecutor, "originStmt", new OriginStatement("show databases;", 0));
         stmtExecutor.execute();
         StatementBase newstmt = Deencapsulation.getField(stmtExecutor, "parsedStmt");
         Assert.assertNotNull(newstmt.getUserInfo());

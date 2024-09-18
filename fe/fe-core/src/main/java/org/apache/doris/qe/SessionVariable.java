@@ -1286,8 +1286,7 @@ public class SessionVariable implements Serializable, Writable {
      * the new optimizer is fully developed. I hope that day
      * would be coming soon.
      */
-    @VariableMgr.VarAttr(name = ENABLE_NEREIDS_PLANNER, needForward = true,
-            fuzzy = true, varType = VariableAnnotation.EXPERIMENTAL_ONLINE)
+    @VariableMgr.VarAttr(name = ENABLE_NEREIDS_PLANNER, needForward = true, varType = VariableAnnotation.REMOVED)
     private boolean enableNereidsPlanner = true;
 
     @VariableMgr.VarAttr(name = DISABLE_NEREIDS_RULES, needForward = true)
@@ -2188,8 +2187,6 @@ public class SessionVariable implements Serializable, Writable {
         */
         // pull_request_id default value is 0. When it is 0, use default (global) session variable.
         if (Config.pull_request_id > 0) {
-            this.enableNereidsPlanner = true;
-
             switch (Config.pull_request_id % 4) {
                 case 0:
                     this.runtimeFilterType |= TRuntimeFilterType.BITMAP.getValue();
@@ -3262,19 +3259,6 @@ public class SessionVariable implements Serializable, Writable {
         return enablePushDownStringMinMax;
     }
 
-    /**
-     * Nereids only support vectorized engine.
-     *
-     * @return true if both nereids and vectorized engine are enabled
-     */
-    public boolean isEnableNereidsPlanner() {
-        return enableNereidsPlanner;
-    }
-
-    public void setEnableNereidsPlanner(boolean enableNereidsPlanner) {
-        this.enableNereidsPlanner = enableNereidsPlanner;
-    }
-
     /** canUseNereidsDistributePlanner */
     public static boolean canUseNereidsDistributePlanner() {
         // TODO: support cloud mode
@@ -3370,7 +3354,7 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public boolean isEnableNereidsTrace() {
-        return isEnableNereidsPlanner() && enableNereidsTrace;
+        return enableNereidsTrace;
     }
 
     public void setEnableExprTrace(boolean enableExprTrace) {
@@ -3607,7 +3591,7 @@ public class SessionVariable implements Serializable, Writable {
         }
         tResult.setCodegenLevel(codegenLevel);
         tResult.setBeExecVersion(Config.be_exec_version);
-        tResult.setEnableLocalShuffle(enableLocalShuffle && enableNereidsPlanner);
+        tResult.setEnableLocalShuffle(enableLocalShuffle);
         tResult.setParallelInstance(getParallelExecInstanceNum());
         tResult.setReturnObjectDataAsBinary(returnObjectDataAsBinary);
         tResult.setTrimTailingSpacesForExternalTableQuery(trimTailingSpacesForExternalTableQuery);
@@ -4009,18 +3993,7 @@ public class SessionVariable implements Serializable, Writable {
                 new SetVar(SessionVariable.ENABLE_FOLD_CONSTANT_BY_BE, new StringLiteral("false")));
     }
 
-    public void disableNereidsPlannerOnce() throws DdlException {
-        if (!enableNereidsPlanner) {
-            return;
-        }
-        setIsSingleSetVar(true);
-        VariableMgr.setVar(this, new SetVar(SessionVariable.ENABLE_NEREIDS_PLANNER, new StringLiteral("false")));
-    }
-
     public void disableNereidsJoinReorderOnce() throws DdlException {
-        if (!enableNereidsPlanner) {
-            return;
-        }
         setIsSingleSetVar(true);
         VariableMgr.setVar(this, new SetVar(SessionVariable.DISABLE_JOIN_REORDER, new StringLiteral("true")));
     }
@@ -4244,7 +4217,7 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public boolean isIgnoreStorageDataDistribution() {
-        return ignoreStorageDataDistribution && enableLocalShuffle && enableNereidsPlanner;
+        return ignoreStorageDataDistribution && enableLocalShuffle;
     }
 
     public void setIgnoreStorageDataDistribution(boolean ignoreStorageDataDistribution) {
@@ -4282,7 +4255,7 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public boolean isForceToLocalShuffle() {
-        return enableLocalShuffle && enableNereidsPlanner && forceToLocalShuffle;
+        return enableLocalShuffle && forceToLocalShuffle;
     }
 
     public void setForceToLocalShuffle(boolean forceToLocalShuffle) {

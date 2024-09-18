@@ -29,7 +29,7 @@ import java.util.Objects;
 /**
  * resume mtmv
  */
-public class ShowCreateMTMVCommand extends Command implements NoForward, NotAllowFallback {
+public class ShowCreateMTMVCommand extends Command implements NoForward {
     private final ShowCreateMTMVInfo showCreateMTMVInfo;
 
     public ShowCreateMTMVCommand(ShowCreateMTMVInfo showCreateMTMVInfo) {
