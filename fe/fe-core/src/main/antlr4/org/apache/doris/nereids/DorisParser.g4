@@ -1897,7 +1897,6 @@ nonReserved
     | GENERIC
     | GLOBAL
     | GRAPH
-    | GROUP
     | GROUPING
     | GROUPS
     | HASH
