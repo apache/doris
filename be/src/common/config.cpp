@@ -1008,6 +1008,8 @@ DEFINE_mInt64(file_cache_ttl_valid_check_interval_second, "0"); // zero for not 
 DEFINE_Bool(enable_ttl_cache_evict_using_lru, "true");
 // rename ttl filename to new format during read, with some performance cost
 DEFINE_mBool(translate_to_new_ttl_format_during_read, "false");
+// limit the max size of error log on disk
+DEFINE_mInt64(file_cache_error_log_limit_bytes, "209715200"); // 200MB
 
 DEFINE_mInt32(index_cache_entry_stay_time_after_lookup_s, "1800");
 DEFINE_mInt32(inverted_index_cache_stale_sweep_time_sec, "600");

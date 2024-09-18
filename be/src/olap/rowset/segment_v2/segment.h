@@ -219,6 +219,7 @@ private:
                                            std::unique_ptr<ColumnIterator>* iter,
                                            const SubcolumnColumnReaders::Node* root,
                                            vectorized::DataTypePtr target_type_hint);
+    Status _write_error_file(size_t file_size, size_t bytes_read, io::IOContext& io_ctx);
 
     Status _load_index_impl();
     Status _open_inverted_index();
