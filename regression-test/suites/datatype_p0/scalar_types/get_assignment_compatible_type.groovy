@@ -16,7 +16,6 @@
 // under the License.
 
 suite("get_assignment_compatible_type") {
-    sql 'set enable_nereids_planner=false'
     sql "drop table if exists test_decimal_boolean"
     sql """create table test_decimal_boolean (
         id int,

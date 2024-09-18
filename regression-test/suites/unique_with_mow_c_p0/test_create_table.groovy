@@ -184,27 +184,6 @@ suite("test_create_table") {
         );
     """
 
-    // test legacy planner
-    sql """set enable_nereids_planner=false;"""
-    // duplicate table with cluster keys
-    test {
-        sql """
-            CREATE TABLE `$tableName` (
-                    `c_custkey` int(11) NOT NULL COMMENT "",
-                    `c_name` varchar(26) NOT NULL COMMENT "",
-                    `c_address` varchar(41) NOT NULL COMMENT "",
-                    `c_city` varchar(11) NOT NULL COMMENT ""
-            )
-            DUPLICATE KEY (`c_custkey`)
-            CLUSTER BY (`c_name`, `c_address`)
-            DISTRIBUTED BY HASH(`c_custkey`) BUCKETS 1
-            PROPERTIES (
-                    "replication_num" = "1"
-             );
-        """
-        exception "Syntax error"
-    }
-
     // test nereids planner
     sql """set enable_nereids_planner=true;"""
     sql """set enable_nereids_dml=true;"""

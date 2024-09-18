@@ -33,7 +33,7 @@ import java.util.Objects;
 /**
  * create multi table materialized view
  */
-public class CreateMTMVCommand extends Command implements ForwardWithSync, NotAllowFallback {
+public class CreateMTMVCommand extends Command implements ForwardWithSync {
 
     public static final Logger LOG = LogManager.getLogger(CreateMTMVCommand.class);
     private final CreateMTMVInfo createMTMVInfo;

@@ -35,11 +35,6 @@ suite("test_row_policy") {
         assertTrue(!clusters.isEmpty())
         def validCluster = clusters[0][0]
         sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO ${user}""";
-    }    
-
-    connect(user=user, password='123456', url=url) {
-        sql "set enable_nereids_planner = false"
-        sql "SELECT * FROM ${tableName} a JOIN ${tableName} b ON a.id = b.id"
     }
 
     connect(user=user, password='123456', url=url) {

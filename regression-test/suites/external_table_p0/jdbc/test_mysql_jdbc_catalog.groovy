@@ -628,15 +628,6 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
         qt_sql """desc ctas_partition_text_2"""
         // ctas logic is different between new and old planner.
         // so need to test both.
-        // the old planner's test can be removed once the old planner is removed.
-        sql """set enable_nereids_planner=false"""
-        // 1. test text type column as distribution col
-        sql """create table ctas_partition_text_3 distributed by hash(text) buckets 1 properties("replication_num" = "1") as select int_u, text, text as t2 from mysql_conjuncts.doris_test.all_types;"""
-        qt_sql """desc ctas_partition_text_3"""
-        // 2. test varchar type column as first col
-        sql """create table ctas_partition_text_4 distributed by hash(int_u) buckets 1 properties("replication_num" = "1") as select varchar, int_u from mysql_conjuncts.doris_test.all_types;"""
-        qt_sql """desc ctas_partition_text_4"""
-
         sql """drop catalog if exists mysql_conjuncts;"""
     }
 }

@@ -23,7 +23,6 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.exceptions.MustFallbackException;
 import org.apache.doris.nereids.hint.Hint;
 import org.apache.doris.nereids.hint.LeadingHint;
 import org.apache.doris.nereids.hint.OrderedHint;
@@ -107,12 +106,6 @@ public class EliminateLogicalSelectHint extends OneRewriteRuleFactory {
                         + key + "' = '" + value.get() + "'", t);
                 }
             }
-        }
-        // if sv set enable_nereids_planner=true and hint set enable_nereids_planner=false, we should set
-        // enable_fallback_to_original_planner=true and revert it after executing.
-        // throw exception to fall back to original planner
-        if (!sessionVariable.isEnableNereidsPlanner()) {
-            throw new MustFallbackException("The nereids is disabled in this sql, fallback to original planner");
         }
     }
 
