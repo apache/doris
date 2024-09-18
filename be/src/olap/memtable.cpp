@@ -82,6 +82,7 @@ MemTable::MemTable(int64_t tablet_id, std::shared_ptr<TabletSchema> tablet_schem
     }
     // TODO: Support ZOrderComparator in the future
     _init_columns_offset_by_slot_descs(slot_descs, tuple_desc);
+    _mem_tracker = std::make_shared<MemTracker>();
 }
 
 void MemTable::_init_columns_offset_by_slot_descs(const std::vector<SlotDescriptor*>* slot_descs,
@@ -142,6 +143,12 @@ void MemTable::_init_agg_functions(const vectorized::Block* block) {
 
 MemTable::~MemTable() {
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_query_thread_context.query_mem_tracker);
+    if (_is_flush_success) {
+        if (_mem_tracker->consumption() != 0) {
+            LOG(FATAL) << _mem_tracker->consumption() << "," << _flush_mem_tracker->consumption()
+                       << "," << _insert_mem_tracker->consumption();
+        }
+    }
     g_memtable_input_block_allocated_size << -_input_mutable_block.allocated_bytes();
     g_memtable_cnt << -1;
     if (_keys_type != KeysType::DUP_KEYS) {
@@ -180,6 +187,7 @@ int RowInBlockComparator::operator()(const RowInBlock* left, const RowInBlock* r
 
 Status MemTable::insert(const vectorized::Block* input_block,
                         const std::vector<uint32_t>& row_idxs) {
+    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
     if (_is_first_insertion) {
         _is_first_insertion = false;
         auto clone_block = input_block->clone_without_columns(&_column_offset);
@@ -483,6 +491,7 @@ void MemTable::_aggregate() {
 }
 
 void MemTable::shrink_memtable_by_agg() {
+    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
     if (_keys_type == KeysType::DUP_KEYS) {
         return;
     }
@@ -530,6 +539,8 @@ Status MemTable::_to_block(std::unique_ptr<vectorized::Block>* res) {
     _input_mutable_block.clear();
     _insert_mem_tracker->release(_mem_usage);
     _mem_usage = 0;
+    // After to block, all data in arena is saved in the block
+    _arena.reset();
     *res = vectorized::Block::create_unique(_output_mutable_block.to_block());
     return Status::OK();
 }

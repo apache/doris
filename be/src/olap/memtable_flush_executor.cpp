@@ -142,6 +142,7 @@ Status FlushToken::_do_flush_memtable(MemTable* memtable, int32_t segment_id, in
     signal::set_signal_task_id(_rowset_writer->load_id());
     signal::tablet_id = memtable->tablet_id();
     {
+        SCOPED_CONSUME_MEM_TRACKER(memtable->mem_tracker());
         std::unique_ptr<vectorized::Block> block;
         // During to block method, it will release old memory and create new block, so that
         // we could not scoped it.
@@ -150,6 +151,7 @@ Status FlushToken::_do_flush_memtable(MemTable* memtable, int32_t segment_id, in
         SCOPED_CONSUME_MEM_TRACKER(memtable->flush_mem_tracker());
         RETURN_IF_ERROR(_rowset_writer->flush_memtable(block.get(), segment_id, flush_size));
     }
+    memtable->set_flush_success();
     _memtable_stat += memtable->stat();
     DorisMetrics::instance()->memtable_flush_total->increment(1);
     DorisMetrics::instance()->memtable_flush_duration_us->increment(duration_ns / 1000);
