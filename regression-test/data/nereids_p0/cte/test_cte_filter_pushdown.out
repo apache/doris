@@ -8,7 +8,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----------PhysicalOlapScan[test]
 --PhysicalResultSink
 ----hashJoin[INNER_JOIN] hashCondition=((m1.k1 = m2.k1)) otherCondition=()
-------filter((temp.k1 = 1))
+------filter((temp1.k1 = 1))
 --------PhysicalCteConsumer ( cteId=CTEId#0 )
 ------filter((m2.k1 = 1))
 --------PhysicalCteConsumer ( cteId=CTEId#0 )
@@ -22,7 +22,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----------PhysicalOlapScan[test]
 --PhysicalResultSink
 ----hashJoin[INNER_JOIN] hashCondition=((m1.k1 = m2.k1)) otherCondition=()
-------filter((temp.k1 = 1))
+------filter((temp1.k1 = 1))
 --------PhysicalCteConsumer ( cteId=CTEId#0 )
 ------filter((m2.k1 = 1))
 --------PhysicalCteConsumer ( cteId=CTEId#0 )
