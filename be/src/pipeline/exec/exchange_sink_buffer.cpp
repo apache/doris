@@ -65,8 +65,8 @@ void BroadcastPBlockHolderMemLimiter::acquire(BroadcastPBlockHolder& holder) {
     auto size = holder._pblock->column_values().size();
     _total_queue_buffer_size += size;
     _total_queue_blocks_count++;
-    if (_total_queue_buffer_size >= config::exchg_node_buffer_size_bytes ||
-        _total_queue_blocks_count >= config::num_broadcast_buffer) {
+    if (_total_queue_buffer_size >= _total_queue_buffer_size_limit ||
+        _total_queue_blocks_count >= _total_queue_blocks_count_limit) {
         _broadcast_dependency->block();
     }
 }
