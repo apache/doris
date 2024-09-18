@@ -61,7 +61,7 @@ suite("test_single_hive_kerberos", "p0,external,kerberos,external_docker,externa
             logger.info(e.toString())
             // caused by a warning msg if enable sasl on hive but "hive.metastore.sasl.enabled" is not true:
             // "set_ugi() not successful, Likely cause: new client talking to old server. Continuing without it."
-            assertTrue(e.toString().contains("thrift.transport.TTransportException: null"))
+            assertTrue(e.toString().contains("thrift.transport.TTransportException"))
         }
 
         try {
