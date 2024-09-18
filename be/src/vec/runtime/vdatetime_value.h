@@ -824,6 +824,77 @@ public:
         return val;
     }
 
+    // static uint64_t from_utc_datetime(const cctz::time_zone& timezone, uint64_t datetime) {
+    //     long _sec_offset = 0;
+    //     union DateTimeV2UInt64Union {
+    //         DateV2Value<DateTimeV2ValueType> dt;
+    //         uint64_t ui64;
+    //         ~DateTimeV2UInt64Union() {}
+    //     };
+
+    //     DateTimeV2UInt64Union conv = {.ui64 = datetime};
+    //     // todo sec_offset from runtime state
+    //     {
+    //         cctz::time_zone utc_tz {};
+    //         TimezoneUtils::find_cctz_time_zone(TimezoneUtils::utc_time_zone, utc_tz);
+    //         auto given = cctz::convert(cctz::civil_second {}, timezone);
+    //         auto local = cctz::convert(cctz::civil_second {}, utc_tz);
+    //         _sec_offset = std::chrono::duration_cast<std::chrono::seconds>(given - local).count();
+    //     }
+    //     conv.dt.date_add_interval<TimeUnit::SECOND>(
+    //             TimeInterval {TimeUnit::SECOND, _sec_offset, false});
+
+    //     return conv.ui64;
+    // }
+
+    uint64_t to_utc_datetime(const cctz::time_zone& timezone) const {
+        long _sec_offset = 0;
+        union DateTimeV2UInt64Union {
+            DateV2Value<DateTimeV2ValueType> dt;
+            uint64_t ui64;
+            ~DateTimeV2UInt64Union() {}
+        };
+
+        DateV2Value<DateTimeV2ValueType> tmp;
+
+        DateTimeV2UInt64Union conv = {.ui64 = int_val_};
+        // todo sec_offset from runtime state
+        {
+            cctz::time_zone utc_tz {};
+            TimezoneUtils::find_cctz_time_zone(TimezoneUtils::utc_time_zone, utc_tz);
+            auto given = cctz::convert(cctz::civil_second {}, utc_tz);
+            auto local = cctz::convert(cctz::civil_second {}, timezone);
+            _sec_offset = std::chrono::duration_cast<std::chrono::seconds>(given - local).count();
+        }
+
+        tmp =  conv.dt;
+        tmp.date_add_interval<TimeUnit::SECOND>(
+                TimeInterval {TimeUnit::SECOND, _sec_offset, false});
+
+        return conv.ui64;
+    }
+
+    // uint64_t to_utc_datetime(const cctz::time_zone& timezone) {
+    //     long _sec_offset = 0;
+    //     DateV2Value<DateTimeV2ValueType> tmp;
+        
+    //     tmp = binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(date_v2_value_);
+    //     // todo sec_offset from runtime state
+    //     {
+    //         cctz::time_zone utc_tz {};
+    //         TimezoneUtils::find_cctz_time_zone(TimezoneUtils::utc_time_zone, utc_tz);
+    //         auto given = cctz::convert(cctz::civil_second {}, utc_tz);
+    //         auto local = cctz::convert(cctz::civil_second {}, timezone);
+    //         _sec_offset = std::chrono::duration_cast<std::chrono::seconds>(given - local).count();
+    //     }
+    //     tmp.date_add_interval<TimeUnit::SECOND>(
+    //             TimeInterval {TimeUnit::SECOND, _sec_offset, false});
+
+    //     return binary_cast<DateV2Value<DateTimeV2ValueType>, uint64_t>(tmp);;
+    // }
+
+
+
     // Convert this datetime value to string by the format string.
     // for performance of checking, may return false when just APPROACH BUT NOT REACH max_valid_length.
     // so need a little big buffer and its length as max_valid_length to make sure store valid data.

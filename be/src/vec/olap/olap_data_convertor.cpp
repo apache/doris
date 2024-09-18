@@ -827,6 +827,56 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorDate::convert_to_olap() {
     return Status::OK();
 }
 
+void OlapBlockDataConvertor::OlapColumnDataConvertorTimestamp::set_source_column(
+        const ColumnWithTypeAndName& typed_column, size_t row_pos, size_t num_rows) {
+    OlapBlockDataConvertor::OlapColumnDataConvertorPaddedPODArray<uint64_t>::set_source_column(
+            typed_column, row_pos, num_rows);
+}
+
+Status OlapBlockDataConvertor::OlapColumnDataConvertorTimestamp::convert_to_olap() {
+    const vectorized::ColumnVector<uint64_t>* column_data = nullptr;
+    if (_nullmap) {
+        auto nullable_column =
+                assert_cast<const vectorized::ColumnNullable*>(_typed_column.column.get());
+        column_data = assert_cast<const vectorized::ColumnVector<uint64_t>*>(
+                nullable_column->get_nested_column_ptr().get());
+    } else {
+        column_data =
+                assert_cast<const vectorized::ColumnVector<uint64_t>*>(_typed_column.column.get());
+    }
+
+    assert(column_data);
+
+    const DateV2Value<DateTimeV2ValueType>* datetime_cur =
+            (const DateV2Value<DateTimeV2ValueType>*)(column_data->get_data().data()) + _row_pos;
+    const DateV2Value<DateTimeV2ValueType>* datetime_end = datetime_cur + _num_rows;
+
+    uint64_t* value = _values.data();
+    if (_nullmap) {
+        const UInt8* nullmap_cur = _nullmap + _row_pos;
+        while (datetime_cur != datetime_end) {
+            if (!*nullmap_cur) {
+                *value = datetime_cur->to_utc_datetime((const cctz::time_zone&)tz);
+            } else {
+                // do nothing
+            }
+            ++value;
+            ++datetime_cur;
+            ++nullmap_cur;
+        }
+        assert(nullmap_cur == _nullmap + _row_pos + _num_rows && value == _values.get_end_ptr());
+    } else {
+        while (datetime_cur != datetime_end) {
+            *value = datetime_cur->to_utc_datetime((const cctz::time_zone&)tz);
+            ++value;
+            ++datetime_cur;
+        }
+        assert(value == _values.get_end_ptr());
+    }
+
+    return Status::OK();
+}
+
 void OlapBlockDataConvertor::OlapColumnDataConvertorDateTime::set_source_column(
         const ColumnWithTypeAndName& typed_column, size_t row_pos, size_t num_rows) {
     OlapBlockDataConvertor::OlapColumnDataConvertorPaddedPODArray<uint64_t>::set_source_column(
