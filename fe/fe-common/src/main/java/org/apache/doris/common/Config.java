@@ -3010,7 +3010,7 @@ public class Config extends ConfigBase {
     // to control the max num of values inserted into cache hotspot internal table
     // insert into cache table when the size of batch values reaches this limit
     @ConfField(mutable = true)
-    public static long batch_insert_cluster_cache_hotspot_num = 50;
+    public static long batch_insert_cluster_cache_hotspot_num = 1000;
 
     /**
      * intervals between be status checks for CloudUpgradeMgr
