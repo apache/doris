@@ -154,7 +154,7 @@ supportedCreateStatement
         properties=propertyClause?
         (BROKER extProperties=propertyClause)?
         (AS query)?                                                       #createTable
-    | CREATE VIEW (IF NOT EXISTS)? name=multipartIdentifier
+    | CREATE (OR REPLACE)? VIEW (IF NOT EXISTS)? name=multipartIdentifier
         (LEFT_PAREN cols=simpleColumnDefs RIGHT_PAREN)?
         (COMMENT STRING_LITERAL)? AS query                                #createView
     | CREATE (EXTERNAL)? TABLE (IF NOT EXISTS)? name=multipartIdentifier
