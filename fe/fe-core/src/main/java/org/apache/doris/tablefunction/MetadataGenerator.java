@@ -35,6 +35,7 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.TableProperty;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Pair;
@@ -48,6 +49,7 @@ import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalMetaCacheMgr;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.datasource.TablePartitionValues;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HiveMetaStoreCache;
@@ -105,6 +107,7 @@ import org.jetbrains.annotations.NotNull;
 import java.text.SimpleDateFormat;
 import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Date;
@@ -796,10 +799,30 @@ public class MetadataGenerator {
         result.setDataBatch(filterColumnsRows);
     }
 
+    // Refer to be/src/vec/runtime/vdatetime_value.h
     private static long convertToDateTimeV2(
             int year, int month, int day, int hour, int minute, int second, int microsecond) {
         return (long) microsecond | (long) second << 20 | (long) minute << 26 | (long) hour << 32
                 | (long) day << 37 | (long) month << 42 | (long) year << 46;
+    }
+
+    // Refer to be/src/vec/runtime/vdatetime_value.h
+    private static long convertToDateV2(
+            int year, int month, int day) {
+        return (long) day | (long) month << 5 | (long) year << 9;
+    }
+
+    private static long convertStringToDateTimeV2(String dateTimeStr) {
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+        LocalDateTime dateTime = TimeUtils.formatDateTimeAndFullZero(dateTimeStr, formatter);
+        return convertToDateTimeV2(dateTime.getYear(), dateTime.getMonthValue(), dateTime.getDayOfMonth(),
+                dateTime.getHour(), dateTime.getMinute(), dateTime.getSecond(), dateTime.getNano() / 1000);
+    }
+
+    private static long convertStringToDateV2(String dateStr) {
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd");
+        LocalDateTime dateTime = TimeUtils.formatDateTimeAndFullZero(dateStr, formatter);
+        return convertToDateV2(dateTime.getYear(), dateTime.getMonthValue(), dateTime.getDayOfMonth());
     }
 
     private static TFetchSchemaTableDataResult mtmvMetadataResult(TMetadataTableRequestParams params) {
@@ -1506,10 +1529,12 @@ public class MetadataGenerator {
             throws AnalysisException {
         List<Column> partitionCols = tbl.getPartitionColumns();
         List<Integer> colIdxs = Lists.newArrayList();
+        List<Type> types = Lists.newArrayList();
         for (String colName : colNames) {
             for (int i = 0; i < partitionCols.size(); ++i) {
                 if (partitionCols.get(i).getName().equalsIgnoreCase(colName)) {
                     colIdxs.add(i);
+                    types.add(partitionCols.get(i).getType());
                 }
             }
         }
@@ -1530,8 +1555,49 @@ public class MetadataGenerator {
             if (values.size() != partitionCols.size()) {
                 continue;
             }
-            for (Integer idx : colIdxs) {
-                trow.addToColumnValue(new TCell().setStringVal(values.get(idx))); // COLUMN_VALUE
+
+            for (int i = 0; i < colIdxs.size(); ++i) {
+                int idx = colIdxs.get(i);
+                String partitionValue = values.get(idx);
+                if (partitionValue == null && partitionValue.equals(TablePartitionValues.HIVE_DEFAULT_PARTITION)) {
+                    trow.addToColumnValue(new TCell().setIsNull(true));
+                } else {
+                    Type type = types.get(i);
+                    switch (type.getPrimitiveType()) {
+                        case BOOLEAN:
+                            trow.addToColumnValue(new TCell().setBoolVal(Boolean.valueOf(partitionValue)));
+                            break;
+                        case TINYINT:
+                        case SMALLINT:
+                        case INT:
+                            trow.addToColumnValue(new TCell().setIntVal(Integer.valueOf(partitionValue)));
+                            break;
+                        case BIGINT:
+                            trow.addToColumnValue(new TCell().setLongVal(Long.valueOf(partitionValue)));
+                            break;
+                        case FLOAT:
+                            trow.addToColumnValue(new TCell().setDoubleVal(Float.valueOf(partitionValue)));
+                            break;
+                        case DOUBLE:
+                            trow.addToColumnValue(new TCell().setDoubleVal(Double.valueOf(partitionValue)));
+                            break;
+                        case VARCHAR:
+                        case CHAR:
+                        case STRING:
+                            trow.addToColumnValue(new TCell().setStringVal(partitionValue));
+                            break;
+                        case DATE:
+                        case DATEV2:
+                            trow.addToColumnValue(new TCell().setLongVal(convertStringToDateV2(partitionValue)));
+                        case DATETIME:
+                        case DATETIMEV2:
+                            trow.addToColumnValue(new TCell().setLongVal(convertStringToDateTimeV2(partitionValue)));
+                            break;
+                        default:
+                            throw new AnalysisException(
+                                    "Unsupported partition column type for $partitions sys table " + type);
+                    }
+                }
             }
             dataBatch.add(trow);
         }

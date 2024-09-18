@@ -20,7 +20,6 @@ package org.apache.doris.tablefunction;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.ErrorCode;
@@ -168,12 +167,12 @@ public class PartitionValuesTableValuedFunction extends MetadataTableValuedFunct
     @Override
     public List<Column> getTableColumns() throws AnalysisException {
         Preconditions.checkNotNull(table);
-        // TODO： support other type of tables
+        // TODO: support other type of sys tables
         if (schema == null) {
             List<Column> partitionColumns = ((HMSExternalTable) table).getPartitionColumns();
             schema = Lists.newArrayList();
             for (Column column : partitionColumns) {
-                schema.add(new Column(column.getName(), ScalarType.createStringType()));
+                schema.add(new Column(column));
             }
         }
         return schema;
