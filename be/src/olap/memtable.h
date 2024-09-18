@@ -204,7 +204,7 @@ public:
 
     MemType get_mem_type() { return _mem_type; }
 
-    void update_mem_type(MemType memtype) { this._mem_type = memtype; }
+    void update_mem_type(MemType memtype) { _mem_type = memtype; }
 
 private:
     // for vectorized
