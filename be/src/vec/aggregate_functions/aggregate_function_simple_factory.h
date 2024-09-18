@@ -143,13 +143,19 @@ public:
         if (function_alias.contains(name)) {
             name_str = function_alias[name];
         }
-
+        LOG_INFO("Find function name: {}", name_str);
         if (nullable) {
+            LOG_INFO("Nullable input function {} found: {}", name,
+                     nullable_aggregate_functions.find(name_str) !=
+                             nullable_aggregate_functions.end());
             return nullable_aggregate_functions.find(name_str) == nullable_aggregate_functions.end()
                            ? nullptr
                            : nullable_aggregate_functions[name_str](name_str, argument_types,
                                                                     result_is_nullable);
         } else {
+            LOG_INFO("Not input function {} found: {}", name,
+                     nullable_aggregate_functions.find(name_str) !=
+                             nullable_aggregate_functions.end());
             return aggregate_functions.find(name_str) == aggregate_functions.end()
                            ? nullptr
                            : aggregate_functions[name_str](name_str, argument_types,
