@@ -46,13 +46,15 @@ import java.util.Set;
  */
 public class CreateViewInfo extends BaseViewInfo {
     private final boolean ifNotExists;
+    private final boolean orReplace;
     private final String comment;
 
     /** constructor*/
-    public CreateViewInfo(boolean ifNotExists, TableNameInfo viewName, String comment,
+    public CreateViewInfo(boolean ifNotExists, boolean orReplace, TableNameInfo viewName, String comment,
             String querySql, List<SimpleColumnDefinition> simpleColumnDefinitions) {
         super(viewName, querySql, simpleColumnDefinitions);
         this.ifNotExists = ifNotExists;
+        this.orReplace = orReplace;
         this.comment = comment;
     }
 
@@ -93,8 +95,8 @@ public class CreateViewInfo extends BaseViewInfo {
         for (SimpleColumnDefinition def : simpleColumnDefinitions) {
             cols.add(def.translateToColWithComment());
         }
-        CreateViewStmt createViewStmt = new CreateViewStmt(ifNotExists, viewName.transferToTableName(), cols, comment,
-                null);
+        CreateViewStmt createViewStmt = new CreateViewStmt(ifNotExists, orReplace, viewName.transferToTableName(), cols,
+                comment, null);
         // expand star(*) in project list and replace table name with qualifier
         String rewrittenSql = rewriteSql(ctx.getStatementContext().getIndexInSqlToString());
 
