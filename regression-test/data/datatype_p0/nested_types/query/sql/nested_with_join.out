@@ -9,7 +9,7 @@
 0
 
 -- !nested_with_join_4 --
-max_allowed_packet	4194304	16777216	1
+max_allowed_packet	16777216	16777216	0
 
 -- !nested_with_join_5 --
 0
