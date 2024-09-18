@@ -222,13 +222,6 @@ public class ListPartitionInfo extends PartitionInfo {
             }
             sb.append(")");
 
-            Optional.ofNullable(this.idToStoragePolicy.get(entry.getKey())).ifPresent(p -> {
-                if (!p.equals("")) {
-                    sb.append("PROPERTIES (\"STORAGE POLICY\" = \"");
-                    sb.append(p).append("\")");
-                }
-            });
-
             if (partitionId != null) {
                 partitionId.add(entry.getKey());
                 break;
