@@ -51,6 +51,7 @@ public class RangerDorisResource extends RangerAccessResourceImpl {
         switch (objectType) {
             case GLOBAL:
                 setValue(KEY_GLOBAL, firstLevelResource);
+                break;
             case CATALOG:
                 setValue(KEY_CATALOG, firstLevelResource);
                 break;
