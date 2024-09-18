@@ -20,6 +20,15 @@ import org.junit.Assert;
 suite("test_temp_table") {
 
     sql """
+        DROP DATABASE if exists regression_test_table_p0;
+    """
+    sql """
+        CREATE DATABASE regression_test_table_p0;
+    """
+    sql """
+        USE regression_test_table_p0;
+    """
+    sql """
         DROP TABLE IF EXISTS `t_test_table_with_data`
     """
 
