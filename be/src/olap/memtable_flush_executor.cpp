@@ -142,7 +142,10 @@ Status FlushToken::_do_flush_memtable(MemTable* memtable, int32_t segment_id, in
     signal::set_signal_task_id(_rowset_writer->load_id());
     signal::tablet_id = memtable->tablet_id();
     {
+        std::shared_ptr<Arena> tmp_arena = std::make_shared<Arena>();
         SCOPED_CONSUME_MEM_TRACKER(memtable->mem_tracker());
+        tmp_arena->alloc(100);
+        LOG(INFO) << "memtable size " << tmp_arena->size();
         std::unique_ptr<vectorized::Block> block;
         RETURN_IF_ERROR(memtable->to_block(&block));
         RETURN_IF_ERROR(_rowset_writer->flush_memtable(block.get(), segment_id, flush_size));

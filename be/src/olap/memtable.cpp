@@ -140,8 +140,10 @@ void MemTable::_init_agg_functions(const vectorized::Block* block) {
 MemTable::~MemTable() {
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_query_thread_context.query_mem_tracker);
     if (_is_flush_success) {
-        if (_mem_tracker->consumption() != 0) {
-            LOG(FATAL) << _mem_tracker->consumption();
+        // If the memtable is flush success, then its memtracker's consumption should be 0
+        if (_mem_tracker->consumption() != 0 && config::crash_in_memory_tracker_inaccurate) {
+            LOG(FATAL) << "memtable flush success but cosumption is not 0, it is "
+                       << _mem_tracker->consumption();
         }
     }
     g_memtable_input_block_allocated_size << -_input_mutable_block.allocated_bytes();
