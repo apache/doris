@@ -701,6 +701,8 @@ public class MaterializedViewUtils {
         private final Multimap<TableIf, SlotReference> partitionRelatedTableAndColumnMap = HashMultimap.create();
         private final Set<String> failReasons = new HashSet<>();
         private final CascadesContext cascadesContext;
+        // This record the invalid table, such as the right side of left join, the partition column
+        // is invalid if is form the table
         private final Set<TableIf> invalidTableSet = new HashSet<>();
 
         public IncrementCheckerContext(NamedExpression mvPartitionColumn,

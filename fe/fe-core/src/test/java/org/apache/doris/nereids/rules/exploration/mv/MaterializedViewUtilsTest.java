@@ -434,10 +434,7 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
                             RelatedTableInfo relatedTableInfo =
                                     MaterializedViewUtils.getRelatedTableInfo("l_orderkey", null,
                                             rewrittenPlan, nereidsPlanner.getCascadesContext());
-                            checkRelatedTableInfo(relatedTableInfo,
-                                    "lineitem_list_partition",
-                                    "l_orderkey",
-                                    true);
+                            Assertions.assertFalse(relatedTableInfo.isPctPossible());
                         });
 
         PlanChecker.from(connectContext)
@@ -549,7 +546,7 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
                                     MaterializedViewUtils.getRelatedTableInfo("PS_SUPPLYCOST", null,
                                             rewrittenPlan, nereidsPlanner.getCascadesContext());
                             Assertions.assertTrue(relatedTableInfo.getFailReason().contains(
-                                    "related base table is not partition table"));
+                                    "column is not from table when relation check, Or the partition column is in the invalid table"));
                             Assertions.assertFalse(relatedTableInfo.isPctPossible());
                         });
     }
