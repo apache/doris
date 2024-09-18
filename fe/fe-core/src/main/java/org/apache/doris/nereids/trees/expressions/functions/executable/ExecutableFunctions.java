@@ -103,15 +103,6 @@ public class ExecutableFunctions {
         }
     }
 
-    @ExecFunction(name = "append_trailing_char_if_absent")
-    public static Expression appendTrailingIfCharAbsent(StringLikeLiteral literal, StringLikeLiteral chr) {
-        if (literal.getValue().length() != 1) {
-            return null;
-        }
-        return literal.getValue().endsWith(chr.getValue()) ? literal
-                : new VarcharLiteral(literal.getValue() + chr.getValue());
-    }
-
     @ExecFunction(name = "e")
     public static Expression e() { // CHECKSTYLE IGNORE THIS LINE
         return new DoubleLiteral(Math.E);
