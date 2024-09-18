@@ -20,6 +20,7 @@
 #include <bvar/bvar.h>
 
 #include "common/config.h"
+#include "olap/memtable.h"
 #include "olap/memtable_writer.h"
 #include "util/doris_metrics.h"
 #include "util/mem_info.h"
