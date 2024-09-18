@@ -174,8 +174,7 @@ public class CreateMTMVInfo {
         final boolean finalEnableMergeOnWrite = false;
         Set<String> keysSet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
         keysSet.addAll(keys);
-        columns.forEach(c -> c.validate(true, keysSet, Sets.newHashSet(), finalEnableMergeOnWrite, KeysType.DUP_KEYS));
-
+        validateColumns(this.columns, keysSet, finalEnableMergeOnWrite);
         if (distribution == null) {
             throw new AnalysisException("Create async materialized view should contain distribution desc");
         }
@@ -198,12 +197,14 @@ public class CreateMTMVInfo {
     }
 
     /**validate column name*/
-    public void validateColumns(List<ColumnDefinition> columns) throws UserException {
+    public void validateColumns(List<ColumnDefinition> columns, Set<String> keysSet,
+            boolean finalEnableMergeOnWrite) throws UserException {
         Set<String> colSets = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
         for (ColumnDefinition col : columns) {
             if (!colSets.add(col.getName())) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_DUP_FIELDNAME, col.getName());
             }
+            col.validate(true, keysSet, Sets.newHashSet(), finalEnableMergeOnWrite, KeysType.DUP_KEYS);
         }
     }
 
@@ -268,7 +269,6 @@ public class CreateMTMVInfo {
                 .analyzeAndTransferToMTMVPartitionInfo(planner, ctx, logicalQuery);
         this.partitionDesc = generatePartitionDesc(ctx);
         getColumns(plan, ctx, mvPartitionInfo.getPartitionCol(), distribution);
-        validateColumns(this.columns);
         analyzeKeys();
 
     }
