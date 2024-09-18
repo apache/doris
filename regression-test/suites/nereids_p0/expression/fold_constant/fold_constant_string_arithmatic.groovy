@@ -684,4 +684,91 @@ suite("fold_constant_string_arithmatic") {
     testFoldConst("select url_encode('http://www.apache.org/licenses/LICENSE-2.0')")
     testFoldConst("select url_encode(' http://www.apache.org/licenses/LICENSE-2.0 ')")
 
+    // Normal Usage Test Cases
+
+    // Test Case 1: Append missing trailing character
+    testFoldConst("select append_trailing_char_if_absent('hello', '!')")
+    // Expected Output: 'hello!'
+
+    // Test Case 2: Trailing character already present
+    testFoldConst("select append_trailing_char_if_absent('hello!', '!')")
+    // Expected Output: 'hello!'
+
+    // Test Case 3: Append trailing space
+    testFoldConst("select append_trailing_char_if_absent('hello', ' ')")
+    // Expected Output: 'hello '
+
+    // Test Case 4: Empty string input
+    testFoldConst("select append_trailing_char_if_absent('', '!')")
+    // Expected Output: '!'
+
+    // Test Case 5: Append different character
+    testFoldConst("select append_trailing_char_if_absent('hello', '?')")
+    // Expected Output: 'hello?'
+
+    // Test Case 6: String ends with a different character
+    testFoldConst("select append_trailing_char_if_absent('hello?', '!')")
+    // Expected Output: 'hello?!'
+
+    // Edge and Unusual Usage Test Cases
+
+    // Test Case 7: Input is NULL
+    testFoldConst("select append_trailing_char_if_absent(NULL, '!')")
+    // Expected Output: NULL
+
+    // Test Case 8: Trailing character is NULL
+    testFoldConst("select append_trailing_char_if_absent('hello', NULL)")
+    // Expected Output: NULL
+
+    // Test Case 9: Empty trailing character
+    testFoldConst("select append_trailing_char_if_absent('hello', '')")
+    // Expected Output: Error or no change depending on implementation
+
+    // Test Case 10: Trailing character is more than 1 character long
+    testFoldConst("select append_trailing_char_if_absent('hello', 'ab')")
+    // Expected Output: Error
+
+    // Test Case 11: Input string is a number
+    testFoldConst("select append_trailing_char_if_absent(12345, '!')")
+    // Expected Output: Error or '12345!'
+
+    // Test Case 12: Trailing character is a number
+    testFoldConst("select append_trailing_char_if_absent('hello', '1')")
+    // Expected Output: 'hello1'
+
+    // Test Case 13: Input is a single character
+    testFoldConst("select append_trailing_char_if_absent('h', '!')")
+    // Expected Output: 'h!'
+
+    // Test Case 14: Unicode character as input and trailing character
+    testFoldConst("select append_trailing_char_if_absent('こんにちは', '!')")
+    // Expected Output: 'こんにちは!'
+
+    // Test Case 15: Multibyte character as trailing character
+    testFoldConst("select append_trailing_char_if_absent('hello', '😊')")
+    // Expected Output: 'hello😊'
+
+    // Test Case 16: Long string input
+    testFoldConst("select append_trailing_char_if_absent('This is a very long string', '.')")
+    // Expected Output: 'This is a very long string.'
+
+    // Error Handling Test Cases
+
+    // Test Case 17: Invalid trailing character data type (numeric)
+    testFoldConst("select append_trailing_char_if_absent('hello', 1)")
+    // Expected Output: Error
+
+    // Test Case 18: Invalid input data type (integer)
+    testFoldConst("select append_trailing_char_if_absent(12345, '!')")
+    // Expected Output: Error or '12345!'
+
+    // Test Case 19: Non-ASCII characters
+    testFoldConst("select append_trailing_char_if_absent('Привет', '!')")
+    // Expected Output: 'Привет!'
+
+    // Test Case 20: Trailing character with whitespace
+    testFoldConst("select append_trailing_char_if_absent('hello', ' ')")
+    // Expected Output: 'hello '
+
+
 }
