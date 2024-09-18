@@ -44,7 +44,8 @@ suite("test_backend", "nonConcurrent") {
         logger.info("result:${result}")
     }
 
-    if (context.config.jdbcUser.equals("root")) {
+    // Cancel decommission backend is not supported in cloud mode.
+    if (context.config.jdbcUser.equals("root") && !isCloudMode()) {
         def beId1 = null
         try {
             GetDebugPoint().enableDebugPointForAllFEs("SystemHandler.decommission_no_check_replica_num");
