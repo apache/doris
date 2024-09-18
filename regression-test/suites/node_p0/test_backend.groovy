@@ -29,7 +29,7 @@ suite("test_backend", "nonConcurrent") {
         result = sql """SHOW BACKENDS;"""
         logger.info("result:${result}")
 
-        if (!isCoudMode()) {
+        if (!isCloudMode()) {
             sql """ALTER SYSTEM MODIFY BACKEND "${address}:${notExistPort}" SET ("disable_query" = "true"); """
             sql """ALTER SYSTEM MODIFY BACKEND "${address}:${notExistPort}" SET ("disable_load" = "true"); """
         }

@@ -371,8 +371,10 @@ public class CloudSystemInfoService extends SystemInfoService {
 
         String computeGroupId = tryCreateComputeGroup(clusterName,
                 RandomIdentifierGenerator.generateRandomIdentifier(8));
-        String cloudUniqueId = "1:" + Config.cluster_id + ":"
-                + RandomIdentifierGenerator.generateRandomIdentifier(8);
+        String instanceId = Config.cluster_id == -1 ? ((CloudEnv) Env.getCurrentEnv()).getCloudInstanceId()
+                : String.valueOf(Config.cluster_id);
+
+        String cloudUniqueId = "1:" + instanceId + ":" + RandomIdentifierGenerator.generateRandomIdentifier(8);
         alterBackendCluster(hostInfos, computeGroupId, cloudUniqueId, Cloud.AlterClusterRequest.Operation.ADD_NODE);
     }
 

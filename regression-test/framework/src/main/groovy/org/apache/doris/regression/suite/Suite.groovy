@@ -953,6 +953,18 @@ class Suite implements GroovyInterceptable {
         return;
     }
 
+    void getBackendIpHeartbeatPort(Map<String, String> backendId_to_backendIP,
+            Map<String, String> backendId_to_backendHeartbeatPort) {
+        List<List<Object>> backends = sql("show backends");
+        logger.info("Content of backends: ${backends}")
+        for (List<Object> backend : backends) {
+            backendId_to_backendIP.put(String.valueOf(backend[0]), String.valueOf(backend[1]));
+            backendId_to_backendHeartbeatPort.put(String.valueOf(backend[0]), String.valueOf(backend[2]));
+        }
+        return;
+    }
+
+
     void getBackendIpHttpAndBrpcPort(Map<String, String> backendId_to_backendIP,
         Map<String, String> backendId_to_backendHttpPort, Map<String, String> backendId_to_backendBrpcPort) {
 
@@ -1481,12 +1493,13 @@ class Suite implements GroovyInterceptable {
         Awaitility.await().atMost(60, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).and()
                 .pollInterval(100, TimeUnit.MILLISECONDS).await().until(() -> {
             def frontends = getFrontendIpHttpPort()
+            boolean matched = false
             for (frontend: frontends) {
                 if (frontend == "$host:$port") {
-                    return true;
+                    matched = true;
                 }
             }
-            return false;
+            return matched;
         });
     }
 
@@ -1494,42 +1507,46 @@ class Suite implements GroovyInterceptable {
         Awaitility.await().atMost(60, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).and()
                 .pollInterval(100, TimeUnit.MILLISECONDS).await().until(() -> {
             def frontends = getFrontendIpHttpPort()
+            boolean matched = false
             for (frontend: frontends) {
                 if (frontend == "$host:$port") {
-                    return false;
+                    matched = true
                 }
             }
-            return true;
+            return !matched;
         });
     }
 
     void waitAddBeFinished(String host, int port) {
+        logger.info("waiting ${host}:${port} added");
         Awaitility.await().atMost(60, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).and()
                 .pollInterval(100, TimeUnit.MILLISECONDS).await().until(() -> {
             def ipList = [:]
             def portList = [:]
-            getBackendIpHttpPort(ipList, portList)
+            getBackendIpHeartbeatPort(ipList, portList)
+            boolean matched = false
             ipList.each { beid, ip ->
-                if (ip == host && portList[beid] as int == port) {
-                    return true;
+                if (ip.equals(host) && ((portList[beid] as int) == port)) {
+                    matched = true;
                 }
             }
-            return false;
+            return matched;
         });
     }
 
-    void waiteDropBeFinished(String host, int port) {
+    void waitDropBeFinished(String host, int port) {
         Awaitility.await().atMost(60, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).and()
                 .pollInterval(100, TimeUnit.MILLISECONDS).await().until(() -> {
             def ipList = [:]
             def portList = [:]
-            getBackendIpHttpPort(ipList, portList)
+            getBackendIpHeartbeatPort(ipList, portList)
+            boolean matched = false
             ipList.each { beid, ip ->
                 if (ip == host && portList[beid] as int == port) {
-                    return false;
+                    matched = true;
                 }
             }
-            return true;
+            return !matched;
         });
     }
 
