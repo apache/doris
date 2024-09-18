@@ -197,7 +197,12 @@ Status HttpStreamAction::_on_header(HttpRequest* http_req, std::shared_ptr<Strea
     ctx->body_bytes = 0;
     size_t csv_max_body_bytes = config::streaming_load_max_mb * 1024 * 1024;
     if (!http_req->header(HttpHeaders::CONTENT_LENGTH).empty()) {
-        ctx->body_bytes = std::stol(http_req->header(HttpHeaders::CONTENT_LENGTH));
+        try {
+            ctx->body_bytes = std::stol(http_req->header(HttpHeaders::CONTENT_LENGTH));
+        } catch (const std::exception& e) {
+            return Status::InvalidArgument("invalid HTTP header CONTENT_LENGTH={}: {}",
+                                           http_req->header(HttpHeaders::CONTENT_LENGTH), e.what());
+        }
         // csv max body size
         if (ctx->body_bytes > csv_max_body_bytes) {
             LOG(WARNING) << "body exceed max size." << ctx->brief();
@@ -237,37 +242,39 @@ void HttpStreamAction::on_chunk_data(HttpRequest* req) {
     SCOPED_ATTACH_TASK(ExecEnv::GetInstance()->stream_load_pipe_tracker());
 
     int64_t start_read_data_time = MonotonicNanos();
+    Status st = ctx->allocate_schema_buffer();
+    if (!st.ok()) {
+        ctx->status = st;
+        return;
+    }
     while (evbuffer_get_length(evbuf) > 0) {
-        try {
-            auto bb = ByteBuffer::allocate(128 * 1024);
-            auto remove_bytes = evbuffer_remove(evbuf, bb->ptr, bb->capacity);
-            bb->pos = remove_bytes;
-            bb->flip();
-            auto st = ctx->body_sink->append(bb);
-            // schema_buffer stores 1M of data for parsing column information
-            // need to determine whether to cache for the first time
-            if (ctx->is_read_schema) {
-                if (ctx->schema_buffer->pos + remove_bytes < config::stream_tvf_buffer_size) {
-                    ctx->schema_buffer->put_bytes(bb->ptr, remove_bytes);
-                } else {
-                    LOG(INFO) << "use a portion of data to request fe to obtain column information";
-                    ctx->is_read_schema = false;
-                    ctx->status = process_put(req, ctx);
-                }
-            }
-            if (!st.ok() && !ctx->status.ok()) {
-                LOG(WARNING) << "append body content failed. errmsg=" << st << ", " << ctx->brief();
-                ctx->status = st;
-                return;
-            }
-            ctx->receive_bytes += remove_bytes;
-        } catch (const doris::Exception& e) {
-            if (e.code() == doris::ErrorCode::MEM_ALLOC_FAILED) {
-                ctx->status = Status::MemoryLimitExceeded(
-                        fmt::format("PreCatch error code:{}, {}, ", e.code(), e.to_string()));
-            }
-            ctx->status = Status::Error<false>(e.code(), e.to_string());
+        ByteBufferPtr bb;
+        st = ByteBuffer::allocate(128 * 1024, &bb);
+        if (!st.ok()) {
+            ctx->status = st;
+            return;
         }
+        auto remove_bytes = evbuffer_remove(evbuf, bb->ptr, bb->capacity);
+        bb->pos = remove_bytes;
+        bb->flip();
+        st = ctx->body_sink->append(bb);
+        // schema_buffer stores 1M of data for parsing column information
+        // need to determine whether to cache for the first time
+        if (ctx->is_read_schema) {
+            if (ctx->schema_buffer()->pos + remove_bytes < config::stream_tvf_buffer_size) {
+                ctx->schema_buffer()->put_bytes(bb->ptr, remove_bytes);
+            } else {
+                LOG(INFO) << "use a portion of data to request fe to obtain column information";
+                ctx->is_read_schema = false;
+                ctx->status = process_put(req, ctx);
+            }
+        }
+        if (!st.ok()) {
+            LOG(WARNING) << "append body content failed. errmsg=" << st << ", " << ctx->brief();
+            ctx->status = st;
+            return;
+        }
+        ctx->receive_bytes += remove_bytes;
     }
     // after all the data has been read and it has not reached 1M, it will execute here
     if (ctx->is_read_schema) {
@@ -350,7 +357,13 @@ Status HttpStreamAction::process_put(HttpRequest* http_req,
         // FIXME find a way to avoid chunked stream load write large WALs
         size_t content_length = 0;
         if (!http_req->header(HttpHeaders::CONTENT_LENGTH).empty()) {
-            content_length = std::stol(http_req->header(HttpHeaders::CONTENT_LENGTH));
+            try {
+                content_length = std::stol(http_req->header(HttpHeaders::CONTENT_LENGTH));
+            } catch (const std::exception& e) {
+                return Status::InvalidArgument("invalid HTTP header CONTENT_LENGTH={}: {}",
+                                               http_req->header(HttpHeaders::CONTENT_LENGTH),
+                                               e.what());
+            }
             if (ctx->format == TFileFormatType::FORMAT_CSV_GZ ||
                 ctx->format == TFileFormatType::FORMAT_CSV_LZO ||
                 ctx->format == TFileFormatType::FORMAT_CSV_BZ2 ||

@@ -142,7 +142,7 @@ void display_tablets_callback(const WebPageHandler::ArgumentMap& args, EasyJson*
 // Registered to handle "/mem_tracker", and prints out memory tracker information.
 void mem_tracker_handler(const WebPageHandler::ArgumentMap& args, std::stringstream* output) {
     (*output) << "<h1>Memory usage by subsystem</h1>\n";
-    std::vector<MemTracker::Snapshot> snapshots;
+    std::vector<MemTrackerLimiter::Snapshot> snapshots;
     auto iter = args.find("type");
     if (iter != args.end()) {
         if (iter->second == "global") {
@@ -159,7 +159,7 @@ void mem_tracker_handler(const WebPageHandler::ArgumentMap& args, std::stringstr
         } else if (iter->second == "other") {
             MemTrackerLimiter::make_type_snapshots(&snapshots, MemTrackerLimiter::Type::OTHER);
         } else if (iter->second == "reserved_memory") {
-            GlobalMemoryArbitrator::make_reserved_memory_snapshots(&snapshots);
+            MemTrackerLimiter::make_all_reserved_trackers_snapshots(&snapshots);
         } else if (iter->second == "all") {
             MemTrackerLimiter::make_all_memory_state_snapshots(&snapshots);
         }
@@ -191,7 +191,6 @@ void mem_tracker_handler(const WebPageHandler::ArgumentMap& args, std::stringstr
     (*output) << "<thead><tr>"
                  "<th data-sortable='true'>Type</th>"
                  "<th data-sortable='true'>Label</th>"
-                 "<th data-sortable='true'>Parent Label</th>"
                  "<th>Limit</th>"
                  "<th data-sortable='true' "
                  ">Current Consumption(Bytes)</th>"
@@ -207,8 +206,8 @@ void mem_tracker_handler(const WebPageHandler::ArgumentMap& args, std::stringstr
         string peak_consumption_normalize = AccurateItoaKMGT(item.peak_consumption);
         (*output) << strings::Substitute(
                 "<tr><td>$0</td><td>$1</td><td>$2</td><td>$3</td><td>$4</td><td>$5</td><td>$6</"
-                "td><td>$7</td></tr>\n",
-                item.type, item.label, item.parent_label, limit_str, item.cur_consumption,
+                "td></tr>\n",
+                item.type, item.label, limit_str, item.cur_consumption,
                 current_consumption_normalize, item.peak_consumption, peak_consumption_normalize);
     }
     (*output) << "</tbody></table>\n";
@@ -283,8 +282,7 @@ void heap_handler(const WebPageHandler::ArgumentMap& args, std::stringstream* ou
 void cpu_handler(const WebPageHandler::ArgumentMap& args, std::stringstream* output) {
     (*output) << "<h2>CPU Profile</h2>" << std::endl;
 
-#if defined(ADDRESS_SANITIZER) || defined(LEAK_SANITIZER) || defined(THREAD_SANITIZER) || \
-        defined(USE_JEMALLOC)
+#if defined(ADDRESS_SANITIZER) || defined(LEAK_SANITIZER) || defined(THREAD_SANITIZER)
     (*output) << "<pre>" << std::endl;
     (*output) << "CPU profiling is not available with address sanitizer builds." << std::endl;
     (*output) << "</pre>" << std::endl;
@@ -315,7 +313,8 @@ void cpu_handler(const WebPageHandler::ArgumentMap& args, std::stringstream* out
               << std::endl;
     (*output) << "And you need to download the FlameGraph and place it under 'be/tools/FlameGraph'."
               << std::endl;
-    (*output) << "Finally, check if the following files exist" << std::endl;
+    (*output) << "Finally, check if the following files exist. And should be executable."
+              << std::endl;
     (*output) << std::endl;
     (*output) << "    be/tools/FlameGraph/stackcollapse-perf.pl" << std::endl;
     (*output) << "    be/tools/FlameGraph/flamegraph.pl" << std::endl;
@@ -335,9 +334,6 @@ void cpu_handler(const WebPageHandler::ArgumentMap& args, std::stringstream* out
             << std::endl;
     (*output) << "    <br/>" << std::endl;
     (*output) << "    <div id=\"cpuResult\"><pre id=\"cpuContent\"></pre></div>" << std::endl;
-    (*output) << "    <br/>" << std::endl;
-    (*output) << "    <div id=\"cpuResultGraph\"><pre id=\"cpuContentGraph\"></pre></div>"
-              << std::endl;
     (*output) << "</div>" << std::endl;
 
     // for text profile
@@ -350,14 +346,14 @@ void cpu_handler(const WebPageHandler::ArgumentMap& args, std::stringstream* out
     (*output) << "        type: \"GET\"," << std::endl;
     (*output) << "        dataType: \"text\"," << std::endl;
     (*output) << "        url: \"pprof/profile?type=text\"," << std::endl;
-    (*output) << "        timeout: 60000," << std::endl;
+    (*output) << "        timeout: 120000," << std::endl;
     (*output) << "        success: function (result) {" << std::endl;
     (*output) << "            document.getElementById(\"cpuContent\").innerText = result;"
               << std::endl;
     (*output) << "        }" << std::endl;
     (*output) << "        ," << std::endl;
     (*output) << "        error: function (result) {" << std::endl;
-    (*output) << "            alert(result);" << std::endl;
+    (*output) << "            alert(JSON.stringify(result));" << std::endl;
     (*output) << "        }" << std::endl;
     (*output) << "        ," << std::endl;
     (*output) << "    });" << std::endl;
@@ -365,21 +361,21 @@ void cpu_handler(const WebPageHandler::ArgumentMap& args, std::stringstream* out
 
     // for graph profile
     (*output) << "$('#getCpuGraph').click(function () {" << std::endl;
-    (*output) << "    document.getElementById(\"cpuContentGraph\").innerText = \"Sampling... (30 "
+    (*output) << "    document.getElementById(\"cpuContent\").innerText = \"Sampling... (30 "
                  "seconds)\";"
               << std::endl;
     (*output) << "    $.ajax({" << std::endl;
     (*output) << "        type: \"GET\"," << std::endl;
     (*output) << "        dataType: \"text\"," << std::endl;
     (*output) << "        url: \"pprof/profile?type=flamegraph\"," << std::endl;
-    (*output) << "        timeout: 60000," << std::endl;
+    (*output) << "        timeout: 120000," << std::endl;
     (*output) << "        success: function (result) {" << std::endl;
-    (*output) << "            document.getElementById(\"cpuResultGraph\").innerHTML = result;"
+    (*output) << "            document.getElementById(\"cpuContent\").innerHTML = result;"
               << std::endl;
     (*output) << "        }" << std::endl;
     (*output) << "        ," << std::endl;
     (*output) << "        error: function (result) {" << std::endl;
-    (*output) << "            alert(result);" << std::endl;
+    (*output) << "            alert(JSON.stringify(result));" << std::endl;
     (*output) << "        }" << std::endl;
     (*output) << "        ," << std::endl;
     (*output) << "    });" << std::endl;

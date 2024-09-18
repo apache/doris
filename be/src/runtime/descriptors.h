@@ -215,16 +215,22 @@ public:
     std::string access_key() const { return _access_key; }
     std::string secret_key() const { return _secret_key; }
     std::string public_access() const { return _public_access; }
+    std::string endpoint() const { return _endpoint; }
+    std::string quota() const { return _quota; }
+    Status init_status() const { return _init_status; }
 
 private:
-    std::string _region;
+    std::string _region; //deprecated
     std::string _project;
     std::string _table;
-    std::string _odps_url;
-    std::string _tunnel_url;
+    std::string _odps_url;   //deprecated
+    std::string _tunnel_url; //deprecated
     std::string _access_key;
     std::string _secret_key;
-    std::string _public_access;
+    std::string _public_access; //deprecated
+    std::string _endpoint;
+    std::string _quota;
+    Status _init_status = Status::OK();
 };
 
 class TrinoConnectorTableDescriptor : public TableDescriptor {

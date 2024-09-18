@@ -36,18 +36,20 @@ PartitionedAggLocalState::PartitionedAggLocalState(RuntimeState* state, Operator
 Status PartitionedAggLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
     SCOPED_TIMER(exec_time_counter());
-    SCOPED_TIMER(_open_timer);
+    SCOPED_TIMER(_init_timer);
     _init_counters();
     return Status::OK();
 }
 
 Status PartitionedAggLocalState::open(RuntimeState* state) {
+    RETURN_IF_ERROR(Base::open(state));
+    SCOPED_TIMER(_open_timer);
     if (_opened) {
         return Status::OK();
     }
     _opened = true;
     RETURN_IF_ERROR(setup_in_memory_agg_op(state));
-    return Base::open(state);
+    return Status::OK();
 }
 
 void PartitionedAggLocalState::_init_counters() {
@@ -104,11 +106,6 @@ Status PartitionedAggSourceOperatorX::init(const TPlanNode& tnode, RuntimeState*
     RETURN_IF_ERROR(OperatorXBase::init(tnode, state));
     _op_name = "PARTITIONED_AGGREGATION_OPERATOR";
     return _agg_source_operator->init(tnode, state);
-}
-
-Status PartitionedAggSourceOperatorX::prepare(RuntimeState* state) {
-    RETURN_IF_ERROR(OperatorXBase::prepare(state));
-    return _agg_source_operator->prepare(state);
 }
 
 Status PartitionedAggSourceOperatorX::open(RuntimeState* state) {

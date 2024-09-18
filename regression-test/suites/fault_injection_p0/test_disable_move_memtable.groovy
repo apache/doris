@@ -261,8 +261,6 @@ suite("test_disable_move_memtable", "nonConcurrent") {
         }
     }
 
-    sql """ set enable_nereids_planner=true """
-    sql """ set enable_nereids_dml=true """
     insert_into_value_with_injection("VTabletWriterV2._init._output_tuple_desc_null", "test", "unknown destination tuple descriptor")
     insert_into_value_with_injection("VTabletWriterV2._init._output_tuple_desc_null", "test1", "success")
     sql """ set enable_insert_strict = false """
@@ -270,22 +268,10 @@ suite("test_disable_move_memtable", "nonConcurrent") {
     insert_into_value_with_injection("VTabletWriterV2._init._output_tuple_desc_null", "test", "unknown destination tuple descriptor")
     insert_into_value_with_injection("VTabletWriterV2._init._output_tuple_desc_null", "test1", "success")
     sql """ set enable_insert_strict = true """
-    sql """ set group_commit = off_mode """
-    sql """ set enable_nereids_planner=false """
-    sql """ set enable_nereids_dml=false """
-    insert_into_value_with_injection("VTabletWriterV2._init._output_tuple_desc_null", "test", "unknown destination tuple descriptor")
-    insert_into_value_with_injection("VTabletWriterV2._init._output_tuple_desc_null", "test1", "success")
     sql """ set group_commit = sync_mode """
     insert_into_value_with_injection("VTabletWriterV2._init._output_tuple_desc_null", "test", "unknown destination tuple descriptor")
     insert_into_value_with_injection("VTabletWriterV2._init._output_tuple_desc_null", "test1", "success")
     sql """ set group_commit = off_mode """
-
-    sql """ set enable_nereids_planner=true """
-    sql """ set enable_nereids_dml=true """
-    insert_into_select_with_injection("VTabletWriterV2._init._output_tuple_desc_null", "test", "unknown destination tuple descriptor")
-    insert_into_select_with_injection("VTabletWriterV2._init._output_tuple_desc_null", "test1", "success")
-    sql """ set enable_nereids_planner=false """
-    sql """ set enable_nereids_dml=false """
     insert_into_select_with_injection("VTabletWriterV2._init._output_tuple_desc_null", "test", "unknown destination tuple descriptor")
     insert_into_select_with_injection("VTabletWriterV2._init._output_tuple_desc_null", "test1", "success")
 
@@ -295,7 +281,6 @@ suite("test_disable_move_memtable", "nonConcurrent") {
         try {
             sql "ADMIN SET FRONTEND CONFIG ('stream_load_default_memtable_on_sink_node' = 'true')"
             sql """ set enable_nereids_planner=true """
-            sql """ set enable_nereids_dml=true """
             stream_load_with_injection("VTabletWriterV2._init._output_tuple_desc_null", "baseall", "fail")
             stream_load_with_injection("VTabletWriterV2._init._output_tuple_desc_null", "baseall1", "fail")
         } finally {
@@ -304,23 +289,11 @@ suite("test_disable_move_memtable", "nonConcurrent") {
         return
     }
 
-    sql """ set enable_nereids_planner=true """
-    sql """ set enable_nereids_dml=true """
-    stream_load_with_injection("VTabletWriterV2._init._output_tuple_desc_null", "baseall", "fail")
-    stream_load_with_injection("VTabletWriterV2._init._output_tuple_desc_null", "baseall1", "success")
-    sql """ set enable_nereids_planner=false """
-    sql """ set enable_nereids_dml=false """
     stream_load_with_injection("VTabletWriterV2._init._output_tuple_desc_null", "baseall", "fail")
     stream_load_with_injection("VTabletWriterV2._init._output_tuple_desc_null", "baseall1", "success")
 
-    sql """ set enable_nereids_planner=true """
-    sql """ set enable_nereids_dml=true """
     broker_load_with_injection("VTabletWriterV2._init._output_tuple_desc_null", "baseall", "CANCELLED")
     broker_load_with_injection("VTabletWriterV2._init._output_tuple_desc_null", "baseall1", "FINISHED")
-    sql """ set enable_nereids_planner=false """
-    sql """ set enable_nereids_dml=false """
-    broker_load_with_injection("VTabletWriterV2._init._output_tuple_desc_null", "brokerload", "CANCELLED")
-    broker_load_with_injection("VTabletWriterV2._init._output_tuple_desc_null", "brokerload1", "FINISHED")
 
     sql """ set enable_memtable_on_sink_node=false """
     sql """ DROP TABLE IF EXISTS `baseall` """

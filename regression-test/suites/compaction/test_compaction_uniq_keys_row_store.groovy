@@ -18,7 +18,7 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 
-suite("test_compaction_uniq_keys_row_store", "nonConcurrent") {
+suite("test_compaction_uniq_keys_row_store", "p0") {
     def realDb = "regression_test_serving_p0"
     def tableName = realDb + ".compaction_uniq_keys_row_store_regression_test"
     sql "CREATE DATABASE IF NOT EXISTS ${realDb}"
@@ -177,7 +177,7 @@ suite("test_compaction_uniq_keys_row_store", "nonConcurrent") {
         sql """ INSERT INTO ${tableName} VALUES
              (4, '2017-10-01', '2017-10-01', '2017-10-01 11:11:11.028', '2017-10-01 11:11:11.018', 'Beijing', 10, 1, NULL, NULL, NULL, NULL, '2020-01-05', 1, 34, 20)
             """
-        qt_sql_row_size "select sum(length(__DORIS_ROW_STORE_COL__)) from regression_test_serving_p0.compaction_uniq_keys_row_store_regression_test"
+        qt_sql_row_size "select sum(length(__DORIS_ROW_STORE_COL__)) from ${tableName}"
         //TabletId,ReplicaIdBackendId,SchemaHash,Version,LstSuccessVersion,LstFailedVersion,LstFailedTime,LocalDataSize,RemoteDataSize,RowCount,State,LstConsistencyCheckTime,CheckVersion,VersionCount,QueryHits,PathHash,MetaUrl,CompactionStatus
         tablets = sql_return_maparray """ show tablets from ${tableName}; """
 
@@ -233,7 +233,7 @@ suite("test_compaction_uniq_keys_row_store", "nonConcurrent") {
         }
         assert (rowCount < 8 * replicaNum)
         checkValue()
-        qt_sql_row_size "select sum(length(__DORIS_ROW_STORE_COL__)) from regression_test_serving_p0.compaction_uniq_keys_row_store_regression_test"
+        qt_sql_row_size "select sum(length(__DORIS_ROW_STORE_COL__)) from ${tableName}"
     } finally {
         // try_sql("DROP TABLE IF EXISTS ${tableName}")
     }

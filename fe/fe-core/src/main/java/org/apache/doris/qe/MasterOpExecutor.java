@@ -102,8 +102,8 @@ public class MasterOpExecutor {
         waitOnReplaying();
     }
 
-    public long getGroupCommitLoadBeId(long tableId, String cluster, boolean isCloud) throws Exception {
-        result = forward(buildGetGroupCommitLoadBeIdParmas(tableId, cluster, isCloud));
+    public long getGroupCommitLoadBeId(long tableId, String cluster) throws Exception {
+        result = forward(buildGetGroupCommitLoadBeIdParmas(tableId, cluster));
         waitOnReplaying();
         return result.groupCommitLoadBeId;
     }
@@ -244,12 +244,11 @@ public class MasterOpExecutor {
         return params;
     }
 
-    private TMasterOpRequest buildGetGroupCommitLoadBeIdParmas(long tableId, String cluster, boolean isCloud) {
+    private TMasterOpRequest buildGetGroupCommitLoadBeIdParmas(long tableId, String cluster) {
         final TGroupCommitInfo groupCommitParams = new TGroupCommitInfo();
         groupCommitParams.setGetGroupCommitLoadBeId(true);
         groupCommitParams.setGroupCommitLoadTableId(tableId);
         groupCommitParams.setCluster(cluster);
-        groupCommitParams.setIsCloud(isCloud);
 
         final TMasterOpRequest params = new TMasterOpRequest();
         // node ident
@@ -350,7 +349,9 @@ public class MasterOpExecutor {
                         .put(TTransportException.UNKNOWN, "Unknown exception")
                         .put(TTransportException.NOT_OPEN, "Connection is not open")
                         .put(TTransportException.ALREADY_OPEN, "Connection has already opened up")
-                        .put(TTransportException.TIMED_OUT, "Connection timeout")
+                        .put(TTransportException.TIMED_OUT,
+                                "Connection timeout, please check network state or enlarge session variable:"
+                                        + "`query_timeout`/`insert_timeout`")
                         .put(TTransportException.END_OF_FILE, "EOF")
                         .put(TTransportException.CORRUPTED_DATA, "Corrupted data")
                         .build();

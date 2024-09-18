@@ -420,9 +420,11 @@ public class CreateTableStmt extends DdlStmt implements NotFallbackInParser {
             }
 
             keysDesc.analyze(columnDefs);
-            if (!CollectionUtils.isEmpty(keysDesc.getClusterKeysColumnNames()) && !enableUniqueKeyMergeOnWrite) {
-                throw new AnalysisException("Cluster keys only support unique keys table which enabled "
-                        + PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE);
+            if (!CollectionUtils.isEmpty(keysDesc.getClusterKeysColumnNames())) {
+                if (!enableUniqueKeyMergeOnWrite) {
+                    throw new AnalysisException("Cluster keys only support unique keys table which enabled "
+                            + PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE);
+                }
             }
             for (int i = 0; i < keysDesc.keysColumnSize(); ++i) {
                 columnDefs.get(i).setIsKey(true);
@@ -498,7 +500,7 @@ public class CreateTableStmt extends DdlStmt implements NotFallbackInParser {
                             columnDef.getType().getPrimitiveType() + " column can't support aggregation "
                                     + columnDef.getAggregateType());
                 }
-                if (columnDef.isKey()) {
+                if (columnDef.isKey() || columnDef.getClusterKeyId() != -1) {
                     throw new AnalysisException(columnDef.getType().getPrimitiveType()
                             + " can only be used in the non-key column of the duplicate table at present.");
                 }

@@ -76,7 +76,7 @@ public:
         _output_tuple_id = tnode.file_scan_node.tuple_id;
     }
 
-    Status prepare(RuntimeState* state) override;
+    Status open(RuntimeState* state) override;
 
     bool is_file_scan_operator() const override { return true; }
 

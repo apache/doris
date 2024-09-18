@@ -17,8 +17,9 @@
 package org.apache.doris.regression.suite
 
 import org.apache.doris.regression.Config
-import org.apache.doris.regression.util.Http
 import org.apache.doris.regression.util.DebugPoint
+import org.apache.doris.regression.util.Http
+import org.apache.doris.regression.util.JdbcUtils
 import org.apache.doris.regression.util.NodeType
 
 import com.google.common.collect.Maps
@@ -29,17 +30,25 @@ import groovy.json.JsonSlurper
 import groovy.transform.CompileStatic
 import groovy.util.logging.Slf4j
 import java.util.stream.Collectors
+import java.sql.Connection
 
 class ClusterOptions {
 
     int feNum = 1
     int beNum = 3
 
+    Boolean sqlModeNodeMgr = false
+    Boolean beMetaServiceEndpoint = true
+    Boolean beCloudInstanceId = false
+
+    int waitTimeout = 180
+
     List<String> feConfigs = [
         'heartbeat_interval_second=5',
     ]
 
     List<String> beConfigs = [
+        'max_sys_mem_available_low_water_mark_bytes=0', //no check mem available memory
         'report_disk_state_interval_seconds=2',
         'report_random_wait=false',
     ]
@@ -50,6 +59,12 @@ class ClusterOptions {
     // 2. cloudMode = false, only create none-cloud cluster.
     // 3. cloudMode = null, create both cloud and none-cloud cluster, depend on the running pipeline mode.
     Boolean cloudMode = false
+
+    // in cloud mode, deployment methods are divided into
+    // 1. master - multi observers
+    // 2. mutli followers - multi observers
+    // default use 1
+    Boolean useFollowersMode = false
 
     // when cloudMode = true/false,  but the running pipeline is diff with cloudMode,
     // skip run this docker test or not.
@@ -95,12 +110,14 @@ class ServerNode {
     String host
     int httpPort
     boolean alive
+    String path
 
     static void fromCompose(ServerNode node, ListHeader header, int index, List<Object> fields) {
         node.index = index
         node.host = (String) fields.get(header.indexOf('IP'))
         node.httpPort = (Integer) fields.get(header.indexOf('http_port'))
         node.alive = fields.get(header.indexOf('alive')) == 'true'
+        node.path = (String) fields.get(header.indexOf('path'))
     }
 
     static long toLongOrDefault(Object val, long defValue) {
@@ -130,10 +147,19 @@ class ServerNode {
         assert false : 'Unknown node type'
     }
 
+    String getLogFilePath() {
+        assert false : 'Unknown node type'
+    }
+
+    String getConfFilePath() {
+        assert false : 'Unknown node type'
+    }
+
 }
 
 class Frontend extends ServerNode {
 
+    int editLogPort
     int queryPort
     boolean isMaster
 
@@ -141,6 +167,7 @@ class Frontend extends ServerNode {
         Frontend fe = new Frontend()
         ServerNode.fromCompose(fe, header, index, fields)
         fe.queryPort = (Integer) fields.get(header.indexOf('query_port'))
+        fe.editLogPort = (Integer) fields.get(header.indexOf('edit_log_port'))
         fe.isMaster = fields.get(header.indexOf('is_master')) == 'true'
         return fe
     }
@@ -149,23 +176,42 @@ class Frontend extends ServerNode {
         return NodeType.FE
     }
 
+    String getLogFilePath() {
+        return path + '/log/fe.log'
+    }
+
+    String getConfFilePath() {
+        return path + '/conf/fe.conf'
+    }
+
 }
 
 class Backend extends ServerNode {
 
+    int heartbeatPort
     long backendId
     int tabletNum
 
     static Backend fromCompose(ListHeader header, int index, List<Object> fields) {
         Backend be = new Backend()
         ServerNode.fromCompose(be, header, index, fields)
+        be.heartbeatPort = (Integer) fields.get(header.indexOf('heartbeat_port'))
         be.backendId = toLongOrDefault(fields.get(header.indexOf('backend_id')), -1L)
         be.tabletNum = (int) toLongOrDefault(fields.get(header.indexOf('tablet_num')), 0L)
+
         return be
     }
 
     NodeType getNodeType() {
         return NodeType.BE
+    }
+
+    String getLogFilePath() {
+        return path + '/log/be.INFO'
+    }
+
+    String getConfFilePath() {
+        return path + '/conf/be.conf'
     }
 
 }
@@ -182,6 +228,14 @@ class MetaService extends ServerNode {
         return NodeType.MS
     }
 
+    String getLogFilePath() {
+        return path + '/log/meta_service.INFO'
+    }
+
+    String getConfFilePath() {
+        return path + '/conf/doris_cloud.conf'
+    }
+
 }
 
 class Recycler extends ServerNode {
@@ -196,6 +250,14 @@ class Recycler extends ServerNode {
         return NodeType.RECYCLER
     }
 
+    String getLogFilePath() {
+        return path + '/log/recycler.INFO'
+    }
+
+    String getConfFilePath() {
+        return path + '/conf/doris_cloud.conf'
+    }
+
 }
 
 @Slf4j
@@ -207,6 +269,7 @@ class SuiteCluster {
     final String name
     final Config config
     private boolean running
+    private boolean sqlModeNodeMgr = false;
 
     SuiteCluster(String name, Config config) {
         this.name = name
@@ -248,7 +311,24 @@ class SuiteCluster {
         if (isCloud) {
             cmd += ['--cloud']
         }
-        cmd += ['--wait-timeout', String.valueOf(180)]
+
+        if (isCloud && options.useFollowersMode) {
+            cmd += ['--fe-follower']
+        }
+
+        if (options.sqlModeNodeMgr) {
+            cmd += ['--sql-mode-node-mgr']
+        }
+        if (!options.beMetaServiceEndpoint) {
+            cmd += ['--no-be-metaservice-endpoint']
+        }
+        if (!options.beCloudInstanceId) {
+            cmd += ['--no-be-cloud-instanceid']
+        }
+
+        cmd += ['--wait-timeout', String.valueOf(options.waitTimeout)]
+
+        sqlModeNodeMgr = options.sqlModeNodeMgr;
 
         runCmd(cmd.join(' '), -1)
 
@@ -352,6 +432,7 @@ class SuiteCluster {
         def data = runCmd(cmd)
         assert data instanceof List
         def rows = (List<List<Object>>) data
+        logger.info("get all nodes {}", rows);
         def header = new ListHeader(rows.get(0))
         for (int i = 1; i < rows.size(); i++) {
             def row = (List<Object>) rows.get(i)
@@ -362,14 +443,14 @@ class SuiteCluster {
             } else if (name.startsWith('fe-')) {
                 int index = name.substring('fe-'.length()) as int
                 frontends.add(Frontend.fromCompose(header, index, row))
-            } else if (name.startsWith('ms-')){
+            } else if (name.startsWith('ms-')) {
                 int index = name.substring('ms-'.length()) as int
                 metaservices.add(MetaService.fromCompose(header, index, row))
-            } else if (name.startsWith('recycle-')){
+            } else if (name.startsWith('recycle-')) {
                 int index = name.substring('recycle-'.length()) as int
                 recyclers.add(Recycler.fromCompose(header, index, row))
             } else if (name.startsWith('fdb-')) {
-                // current not used
+            // current not used
             } else {
                 assert false : 'Unknown node type with name: ' + name
             }
@@ -377,24 +458,28 @@ class SuiteCluster {
         return new Tuple4(frontends, backends, metaservices, recyclers)
     }
 
-    List<Integer> addFrontend(int num) throws Exception {
-        def result = add(num, 0, null)
+    List<Integer> addFrontend(int num, boolean followerMode=false) throws Exception {
+        def result = add(num, 0, null, followerMode)
         return result.first
     }
 
-    List<Integer> addBackend(int num, String ClusterName="") throws Exception {
+    List<Integer> addBackend(int num, String ClusterName='') throws Exception {
         def result = add(0, num, ClusterName)
         return result.second
     }
 
-    // APPR: clusterName just used for cloud mode, 1 cluster has n bes
-    Tuple2<List<Integer>, List<Integer>> add(int feNum, int beNum, String clusterName) throws Exception {
+    // ATTN: clusterName just used for cloud mode, 1 cluster has n bes
+    // ATTN: followerMode just used for cloud mode
+    Tuple2<List<Integer>, List<Integer>> add(int feNum, int beNum, String clusterName, boolean followerMode=false) throws Exception {
         assert feNum > 0 || beNum > 0
 
         def sb = new StringBuilder()
         sb.append('up ' + name + ' ')
         if (feNum > 0) {
             sb.append('--add-fe-num ' + feNum + ' ')
+            if (followerMode) {
+                sb.append('--fe-follower' + ' ')
+            }
         }
         if (beNum > 0) {
             sb.append('--add-be-num ' + beNum + ' ')
@@ -545,7 +630,7 @@ class SuiteCluster {
     }
 
     private Object runCmd(String cmd, int timeoutSecond = 60) throws Exception {
-        def fullCmd = String.format('python %s %s --output-json', config.dorisComposePath, cmd)
+        def fullCmd = String.format('python -W ignore %s %s --output-json', config.dorisComposePath, cmd)
         logger.info('Run doris compose cmd: {}', fullCmd)
         def proc = fullCmd.execute()
         def outBuf = new StringBuilder()

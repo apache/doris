@@ -94,6 +94,7 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
                 .setConnectionPoolMaxLifeTime(request.connection_pool_max_life_time)
                 .setConnectionPoolKeepAlive(request.connection_pool_keep_alive);
         JdbcDataSource.getDataSource().setCleanupInterval(request.connection_pool_cache_clear_time);
+        System.setProperty("com.zaxxer.hikari.useWeakReferences", "true");
         init(config, request.statement);
         this.jdbcDriverVersion = getJdbcDriverVersion();
     }
@@ -309,7 +310,7 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
                             ds.setKeepaliveTime(config.getConnectionPoolMaxLifeTime() / 5L); // default 6 min
                         }
                         hikariDataSource = ds;
-                        JdbcDataSource.getDataSource().putSource(hikariDataSourceKey, ds);
+                        JdbcDataSource.getDataSource().putSource(hikariDataSourceKey, hikariDataSource);
                         LOG.info("JdbcClient set"
                                 + " ConnectionPoolMinSize = " + config.getConnectionPoolMinSize()
                                 + ", ConnectionPoolMaxSize = " + config.getConnectionPoolMaxSize()

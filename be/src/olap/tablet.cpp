@@ -60,6 +60,7 @@
 #include "common/logging.h"
 #include "common/signal_handler.h"
 #include "common/status.h"
+#include "exprs/runtime_filter.h"
 #include "gutil/ref_counted.h"
 #include "gutil/strings/substitute.h"
 #include "io/fs/file_reader.h"
@@ -148,6 +149,8 @@ namespace {
 bvar::Adder<uint64_t> exceed_version_limit_counter;
 bvar::Window<bvar::Adder<uint64_t>> exceed_version_limit_counter_minute(
         &exceed_version_limit_counter, 60);
+bvar::Adder<uint64_t> cooldown_pending_task("cooldown_pending_task");
+bvar::Adder<uint64_t> cooldown_processing_task("cooldown_processing_task");
 
 void set_last_failure_time(Tablet* tablet, const Compaction& compaction, int64_t ms) {
     switch (compaction.compaction_type()) {
@@ -167,6 +170,8 @@ void set_last_failure_time(Tablet* tablet, const Compaction& compaction, int64_t
 };
 
 } // namespace
+
+bvar::Adder<uint64_t> unused_remote_rowset_num("unused_remote_rowset_num");
 
 WriteCooldownMetaExecutors::WriteCooldownMetaExecutors(size_t executor_nums)
         : _executor_nums(executor_nums) {
@@ -230,8 +235,13 @@ void WriteCooldownMetaExecutors::WriteCooldownMetaExecutors::submit(TabletShared
         VLOG_DEBUG << "tablet " << t->tablet_id() << " is not cooldown replica";
     };
 
-    _executors[_get_executor_pos(tablet_id)]->offer(
-            [task = std::move(async_write_task)]() { task(); });
+    cooldown_pending_task << 1;
+    _executors[_get_executor_pos(tablet_id)]->offer([task = std::move(async_write_task)]() {
+        cooldown_pending_task << -1;
+        cooldown_processing_task << 1;
+        task();
+        cooldown_processing_task << -1;
+    });
 }
 
 Tablet::Tablet(StorageEngine& engine, TabletMetaSharedPtr tablet_meta, DataDir* data_dir,
@@ -967,13 +977,9 @@ bool Tablet::can_do_compaction(size_t path_hash, CompactionType compaction_type)
         return false;
     }
 
-    if (tablet_state() == TABLET_NOTREADY) {
-        // In TABLET_NOTREADY, we keep last 10 versions in new tablet so base tablet max_version
-        // not merged in new tablet and then we can do compaction
-        return true;
-    }
-
-    return true;
+    // In TABLET_NOTREADY, we keep last 10 versions in new tablet so base tablet max_version
+    // not merged in new tablet and then we can do compaction
+    return tablet_state() == TABLET_RUNNING || tablet_state() == TABLET_NOTREADY;
 }
 
 uint32_t Tablet::calc_compaction_score(
@@ -1017,6 +1023,9 @@ uint32_t Tablet::calc_cold_data_compaction_score() const {
 
 uint32_t Tablet::_calc_cumulative_compaction_score(
         std::shared_ptr<CumulativeCompactionPolicy> cumulative_compaction_policy) {
+    if (cumulative_compaction_policy == nullptr) [[unlikely]] {
+        return 0;
+    }
 #ifndef BE_TEST
     if (_cumulative_compaction_policy == nullptr ||
         _cumulative_compaction_policy->name() != cumulative_compaction_policy->name()) {
@@ -2387,6 +2396,7 @@ void Tablet::record_unused_remote_rowset(const RowsetId& rowset_id, const std::s
         LOG(WARNING) << "failed to record unused remote rowset. tablet_id=" << tablet_id()
                      << " rowset_id=" << rowset_id << " resource_id=" << resource;
     }
+    unused_remote_rowset_num << 1;
 }
 
 Status Tablet::remove_all_remote_rowsets() {

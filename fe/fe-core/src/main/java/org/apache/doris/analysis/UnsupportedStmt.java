@@ -20,7 +20,7 @@ package org.apache.doris.analysis;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 
-public class UnsupportedStmt extends StatementBase {
+public class UnsupportedStmt extends StatementBase implements NotFallbackInParser {
 
     public UnsupportedStmt() {
 

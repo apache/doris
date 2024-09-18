@@ -78,7 +78,8 @@ public class InitMaterializationContextHook implements PlannerHook {
      * @param cascadesContext current cascadesContext in the planner
      */
     protected void doInitMaterializationContext(CascadesContext cascadesContext) {
-        TableCollectorContext collectorContext = new TableCollectorContext(Sets.newHashSet(), true);
+        // Only collect the table or mv which query use directly, to avoid useless mv partition in rewrite
+        TableCollectorContext collectorContext = new TableCollectorContext(Sets.newHashSet(), false);
         try {
             Plan rewritePlan = cascadesContext.getRewritePlan();
             // Keep use one connection context when in query, if new connect context,
@@ -128,8 +129,8 @@ public class InitMaterializationContextHook implements PlannerHook {
             Set<TableIf> usedTables) {
         Set<MTMV> availableMTMVs = getAvailableMTMVs(usedTables, cascadesContext);
         if (availableMTMVs.isEmpty()) {
-            LOG.debug(String.format("Enable materialized view rewrite but availableMTMVs is empty, current queryId "
-                    + "is %s", cascadesContext.getConnectContext().getQueryIdentifier()));
+            LOG.debug("Enable materialized view rewrite but availableMTMVs is empty, current queryId "
+                    + "is {}", cascadesContext.getConnectContext().getQueryIdentifier());
             return ImmutableList.of();
         }
         List<MaterializationContext> asyncMaterializationContext = new ArrayList<>();
@@ -137,6 +138,13 @@ public class InitMaterializationContextHook implements PlannerHook {
             MTMVCache mtmvCache = null;
             try {
                 mtmvCache = materializedView.getOrGenerateCache(cascadesContext.getConnectContext());
+                // If mv property use_for_rewrite is set false, should not partition in
+                // query rewrite by materialized view
+                if (!materializedView.isUseForRewrite()) {
+                    LOG.debug("mv doesn't part in query rewrite process because "
+                            + "use_for_rewrite is false, mv is {}", materializedView.getName());
+                    continue;
+                }
                 if (mtmvCache == null) {
                     continue;
                 }

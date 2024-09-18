@@ -370,7 +370,8 @@ Status S3ClientFactory::convert_properties_to_s3_conf(
         }
     }
     if (auto it = properties.find(S3_PROVIDER); it != properties.end()) {
-        if (0 == strcmp(it->second.c_str(), AZURE_PROVIDER_STRING)) {
+        // S3 Provider properties should be case insensitive.
+        if (0 == strcasecmp(it->second.c_str(), AZURE_PROVIDER_STRING)) {
             s3_conf->client_conf.provider = io::ObjStorageType::AZURE;
         }
     }

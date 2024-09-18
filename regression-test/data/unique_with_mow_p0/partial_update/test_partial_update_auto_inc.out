@@ -2,64 +2,72 @@
 -- !select_1 --
 doris1
 doris2
+doris3
+doris4
 
 -- !select_2 --
-2
+4
 
 -- !select_3 --
+"doris10"
+"doris11"
 doris1
 doris2
 doris3
 doris4
+doris5
+doris7
+doris8
+doris9
 
 -- !select_4 --
-4
+10
+
+-- !select_5 --
+1	10	10	10
+2	20	20	20
+3	30	30	30
+4	40	40	40
+
+-- !select_6 --
+1	99	99	10
+2	888	888	20
+3	888	888	30
+4	40	40	40
 
 -- !select_1 --
 doris1
 doris2
+doris3
+doris4
 
 -- !select_2 --
-2
+4
 
 -- !select_3 --
+"doris10"
+"doris11"
 doris1
 doris2
 doris3
 doris4
+doris5
+doris7
+doris8
+doris9
 
 -- !select_4 --
-4
+10
 
--- !select_1 --
-doris1
-doris2
+-- !select_5 --
+1	10	10	10
+2	20	20	20
+3	30	30	30
+4	40	40	40
 
--- !select_2 --
-2
-
--- !select_3 --
-doris1
-doris2
-doris3
-doris4
-
--- !select_4 --
-4
-
--- !select_1 --
-doris1
-doris2
-
--- !select_2 --
-2
-
--- !select_3 --
-doris1
-doris2
-doris3
-doris4
-
--- !select_4 --
-4
+-- !select_6 --
+1	99	99	10
+2	888	888	20
+3	888	888	30
+4	40	40	40
 

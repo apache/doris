@@ -69,8 +69,8 @@ public:
 
     ~PipelineFragmentContext();
 
-    std::vector<std::shared_ptr<TRuntimeProfileTree>> collect_realtime_profile_x() const;
-    std::shared_ptr<TRuntimeProfileTree> collect_realtime_load_channel_profile_x() const;
+    std::vector<std::shared_ptr<TRuntimeProfileTree>> collect_realtime_profile() const;
+    std::shared_ptr<TRuntimeProfileTree> collect_realtime_load_channel_profile() const;
 
     bool is_timeout(timespec now) const;
 
@@ -88,7 +88,7 @@ public:
     // should be protected by lock?
     [[nodiscard]] bool is_canceled() const { return _runtime_state->is_cancelled(); }
 
-    Status prepare(const doris::TPipelineFragmentParams& request);
+    Status prepare(const doris::TPipelineFragmentParams& request, ThreadPool* thread_pool);
 
     Status submit();
 
@@ -141,19 +141,20 @@ public:
 
 private:
     Status _build_pipelines(ObjectPool* pool, const doris::TPipelineFragmentParams& request,
-                            const DescriptorTbl& descs, OperatorXPtr* root, PipelinePtr cur_pipe);
+                            const DescriptorTbl& descs, OperatorPtr* root, PipelinePtr cur_pipe);
     Status _create_tree_helper(ObjectPool* pool, const std::vector<TPlanNode>& tnodes,
                                const doris::TPipelineFragmentParams& request,
-                               const DescriptorTbl& descs, OperatorXPtr parent, int* node_idx,
-                               OperatorXPtr* root, PipelinePtr& cur_pipe, int child_idx);
+                               const DescriptorTbl& descs, OperatorPtr parent, int* node_idx,
+                               OperatorPtr* root, PipelinePtr& cur_pipe, int child_idx,
+                               const bool followed_by_shuffled_join);
 
     Status _create_operator(ObjectPool* pool, const TPlanNode& tnode,
                             const doris::TPipelineFragmentParams& request,
-                            const DescriptorTbl& descs, OperatorXPtr& op, PipelinePtr& cur_pipe,
-                            int parent_idx, int child_idx);
+                            const DescriptorTbl& descs, OperatorPtr& op, PipelinePtr& cur_pipe,
+                            int parent_idx, int child_idx, const bool followed_by_shuffled_join);
     template <bool is_intersect>
     Status _build_operators_for_set_operation_node(ObjectPool* pool, const TPlanNode& tnode,
-                                                   const DescriptorTbl& descs, OperatorXPtr& op,
+                                                   const DescriptorTbl& descs, OperatorPtr& op,
                                                    PipelinePtr& cur_pipe, int parent_idx,
                                                    int child_idx);
 
@@ -186,7 +187,8 @@ private:
 
     bool _enable_local_shuffle() const { return _runtime_state->enable_local_shuffle(); }
 
-    Status _build_pipeline_tasks(const doris::TPipelineFragmentParams& request);
+    Status _build_pipeline_tasks(const doris::TPipelineFragmentParams& request,
+                                 ThreadPool* thread_pool);
     void _close_fragment_instance();
     void _init_next_report_time();
 
@@ -205,7 +207,7 @@ private:
     int _closed_tasks = 0;
     // After prepared, `_total_tasks` is equal to the size of `_tasks`.
     // When submit fail, `_total_tasks` is equal to the number of tasks submitted.
-    int _total_tasks = 0;
+    std::atomic<int> _total_tasks = 0;
 
     std::unique_ptr<RuntimeProfile> _runtime_profile;
     bool _is_report_success = false;
@@ -241,7 +243,7 @@ private:
 
     int _timeout = -1;
 
-    OperatorXPtr _root_op = nullptr;
+    OperatorPtr _root_op = nullptr;
     // this is a [n * m] matrix. n is parallelism of pipeline engine and m is the number of pipelines.
     std::vector<std::vector<std::unique_ptr<PipelineTask>>> _tasks;
 
@@ -253,7 +255,7 @@ private:
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wshadow-field"
 #endif
-    DataSinkOperatorXPtr _sink = nullptr;
+    DataSinkOperatorPtr _sink = nullptr;
 #ifdef __clang__
 #pragma clang diagnostic pop
 #endif
@@ -302,7 +304,7 @@ private:
 
     std::vector<TUniqueId> _fragment_instance_ids;
     // Local runtime states for each task
-    std::vector<std::unique_ptr<RuntimeState>> _task_runtime_states;
+    std::vector<std::vector<std::unique_ptr<RuntimeState>>> _task_runtime_states;
 
     std::vector<std::unique_ptr<RuntimeFilterParamsContext>> _runtime_filter_states;
 

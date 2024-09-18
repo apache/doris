@@ -18,7 +18,6 @@
 package org.apache.doris.load;
 
 import org.apache.doris.analysis.OutFileClause;
-import org.apache.doris.analysis.SelectStmt;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -95,15 +94,10 @@ public class ExportTaskExecutor implements TransientTaskExecutor {
                     table.readLock();
                     try {
                         List<Long> tabletIds;
-                        if (exportJob.getSessionVariables().isEnableNereidsPlanner()) {
-                            LogicalPlanAdapter logicalPlanAdapter = (LogicalPlanAdapter) selectStmtLists.get(idx);
-                            Optional<UnboundRelation> unboundRelation = findUnboundRelation(
-                                    logicalPlanAdapter.getLogicalPlan());
-                            tabletIds = unboundRelation.get().getTabletIds();
-                        } else {
-                            SelectStmt selectStmt = (SelectStmt) selectStmtLists.get(idx);
-                            tabletIds = selectStmt.getTableRefs().get(0).getSampleTabletIds();
-                        }
+                        LogicalPlanAdapter logicalPlanAdapter = (LogicalPlanAdapter) selectStmtLists.get(idx);
+                        Optional<UnboundRelation> unboundRelation = findUnboundRelation(
+                                logicalPlanAdapter.getLogicalPlan());
+                        tabletIds = unboundRelation.get().getTabletIds();
 
                         for (Long tabletId : tabletIds) {
                             TabletMeta tabletMeta = Env.getCurrentEnv().getTabletInvertedIndex().getTabletMeta(
@@ -172,7 +166,6 @@ public class ExportTaskExecutor implements TransientTaskExecutor {
         connectContext.setSessionVariable(exportJob.getSessionVariables());
         // The rollback to the old optimizer is prohibited
         // Since originStmt is empty, reverting to the old optimizer when the new optimizer is enabled is meaningless.
-        connectContext.getSessionVariable().enableFallbackToOriginalPlanner = false;
         connectContext.setEnv(Env.getCurrentEnv());
         connectContext.setDatabase(exportJob.getTableName().getDb());
         connectContext.setQualifiedUser(exportJob.getQualifiedUser());

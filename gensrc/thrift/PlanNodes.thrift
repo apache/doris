@@ -329,6 +329,7 @@ struct TPaimonFileDesc {
     10: optional i64 last_update_time
     11: optional string file_format
     12: optional TPaimonDeletionFileDesc deletion_file;
+    13: optional map<string, string> hadoop_conf
 }
 
 struct TTrinoConnectorFileDesc {
@@ -346,7 +347,10 @@ struct TTrinoConnectorFileDesc {
 }
 
 struct TMaxComputeFileDesc {
-    1: optional string partition_spec
+    1: optional string partition_spec // deprecated 
+    2: optional string session_id 
+    3: optional string table_batch_read_session
+
 }
 
 struct THudiFileDesc {
@@ -553,6 +557,9 @@ struct TQueriesMetadataParams {
   6: optional TPartitionsMetadataParams partitions_params
 }
 
+struct TMetaCacheStatsParams {
+}
+
 struct TMetaScanRange {
   1: optional Types.TMetadataType metadata_type
   2: optional TIcebergMetadataParams iceberg_params
@@ -563,6 +570,7 @@ struct TMetaScanRange {
   7: optional TJobsMetadataParams jobs_params
   8: optional TTasksMetadataParams tasks_params
   9: optional TPartitionsMetadataParams partitions_params
+  10: optional TMetaCacheStatsParams meta_cache_stats_params
 }
 
 // Specification of an individual data range which is held in its entirety

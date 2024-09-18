@@ -68,6 +68,7 @@ public class TableProperty implements Writable, GsonPostProcessable {
     private boolean isInMemory = false;
     private short minLoadReplicaNum = -1;
     private long ttlSeconds = 0L;
+    private boolean isInAtomicRestore = false;
 
     private String storagePolicy = "";
     private Boolean isBeingSynced = null;
@@ -96,6 +97,8 @@ public class TableProperty implements Writable, GsonPostProcessable {
 
     private boolean disableAutoCompaction = false;
 
+    private boolean variantEnableFlattenNested = false;
+
     private boolean enableSingleReplicaCompaction = false;
 
     private boolean storeRowColumn = false;
@@ -120,6 +123,9 @@ public class TableProperty implements Writable, GsonPostProcessable {
 
     private long timeSeriesCompactionLevelThreshold
                                     = PropertyAnalyzer.TIME_SERIES_COMPACTION_LEVEL_THRESHOLD_DEFAULT_VALUE;
+
+    private String autoAnalyzePolicy = PropertyAnalyzer.ENABLE_AUTO_ANALYZE_POLICY;
+
 
     private DataSortInfo dataSortInfo = new DataSortInfo();
 
@@ -160,6 +166,7 @@ public class TableProperty implements Writable, GsonPostProcessable {
                 buildTimeSeriesCompactionEmptyRowsetsThreshold();
                 buildTimeSeriesCompactionLevelThreshold();
                 buildTTLSeconds();
+                buildAutoAnalyzeProperty();
                 break;
             default:
                 break;
@@ -212,6 +219,26 @@ public class TableProperty implements Writable, GsonPostProcessable {
         return this;
     }
 
+    public TableProperty buildInAtomicRestore() {
+        isInAtomicRestore = Boolean.parseBoolean(properties.getOrDefault(
+                PropertyAnalyzer.PROPERTIES_IN_ATOMIC_RESTORE, "false"));
+        return this;
+    }
+
+    public boolean isInAtomicRestore() {
+        return isInAtomicRestore;
+    }
+
+    public TableProperty setInAtomicRestore() {
+        properties.put(PropertyAnalyzer.PROPERTIES_IN_ATOMIC_RESTORE, "true");
+        return this;
+    }
+
+    public TableProperty clearInAtomicRestore() {
+        properties.remove(PropertyAnalyzer.PROPERTIES_IN_ATOMIC_RESTORE);
+        return this;
+    }
+
     public TableProperty buildTTLSeconds() {
         ttlSeconds = Long.parseLong(properties.getOrDefault(PropertyAnalyzer.PROPERTIES_FILE_CACHE_TTL_SECONDS, "0"));
         return this;
@@ -233,8 +260,25 @@ public class TableProperty implements Writable, GsonPostProcessable {
         return this;
     }
 
+    public TableProperty buildAutoAnalyzeProperty() {
+        autoAnalyzePolicy = properties.getOrDefault(PropertyAnalyzer.PROPERTIES_AUTO_ANALYZE_POLICY,
+                PropertyAnalyzer.ENABLE_AUTO_ANALYZE_POLICY);
+        return this;
+    }
+
     public boolean disableAutoCompaction() {
         return disableAutoCompaction;
+    }
+
+
+    public TableProperty buildVariantEnableFlattenNested() {
+        variantEnableFlattenNested = Boolean.parseBoolean(
+                properties.getOrDefault(PropertyAnalyzer.PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED, "false"));
+        return this;
+    }
+
+    public boolean variantEnableFlattenNested() {
+        return variantEnableFlattenNested;
     }
 
     public TableProperty buildEnableSingleReplicaCompaction() {
@@ -681,6 +725,8 @@ public class TableProperty implements Writable, GsonPostProcessable {
         buildTimeSeriesCompactionEmptyRowsetsThreshold();
         buildTimeSeriesCompactionLevelThreshold();
         buildTTLSeconds();
+        buildVariantEnableFlattenNested();
+        buildInAtomicRestore();
 
         if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_105) {
             // get replica num from property map and create replica allocation

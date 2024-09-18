@@ -108,10 +108,11 @@ void MemTable::_init_agg_functions(const vectorized::Block* block) {
             // the aggregate function manually.
             function = vectorized::AggregateFunctionSimpleFactory::instance().get(
                     "replace_load", {block->get_data_type(cid)},
-                    block->get_data_type(cid)->is_nullable());
+                    block->get_data_type(cid)->is_nullable(),
+                    BeExecVersionManager::get_newest_version());
         } else {
-            function =
-                    _tablet_schema->column(cid).get_aggregate_function(vectorized::AGG_LOAD_SUFFIX);
+            function = _tablet_schema->column(cid).get_aggregate_function(
+                    vectorized::AGG_LOAD_SUFFIX, _tablet_schema->column(cid).get_be_exec_version());
             if (function == nullptr) {
                 LOG(WARNING) << "column get aggregate function failed, column="
                              << _tablet_schema->column(cid).name();
@@ -160,9 +161,8 @@ MemTable::~MemTable() {
     std::for_each(_row_in_blocks.begin(), _row_in_blocks.end(), std::default_delete<RowInBlock>());
     _insert_mem_tracker->release(_mem_usage);
     _flush_mem_tracker->set_consumption(0);
-    DCHECK_EQ(_insert_mem_tracker->consumption(), 0)
-            << std::endl
-            << MemTracker::log_usage(_insert_mem_tracker->make_snapshot());
+    DCHECK_EQ(_insert_mem_tracker->consumption(), 0) << std::endl
+                                                     << _insert_mem_tracker->log_usage();
     DCHECK_EQ(_flush_mem_tracker->consumption(), 0);
     _arena.reset();
     _agg_buffer_pool.clear();
@@ -189,7 +189,7 @@ Status MemTable::insert(const vectorized::Block* input_block,
         if (_keys_type != KeysType::DUP_KEYS) {
             // there may be additional intermediate columns in input_block
             // we only need columns indicated by column offset in the output
-            _init_agg_functions(&clone_block);
+            RETURN_IF_CATCH_EXCEPTION(_init_agg_functions(&clone_block));
         }
         if (_tablet_schema->has_sequence_col()) {
             if (_is_partial_update) {
@@ -322,9 +322,14 @@ Status MemTable::_sort_by_cluster_keys() {
     }
     Tie tie = Tie(0, mutable_block.rows());
 
-    for (auto i : _tablet_schema->cluster_key_idxes()) {
+    for (auto cid : _tablet_schema->cluster_key_idxes()) {
+        auto index = _tablet_schema->field_index(cid);
+        if (index == -1) {
+            return Status::InternalError("could not find cluster key column with unique_id=" +
+                                         std::to_string(cid) + " in tablet schema");
+        }
         auto cmp = [&](const RowInBlock* lhs, const RowInBlock* rhs) -> int {
-            return mutable_block.compare_one_column(lhs->_row_pos, rhs->_row_pos, i, -1);
+            return mutable_block.compare_one_column(lhs->_row_pos, rhs->_row_pos, index, -1);
         };
         _sort_one_column(row_in_blocks, tie, cmp);
     }
@@ -505,7 +510,7 @@ bool MemTable::need_agg() const {
     return false;
 }
 
-Status MemTable::to_block(std::unique_ptr<vectorized::Block>* res) {
+Status MemTable::_to_block(std::unique_ptr<vectorized::Block>* res) {
     size_t same_keys_num = _sort();
     if (_keys_type == KeysType::DUP_KEYS || same_keys_num == 0) {
         if (_keys_type == KeysType::DUP_KEYS && _tablet_schema->num_key_columns() == 0) {
@@ -526,6 +531,11 @@ Status MemTable::to_block(std::unique_ptr<vectorized::Block>* res) {
     _insert_mem_tracker->release(_mem_usage);
     _mem_usage = 0;
     *res = vectorized::Block::create_unique(_output_mutable_block.to_block());
+    return Status::OK();
+}
+
+Status MemTable::to_block(std::unique_ptr<vectorized::Block>* res) {
+    RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_to_block(res));
     return Status::OK();
 }
 

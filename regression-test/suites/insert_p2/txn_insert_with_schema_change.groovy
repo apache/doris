@@ -54,6 +54,7 @@ suite("txn_insert_with_schema_change") {
             DUPLICATE KEY(L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER)
             DISTRIBUTED BY HASH(L_ORDERKEY) BUCKETS 3
             PROPERTIES (
+                "enable_mow_light_delete" = "true",
                 "replication_num" = "1"
             )
         """
@@ -98,7 +99,7 @@ suite("txn_insert_with_schema_change") {
         sql "use ${dbName};"
         def last_state = ""
         while (true) {
-            sleep(2000)
+            sleep(4000)
             def state = sql """ show alter table column where tablename = "${tName}" order by CreateTime desc limit 1"""
             logger.info("alter table state: ${state}")
             last_state = state[0][9]
@@ -106,7 +107,7 @@ suite("txn_insert_with_schema_change") {
                 return
             }
             retry++
-            if (retry >= 10 || last_state == "FINISHED" || last_state == "CANCELLED") {
+            if (retry >= 60 || last_state == "FINISHED" || last_state == "CANCELLED") {
                 break
             }
         }
