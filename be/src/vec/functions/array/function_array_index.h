@@ -188,11 +188,6 @@ public:
                         roaring->cardinality(), result_bitmap);
             }
         })
-        if (iter->has_null()) {
-            segment_v2::InvertedIndexQueryCacheHandle null_bitmap_cache_handle;
-            RETURN_IF_ERROR(iter->read_null_bitmap(&null_bitmap_cache_handle));
-            null_bitmap = null_bitmap_cache_handle.get_bitmap();
-        }
         segment_v2::InvertedIndexResultBitmap result(roaring, null_bitmap);
         bitmap_result = result;
         bitmap_result.mask_out_null();
