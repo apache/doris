@@ -422,12 +422,13 @@ suite("test_partial_update_schema_change", "p0") {
     }
 
     // test load data with all key column, should fail because
-    // it don't have any value columns
+    // it inserts a new row in strict mode
     streamLoad {
         table "${tableName}"
 
         set 'column_separator', ','
         set 'partial_columns', 'true'
+        set 'strict_mode', 'true'
         set 'columns', 'c0, c1'
 
         file 'schema_change/load_with_key_column.csv'
@@ -440,8 +441,8 @@ suite("test_partial_update_schema_change", "p0") {
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
             assertEquals("fail", json.Status.toLowerCase())
-            assertEquals(0, json.NumberTotalRows)
-            assertEquals(0, json.NumberFilteredRows)
+            assertEquals(1, json.NumberTotalRows)
+            assertEquals(1, json.NumberFilteredRows)
             assertEquals(0, json.NumberUnselectedRows)
         }
     }
@@ -1021,6 +1022,7 @@ suite("test_partial_update_schema_change", "p0") {
 
         set 'column_separator', ','
         set 'partial_columns', 'true'
+        set 'strict_mode', 'true'
         set 'columns', 'c0, c1'
 
         file 'schema_change/load_with_key_column.csv'
@@ -1033,8 +1035,8 @@ suite("test_partial_update_schema_change", "p0") {
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
             assertEquals("fail", json.Status.toLowerCase())
-            assertEquals(0, json.NumberTotalRows)
-            assertEquals(0, json.NumberFilteredRows)
+            assertEquals(1, json.NumberTotalRows)
+            assertEquals(1, json.NumberFilteredRows)
             assertEquals(0, json.NumberUnselectedRows)
         }
     }
