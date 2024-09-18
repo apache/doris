@@ -22,6 +22,11 @@ suite("test_iceberg_create_table", "p0,external,doris,external_docker,external_d
         return
     }
 
+    String[][] ret = sql """ show variables like 'enable_fallback_to_original_planner' """
+    String origin_fallback = ret[0][1]
+
+    sql """ set enable_fallback_to_original_planner=false; """
+
     String rest_port = context.config.otherConfigs.get("iceberg_rest_uri_port")
     String minio_port = context.config.otherConfigs.get("iceberg_minio_port")
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
@@ -73,4 +78,5 @@ suite("test_iceberg_create_table", "p0,external,doris,external_docker,external_d
     sql """ drop table ${db1}.${tb2} """
     sql """ drop database ${db1} """
 
+    sql """ set enable_fallback_to_original_planner=${origin_fallback}; """
 }
