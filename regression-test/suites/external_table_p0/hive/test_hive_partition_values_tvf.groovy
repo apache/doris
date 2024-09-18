@@ -106,6 +106,37 @@ suite("test_hive_partition_values_tvf", "p0,external,hive,external_docker,extern
             sql """select * from internal.partition_values_db.pv_inner1\$partitions"""
             exception """Table [pv_inner1\$partitions] does not exist in database [partition_values_db]"""
         }
+
+        // 13. test all types of partition columns
+        sql """switch ${catalog_name}"""
+        sql """drop database if exists partition_values_db""";
+        sql """create database partition_values_db"""
+        sql """use partition_values_db"""
+
+        sql """create table partition_values_all_types (
+            k1 int,
+            k2 string,
+            p1 boolean,
+            p2 tinyint,
+            p3 smallint,
+            p4 int,
+            p5 bigint,
+            p6 date,
+            p7 datetime,
+            p8 string
+        ) partition by list(p1, p2, p3, p4, p5, p6, p7, p8)();
+        """
+
+        qt_sql111 """desc partition_values_all_types\$partitions;"""
+
+        sql """insert into partition_values_all_types values
+            (1, "test1", true, -128, -32768, -2147483648, -9223372036854775808, "1900-01-01", "1899-01-01 23:59:59", ""),
+            (2, null, false, 127, 32767, 2147483647, 9223372036854775807, "9999-12-31", "0001-01-01 00:00:01.321", "boston"),
+            (3, "", null, null, null, null, null, null, null, null);
+        """
+
+        qt_sql112 """select * from partition_values_all_types order by k1;"""
+        qt_sql113 """select * from partition_values_all_types\$partitions order by p1,p2,p3;"""
     }
 }
 
