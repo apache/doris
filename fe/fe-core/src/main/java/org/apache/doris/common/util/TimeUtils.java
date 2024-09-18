@@ -355,8 +355,15 @@ public class TimeUtils {
         return (long) day | (long) month << 5 | (long) year << 9;
     }
 
-    public static long convertStringToDateTimeV2(String dateTimeStr) {
-        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+    public static long convertStringToDateTimeV2(String dateTimeStr, int scale) {
+        String format = "yyyy-MM-dd HH:mm:ss";
+        if (scale > 0) {
+            format += ".";
+            for (int i = 0; i < scale; i++) {
+                format += "S";
+            }
+        }
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern(format);
         LocalDateTime dateTime = TimeUtils.formatDateTimeAndFullZero(dateTimeStr, formatter);
         return convertToDateTimeV2(dateTime.getYear(), dateTime.getMonthValue(), dateTime.getDayOfMonth(),
                 dateTime.getHour(), dateTime.getMinute(), dateTime.getSecond(), dateTime.getNano() / 1000);

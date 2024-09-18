@@ -30,6 +30,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.SchemaTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
@@ -1564,10 +1565,12 @@ public class MetadataGenerator {
                         case DATEV2:
                             trow.addToColumnValue(
                                     new TCell().setLongVal(TimeUtils.convertStringToDateV2(partitionValue)));
+                            break;
                         case DATETIME:
                         case DATETIMEV2:
                             trow.addToColumnValue(
-                                    new TCell().setLongVal(TimeUtils.convertStringToDateTimeV2(partitionValue)));
+                                    new TCell().setLongVal(TimeUtils.convertStringToDateTimeV2(partitionValue,
+                                            ((ScalarType) type).getScalarScale())));
                             break;
                         default:
                             throw new AnalysisException(

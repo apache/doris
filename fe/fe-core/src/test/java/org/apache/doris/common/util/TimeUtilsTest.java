@@ -226,28 +226,30 @@ public class TimeUtilsTest {
 
     @Test
     public void testConvertToBEDatetimeV2Type() {
-        long result = TimeUtils.convertStringToDateTimeV2("2021-01-01 10:10:10");
+        long result = TimeUtils.convertStringToDateTimeV2("2021-01-01 10:10:10", 0);
         Assert.assertEquals(142219811099770880L, result);
-        result = TimeUtils.convertStringToDateTimeV2("1900-01-01 00:00:00");
-        Assert.assertEquals(133705149423026176L, result);
-        result = TimeUtils.convertStringToDateTimeV2("1899-12-31 23:59:59");
+        result = TimeUtils.convertStringToDateTimeV2("1900-01-01 00:00:00.12", 2);
+        Assert.assertEquals(133705149423146176L, result);
+        result = TimeUtils.convertStringToDateTimeV2("1899-12-31 23:59:59.000", 3);
         Assert.assertEquals(133687385164611584L, result);
-        result = TimeUtils.convertStringToDateTimeV2("9999-12-31 23:59:59");
-        Assert.assertEquals(703674213003689984L, result);
+        result = TimeUtils.convertStringToDateTimeV2("9999-12-31 23:59:59.123456", 6);
+        Assert.assertEquals(703674213003812984L, result);
 
         ExceptionChecker.expectThrows(DateTimeParseException.class,
-                () -> TimeUtils.convertStringToDateTimeV2("2021-1-1"));
+                () -> TimeUtils.convertStringToDateTimeV2("2021-1-1", 0));
         ExceptionChecker.expectThrows(DateTimeParseException.class,
-                () -> TimeUtils.convertStringToDateTimeV2("1900-01-1"));
+                () -> TimeUtils.convertStringToDateTimeV2("1900-01-1", 0));
         ExceptionChecker.expectThrows(DateTimeParseException.class,
-                () -> TimeUtils.convertStringToDateTimeV2("20210101"));
-        ExceptionChecker.expectThrows(DateTimeParseException.class, () -> TimeUtils.convertStringToDateTimeV2(""));
-        ExceptionChecker.expectThrows(NullPointerException.class, () -> TimeUtils.convertStringToDateTimeV2(null));
+                () -> TimeUtils.convertStringToDateTimeV2("20210101", 0));
+        ExceptionChecker.expectThrows(DateTimeParseException.class, () -> TimeUtils.convertStringToDateTimeV2("", 0));
+        ExceptionChecker.expectThrows(NullPointerException.class, () -> TimeUtils.convertStringToDateTimeV2(null, 0));
         ExceptionChecker.expectThrows(DateTimeParseException.class,
-                () -> TimeUtils.convertStringToDateTimeV2("2024-10-10"));
+                () -> TimeUtils.convertStringToDateTimeV2("2024-10-10", 0));
         ExceptionChecker.expectThrows(DateTimeParseException.class,
-                () -> TimeUtils.convertStringToDateTimeV2("2024-10-10 10"));
+                () -> TimeUtils.convertStringToDateTimeV2("2024-10-10 10", 0));
         ExceptionChecker.expectThrows(DateTimeParseException.class,
-                () -> TimeUtils.convertStringToDateV2("2024:12:31"));
+                () -> TimeUtils.convertStringToDateTimeV2("2024:12:31", 0));
+        ExceptionChecker.expectThrows(DateTimeParseException.class,
+                () -> TimeUtils.convertStringToDateTimeV2("2024-10-10 11:11:11", 6));
     }
 }
