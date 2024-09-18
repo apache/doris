@@ -68,9 +68,20 @@ public class BaseViewStmt extends DdlStmt {
         return tableName.getTbl();
     }
 
+    public TableName getTableName() {
+        return tableName;
+    }
 
     public List<Column> getColumns() {
         return finalCols;
+    }
+
+    public List<ColWithComment> getColWithComments() {
+        return cols;
+    }
+
+    public QueryStmt getViewDefStmt() {
+        return viewDefStmt;
     }
 
     public String getInlineViewDef() {
