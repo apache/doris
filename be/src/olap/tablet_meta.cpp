@@ -1202,7 +1202,7 @@ void DeleteBitmap::remove_stale_delete_bitmap_from_queue(const std::vector<std::
     auto st = engine.meta_mgr().remove_old_version_delete_bitmap(tablet_id, to_delete);
     if (!st.ok()) {
         LOG(WARNING) << "fail to remove_stale_delete_bitmap_from_queue for tablet=" << tablet_id
-                      << ",st=" << st;
+                     << ",st=" << st;
     }
 }
 
