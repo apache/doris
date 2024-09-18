@@ -107,7 +107,6 @@ import org.jetbrains.annotations.NotNull;
 import java.text.SimpleDateFormat;
 import java.time.Instant;
 import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Date;
@@ -343,7 +342,8 @@ public class MetadataGenerator {
                     TRow trow = new TRow();
                     LocalDateTime committedAt = LocalDateTime.ofInstant(Instant.ofEpochMilli(
                             snapshot.timestampMillis()), TimeUtils.getTimeZone().toZoneId());
-                    long encodedDatetime = convertToDateTimeV2(committedAt.getYear(), committedAt.getMonthValue(),
+                    long encodedDatetime = TimeUtils.convertToDateTimeV2(committedAt.getYear(),
+                            committedAt.getMonthValue(),
                             committedAt.getDayOfMonth(), committedAt.getHour(), committedAt.getMinute(),
                             committedAt.getSecond(), committedAt.getNano() / 1000);
 
@@ -797,32 +797,6 @@ public class MetadataGenerator {
             filterColumnsRows.add(filterRow);
         }
         result.setDataBatch(filterColumnsRows);
-    }
-
-    // Refer to be/src/vec/runtime/vdatetime_value.h
-    private static long convertToDateTimeV2(
-            int year, int month, int day, int hour, int minute, int second, int microsecond) {
-        return (long) microsecond | (long) second << 20 | (long) minute << 26 | (long) hour << 32
-                | (long) day << 37 | (long) month << 42 | (long) year << 46;
-    }
-
-    // Refer to be/src/vec/runtime/vdatetime_value.h
-    private static long convertToDateV2(
-            int year, int month, int day) {
-        return (long) day | (long) month << 5 | (long) year << 9;
-    }
-
-    private static long convertStringToDateTimeV2(String dateTimeStr) {
-        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
-        LocalDateTime dateTime = TimeUtils.formatDateTimeAndFullZero(dateTimeStr, formatter);
-        return convertToDateTimeV2(dateTime.getYear(), dateTime.getMonthValue(), dateTime.getDayOfMonth(),
-                dateTime.getHour(), dateTime.getMinute(), dateTime.getSecond(), dateTime.getNano() / 1000);
-    }
-
-    private static long convertStringToDateV2(String dateStr) {
-        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd");
-        LocalDateTime dateTime = TimeUtils.formatDateTimeAndFullZero(dateStr, formatter);
-        return convertToDateV2(dateTime.getYear(), dateTime.getMonthValue(), dateTime.getDayOfMonth());
     }
 
     private static TFetchSchemaTableDataResult mtmvMetadataResult(TMetadataTableRequestParams params) {
@@ -1559,7 +1533,7 @@ public class MetadataGenerator {
             for (int i = 0; i < colIdxs.size(); ++i) {
                 int idx = colIdxs.get(i);
                 String partitionValue = values.get(idx);
-                if (partitionValue == null && partitionValue.equals(TablePartitionValues.HIVE_DEFAULT_PARTITION)) {
+                if (partitionValue == null || partitionValue.equals(TablePartitionValues.HIVE_DEFAULT_PARTITION)) {
                     trow.addToColumnValue(new TCell().setIsNull(true));
                 } else {
                     Type type = types.get(i);
@@ -1588,10 +1562,12 @@ public class MetadataGenerator {
                             break;
                         case DATE:
                         case DATEV2:
-                            trow.addToColumnValue(new TCell().setLongVal(convertStringToDateV2(partitionValue)));
+                            trow.addToColumnValue(
+                                    new TCell().setLongVal(TimeUtils.convertStringToDateV2(partitionValue)));
                         case DATETIME:
                         case DATETIMEV2:
-                            trow.addToColumnValue(new TCell().setLongVal(convertStringToDateTimeV2(partitionValue)));
+                            trow.addToColumnValue(
+                                    new TCell().setLongVal(TimeUtils.convertStringToDateTimeV2(partitionValue)));
                             break;
                         default:
                             throw new AnalysisException(
