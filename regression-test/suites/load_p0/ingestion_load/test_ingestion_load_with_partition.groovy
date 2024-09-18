@@ -19,9 +19,9 @@ import java.nio.file.Files
 import java.nio.file.Paths
 import java.nio.file.StandardCopyOption
 
-suite('test_ingestion_load', 'p0') {
+suite('test_ingestion_load_with_partition', 'p0') {
 
-    def testIngestLoadJob = { testTable, loadLabel, String dataFile ->
+    def testIngestLoadJob = { testTable, loadLabel, dataFiles ->
 
         sql "TRUNCATE TABLE ${testTable}"
 
@@ -43,6 +43,8 @@ suite('test_ingestion_load', 'p0') {
                     "properties": {}
                 }"""
 
+        resultFileNames = []    
+
         httpTest {
             endpoint context.config.feHttpAddress
             uri "/api/ingestion_load/internal/${context.dbName}/_create"
@@ -61,17 +63,22 @@ suite('test_ingestion_load', 'p0') {
                 def index = tableMeta["${testTable}"].indexes[0]
                 indexId = index.indexId
                 schemaHash = index.schemaHash
-                partitionId = tableMeta["${testTable}"].partitionInfo.partitions[0].partitionId
+                partitions = tableMeta["${testTable}"].partitionInfo.partitions
+                for(partition in partitions) {
+                    logger.info("partitionId: " + partition.partitionId)
+                    resultFileNames.add("V1.${loadLabel}.${tableId}.${partition.partitionId}.${indexId}.${bucketId}.${schemaHash}.parquet")
+                }
             }
         }
 
-        String resultFileName = "V1.${loadLabel}.${tableId}.${partitionId}.${indexId}.${bucketId}.${schemaHash}.parquet"
-        logger.info("resultFileName: " + resultFileName)
-
-        Files.copy(Paths.get(dataFile),
-                Paths.get(context.config.dataPath + "/load_p0/ingestion_load/${resultFileName}"), StandardCopyOption.REPLACE_EXISTING)
-
-        String etlResultFilePath = uploadToHdfs "/load_p0/ingestion_load/${resultFileName}"
+        etlResultFilePaths = []
+        for(int i=0; i < dataFiles.size(); i++) {
+            Files.copy(Paths.get(dataFiles[i]),
+                Paths.get(context.config.dataPath + "/load_p0/ingestion_load/${resultFileNames[i]}"), StandardCopyOption.REPLACE_EXISTING)
+            String etlResultFilePath = uploadToHdfs "/load_p0/ingestion_load/${resultFileNames[i]}"
+            logger.info("etlResultFilePath: " + etlResultFilePath)
+            etlResultFilePaths.add(etlResultFilePath)
+        }
 
         String dppResult = '{\\"isSuccess\\":true,\\"failedReason\\":\\"\\",\\"scannedRows\\":10,\\"fileNumber\\":1,' +
                 '\\"fileSize\\":2441,\\"normalRows\\":10,\\"abnormalRows\\":0,\\"unselectRows\\":0,' +
@@ -85,7 +92,7 @@ suite('test_ingestion_load', 'p0') {
                     "msg": "",
                     "appId": "",
                     "dppResult": "${dppResult}",
-                    "filePathToSize": "{\\"${etlResultFilePath}\\": 81758}",
+                    "filePathToSize": "{\\"${etlResultFilePaths.get(0)}\\":851,\\"${etlResultFilePaths.get(1)}\\":781,\\"${etlResultFilePaths.get(2)}\\":781,\\"${etlResultFilePaths.get(3)}\\":839}",
                     "hadoopProperties": "{\\"fs.defaultFS\\":\\"${getHdfsFs()}\\",\\"hadoop.username\\":\\"${getHdfsUser()}\\",\\"hadoop.password\\":\\"${getHdfsPasswd()}\\"}"
                 }
             }"""
@@ -111,7 +118,7 @@ suite('test_ingestion_load', 'p0') {
             result = sql "show load where label = '${loadLabel}'"
             if (result[0][2] == "FINISHED") {
                 sql "sync"
-                qt_select "select * from ${testTable} order by 1"
+                qt_select "select c1, count(*) from ${testTable} group by c1 order by c1"
                 break
             } else {
                 sleep(5000) // wait 1 second every time
@@ -126,96 +133,27 @@ suite('test_ingestion_load', 'p0') {
 
     if (enableHdfs()) {
 
-        tableName = 'tbl_test_spark_load'
+        tableName = 'tbl_test_spark_load_partition'
 
         sql """
             CREATE TABLE IF NOT EXISTS ${tableName} (
-                c_int int(11) NULL,
-                c_char char(15) NULL,
-                c_varchar varchar(100) NULL,
-                c_bool boolean NULL,
-                c_tinyint tinyint(4) NULL,
-                c_smallint smallint(6) NULL,
-                c_bigint bigint(20) NULL,
-                c_largeint largeint(40) NULL,
-                c_float float NULL,
-                c_double double NULL,
-                c_decimal decimal(6, 3) NULL,
-                c_decimalv3 decimal(6, 3) NULL,
-                c_date date NULL,
-                c_datev2 date NULL,
-                c_datetime datetime NULL,
-                c_datetimev2 datetime NULL
+                c0 int not null,
+                c1 date,
+                c2 varchar(64)
             )
-            DUPLICATE KEY(c_int)
-            DISTRIBUTED BY HASH(c_int) BUCKETS 1
+            DUPLICATE KEY(c0)
+            PARTITION BY RANGE(c1) (
+                FROM ("2024-09-01") TO ("2024-09-05") INTERVAL 1 DAY
+            )
+            DISTRIBUTED BY HASH(c0) BUCKETS 1
             PROPERTIES (
             "replication_num" = "1"
             )
             """
 
-        def label = "test_ingestion_load"
+        def label = "test_ingestion_load_partition"
 
-        testIngestLoadJob.call(tableName, label, context.config.dataPath + '/load_p0/ingestion_load/data.parquet')
-
-        tableName = 'tbl_test_spark_load_unique_mor'
-
-        sql """
-            CREATE TABLE IF NOT EXISTS ${tableName} (
-                c_int int(11) NULL,
-                c_char char(15) NULL,
-                c_varchar varchar(100) NULL,
-                c_bool boolean NULL,
-                c_tinyint tinyint(4) NULL,
-                c_smallint smallint(6) NULL,
-                c_bigint bigint(20) NULL,
-                c_largeint largeint(40) NULL,
-                c_float float NULL,
-                c_double double NULL,
-                c_decimal decimal(6, 3) NULL,
-                c_decimalv3 decimal(6, 3) NULL,
-                c_date date NULL,
-                c_datev2 date NULL,
-                c_datetime datetime NULL,
-                c_datetimev2 datetime NULL
-            )
-            UNIQUE KEY(c_int)
-            DISTRIBUTED BY HASH(c_int) BUCKETS 1
-            PROPERTIES (
-            "replication_num" = "1",
-            "enable_unique_key_merge_on_write" = "false"
-            )
-            """
-
-        label = "test_ingestion_load_unique_mor"
-
-        testIngestLoadJob.call(tableName, label, context.config.dataPath + '/load_p0/ingestion_load/data.parquet')
-
-        tableName = 'tbl_test_spark_load_agg'
-
-        sql """
-            CREATE TABLE IF NOT EXISTS ${tableName}
-            (
-                `user_id` LARGEINT NOT NULL COMMENT "user id",
-                `date` DATE NOT NULL COMMENT "data import time",
-                `city` VARCHAR(20) COMMENT "city",
-                `age` SMALLINT COMMENT "age",
-                `sex` TINYINT COMMENT "gender",
-                `last_visit_date` DATETIME REPLACE DEFAULT "1970-01-01 00:00:00" COMMENT "last visit date time",
-                `cost` BIGINT SUM DEFAULT "0" COMMENT "user total cost",
-                `max_dwell_time` INT MAX DEFAULT "0" COMMENT "user max dwell time",
-                `min_dwell_time` INT MIN DEFAULT "99999" COMMENT "user min dwell time"
-            )
-            AGGREGATE KEY(`user_id`, `date`, `city`, `age`, `sex`)
-            DISTRIBUTED BY HASH(`user_id`) BUCKETS 1
-            PROPERTIES (
-            "replication_allocation" = "tag.location.default: 1"
-            );
-        """
-
-        label = "test_ingestion_load_agg"
-
-        testIngestLoadJob.call(tableName, label, context.config.dataPath + '/load_p0/ingestion_load/data1.parquet')
+        testIngestLoadJob.call(tableName, label, [context.config.dataPath + '/load_p0/ingestion_load/data2-0.parquet', context.config.dataPath + '/load_p0/ingestion_load/data2-1.parquet',context.config.dataPath + '/load_p0/ingestion_load/data2-2.parquet',context.config.dataPath + '/load_p0/ingestion_load/data2-3.parquet'])
 
     }
 
