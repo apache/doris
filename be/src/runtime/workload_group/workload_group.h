@@ -94,12 +94,22 @@ public:
     int spill_threshold_low_water_mark() const {
         return _spill_low_watermark.load(std::memory_order_relaxed);
     }
-    int spill_threashold_high_water_mark() const {
+
+    int spill_threshold_high_water_mark() const {
         return _spill_high_watermark.load(std::memory_order_relaxed);
     }
 
-    void set_weighted_memory_ratio(double ratio);
+    int total_query_slot_count() const {
+        return _total_query_slot_count.load(std::memory_order_relaxed);
+    }
+
     bool add_wg_refresh_interval_memory_growth(int64_t size) {
+        // If a group is enable memory overcommit, then not need check the limit
+        // It is always true, and it will only fail when process memory is not
+        // enough.
+        if (_enable_memory_overcommit) {
+            return true;
+        }
         auto realtime_total_mem_used =
                 _total_mem_used + _wg_refresh_interval_memory_growth.load() + size;
         if ((realtime_total_mem_used >
@@ -232,6 +242,7 @@ private:
     std::atomic<int> _spill_high_watermark;
     std::atomic<int64_t> _scan_bytes_per_second {-1};
     std::atomic<int64_t> _remote_scan_bytes_per_second {-1};
+    std::atomic<int> _total_query_slot_count = 0;
 
     // means workload group is mark dropped
     // new query can not submit
@@ -275,6 +286,7 @@ struct WorkloadGroupInfo {
     const int spill_high_watermark = 0;
     const int read_bytes_per_second = -1;
     const int remote_read_bytes_per_second = -1;
+    const int total_query_slot_count = 0;
     // log cgroup cpu info
     uint64_t cgroup_cpu_shares = 0;
     int cgroup_cpu_hard_limit = 0;

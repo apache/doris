@@ -49,6 +49,8 @@ const static bool ENABLE_MEMORY_OVERCOMMIT_DEFAULT_VALUE = true;
 const static int CPU_HARD_LIMIT_DEFAULT_VALUE = -1;
 const static int SPILL_LOW_WATERMARK_DEFAULT_VALUE = 50;
 const static int SPILL_HIGH_WATERMARK_DEFAULT_VALUE = 80;
+// This is a invalid value, and should ignore this value during usage
+const static int TOTAL_QUERY_SLOT_COUNT_DEFAULT_VALUE = 0;
 
 WorkloadGroup::WorkloadGroup(const WorkloadGroupInfo& tg_info)
         : _id(tg_info.id),
@@ -141,6 +143,7 @@ void WorkloadGroup::check_and_update(const WorkloadGroupInfo& tg_info) {
             _spill_high_watermark = tg_info.spill_high_watermark;
             _scan_bytes_per_second = tg_info.read_bytes_per_second;
             _remote_scan_bytes_per_second = tg_info.remote_read_bytes_per_second;
+            _total_query_slot_count = tg_info.total_query_slot_count;
         } else {
             return;
         }
@@ -403,6 +406,12 @@ WorkloadGroupInfo WorkloadGroupInfo::parse_topic_info(
         remote_read_bytes_per_second = tworkload_group_info.remote_read_bytes_per_second;
     }
 
+    // 16 total slots
+    int total_query_slot_count = TOTAL_QUERY_SLOT_COUNT_DEFAULT_VALUE;
+    if (tworkload_group_info.__isset.total_query_slot_count) {
+        total_query_slot_count = tworkload_group_info.total_query_slot_count;
+    }
+
     return {.id = tg_id,
             .name = name,
             .cpu_share = cpu_share,
@@ -417,7 +426,8 @@ WorkloadGroupInfo WorkloadGroupInfo::parse_topic_info(
             .spill_low_watermark = spill_low_watermark,
             .spill_high_watermark = spill_high_watermark,
             .read_bytes_per_second = read_bytes_per_second,
-            .remote_read_bytes_per_second = remote_read_bytes_per_second};
+            .remote_read_bytes_per_second = remote_read_bytes_per_second,
+            .total_query_slot_count = total_query_slot_count};
 }
 
 void WorkloadGroup::upsert_task_scheduler(WorkloadGroupInfo* tg_info, ExecEnv* exec_env) {
