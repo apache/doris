@@ -47,11 +47,14 @@ public:
 
     ~BetaRowsetReader() override { _rowset->release(); }
 
-    Status init(RowsetReaderContext* read_context, const RowSetSplits& rs_splits) override;
+    Status init(RowsetReaderContext* read_context, const RowSetSplits& rs_splits,
+                const cctz::time_zone& timezone) override;
 
     Status get_segment_iterators(RowsetReaderContext* read_context,
                                  std::vector<RowwiseIteratorUPtr>* out_iters,
                                  bool use_cache = false) override;
+
+    const cctz::time_zone& timezone_obj() const { return _timezone_obj; }
     void reset_read_options() override;
     Status next_block(vectorized::Block* block) override;
     Status next_block_view(vectorized::BlockView* block_view) override;

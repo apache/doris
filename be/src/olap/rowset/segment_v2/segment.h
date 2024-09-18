@@ -92,7 +92,7 @@ public:
     ~Segment();
 
     Status new_iterator(SchemaSPtr schema, const StorageReadOptions& read_options,
-                        std::unique_ptr<RowwiseIterator>* iter);
+                        std::unique_ptr<RowwiseIterator>* iter, const cctz::time_zone& timezone);
 
     uint32_t id() const { return _segment_id; }
 
@@ -135,7 +135,8 @@ public:
 
     Status seek_and_read_by_rowid(const TabletSchema& schema, SlotDescriptor* slot, uint32_t row_id,
                                   vectorized::MutableColumnPtr& result, OlapReaderStatistics& stats,
-                                  std::unique_ptr<ColumnIterator>& iterator_hint);
+                                  std::unique_ptr<ColumnIterator>& iterator_hint,
+                                  const cctz::time_zone& timezone);
 
     Status load_index();
 

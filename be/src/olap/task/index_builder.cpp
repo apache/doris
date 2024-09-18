@@ -411,7 +411,8 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
             std::shared_ptr<Schema> schema =
                     std::make_shared<Schema>(output_rowset_schema->columns(), return_columns);
             std::unique_ptr<RowwiseIterator> iter;
-            auto res = seg_ptr->new_iterator(schema, read_options, &iter);
+            cctz::time_zone tz {}; //TODOZY
+            auto res = seg_ptr->new_iterator(schema, read_options, &iter, tz);
             if (!res.ok()) {
                 LOG(WARNING) << "failed to create iterator[" << seg_ptr->id()
                              << "]: " << res.to_string();

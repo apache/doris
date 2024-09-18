@@ -269,11 +269,11 @@ SegmentIterator::SegmentIterator(std::shared_ptr<Segment> segment, SchemaSPtr sc
           _pool(new ObjectPool) {}
 
 Status SegmentIterator::init(const StorageReadOptions& opts, const cctz::time_zone& timezone) {
+    _timezone_obj = timezone;
     auto status = _init_impl(opts);
     if (!status.ok() && !config::disable_segment_cache) {
         _segment->remove_from_segment_cache();
     }
-    _timezone_obj = timezone;
     return status;
 }
 
@@ -524,7 +524,7 @@ Status SegmentIterator::_prepare_seek(const StorageReadOptions::KeyRange& key_ra
                     .stats = _opts.stats,
                     .io_ctx = _opts.io_ctx,
             };
-            RETURN_IF_ERROR(_column_iterators[cid]->init(iter_opts));
+            RETURN_IF_ERROR(_column_iterators[cid]->init(iter_opts, _timezone_obj));
         }
     }
 
@@ -1441,7 +1441,7 @@ Status SegmentIterator::_init_return_column_iterators() {
                     .stats = _opts.stats,
                     .io_ctx = _opts.io_ctx,
             };
-            RETURN_IF_ERROR(_column_iterators[cid]->init(iter_opts));
+            RETURN_IF_ERROR(_column_iterators[cid]->init(iter_opts, _timezone_obj));
         }
     }
     return Status::OK();

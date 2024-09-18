@@ -233,7 +233,8 @@ public:
     /// All data will be inserted as single element
     virtual void insert_data(const char* pos, size_t length) = 0;
 
-    virtual void insert_many_fix_len_data(const char* pos, size_t num) {
+    virtual void insert_many_fix_len_data(const char* pos, size_t num,
+                                          const cctz::time_zone& timezone = {}) {
         throw doris::Exception(
                 ErrorCode::NOT_IMPLEMENTED_ERROR,
                 "Method insert_many_fix_len_data is not supported for " + get_name());
@@ -248,7 +249,8 @@ public:
     }
 
     virtual void insert_many_binary_data(char* data_array, uint32_t* len_array,
-                                         uint32_t* start_offset_array, size_t num) {
+                                         uint32_t* start_offset_array, size_t num,
+                                         const cctz::time_zone& timezone = {}) {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "Method insert_many_binary_data is not supported for " + get_name());
     }

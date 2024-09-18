@@ -471,7 +471,8 @@ public:
                                "get_bool" + std::string(get_family_name()));
     }
 
-    void insert_many_fix_len_data(const char* pos, size_t num) override {
+    void insert_many_fix_len_data(const char* pos, size_t num,
+                                  const cctz::time_zone& timezone = {}) override {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "insert_many_fix_len_data" + std::string(get_family_name()));
     }
@@ -483,7 +484,8 @@ public:
     }
 
     void insert_many_binary_data(char* data_array, uint32_t* len_array,
-                                 uint32_t* start_offset_array, size_t num) override {
+                                 uint32_t* start_offset_array, size_t num,
+                                 const cctz::time_zone& timezone) override {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "insert_many_binary_data" + std::string(get_family_name()));
     }

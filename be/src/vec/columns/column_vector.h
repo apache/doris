@@ -214,30 +214,33 @@ public:
         }
     }
 
-    void insert_timestamp_column(const char* data_ptr, size_t num) {
+    void insert_timestamp_column(const char* data_ptr, size_t num,
+                                 const cctz::time_zone& timezone) {
         data.reserve(data.size() + num);
         size_t value_size = sizeof(uint64_t);
         for (int i = 0; i < num; i++) {
             const char* cur_ptr = data_ptr + value_size * i;
             uint64_t value = *reinterpret_cast<const uint64_t*>(cur_ptr);
 
-            DateV2Value<DateTimeV2ValueType> tmp;
-            long _sec_offset = 3600;
+            value = DateV2Value<DateTimeV2ValueType>::from_utc_datetime(timezone, value);
 
-            tmp = binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(value);
-            // todo sec_offset from runtime state
-            {
-                cctz::time_zone utc_tz {};
-                TimezoneUtils::find_cctz_time_zone(TimezoneUtils::utc_time_zone, utc_tz);
-                auto given = cctz::convert(cctz::civil_second {}, utc_tz);
-                auto local = cctz::convert(cctz::civil_second {}, IColumn::_timezone_obj);
-                _sec_offset =
-                        std::chrono::duration_cast<std::chrono::seconds>(given - local).count();
-            }
-            tmp.date_add_interval<TimeUnit::SECOND>(
-                    TimeInterval {TimeUnit::SECOND, _sec_offset, false});
+            // DateV2Value<DateTimeV2ValueType> tmp;
+            // long _sec_offset = 3600;
 
-            value = binary_cast<DateV2Value<DateTimeV2ValueType>, uint64_t>(tmp);
+            // tmp = binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(value);
+            // // todo sec_offset from runtime state
+            // {
+            //     cctz::time_zone utc_tz {};
+            //     TimezoneUtils::find_cctz_time_zone(TimezoneUtils::utc_time_zone, utc_tz);
+            //     auto given = cctz::convert(cctz::civil_second {}, utc_tz);
+            //     auto local = cctz::convert(cctz::civil_second {}, IColumn::_timezone_obj);
+            //     _sec_offset =
+            //             std::chrono::duration_cast<std::chrono::seconds>(given - local).count();
+            // }
+            // tmp.date_add_interval<TimeUnit::SECOND>(
+            //         TimeInterval {TimeUnit::SECOND, _sec_offset, false});
+
+            // value = binary_cast<DateV2Value<DateTimeV2ValueType>, uint64_t>(tmp);
 
             this->insert_data(reinterpret_cast<char*>(&value), 0);
         }
@@ -246,13 +249,14 @@ public:
     /*
         use by date, datetime, basic type
     */
-    void insert_many_fix_len_data(const char* data_ptr, size_t num) override {
+    void insert_many_fix_len_data(const char* data_ptr, size_t num,
+                                  const cctz::time_zone& timezone = {}) override {
         if (IColumn::is_date) {
             insert_date_column(data_ptr, num);
         } else if (IColumn::is_date_time) {
             insert_datetime_column(data_ptr, num);
         } else if (IColumn::is_timestamp) {
-            insert_timestamp_column(data_ptr, num);
+            insert_timestamp_column(data_ptr, num, timezone);
         } else {
             insert_many_raw_data(data_ptr, num);
         }

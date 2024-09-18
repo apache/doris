@@ -135,7 +135,8 @@ public:
              indices_begin, indices_end);
     }
 
-    void insert_many_fix_len_data(const char* data_ptr, size_t num) override;
+    void insert_many_fix_len_data(const char* data_ptr, size_t num,
+                                  const cctz::time_zone& timezone = {}) override;
 
     void insert_many_raw_data(const char* pos, size_t num) override {
         DCHECK(pos);

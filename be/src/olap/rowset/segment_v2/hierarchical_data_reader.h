@@ -70,7 +70,7 @@ public:
                          const SubcolumnColumnReaders::Node* target_node,
                          const SubcolumnColumnReaders::Node* root);
 
-    Status init(const ColumnIteratorOptions& opts) override;
+    Status init(const ColumnIteratorOptions& opts, const cctz::time_zone& timezone = {}) override;
 
     Status seek_to_first() override;
 
@@ -202,7 +202,7 @@ public:
               _root_reader(std::move(root_reader)),
               _target_type_hint(target_type_hint) {}
 
-    Status init(const ColumnIteratorOptions& opts) override;
+    Status init(const ColumnIteratorOptions& opts, const cctz::time_zone& timezone = {}) override;
 
     Status seek_to_first() override;
 

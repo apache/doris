@@ -399,7 +399,8 @@ public:
     }
 
     Status read_by_rowids(const rowid_t* rowids, ordinal_t page_first_ordinal, size_t* n,
-                          vectorized::MutableColumnPtr& dst) override {
+                          vectorized::MutableColumnPtr& dst,
+                          const cctz::time_zone& timezone) override {
         DCHECK(_parsed);
         if (PREDICT_FALSE(*n == 0)) {
             *n = 0;
@@ -419,7 +420,7 @@ public:
         }
 
         if (LIKELY(read_count > 0)) {
-            dst->insert_many_fix_len_data((char*)_buffer.data(), read_count);
+            dst->insert_many_fix_len_data((char*)_buffer.data(), read_count, timezone);
         }
 
         *n = read_count;

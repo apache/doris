@@ -254,7 +254,8 @@ public:
     }
 
     Status read_by_rowids(const rowid_t* rowids, ordinal_t page_first_ordinal, size_t* n,
-                          vectorized::MutableColumnPtr& dst) override {
+                          vectorized::MutableColumnPtr& dst,
+                          const cctz::time_zone& timezone = {}) override {
         DCHECK(_parsed);
         if (PREDICT_FALSE(*n == 0)) {
             *n = 0;
@@ -279,7 +280,7 @@ public:
 
         if (LIKELY(read_count > 0)) {
             dst->insert_many_binary_data(_data.mutable_data(), _len_array.data(),
-                                         _start_offset_array.data(), read_count);
+                                         _start_offset_array.data(), read_count, timezone);
         }
 
         *n = read_count;

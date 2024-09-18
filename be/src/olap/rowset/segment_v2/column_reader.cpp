@@ -812,12 +812,13 @@ MapFileColumnIterator::MapFileColumnIterator(ColumnReader* reader, ColumnIterato
     }
 }
 
-Status MapFileColumnIterator::init(const ColumnIteratorOptions& opts) {
-    RETURN_IF_ERROR(_key_iterator->init(opts));
-    RETURN_IF_ERROR(_val_iterator->init(opts));
-    RETURN_IF_ERROR(_offsets_iterator->init(opts));
+Status MapFileColumnIterator::init(const ColumnIteratorOptions& opts,
+                                   const cctz::time_zone& timezone) {
+    RETURN_IF_ERROR(_key_iterator->init(opts, timezone));
+    RETURN_IF_ERROR(_val_iterator->init(opts, timezone));
+    RETURN_IF_ERROR(_offsets_iterator->init(opts, timezone));
     if (_map_reader->is_nullable()) {
-        RETURN_IF_ERROR(_null_iterator->init(opts));
+        RETURN_IF_ERROR(_null_iterator->init(opts, timezone));
     }
     return Status::OK();
 }
@@ -902,12 +903,13 @@ StructFileColumnIterator::StructFileColumnIterator(
     }
 }
 
-Status StructFileColumnIterator::init(const ColumnIteratorOptions& opts) {
+Status StructFileColumnIterator::init(const ColumnIteratorOptions& opts,
+                                      const cctz::time_zone& timezone) {
     for (auto& column_iterator : _sub_column_iterators) {
-        RETURN_IF_ERROR(column_iterator->init(opts));
+        RETURN_IF_ERROR(column_iterator->init(opts, timezone));
     }
     if (_struct_reader->is_nullable()) {
-        RETURN_IF_ERROR(_null_iterator->init(opts));
+        RETURN_IF_ERROR(_null_iterator->init(opts, timezone));
     }
     return Status::OK();
 }
@@ -960,8 +962,9 @@ Status StructFileColumnIterator::read_by_rowids(const rowid_t* rowids, const siz
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-Status OffsetFileColumnIterator::init(const ColumnIteratorOptions& opts) {
-    RETURN_IF_ERROR(_offset_iterator->init(opts));
+Status OffsetFileColumnIterator::init(const ColumnIteratorOptions& opts,
+                                      const cctz::time_zone& timezone) {
+    RETURN_IF_ERROR(_offset_iterator->init(opts, timezone));
     return Status::OK();
 }
 
@@ -1029,11 +1032,12 @@ ArrayFileColumnIterator::ArrayFileColumnIterator(ColumnReader* reader,
     }
 }
 
-Status ArrayFileColumnIterator::init(const ColumnIteratorOptions& opts) {
-    RETURN_IF_ERROR(_offset_iterator->init(opts));
-    RETURN_IF_ERROR(_item_iterator->init(opts));
+Status ArrayFileColumnIterator::init(const ColumnIteratorOptions& opts,
+                                     const cctz::time_zone& timezone) {
+    RETURN_IF_ERROR(_offset_iterator->init(opts, timezone));
+    RETURN_IF_ERROR(_item_iterator->init(opts, timezone));
     if (_array_reader->is_nullable()) {
-        RETURN_IF_ERROR(_null_iterator->init(opts));
+        RETURN_IF_ERROR(_null_iterator->init(opts, timezone));
     }
     return Status::OK();
 }
@@ -1108,8 +1112,10 @@ Status ArrayFileColumnIterator::read_by_rowids(const rowid_t* rowids, const size
 
 FileColumnIterator::FileColumnIterator(ColumnReader* reader) : _reader(reader) {}
 
-Status FileColumnIterator::init(const ColumnIteratorOptions& opts) {
+Status FileColumnIterator::init(const ColumnIteratorOptions& opts,
+                                const cctz::time_zone& timezone) {
     _opts = opts;
+    _timezone_obj = timezone;
     if (!_opts.use_page_cache) {
         _reader->disable_index_meta_cache();
     }
@@ -1302,7 +1308,8 @@ Status FileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t co
                         size_t page_start_off_in_decoder =
                                 _page.first_ordinal + _page.offset_in_page - origin_index;
                         RETURN_IF_ERROR(_page.data_decoder->read_by_rowids(
-                                &rowids[offset], page_start_off_in_decoder, &read_count, dst));
+                                &rowids[offset], page_start_off_in_decoder, &read_count, dst,
+                                _timezone_obj));
                         DCHECK_EQ(read_count, this_read_count);
                     }
                 }
@@ -1321,8 +1328,9 @@ Status FileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t co
             total_read_count += nrows_to_read;
             remaining -= nrows_to_read;
         } else {
-            RETURN_IF_ERROR(_page.data_decoder->read_by_rowids(
-                    &rowids[total_read_count], _page.first_ordinal, &nrows_to_read, dst));
+            RETURN_IF_ERROR(_page.data_decoder->read_by_rowids(&rowids[total_read_count],
+                                                               _page.first_ordinal, &nrows_to_read,
+                                                               dst, _timezone_obj));
             total_read_count += nrows_to_read;
             remaining -= nrows_to_read;
         }
@@ -1431,7 +1439,8 @@ Status FileColumnIterator::get_row_ranges_by_dict(const AndBlockColumnPredicate*
     return Status::OK();
 }
 
-Status DefaultValueColumnIterator::init(const ColumnIteratorOptions& opts) {
+Status DefaultValueColumnIterator::init(const ColumnIteratorOptions& opts,
+                                        const cctz::time_zone& timezone) {
     _opts = opts;
     // be consistent with segment v1
     // if _has_default_value, we should create default column iterator for this column, and

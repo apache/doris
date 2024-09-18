@@ -367,7 +367,7 @@ private:
                     _short_key[cid]->insert_data(slice->data, slice->size);
                 } else {
                     _short_key[cid]->insert_many_fix_len_data(
-                            reinterpret_cast<const char*>(cell.cell_ptr()), 1);
+                            reinterpret_cast<const char*>(cell.cell_ptr()), 1, _timezone_obj);
                 }
             }
         }

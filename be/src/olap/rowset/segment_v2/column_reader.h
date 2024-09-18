@@ -285,7 +285,7 @@ public:
     ColumnIterator() = default;
     virtual ~ColumnIterator() = default;
 
-    virtual Status init(const ColumnIteratorOptions& opts) {
+    virtual Status init(const ColumnIteratorOptions& opts, const cctz::time_zone& timezone) {
         _opts = opts;
         return Status::OK();
     }
@@ -348,7 +348,7 @@ public:
     explicit FileColumnIterator(ColumnReader* reader);
     ~FileColumnIterator() override;
 
-    Status init(const ColumnIteratorOptions& opts) override;
+    Status init(const ColumnIteratorOptions& opts, const cctz::time_zone& timezone) override;
 
     Status seek_to_first() override;
 
@@ -416,6 +416,8 @@ private:
     bool _is_all_dict_encoding = false;
 
     std::unique_ptr<StringRef[]> _dict_word_info;
+
+    cctz::time_zone _timezone_obj;
 };
 
 class EmptyFileColumnIterator final : public ColumnIterator {
@@ -434,7 +436,7 @@ public:
 
     ~OffsetFileColumnIterator() override = default;
 
-    Status init(const ColumnIteratorOptions& opts) override;
+    Status init(const ColumnIteratorOptions& opts, const cctz::time_zone& timezone) override;
 
     Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) override;
     ordinal_t get_current_ordinal() const override {
@@ -468,7 +470,7 @@ public:
 
     ~MapFileColumnIterator() override = default;
 
-    Status init(const ColumnIteratorOptions& opts) override;
+    Status init(const ColumnIteratorOptions& opts, const cctz::time_zone& timezone) override;
 
     Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) override;
 
@@ -505,7 +507,7 @@ public:
 
     ~StructFileColumnIterator() override = default;
 
-    Status init(const ColumnIteratorOptions& opts) override;
+    Status init(const ColumnIteratorOptions& opts, const cctz::time_zone& timezone) override;
 
     Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) override;
 
@@ -541,7 +543,7 @@ public:
 
     ~ArrayFileColumnIterator() override = default;
 
-    Status init(const ColumnIteratorOptions& opts) override;
+    Status init(const ColumnIteratorOptions& opts, const cctz::time_zone& timezone) override;
 
     Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) override;
 
@@ -630,7 +632,9 @@ public:
 
     ~VariantRootColumnIterator() override = default;
 
-    Status init(const ColumnIteratorOptions& opts) override { return _inner_iter->init(opts); }
+    Status init(const ColumnIteratorOptions& opts, const cctz::time_zone& timezone) override {
+        return _inner_iter->init(opts, timezone);
+    }
 
     Status seek_to_first() override { return _inner_iter->seek_to_first(); }
 
@@ -668,7 +672,7 @@ public:
               _precision(precision),
               _scale(scale) {}
 
-    Status init(const ColumnIteratorOptions& opts) override;
+    Status init(const ColumnIteratorOptions& opts, const cctz::time_zone& timezone) override;
 
     Status seek_to_first() override {
         _current_rowid = 0;

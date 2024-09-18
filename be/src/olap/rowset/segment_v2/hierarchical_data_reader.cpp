@@ -60,14 +60,15 @@ Status HierarchicalDataReader::create(std::unique_ptr<ColumnIterator>* reader,
     return Status::OK();
 }
 
-Status HierarchicalDataReader::init(const ColumnIteratorOptions& opts) {
+Status HierarchicalDataReader::init(const ColumnIteratorOptions& opts,
+                                    const cctz::time_zone& timezone) {
     RETURN_IF_ERROR(tranverse([&](SubstreamReaderTree::Node& node) {
-        RETURN_IF_ERROR(node.data.iterator->init(opts));
+        RETURN_IF_ERROR(node.data.iterator->init(opts, timezone));
         node.data.inited = true;
         return Status::OK();
     }));
     if (_root_reader && !_root_reader->inited) {
-        RETURN_IF_ERROR(_root_reader->iterator->init(opts));
+        RETURN_IF_ERROR(_root_reader->iterator->init(opts, timezone));
         _root_reader->inited = true;
     }
     return Status::OK();
@@ -144,9 +145,9 @@ ordinal_t HierarchicalDataReader::get_current_ordinal() const {
     return (*_substream_reader.begin())->data.iterator->get_current_ordinal();
 }
 
-Status ExtractReader::init(const ColumnIteratorOptions& opts) {
+Status ExtractReader::init(const ColumnIteratorOptions& opts, const cctz::time_zone& timezone) {
     if (!_root_reader->inited) {
-        RETURN_IF_ERROR(_root_reader->iterator->init(opts));
+        RETURN_IF_ERROR(_root_reader->iterator->init(opts, timezone));
         _root_reader->inited = true;
     }
     return Status::OK();

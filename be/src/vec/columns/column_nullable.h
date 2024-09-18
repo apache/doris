@@ -144,9 +144,10 @@ public:
     void insert_range_from_not_nullable(const IColumn& src, size_t start, size_t length);
     void insert_many_from_not_nullable(const IColumn& src, size_t position, size_t length);
 
-    void insert_many_fix_len_data(const char* pos, size_t num) override {
+    void insert_many_fix_len_data(const char* pos, size_t num,
+                                  const cctz::time_zone& timezone) override {
         _get_null_map_column().insert_many_vals(0, num);
-        get_nested_column().insert_many_fix_len_data(pos, num);
+        get_nested_column().insert_many_fix_len_data(pos, num, timezone);
     }
 
     void insert_many_raw_data(const char* pos, size_t num) override {
@@ -172,9 +173,11 @@ public:
     }
 
     void insert_many_binary_data(char* data_array, uint32_t* len_array,
-                                 uint32_t* start_offset_array, size_t num) override {
+                                 uint32_t* start_offset_array, size_t num,
+                                 const cctz::time_zone& timezone) override {
         _get_null_map_column().insert_many_vals(0, num);
-        get_nested_column().insert_many_binary_data(data_array, len_array, start_offset_array, num);
+        get_nested_column().insert_many_binary_data(data_array, len_array, start_offset_array, num,
+                                                    timezone);
     }
 
     void insert_default() override {

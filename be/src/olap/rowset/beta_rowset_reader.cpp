@@ -295,12 +295,12 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
             /// If `_segment_row_ranges` is empty, the segment is not split.
             if (_segment_row_ranges.empty()) {
                 _read_options.row_ranges.clear();
-                status = seg_ptr->new_iterator(_input_schema, _read_options, &iter);
+                status = seg_ptr->new_iterator(_input_schema, _read_options, &iter, _timezone_obj);
             } else {
                 DCHECK_EQ(seg_end - seg_start, _segment_row_ranges.size());
                 auto local_options = _read_options;
                 local_options.row_ranges = _segment_row_ranges[i - seg_start];
-                status = seg_ptr->new_iterator(_input_schema, local_options, &iter);
+                status = seg_ptr->new_iterator(_input_schema, local_options, &iter, _timezone_obj);
             }
 
             if (!status.ok()) {
@@ -319,11 +319,13 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     return Status::OK();
 }
 
-Status BetaRowsetReader::init(RowsetReaderContext* read_context, const RowSetSplits& rs_splits) {
+Status BetaRowsetReader::init(RowsetReaderContext* read_context, const RowSetSplits& rs_splits,
+                              const cctz::time_zone& timezone) {
     _read_context = read_context;
     _read_context->rowset_id = _rowset->rowset_id();
     _segment_offsets = rs_splits.segment_offsets;
     _segment_row_ranges = rs_splits.segment_row_ranges;
+    _timezone_obj = timezone;
     return Status::OK();
 }
 

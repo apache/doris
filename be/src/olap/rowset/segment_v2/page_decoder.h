@@ -74,7 +74,8 @@ public:
     virtual Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst) = 0;
 
     virtual Status read_by_rowids(const rowid_t* rowids, ordinal_t page_first_ordinal, size_t* n,
-                                  vectorized::MutableColumnPtr& dst) {
+                                  vectorized::MutableColumnPtr& dst,
+                                  const cctz::time_zone& timezone) {
         return Status::NotSupported("not implement vec op now");
     }
 

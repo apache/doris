@@ -33,7 +33,7 @@ Status LazyInitSegmentIterator::init(const StorageReadOptions& /*opts*/,
         return Status::OK();
     }
 
-    RETURN_IF_ERROR(_segment->new_iterator(_schema, _read_options, &_inner_iterator));
+    RETURN_IF_ERROR(_segment->new_iterator(_schema, _read_options, &_inner_iterator, timezone));
     return _inner_iterator->init(_read_options, timezone);
 }
 
