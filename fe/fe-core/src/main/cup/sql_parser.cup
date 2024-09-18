@@ -8497,6 +8497,8 @@ keyword ::=
     {: RESULT = id; :}
     | KW_STOP:id
     {: RESULT = id; :}
+    | KW_GROUP:id
+    {: RESULT = id; :}
     | KW_GROUPING:id
     {: RESULT = id; :}
     | KW_GROUPS:id

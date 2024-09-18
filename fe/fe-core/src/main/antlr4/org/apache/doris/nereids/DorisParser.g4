@@ -184,7 +184,8 @@ unsupportedOtherStatement
     | LOCK TABLES (lockTable (COMMA lockTable)*)?                                   #lockTables
     | UNLOCK TABLES                                                                 #unlockTables
     | WARM UP (CLUSTER | COMPUTE GROUP) destination=identifier WITH
-        ((CLUSTER | COMPUTE GROUP) source=identifier | (warmUpItem (COMMA warmUpItem)*)) FORCE?       #warmUpCluster
+        ((CLUSTER | COMPUTE GROUP) source=identifier |
+        (warmUpItem (COMMA warmUpItem)*)) FORCE?                                    #warmUpCluster
     | BACKUP SNAPSHOT label=multipartIdentifier TO repo=identifier
         ((ON | EXCLUDE) LEFT_PAREN baseTableRef (COMMA baseTableRef)* RIGHT_PAREN)?
         properties=propertyClause?                                                  #backup
@@ -2084,6 +2085,7 @@ nonReserved
     | VARIABLES
     | VARIANT
     | VAULT
+    | VAULTS
     | VERBOSE
     | VERSION
     | VIEW
