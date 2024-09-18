@@ -62,6 +62,7 @@ import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TTabletInfo;
 import org.apache.doris.thrift.TTaskType;
 
+import com.amazonaws.services.glue.model.TaskType;
 import com.google.common.base.Preconditions;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -88,11 +89,13 @@ public class MasterImpl {
         // check task status
         // retry task by report process
         TStatus taskStatus = request.getTaskStatus();
+        TTaskType taskType = request.getTaskType();
+        long signature = request.getSignature();
         if (LOG.isDebugEnabled()) {
             LOG.debug("get task report: {}", request);
         }
 
-        if (taskStatus.getStatusCode() != TStatusCode.OK) {
+        if (taskStatus.getStatusCode() != TStatusCode.OK && taskType != TTaskType.PUBLISH_VERSION) {
             LOG.warn("finish task reports bad. request: {}", request);
         }
 
@@ -111,8 +114,6 @@ public class MasterImpl {
         }
 
         long backendId = backend.getId();
-        TTaskType taskType = request.getTaskType();
-        long signature = request.getSignature();
 
         AgentTask task = AgentTaskQueue.getTask(backendId, taskType, signature);
         if (task == null) {
@@ -130,6 +131,9 @@ public class MasterImpl {
         } else {
             if (taskStatus.getStatusCode() != TStatusCode.OK) {
                 task.failed();
+                if (taskType == TTaskType.PUBLISH_VERSION && task.getFailedTimes() < ) {
+                    LOG.warn("finish task reports bad. request: {}", request);
+                }
                 String errMsg = "task type: " + taskType + ", status_code: " + taskStatus.getStatusCode().toString()
                         + (taskStatus.isSetErrorMsgs() ? (", status_message: " + taskStatus.getErrorMsgs()) : "")
                         + ", backendId: " + backend + ", signature: " + signature;
