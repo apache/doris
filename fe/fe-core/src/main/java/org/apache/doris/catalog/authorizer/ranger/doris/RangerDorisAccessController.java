@@ -19,7 +19,6 @@ package org.apache.doris.catalog.authorizer.ranger.doris;
 
 import org.apache.doris.analysis.ResourceTypeEnum;
 import org.apache.doris.analysis.UserIdentity;
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.authorizer.ranger.RangerAccessController;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AuthorizationException;
@@ -31,19 +30,14 @@ import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
 import com.google.common.annotations.VisibleForTesting;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.apache.ranger.plugin.policyengine.RangerAccessRequest;
 import org.apache.ranger.plugin.policyengine.RangerAccessRequestImpl;
 import org.apache.ranger.plugin.policyengine.RangerAccessResult;
 import org.apache.ranger.plugin.policyengine.RangerAccessResultProcessor;
 import org.apache.ranger.plugin.service.RangerAuthContextListener;
 import org.apache.ranger.plugin.service.RangerBasePlugin;
 
-import java.util.ArrayList;
-import java.util.Collection;
 import java.util.Date;
-import java.util.List;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 public class RangerDorisAccessController extends RangerAccessController {
     private static final Logger LOG = LogManager.getLogger(RangerDorisAccessController.class);
@@ -82,29 +76,12 @@ public class RangerDorisAccessController extends RangerAccessController {
     protected RangerAccessRequestImpl createRequest(UserIdentity currentUser) {
         RangerAccessRequestImpl request = new RangerAccessRequestImpl();
         request.setUser(ClusterNamespace.getNameFromFullName(currentUser.getQualifiedUser()));
-        Set<String> roles = Env.getCurrentEnv().getAuth().getRolesByUser(currentUser, false);
-        request.setUserRoles(roles.stream().map(role -> ClusterNamespace.getNameFromFullName(role)).collect(
-                Collectors.toSet()));
-
         request.setClientIPAddress(currentUser.getHost());
         request.setClusterType(CLIENT_TYPE_DORIS);
         request.setClientType(CLIENT_TYPE_DORIS);
         request.setAccessTime(new Date());
 
         return request;
-    }
-
-    private void checkPrivileges(UserIdentity currentUser, DorisAccessType accessType,
-            List<RangerDorisResource> dorisResources) throws AuthorizationException {
-        List<RangerAccessRequest> requests = new ArrayList<>();
-        for (RangerDorisResource resource : dorisResources) {
-            RangerAccessRequestImpl request = createRequest(currentUser, accessType);
-            request.setResource(resource);
-            requests.add(request);
-        }
-
-        Collection<RangerAccessResult> results = dorisPlugin.isAccessAllowed(requests);
-        checkRequestResults(results, accessType.name());
     }
 
     private boolean checkPrivilegeByPlugin(UserIdentity currentUser, DorisAccessType accessType,

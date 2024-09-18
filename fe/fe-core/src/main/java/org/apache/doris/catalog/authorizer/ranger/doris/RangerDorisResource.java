@@ -20,6 +20,7 @@ package org.apache.doris.catalog.authorizer.ranger.doris;
 import org.apache.ranger.plugin.policyengine.RangerAccessResourceImpl;
 
 public class RangerDorisResource extends RangerAccessResourceImpl {
+    public static final String KEY_GLOBAL = "global";
     public static final String KEY_CATALOG = "catalog";
     public static final String KEY_DATABASE = "database";
     public static final String KEY_TABLE = "table";
@@ -48,6 +49,8 @@ public class RangerDorisResource extends RangerAccessResourceImpl {
                               String thirdLevelResource, String fourthLevelResource) {
         // set essential info according to objectType
         switch (objectType) {
+            case GLOBAL:
+                setValue(KEY_GLOBAL, firstLevelResource);
             case CATALOG:
                 setValue(KEY_CATALOG, firstLevelResource);
                 break;
