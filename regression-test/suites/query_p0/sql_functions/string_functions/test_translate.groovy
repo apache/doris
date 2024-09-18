@@ -108,6 +108,18 @@ suite("test_translate") {
     check_three_ways "translate('abcd', 'ac', 'z');"
     check_three_ways "translate('abcd', 'aac', 'zq');"
     check_three_ways "translate('abcd', 'aac', 'zqx');"
+    check_three_ways "translate('abcd', 'aac', '中文x');"
     check_three_ways "translate('中文', '中', '文');"
+    check_three_ways "translate('中文', '中', 'a');"
     check_three_ways "translate('\tt\tt\tt', '\t', 't');"
+
+    order_qt_1 "select translate('abcd', '', '');"
+    order_qt_2 "select translate('abcd', 'a', 'z')"
+    order_qt_3 "select translate('abcda', 'a', 'z');"
+    order_qt_4 "select translate('abcd', 'aac', 'zq');"
+    order_qt_5 "select translate('abcd', 'aac', 'zqx');"
+    order_qt_6 "select translate('abcd', 'aac', '中文x');"
+    order_qt_7 "select translate('中文', '中', '文');"
+    order_qt_8 "select translate('中文', '中', 'ab');"
+    order_qt_9 "select translate('\tt\tt\tt', '\t', 't');"
 }

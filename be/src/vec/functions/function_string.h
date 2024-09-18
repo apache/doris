@@ -4200,42 +4200,53 @@ public:
         const auto* col_from = assert_cast<const ColumnString*>(argument_columns[1].get());
         const auto* col_to = assert_cast<const ColumnString*>(argument_columns[2].get());
 
-        if (col_const[1] && col_const[2]) {
-            impl_vectors<true>(col_source, col_from, col_to, col_res);
-        } else {
-            impl_vectors<false>(col_source, col_from, col_to, col_res);
+        bool is_ascii = simd::VStringFunctions::is_ascii(
+                                {col_source->get_chars().data(), col_source->get_chars().size()}) &&
+                        simd::VStringFunctions::is_ascii(
+                                {col_from->get_chars().data(), col_from->get_chars().size()}) &&
+                        simd::VStringFunctions::is_ascii(
+                                {col_to->get_chars().data(), col_to->get_chars().size()});
+        auto impl_vectors = impl_vectors_utf8<false>;
+        if (col_const[1] && col_const[2] && is_ascii) {
+            impl_vectors = impl_vectors_ascii<true>;
+        } else if (col_const[1] && col_const[2]) {
+            impl_vectors = impl_vectors_utf8<true>;
+        } else if (is_ascii) {
+            impl_vectors = impl_vectors_ascii<false>;
         }
+        impl_vectors(col_source, col_from, col_to, col_res);
         block.get_by_position(result).column = std::move(col_res);
         return Status::OK();
     }
 
 private:
     template <bool IsConst>
-    static void impl_vectors(const ColumnString* col_source, const ColumnString* col_from,
-                             const ColumnString* col_to, ColumnString* col_res) {
+    static void impl_vectors_ascii(const ColumnString* col_source, const ColumnString* col_from,
+                                   const ColumnString* col_to, ColumnString* col_res) {
         col_res->get_chars().reserve(col_source->get_chars().size());
         col_res->get_offsets().reserve(col_source->get_offsets().size());
         std::unordered_map<char, char> translate_map;
         if (IsConst) {
             const auto& from_str = col_from->get_data_at(0);
             const auto& to_str = col_to->get_data_at(0);
-            translate_map = build_translate_map(from_str.to_string_view(), to_str.to_string_view());
+            translate_map =
+                    build_translate_map_ascii(from_str.to_string_view(), to_str.to_string_view());
         }
         for (size_t i = 0; i < col_source->size(); ++i) {
             const auto& source_str = col_source->get_data_at(i);
             if (!IsConst) {
                 const auto& from_str = col_from->get_data_at(i);
                 const auto& to_str = col_to->get_data_at(i);
-                translate_map =
-                        build_translate_map(from_str.to_string_view(), to_str.to_string_view());
+                translate_map = build_translate_map_ascii(from_str.to_string_view(),
+                                                          to_str.to_string_view());
             }
-            auto translated_str = translate(source_str.to_string_view(), translate_map);
+            auto translated_str = translate_ascii(source_str.to_string_view(), translate_map);
             col_res->insert_data(translated_str.data(), translated_str.size());
         }
     }
 
-    static std::unordered_map<char, char> build_translate_map(const std::string_view& from_str,
-                                                              const std::string_view& to_str) {
+    static std::unordered_map<char, char> build_translate_map_ascii(
+            const std::string_view& from_str, const std::string_view& to_str) {
         std::unordered_map<char, char> translate_map;
         for (size_t i = 0; i < from_str.size(); ++i) {
             if (translate_map.find(from_str[i]) == translate_map.end()) {
@@ -4245,8 +4256,8 @@ private:
         return translate_map;
     }
 
-    static std::string translate(const std::string_view& source_str,
-                                 std::unordered_map<char, char>& translate_map) {
+    static std::string translate_ascii(const std::string_view& source_str,
+                                       std::unordered_map<char, char>& translate_map) {
         std::string result;
         result.reserve(source_str.size());
         for (auto const& c : source_str) {
@@ -4256,6 +4267,66 @@ private:
                 }
             } else {
                 result.push_back(c);
+            }
+        }
+        return result;
+    }
+
+    template <bool IsConst>
+    static void impl_vectors_utf8(const ColumnString* col_source, const ColumnString* col_from,
+                                  const ColumnString* col_to, ColumnString* col_res) {
+        col_res->get_chars().reserve(col_source->get_chars().size());
+        col_res->get_offsets().reserve(col_source->get_offsets().size());
+        std::unordered_map<std::string_view, std::string_view> translate_map;
+        if (IsConst) {
+            const auto& from_str = col_from->get_data_at(0);
+            const auto& to_str = col_to->get_data_at(0);
+            translate_map =
+                    build_translate_map_utf8(from_str.to_string_view(), to_str.to_string_view());
+        }
+        for (size_t i = 0; i < col_source->size(); ++i) {
+            const auto& source_str = col_source->get_data_at(i);
+            if (!IsConst) {
+                const auto& from_str = col_from->get_data_at(i);
+                const auto& to_str = col_to->get_data_at(i);
+                translate_map = build_translate_map_utf8(from_str.to_string_view(),
+                                                         to_str.to_string_view());
+            }
+            auto translated_str = translate_utf8(source_str.to_string_view(), translate_map);
+            col_res->insert_data(translated_str.data(), translated_str.size());
+        }
+    }
+
+    static std::unordered_map<std::string_view, std::string_view> build_translate_map_utf8(
+            const std::string_view& from_str, const std::string_view& to_str) {
+        std::unordered_map<std::string_view, std::string_view> translate_map;
+        for (size_t i = 0, from_char_size = 0, j = 0, to_char_size = 0; i < from_str.size();
+             i += from_char_size, j += to_char_size) {
+            from_char_size = get_utf8_byte_length(from_str[i]);
+            to_char_size = j < to_str.size() ? get_utf8_byte_length(to_str[j]) : 0;
+            auto from_char = from_str.substr(i, from_char_size);
+            if (translate_map.find(from_char) == translate_map.end()) {
+                translate_map[from_char] =
+                        j < to_str.size() ? to_str.substr(j, to_char_size) : std::string_view();
+            }
+        }
+        return translate_map;
+    }
+
+    static std::string translate_utf8(
+            const std::string_view& source_str,
+            std::unordered_map<std::string_view, std::string_view>& translate_map) {
+        std::string result;
+        result.reserve(source_str.size());
+        for (size_t i = 0, char_size = 0; i < source_str.size(); i += char_size) {
+            char_size = get_utf8_byte_length(source_str[i]);
+            auto c = source_str.substr(i, char_size);
+            if (translate_map.find(c) != translate_map.end()) {
+                if (!translate_map[c].empty()) {
+                    result.append(translate_map[c]);
+                }
+            } else {
+                result.append(c);
             }
         }
         return result;
