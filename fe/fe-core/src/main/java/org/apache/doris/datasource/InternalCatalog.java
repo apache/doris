@@ -2507,6 +2507,16 @@ public class InternalCatalog implements CatalogIf<Database> {
         // use light schema change optimization
         olapTable.setEnableLightSchemaChange(enableLightSchemaChange);
 
+        // check if light schema change is disabled, variant type rely on light schema change
+        if (!enableLightSchemaChange) {
+            for (Column column : baseSchema) {
+                if (column.getType().isVariantType()) {
+                    throw new DdlException("Variant type rely on light schema change, "
+                            + " please use light_schema_change = true.");
+                }
+            }
+        }
+
         boolean disableAutoCompaction = false;
         try {
             disableAutoCompaction = PropertyAnalyzer.analyzeDisableAutoCompaction(properties);
