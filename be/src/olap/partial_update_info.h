@@ -39,7 +39,7 @@ struct RowsetId;
 struct PartialUpdateInfo {
     void init(const TabletSchema& tablet_schema, bool partial_update,
               const std::set<std::string>& partial_update_cols, bool is_strict_mode,
-              int64_t timestamp_ms, const std::string& timezone,
+              int64_t timestamp_ms, int32_t nano_seconds, const std::string& timezone,
               const std::string& auto_increment_column, int64_t cur_max_version = -1);
     void to_pb(PartialUpdateInfoPB* partial_update_info) const;
     void from_pb(PartialUpdateInfoPB* partial_update_info);
@@ -60,6 +60,7 @@ public:
     bool can_insert_new_rows_in_partial_update {true};
     bool is_strict_mode {false};
     int64_t timestamp_ms {0};
+    int32_t nano_seconds {0};
     std::string timezone;
     bool is_input_columns_contains_auto_inc_column = false;
     bool is_schema_contains_auto_inc_column = false;
