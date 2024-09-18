@@ -57,6 +57,7 @@
 #include "agent/utils.h"
 #include "common/config.h"
 #include "common/consts.h"
+#include "common/exception.h"
 #include "common/logging.h"
 #include "common/signal_handler.h"
 #include "common/status.h"
@@ -2059,8 +2060,7 @@ void Tablet::execute_compaction(Compaction& compaction) {
     MonotonicStopWatch watch;
     watch.start();
 
-    Status res = compaction.execute_compact();
-
+    Status res = [&]() { RETURN_IF_CATCH_EXCEPTION({ return compaction.execute_compact(); }); }();
     if (!res.ok()) [[unlikely]] {
         set_last_failure_time(this, compaction, UnixMillis());
         LOG(WARNING) << "failed to do " << compaction.compaction_name()
