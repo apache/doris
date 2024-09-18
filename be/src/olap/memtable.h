@@ -178,8 +178,7 @@ public:
 
     int64_t tablet_id() const { return _tablet_id; }
     size_t memory_usage() const {
-        return _insert_mem_tracker->consumption() + _arena->used_size() +
-               _flush_mem_tracker->consumption();
+        return _insert_mem_tracker->consumption() + _flush_mem_tracker->consumption();
     }
     // insert tuple from (row_pos) to (row_pos+num_rows)
     Status insert(const vectorized::Block* block, const std::vector<uint32_t>& row_idxs);
