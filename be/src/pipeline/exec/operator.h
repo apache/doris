@@ -723,12 +723,12 @@ public:
     }
 
     size_t revocable_mem_size(RuntimeState* state) const override {
-        return (_child_x and !is_source()) ? _child_x->revocable_mem_size(state) : 0;
+        return (_child and !is_source()) ? _child->revocable_mem_size(state) : 0;
     }
 
     Status revoke_memory(RuntimeState* state) override {
-        if (_child_x and !is_source()) {
-            return _child_x->revoke_memory(state);
+        if (_child and !is_source()) {
+            return _child->revoke_memory(state);
         }
         return Status::OK();
     }
@@ -852,8 +852,8 @@ public:
         if (estimated_size < state->minimum_operator_memory_required_bytes()) {
             estimated_size = state->minimum_operator_memory_required_bytes();
         }
-        if (!is_source() && _child_x) {
-            auto child_reserve_size = _child_x->get_reserve_mem_size(state);
+        if (!is_source() && _child) {
+            auto child_reserve_size = _child->get_reserve_mem_size(state);
             estimated_size +=
                     std::max(state->minimum_operator_memory_required_bytes(), child_reserve_size);
         }
@@ -864,8 +864,8 @@ public:
         auto& local_state = get_local_state(state);
         local_state.reset_estimate_memory_usage();
 
-        if (!is_source() && _child_x) {
-            _child_x->reset_reserve_mem_size(state);
+        if (!is_source() && _child) {
+            _child->reset_reserve_mem_size(state);
         }
     }
 };

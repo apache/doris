@@ -88,7 +88,7 @@ Status Block::deserialize(const PBlock& pblock) {
     RETURN_IF_ERROR(BeExecVersionManager::check_be_exec_version(be_exec_version));
 
     const char* buf = nullptr;
-    faststring compression_scratch;
+    std::string compression_scratch;
     if (pblock.compressed()) {
         // Decompress
         SCOPED_RAW_TIMER(&_decompress_time_ns);
@@ -111,11 +111,11 @@ Status Block::deserialize(const PBlock& pblock) {
             DCHECK(success) << "snappy::GetUncompressedLength failed";
             compression_scratch.resize(uncompressed_size);
             success = snappy::RawUncompress(compressed_data, compressed_size,
-                                            reinterpret_cast<char*>(compression_scratch.data()));
+                                            compression_scratch.data());
             DCHECK(success) << "snappy::RawUncompress failed";
         }
         _decompressed_bytes = uncompressed_size;
-        buf = reinterpret_cast<char*>(compression_scratch.data());
+        buf = compression_scratch.data();
     } else {
         buf = pblock.column_values().data();
     }
@@ -925,7 +925,7 @@ Status Block::serialize(int be_exec_version, PBlock* pblock,
 
     // serialize data values
     // when data type is HLL, content_uncompressed_size maybe larger than real size.
-    faststring column_values;
+    std::string column_values;
     try {
         // TODO: After support c++23, we should use resize_and_overwrite to replace resize
         column_values.resize(content_uncompressed_size);
@@ -935,14 +935,13 @@ Status Block::serialize(int be_exec_version, PBlock* pblock,
         LOG(WARNING) << msg;
         return Status::BufferAllocFailed(msg);
     }
-    char* buf = reinterpret_cast<char*>(column_values.data());
+    char* buf = column_values.data();
 
     for (const auto& c : *this) {
         buf = c.type->serialize(*(c.column), buf, pblock->be_exec_version());
     }
     *uncompressed_bytes = content_uncompressed_size;
-    const size_t serialize_bytes =
-            buf - reinterpret_cast<char*>(column_values.data()) + STREAMVBYTE_PADDING;
+    const size_t serialize_bytes = buf - column_values.data() + STREAMVBYTE_PADDING;
     *compressed_bytes = serialize_bytes;
     column_values.resize(serialize_bytes);
 
@@ -965,13 +964,13 @@ Status Block::serialize(int be_exec_version, PBlock* pblock,
             pblock->set_compressed(true);
             *compressed_bytes = compressed_size;
         } else {
-            pblock->set_column_values(column_values.data(), column_values.size());
+            pblock->set_column_values(std::move(column_values));
         }
 
         VLOG_ROW << "uncompressed size: " << content_uncompressed_size
                  << ", compressed size: " << compressed_size;
     } else {
-        pblock->set_column_values(column_values.data(), column_values.size());
+        pblock->set_column_values(std::move(column_values));
     }
     if (!allow_transfer_large_data && *compressed_bytes >= std::numeric_limits<int32_t>::max()) {
         return Status::InternalError("The block is large than 2GB({}), can not send by Protobuf.",

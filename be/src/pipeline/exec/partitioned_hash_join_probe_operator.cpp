@@ -765,8 +765,8 @@ size_t PartitionedHashJoinProbeOperatorX::revocable_mem_size(RuntimeState* state
     }
 
     auto revocable_size = _revocable_mem_size(state, true);
-    if (_child_x) {
-        revocable_size += _child_x->revocable_mem_size(state);
+    if (_child) {
+        revocable_size += _child->revocable_mem_size(state);
     }
     return revocable_size;
 }
@@ -808,8 +808,8 @@ Status PartitionedHashJoinProbeOperatorX::revoke_memory(RuntimeState* state) {
 
     RETURN_IF_ERROR(local_state.spill_probe_blocks(state, true));
 
-    if (_child_x) {
-        return _child_x->revoke_memory(state);
+    if (_child) {
+        return _child->revoke_memory(state);
     }
     return Status::OK();
 }
