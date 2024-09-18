@@ -4390,6 +4390,6 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public boolean isEnableSinglePhaseExecutionCommitOpt() {
-        return enableSinglePhaseExecutionCommitOpt;
+        return enableSinglePhaseExecutionCommitOpt && getEnableLocalExchange();
     }
 }
