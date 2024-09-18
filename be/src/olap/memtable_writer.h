@@ -57,11 +57,6 @@ namespace vectorized {
 class Block;
 } // namespace vectorized
 
-// Active: the memtable is currently used by writer to insert into blocks
-// Write_finished: the memtable finished write blocks and in the queue waiting for flush
-// FLUSH: the memtable is under flushing, write segment to disk.
-enum MemType { ACTIVE = 0, WRITE_FINISHED = 1, FLUSH = 2 };
-
 // Writer for a particular (load, index, tablet).
 // This class is NOT thread-safe, external synchronization is required.
 class MemTableWriter {

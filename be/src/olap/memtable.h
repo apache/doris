@@ -47,6 +47,11 @@ class TabletSchema;
 class TupleDescriptor;
 enum KeysType : int;
 
+// Active: the memtable is currently used by writer to insert into blocks
+// Write_finished: the memtable finished write blocks and in the queue waiting for flush
+// FLUSH: the memtable is under flushing, write segment to disk.
+enum MemType { ACTIVE = 0, WRITE_FINISHED = 1, FLUSH = 2 };
+
 // row pos in _input_mutable_block
 struct RowInBlock {
     size_t _row_pos;
