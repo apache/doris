@@ -112,7 +112,6 @@ public class MaxComputeScanNode extends FileQueryScanNode {
     void createTableBatchReadSession() throws UserException {
         Predicate filterPredicate = convertPredicate();
 
-
         List<String> requiredPartitionColumns = new ArrayList<>();
         List<String> orderedRequiredDataColumns = new ArrayList<>();
 
@@ -165,31 +164,30 @@ public class MaxComputeScanNode extends FileQueryScanNode {
             return Predicate.NO_PREDICATE;
         }
 
-        if (conjuncts.size() == 1) {
+        List<Predicate> odpsPredicates = new ArrayList<>();
+        for (Expr dorisPredicate : conjuncts) {
             try {
-                return convertExprToOdpsPredicate(conjuncts.get(0));
+                odpsPredicates.add(convertExprToOdpsPredicate(dorisPredicate));
             } catch (AnalysisException e) {
-                Log.info("Failed to convert predicate " + conjuncts.get(0) + " to odps predicate");
+                Log.info("Failed to convert predicate " + dorisPredicate);
                 Log.info("Reason: " + e.getMessage());
-                return Predicate.NO_PREDICATE;
             }
         }
 
-        com.aliyun.odps.table.optimizer.predicate.CompoundPredicate
-                filterPredicate = new com.aliyun.odps.table.optimizer.predicate.CompoundPredicate(
-                        com.aliyun.odps.table.optimizer.predicate.CompoundPredicate.Operator.AND
-        );
+        if (odpsPredicates.isEmpty()) {
+            return Predicate.NO_PREDICATE;
+        } else if (odpsPredicates.size() == 1) {
+            return odpsPredicates.get(0);
+        } else {
+            com.aliyun.odps.table.optimizer.predicate.CompoundPredicate
+                    filterPredicate = new com.aliyun.odps.table.optimizer.predicate.CompoundPredicate(
+                    com.aliyun.odps.table.optimizer.predicate.CompoundPredicate.Operator.AND);
 
-        for (Expr predicate : conjuncts) {
-            try {
-                filterPredicate.addPredicate(convertExprToOdpsPredicate(predicate));
-            } catch (AnalysisException e) {
-                Log.info("Failed to convert predicate " + predicate);
-                Log.info("Reason: " + e.getMessage());
-                return Predicate.NO_PREDICATE;
+            for (Predicate odpsPredicate : odpsPredicates) {
+                filterPredicate.addPredicate(odpsPredicate);
             }
+            return filterPredicate;
         }
-        return filterPredicate;
     }
 
     private Predicate convertExprToOdpsPredicate(Expr expr) throws AnalysisException {
@@ -225,7 +223,7 @@ public class MaxComputeScanNode extends FileQueryScanNode {
 
             InPredicate inPredicate = (InPredicate) expr;
             if (inPredicate.getChildren().size() > 2) {
-                return Predicate.NO_PREDICATE;
+                throw new AnalysisException("InPredicate must contain at most 1 children");
             }
             com.aliyun.odps.table.optimizer.predicate.InPredicate.Operator odpsOp =
                     inPredicate.isNotIn()
@@ -334,7 +332,6 @@ public class MaxComputeScanNode extends FileQueryScanNode {
 
         throw new AnalysisException("Do not support convert ["
                 + expr.getExprName() + "] in convertSlotRefToAttribute.");
-
 
     }
 

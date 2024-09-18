@@ -29,17 +29,12 @@ import org.apache.doris.datasource.property.constants.MCProperties;
 import com.aliyun.odps.Odps;
 import com.aliyun.odps.OdpsException;
 import com.aliyun.odps.Partition;
-import com.aliyun.odps.Project;
 import com.aliyun.odps.account.Account;
 import com.aliyun.odps.account.AliyunAccount;
-import com.aliyun.odps.security.SecurityManager;
 import com.aliyun.odps.table.configuration.SplitOptions;
 import com.aliyun.odps.table.enviroment.Credentials;
 import com.aliyun.odps.table.enviroment.EnvironmentSettings;
-import com.aliyun.odps.utils.StringUtils;
 import com.google.common.collect.ImmutableList;
-import com.google.gson.JsonObject;
-import com.google.gson.JsonParser;
 
 import java.util.ArrayList;
 import java.util.Iterator;
@@ -52,7 +47,6 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
     private String accessKey;
     private String secretKey;
     private String endpoint;
-    private String catalogOwner;
     private String defaultProject;
     private String quota;
     private EnvironmentSettings settings;
@@ -128,25 +122,28 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
 
     protected List<String> listDatabaseNames() {
         List<String> result = new ArrayList<>();
-        try {
-            result.add(defaultProject);
-            if (StringUtils.isNullOrEmpty(catalogOwner)) {
-                SecurityManager sm = odps.projects().get().getSecurityManager();
-                String whoami = sm.runQuery("whoami", false);
+        result.add(defaultProject);
 
-                JsonObject js = JsonParser.parseString(whoami).getAsJsonObject();
-                catalogOwner = js.get("DisplayName").getAsString();
-            }
-            Iterator<Project> iterator = odps.projects().iterator(catalogOwner);
-            while (iterator.hasNext()) {
-                Project project = iterator.next();
-                if (!project.getName().equals(defaultProject)) {
-                    result.add(project.getName());
-                }
-            }
-        } catch (OdpsException e) {
-            throw new RuntimeException(e);
-        }
+        // TODO: Improve `show tables` and `select * from table` when `use other project`.
+        // try {
+        //     result.add(defaultProject);
+        //     if (StringUtils.isNullOrEmpty(catalogOwner)) {
+        //         SecurityManager sm = odps.projects().get().getSecurityManager();
+        //         String whoami = sm.runQuery("whoami", false);
+        //
+        //         JsonObject js = JsonParser.parseString(whoami).getAsJsonObject();
+        //         catalogOwner = js.get("DisplayName").getAsString();
+        //     }
+        //     Iterator<Project> iterator = odps.projects().iterator(catalogOwner);
+        //     while (iterator.hasNext()) {
+        //         Project project = iterator.next();
+        //         if (!project.getName().equals(defaultProject)) {
+        //             result.add(project.getName());
+        //         }
+        //     }
+        // } catch (OdpsException e) {
+        //     throw new RuntimeException(e);
+        // }
         return result;
     }
 
