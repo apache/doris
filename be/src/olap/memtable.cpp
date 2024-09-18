@@ -59,8 +59,7 @@ MemTable::MemTable(int64_t tablet_id, std::shared_ptr<TabletSchema> tablet_schem
           _is_first_insertion(true),
           _agg_functions(tablet_schema->num_columns()),
           _offsets_of_aggregate_states(tablet_schema->num_columns()),
-          _total_size_of_aggregate_states(0),
-          _mem_usage(0) {
+          _total_size_of_aggregate_states(0) {
     g_memtable_cnt << 1;
     _query_thread_context.init_unlocked();
     _arena = std::make_unique<vectorized::Arena>();
@@ -212,9 +211,6 @@ Status MemTable::insert(const vectorized::Block* input_block,
                                                   row_idxs.data() + num_rows, &_column_offset));
     auto block_size1 = _input_mutable_block.allocated_bytes();
     g_memtable_input_block_allocated_size << block_size1 - block_size0;
-    auto input_size = size_t(input_block->bytes() * num_rows / input_block->rows() *
-                             config::memtable_insert_memory_ratio);
-    _mem_usage += input_size;
     for (int i = 0; i < num_rows; i++) {
         _row_in_blocks.emplace_back(new RowInBlock {cursor_in_mutableblock + i});
     }
@@ -464,8 +460,6 @@ void MemTable::_aggregate() {
     }
     if constexpr (!is_final) {
         // if is not final, we collect the agg results to input_block and then continue to insert
-        size_t shrunked_after_agg = _output_mutable_block.allocated_bytes();
-        _mem_usage = shrunked_after_agg;
         _input_mutable_block.swap(_output_mutable_block);
         //TODO(weixang):opt here.
         std::unique_ptr<vectorized::Block> empty_input_block = in_block.create_same_struct_block(0);
@@ -524,7 +518,6 @@ Status MemTable::_to_block(std::unique_ptr<vectorized::Block>* res) {
     }
     g_memtable_input_block_allocated_size << -_input_mutable_block.allocated_bytes();
     _input_mutable_block.clear();
-    _mem_usage = 0;
     // After to block, all data in arena is saved in the block
     _arena.reset();
     *res = vectorized::Block::create_unique(_output_mutable_block.to_block());
