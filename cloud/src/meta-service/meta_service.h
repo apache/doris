@@ -265,10 +265,10 @@ public:
                                        GetDeleteBitmapUpdateLockResponse* response,
                                        ::google::protobuf::Closure* done) override;
 
-    void remove_delete_bitmap_update_lock(google::protobuf::RpcController* controller,
-                                          const RemoveDeleteBitmapUpdateLockRequest* request,
-                                          RemoveDeleteBitmapUpdateLockResponse* response,
-                                          ::google::protobuf::Closure* done) override;
+    void update_delete_bitmap_without_lock(google::protobuf::RpcController* controller,
+                                           const UpdateDeleteBitmapRequest* request,
+                                           UpdateDeleteBitmapResponse* response,
+                                           ::google::protobuf::Closure* done) override;
 
     void remove_delete_bitmap(google::protobuf::RpcController* controller,
                               const RemoveDeleteBitmapRequest* request,
@@ -641,19 +641,19 @@ public:
                   done);
     }
 
+    void update_delete_bitmap_without_lock(google::protobuf::RpcController* controller,
+                                           const UpdateDeleteBitmapRequest* request,
+                                           UpdateDeleteBitmapResponse* response,
+                                           ::google::protobuf::Closure* done) override {
+        call_impl(&cloud::MetaService::update_delete_bitmap_without_lock, controller, request,
+                  response, done);
+    }
+
     void remove_delete_bitmap(google::protobuf::RpcController* controller,
                               const RemoveDeleteBitmapRequest* request,
                               RemoveDeleteBitmapResponse* response,
                               ::google::protobuf::Closure* done) override {
         call_impl(&cloud::MetaService::remove_delete_bitmap, controller, request, response, done);
-    }
-
-    void remove_delete_bitmap_update_lock(google::protobuf::RpcController* controller,
-                                          const RemoveDeleteBitmapUpdateLockRequest* request,
-                                          RemoveDeleteBitmapUpdateLockResponse* response,
-                                          ::google::protobuf::Closure* done) override {
-        call_impl(&cloud::MetaService::remove_delete_bitmap_update_lock, controller, request,
-                  response, done);
     }
 
     // cloud control get cluster's status by this api

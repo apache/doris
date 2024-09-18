@@ -18,6 +18,7 @@
 #include "cloud/cloud_cumulative_compaction.h"
 
 #include "cloud/cloud_meta_mgr.h"
+#include "cloud/cloud_tablet_mgr.h"
 #include "cloud/config.h"
 #include "common/config.h"
 #include "common/logging.h"
@@ -342,7 +343,7 @@ Status CloudCumulativeCompaction::modify_rowsets() {
         }
     }
     if (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
-        _tablet->enable_unique_key_merge_on_write()) {
+        _tablet->enable_unique_key_merge_on_write() && _input_rowsets.size() != 1) {
         process_old_version_delete_bitmap();
     }
     return Status::OK();
@@ -383,78 +384,40 @@ void CloudCumulativeCompaction::process_old_version_delete_bitmap() {
                 new_delete_bitmap->set(end, *d);
             }
         }
-        Status get_st;
-        Status update_st;
-        Status remove_st;
-        do {
-            if (!new_delete_bitmap->empty()) {
-                // store agg delete bitmap
-                int64_t initiator = boost::hash_range(_uuid.begin(), _uuid.end()) &
-                                    std::numeric_limits<int64_t>::max();
-                DBUG_EXECUTE_IF("CloudCumulativeCompaction.modify_rowsets.get_mow_lock_failed", {
-                    get_st = Status::InternalError(
-                            "test fail to get_delete_bitmap_update_lock for "
-                            "tablet_id {}",
-                            cloud_tablet()->tablet_id());
-                });
-                if (get_st.ok()) {
-                    get_st = _engine.meta_mgr().get_delete_bitmap_update_lock(*cloud_tablet(), -1,
-                                                                              initiator);
-                }
-                if (!get_st.ok()) {
-                    std::stringstream ss;
-                    ss << "failed to get delete bitmap lock for tablet="
-                       << cloud_tablet()->tablet_id() << " st=" << get_st.to_string()
-                       << " skip to remove old version delete bitmap";
-                    std::string msg = ss.str();
-                    LOG(WARNING) << msg;
-                    break;
+        if (!new_delete_bitmap->empty()) {
+            // store agg delete bitmap
+            Status update_st;
+            DBUG_EXECUTE_IF("CloudCumulativeCompaction.modify_rowsets.update_delete_bitmap_failed",
+                            {
+                                update_st = Status::InternalError(
+                                        "test fail to update delete bitmap for tablet_id {}",
+                                        cloud_tablet()->tablet_id());
+                            });
+            if (update_st.ok()) {
+                update_st = _engine.meta_mgr().update_delete_bitmap_without_lock(
+                        *cloud_tablet(), new_delete_bitmap.get());
+            }
+            if (!update_st.ok()) {
+                std::stringstream ss;
+                ss << "failed to update delete bitmap for tablet=" << cloud_tablet()->tablet_id()
+                   << " st=" << update_st.to_string();
+                std::string msg = ss.str();
+                LOG(WARNING) << msg;
+            }
+            if (update_st.ok()) {
+                Version version(_input_rowsets.front()->start_version(),
+                                _input_rowsets.back()->end_version());
+                _tablet->tablet_meta()->delete_bitmap().add_to_remove_queue(version.to_string(),
+                                                                            to_remove_vec);
+                for (auto it = new_delete_bitmap->delete_bitmap.begin();
+                     it != new_delete_bitmap->delete_bitmap.end(); it++) {
+                    _tablet->tablet_meta()->delete_bitmap().set(it->first, it->second);
                 }
                 DBUG_EXECUTE_IF(
-                        "CloudCumulativeCompaction.modify_rowsets.update_delete_bitmap_failed", {
-                            update_st = Status::InternalError(
-                                    "test fail to update delete bitmap for tablet_id {}",
-                                    cloud_tablet()->tablet_id());
+                        "CloudCumulativeCompaction.modify_rowsets.delete_expired_stale_rowsets", {
+                            static_cast<CloudTablet*>(_tablet.get())
+                                    ->delete_expired_stale_rowsets();
                         });
-                if (update_st.ok()) {
-                    update_st = _engine.meta_mgr().update_delete_bitmap(
-                            *cloud_tablet(), -1, initiator, new_delete_bitmap.get());
-                }
-                if (!update_st.ok()) {
-                    std::stringstream ss;
-                    ss << "failed to update delete bitmap for tablet="
-                       << cloud_tablet()->tablet_id() << " st=" << update_st.to_string();
-                    std::string msg = ss.str();
-                    LOG(WARNING) << msg;
-                }
-                DBUG_EXECUTE_IF("CloudCumulativeCompaction.modify_rowsets.remove_mow_lock_failed", {
-                    remove_st = Status::InternalError(
-                            "test fail to remove_delete_bitmap_update_lock for "
-                            "tablet_id {}",
-                            cloud_tablet()->tablet_id());
-                });
-                if (remove_st.ok()) {
-                    remove_st = _engine.meta_mgr().remove_delete_bitmap_update_lock(*cloud_tablet(),
-                                                                                    -1, initiator);
-                }
-                if (!remove_st.ok()) {
-                    std::stringstream ss;
-                    ss << "failed to remove delete bitmap lock for tablet="
-                       << cloud_tablet()->tablet_id() << " st=" << remove_st.to_string();
-                    std::string msg = ss.str();
-                    LOG(WARNING) << msg;
-                }
-            }
-        } while (false);
-
-        if (get_st.ok() && update_st.ok() && remove_st.ok()) {
-            auto now = UnixMillis();
-            for (auto& key : to_remove_vec) {
-                _tablet->tablet_meta()->delete_bitmap().add_to_remove_queue(key, now);
-            }
-            for (auto it = new_delete_bitmap->delete_bitmap.begin();
-                 it != new_delete_bitmap->delete_bitmap.end(); it++) {
-                _tablet->tablet_meta()->delete_bitmap().set(it->first, it->second);
             }
         }
     }

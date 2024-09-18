@@ -142,7 +142,6 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
 public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
@@ -151,7 +150,6 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
 
     private TxnStateCallbackFactory callbackFactory;
     private final Map<Long, Long> subTxnIdToTxnId = new ConcurrentHashMap<>();
-    private Map<Long, AtomicInteger> countMap = new ConcurrentHashMap<>();
 
     public CloudGlobalTransactionMgr() {
         this.callbackFactory = new TxnStateCallbackFactory();
@@ -796,8 +794,8 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                     LOG.warn("ignore get delete bitmap lock exception, transactionId={}, retryTime={}",
                             transactionId, retryTime, e);
                 }
-                // sleep random millis [20, 300] ms, avoid txn conflict
-                int randomMillis = 20 + (int) (Math.random() * (300 - 20));
+                // sleep random millis [20, 200] ms, avoid txn conflict
+                int randomMillis = 20 + (int) (Math.random() * (200 - 20));
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("randomMillis:{}", randomMillis);
                 }
@@ -869,7 +867,6 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             // not check return value, because the add will success
             AgentTaskQueue.addTask(task);
             batchTask.addTask(task);
-            LOG.info("send calculate delete bitmap task to be {}, txn_id {}", entry.getKey(), transactionId);
         }
         AgentTaskExecutor.submit(batchTask);
 
@@ -974,19 +971,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     public boolean commitAndPublishTransaction(DatabaseIf db, List<Table> tableList, long transactionId,
                                                List<TabletCommitInfo> tabletCommitInfos, long timeoutMillis,
                                                TxnCommitAttachment txnCommitAttachment) throws UserException {
-        for (int i = 0; i < tableList.size(); i++) {
-            long tableId = tableList.get(i).getId();
-            LOG.info("start commit txn=" + transactionId + ",table=" + tableId);
-        }
-        for (Map.Entry<Long, AtomicInteger> entry : countMap.entrySet()) {
-            if (entry.getValue().get() > 5) {
-                LOG.info("now table {} commitAndPublishTransaction queue is {}", entry.getKey(),
-                        entry.getValue().get());
-            }
-        }
-        increaseCount(tableList);
         if (!MetaLockUtils.tryCommitLockTables(tableList, timeoutMillis, TimeUnit.MILLISECONDS)) {
-            decreaseCount(tableList);
             // DELETE_BITMAP_LOCK_ERR will be retried on be
             throw new UserException(InternalErrorCode.DELETE_BITMAP_LOCK_ERR,
                     "get table cloud commit lock timeout, tableList=("
@@ -995,7 +980,6 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         try {
             commitTransaction(db.getId(), tableList, transactionId, tabletCommitInfos, txnCommitAttachment);
         } finally {
-            decreaseCount(tableList);
             MetaLockUtils.commitUnlockTables(tableList);
         }
         return true;
@@ -1754,24 +1738,5 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             throw new UserException(response.getStatus().getMsg());
         }
         return TxnUtil.transactionStateFromPb(response.getTxnInfo());
-    }
-
-    private void increaseCount(List<Table> tableList) {
-        for (int i = 0; i < tableList.size(); i++) {
-            long tableId = tableList.get(i).getId();
-            if (countMap.containsKey(tableId)) {
-                countMap.get(tableId).addAndGet(1);
-            } else {
-                countMap.put(tableId, new AtomicInteger());
-                countMap.get(tableId).addAndGet(1);
-            }
-        }
-    }
-
-    private void decreaseCount(List<Table> tableList) {
-        for (int i = 0; i < tableList.size(); i++) {
-            long tableId = tableList.get(i).getId();
-            countMap.get(tableId).decrementAndGet();
-        }
     }
 }

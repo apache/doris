@@ -521,11 +521,12 @@ public:
 
     void remove_sentinel_marks();
 
-    void add_to_remove_queue(
-            const std::tuple<int64_t, DeleteBitmap::BitmapKey, DeleteBitmap::BitmapKey>& tuple,
-            int64_t time_stamp);
+    void add_to_remove_queue(const std::string& version_str,
+                             const std::vector<std::tuple<int64_t, DeleteBitmap::BitmapKey,
+                                                          DeleteBitmap::BitmapKey>>& vector);
+    void remove_stale_delete_bitmap_from_queue(const std::vector<std::string>& vector);
 
-    void remove_stale_delete_bitmap_from_queue();
+    uint64_t get_delete_bitmap_count();
 
     class AggCachePolicy : public LRUCachePolicy {
     public:
@@ -560,7 +561,9 @@ public:
 private:
     mutable std::shared_ptr<AggCache> _agg_cache;
     int64_t _tablet_id;
-    std::map<std::tuple<int64_t, DeleteBitmap::BitmapKey, DeleteBitmap::BitmapKey>, int64_t>
+    // <version, <tablet_id, BitmapKeyStart, BitmapKeyEnd>>
+    std::map<std::string,
+             std::vector<std::tuple<int64_t, DeleteBitmap::BitmapKey, DeleteBitmap::BitmapKey>>>
             _stale_delete_bitmap;
 };
 

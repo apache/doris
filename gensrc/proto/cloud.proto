@@ -1423,17 +1423,6 @@ message RemoveDeleteBitmapResponse {
     optional MetaServiceResponseStatus status = 1;
 }
 
-message RemoveDeleteBitmapUpdateLockRequest {
-    optional string cloud_unique_id = 1; // For auth
-    optional int64 table_id = 2;
-    optional int64 lock_id = 3;
-    optional int64 initiator = 4;
-}
-
-message RemoveDeleteBitmapUpdateLockResponse {
-    optional MetaServiceResponseStatus status = 1;
-}
-
 message PendingDeleteBitmapPB {
     repeated bytes delete_bitmap_keys = 1;
 }
@@ -1573,7 +1562,7 @@ service MetaService {
     rpc update_delete_bitmap(UpdateDeleteBitmapRequest) returns(UpdateDeleteBitmapResponse);
     rpc get_delete_bitmap(GetDeleteBitmapRequest) returns(GetDeleteBitmapResponse);
     rpc get_delete_bitmap_update_lock(GetDeleteBitmapUpdateLockRequest) returns(GetDeleteBitmapUpdateLockResponse);
-    rpc remove_delete_bitmap_update_lock(RemoveDeleteBitmapUpdateLockRequest) returns(RemoveDeleteBitmapUpdateLockResponse);
+    rpc update_delete_bitmap_without_lock(UpdateDeleteBitmapRequest) returns(UpdateDeleteBitmapResponse);
     rpc remove_delete_bitmap(RemoveDeleteBitmapRequest) returns(RemoveDeleteBitmapResponse);
 
     // routine load progress

@@ -364,6 +364,7 @@ int CloudTablet::delete_expired_stale_rowsets() {
     std::vector<RowsetSharedPtr> expired_rowsets;
     int64_t expired_stale_sweep_endtime =
             ::time(nullptr) - config::tablet_rowset_stale_sweep_time_sec;
+    std::vector<std::string> version_to_delete;
     {
         std::unique_lock wlock(_meta_lock);
 
@@ -376,6 +377,8 @@ int CloudTablet::delete_expired_stale_rowsets() {
         }
 
         for (int64_t path_id : path_ids) {
+            int start_version = -1;
+            int end_version = -1;
             // delete stale versions in version graph
             auto version_path = _timestamped_version_tracker.fetch_and_delete_path_by_id(path_id);
             for (auto& v_ts : version_path->timestamped_versions()) {
@@ -390,13 +393,18 @@ int CloudTablet::delete_expired_stale_rowsets() {
                     DCHECK(false) << [this, &wlock]() { wlock.unlock(); std::string json; get_compaction_status(&json); return json; }();
                     // clang-format on
                 }
+                if (start_version < 0) {
+                    start_version = v_ts->version().first;
+                }
+                end_version = v_ts->version().second;
                 _tablet_meta->delete_stale_rs_meta_by_version(v_ts->version());
-                VLOG_DEBUG << "delete stale rowset " << v_ts->version();
             }
+            Version version(start_version, end_version);
+            version_to_delete.emplace_back(version.to_string());
         }
         _reconstruct_version_tracker_if_necessary();
     }
-    _tablet_meta->delete_bitmap().remove_stale_delete_bitmap_from_queue();
+    _tablet_meta->delete_bitmap().remove_stale_delete_bitmap_from_queue(version_to_delete);
     recycle_cached_data(expired_rowsets);
     return expired_rowsets.size();
 }

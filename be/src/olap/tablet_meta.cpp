@@ -1169,33 +1169,46 @@ void DeleteBitmap::merge(const DeleteBitmap& other) {
 }
 
 void DeleteBitmap::add_to_remove_queue(
-        const std::tuple<int64_t, DeleteBitmap::BitmapKey, DeleteBitmap::BitmapKey>& tuple,
-        int64_t time_stamp) {
+        const std::string& version_str,
+        const std::vector<std::tuple<int64_t, DeleteBitmap::BitmapKey, DeleteBitmap::BitmapKey>>&
+                vector) {
     std::shared_lock l(stale_delete_bitmap_lock);
-    _stale_delete_bitmap.emplace(tuple, time_stamp);
+    _stale_delete_bitmap.emplace(version_str, vector);
 }
 
-void DeleteBitmap::remove_stale_delete_bitmap_from_queue() {
+void DeleteBitmap::remove_stale_delete_bitmap_from_queue(const std::vector<std::string>& vector) {
     std::shared_lock l(stale_delete_bitmap_lock);
-    auto now = UnixMillis();
-    auto it = _stale_delete_bitmap.begin();
-    while (it != _stale_delete_bitmap.end()) {
-        if (now - it->second > config::tablet_rowset_stale_sweep_time_sec * 1000) {
-            auto tablet_id = std::get<0>(it->first);
-            auto start_bmk = std::get<1>(it->first);
-            auto end_bmk = std::get<2>(it->first);
-            remove(start_bmk, end_bmk);
-
-            std::vector<std::string> pre_rowset_ids {};
-            pre_rowset_ids.emplace_back(std::get<0>(start_bmk).to_string());
-            CloudStorageEngine& engine = ExecEnv::GetInstance()->storage_engine().to_cloud();
-            auto st = engine.meta_mgr().remove_old_version_delete_bitmap(tablet_id, pre_rowset_ids,
-                                                                         0, std::get<2>(end_bmk));
-            it = _stale_delete_bitmap.erase(it);
-        } else {
-            it++;
+    //<rowset_id, start_version, end_version>
+    std::vector<std::tuple<std::string, uint64_t, uint64_t>> to_delete;
+    auto tablet_id = -1;
+    for (auto& version_str : vector) {
+        auto it = _stale_delete_bitmap.find(version_str);
+        if (it != _stale_delete_bitmap.end()) {
+            auto delete_bitmap_vector = it->second;
+            for (auto& delete_bitmap_tuple : it->second) {
+                if (tablet_id < 0) {
+                    tablet_id = std::get<0>(delete_bitmap_tuple);
+                }
+                auto start_bmk = std::get<1>(delete_bitmap_tuple);
+                auto end_bmk = std::get<2>(delete_bitmap_tuple);
+                remove(start_bmk, end_bmk);
+                to_delete.emplace_back(std::make_tuple(std::get<0>(start_bmk).to_string(), 0,
+                                                       std::get<2>(end_bmk)));
+            }
+            _stale_delete_bitmap.erase(version_str);
         }
     }
+    CloudStorageEngine& engine = ExecEnv::GetInstance()->storage_engine().to_cloud();
+    auto st = engine.meta_mgr().remove_old_version_delete_bitmap(tablet_id, to_delete);
+    if (!st.ok()) {
+        LOG(WARNING) << "fail to remove_stale_delete_bitmap_from_queue for tablet=" << tablet_id
+                      << ",st=" << st;
+    }
+}
+
+uint64_t DeleteBitmap::get_delete_bitmap_count() {
+    std::shared_lock l(lock);
+    return delete_bitmap.size();
 }
 
 // We cannot just copy the underlying memory to construct a string
