@@ -800,8 +800,8 @@ public class Coordinator implements CoordInterface {
             beToPipelineExecCtxs.clear();
             // fragment:backend
             List<Pair<PlanFragmentId, Long>> backendFragments = Lists.newArrayList();
-            // If #fragments > 1 and BE amount is bigger than 1, use twoPhaseExecution with exec_plan_fragments_prepare and exec_plan_fragments_start,
-            // else use exec_plan_fragments directly.
+            // If #fragments > 1 and BE amount is bigger than 1, use twoPhaseExecution with exec_plan_fragments_prepare
+            // and exec_plan_fragments_start, else use exec_plan_fragments directly.
             // we choose #fragments > 1 because in some cases
             // we need ensure that A fragment is already prepared to receive data before B fragment sends data.
             // For example: select * from numbers("number"="10") will generate ExchangeNode and
