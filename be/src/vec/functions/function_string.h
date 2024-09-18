@@ -2746,9 +2746,7 @@ public:
         std::string encoded_url;
         for (size_t i = 0; i < input_rows_count; ++i) {
             auto url = url_col->get_data_at(i);
-            if (!url_encode(url.to_string_view(), &encoded_url)) {
-                return Status::InternalError("Encode url failed");
-            }
+            url_encode(url.to_string_view(), &encoded_url);
             res->insert_data(encoded_url.data(), encoded_url.size());
             encoded_url.clear();
         }

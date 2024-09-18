@@ -24,18 +24,26 @@
 
 namespace doris {
 
-bool url_encode(const std::string_view& in, std::string* out) {
-    if (in.empty()) {
-        *out = std::string();
-        return true;
+inline unsigned char to_hex(unsigned char x) {
+    return x + (x > 9 ? ('A' - 10) : '0');
+}
+
+// Adapted from http://dlib.net/dlib/server/server_http.cpp.html
+void url_encode(const std::string_view& in, std::string* out) {
+    std::ostringstream os;
+    for (auto c : in) {
+        // impl as https://docs.oracle.com/javase/8/docs/api/java/net/URLEncoder.html
+        if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
+            c == '.' || c == '-' || c == '*' || c == '_') { // allowed
+            os << c;
+        } else if (c == ' ') {
+            os << '+';
+        } else {
+            os << '%' << to_hex(c >> 4) << to_hex(c % 16);
+        }
     }
-    auto* encoded_url = curl_easy_escape(nullptr, in.data(), static_cast<int>(in.length()));
-    if (encoded_url == nullptr) {
-        return false;
-    }
-    *out = std::string(encoded_url);
-    curl_free(static_cast<void*>(encoded_url));
-    return true;
+
+    *out = os.str();
 }
 
 // Adapted from
