@@ -47,6 +47,8 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayIntersec
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayJoin;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayLastIndex;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayMap;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayMatchAll;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayMatchAny;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayMax;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayMin;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayPopBack;
@@ -358,6 +360,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondFloor;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondsAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondsDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondsSub;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.SessionUser;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sha1;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sha2;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sign;
@@ -658,6 +661,14 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitArrayMap(ArrayMap arraySort, C context) {
         return visitScalarFunction(arraySort, context);
+    }
+
+    default R visitArrayMatchAll(ArrayMatchAll arrayMatchAll, C context) {
+        return visitScalarFunction(arrayMatchAll, context);
+    }
+
+    default R visitArrayMatchAny(ArrayMatchAny arrayMatchAny, C context) {
+        return visitScalarFunction(arrayMatchAny, context);
     }
 
     default R visitArrayRepeat(ArrayRepeat arrayRepeat, C context) {
@@ -2081,6 +2092,10 @@ public interface ScalarFunctionVisitor<R, C> {
     }
 
     default R visitUser(User user, C context) {
+        return visitScalarFunction(user, context);
+    }
+
+    default R visitSessionUser(SessionUser user, C context) {
         return visitScalarFunction(user, context);
     }
 

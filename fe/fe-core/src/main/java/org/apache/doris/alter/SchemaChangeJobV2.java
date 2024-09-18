@@ -71,6 +71,7 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Table;
 import com.google.common.collect.Table.Cell;
 import com.google.gson.annotations.SerializedName;
+import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -216,6 +217,20 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         partitionOriginIndexIdMap.clear();
     }
 
+    private boolean isShadowIndexOfBase(long shadowIdxId, OlapTable tbl) {
+        if (indexIdToName.get(shadowIdxId).startsWith(SchemaChangeHandler.SHADOW_NAME_PREFIX)) {
+            String shadowIndexName = indexIdToName.get(shadowIdxId);
+            String indexName = shadowIndexName
+                    .substring(SchemaChangeHandler.SHADOW_NAME_PREFIX.length());
+            long indexId = tbl.getIndexIdByName(indexName);
+            LOG.info("shadow index id: {}, shadow index name: {}, pointer to index id: {}, index name: {}, "
+                            + "base index id: {}, table_id: {}", shadowIdxId, shadowIndexName, indexId, indexName,
+                    tbl.getBaseIndexId(), tbl.getId());
+            return indexId == tbl.getBaseIndexId();
+        }
+        return false;
+    }
+
     protected void createShadowIndexReplica() throws AlterCancelException {
         Database db = Env.getCurrentInternalCatalog()
                 .getDbOrException(dbId, s -> new AlterCancelException("Database " + s + " does not exist"));
@@ -261,6 +276,10 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
 
                     short shadowShortKeyColumnCount = indexShortKeyMap.get(shadowIdxId);
                     List<Column> shadowSchema = indexSchemaMap.get(shadowIdxId);
+                    List<Integer> clusterKeyIndexes = null;
+                    if (shadowIdxId == tbl.getBaseIndexId() || isShadowIndexOfBase(shadowIdxId, tbl)) {
+                        clusterKeyIndexes = OlapTable.getClusterKeyIndexes(shadowSchema);
+                    }
                     int shadowSchemaHash = indexSchemaVersionAndHashMap.get(shadowIdxId).schemaHash;
                     long originIndexId = indexIdMap.get(shadowIdxId);
                     int originSchemaHash = tbl.getSchemaHashByIndexId(originIndexId);
@@ -309,6 +328,11 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                             }
                             createReplicaTask.setInvertedIndexFileStorageFormat(tbl
                                                     .getInvertedIndexFileStorageFormat());
+                            if (!CollectionUtils.isEmpty(clusterKeyIndexes)) {
+                                createReplicaTask.setClusterKeyIndexes(clusterKeyIndexes);
+                                LOG.info("table: {}, partition: {}, index: {}, tablet: {}, cluster key indexes: {}",
+                                        tableId, partitionId, shadowIdxId, shadowTabletId, clusterKeyIndexes);
+                            }
                             batchTask.addTask(createReplicaTask);
                         } // end for rollupReplicas
                     } // end for rollupTablets
@@ -641,11 +665,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         LOG.info("set table's state to NORMAL, table id: {}, job id: {}", tableId, jobId);
         postProcessOriginIndex();
         // Drop table column stats after schema change finished.
-        try {
-            Env.getCurrentEnv().getAnalysisManager().dropStats(tbl, null);
-        } catch (Exception e) {
-            LOG.info("Failed to drop stats after schema change finished. Reason: {}", e.getMessage());
-        }
+        Env.getCurrentEnv().getAnalysisManager().dropStats(tbl, null);
     }
 
     private void onFinished(OlapTable tbl) {

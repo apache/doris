@@ -180,12 +180,13 @@ struct WindowFunnelState {
 
             column_idx++;
             auto last_match_row = match_row;
-            for (; column_idx < event_count + 1; column_idx++) {
+            ++match_row;
+            for (; column_idx < event_count + 1 && match_row < row_count;
+                 column_idx++, match_row++) {
                 const auto& event_column = mutable_block.get_column_by_position(column_idx);
                 const auto& event_data =
                         assert_cast<const ColumnVector<UInt8>&>(*event_column).get_data();
                 if constexpr (WINDOW_FUNNEL_MODE == WindowFunnelMode::FIXED) {
-                    ++match_row;
                     if (event_data[match_row] == 1) {
                         auto current_timestamp =
                                 binary_cast<NativeType, DateValueType>(timestamp_data[match_row]);
@@ -196,7 +197,7 @@ struct WindowFunnelState {
                     }
                     break;
                 }
-                match_row = simd::find_one(event_data.data(), match_row + 1, row_count);
+                match_row = simd::find_one(event_data.data(), match_row, row_count);
                 if (match_row < row_count) {
                     auto current_timestamp =
                             binary_cast<NativeType, DateValueType>(timestamp_data[match_row]);

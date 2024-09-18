@@ -290,7 +290,6 @@ public class RoutineLoadJobTest {
         };
 
         RoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob();
-        Deencapsulation.setField(routineLoadJob, "state", RoutineLoadJob.JobState.RUNNING);
         Deencapsulation.setField(routineLoadJob, "progress", kafkaProgress);
         routineLoadJob.update();
 

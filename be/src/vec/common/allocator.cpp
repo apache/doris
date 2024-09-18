@@ -106,9 +106,6 @@ void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::sys_mem
             return;
         }
 
-        // no significant impact on performance is expected.
-        doris::MemInfo::notify_je_purge_dirty_pages();
-
         if (doris::thread_context()->thread_mem_tracker_mgr->is_attach_query() &&
             doris::thread_context()->thread_mem_tracker_mgr->wait_gc()) {
             int64_t wait_milliseconds = 0;
@@ -232,7 +229,6 @@ void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::throw_b
     throw doris::Exception(doris::ErrorCode::MEM_ALLOC_FAILED, err);
 }
 
-#ifndef NDEBUG
 template <bool clear_memory_, bool mmap_populate, bool use_mmap, typename MemoryAllocator>
 void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::add_address_sanitizers(
         void* buf, size_t size) const {
@@ -254,7 +250,6 @@ void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::remove_
 #endif
     doris::thread_context()->thread_mem_tracker()->remove_address_sanitizers(buf, size);
 }
-#endif
 
 template <bool clear_memory_, bool mmap_populate, bool use_mmap, typename MemoryAllocator>
 void* Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::alloc(size_t size,

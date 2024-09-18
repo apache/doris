@@ -303,7 +303,8 @@ public class SchemaTable extends Table {
                                     .column("PARTITION_NAME", ScalarType.createVarchar(64))
                                     .column("SUBPARTITION_NAME", ScalarType.createVarchar(64))
                                     .column("PARTITION_ORDINAL_POSITION", ScalarType.createType(PrimitiveType.INT))
-                                    .column("SUBPARTITION_ORDINAL_POSITION", ScalarType.createType(PrimitiveType.INT))
+                                    .column("SUBPARTITION_ORDINAL_POSITION",
+                                            ScalarType.createType(PrimitiveType.INT))
                                     .column("PARTITION_METHOD", ScalarType.createVarchar(13))
                                     .column("SUBPARTITION_METHOD", ScalarType.createVarchar(13))
                                     .column("PARTITION_EXPRESSION", ScalarType.createVarchar(2048))

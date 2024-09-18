@@ -63,6 +63,7 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.DbUtil;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.TimeUtils;
@@ -99,6 +100,7 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Table.Cell;
 import com.google.gson.annotations.SerializedName;
+import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -438,6 +440,12 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         checkIfNeedCancel();
 
         if (status.ok()) {
+            if (state != RestoreJobState.PENDING && label.equals(
+                    DebugPointUtil.getDebugParamOrDefault("FE.PAUSE_NON_PENDING_RESTORE_JOB", ""))) {
+                LOG.info("pause restore job by debug point: {}", this);
+                return;
+            }
+
             switch (state) {
                 case PENDING:
                     checkAndPrepareMeta();
@@ -578,6 +586,8 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
 
                 if (isAtomicRestore) {
                     // We will create new OlapTable in atomic restore, so does not set the RESTORE state.
+                    // Instead, set table in atomic restore state, to forbid the alter table operation.
+                    olapTbl.setInAtomicRestore();
                     continue;
                 }
 
@@ -643,7 +653,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         }
 
         // the new tablets -> { local tablet, schema hash }, used in atomic restore.
-        Map<Long, Pair<Long, Integer>> tabletBases = null;
+        Map<Long, Pair<Long, Integer>> tabletBases = new HashMap<>();
 
         // Check and prepare meta objects.
         AgentBatchTask batchTask = new AgentBatchTask();
@@ -802,7 +812,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
 
                     if (isAtomicRestore && localTbl != null) {
                         // bind the backends and base tablets from local tbl.
-                        tabletBases = bindLocalAndRemoteOlapTableReplicas((OlapTable) localTbl, remoteOlapTbl);
+                        status = bindLocalAndRemoteOlapTableReplicas((OlapTable) localTbl, remoteOlapTbl, tabletBases);
                         if (!status.ok()) {
                             return;
                         }
@@ -886,7 +896,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                 if (restoreTbl.getType() == TableType.OLAP) {
                     OlapTable restoreOlapTable = (OlapTable) restoreTbl;
                     for (Partition restorePart : restoreOlapTable.getPartitions()) {
-                        createReplicas(db, batchTask, restoreOlapTable, restorePart);
+                        createReplicas(db, batchTask, restoreOlapTable, restorePart, tabletBases);
                         BackupOlapTableInfo backupOlapTableInfo = jobInfo.getOlapTableInfo(restoreOlapTable.getName());
                         genFileMapping(restoreOlapTable, restorePart, backupOlapTableInfo.id,
                                 backupOlapTableInfo.getPartInfo(restorePart.getName()),
@@ -1025,10 +1035,9 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         // No log here, PENDING state restore job will redo this method
     }
 
-    private Map<Long, Pair<Long, Integer>> bindLocalAndRemoteOlapTableReplicas(
-            OlapTable localOlapTbl, OlapTable remoteOlapTbl) {
-        Map<Long, Pair<Long, Integer>> tabletBases = new HashMap<>();
-
+    private Status bindLocalAndRemoteOlapTableReplicas(
+            OlapTable localOlapTbl, OlapTable remoteOlapTbl,
+            Map<Long, Pair<Long, Integer>> tabletBases) {
         localOlapTbl.readLock();
         try {
             for (Partition partition : remoteOlapTbl.getPartitions()) {
@@ -1045,22 +1054,20 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                     }
                     int schemaHash = localOlapTbl.getSchemaHashByIndexId(localIndexId);
                     if (schemaHash == -1) {
-                        status = new Status(ErrCode.COMMON_ERROR, String.format(
+                        return new Status(ErrCode.COMMON_ERROR, String.format(
                                 "schema hash of local index %d is not found, remote table=%d, remote index=%d, "
                                 + "local table=%d, local index=%d", localIndexId, remoteOlapTbl.getId(), index.getId(),
                                 localOlapTbl.getId(), localIndexId));
-                        return null;
                     }
 
                     List<Tablet> localTablets = localIndex.getTablets();
                     List<Tablet> remoteTablets = index.getTablets();
                     if (localTablets.size() != remoteTablets.size()) {
-                        status = new Status(ErrCode.COMMON_ERROR, String.format(
+                        return new Status(ErrCode.COMMON_ERROR, String.format(
                                 "the size of local tablet %s is not equals to the remote %s, "
                                 + "is_atomic_restore=true, remote table=%d, remote index=%d, "
                                 + "local table=%d, local index=%d", localTablets.size(), remoteTablets.size(),
                                 remoteOlapTbl.getId(), index.getId(), localOlapTbl.getId(), localIndexId));
-                        return null;
                     }
                     for (int i = 0; i < remoteTablets.size(); i++) {
                         Tablet localTablet = localTablets.get(i);
@@ -1068,14 +1075,13 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                         List<Replica> localReplicas = localTablet.getReplicas();
                         List<Replica> remoteReplicas = remoteTablet.getReplicas();
                         if (localReplicas.size() != remoteReplicas.size()) {
-                            status = new Status(ErrCode.COMMON_ERROR, String.format(
+                            return new Status(ErrCode.COMMON_ERROR, String.format(
                                     "the size of local replicas %s is not equals to the remote %s, "
                                     + "is_atomic_restore=true, remote table=%d, remote index=%d, "
                                     + "local table=%d, local index=%d, local replicas=%d, remote replicas=%d",
                                     localTablets.size(), remoteTablets.size(), remoteOlapTbl.getId(),
                                     index.getId(), localOlapTbl.getId(), localIndexId, localReplicas.size(),
                                     remoteReplicas.size()));
-                            return null;
                         }
                         for (int j = 0; j < remoteReplicas.size(); j++) {
                             long backendId = localReplicas.get(j).getBackendId();
@@ -1093,7 +1099,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         } finally {
             localOlapTbl.readUnlock();
         }
-        return tabletBases;
+        return Status.OK;
     }
 
     private void prepareAndSendSnapshotTaskForOlapTable(Database db) {
@@ -1234,6 +1240,10 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
             MaterializedIndexMeta indexMeta = localTbl.getIndexMetaByIndexId(restoredIdx.getId());
             List<Index> indexes = restoredIdx.getId() == localTbl.getBaseIndexId()
                                     ? localTbl.getCopiedIndexes() : null;
+            List<Integer> clusterKeyIndexes = null;
+            if (indexMeta.getIndexId() == localTbl.getBaseIndexId() || localTbl.isShadowIndex(indexMeta.getIndexId())) {
+                clusterKeyIndexes = OlapTable.getClusterKeyIndexes(indexMeta.getSchema());
+            }
             for (Tablet restoreTablet : restoredIdx.getTablets()) {
                 TabletMeta tabletMeta = new TabletMeta(db.getId(), localTbl.getId(), restorePart.getId(),
                         restoredIdx.getId(), indexMeta.getSchemaHash(), TStorageMedium.HDD);
@@ -1274,6 +1284,14 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                         // ensure this replica is bound to the same backend disk as the origin table's replica.
                         Pair<Long, Integer> baseTablet = tabletBases.get(restoreTablet.getId());
                         task.setBaseTablet(baseTablet.first, baseTablet.second);
+                        LOG.info("set base tablet {} for replica {} in restore job {}, tablet id={}",
+                                baseTablet.first, restoreReplica.getId(), jobId, restoreTablet.getId());
+                    }
+                    if (!CollectionUtils.isEmpty(clusterKeyIndexes)) {
+                        task.setClusterKeyIndexes(clusterKeyIndexes);
+                        LOG.info("table: {}, partition: {}, index: {}, tablet: {}, cluster key indexes: {}",
+                                localTbl.getId(), restorePart.getId(), restoredIdx.getId(), restoreTablet.getId(),
+                                clusterKeyIndexes);
                     }
                     batchTask.addTask(task);
                 }
@@ -1379,6 +1397,10 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                     long refTabletId = -1L;
                     if (tabletBases != null && tabletBases.containsKey(localTablet.getId())) {
                         refTabletId = tabletBases.get(localTablet.getId()).first;
+                        if (LOG.isDebugEnabled()) {
+                            LOG.debug("restored tablet {} is based on exists tablet {}",
+                                    localTablet.getId(), refTabletId);
+                        }
                     }
 
                     long noReplicaId = -1L;
@@ -1426,11 +1448,6 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
 
         // replay set all existing tables's state to RESTORE
         for (String tableName : jobInfo.backupOlapTableObjects.keySet()) {
-            if (isAtomicRestore) {
-                // Atomic restore will creates new replica of the OlapTable.
-                continue;
-            }
-
             Table tbl = db.getTableNullable(jobInfo.getAliasByOriginNameIfSet(tableName));
             if (tbl == null) {
                 continue;
@@ -1438,6 +1455,12 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
             OlapTable olapTbl = (OlapTable) tbl;
             tbl.writeLock();
             try {
+                if (isAtomicRestore) {
+                    // Atomic restore will creates new replica of the OlapTable.
+                    olapTbl.setInAtomicRestore();
+                    continue;
+                }
+
                 olapTbl.setState(OlapTableState.RESTORE);
                 // set restore status for partitions
                 BackupOlapTableInfo tblInfo = jobInfo.backupOlapTableObjects.get(tableName);
@@ -2034,22 +2057,28 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
     }
 
     private Status dropAllNonRestoredTableAndPartitions(Database db) {
+        Set<String> restoredViews = jobInfo.newBackupObjects.views.stream()
+                .map(view -> view.name).collect(Collectors.toSet());
+
         try {
             for (Table table : db.getTables()) {
                 long tableId = table.getId();
                 String tableName = table.getName();
                 TableType tableType = table.getType();
-                BackupOlapTableInfo backupTableInfo = jobInfo.backupOlapTableObjects.get(tableName);
-                if (tableType != TableType.OLAP && tableType != TableType.ODBC && tableType != TableType.VIEW) {
-                    continue;
-                }
-                if (tableType == TableType.OLAP && backupTableInfo != null) {
-                    // drop the non restored partitions.
-                    dropNonRestoredPartitions(db, (OlapTable) table, backupTableInfo);
-                } else if (isCleanTables) {
-                    // otherwise drop the entire table.
-                    LOG.info("drop non restored table {}({}). {}", tableName, tableId, this);
-                    boolean isForceDrop = false; // move this table into recyclebin.
+                if (tableType == TableType.OLAP) {
+                    BackupOlapTableInfo backupTableInfo = jobInfo.backupOlapTableObjects.get(tableName);
+                    if (tableType == TableType.OLAP && backupTableInfo != null) {
+                        // drop the non restored partitions.
+                        dropNonRestoredPartitions(db, (OlapTable) table, backupTableInfo);
+                    } else if (isCleanTables) {
+                        // otherwise drop the entire table.
+                        LOG.info("drop non restored table {}, table id: {}. {}", tableName, tableId, this);
+                        boolean isForceDrop = false; // move this table into recyclebin.
+                        env.getInternalCatalog().dropTableWithoutCheck(db, table, isForceDrop);
+                    }
+                } else if (tableType == TableType.VIEW && isCleanTables && !restoredViews.contains(tableName)) {
+                    LOG.info("drop non restored view {}, table id: {}. {}", tableName, tableId, this);
+                    boolean isForceDrop = false; // move this view into recyclebin.
                     env.getInternalCatalog().dropTableWithoutCheck(db, table, isForceDrop);
                 }
             }
@@ -2386,6 +2415,10 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                     LOG.info("table {} set state from {} to normal", tableName, olapTbl.getState());
                     olapTbl.setState(OlapTableState.NORMAL);
                 }
+                if (olapTbl.isInAtomicRestore()) {
+                    olapTbl.clearInAtomicRestore();
+                    LOG.info("table {} set state from atomic restore to normal", tableName);
+                }
 
                 BackupOlapTableInfo tblInfo = jobInfo.backupOlapTableObjects.get(tableName);
                 for (Map.Entry<String, BackupPartitionInfo> partitionEntry : tblInfo.partitions.entrySet()) {
@@ -2529,7 +2562,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         return sb.toString();
     }
 
-    private String tableAliasWithAtomicRestore(String tableName) {
+    public static String tableAliasWithAtomicRestore(String tableName) {
         return ATOMIC_RESTORE_TABLE_PREFIX + tableName;
     }
 }

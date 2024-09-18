@@ -126,9 +126,9 @@ private:
 };
 
 // RowCache is a LRU cache for row store
-class RowCache : public LRUCachePolicyTrackingManual {
+class RowCache : public LRUCachePolicy {
 public:
-    using LRUCachePolicyTrackingManual::insert;
+    using LRUCachePolicy::insert;
 
     // The cache key for row lru cache
     struct RowCacheKey {
@@ -220,7 +220,7 @@ private:
 
 // A cache used for prepare stmt.
 // One connection per stmt perf uuid
-class LookupConnectionCache : public LRUCachePolicyTrackingManual {
+class LookupConnectionCache : public LRUCachePolicy {
 public:
     static LookupConnectionCache* instance() {
         return ExecEnv::GetInstance()->get_lookup_connection_cache();
@@ -231,9 +231,9 @@ public:
 private:
     friend class PointQueryExecutor;
     LookupConnectionCache(size_t capacity)
-            : LRUCachePolicyTrackingManual(CachePolicy::CacheType::LOOKUP_CONNECTION_CACHE,
-                                           capacity, LRUCacheType::NUMBER,
-                                           config::tablet_lookup_cache_stale_sweep_time_sec) {}
+            : LRUCachePolicy(CachePolicy::CacheType::LOOKUP_CONNECTION_CACHE, capacity,
+                             LRUCacheType::NUMBER,
+                             config::tablet_lookup_cache_stale_sweep_time_sec) {}
 
     static std::string encode_key(__int128_t cache_id) {
         fmt::memory_buffer buffer;
@@ -246,8 +246,8 @@ private:
         auto* value = new CacheValue;
         value->item = item;
         LOG(INFO) << "Add item mem"
-                  << ", cache_capacity: " << get_total_capacity()
-                  << ", cache_usage: " << get_usage() << ", mem_consum: " << mem_consumption();
+                  << ", cache_capacity: " << get_capacity() << ", cache_usage: " << get_usage()
+                  << ", mem_consum: " << mem_consumption();
         auto* lru_handle = insert(key, value, 1, sizeof(Reusable), CachePriority::NORMAL);
         release(lru_handle);
     }
@@ -265,6 +265,7 @@ private:
 
     class CacheValue : public LRUCacheValueBase {
     public:
+        ~CacheValue() override;
         std::shared_ptr<Reusable> item;
     };
 };

@@ -43,7 +43,6 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.StructType;
-import org.apache.doris.catalog.TableAttributes;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.VariantType;
@@ -480,10 +479,13 @@ public class StatisticsUtil {
             //                         dbName,
             //                         StatisticConstants.HISTOGRAM_TBL_NAME));
         } catch (Throwable t) {
+            LOG.info("stat table does not exist, db_name: {}, table_name: {}", dbName,
+                        StatisticConstants.TABLE_STATISTIC_TBL_NAME);
             return false;
         }
         if (Config.isCloudMode()) {
             if (!((CloudSystemInfoService) Env.getCurrentSystemInfo()).availableBackendsExists()) {
+                LOG.info("there are no available backends");
                 return false;
             }
             try (AutoCloseConnectContext r = buildConnectContext()) {
@@ -954,27 +956,26 @@ public class StatisticsUtil {
     }
 
     public static boolean isEmptyTable(TableIf table, AnalysisInfo.AnalysisMethod method) {
-        int waitRowCountReportedTime = 75;
+        int waitRowCountReportedTime = 120;
         if (!(table instanceof OlapTable) || method.equals(AnalysisInfo.AnalysisMethod.FULL)) {
             return false;
         }
         OlapTable olapTable = (OlapTable) table;
+        long rowCount = 0;
         for (int i = 0; i < waitRowCountReportedTime; i++) {
-            if (olapTable.getRowCount() > 0) {
-                return false;
+            rowCount = olapTable.getRowCountForIndex(olapTable.getBaseIndexId(), true);
+            // rowCount == -1 means new table or first load row count not fully reported, need to wait.
+            if (rowCount == -1) {
+                try {
+                    Thread.sleep(1000);
+                } catch (InterruptedException e) {
+                    LOG.info("Sleep interrupted.");
+                }
+                continue;
             }
-            // If visible version is 2, table is probably not empty. So we wait row count to be reported.
-            // If visible version is not 2 and getRowCount return 0, we assume it is an empty table.
-            if (olapTable.getVisibleVersion() != TableAttributes.TABLE_INIT_VERSION + 1) {
-                return true;
-            }
-            try {
-                Thread.sleep(1000);
-            } catch (InterruptedException e) {
-                LOG.info("Sleep interrupted.", e);
-            }
+            break;
         }
-        return true;
+        return rowCount == 0;
     }
 
     public static boolean needAnalyzeColumn(TableIf table, Pair<String, String> column) {

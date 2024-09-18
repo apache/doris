@@ -296,6 +296,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String AUTO_BROADCAST_JOIN_THRESHOLD = "auto_broadcast_join_threshold";
 
+    public static final String PARALLEL_PREPARE_THRESHOLD = "parallel_prepare_threshold";
+
     public static final String ENABLE_PROJECTION = "enable_projection";
 
     public static final String ENABLE_SHORT_CIRCUIT_QUERY = "enable_short_circuit_query";
@@ -678,6 +680,9 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = EXPAND_RUNTIME_FILTER_BY_INNER_JION)
     public boolean expandRuntimeFilterByInnerJoin = true;
 
+    @VariableMgr.VarAttr(name = "enable_aggregate_cse", needForward = true)
+    public boolean enableAggregateCse = true;
+
     @VariableMgr.VarAttr(name = JDBC_CLICKHOUSE_QUERY_FINAL, needForward = true,
             description = {"是否在查询 ClickHouse JDBC 外部表时，对查询 SQL 添加 FINAL 关键字。",
                     "Whether to add the FINAL keyword to the query SQL when querying ClickHouse JDBC external tables."})
@@ -1040,7 +1045,7 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = PARALLEL_SCAN_MIN_ROWS_PER_SCANNER, fuzzy = true,
             varType = VariableAnnotation.EXPERIMENTAL, needForward = true)
-    private long parallelScanMinRowsPerScanner = 16384; // 16K
+    private long parallelScanMinRowsPerScanner = 2097152; // 16K
 
     @VariableMgr.VarAttr(name = IGNORE_STORAGE_DATA_DISTRIBUTION, fuzzy = false,
             varType = VariableAnnotation.EXPERIMENTAL, needForward = true)
@@ -1082,6 +1087,9 @@ public class SessionVariable implements Serializable, Writable {
     // Default value is 1Gto
     @VariableMgr.VarAttr(name = AUTO_BROADCAST_JOIN_THRESHOLD)
     public double autoBroadcastJoinThreshold = 0.8;
+
+    @VariableMgr.VarAttr(name = PARALLEL_PREPARE_THRESHOLD, fuzzy = true)
+    public int parallelPrepareThreshold = 32;
 
     @VariableMgr.VarAttr(name = ENABLE_COST_BASED_JOIN_REORDER)
     private boolean enableJoinReorderBasedCost = false;
@@ -1440,7 +1448,7 @@ public class SessionVariable implements Serializable, Writable {
     // This variable is used to avoid FE fallback to the original parser. When we execute SQL in regression tests
     // for nereids, fallback will cause the Doris return the correct result although the syntax is unsupported
     // in nereids for some mistaken modification. You should set it on the
-    @VariableMgr.VarAttr(name = ENABLE_FALLBACK_TO_ORIGINAL_PLANNER, needForward = true)
+    @VariableMgr.VarAttr(name = ENABLE_FALLBACK_TO_ORIGINAL_PLANNER, varType = VariableAnnotation.REMOVED)
     public boolean enableFallbackToOriginalPlanner = false;
 
     @VariableMgr.VarAttr(name = ENABLE_NEREIDS_TIMEOUT, needForward = true)
@@ -2187,6 +2195,7 @@ public class SessionVariable implements Serializable, Writable {
         Random random = new SecureRandom();
         this.parallelExecInstanceNum = random.nextInt(8) + 1;
         this.parallelPipelineTaskNum = random.nextInt(8);
+        this.parallelPrepareThreshold = random.nextInt(32) + 1;
         this.enableCommonExprPushdown = random.nextBoolean();
         this.enableLocalExchange = random.nextBoolean();
         // This will cause be dead loop, disable it first
@@ -3639,6 +3648,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setNumScannerThreads(numScannerThreads);
         tResult.setScannerScaleUpRatio(scannerScaleUpRatio);
         tResult.setMaxColumnReaderNum(maxColumnReaderNum);
+        tResult.setParallelPrepareThreshold(parallelPrepareThreshold);
 
         // TODO chenhao, reservation will be calculated by cost
         tResult.setMinReservation(0);
@@ -4054,15 +4064,6 @@ public class SessionVariable implements Serializable, Writable {
         setIsSingleSetVar(true);
         VariableMgr.setVar(this,
                 new SetVar(SessionVariable.ENABLE_STRICT_CONSISTENCY_DML, new StringLiteral("false")));
-    }
-
-    public void enableFallbackToOriginalPlannerOnce() throws DdlException {
-        if (enableFallbackToOriginalPlanner) {
-            return;
-        }
-        setIsSingleSetVar(true);
-        VariableMgr.setVar(this,
-                new SetVar(SessionVariable.ENABLE_FALLBACK_TO_ORIGINAL_PLANNER, new StringLiteral("true")));
     }
 
     public void disableConstantFoldingByBEOnce() throws DdlException {

@@ -130,7 +130,7 @@ VerticalSegmentWriter::VerticalSegmentWriter(io::FileWriter* file_writer, uint32
             _key_index_size.clear();
             _num_sort_key_columns = _tablet_schema->cluster_key_idxes().size();
             for (auto cid : _tablet_schema->cluster_key_idxes()) {
-                const auto& column = _tablet_schema->column(cid);
+                const auto& column = _tablet_schema->column_by_uid(cid);
                 _key_coders.push_back(get_key_coder(column.type()));
                 _key_index_size.push_back(column.index_length());
             }
@@ -333,6 +333,70 @@ void VerticalSegmentWriter::_serialize_block_to_row_column(vectorized::Block& bl
                << watch.elapsed_time() / 1000;
 }
 
+Status VerticalSegmentWriter::_probe_key_for_mow(
+        std::string key, std::size_t segment_pos, bool have_input_seq_column, bool have_delete_sign,
+        PartialUpdateReadPlan& read_plan, const std::vector<RowsetSharedPtr>& specified_rowsets,
+        std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
+        bool& has_default_or_nullable, std::vector<bool>& use_default_or_null_flag,
+        PartialUpdateStats& stats) {
+    RowLocation loc;
+    // save rowset shared ptr so this rowset wouldn't delete
+    RowsetSharedPtr rowset;
+    auto st = _tablet->lookup_row_key(key, _tablet_schema.get(), have_input_seq_column,
+                                      specified_rowsets, &loc, _mow_context->max_version,
+                                      segment_caches, &rowset);
+    if (st.is<KEY_NOT_FOUND>()) {
+        if (_opts.rowset_ctx->partial_update_info->is_strict_mode) {
+            ++stats.num_rows_filtered;
+            // delete the invalid newly inserted row
+            _mow_context->delete_bitmap->add(
+                    {_opts.rowset_ctx->rowset_id, _segment_id, DeleteBitmap::TEMP_VERSION_COMMON},
+                    segment_pos);
+        } else if (!have_delete_sign) {
+            RETURN_IF_ERROR(
+                    _opts.rowset_ctx->partial_update_info->handle_non_strict_mode_not_found_error(
+                            *_tablet_schema));
+        }
+        ++stats.num_rows_new_added;
+        has_default_or_nullable = true;
+        use_default_or_null_flag.emplace_back(true);
+        return Status::OK();
+    }
+    if (!st.ok() && !st.is<KEY_ALREADY_EXISTS>()) {
+        LOG(WARNING) << "failed to lookup row key, error: " << st;
+        return st;
+    }
+
+    // 1. if the delete sign is marked, it means that the value columns of the row will not
+    //    be read. So we don't need to read the missing values from the previous rows.
+    // 2. the one exception is when there are sequence columns in the table, we need to read
+    //    the sequence columns, otherwise it may cause the merge-on-read based compaction
+    //    policy to produce incorrect results
+    if (have_delete_sign && !_tablet_schema->has_sequence_col()) {
+        has_default_or_nullable = true;
+        use_default_or_null_flag.emplace_back(true);
+    } else {
+        // partial update should not contain invisible columns
+        use_default_or_null_flag.emplace_back(false);
+        _rsid_to_rowset.emplace(rowset->rowset_id(), rowset);
+        read_plan.prepare_to_read(loc, segment_pos);
+    }
+
+    if (st.is<KEY_ALREADY_EXISTS>()) {
+        // although we need to mark delete current row, we still need to read missing columns
+        // for this row, we need to ensure that each column is aligned
+        _mow_context->delete_bitmap->add(
+                {_opts.rowset_ctx->rowset_id, _segment_id, DeleteBitmap::TEMP_VERSION_COMMON},
+                segment_pos);
+        ++stats.num_rows_deleted;
+    } else {
+        _mow_context->delete_bitmap->add(
+                {loc.rowset_id, loc.segment_id, DeleteBitmap::TEMP_VERSION_COMMON}, loc.row_id);
+        ++stats.num_rows_updated;
+    }
+    return Status::OK();
+}
+
 // for partial update, we should do following steps to fill content of block:
 // 1. set block data to data convertor, and get all key_column's converted slice
 // 2. get pk of input block, and read missing columns
@@ -344,6 +408,7 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
                                                                  vectorized::Block& full_block) {
     DCHECK(_is_mow());
     DCHECK(_opts.rowset_ctx->partial_update_info != nullptr);
+    DCHECK(data.row_pos == 0);
 
     // create full block and fill with input columns
     full_block = _tablet_schema->create_block();
@@ -385,37 +450,16 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
     const auto* delete_sign_column_data =
             BaseTablet::get_delete_sign_column_data(full_block, data.row_pos + data.num_rows);
 
-    std::vector<RowsetSharedPtr> specified_rowsets;
-    {
-        DBUG_EXECUTE_IF("VerticalSegmentWriter._append_block_with_partial_content.sleep",
-                        { sleep(60); })
-        std::shared_lock rlock(_tablet->get_header_lock());
-        specified_rowsets = _mow_context->rowset_ptrs;
-        if (specified_rowsets.size() != _mow_context->rowset_ids.size()) {
-            // Only when this is a strict mode partial update that missing rowsets here will lead to problems.
-            // In other case, the missing rowsets will be calculated in later phases(commit phase/publish phase)
-            LOG(WARNING) << fmt::format(
-                    "[Memtable Flush] some rowsets have been deleted due to "
-                    "compaction(specified_rowsets.size()={}, but rowset_ids.size()={}) in "
-                    "partial update. tablet_id: {}, cur max_version: {}, transaction_id: {}",
-                    specified_rowsets.size(), _mow_context->rowset_ids.size(), _tablet->tablet_id(),
-                    _mow_context->max_version, _mow_context->txn_id);
-            if (_opts.rowset_ctx->partial_update_info->is_strict_mode) {
-                return Status::InternalError<false>(
-                        "[Memtable Flush] some rowsets have been deleted due to "
-                        "compaction in strict mode partial update");
-            }
-        }
-    }
+    DBUG_EXECUTE_IF("VerticalSegmentWriter._append_block_with_partial_content.sleep",
+                    { sleep(60); })
+    const std::vector<RowsetSharedPtr>& specified_rowsets = _mow_context->rowset_ptrs;
     std::vector<std::unique_ptr<SegmentCacheHandle>> segment_caches(specified_rowsets.size());
 
     PartialUpdateReadPlan read_plan;
 
     // locate rows in base data
-    int64_t num_rows_updated = 0;
-    int64_t num_rows_new_added = 0;
-    int64_t num_rows_deleted = 0;
-    int64_t num_rows_filtered = 0;
+    PartialUpdateStats stats;
+
     for (size_t block_pos = data.row_pos; block_pos < data.row_pos + data.num_rows; block_pos++) {
         // block   segment
         //   2   ->   0
@@ -441,75 +485,10 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
         bool have_delete_sign =
                 (delete_sign_column_data != nullptr && delete_sign_column_data[block_pos] != 0);
 
-        RowLocation loc;
-        // save rowset shared ptr so this rowset wouldn't delete
-        RowsetSharedPtr rowset;
-        auto st = _tablet->lookup_row_key(key, _tablet_schema.get(), have_input_seq_column,
-                                          specified_rowsets, &loc, _mow_context->max_version,
-                                          segment_caches, &rowset);
-        if (st.is<KEY_NOT_FOUND>()) {
-            if (_opts.rowset_ctx->partial_update_info->is_strict_mode) {
-                ++num_rows_filtered;
-                // delete the invalid newly inserted row
-                _mow_context->delete_bitmap->add({_opts.rowset_ctx->rowset_id, _segment_id,
-                                                  DeleteBitmap::TEMP_VERSION_COMMON},
-                                                 segment_pos);
-            } else {
-                if (!_opts.rowset_ctx->partial_update_info->can_insert_new_rows_in_partial_update &&
-                    !have_delete_sign) {
-                    std::string error_column;
-                    for (auto cid : _opts.rowset_ctx->partial_update_info->missing_cids) {
-                        const TabletColumn& col = _tablet_schema->column(cid);
-                        if (!col.has_default_value() && !col.is_nullable() &&
-                            !(_tablet_schema->auto_increment_column() == col.name())) {
-                            error_column = col.name();
-                            break;
-                        }
-                    }
-                    return Status::Error<INVALID_SCHEMA, false>(
-                            "the unmentioned column `{}` should have default value or be nullable "
-                            "for "
-                            "newly inserted rows in non-strict mode partial update",
-                            error_column);
-                }
-            }
-            ++num_rows_new_added;
-            has_default_or_nullable = true;
-            use_default_or_null_flag.emplace_back(true);
-            continue;
-        }
-        if (!st.ok() && !st.is<KEY_ALREADY_EXISTS>()) {
-            LOG(WARNING) << "failed to lookup row key, error: " << st;
-            return st;
-        }
-
-        // 1. if the delete sign is marked, it means that the value columns of the row will not
-        //    be read. So we don't need to read the missing values from the previous rows.
-        // 2. the one exception is when there are sequence columns in the table, we need to read
-        //    the sequence columns, otherwise it may cause the merge-on-read based compaction
-        //    policy to produce incorrect results
-        if (have_delete_sign && !_tablet_schema->has_sequence_col()) {
-            has_default_or_nullable = true;
-            use_default_or_null_flag.emplace_back(true);
-        } else {
-            // partial update should not contain invisible columns
-            use_default_or_null_flag.emplace_back(false);
-            _rsid_to_rowset.emplace(rowset->rowset_id(), rowset);
-            read_plan.prepare_to_read(loc, segment_pos);
-        }
-
-        if (st.is<KEY_ALREADY_EXISTS>()) {
-            // although we need to mark delete current row, we still need to read missing columns
-            // for this row, we need to ensure that each column is aligned
-            _mow_context->delete_bitmap->add(
-                    {_opts.rowset_ctx->rowset_id, _segment_id, DeleteBitmap::TEMP_VERSION_COMMON},
-                    segment_pos);
-            ++num_rows_deleted;
-        } else {
-            _mow_context->delete_bitmap->add(
-                    {loc.rowset_id, loc.segment_id, DeleteBitmap::TEMP_VERSION_COMMON}, loc.row_id);
-            ++num_rows_updated;
-        }
+        RETURN_IF_ERROR(_probe_key_for_mow(key, segment_pos, have_input_seq_column,
+                                           have_delete_sign, read_plan, specified_rowsets,
+                                           segment_caches, has_default_or_nullable,
+                                           use_default_or_null_flag, stats));
     }
     CHECK_EQ(use_default_or_null_flag.size(), data.num_rows);
 
@@ -545,17 +524,12 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
                                                      data.num_rows));
     }
 
-    _num_rows_updated += num_rows_updated;
-    _num_rows_deleted += num_rows_deleted;
-    _num_rows_new_added += num_rows_new_added;
-    _num_rows_filtered += num_rows_filtered;
+    _num_rows_updated += stats.num_rows_updated;
+    _num_rows_deleted += stats.num_rows_deleted;
+    _num_rows_new_added += stats.num_rows_new_added;
+    _num_rows_filtered += stats.num_rows_filtered;
     if (_tablet_schema->has_sequence_col() && !have_input_seq_column) {
         DCHECK_NE(seq_column, nullptr);
-        DCHECK_EQ(_num_rows_written, data.row_pos)
-                << "_num_rows_written: " << _num_rows_written << ", row_pos" << data.row_pos;
-        DCHECK_EQ(_primary_key_index_builder->num_rows(), _num_rows_written)
-                << "primary key index builder num rows(" << _primary_key_index_builder->num_rows()
-                << ") not equal to segment writer's num rows written(" << _num_rows_written << ")";
         if (_num_rows_written != data.row_pos ||
             _primary_key_index_builder->num_rows() != _num_rows_written) {
             return Status::InternalError(
@@ -563,12 +537,8 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
                     "index builder num rows: {}",
                     _num_rows_written, data.row_pos, _primary_key_index_builder->num_rows());
         }
-        for (size_t block_pos = data.row_pos; block_pos < data.row_pos + data.num_rows;
-             block_pos++) {
-            std::string key = _full_encode_keys(key_columns, block_pos - data.row_pos);
-            _encode_seq_column(seq_column, block_pos - data.row_pos, &key);
-            RETURN_IF_ERROR(_primary_key_index_builder->add_item(key));
-        }
+        RETURN_IF_ERROR(_generate_primary_key_index(_key_coders, key_columns, seq_column,
+                                                    data.num_rows, false));
     }
 
     _num_rows_written += data.num_rows;
@@ -585,7 +555,7 @@ Status VerticalSegmentWriter::batch_block(const vectorized::Block* block, size_t
         _opts.rowset_ctx->partial_update_info->is_partial_update &&
         _opts.write_type == DataWriteType::TYPE_DIRECT &&
         !_opts.rowset_ctx->is_transient_rowset_writer) {
-        if (block->columns() <= _tablet_schema->num_key_columns() ||
+        if (block->columns() < _tablet_schema->num_key_columns() ||
             block->columns() >= _tablet_schema->num_columns()) {
             return Status::InvalidArgument(fmt::format(
                     "illegal partial update block columns: {}, num key columns: {}, total "
@@ -744,6 +714,7 @@ Status VerticalSegmentWriter::write_batch() {
 
     std::vector<vectorized::IOlapColumnDataAccessor*> key_columns;
     vectorized::IOlapColumnDataAccessor* seq_column = nullptr;
+    // the key is cluster key column unique id
     std::map<uint32_t, vectorized::IOlapColumnDataAccessor*> cid_to_column;
     for (uint32_t cid = 0; cid < _tablet_schema->num_columns(); ++cid) {
         RETURN_IF_ERROR(_create_column_writer(cid, _tablet_schema->column(cid), _tablet_schema));
@@ -762,11 +733,12 @@ Status VerticalSegmentWriter::write_batch() {
             if (_tablet_schema->has_sequence_col() && cid == _tablet_schema->sequence_col_idx()) {
                 seq_column = column;
             }
+            auto column_unique_id = _tablet_schema->column(cid).unique_id();
             if (_is_mow_with_cluster_key() &&
                 std::find(_tablet_schema->cluster_key_idxes().begin(),
                           _tablet_schema->cluster_key_idxes().end(),
-                          cid) != _tablet_schema->cluster_key_idxes().end()) {
-                cid_to_column[cid] = column;
+                          column_unique_id) != _tablet_schema->cluster_key_idxes().end()) {
+                cid_to_column[column_unique_id] = column;
             }
             RETURN_IF_ERROR(_column_writers[cid]->append(column->get_nullmap(), column->get_data(),
                                                          data.num_rows));

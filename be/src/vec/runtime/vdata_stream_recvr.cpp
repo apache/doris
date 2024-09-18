@@ -134,7 +134,8 @@ void VDataStreamRecvr::SenderQueue::try_set_dep_ready_without_lock() {
 Status VDataStreamRecvr::SenderQueue::add_block(const PBlock& pblock, int be_number,
                                                 int64_t packet_seq,
                                                 ::google::protobuf::Closure** done,
-                                                const int64_t wait_for_worker) {
+                                                const int64_t wait_for_worker,
+                                                const uint64_t time_to_find_recvr) {
     {
         std::lock_guard<std::mutex> l(_lock);
         if (_is_cancelled) {
@@ -187,6 +188,10 @@ Status VDataStreamRecvr::SenderQueue::add_block(const PBlock& pblock, int be_num
     COUNTER_UPDATE(_recvr->_blocks_produced_counter, 1);
     if (_recvr->_max_wait_worker_time->value() < wait_for_worker) {
         _recvr->_max_wait_worker_time->set(wait_for_worker);
+    }
+
+    if (_recvr->_max_find_recvr_time->value() < time_to_find_recvr) {
+        _recvr->_max_find_recvr_time->set((int64_t)time_to_find_recvr);
     }
 
     _block_queue.emplace_back(std::move(block), block_byte_size);
@@ -363,6 +368,7 @@ VDataStreamRecvr::VDataStreamRecvr(VDataStreamMgr* stream_mgr, RuntimeState* sta
     _blocks_produced_counter = ADD_COUNTER(_profile, "BlocksProduced", TUnit::UNIT);
     _max_wait_worker_time = ADD_COUNTER(_profile, "MaxWaitForWorkerTime", TUnit::UNIT);
     _max_wait_to_process_time = ADD_COUNTER(_profile, "MaxWaitToProcessTime", TUnit::UNIT);
+    _max_find_recvr_time = ADD_COUNTER(_profile, "MaxFindRecvrTime(NS)", TUnit::UNIT);
 }
 
 VDataStreamRecvr::~VDataStreamRecvr() {
@@ -391,11 +397,12 @@ Status VDataStreamRecvr::create_merger(const VExprContextSPtrs& ordering_expr,
 
 Status VDataStreamRecvr::add_block(const PBlock& pblock, int sender_id, int be_number,
                                    int64_t packet_seq, ::google::protobuf::Closure** done,
-                                   const int64_t wait_for_worker) {
+                                   const int64_t wait_for_worker,
+                                   const uint64_t time_to_find_recvr) {
     SCOPED_ATTACH_TASK(_query_thread_context);
     int use_sender_id = _is_merging ? sender_id : 0;
     return _sender_queues[use_sender_id]->add_block(pblock, be_number, packet_seq, done,
-                                                    wait_for_worker);
+                                                    wait_for_worker, time_to_find_recvr);
 }
 
 void VDataStreamRecvr::add_block(Block* block, int sender_id, bool use_move) {

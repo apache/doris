@@ -110,6 +110,7 @@ import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
@@ -1988,6 +1989,10 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
             throw new DdlException("Table[" + name + "]'s state(" + state.toString()
                     + ") is not NORMAL. Do not allow doing ALTER ops");
         }
+        if (tableProperty != null && tableProperty.isInAtomicRestore()) {
+            throw new DdlException("Table[" + name + "] is in atomic restore state. "
+                    + "Do not allow doing ALTER ops");
+        }
     }
 
     public boolean isStable(SystemInfoService infoService, TabletScheduler tabletScheduler) {
@@ -2248,6 +2253,21 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
 
     public boolean containsPartition(String partitionName) {
         return nameToPartition.containsKey(partitionName);
+    }
+
+    public void setInAtomicRestore() {
+        getOrCreatTableProperty().setInAtomicRestore().buildInAtomicRestore();
+    }
+
+    public void clearInAtomicRestore() {
+        getOrCreatTableProperty().clearInAtomicRestore().buildInAtomicRestore();
+    }
+
+    public boolean isInAtomicRestore() {
+        if (tableProperty != null) {
+            return tableProperty.isInAtomicRestore();
+        }
+        return false;
     }
 
     public long getTTLSeconds() {
@@ -3112,6 +3132,16 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         }
     }
 
+    public static List<Integer> getClusterKeyIndexes(List<Column> columns) {
+        Map<Integer, Integer> clusterKeyIndexes = new TreeMap<>();
+        for (Column column : columns) {
+            if (column.isClusterKey()) {
+                clusterKeyIndexes.put(column.getClusterKeyId(), column.getUniqueId());
+            }
+        }
+        return clusterKeyIndexes.isEmpty() ? null : new ArrayList<>(clusterKeyIndexes.values());
+    }
+
     public long getVisibleVersionTime() {
         return tableAttributes.getVisibleVersionTime();
     }
@@ -3147,9 +3177,10 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     public MTMVSnapshotIf getPartitionSnapshot(String partitionName, MTMVRefreshContext context)
             throws AnalysisException {
         Map<String, Long> partitionVersions = context.getBaseVersions().getPartitionVersions();
+        long partitionId = getPartitionOrAnalysisException(partitionName).getId();
         long visibleVersion = partitionVersions.containsKey(partitionName) ? partitionVersions.get(partitionName)
                 : getPartitionOrAnalysisException(partitionName).getVisibleVersion();
-        return new MTMVVersionSnapshot(visibleVersion);
+        return new MTMVVersionSnapshot(visibleVersion, partitionId);
     }
 
     @Override

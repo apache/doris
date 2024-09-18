@@ -450,7 +450,7 @@ Status NestedLoopJoinProbeOperatorX::open(RuntimeState* state) {
     for (auto& conjunct : _join_conjuncts) {
         RETURN_IF_ERROR(conjunct->prepare(state, *_intermediate_row_desc));
     }
-    _num_probe_side_columns = _child_x->row_desc().num_materialized_slots();
+    _num_probe_side_columns = _child->row_desc().num_materialized_slots();
     _num_build_side_columns = _build_side_child->row_desc().num_materialized_slots();
     return vectorized::VExpr::open(_join_conjuncts, state);
 }

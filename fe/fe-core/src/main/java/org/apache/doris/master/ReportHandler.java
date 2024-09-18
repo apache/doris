@@ -96,6 +96,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Queues;
 import com.google.common.collect.Sets;
+import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -178,11 +179,13 @@ public class ReportHandler extends Daemon {
             tablets = request.getTablets();
             reportVersion = request.getReportVersion();
             reportType = ReportType.TABLET;
+            Env.getCurrentSystemInfo().updateBackendReportVersion(beId, reportVersion, -1L, -1L, false);
         } else if (request.isSetTabletList()) {
             // the 'tablets' member will be deprecated in future.
             tablets = buildTabletMap(request.getTabletList());
             reportVersion = request.getReportVersion();
             reportType = ReportType.TABLET;
+            Env.getCurrentSystemInfo().updateBackendReportVersion(beId, reportVersion, -1L, -1L, false);
         }
 
         if (request.isSetPartitionsVersion()) {
@@ -962,10 +965,19 @@ public class ReportHandler extends Daemon {
                                             objectPool,
                                             olapTable.rowStorePageSize(),
                                             olapTable.variantEnableFlattenNested());
-
                                     createReplicaTask.setIsRecoverTask(true);
                                     createReplicaTask.setInvertedIndexFileStorageFormat(olapTable
                                                                 .getInvertedIndexFileStorageFormat());
+                                    if (indexId == olapTable.getBaseIndexId() || olapTable.isShadowIndex(indexId)) {
+                                        List<Integer> clusterKeyIndexes = OlapTable.getClusterKeyIndexes(
+                                                indexMeta.getSchema());
+                                        if (!CollectionUtils.isEmpty(clusterKeyIndexes)) {
+                                            createReplicaTask.setClusterKeyIndexes(clusterKeyIndexes);
+                                            LOG.info("table: {}, partition: {}, index: {}, tablet: {}, "
+                                                            + "cluster key indexes: {}", tableId, partitionId, indexId,
+                                                    tabletId, clusterKeyIndexes);
+                                        }
+                                    }
                                     createReplicaBatchTask.addTask(createReplicaTask);
                                 } else {
                                     // just set this replica as bad

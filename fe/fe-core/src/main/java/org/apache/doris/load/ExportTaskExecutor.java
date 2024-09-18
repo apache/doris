@@ -172,7 +172,6 @@ public class ExportTaskExecutor implements TransientTaskExecutor {
         connectContext.setSessionVariable(exportJob.getSessionVariables());
         // The rollback to the old optimizer is prohibited
         // Since originStmt is empty, reverting to the old optimizer when the new optimizer is enabled is meaningless.
-        connectContext.getSessionVariable().enableFallbackToOriginalPlanner = false;
         connectContext.setEnv(Env.getCurrentEnv());
         connectContext.setDatabase(exportJob.getTableName().getDb());
         connectContext.setQualifiedUser(exportJob.getQualifiedUser());

@@ -485,7 +485,7 @@ public abstract class RoutineLoadJob
         lock.writeLock().lock();
     }
 
-    protected void writeUnlock() {
+    public void writeUnlock() {
         lock.writeLock().unlock();
     }
 
@@ -1526,7 +1526,7 @@ public abstract class RoutineLoadJob
                         .add("msg", "Job need to be rescheduled")
                         .build());
                 unprotectUpdateProgress();
-                executeNeedSchedule();
+                unprotectUpdateState(JobState.NEED_SCHEDULE, null, false);
             }
         } finally {
             writeUnlock();
