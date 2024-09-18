@@ -30,6 +30,7 @@ import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.cloud.catalog.CloudTablet;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.load.DeleteJob;
 import org.apache.doris.load.loadv2.SparkLoadJob;
@@ -62,7 +63,6 @@ import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TTabletInfo;
 import org.apache.doris.thrift.TTaskType;
 
-import com.amazonaws.services.glue.model.TaskType;
 import com.google.common.base.Preconditions;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -131,8 +131,12 @@ public class MasterImpl {
         } else {
             if (taskStatus.getStatusCode() != TStatusCode.OK) {
                 task.failed();
-                if (taskType == TTaskType.PUBLISH_VERSION && task.getFailedTimes() < ) {
-                    LOG.warn("finish task reports bad. request: {}", request);
+                if (taskType == TTaskType.PUBLISH_VERSION) {
+                    boolean needLog = (Config.publish_version_task_failed_log_threshold < 0
+                            || task.getFailedTimes() <= Config.publish_version_task_failed_log_threshold);
+                    if (needLog) {
+                        LOG.warn("finish task reports bad. request: {}", request);
+                    }
                 }
                 String errMsg = "task type: " + taskType + ", status_code: " + taskStatus.getStatusCode().toString()
                         + (taskStatus.isSetErrorMsgs() ? (", status_message: " + taskStatus.getErrorMsgs()) : "")
