@@ -474,9 +474,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         fileScanRangeParams.setTextSerdeType(textSerdeType);
         fileScanRangeParams.setFileAttributes(getFileAttributes());
         ConnectContext ctx = ConnectContext.get();
-        if (ctx != null) {
-            fileScanRangeParams.setLoadId(ctx.queryId());
-        }
+        fileScanRangeParams.setLoadId(ctx.queryId());
 
         if (getTFileType() == TFileType.FILE_STREAM) {
             fileStatuses.add(new TBrokerFileStatus("", false, -1, true));
@@ -510,9 +508,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
 
         // set TFileRangeDesc
         TFileRangeDesc fileRangeDesc = new TFileRangeDesc();
-        if (ctx != null) {
-            fileRangeDesc.setLoadId(ctx.queryId());
-        }
+        fileRangeDesc.setLoadId(ctx.queryId());
         fileRangeDesc.setFileType(getTFileType());
         fileRangeDesc.setCompressType(Util.getOrInferCompressType(compressionType, firstFile.getPath()));
         fileRangeDesc.setPath(firstFile.getPath());
