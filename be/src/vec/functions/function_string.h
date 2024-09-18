@@ -3461,7 +3461,6 @@ private:
                             ColumnString* result_column, size_t input_rows_count) {
         ColumnString::Chars& res_chars = result_column->get_chars();
         ColumnString::Offsets& res_offsets = result_column->get_offsets();
-        PaddedPODArray<size_t> index;
 
         for (size_t row = 0; row < input_rows_count; ++row) {
             StringRef origin_str =
@@ -3469,30 +3468,32 @@ private:
             StringRef new_str = mask_column->get_data_at(index_check_const<new_str_const>(row));
             const auto start = args_start[index_check_const<start_const>(row)];
             const auto length = args_length[index_check_const<len_const>(row)];
-            index.clear();
-            size_t j = 0, char_size = 0;
-            // index[i] represents the number of bytes occupied by the UTF-8 characters from position 0 to i - 1.
-            while (j < origin_str.size) {
-                char_size = get_utf8_byte_length(origin_str.data[j]);
-                index.push_back(j);
-                j += char_size;
-            }
-            const auto utf8_total_len = index.size();
-            //input is null, start < 0, len < 0, str_size <= start. return NULL
-            if (args_null_map[row] || start < 0 || length < 0 || utf8_total_len <= start) {
+            //input is null, start < 0, len < 0 return NULL
+            if (args_null_map[row] || start < 0 || length < 0) {
                 res_offsets.push_back(res_chars.size());
                 args_null_map[row] = 1;
                 continue;
             }
-            index.push_back(j);
 
-            const auto utf8_start = index[start];
-            const auto utf8_length =
-                    index[std::min((int)index.size() - 1, start + length)] - utf8_start;
+            const auto [start_byte_len, start_char_len] =
+                    simd::VStringFunctions::iterate_utf8_with_limit_length(origin_str.begin(),
+                                                                           origin_str.end(), start);
 
+            // start >= orgin.size
+            DCHECK(start_char_len <= start);
+            if (start_byte_len == origin_str.size) {
+                res_offsets.push_back(res_chars.size());
+                args_null_map[row] = 1;
+                continue;
+            }
+
+            auto [end_byte_len, end_char_len] =
+                    simd::VStringFunctions::iterate_utf8_with_limit_length(
+                            origin_str.begin() + start_byte_len, origin_str.end(), length);
+            DCHECK(end_char_len <= length);
             std::string_view replace_str = new_str.to_string_view();
             std::string result = origin_str.to_string();
-            result.replace(utf8_start, utf8_length, replace_str);
+            result.replace(start_byte_len, end_byte_len, replace_str);
             result_column->insert_data(result.data(), result.length());
         }
     }
