@@ -35,15 +35,9 @@ private:
     ColumnPtr permute(const Permutation& perm, size_t limit) const override {
         return clone_dummy(limit ? std::min(s, limit) : s);
     }
-    Field operator[](size_t) const override {
-        return {};
-    }
-    void get(size_t, Field& f) const override {
-        f = {};
-    }
-    void insert(const Field&) override {
-        ++s;
-    }
+    Field operator[](size_t) const override { return {}; }
+    void get(size_t, Field& f) const override { f = {}; }
+    void insert(const Field&) override { ++s; }
 
 public:
     const char* get_family_name() const override { return "Nothing"; }
