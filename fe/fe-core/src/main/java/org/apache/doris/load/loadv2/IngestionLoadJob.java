@@ -568,8 +568,7 @@ public class IngestionLoadJob extends LoadJob {
                     for (long partitionId : partitionIds) {
                         Partition partition = olapTable.getPartition(partitionId);
                         if (partition == null) {
-                            LOG.warn("partition does not exist. id: {}", partitionId);
-                            continue;
+                            throw new LoadException("partition does not exist. id: " + partitionId);
                         }
 
                         hasLoadPartitions = true;

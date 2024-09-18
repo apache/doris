@@ -19,9 +19,9 @@ import java.nio.file.Files
 import java.nio.file.Paths
 import java.nio.file.StandardCopyOption
 
-suite('test_ingestion_load', 'p0') {
+suite('test_ingestion_load_drop_table', 'p0') {
 
-    def testIngestLoadJob = { testTable, loadLabel, String dataFile ->
+    def testIngestLoadJob = { testTable, loadLabel, dataFile, alterAction ->
 
         sql "TRUNCATE TABLE ${testTable}"
 
@@ -106,12 +106,12 @@ suite('test_ingestion_load', 'p0') {
             }
         }
 
+        alterAction.call()
+
         max_try_milli_secs = 120000
         while (max_try_milli_secs) {
             result = sql "show load where label = '${loadLabel}'"
-            if (result[0][2] == "FINISHED") {
-                sql "sync"
-                qt_select "select * from ${testTable} order by 1"
+            if (result.size() == 0) {
                 break
             } else {
                 sleep(5000) // wait 1 second every time
@@ -126,96 +126,70 @@ suite('test_ingestion_load', 'p0') {
 
     if (enableHdfs()) {
 
-        tableName = 'tbl_test_spark_load'
+        tableName = 'tbl_test_spark_load_drop_table'
 
-        sql """
-            CREATE TABLE IF NOT EXISTS ${tableName} (
-                c_int int(11) NULL,
-                c_char char(15) NULL,
-                c_varchar varchar(100) NULL,
-                c_bool boolean NULL,
-                c_tinyint tinyint(4) NULL,
-                c_smallint smallint(6) NULL,
-                c_bigint bigint(20) NULL,
-                c_largeint largeint(40) NULL,
-                c_float float NULL,
-                c_double double NULL,
-                c_decimal decimal(6, 3) NULL,
-                c_decimalv3 decimal(6, 3) NULL,
-                c_date date NULL,
-                c_datev2 date NULL,
-                c_datetime datetime NULL,
-                c_datetimev2 datetime NULL
-            )
-            DUPLICATE KEY(c_int)
-            DISTRIBUTED BY HASH(c_int) BUCKETS 1
-            PROPERTIES (
-            "replication_num" = "1"
-            )
-            """
+        try {
 
-        def label = "test_ingestion_load"
+            sql """
+                CREATE TABLE IF NOT EXISTS ${tableName} (
+                    c_int int(11) NULL,
+                    c_char char(15) NULL,
+                    c_varchar varchar(100) NULL,
+                    c_bool boolean NULL,
+                    c_tinyint tinyint(4) NULL,
+                    c_smallint smallint(6) NULL,
+                    c_bigint bigint(20) NULL,
+                    c_largeint largeint(40) NULL,
+                    c_float float NULL,
+                    c_double double NULL,
+                    c_decimal decimal(6, 3) NULL,
+                    c_decimalv3 decimal(6, 3) NULL,
+                    c_date date NULL,
+                    c_datev2 date NULL,
+                    c_datetime datetime NULL,
+                    c_datetimev2 datetime NULL
+                )
+                DUPLICATE KEY(c_int)
+                DISTRIBUTED BY HASH(c_int) BUCKETS 1
+                PROPERTIES (
+                "replication_num" = "1"
+                )
+                """
 
-        testIngestLoadJob.call(tableName, label, context.config.dataPath + '/load_p0/ingestion_load/data.parquet')
+            label = "test_ingestion_load_drop_table"
 
-        tableName = 'tbl_test_spark_load_unique_mor'
+            testIngestLoadJob.call(tableName, label, context.config.dataPath + '/load_p0/ingestion_load/data.parquet', {
+                sql "DROP TABLE ${tableName}"
+                sql """
+                CREATE TABLE IF NOT EXISTS ${tableName} (
+                    c_int int(11) NULL,
+                    c_char char(15) NULL,
+                    c_varchar varchar(100) NULL,
+                    c_bool boolean NULL,
+                    c_tinyint tinyint(4) NULL,
+                    c_smallint smallint(6) NULL,
+                    c_bigint bigint(20) NULL,
+                    c_largeint largeint(40) NULL,
+                    c_float float NULL,
+                    c_double double NULL,
+                    c_decimal decimal(6, 3) NULL,
+                    c_decimalv3 decimal(6, 3) NULL,
+                    c_date date NULL,
+                    c_datev2 date NULL,
+                    c_datetime datetime NULL,
+                    c_datetimev2 datetime NULL
+                )
+                DUPLICATE KEY(c_int)
+                DISTRIBUTED BY HASH(c_int) BUCKETS 1
+                PROPERTIES (
+                "replication_num" = "1"
+                )
+                """
+            })
 
-        sql """
-            CREATE TABLE IF NOT EXISTS ${tableName} (
-                c_int int(11) NULL,
-                c_char char(15) NULL,
-                c_varchar varchar(100) NULL,
-                c_bool boolean NULL,
-                c_tinyint tinyint(4) NULL,
-                c_smallint smallint(6) NULL,
-                c_bigint bigint(20) NULL,
-                c_largeint largeint(40) NULL,
-                c_float float NULL,
-                c_double double NULL,
-                c_decimal decimal(6, 3) NULL,
-                c_decimalv3 decimal(6, 3) NULL,
-                c_date date NULL,
-                c_datev2 date NULL,
-                c_datetime datetime NULL,
-                c_datetimev2 datetime NULL
-            )
-            UNIQUE KEY(c_int)
-            DISTRIBUTED BY HASH(c_int) BUCKETS 1
-            PROPERTIES (
-            "replication_num" = "1",
-            "enable_unique_key_merge_on_write" = "false"
-            )
-            """
-
-        label = "test_ingestion_load_unique_mor"
-
-        testIngestLoadJob.call(tableName, label, context.config.dataPath + '/load_p0/ingestion_load/data.parquet')
-
-        tableName = 'tbl_test_spark_load_agg'
-
-        sql """
-            CREATE TABLE IF NOT EXISTS ${tableName}
-            (
-                `user_id` LARGEINT NOT NULL COMMENT "user id",
-                `date` DATE NOT NULL COMMENT "data import time",
-                `city` VARCHAR(20) COMMENT "city",
-                `age` SMALLINT COMMENT "age",
-                `sex` TINYINT COMMENT "gender",
-                `last_visit_date` DATETIME REPLACE DEFAULT "1970-01-01 00:00:00" COMMENT "last visit date time",
-                `cost` BIGINT SUM DEFAULT "0" COMMENT "user total cost",
-                `max_dwell_time` INT MAX DEFAULT "0" COMMENT "user max dwell time",
-                `min_dwell_time` INT MIN DEFAULT "99999" COMMENT "user min dwell time"
-            )
-            AGGREGATE KEY(`user_id`, `date`, `city`, `age`, `sex`)
-            DISTRIBUTED BY HASH(`user_id`) BUCKETS 1
-            PROPERTIES (
-            "replication_allocation" = "tag.location.default: 1"
-            );
-        """
-
-        label = "test_ingestion_load_agg"
-
-        testIngestLoadJob.call(tableName, label, context.config.dataPath + '/load_p0/ingestion_load/data1.parquet')
+        } finally {
+            sql "DROP TABLE ${tableName}"
+        }
 
     }
 
