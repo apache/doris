@@ -335,7 +335,7 @@ void DorisMetrics::_update_process_thread_num() {
     std::filesystem::directory_iterator dict_iter("/proc/self/task/", ec);
     if (ec) {
         LOG(WARNING) << "failed to count thread num: " << ec.message();
-        process_fd_num_used->set_value(0);
+        process_thread_num->set_value(0);
         return;
     }
     int64_t count =
