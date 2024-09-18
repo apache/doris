@@ -222,10 +222,20 @@ public:
             uint64_t value = *reinterpret_cast<const uint64_t*>(cur_ptr);
 
             DateV2Value<DateTimeV2ValueType> tmp;
+            long _sec_offset = 3600;
 
             tmp = binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(value);
             // todo sec_offset from runtime state
-            tmp.date_add_interval<TimeUnit::SECOND>(TimeInterval {TimeUnit::SECOND, 3600, false});
+            {
+                cctz::time_zone utc_tz {};
+                TimezoneUtils::find_cctz_time_zone(TimezoneUtils::utc_time_zone, utc_tz);
+                auto given = cctz::convert(cctz::civil_second {}, utc_tz);
+                auto local = cctz::convert(cctz::civil_second {}, IColumn::_timezone_obj);
+                _sec_offset =
+                        std::chrono::duration_cast<std::chrono::seconds>(given - local).count();
+            }
+            tmp.date_add_interval<TimeUnit::SECOND>(
+                    TimeInterval {TimeUnit::SECOND, _sec_offset, false});
 
             value = binary_cast<DateV2Value<DateTimeV2ValueType>, uint64_t>(tmp);
 

@@ -213,7 +213,8 @@ void DataTypeDateTimeV2::to_pb_column_meta(PColumnMeta* col_meta) const {
 MutableColumnPtr DataTypeDateTimeV2::create_column() const {
     auto col = DataTypeNumberBase<UInt64>::create_column();
     if (is_timestamp()) {
-        col->set_timestamp_type();
+        cctz::time_zone tz{};
+        col->set_timestamp_type(tz);
     }
     return col;
 }

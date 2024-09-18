@@ -2023,7 +2023,7 @@ Status SegmentIterator::_init_current_block(
                 } else if (column_desc->type() == FieldType::OLAP_FIELD_TYPE_DATETIME) {
                     current_columns[cid]->set_datetime_type();
                 } else if (column_desc->type() == FieldType::OLAP_FIELD_TYPE_TIMESTAMP) {
-                    current_columns[cid]->set_timestamp_type();
+                    current_columns[cid]->set_timestamp_type(_timezone_obj);
                 }
                 current_columns[cid]->reserve(nrows_read_limit);
             }

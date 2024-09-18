@@ -174,6 +174,7 @@ public:
 
     UInt32 get_scale() const override { return _scale; }
     bool is_timestamp() const { return _is_timestamp; }
+    void set_timestamp() { _is_timestamp = true; }
 
     void to_pb_column_meta(PColumnMeta* col_meta) const override;
 

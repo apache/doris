@@ -259,7 +259,8 @@ private:
     size_t _rows_returned;
 };
 
-Status VAutoIncrementIterator::init(const StorageReadOptions& opts, const cctz::time_zone& timezone) {
+Status VAutoIncrementIterator::init(const StorageReadOptions& opts,
+                                    const cctz::time_zone& timezone) {
     return Status::OK();
 }
 

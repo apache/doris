@@ -154,6 +154,7 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
                              std::unique_ptr<RowwiseIterator>* iter) {
     RETURN_IF_ERROR(_create_column_readers_once());
 
+    cctz::time_zone utc_tz {};
     read_options.stats->total_segment_number++;
     // trying to prune the current segment by segment-level zone map
     for (auto& entry : read_options.col_id_to_predicates) {
@@ -246,10 +247,10 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
                 options_with_pruned_predicates.col_id_to_predicates[pred->column_id()]
                         ->add_column_predicate(SingleColumnBlockPredicate::create_unique(pred));
             }
-            return iter->get()->init(options_with_pruned_predicates, NULL);
+            return iter->get()->init(options_with_pruned_predicates, utc_tz);
         }
     }
-    return iter->get()->init(read_options, NULL);
+    return iter->get()->init(read_options, utc_tz);
 }
 
 Status Segment::_parse_footer(SegmentFooterPB* footer) {
