@@ -23,6 +23,7 @@ suite("extract_from_disjunction_in_join") {
     sql """
         set runtime_filter_mode=OFF;
         set disable_join_reorder=true;
+        set disable_join_reorder=true;
         """
 
 

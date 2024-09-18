@@ -201,12 +201,11 @@ PhysicalResultSink
 ------PhysicalDistribute[DistributionSpecHash]
 --------hashAgg[LOCAL]
 ----------PhysicalUnion
-------------PhysicalDistribute[DistributionSpecExecutionAny]
---------------PhysicalProject
-----------------hashJoin[LEFT_OUTER_JOIN broadcast] hashCondition=((t1.id = t2.id)) otherCondition=()
-------------------PhysicalProject
---------------------PhysicalOlapScan[t2]
-------------------PhysicalOlapScan[t1]
+------------PhysicalProject
+--------------hashJoin[RIGHT_OUTER_JOIN shuffle] hashCondition=((t1.id = t2.id)) otherCondition=()
+----------------PhysicalOlapScan[t1]
+----------------PhysicalProject
+------------------PhysicalOlapScan[t2]
 ------------PhysicalDistribute[DistributionSpecExecutionAny]
 --------------PhysicalOlapScan[t3]
 
@@ -629,10 +628,10 @@ PhysicalResultSink
 --------------PhysicalDistribute[DistributionSpecHash]
 ----------------hashAgg[LOCAL]
 ------------------PhysicalProject
---------------------hashJoin[LEFT_OUTER_JOIN broadcast] hashCondition=((t1.id = t2.id)) otherCondition=()
+--------------------hashJoin[RIGHT_OUTER_JOIN shuffle] hashCondition=((t1.id = t2.id)) otherCondition=()
+----------------------PhysicalOlapScan[t1]
 ----------------------PhysicalProject
 ------------------------PhysicalOlapScan[t2]
-----------------------PhysicalOlapScan[t1]
 ------------PhysicalDistribute[DistributionSpecExecutionAny]
 --------------hashAgg[LOCAL]
 ----------------PhysicalOlapScan[t3]
@@ -1080,12 +1079,11 @@ PhysicalResultSink
 ------PhysicalDistribute[DistributionSpecHash]
 --------hashAgg[LOCAL]
 ----------PhysicalUnion
-------------PhysicalDistribute[DistributionSpecExecutionAny]
---------------PhysicalProject
-----------------hashJoin[LEFT_OUTER_JOIN broadcast] hashCondition=((t1.id = t2.id)) otherCondition=()
-------------------PhysicalProject
---------------------PhysicalOlapScan[t2]
-------------------PhysicalOlapScan[t1]
+------------PhysicalProject
+--------------hashJoin[RIGHT_OUTER_JOIN shuffle] hashCondition=((t1.id = t2.id)) otherCondition=()
+----------------PhysicalOlapScan[t1]
+----------------PhysicalProject
+------------------PhysicalOlapScan[t2]
 ------------PhysicalDistribute[DistributionSpecExecutionAny]
 --------------PhysicalOlapScan[t3]
 
