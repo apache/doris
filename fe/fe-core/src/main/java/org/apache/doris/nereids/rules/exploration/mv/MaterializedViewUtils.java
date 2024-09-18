@@ -76,8 +76,6 @@ import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.HashMultimap;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
@@ -90,6 +88,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
@@ -107,6 +106,7 @@ public class MaterializedViewUtils {
      * @param materializedViewPlan this should be rewritten or analyzed plan, should not be physical plan.
      * @param column ref column name.
      */
+    @Deprecated
     public static RelatedTableInfo getRelatedTableInfo(String column, String timeUnit,
             Plan materializedViewPlan, CascadesContext cascadesContext) {
 
@@ -131,19 +131,70 @@ public class MaterializedViewUtils {
         IncrementCheckerContext checkContext = new IncrementCheckerContext(columnExpr, cascadesContext);
         checkContext.addPartitionAndRollupExpressionMap(columnExpr, null);
         materializedViewPlan.accept(MaterializedViewIncrementChecker.INSTANCE, checkContext);
-        Multimap<TableIf, SlotReference> partitionRelatedTableAndColumnMap =
+        Multimap<BaseTableInfo, SlotReference> partitionRelatedTableAndColumnMap =
                 checkContext.getPartitionRelatedTableAndColumnMap();
         if (partitionRelatedTableAndColumnMap.isEmpty()) {
             return RelatedTableInfo.failWith(String.format("can't not find valid partition track column, because %s",
                     String.join(",", checkContext.getFailReasons())));
         }
-        // TODO support to return only one related table info, support multi later
-        for (Map.Entry<TableIf, SlotReference> entry : partitionRelatedTableAndColumnMap.entries()) {
-            return RelatedTableInfo.successWith(new BaseTableInfo(entry.getKey()), true,
+        for (Map.Entry<BaseTableInfo, SlotReference> entry : partitionRelatedTableAndColumnMap.entries()) {
+            return RelatedTableInfo.successWith(entry.getKey(), true,
                     entry.getValue().getColumn().get().getName(),
                     checkContext.getPartitionAndRollupExpressionMap().get(entry.getValue()).orElseGet(() -> null));
         }
         return RelatedTableInfo.failWith("can't not find valid partition track column finally");
+    }
+
+    /**
+     * Get related base table info which materialized view plan column reference,
+     * input param plan should be rewritten plan that sub query should be eliminated
+     *
+     * @param materializedViewPlan this should be rewritten or analyzed plan, should not be physical plan.
+     * @param column ref column name.
+     */
+    public static Set<RelatedTableInfo> getRelatedTableInfos(String column, String timeUnit,
+            Plan materializedViewPlan, CascadesContext cascadesContext) {
+
+        Set<RelatedTableInfo> relatedTableInfos = new HashSet<>();
+        List<Slot> outputExpressions = materializedViewPlan.getOutput();
+        NamedExpression columnExpr = null;
+        // get column slot
+        for (Slot outputSlot : outputExpressions) {
+            if (outputSlot.getName().equalsIgnoreCase(column)) {
+                columnExpr = outputSlot;
+                break;
+            }
+        }
+        if (columnExpr == null) {
+            return ImmutableSet.of(
+                    RelatedTableInfo.failWith("partition column can not find from sql select column"));
+        }
+        if (timeUnit != null) {
+            Expression dateTrunc = new DateTrunc(columnExpr, new VarcharLiteral(timeUnit));
+            columnExpr = new Alias(dateTrunc);
+            materializedViewPlan = new LogicalProject<>(ImmutableList.of(columnExpr), materializedViewPlan);
+        }
+        // Check sql pattern
+        IncrementCheckerContext checkContext = new IncrementCheckerContext(columnExpr, cascadesContext);
+        checkContext.addPartitionAndRollupExpressionMap(columnExpr, null);
+        materializedViewPlan.accept(MaterializedViewIncrementChecker.INSTANCE, checkContext);
+        Multimap<BaseTableInfo, SlotReference> partitionRelatedTableAndColumnMap =
+                checkContext.getPartitionRelatedTableAndColumnMap();
+        if (partitionRelatedTableAndColumnMap.isEmpty()) {
+            return ImmutableSet.of(
+                    RelatedTableInfo.failWith(String.format("can't not find valid partition track column, because %s",
+                            String.join(",", checkContext.getFailReasons()))));
+        }
+        for (Map.Entry<BaseTableInfo, SlotReference> entry : partitionRelatedTableAndColumnMap.entries()) {
+            relatedTableInfos.add(RelatedTableInfo.successWith(entry.getKey(), true,
+                    entry.getValue().getColumn().get().getName(),
+                    checkContext.getPartitionAndRollupExpressionMap().get(entry.getValue()).orElseGet(() -> null)));
+        }
+        if (!relatedTableInfos.isEmpty()) {
+            return relatedTableInfos;
+        }
+        return ImmutableSet.of(
+                RelatedTableInfo.failWith("can't not find valid partition track column finally"));
     }
 
     /**
@@ -419,7 +470,11 @@ public class MaterializedViewUtils {
             for (SlotReference partitionSlot : contextPartitionColumnSet) {
                 // If found equal set, add the slot and rollup expression to checker context
                 Set<Slot> partitionEqualSlotSet =
-                        join.getLogicalProperties().getTrait().calEqualSet(partitionSlot);
+                        new HashSet<>(join.getLogicalProperties().getTrait().calEqualSet(partitionSlot));
+                if (!partitionEqualSlotSet.isEmpty()) {
+                    partitionEqualSlotSet.add(partitionSlot);
+                    context.addEqualSlotSet(partitionEqualSlotSet, join.children());
+                }
                 for (Slot partitionEqualSlot : partitionEqualSlotSet) {
                     context.addPartitionAndRollupExpressionMap(partitionEqualSlot, partitionSlot,
                             context.getPartitionAndRollupExpressionMap().get(partitionSlot));
@@ -432,12 +487,12 @@ public class MaterializedViewUtils {
                         || joinType.isLeftSemiJoin()
                         || joinType.isLeftAntiJoin()) && useLeft) {
                     context.collectInvalidTableSet(join.right());
-                    return visit(join.left(), context);
+                    return visit(join, context);
                 } else if ((joinType.isRightJoin()
                         || joinType.isRightAntiJoin()
                         || joinType.isRightSemiJoin()) && !useLeft) {
                     context.collectInvalidTableSet(join.left());
-                    return visit(join.right(), context);
+                    return visit(join, context);
                 } else {
                     context.addFailReason(String.format("partition column is in un supported join null generate side, "
                             + "current join type is %s, partitionSlot is %s", joinType, partitionSlot));
@@ -483,9 +538,6 @@ public class MaterializedViewUtils {
                 return null;
             }
             Set<Column> partitionColumnSet = new HashSet<>(relatedTable.getPartitionColumns());
-            if (contextPartitionColumnSet.isEmpty()) {
-                return null;
-            }
             for (SlotReference partitionColumn : contextPartitionColumnSet) {
                 Column mvReferenceColumn = partitionColumn.getColumn().get();
                 Expr definExpr = mvReferenceColumn.getDefineExpr();
@@ -497,6 +549,36 @@ public class MaterializedViewUtils {
                 }
                 if (partitionColumnSet.contains(mvReferenceColumn)
                         && (!mvReferenceColumn.isAllowNull() || relatedTable.isPartitionColumnAllowNull())) {
+                    SlotReference currentPartitionSlot = null;
+                    for (Slot catalogSlot : logicalCatalogRelation.getOutputSet()) {
+                        if (catalogSlot instanceof SlotReference
+                                && Objects.equals(((SlotReference) catalogSlot).getColumn().orElse(null),
+                                                mvReferenceColumn)) {
+                            currentPartitionSlot = (SlotReference) catalogSlot;
+                        }
+                    }
+                    // If self join should also check the partition column is in the shuttled equal set
+                    Collection<SlotReference> existTableColumnMap =
+                            new HashSet<>(context.getPartitionRelatedTableAndColumnMap().get(new BaseTableInfo(table)));
+                    if (!existTableColumnMap.isEmpty()
+                            || context.getInvalidTableSet().contains(new BaseTableInfo(table))) {
+                        boolean checkSuccess = false;
+                        for (Set<Slot> equalSlotSet : context.getShttuledEqualSlotSet()) {
+                            checkSuccess = equalSlotSet.contains(partitionColumn)
+                                    && equalSlotSet.contains(currentPartitionSlot);
+                            if (checkSuccess) {
+                                break;
+                            }
+                        }
+                        if (!checkSuccess) {
+                            context.addFailReason(String.format("partition column is in join invalid side, "
+                                    + "but is not in join condition, the mvReferenceColumn is %s", mvReferenceColumn));
+                            context.getPartitionRelatedTableAndColumnMap().removeAll(new BaseTableInfo(table));
+                            existTableColumnMap.forEach(partitionCol ->
+                                    context.getPartitionAndRollupExpressionMap().remove(partitionCol));
+                            continue;
+                        }
+                    }
                     context.addTableColumn(table, partitionColumn);
                 } else {
                     context.addFailReason(String.format("related base table partition column doesn't contain the mv"
@@ -698,12 +780,15 @@ public class MaterializedViewUtils {
         // This is used to record partition slot, and it's rollup expression if exists
         private final Map<NamedExpression, Optional<Expression>> partitionAndRollupExpressionMap = new HashMap<>();
         // This is used to record table and it's partition slot
-        private final Multimap<TableIf, SlotReference> partitionRelatedTableAndColumnMap = HashMultimap.create();
+        private final Multimap<BaseTableInfo, SlotReference> partitionRelatedTableAndColumnMap = HashMultimap.create();
         private final Set<String> failReasons = new HashSet<>();
         private final CascadesContext cascadesContext;
         // This record the invalid table, such as the right side of left join, the partition column
         // is invalid if is form the table
-        private final Set<TableIf> invalidTableSet = new HashSet<>();
+        private final Set<BaseTableInfo> invalidTableSet = new HashSet<>();
+        // This is used to check multi join input partition slot is in the join equal slot set or not
+        // if not, can not multi join input trigger partition update
+        private final Set<Set<Slot>> shttuledEqualSlotSet = new HashSet<>();
 
         public IncrementCheckerContext(NamedExpression mvPartitionColumn,
                 CascadesContext cascadesContext) {
@@ -712,19 +797,11 @@ public class MaterializedViewUtils {
         }
 
         public void addTableColumn(TableIf relatedTable, SlotReference partitionColumn) {
-            partitionRelatedTableAndColumnMap.put(relatedTable, partitionColumn);
+            partitionRelatedTableAndColumnMap.put(new BaseTableInfo(relatedTable), partitionColumn);
         }
 
-        public Multimap<TableIf, SlotReference> getPartitionRelatedTableAndColumnMap() {
-            // need filter valid table set
-            ImmutableMultimap.Builder<TableIf, SlotReference> tableAndColumnMapBuilder = ImmutableMultimap.builder();
-            for (Map.Entry<TableIf, SlotReference> entry : partitionRelatedTableAndColumnMap.entries()) {
-                if (this.invalidTableSet.contains(entry.getKey())) {
-                    continue;
-                }
-                tableAndColumnMapBuilder.put(entry.getKey(), entry.getValue());
-            }
-            return tableAndColumnMapBuilder.build();
+        public Multimap<BaseTableInfo, SlotReference> getPartitionRelatedTableAndColumnMap() {
+            return this.partitionRelatedTableAndColumnMap;
         }
 
         public Set<String> getFailReasons() {
@@ -735,24 +812,16 @@ public class MaterializedViewUtils {
             this.failReasons.add(failReason);
         }
 
+        public Set<BaseTableInfo> getInvalidTableSet() {
+            return invalidTableSet;
+        }
+
         public CascadesContext getCascadesContext() {
             return cascadesContext;
         }
 
         public Map<NamedExpression, Optional<Expression>> getPartitionAndRollupExpressionMap() {
-            // Need filter valid table set named expression
-            Set<TableIf> invalidTableSet = this.getInvalidTableSet();
-            ImmutableMap.Builder<NamedExpression, Optional<Expression>> builder = ImmutableMap.builder();
-            for (Map.Entry<NamedExpression, Optional<Expression>> entry : partitionAndRollupExpressionMap.entrySet()) {
-                if (entry.getKey().isColumnFromTable() && invalidTableSet.stream().anyMatch(
-                        table -> ((SlotReference) entry.getKey()).getTable().get().getFullQualifiers().equals(
-                                table.getFullQualifiers()))) {
-                    // if partition is form table and is in invalid table, skip
-                    continue;
-                }
-                builder.put(entry.getKey(), entry.getValue());
-            }
-            return builder.build();
+            return this.partitionAndRollupExpressionMap;
         }
 
         public void addPartitionAndRollupExpressionMap(NamedExpression partitionSlot, Expression rollupExpression) {
@@ -763,6 +832,9 @@ public class MaterializedViewUtils {
         public void addPartitionAndRollupExpressionMap(NamedExpression partitionEqualSlot,
                 NamedExpression partitionSlot,
                 Optional<Expression> rollupExpression) {
+            if (Objects.equals(partitionSlot, partitionEqualSlot)) {
+                return;
+            }
             Expression replacedExpression = rollupExpression.map(partitionExpr ->
                     partitionExpr.accept(new DefaultExpressionRewriter<Void>() {
                         @Override
@@ -773,7 +845,7 @@ public class MaterializedViewUtils {
                             return namedExpression;
                         }
                     }, null)).orElse(null);
-            Set<NamedExpression> partitionSlotSet = replacedExpression == null ? ImmutableSet.of(partitionSlot) :
+            Set<NamedExpression> partitionSlotSet = replacedExpression == null ? ImmutableSet.of() :
                     replacedExpression.collectToSet(expr -> expr.equals(partitionSlot));
             if (partitionSlotSet.isEmpty()) {
                 // If replaced successfully, then add to partition and rollup expression map
@@ -781,16 +853,31 @@ public class MaterializedViewUtils {
             }
         }
 
-        public Set<TableIf> getInvalidTableSet() {
-            return invalidTableSet;
+        public Set<Set<Slot>> getShttuledEqualSlotSet() {
+            return shttuledEqualSlotSet;
+        }
+
+        public void addEqualSlotSet(Set<Slot> equalSet, List<Plan> planContext) {
+            Set<Slot> shuttledEqualSet = new HashSet<>();
+            for (Slot slot : equalSet) {
+                for (Plan plan : planContext) {
+                    Set<SlotReference> slotReferenceSet =
+                            ExpressionUtils.shuttleExpressionWithLineage(slot, plan, new BitSet())
+                                    .collectToSet(expr -> expr instanceof SlotReference);
+                    if (slotReferenceSet.size() == 1) {
+                        shuttledEqualSet.add(slotReferenceSet.iterator().next());
+                    }
+                }
+            }
+            this.shttuledEqualSlotSet.add(shuttledEqualSet);
         }
 
         public void collectInvalidTableSet(Plan plan) {
-            plan.accept(new DefaultPlanVisitor<Void, Set<TableIf>>() {
+            plan.accept(new DefaultPlanVisitor<Void, Set<BaseTableInfo>>() {
                 @Override
-                public Void visitLogicalRelation(LogicalRelation relation, Set<TableIf> invalidTableSet) {
+                public Void visitLogicalRelation(LogicalRelation relation, Set<BaseTableInfo> invalidTableSet) {
                     if (relation instanceof LogicalCatalogRelation) {
-                        invalidTableSet.add(((LogicalCatalogRelation) relation).getTable());
+                        invalidTableSet.add(new BaseTableInfo(((LogicalCatalogRelation) relation).getTable()));
                     }
                     return null;
                 }
@@ -850,6 +937,25 @@ public class MaterializedViewUtils {
 
         public Optional<Expression> getPartitionExpression() {
             return partitionExpression;
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) {
+                return true;
+            }
+            if (o == null || getClass() != o.getClass()) {
+                return false;
+            }
+            RelatedTableInfo that = (RelatedTableInfo) o;
+            return pctPossible == that.pctPossible && Objects.equals(tableInfo, that.tableInfo)
+                    && Objects.equals(column, that.column) && Objects.equals(partitionExpression.orElse(null),
+                    that.partitionExpression.orElse(null));
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(tableInfo, pctPossible, column, partitionExpression.orElse(null));
         }
     }
 }
