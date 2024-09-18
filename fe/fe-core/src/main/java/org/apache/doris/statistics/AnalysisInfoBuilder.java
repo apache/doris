@@ -63,7 +63,7 @@ public class AnalysisInfoBuilder {
     private boolean usingSqlForPartitionColumn;
     private long tblUpdateTime;
     private boolean emptyJob;
-    private boolean userInject;
+    private boolean userInject = false;
     private long rowCount;
 
     public AnalysisInfoBuilder() {
