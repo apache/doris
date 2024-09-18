@@ -146,7 +146,6 @@ struct WorkloadGroupMemInfo {
     std::list<std::shared_ptr<MemTrackerLimiter>> tracker_snapshots =
             std::list<std::shared_ptr<MemTrackerLimiter>>();
 };
-
 void WorkloadGroupMgr::refresh_wg_weighted_memory_limit() {
     std::shared_lock<std::shared_mutex> r_lock(_group_mutex);
 
@@ -195,59 +194,99 @@ void WorkloadGroupMgr::refresh_wg_weighted_memory_limit() {
             doris::GlobalMemoryArbitrator::sys_mem_available_details_str(),
             PrettyPrinter::print(all_workload_groups_mem_usage, TUnit::BYTES),
             weighted_memory_limit_ratio);
-    LOG_EVERY_T(INFO, 10) << debug_msg;
-
+    LOG_EVERY_T(INFO, 60) << debug_msg;
     for (auto& wg : _workload_groups) {
-        // 3.1 calculate query spill threshold of task group
-        auto wg_weighted_mem_limit =
-                int64_t(wg.second->memory_limit() * weighted_memory_limit_ratio);
+        auto wg_mem_limit = wg.second->memory_limit();
+        auto wg_weighted_mem_limit = int64_t(wg_mem_limit * weighted_memory_limit_ratio);
         wg.second->set_weighted_memory_limit(wg_weighted_mem_limit);
-
-        // 3.2 set workload groups weighted memory limit and all query spill threshold.
-        auto wg_query_count = wgs_mem_info[wg.first].tracker_snapshots.size();
-        int64_t query_spill_threshold =
-                wg_query_count ? (wg_weighted_mem_limit + wg_query_count) / wg_query_count
-                               : wg_weighted_mem_limit;
-        for (const auto& query : wg.second->queries()) {
-            auto query_ctx = query.second.lock();
-            if (!query_ctx) {
-                continue;
-            }
-            query_ctx->set_spill_threshold(query_spill_threshold);
-        }
-
-        // 3.3 only print debug logs, if workload groups is_high_wartermark or is_low_wartermark.
+        auto all_query_ctxs = wg.second->queries();
         bool is_low_wartermark = false;
         bool is_high_wartermark = false;
         wg.second->check_mem_used(&is_low_wartermark, &is_high_wartermark);
+        int64_t wg_high_water_mark_limit =
+                wg_mem_limit * wg.second->spill_threshold_high_water_mark() / 100;
+        int64_t weighted_high_water_mark_limit =
+                wg_weighted_mem_limit * wg.second->spill_threshold_high_water_mark() / 100;
         std::string debug_msg;
         if (is_high_wartermark || is_low_wartermark) {
             debug_msg = fmt::format(
                     "\nWorkload Group {}: mem limit: {}, mem used: {}, weighted mem limit: {}, "
-                    "used "
-                    "ratio: {}, query count: {}, query spill threshold: {}",
+                    "high water mark mem limit: {}, used ratio: {}",
                     wg.second->name(),
                     PrettyPrinter::print(wg.second->memory_limit(), TUnit::BYTES),
                     PrettyPrinter::print(wgs_mem_info[wg.first].total_mem_used, TUnit::BYTES),
                     PrettyPrinter::print(wg_weighted_mem_limit, TUnit::BYTES),
-                    (double)wgs_mem_info[wg.first].total_mem_used / wg_weighted_mem_limit,
-                    wg_query_count, PrettyPrinter::print(query_spill_threshold, TUnit::BYTES));
+                    PrettyPrinter::print(weighted_high_water_mark_limit, TUnit::BYTES),
+                    (double)wgs_mem_info[wg.first].total_mem_used / wg_weighted_mem_limit);
 
             debug_msg += "\n  Query Memory Summary:";
             // check whether queries need to revoke memory for task group
             for (const auto& query_mem_tracker : wgs_mem_info[wg.first].tracker_snapshots) {
                 debug_msg += fmt::format(
-                        "\n    MemTracker Label={}, Used={}, SpillThreshold={}, "
+                        "\n    MemTracker Label={}, Used={}, MemLimit={}, "
                         "Peak={}",
                         query_mem_tracker->label(),
                         PrettyPrinter::print(query_mem_tracker->consumption(), TUnit::BYTES),
-                        PrettyPrinter::print(query_spill_threshold, TUnit::BYTES),
+                        PrettyPrinter::print(query_mem_tracker->limit(), TUnit::BYTES),
                         PrettyPrinter::print(query_mem_tracker->peak_consumption(), TUnit::BYTES));
             }
-            LOG_EVERY_T(INFO, 1) << debug_msg;
-        } else {
             continue;
         }
+
+        int32_t total_used_slot_count = 0;
+        int32_t total_slot_count = wg.second->total_query_slot_count();
+        // calculate total used slot count
+        for (const auto& query : all_query_ctxs) {
+            auto query_ctx = query.second.lock();
+            if (!query_ctx) {
+                continue;
+            }
+            total_used_slot_count += query_ctx->get_slot_count();
+        }
+        // calculate per query weighted memory limit
+        debug_msg = "Query Memory Summary:";
+        for (const auto& query : all_query_ctxs) {
+            auto query_ctx = query.second.lock();
+            if (!query_ctx) {
+                continue;
+            }
+            int64_t query_weighted_mem_limit = 0;
+            // If the query enable hard limit, then it should not use the soft limit
+            if (query_ctx->enable_query_slot_hard_limit()) {
+                if (total_slot_count < 1) {
+                    LOG(WARNING)
+                            << "query " << print_id(query_ctx->query_id())
+                            << " enabled hard limit, but the slot count < 1, could not take affect";
+                } else {
+                    // If the query enable hard limit, then not use weighted info any more, just use the settings limit.
+                    query_weighted_mem_limit =
+                            (wg_high_water_mark_limit * query_ctx->get_slot_count()) /
+                            total_slot_count;
+                }
+            } else {
+                // If low water mark is not reached, then use process memory limit as query memory limit.
+                // It means it will not take effect.
+                if (!is_low_wartermark) {
+                    query_weighted_mem_limit = process_memory_limit;
+                } else {
+                    query_weighted_mem_limit =
+                            total_used_slot_count > 0
+                                    ? (wg_high_water_mark_limit + total_used_slot_count) *
+                                              query_ctx->get_slot_count() / total_used_slot_count
+                                    : wg_high_water_mark_limit;
+                }
+            }
+            debug_msg += fmt::format(
+                    "\n    MemTracker Label={}, Used={}, Limit={}, Peak={}",
+                    query_ctx->get_mem_tracker()->label(),
+                    PrettyPrinter::print(query_ctx->get_mem_tracker()->consumption(), TUnit::BYTES),
+                    PrettyPrinter::print(query_weighted_mem_limit, TUnit::BYTES),
+                    PrettyPrinter::print(query_ctx->get_mem_tracker()->peak_consumption(),
+                                         TUnit::BYTES));
+
+            query_ctx->set_mem_limit(query_weighted_mem_limit);
+        }
+        LOG_EVERY_T(INFO, 60) << debug_msg;
     }
 }
 

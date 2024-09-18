@@ -207,8 +207,6 @@ public:
 
     std::vector<TUniqueId> get_fragment_instance_ids() const { return fragment_instance_ids; }
 
-    int64_t mem_limit() const { return _bytes_limit; }
-
     void set_merge_controller_handler(
             std::shared_ptr<RuntimeFilterMergeControllerEntity>& handler) {
         _merge_controller_handler = handler;
@@ -238,8 +236,19 @@ public:
                             bool* has_running_task) const;
     size_t get_revocable_size() const;
 
-    void set_spill_threshold(int64_t spill_threshold) { _spill_threshold = spill_threshold; }
-    int64_t spill_threshold() { return _spill_threshold; }
+    void set_mem_limit(int64_t new_mem_limit) { query_mem_tracker->set_limit(new_mem_limit); }
+
+    std::shared_ptr<MemTrackerLimiter>& get_mem_tracker() { return query_mem_tracker; }
+
+    int32_t get_slot_count() {
+        return _query_options.__isset.query_slot_count ? _query_options.query_slot_count : 1;
+    }
+
+    bool enable_query_slot_hard_limit() {
+        return _query_options.__isset.enable_query_slot_hard_limit
+                       ? _query_options.enable_query_slot_hard_limit
+                       : false;
+    }
     DescriptorTbl* desc_tbl = nullptr;
     bool set_rsc_info = false;
     std::string user;
@@ -319,7 +328,6 @@ private:
     TUniqueId _query_id;
     ExecEnv* _exec_env = nullptr;
     MonotonicStopWatch _query_watcher;
-    int64_t _bytes_limit = 0;
     bool _is_pipeline = false;
     bool _is_nereids = false;
     std::atomic<int> _running_big_mem_op_num = 0;
