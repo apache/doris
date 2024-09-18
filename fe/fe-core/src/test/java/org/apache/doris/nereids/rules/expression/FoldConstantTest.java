@@ -35,13 +35,26 @@ import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeA
 import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeExtractAndTransform;
 import org.apache.doris.nereids.trees.expressions.functions.executable.TimeRoundSeries;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.AppendTrailingCharIfAbsent;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Asin;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Bin;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.BitCount;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Ceil;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Coalesce;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ConvertTz;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DateFormat;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DateTrunc;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Exp;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Floor;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FromUnixtime;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MinutesAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondsAdd;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Ln;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Power;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Round;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Sign;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Sin;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Sqrt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StrToDate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToDays;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UnixTimestamp;
@@ -51,11 +64,13 @@ import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalV3Literal;
+import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Interval.TimeUnit;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.types.DateTimeV2Type;
@@ -315,6 +330,115 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
         AppendTrailingCharIfAbsent a = new AppendTrailingCharIfAbsent(StringLiteral.of("1"), StringLiteral.of("3"));
         rewritten = executor.rewrite(a, context);
         Assertions.assertEquals(new StringLiteral("13"), rewritten);
+    }
+
+    @Test
+    void testFoldNumeric() {
+        executor = new ExpressionRuleExecutor(ImmutableList.of(
+            bottomUp(FoldConstantRuleOnFE.VISITOR_INSTANCE)
+        ));
+        Coalesce c = new Coalesce(new NullLiteral(), new NullLiteral());
+        Expression rewritten = executor.rewrite(c, context);
+        Assertions.assertTrue(new NullLiteral().compareTo((Literal) rewritten) == 0);
+        c = new Coalesce(new NullLiteral(), new IntegerLiteral(1));
+        rewritten = executor.rewrite(c, context);
+        Assertions.assertTrue(new IntegerLiteral(1).compareTo((Literal) rewritten) == 0);
+        c = new Coalesce(new IntegerLiteral(3), new IntegerLiteral(5));
+        rewritten = executor.rewrite(c, context);
+        Assertions.assertTrue(new IntegerLiteral(3).compareTo((Literal) rewritten) == 0);
+
+        Round round = new Round(new DoubleLiteral(3.4d));
+        rewritten = executor.rewrite(round, context);
+        Assertions.assertTrue(new DoubleLiteral(3d).compareTo((Literal) rewritten) == 0);
+        round = new Round(new DoubleLiteral(3.4d), new IntegerLiteral(5));
+        rewritten = executor.rewrite(round, context);
+        Assertions.assertTrue(new DoubleLiteral(3.4d).compareTo((Literal) rewritten) == 0);
+        round = new Round(new DoubleLiteral(3.5d));
+        rewritten = executor.rewrite(round, context);
+        Assertions.assertTrue(new DoubleLiteral(4d).compareTo((Literal) rewritten) == 0);
+
+        Ceil ceil = new Ceil(new DoubleLiteral(3.4d));
+        rewritten = executor.rewrite(ceil, context);
+        Assertions.assertTrue(new DoubleLiteral(4d).compareTo((Literal) rewritten) == 0);
+        ceil = new Ceil(new DoubleLiteral(3.4d), new IntegerLiteral(5));
+        rewritten = executor.rewrite(ceil, context);
+        Assertions.assertTrue(new DoubleLiteral(3.4d).compareTo((Literal) rewritten) == 0);
+
+        Floor floor = new Floor(new DoubleLiteral(3.4d));
+        rewritten = executor.rewrite(floor, context);
+        Assertions.assertTrue(new DoubleLiteral(3d).compareTo((Literal) rewritten) == 0);
+        floor = new Floor(new DoubleLiteral(3.4d), new IntegerLiteral(5));
+        rewritten = executor.rewrite(floor, context);
+        Assertions.assertTrue(new DoubleLiteral(3.4d).compareTo((Literal) rewritten) == 0);
+
+        Exp exp = new Exp(new DoubleLiteral(1d));
+        rewritten = executor.rewrite(exp, context);
+        Assertions.assertTrue(new DoubleLiteral(Math.E).compareTo((Literal) rewritten) == 0);
+        exp = new Exp(new DoubleLiteral(1000d));
+        rewritten = executor.rewrite(exp, context);
+        Assertions.assertTrue(new DoubleLiteral(Double.POSITIVE_INFINITY).compareTo((Literal) rewritten) == 0);
+
+        Ln ln = new Ln(new DoubleLiteral(1d));
+        rewritten = executor.rewrite(ln, context);
+        Assertions.assertTrue(new DoubleLiteral(0.0).compareTo((Literal) rewritten) == 0);
+        ln = new Ln(new DoubleLiteral(0d));
+        rewritten = executor.rewrite(ln, context);
+        Assertions.assertTrue(new NullLiteral().compareTo((Literal) rewritten) == 0);
+        ln = new Ln(new DoubleLiteral(-1d));
+        rewritten = executor.rewrite(ln, context);
+        Assertions.assertTrue(new NullLiteral().compareTo((Literal) rewritten) == 0);
+
+        Sqrt sqrt = new Sqrt(new DoubleLiteral(16d));
+        rewritten = executor.rewrite(sqrt, context);
+        Assertions.assertTrue(new DoubleLiteral(4d).compareTo((Literal) rewritten) == 0);
+        sqrt = new Sqrt(new DoubleLiteral(0d));
+        rewritten = executor.rewrite(sqrt, context);
+        Assertions.assertTrue(new DoubleLiteral(0d).compareTo((Literal) rewritten) == 0);
+        sqrt = new Sqrt(new DoubleLiteral(-1d));
+        rewritten = executor.rewrite(sqrt, context);
+        Assertions.assertTrue(new NullLiteral().compareTo((Literal) rewritten) == 0);
+
+        Power power = new Power(new DoubleLiteral(2d), new DoubleLiteral(3));
+        rewritten = executor.rewrite(power, context);
+        Assertions.assertTrue(new DoubleLiteral(8d).compareTo((Literal) rewritten) == 0);
+        power = new Power(new DoubleLiteral(2d), new DoubleLiteral(10000d));
+        rewritten = executor.rewrite(power, context);
+        Assertions.assertTrue(new DoubleLiteral(Double.POSITIVE_INFINITY).compareTo((Literal) rewritten) == 0);
+
+        Sin sin = new Sin(new DoubleLiteral(Math.PI / 2));
+        rewritten = executor.rewrite(sin, context);
+        Assertions.assertTrue(new DoubleLiteral(1d).compareTo((Literal) rewritten) == 0);
+        sin = new Sin(new DoubleLiteral(0d));
+        rewritten = executor.rewrite(sin, context);
+        Assertions.assertTrue(new DoubleLiteral(0d).compareTo((Literal) rewritten) == 0);
+
+        Asin asin = new Asin(new DoubleLiteral(1d));
+        rewritten = executor.rewrite(asin, context);
+        Assertions.assertTrue(new DoubleLiteral(Math.PI / 2).compareTo((Literal) rewritten) == 0);
+        asin = new Asin(new DoubleLiteral(2d));
+        rewritten = executor.rewrite(asin, context);
+        Assertions.assertTrue(new NullLiteral().compareTo((Literal) rewritten) == 0);
+
+        Sign sign = new Sign(new DoubleLiteral(1d));
+        rewritten = executor.rewrite(sign, context);
+        Assertions.assertTrue(new TinyIntLiteral((byte) 1).compareTo((Literal) rewritten) == 0);
+        sign = new Sign(new DoubleLiteral(-1d));
+        rewritten = executor.rewrite(sign, context);
+        Assertions.assertTrue(new TinyIntLiteral((byte) -1).compareTo((Literal) rewritten) == 0);
+        sign = new Sign(new DoubleLiteral(0d));
+        rewritten = executor.rewrite(sign, context);
+        Assertions.assertTrue(new TinyIntLiteral((byte) 0).compareTo((Literal) rewritten) == 0);
+
+        Bin bin = new Bin(new BigIntLiteral(5));
+        rewritten = executor.rewrite(bin, context);
+        Assertions.assertTrue(new VarcharLiteral("101").compareTo((Literal) rewritten) == 0);
+
+        BitCount bitCount = new BitCount(new BigIntLiteral(16));
+        rewritten = executor.rewrite(bitCount, context);
+        Assertions.assertTrue(new TinyIntLiteral((byte) 1).compareTo((Literal) rewritten) == 0);
+        bitCount = new BitCount(new BigIntLiteral(-1));
+        rewritten = executor.rewrite(bitCount, context);
+        Assertions.assertTrue(new TinyIntLiteral((byte) 64).compareTo((Literal) rewritten) == 0);
     }
 
     @Test

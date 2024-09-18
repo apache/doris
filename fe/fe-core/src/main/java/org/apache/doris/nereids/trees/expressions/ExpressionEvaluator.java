@@ -104,9 +104,7 @@ public enum ExpressionEvaluator {
                     Class<?> componentType = parameterType.getComponentType();
                     Object varArgs = Array.newInstance(componentType, inputSize - fixedArgsSize);
                     for (int i = fixedArgsSize; i < inputSize; i++) {
-                        if (!(expression.children().get(i) instanceof NullLiteral)) {
-                            Array.set(varArgs, i - fixedArgsSize, expression.children().get(i));
-                        }
+                        Array.set(varArgs, i - fixedArgsSize, expression.children().get(i));
                     }
                     Object[] objects = new Object[fixedArgsSize + 1];
                     for (int i = 0; i < fixedArgsSize; i++) {
@@ -114,7 +112,7 @@ public enum ExpressionEvaluator {
                     }
                     objects[fixedArgsSize] = varArgs;
 
-                    return (Literal) method.invoke(null, varArgs);
+                    return (Literal) method.invoke(null, objects);
                 }
                 return (Literal) method.invoke(null, expression.children().toArray());
             } catch (InvocationTargetException | IllegalAccessException | IllegalArgumentException e) {

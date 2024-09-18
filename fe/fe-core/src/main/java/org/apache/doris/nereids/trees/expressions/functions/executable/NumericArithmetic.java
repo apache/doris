@@ -680,6 +680,9 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "round")
     public static Expression round(DecimalV3Literal first, IntegerLiteral second) {
+        if (second.getValue() >= first.getValue().scale()) {
+            return first;
+        }
         return first.round(second.getValue());
     }
 
@@ -698,6 +701,9 @@ public class NumericArithmetic {
     @ExecFunction(name = "round")
     public static Expression round(DoubleLiteral first, IntegerLiteral second) {
         DecimalV3Literal middleResult = new DecimalV3Literal(new BigDecimal(Double.toString(first.getValue())));
+        if (second.getValue() >= middleResult.getValue().scale()) {
+            return first;
+        }
         return new DoubleLiteral(middleResult.round(second.getValue()).getDouble());
     }
 
@@ -714,6 +720,9 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "ceil")
     public static Expression ceil(DecimalV3Literal first, IntegerLiteral second) {
+        if (second.getValue() >= first.getValue().scale()) {
+            return first;
+        }
         return first.roundCeiling(second.getValue());
     }
 
@@ -732,6 +741,9 @@ public class NumericArithmetic {
     @ExecFunction(name = "ceil")
     public static Expression ceil(DoubleLiteral first, IntegerLiteral second) {
         DecimalV3Literal middleResult = new DecimalV3Literal(new BigDecimal(Double.toString(first.getValue())));
+        if (second.getValue() >= middleResult.getValue().scale()) {
+            return first;
+        }
         return new DoubleLiteral(middleResult.roundCeiling(second.getValue()).getDouble());
     }
 
@@ -748,6 +760,9 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "floor")
     public static Expression floor(DecimalV3Literal first, IntegerLiteral second) {
+        if (second.getValue() >= first.getValue().scale()) {
+            return first;
+        }
         return first.roundFloor(second.getValue());
     }
 
@@ -766,6 +781,9 @@ public class NumericArithmetic {
     @ExecFunction(name = "floor")
     public static Expression floor(DoubleLiteral first, IntegerLiteral second) {
         DecimalV3Literal middleResult = new DecimalV3Literal(new BigDecimal(Double.toString(first.getValue())));
+        if (second.getValue() >= middleResult.getValue().scale()) {
+            return first;
+        }
         return new DoubleLiteral(middleResult.roundFloor(second.getValue()).getDouble());
     }
 
@@ -782,6 +800,9 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "ln")
     public static Expression ln(DoubleLiteral first) {
+        if (first.getValue() <= 0) {
+            return new NullLiteral(first.getDataType());
+        }
         return new DoubleLiteral(Math.log(first.getValue()));
     }
 
@@ -790,6 +811,9 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "log")
     public static Expression log(DoubleLiteral first, DoubleLiteral second) {
+        if (first.getValue() <= 0) {
+            return new NullLiteral(first.getDataType());
+        }
         return new DoubleLiteral(Math.log(first.getValue()) / Math.log(second.getValue()));
     }
 
@@ -798,6 +822,9 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "log2")
     public static Expression log2(DoubleLiteral first) {
+        if (first.getValue() <= 0) {
+            return new NullLiteral(first.getDataType());
+        }
         return new DoubleLiteral(Math.log(first.getValue()) / Math.log(2.0));
     }
 
@@ -806,6 +833,9 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "log10")
     public static Expression log10(DoubleLiteral first) {
+        if (first.getValue() <= 0) {
+            return new NullLiteral(first.getDataType());
+        }
         return new DoubleLiteral(Math.log10(first.getValue()));
     }
 
@@ -857,6 +887,9 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "asin")
     public static Expression asin(DoubleLiteral first) {
+        if (Math.abs(first.getValue()) > 1) {
+            return new NullLiteral(first.getDataType());
+        }
         return new DoubleLiteral(Math.asin(first.getValue()));
     }
 
@@ -865,6 +898,9 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "acos")
     public static Expression acos(DoubleLiteral first) {
+        if (Math.abs(first.getValue()) > 1) {
+            return new NullLiteral(first.getDataType());
+        }
         return new DoubleLiteral(Math.acos(first.getValue()));
     }
 
@@ -991,7 +1027,8 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "dexp")
     public static Expression dexp(DoubleLiteral first) {
-        return new DoubleLiteral(Math.exp(first.getValue()));
+        double exp = Math.exp(first.getValue());
+        return new DoubleLiteral(exp);
     }
 
     /**
@@ -999,6 +1036,9 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "dlog1")
     public static Expression dlog1(DoubleLiteral first) {
+        if (first.getValue() <= 0) {
+            return new NullLiteral(first.getDataType());
+        }
         return new DoubleLiteral(Math.log1p(first.getValue()));
     }
 
@@ -1007,6 +1047,9 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "dlog10")
     public static Expression dlog10(DoubleLiteral first) {
+        if (first.getValue() <= 0) {
+            return new NullLiteral(first.getDataType());
+        }
         return new DoubleLiteral(Math.log10(first.getValue()));
     }
 
