@@ -1826,6 +1826,8 @@ visible_functions = {
         [['json_parse_notnull_error_to_value'], 'JSONB', ['VARCHAR', 'VARCHAR'], ''],
         [['json_parse_notnull_error_to_invalid'], 'JSONB', ['VARCHAR'], ''],
 
+        [['json_search'], 'JSONB', ['VARCHAR', 'VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
+
         [['json_exists_path'], 'BOOLEAN', ['JSONB', 'VARCHAR'], ''],
         [['json_exists_path'], 'BOOLEAN', ['JSONB', 'STRING'], ''],
         [['json_type'], 'STRING', ['JSONB', 'VARCHAR'], 'ALWAYS_NULLABLE'],
@@ -2292,7 +2294,8 @@ non_null_result_with_null_param_functions = [
     'coalesce',
     'array',
     'json_array',
-    'json_object'
+    'json_object',
+    'json_search',
 ]
 
 # Nondeterministic functions may return different results each time they are called

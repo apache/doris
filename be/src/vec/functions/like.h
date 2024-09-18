@@ -256,6 +256,9 @@ public:
 
     Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override;
 
+    static Status construct_like_const_state(FunctionContext*, const StringRef&,
+                                             std::shared_ptr<LikeState>&);
+
     friend struct LikeSearchState;
     friend struct VectorAllpassSearchState;
     friend struct VectorEqualSearchState;
