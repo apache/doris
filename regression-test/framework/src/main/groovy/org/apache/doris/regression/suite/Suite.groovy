@@ -939,8 +939,8 @@ class Suite implements GroovyInterceptable {
         }
     }
 
-    List<String> getFrontendIpHttpPort() {
-        return sql_return_maparray("show frontends").collect { it.Host + ":" + it.HttpPort };
+    List<String> getFrontendIpEditlogPort() {
+        return sql_return_maparray("show frontends").collect { it.Host + ":" + it.EditLogPort };
     }
 
     void getBackendIpHttpPort(Map<String, String> backendId_to_backendIP, Map<String, String> backendId_to_backendHttpPort) {
@@ -1490,12 +1490,16 @@ class Suite implements GroovyInterceptable {
     }
 
     void waitAddFeFinished(String host, int port) {
+        logger.info("waiting for ${host}:${port}")
         Awaitility.await().atMost(60, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).and()
                 .pollInterval(100, TimeUnit.MILLISECONDS).await().until(() -> {
-            def frontends = getFrontendIpHttpPort()
+            def frontends = getFrontendIpEditlogPort()
+            logger.info("frontends ${frontends}")
             boolean matched = false
+            String expcetedFE = "${host}:${port}"
             for (frontend: frontends) {
-                if (frontend == "$host:$port") {
+                logger.info("checking fe ${frontend}, expectedFe ${expcetedFE}")
+                if (frontend.equals(expcetedFE)) {
                     matched = true;
                 }
             }
@@ -1506,7 +1510,7 @@ class Suite implements GroovyInterceptable {
     void waitDropFeFinished(String host, int port) {
         Awaitility.await().atMost(60, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).and()
                 .pollInterval(100, TimeUnit.MILLISECONDS).await().until(() -> {
-            def frontends = getFrontendIpHttpPort()
+            def frontends = getFrontendIpEditlogPort()
             boolean matched = false
             for (frontend: frontends) {
                 if (frontend == "$host:$port") {
