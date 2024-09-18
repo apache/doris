@@ -18,7 +18,7 @@
 package org.apache.doris.nereids.jobs.scheduler;
 
 import org.apache.doris.nereids.CascadesContext;
-import org.apache.doris.nereids.exceptions.DoNotFallbackException;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.jobs.Job;
 import org.apache.doris.qe.SessionVariable;
 
@@ -37,7 +37,7 @@ public class SimpleJobScheduler implements JobScheduler {
             if (sessionVariable.enableNereidsTimeout
                     && context.getStatementContext().getStopwatch().elapsed(TimeUnit.MILLISECONDS)
                     > sessionVariable.nereidsTimeoutSecond * 1000L) {
-                throw new DoNotFallbackException(
+                throw new AnalysisException(
                         "Nereids cost too much time ( > " + sessionVariable.nereidsTimeoutSecond + "s )");
             }
             Job job = pool.pop();

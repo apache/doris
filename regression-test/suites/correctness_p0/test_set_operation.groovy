@@ -114,15 +114,6 @@ suite("test_set_operation") {
         insert into test_B values("bb","bbbb");
     """
 
-    sql """
-        set experimental_enable_nereids_planner = false;
-    """
-
-    qt_select1  """  SELECT DISTINCT * FROM((SELECT sku_code FROM test_B) INTERSECT (SELECT sku_code FROM test_B) UNION (SELECT sku_code FROM test_A)) as t order by 1; """
-
-    sql """
-        set experimental_enable_nereids_planner = true;
-    """
     qt_select1  """  SELECT DISTINCT * FROM((SELECT sku_code FROM test_B) INTERSECT (SELECT sku_code FROM test_B) UNION (SELECT sku_code FROM test_A)) as t order by 1; """
 
     qt_select1  """ (select 0) intersect (select null); """

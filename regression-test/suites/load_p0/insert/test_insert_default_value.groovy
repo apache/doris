@@ -39,10 +39,7 @@ suite("test_insert_default_value") {
         );
     """
 
-    sql """ set enable_nereids_planner=true """
     sql """ insert into test_insert_dft_tbl values() """
-
-    sql """ set enable_nereids_planner=false """
     sql """ insert into test_insert_dft_tbl values() """
     qt_select1 """ select k1, k2, k3, k4, k5, k6, k7 from test_insert_dft_tbl """
 
@@ -112,14 +109,8 @@ suite("test_insert_default_value") {
         ); 
         """
 
-    sql """ set enable_nereids_planner=true """
     sql """ INSERT INTO `test_insert_default_null` (gz_organization_id, `company_id`, `material_id`, create_time) VALUES ('1', '2', 'test', DEFAULT); """
     qt_select3 """ select * from test_insert_default_null;"""
     sql """ truncate table test_insert_default_null;"""
-
-    sql """ set enable_nereids_planner=false """
-    sql """ INSERT INTO `test_insert_default_null` (gz_organization_id, `company_id`, `material_id`, create_time) VALUES ('1', '2', 'test', DEFAULT); """
-
-    qt_select4 """ select * from test_insert_default_null;"""
     sql "drop table if exists test_insert_default_null"
 }

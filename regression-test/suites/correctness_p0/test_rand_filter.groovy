@@ -16,7 +16,6 @@
 // under the License.
 
 suite("test_rand_filter") {
-    sql"""set enable_nereids_planner=false;"""
     sql """ DROP TABLE IF EXISTS test_rand_filter_t """
     sql """
             CREATE TABLE  test_rand_filter_t (

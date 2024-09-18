@@ -2,18 +2,6 @@
 -- !sql --
 array_enumerate_uniq
 
--- !old_sql --
-[1, 1, 2]
-
--- !old_sql --
-[1, 1, 1]
-
--- !old_sql --
-[1]
-
--- !sql --
-array_enumerate_uniq
-
 -- !nereid_sql --
 [1, 1, 2]
 
