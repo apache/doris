@@ -434,9 +434,10 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
                             RelatedTableInfo relatedTableInfo =
                                     MaterializedViewUtils.getRelatedTableInfo("l_orderkey", null,
                                             rewrittenPlan, nereidsPlanner.getCascadesContext());
-                            Assertions.assertTrue(relatedTableInfo.getFailReason().contains(
-                                    "self join doesn't support partition update"));
-                            Assertions.assertFalse(relatedTableInfo.isPctPossible());
+                            checkRelatedTableInfo(relatedTableInfo,
+                                    "lineitem_list_partition",
+                                    "l_orderkey",
+                                    true);
                         });
 
         PlanChecker.from(connectContext)
@@ -451,7 +452,7 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
                                     MaterializedViewUtils.getRelatedTableInfo("l_orderkey", null,
                                             rewrittenPlan, nereidsPlanner.getCascadesContext());
                             Assertions.assertTrue(relatedTableInfo.getFailReason().contains(
-                                    "self join doesn't support partition update"));
+                                    "partition column is in the invalid table"));
                             Assertions.assertFalse(relatedTableInfo.isPctPossible());
                         });
 
@@ -548,7 +549,7 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
                                     MaterializedViewUtils.getRelatedTableInfo("PS_SUPPLYCOST", null,
                                             rewrittenPlan, nereidsPlanner.getCascadesContext());
                             Assertions.assertTrue(relatedTableInfo.getFailReason().contains(
-                                    "self join doesn't support partition update"));
+                                    "related base table is not partition table"));
                             Assertions.assertFalse(relatedTableInfo.isPctPossible());
                         });
     }
