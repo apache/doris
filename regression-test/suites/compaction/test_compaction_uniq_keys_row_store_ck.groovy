@@ -19,10 +19,6 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 
 
 suite("test_compaction_uniq_keys_row_store_ck", "p0") {
-    if (isCloudMode()) {
-        logger.info("cloud does not support mow cluster key")
-        return
-    }
     def realDb = "regression_test_serving_p0"
     def tableName = realDb + ".test_compaction_uniq_keys_row_store_ck"
     sql "CREATE DATABASE IF NOT EXISTS ${realDb}"

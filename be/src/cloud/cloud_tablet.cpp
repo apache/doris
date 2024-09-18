@@ -724,7 +724,7 @@ Versions CloudTablet::calc_missed_versions(int64_t spec_version, Versions existi
 Status CloudTablet::calc_delete_bitmap_for_compaction(
         const std::vector<RowsetSharedPtr>& input_rowsets, const RowsetSharedPtr& output_rowset,
         const RowIdConversion& rowid_conversion, ReaderType compaction_type, int64_t merged_rows,
-        int64_t initiator, DeleteBitmapPtr& output_rowset_delete_bitmap,
+        int64_t filtered_rows, int64_t initiator, DeleteBitmapPtr& output_rowset_delete_bitmap,
         bool allow_delete_in_cumu_compaction) {
     output_rowset_delete_bitmap = std::make_shared<DeleteBitmap>(tablet_id());
     std::set<RowLocation> missed_rows;
@@ -740,11 +740,12 @@ Status CloudTablet::calc_delete_bitmap_for_compaction(
     if (!allow_delete_in_cumu_compaction) {
         if (compaction_type == ReaderType::READER_CUMULATIVE_COMPACTION &&
             tablet_state() == TABLET_RUNNING) {
-            if (merged_rows >= 0 && merged_rows != missed_rows_size) {
+            if (merged_rows + filtered_rows >= 0 &&
+                merged_rows + filtered_rows != missed_rows_size) {
                 std::string err_msg = fmt::format(
-                        "cumulative compaction: the merged rows({}) is not equal to missed "
-                        "rows({}) in rowid conversion, tablet_id: {}, table_id:{}",
-                        merged_rows, missed_rows_size, tablet_id(), table_id());
+                        "cumulative compaction: the merged rows({}), the filtered rows({}) is not "
+                        "equal to missed rows({}) in rowid conversion, tablet_id: {}, table_id:{}",
+                        merged_rows, filtered_rows, missed_rows_size, tablet_id(), table_id());
                 if (config::enable_mow_compaction_correctness_check_core) {
                     CHECK(false) << err_msg;
                 } else {

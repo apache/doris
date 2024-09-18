@@ -217,7 +217,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         partitionOriginIndexIdMap.clear();
     }
 
-    private boolean isShadowIndexOfBase(long shadowIdxId, OlapTable tbl) {
+    protected boolean isShadowIndexOfBase(long shadowIdxId, OlapTable tbl) {
         if (indexIdToName.get(shadowIdxId).startsWith(SchemaChangeHandler.SHADOW_NAME_PREFIX)) {
             String shadowIndexName = indexIdToName.get(shadowIdxId);
             String indexName = shadowIndexName
