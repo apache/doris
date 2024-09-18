@@ -237,6 +237,7 @@ void MemTableMemoryLimiter::_refresh_mem_tracker() {
     _active_writers.clear();
     for (auto it = _writers.begin(); it != _writers.end();) {
         if (auto writer = it->lock()) {
+            // The memtable is currently used by writer to insert blocks.
             auto active_usage = writer->active_memtable_mem_consumption();
             _active_mem_usage += active_usage;
             if (active_usage > 0) {

@@ -171,15 +171,11 @@ class MemTable {
 public:
     MemTable(int64_t tablet_id, std::shared_ptr<TabletSchema> tablet_schema,
              const std::vector<SlotDescriptor*>* slot_descs, TupleDescriptor* tuple_desc,
-             bool enable_unique_key_mow, PartialUpdateInfo* partial_update_info,
-             const std::shared_ptr<MemTracker>& insert_mem_tracker,
-             const std::shared_ptr<MemTracker>& flush_mem_tracker);
+             bool enable_unique_key_mow, PartialUpdateInfo* partial_update_info);
     ~MemTable();
 
     int64_t tablet_id() const { return _tablet_id; }
-    size_t memory_usage() const {
-        return _insert_mem_tracker->consumption() + _flush_mem_tracker->consumption();
-    }
+    size_t memory_usage() const { return _mem_tracker->consumption(); }
     // insert tuple from (row_pos) to (row_pos+num_rows)
     Status insert(const vectorized::Block* block, const std::vector<uint32_t>& row_idxs);
 
@@ -195,13 +191,15 @@ public:
 
     const MemTableStat& stat() { return _stat; }
 
-    std::shared_ptr<MemTracker> flush_mem_tracker() { return _flush_mem_tracker; }
-
     QueryThreadContext query_thread_context() { return _query_thread_context; }
 
     std::shared_ptr<MemTracker> mem_tracker() { return _mem_tracker; }
 
     void set_flush_success() { _is_flush_success = true; }
+
+    MemType get_mem_type() { return _mem_type; }
+
+    void update_mem_type(MemType memtype) { this._mem_type = memtype; }
 
 private:
     // for vectorized
@@ -212,6 +210,7 @@ private:
     Status _to_block(std::unique_ptr<vectorized::Block>* res);
 
 private:
+    std::atomic<MemType> _mem_type;
     int64_t _tablet_id;
     bool _enable_unique_key_mow = false;
     bool _is_partial_update = false;
@@ -222,13 +221,6 @@ private:
     std::shared_ptr<RowInBlockComparator> _vec_row_comparator;
 
     QueryThreadContext _query_thread_context;
-
-    // `_insert_manual_mem_tracker` manually records the memory value of memtable insert()
-    // `_flush_hook_mem_tracker` automatically records the memory value of memtable flush() through mem hook.
-    // Is used to flush when _insert_manual_mem_tracker larger than write_buffer_size and run flush memtable
-    // when the sum of all memtable (_insert_manual_mem_tracker + _flush_hook_mem_tracker) exceeds the limit.
-    std::shared_ptr<MemTracker> _insert_mem_tracker;
-    std::shared_ptr<MemTracker> _flush_mem_tracker;
 
     std::shared_ptr<MemTracker> _mem_tracker;
     // Only the rows will be inserted into block can allocate memory from _arena.

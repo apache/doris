@@ -50,15 +50,12 @@ using namespace ErrorCode;
 
 MemTable::MemTable(int64_t tablet_id, std::shared_ptr<TabletSchema> tablet_schema,
                    const std::vector<SlotDescriptor*>* slot_descs, TupleDescriptor* tuple_desc,
-                   bool enable_unique_key_mow, PartialUpdateInfo* partial_update_info,
-                   const std::shared_ptr<MemTracker>& insert_mem_tracker,
-                   const std::shared_ptr<MemTracker>& flush_mem_tracker)
-        : _tablet_id(tablet_id),
+                   bool enable_unique_key_mow, PartialUpdateInfo* partial_update_info)
+        : _mem_type(MemType::ACTIVE),
+          _tablet_id(tablet_id),
           _enable_unique_key_mow(enable_unique_key_mow),
           _keys_type(tablet_schema->keys_type()),
           _tablet_schema(tablet_schema),
-          _insert_mem_tracker(insert_mem_tracker),
-          _flush_mem_tracker(flush_mem_tracker),
           _is_first_insertion(true),
           _agg_functions(tablet_schema->num_columns()),
           _offsets_of_aggregate_states(tablet_schema->num_columns()),
@@ -145,8 +142,7 @@ MemTable::~MemTable() {
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_query_thread_context.query_mem_tracker);
     if (_is_flush_success) {
         if (_mem_tracker->consumption() != 0) {
-            LOG(FATAL) << _mem_tracker->consumption() << "," << _flush_mem_tracker->consumption()
-                       << "," << _insert_mem_tracker->consumption();
+            LOG(FATAL) << _mem_tracker->consumption();
         }
     }
     g_memtable_input_block_allocated_size << -_input_mutable_block.allocated_bytes();
@@ -166,11 +162,6 @@ MemTable::~MemTable() {
         }
     }
     std::for_each(_row_in_blocks.begin(), _row_in_blocks.end(), std::default_delete<RowInBlock>());
-    _insert_mem_tracker->release(_mem_usage);
-    _flush_mem_tracker->set_consumption(0);
-    DCHECK_EQ(_insert_mem_tracker->consumption(), 0) << std::endl
-                                                     << _insert_mem_tracker->log_usage();
-    DCHECK_EQ(_flush_mem_tracker->consumption(), 0);
     _arena.reset();
     _agg_buffer_pool.clear();
     _vec_row_comparator.reset();
@@ -225,7 +216,6 @@ Status MemTable::insert(const vectorized::Block* input_block,
     auto input_size = size_t(input_block->bytes() * num_rows / input_block->rows() *
                              config::memtable_insert_memory_ratio);
     _mem_usage += input_size;
-    _insert_mem_tracker->consume(input_size);
     for (int i = 0; i < num_rows; i++) {
         _row_in_blocks.emplace_back(new RowInBlock {cursor_in_mutableblock + i});
     }
@@ -476,8 +466,6 @@ void MemTable::_aggregate() {
     if constexpr (!is_final) {
         // if is not final, we collect the agg results to input_block and then continue to insert
         size_t shrunked_after_agg = _output_mutable_block.allocated_bytes();
-        // flush will not run here, so will not duplicate `_flush_mem_tracker`
-        _insert_mem_tracker->consume(shrunked_after_agg - _mem_usage);
         _mem_usage = shrunked_after_agg;
         _input_mutable_block.swap(_output_mutable_block);
         //TODO(weixang):opt here.
@@ -537,7 +525,6 @@ Status MemTable::_to_block(std::unique_ptr<vectorized::Block>* res) {
     }
     g_memtable_input_block_allocated_size << -_input_mutable_block.allocated_bytes();
     _input_mutable_block.clear();
-    _insert_mem_tracker->release(_mem_usage);
     _mem_usage = 0;
     // After to block, all data in arena is saved in the block
     _arena.reset();

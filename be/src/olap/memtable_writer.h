@@ -57,7 +57,10 @@ namespace vectorized {
 class Block;
 } // namespace vectorized
 
-enum MemType { WRITE = 1, FLUSH = 2, ALL = 3 };
+// Active: the memtable is currently used by writer to insert into blocks
+// Write_finished: the memtable finished write blocks and in the queue waiting for flush
+// FLUSH: the memtable is under flushing, write segment to disk.
+enum MemType { ACTIVE = 0, WRITE_FINISHED = 1, FLUSH = 2 };
 
 // Writer for a particular (load, index, tablet).
 // This class is NOT thread-safe, external synchronization is required.
@@ -123,7 +126,7 @@ private:
     Status _cancel_status;
     WriteRequest _req;
     std::shared_ptr<RowsetWriter> _rowset_writer;
-    std::unique_ptr<MemTable> _mem_table;
+    std::shared_ptr<MemTable> _mem_table;
     TabletSchemaSPtr _tablet_schema;
     bool _unique_key_mow = false;
 
@@ -132,6 +135,8 @@ private:
     std::shared_ptr<FlushToken> _flush_token;
     std::vector<std::shared_ptr<MemTracker>> _mem_table_insert_trackers;
     std::vector<std::shared_ptr<MemTracker>> _mem_table_flush_trackers;
+    // Save the not active memtable that is in flush queue or under flushing.
+    std::vector<std::weak_ptr<MemTracker>> _freezed_mem_tables;
     SpinLock _mem_table_tracker_lock;
     SpinLock _mem_table_ptr_lock;
     std::atomic<uint32_t> _mem_table_num = 1;
