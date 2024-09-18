@@ -133,13 +133,9 @@ private:
     // This variable is accessed from writer thread and token flush thread
     // use a shared ptr to avoid use after free problem.
     std::shared_ptr<FlushToken> _flush_token;
-    std::vector<std::shared_ptr<MemTracker>> _mem_table_insert_trackers;
-    std::vector<std::shared_ptr<MemTracker>> _mem_table_flush_trackers;
     // Save the not active memtable that is in flush queue or under flushing.
     std::vector<std::weak_ptr<MemTracker>> _freezed_mem_tables;
-    SpinLock _mem_table_tracker_lock;
     SpinLock _mem_table_ptr_lock;
-    std::atomic<uint32_t> _mem_table_num = 1;
     QueryThreadContext _query_thread_context;
 
     std::mutex _lock;
