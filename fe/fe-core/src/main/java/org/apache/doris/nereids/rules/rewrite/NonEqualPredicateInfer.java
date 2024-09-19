@@ -73,7 +73,7 @@ public class NonEqualPredicateInfer {
                 inputExpressionSet.add(input.left());
                 inputExpressionSet.add(input.right());
                 if (input instanceof LessThan || input instanceof LessThanEqual) {
-                    inputPredicates.add(input.commute());
+                    inputPredicates.add((ComparisonPredicate) input.commute().withInferred(input.isInferred()));
                 } else {
                     inputPredicates.add(input);
                 }
@@ -388,7 +388,8 @@ public class NonEqualPredicateInfer {
                 if (!keep[i]) {
                     continue;
                 }
-                chooseInputs.add(normalizePredicate(inputPredicates.get(i)));
+                chooseInputs.add(normalizePredicate(inputPredicates.get(i))
+                        .withInferred(inputPredicates.get(i).isInferred()));
             }
             return chooseInputs;
         }
