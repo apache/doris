@@ -601,6 +601,25 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
     }
 
     /**
+     * This is a thread-safe method when nameToTable is a concurrent hash map
+     */
+    @Override
+    public Table getNonTempTableNullable(String tableName) {
+        if (Env.isStoredTableNamesLowerCase()) {
+            tableName = tableName.toLowerCase();
+        }
+        if (Env.isTableNamesCaseInsensitive()) {
+            tableName = lowerCaseToTableName.get(tableName.toLowerCase());
+            if (tableName == null) {
+                return null;
+            }
+        }
+
+        Table table = nameToTable.get(tableName);
+        return table;
+    }
+
+    /**
      * This is a thread-safe method when idToTable is a concurrent hash map
      */
     @Override
