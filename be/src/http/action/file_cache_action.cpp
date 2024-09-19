@@ -47,7 +47,7 @@ constexpr static std::string_view CAPACITY = "capacity";
 constexpr static std::string_view RELEASE = "release";
 constexpr static std::string_view BASE_PATH = "base_path";
 constexpr static std::string_view RELEASED_ELEMENTS = "released_elements";
-constexpr static std::string_view SEGMENT_PATH = "segment_path";
+constexpr static std::string_view VALUE = "value";
 
 Status FileCacheAction::_handle_header(HttpRequest* req, std::string* json_metrics) {
     req->add_output_header(HttpHeaders::CONTENT_TYPE, HEADER_JSON.data());
@@ -87,13 +87,13 @@ Status FileCacheAction::_handle_header(HttpRequest* req, std::string* json_metri
             LOG(INFO) << ret;
         }
     } else if (operation == HASH) {
-        const std::string& segment_path = req->param(SEGMENT_PATH.data());
+        const std::string& segment_path = req->param(VALUE.data());
         if (segment_path.empty()) {
-            st = Status::InvalidArgument("missing parameter: {} is required", SEGMENT_PATH.data());
+            st = Status::InvalidArgument("missing parameter: {} is required", VALUE.data());
         } else {
-            io::UInt128Wrapper res = io::BlockFileCache::hash(segment_path);
+            io::UInt128Wrapper ret = io::BlockFileCache::hash(segment_path);
             EasyJson json;
-            json[HASH.data()] = res.to_string();
+            json[HASH.data()] = ret.to_string();
             *json_metrics = json.ToString();
         }
     } else {
