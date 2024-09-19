@@ -1258,9 +1258,6 @@ struct FromIso8601DateV2 {
                         "%04dW%02d%1d",
                 }, //YYYYWwwD
         };
-        //The integer represents the number of consecutive numbers.
-        // -1 represent char '-'
-        // -2 represent char 'W'
 
         for (size_t i = 0; i < input_rows_count; ++i) {
             int year, month, day, week, day_of_year;
@@ -1272,7 +1269,13 @@ struct FromIso8601DateV2 {
             vector<int> src_string_values;
             src_string_values.reserve(10);
 
+            //The maximum length of the current iso8601 format is 10.
             if (src_string.size() <= 10) {
+                // The calculation string corresponds to the iso8601 format.
+                // The integer represents the number of consecutive numbers.
+                // -1 represent char '-'.
+                // -2 represent char 'W'.
+                //  The calculated vector `src_string_values`  will be compared with `ISO_STRING_FORMAT[]` later.
                 for (int idx = 0; idx < src_string.size();) {
                     char current = src_string[idx];
                     if (current == '-') {
@@ -1293,6 +1296,8 @@ struct FromIso8601DateV2 {
                     }
                     src_string_values.emplace_back(currLen);
                 }
+            } else {
+                iso_string_format_value = -1;
             }
 
             std::string_view iso_format_string;
@@ -1376,7 +1381,8 @@ struct FromIso8601DateV2 {
                 TimeInterval interval(DAY, day_diff, false);
                 ts_value.date_add_interval<DAY>(interval);
             } else if (iso_string_format_value == 4) {
-                if (sscanf(src_string.data(), iso_format_string.data(), &year, &day_of_year) != 2) {
+                if (sscanf(src_string.data(), iso_format_string.data(), &year, &day_of_year) != 2)
+                        [[unlikely]] {
                     null_map->get_data().data()[i] = true;
                     continue;
                 }

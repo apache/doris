@@ -96,6 +96,30 @@ suite("test_from_iso8601_date") {
     qt_test_86 """SELECT from_iso8601_date(nullable("2023-04-05"));"""
 
 
+    qt_test_101 """ SELECT from_iso8601_date("20230");"""
+    qt_test_102 """ SELECT from_iso8601_date("0230");"""
+    qt_test_103 """ SELECT from_iso8601_date("202334");"""
+    qt_test_104 """ SELECT from_iso8601_date("902030");"""
+    qt_test_105 """ SELECT from_iso8601_date("2003--33");"""
+    qt_test_106 """ SELECT from_iso8601_date("abcdd");"""
+    qt_test_107 """ SELECT from_iso8601_date("7855462");"""
+    qt_test_108 """ SELECT from_iso8601_date("010-03-02");"""
+    qt_test_109 """ SELECT from_iso8601_date("2021/03/04");"""
+    qt_test_110 """ SELECT from_iso8601_date("2121W1");"""
+    qt_test_111 """ SELECT from_iso8601_date("2121W00");"""
+    qt_test_112 """ SELECT from_iso8601_date("ssss");"""
+    qt_test_113 """ SELECT from_iso8601_date("5555555");"""
+    qt_test_114 """ SELECT from_iso8601_date("555500");"""
+    qt_test_115 """ SELECT from_iso8601_date("5555001");"""
+    qt_test_116 """ SELECT from_iso8601_date("5555W001");"""
+    qt_test_116 """ SELECT from_iso8601_date("5555-001");"""
+    qt_test_117 """ SELECT from_iso8601_date("5555-W001");"""
+    qt_test_118 """ SELECT from_iso8601_date("555-001");"""
+    qt_test_119 """ SELECT from_iso8601_date("99999-02-01");"""
+    qt_test_120 """ SELECT from_iso8601_date("");"""
+
+
+
     sql """
     CREATE TABLE IF NOT EXISTS `tb2` (
         `k0` int null comment "",
