@@ -17,6 +17,8 @@
 
 #include "parallel_scanner_builder.h"
 
+#include <shared_mutex>
+
 #include "olap/rowset/beta_rowset.h"
 #include "pipeline/exec/olap_scan_operator.h"
 #include "vec/exec/scan/new_olap_scanner.h"
@@ -161,7 +163,11 @@ Status ParallelScannerBuilder<ParentType>::_load() {
     for (auto&& [tablet, version] : _tablets) {
         const auto tablet_id = tablet->tablet_id();
         auto& read_source = _all_read_sources[tablet_id];
-        RETURN_IF_ERROR(tablet->capture_rs_readers({0, version}, &read_source.rs_splits, false));
+        {
+            std::shared_lock<std::shared_mutex> read_lock(tablet->get_header_lock());
+            RETURN_IF_ERROR(
+                    tablet->capture_rs_readers({0, version}, &read_source.rs_splits, false));
+        }
         if (!_state->skip_delete_predicate()) {
             read_source.fill_delete_predicates();
         }
