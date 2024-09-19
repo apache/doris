@@ -1103,7 +1103,7 @@ Status SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangeParams
         context.segments_overlap = rs_reader->rowset()->rowset_meta()->segments_overlap();
         context.tablet_schema = new_tablet->tablet_schema();
         context.newest_write_timestamp = rs_reader->newest_write_timestamp();
-        context.fs = rs_reader->rowset()->rowset_meta()->fs();
+        context.fs = io::global_local_filesystem();
         context.write_type = DataWriteType::TYPE_SCHEMA_CHANGE;
         Status status = new_tablet->create_rowset_writer(context, &rowset_writer);
         if (!status.ok()) {
