@@ -16,8 +16,6 @@
 // under the License.
 
 suite("test_create_or_replace_view") {
-    sql "SET enable_nereids_planner=true"
-
     // create two test tables and insert some data
     sql """DROP TABLE IF EXISTS test_create_or_replace_view_tbl1"""
     sql """
@@ -45,27 +43,11 @@ suite("test_create_or_replace_view") {
     """
     qt_sql_1 """select * from view_test_create_or_replace_view"""
 
-    // create or replace view in nereids
     sql """
         CREATE OR REPLACE VIEW view_test_create_or_replace_view
         AS SELECT * FROM test_create_or_replace_view_tbl2;
     """
     qt_sql_2 """select * from view_test_create_or_replace_view"""
-    test {
-        sql """
-            CREATE OR REPLACE VIEW IF NOT EXISTS view_test_create_or_replace_view
-            AS SELECT * FROM test_create_or_replace_view_tbl1;
-        """
-        exception "[OR REPLACE] and [IF NOT EXISTS] cannot used at the same time"
-    }
-
-    // create or replace view in non-nereids
-    sql "SET enable_nereids_planner=false"
-    sql """
-        CREATE OR REPLACE VIEW view_test_create_or_replace_view
-        AS SELECT * FROM test_create_or_replace_view_tbl1;
-    """
-    qt_sql_3 """select * from view_test_create_or_replace_view"""
     test {
         sql """
             CREATE OR REPLACE VIEW IF NOT EXISTS view_test_create_or_replace_view
