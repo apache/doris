@@ -562,13 +562,13 @@ Status AnalyticLocalState::close(RuntimeState* state) {
 
 Status AnalyticSourceOperatorX::open(RuntimeState* state) {
     RETURN_IF_ERROR(OperatorX<AnalyticLocalState>::open(state));
-    DCHECK(_child_x->row_desc().is_prefix_of(_row_descriptor));
+    DCHECK(_child->row_desc().is_prefix_of(_row_descriptor));
     _intermediate_tuple_desc = state->desc_tbl().get_tuple_descriptor(_intermediate_tuple_id);
     _output_tuple_desc = state->desc_tbl().get_tuple_descriptor(_output_tuple_id);
     for (size_t i = 0; i < _agg_functions.size(); ++i) {
         SlotDescriptor* intermediate_slot_desc = _intermediate_tuple_desc->slots()[i];
         SlotDescriptor* output_slot_desc = _output_tuple_desc->slots()[i];
-        RETURN_IF_ERROR(_agg_functions[i]->prepare(state, _child_x->row_desc(),
+        RETURN_IF_ERROR(_agg_functions[i]->prepare(state, _child->row_desc(),
                                                    intermediate_slot_desc, output_slot_desc));
         _agg_functions[i]->set_version(state->be_exec_version());
         _change_to_nullable_flags.push_back(output_slot_desc->is_nullable() &&

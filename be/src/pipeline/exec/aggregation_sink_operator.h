@@ -143,7 +143,7 @@ public:
 
     DataDistribution required_data_distribution() const override {
         if (_probe_expr_ctxs.empty()) {
-            return _needs_finalize || DataSinkOperatorX<AggSinkLocalState>::_child_x
+            return _needs_finalize || DataSinkOperatorX<AggSinkLocalState>::_child
                                               ->ignore_data_distribution()
                            ? DataDistribution(ExchangeType::PASSTHROUGH)
                            : DataSinkOperatorX<AggSinkLocalState>::required_data_distribution();

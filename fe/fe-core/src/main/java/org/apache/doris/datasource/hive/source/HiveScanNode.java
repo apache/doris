@@ -257,30 +257,32 @@ public class HiveScanNode extends FileQueryScanNode {
                 }
                 try {
                     splittersOnFlight.acquire();
-                } catch (InterruptedException e) {
+                    CompletableFuture.runAsync(() -> {
+                        try {
+                            List<Split> allFiles = Lists.newArrayList();
+                            getFileSplitByPartitions(
+                                    cache, Collections.singletonList(partition), allFiles, bindBrokerName);
+                            if (allFiles.size() > numSplitsPerPartition.get()) {
+                                numSplitsPerPartition.set(allFiles.size());
+                            }
+                            splitAssignment.addToQueue(allFiles);
+                        } catch (IOException e) {
+                            batchException.set(new UserException(e.getMessage(), e));
+                        } finally {
+                            splittersOnFlight.release();
+                            if (batchException.get() != null) {
+                                splitAssignment.setException(batchException.get());
+                            }
+                            if (numFinishedPartitions.incrementAndGet() == prunedPartitions.size()) {
+                                splitAssignment.finishSchedule();
+                            }
+                        }
+                    }, scheduleExecutor);
+                } catch (Exception e) {
+                    // When submitting a task, an exception will be thrown if the task pool(scheduleExecutor) is full
                     batchException.set(new UserException(e.getMessage(), e));
                     break;
                 }
-                CompletableFuture.runAsync(() -> {
-                    try {
-                        List<Split> allFiles = Lists.newArrayList();
-                        getFileSplitByPartitions(cache, Collections.singletonList(partition), allFiles, bindBrokerName);
-                        if (allFiles.size() > numSplitsPerPartition.get()) {
-                            numSplitsPerPartition.set(allFiles.size());
-                        }
-                        splitAssignment.addToQueue(allFiles);
-                    } catch (IOException e) {
-                        batchException.set(new UserException(e.getMessage(), e));
-                    } finally {
-                        splittersOnFlight.release();
-                        if (batchException.get() != null) {
-                            splitAssignment.setException(batchException.get());
-                        }
-                        if (numFinishedPartitions.incrementAndGet() == prunedPartitions.size()) {
-                            splitAssignment.finishSchedule();
-                        }
-                    }
-                }, scheduleExecutor);
             }
             if (batchException.get() != null) {
                 splitAssignment.setException(batchException.get());

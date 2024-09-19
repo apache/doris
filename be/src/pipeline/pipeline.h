@@ -105,7 +105,6 @@ public:
     void set_children(std::vector<std::shared_ptr<Pipeline>> children) { _children = children; }
 
     void incr_created_tasks() { _num_tasks_created++; }
-    bool need_to_create_task() const { return _num_tasks > _num_tasks_created; }
     void set_num_tasks(int num_tasks) {
         _num_tasks = num_tasks;
         for (auto& op : _operators) {
@@ -158,7 +157,7 @@ private:
     // How many tasks should be created ?
     int _num_tasks = 1;
     // How many tasks are already created?
-    int _num_tasks_created = 0;
+    std::atomic<int> _num_tasks_created = 0;
 };
 
 } // namespace doris::pipeline

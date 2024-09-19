@@ -100,10 +100,10 @@ size_t FDCache::file_reader_cache_size() {
 
 Status FSFileCacheStorage::init(BlockFileCache* _mgr) {
     _cache_base_path = _mgr->_cache_base_path;
-    RETURN_IF_ERROR(rebuild_data_structure());
+    RETURN_IF_ERROR(upgrade_cache_dir_if_necessary());
     _cache_background_load_thread = std::thread([this, mgr = _mgr]() {
         load_cache_info_into_memory(mgr);
-        mgr->_lazy_open_done = true;
+        mgr->_async_open_done = true;
         LOG_INFO("FileCache {} lazy load done.", _cache_base_path);
     });
     return Status::OK();
@@ -159,7 +159,27 @@ Status FSFileCacheStorage::read(const FileCacheKey& key, size_t value_offset, Sl
         std::string file =
                 get_path_in_local_cache(get_path_in_local_cache(key.hash, key.meta.expiration_time),
                                         key.offset, key.meta.type);
-        RETURN_IF_ERROR(fs->open_file(file, &file_reader));
+        Status s = fs->open_file(file, &file_reader);
+        if (!s.ok()) {
+            if (!s.is<ErrorCode::NOT_FOUND>() || key.meta.type != FileCacheType::TTL) {
+                return s;
+            }
+            std::string file_old_format = get_path_in_local_cache_old_ttl_format(
+                    get_path_in_local_cache(key.hash, key.meta.expiration_time), key.offset,
+                    key.meta.type);
+            if (config::translate_to_new_ttl_format_during_read) {
+                // try to rename the file with old ttl format to new and retry
+                VLOG(7) << "try to rename the file with old ttl format to new and retry"
+                        << " oldformat=" << file_old_format << " original=" << file;
+                RETURN_IF_ERROR(fs->rename(file_old_format, file));
+                RETURN_IF_ERROR(fs->open_file(file, &file_reader));
+            } else {
+                // try to open the file with old ttl format
+                VLOG(7) << "try to open the file with old ttl format"
+                        << " oldformat=" << file_old_format << " original=" << file;
+                RETURN_IF_ERROR(fs->open_file(file_old_format, &file_reader));
+            }
+        }
         FDCache::instance()->insert_file_reader(fd_key, file_reader);
     }
     size_t bytes_read = 0;
@@ -173,6 +193,19 @@ Status FSFileCacheStorage::remove(const FileCacheKey& key) {
     std::string file = get_path_in_local_cache(dir, key.offset, key.meta.type);
     FDCache::instance()->remove_file_reader(std::make_pair(key.hash, key.offset));
     RETURN_IF_ERROR(fs->delete_file(file));
+    // return OK not means the file is deleted, it may be not exist
+    // So for TTL, we make sure the old format will be removed well
+    if (key.meta.type == FileCacheType::TTL) {
+        bool exists {false};
+        // try to detect the file with old ttl format
+        file = get_path_in_local_cache_old_ttl_format(dir, key.offset, key.meta.type);
+        RETURN_IF_ERROR(fs->exists(file, &exists));
+        if (exists) {
+            VLOG(7) << "try to remove the file with old ttl format"
+                    << " file=" << file;
+            RETURN_IF_ERROR(fs->delete_file(file));
+        }
+    }
     std::vector<FileInfo> files;
     bool exists {false};
     RETURN_IF_ERROR(fs->list(dir, true, &files, &exists));
@@ -183,29 +216,58 @@ Status FSFileCacheStorage::remove(const FileCacheKey& key) {
     return Status::OK();
 }
 
-Status FSFileCacheStorage::change_key_meta(const FileCacheKey& key, const KeyMeta& new_meta) {
-    // TTL change
-    if (key.meta.expiration_time != new_meta.expiration_time) {
+Status FSFileCacheStorage::change_key_meta_type(const FileCacheKey& key, const FileCacheType type) {
+    // file operation
+    if (key.meta.type != type) {
+        // TTL type file dose not need to change the suffix
+        bool expr = (key.meta.type != FileCacheType::TTL && type != FileCacheType::TTL);
+        if (!expr) {
+            LOG(WARNING) << "TTL type file dose not need to change the suffix"
+                         << " key=" << key.hash.to_string() << " offset=" << key.offset
+                         << " old_type=" << BlockFileCache::cache_type_to_string(key.meta.type)
+                         << " new_type=" << BlockFileCache::cache_type_to_string(type);
+        }
+        DCHECK(expr);
+        std::string dir = get_path_in_local_cache(key.hash, key.meta.expiration_time);
+        std::string original_file = get_path_in_local_cache(dir, key.offset, key.meta.type);
+        std::string new_file = get_path_in_local_cache(dir, key.offset, type);
+        RETURN_IF_ERROR(fs->rename(original_file, new_file));
+    }
+    return Status::OK();
+}
+
+Status FSFileCacheStorage::change_key_meta_expiration(const FileCacheKey& key,
+                                                      const uint64_t expiration) {
+    // directory operation
+    if (key.meta.expiration_time != expiration) {
         std::string original_dir = get_path_in_local_cache(key.hash, key.meta.expiration_time);
-        std::string new_dir = get_path_in_local_cache(key.hash, new_meta.expiration_time);
+        std::string new_dir = get_path_in_local_cache(key.hash, expiration);
         // It will be concurrent, but we don't care who rename
         Status st = fs->rename(original_dir, new_dir);
         if (!st.ok() && !st.is<ErrorCode::NOT_FOUND>()) {
             return st;
         }
-    } else if (key.meta.type != new_meta.type) {
-        std::string dir = get_path_in_local_cache(key.hash, key.meta.expiration_time);
-        std::string original_file = get_path_in_local_cache(dir, key.offset, key.meta.type);
-        std::string new_file = get_path_in_local_cache(dir, key.offset, new_meta.type);
-        RETURN_IF_ERROR(fs->rename(original_file, new_file));
     }
     return Status::OK();
 }
 
 std::string FSFileCacheStorage::get_path_in_local_cache(const std::string& dir, size_t offset,
                                                         FileCacheType type, bool is_tmp) {
-    return Path(dir) / (std::to_string(offset) +
-                        (is_tmp ? "_tmp" : BlockFileCache::cache_type_to_string(type)));
+    if (is_tmp) {
+        return Path(dir) / (std::to_string(offset) + "_tmp");
+    } else if (type == FileCacheType::TTL) {
+        return Path(dir) / std::to_string(offset);
+    } else {
+        return Path(dir) / (std::to_string(offset) + BlockFileCache::cache_type_to_string(type));
+    }
+}
+
+std::string FSFileCacheStorage::get_path_in_local_cache_old_ttl_format(const std::string& dir,
+                                                                       size_t offset,
+                                                                       FileCacheType type,
+                                                                       bool is_tmp) {
+    DCHECK(type == FileCacheType::TTL);
+    return Path(dir) / (std::to_string(offset) + BlockFileCache::cache_type_to_string(type));
 }
 
 std::string FSFileCacheStorage::get_path_in_local_cache(const UInt128Wrapper& value,
@@ -227,7 +289,7 @@ std::string FSFileCacheStorage::get_path_in_local_cache(const UInt128Wrapper& va
     }
 }
 
-Status FSFileCacheStorage::rebuild_data_structure() const {
+Status FSFileCacheStorage::upgrade_cache_dir_if_necessary() const {
     /// version 1.0: cache_base_path / key / offset
     /// version 2.0: cache_base_path / key_prefix / key / offset
     std::string version;
@@ -338,6 +400,72 @@ std::string FSFileCacheStorage::get_version_path() const {
     return Path(_cache_base_path) / "version";
 }
 
+Status FSFileCacheStorage::parse_filename_suffix_to_cache_type(
+        const std::shared_ptr<LocalFileSystem>& fs, const Path& file_path, long expiration_time,
+        size_t size, size_t* offset, bool* is_tmp, FileCacheType* cache_type) const {
+    std::error_code ec;
+    std::string offset_with_suffix = file_path.native();
+    auto delim_pos1 = offset_with_suffix.find('_');
+    bool parsed = true;
+
+    try {
+        if (delim_pos1 == std::string::npos) {
+            // same as type "normal"
+            *offset = stoull(offset_with_suffix);
+        } else {
+            *offset = stoull(offset_with_suffix.substr(0, delim_pos1));
+            std::string suffix = offset_with_suffix.substr(delim_pos1 + 1);
+            // not need persistent anymore
+            // if suffix is equals to "tmp", it should be removed too.
+            if (suffix == "tmp") [[unlikely]] {
+                *is_tmp = true;
+            } else {
+                *cache_type = BlockFileCache::string_to_cache_type(suffix);
+            }
+        }
+    } catch (...) {
+        parsed = false;
+    }
+
+    // File in dir with expiration time > 0 should all be TTL type
+    // while expiration time == 0 should all be NORMAL type but
+    // in old days, bug happens, thus break such consistency, e.g.
+    // BEs shut down during cache type transition.
+    // Nowadays, we only use expiration time to decide the type,
+    // i.e. whenever expiration time > 0, it IS TTL, otherwise
+    // it is NORMAL or INDEX depending on its suffix.
+    // From now on, the ttl type encoding in file name is only for
+    // compatibility. It won't be build into the filename, and existing
+    // ones will be ignored.
+    if (expiration_time > 0) {
+        *cache_type = FileCacheType::TTL;
+    } else if (*cache_type == FileCacheType::TTL && expiration_time == 0) {
+        *cache_type = FileCacheType::NORMAL;
+    }
+
+    if (!parsed) {
+        LOG(WARNING) << "parse offset err, path=" << file_path.native();
+        return Status::InternalError("parse offset err, path={}", file_path.native());
+    }
+    TEST_SYNC_POINT_CALLBACK("BlockFileCache::REMOVE_FILE", &offset_with_suffix);
+
+    if (ec) {
+        LOG(WARNING) << "failed to file_size: file_name=" << offset_with_suffix
+                     << "error=" << ec.message();
+        return Status::InternalError("failed to file_size: file_name={}, error={}",
+                                     offset_with_suffix, ec.message());
+    }
+
+    if (size == 0 && !(*is_tmp)) {
+        auto st = fs->delete_file(file_path);
+        if (!st.ok()) {
+            LOG_WARNING("delete file {} error", file_path.native()).error(st);
+        }
+        return Status::InternalError("file size is 0, file_name={}", offset_with_suffix);
+    }
+    return Status::OK();
+}
+
 void FSFileCacheStorage::load_cache_info_into_memory(BlockFileCache* _mgr) const {
     int scan_length = 10000;
     std::vector<BatchLoadArgs> batch_load_buffer;
@@ -383,50 +511,16 @@ void FSFileCacheStorage::load_cache_info_into_memory(BlockFileCache* _mgr) const
             }
             CacheContext context;
             context.query_id = TUniqueId();
-            context.expiration_time = std::stoul(expiration_time_str);
+            long expiration_time = std::stoul(expiration_time_str);
+            context.expiration_time = expiration_time;
             for (; offset_it != std::filesystem::directory_iterator(); ++offset_it) {
-                std::string offset_with_suffix = offset_it->path().filename().native();
-                auto delim_pos1 = offset_with_suffix.find('_');
-                FileCacheType cache_type = FileCacheType::NORMAL;
-                bool parsed = true;
-                bool is_tmp = false;
-                size_t offset = 0;
-                try {
-                    if (delim_pos1 == std::string::npos) {
-                        // same as type "normal"
-                        offset = stoull(offset_with_suffix);
-                    } else {
-                        offset = stoull(offset_with_suffix.substr(0, delim_pos1));
-                        std::string suffix = offset_with_suffix.substr(delim_pos1 + 1);
-                        // not need persistent anymore
-                        // if suffix is equals to "tmp", it should be removed too.
-                        if (suffix == "tmp") [[unlikely]] {
-                            is_tmp = true;
-                        } else {
-                            cache_type = BlockFileCache::string_to_cache_type(suffix);
-                        }
-                    }
-                } catch (...) {
-                    parsed = false;
-                }
-
-                if (!parsed) {
-                    LOG(WARNING) << "parse offset err, path=" << offset_it->path().native();
-                    continue;
-                }
-                TEST_SYNC_POINT_CALLBACK("BlockFileCache::REMOVE_FILE_2", &offset_with_suffix);
                 size_t size = offset_it->file_size(ec);
-                if (ec) {
-                    LOG(WARNING) << "failed to file_size: file_name=" << offset_with_suffix
-                                 << "error=" << ec.message();
-                    continue;
-                }
-
-                if (size == 0 && !is_tmp) {
-                    auto st = fs->delete_file(offset_it->path());
-                    if (!st.ok()) {
-                        LOG_WARNING("delete file {} error", offset_it->path().native()).error(st);
-                    }
+                size_t offset = 0;
+                bool is_tmp = false;
+                FileCacheType cache_type = FileCacheType::NORMAL;
+                if (!parse_filename_suffix_to_cache_type(fs, offset_it->path().filename().native(),
+                                                         expiration_time, size, &offset, &is_tmp,
+                                                         &cache_type)) {
                     continue;
                 }
                 context.cache_type = cache_type;
@@ -450,6 +544,7 @@ void FSFileCacheStorage::load_cache_info_into_memory(BlockFileCache* _mgr) const
     };
     std::error_code ec;
     if constexpr (USE_CACHE_VERSION2) {
+        TEST_SYNC_POINT_CALLBACK("BlockFileCache::BeforeScan");
         std::filesystem::directory_iterator key_prefix_it {_cache_base_path, ec};
         if (ec) {
             LOG(WARNING) << ec.message();
@@ -457,7 +552,7 @@ void FSFileCacheStorage::load_cache_info_into_memory(BlockFileCache* _mgr) const
         }
         for (; key_prefix_it != std::filesystem::directory_iterator(); ++key_prefix_it) {
             if (!key_prefix_it->is_directory()) {
-                // maybe version hits file
+                // skip version file
                 continue;
             }
             if (key_prefix_it->path().filename().native().size() != KEY_PREFIX_LENGTH) {
@@ -516,46 +611,13 @@ void FSFileCacheStorage::load_blocks_directly_unlocked(BlockFileCache* mgr, cons
         return;
     }
     for (; check_it != std::filesystem::directory_iterator(); ++check_it) {
-        uint64_t offset = 0;
-        std::string offset_with_suffix = check_it->path().filename().native();
-        auto delim_pos1 = offset_with_suffix.find('_');
-        FileCacheType cache_type = FileCacheType::NORMAL;
-        bool parsed = true;
-        bool is_tmp = false;
-        try {
-            if (delim_pos1 == std::string::npos) {
-                // same as type "normal"
-                offset = stoull(offset_with_suffix);
-            } else {
-                offset = stoull(offset_with_suffix.substr(0, delim_pos1));
-                std::string suffix = offset_with_suffix.substr(delim_pos1 + 1);
-                if (suffix == "tmp") [[unlikely]] {
-                    is_tmp = true;
-                } else {
-                    cache_type = BlockFileCache::string_to_cache_type(suffix);
-                }
-            }
-        } catch (...) {
-            parsed = false;
-        }
-
-        if (!parsed) [[unlikely]] {
-            LOG(WARNING) << "parse offset err, path=" << offset_with_suffix;
-            continue;
-        }
-
-        TEST_SYNC_POINT_CALLBACK("BlockFileCache::REMOVE_FILE_1", &offset_with_suffix);
-        std::error_code ec;
         size_t size = check_it->file_size(ec);
-        if (ec) {
-            LOG(WARNING) << "failed to file_size: error=" << ec.message();
-            continue;
-        }
-        if (size == 0 && !is_tmp) [[unlikely]] {
-            auto st = fs->delete_file(check_it->path());
-            if (!st.ok()) {
-                LOG_WARNING("Failed to delete file {}", check_it->path().native()).error(st);
-            }
+        size_t offset = 0;
+        bool is_tmp = false;
+        FileCacheType cache_type = FileCacheType::NORMAL;
+        if (!parse_filename_suffix_to_cache_type(fs, check_it->path().filename().native(),
+                                                 context_original.expiration_time, size, &offset,
+                                                 &is_tmp, &cache_type)) {
             continue;
         }
         if (!mgr->_files.contains(key.hash) || !mgr->_files[key.hash].contains(offset)) {

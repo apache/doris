@@ -133,6 +133,9 @@ DECLARE_String(mem_limit);
 // Soft memory limit as a fraction of hard memory limit.
 DECLARE_Double(soft_mem_limit_frac);
 
+// Cache capacity reduce mem limit as a fraction of soft mem limit.
+DECLARE_mDouble(cache_capacity_reduce_mem_limit_frac);
+
 // Schema change memory limit as a fraction of soft memory limit.
 DECLARE_Double(schema_change_mem_limit_frac);
 
@@ -191,10 +194,14 @@ DECLARE_mBool(enable_stacktrace);
 // if alloc failed using Doris Allocator, will print stacktrace in error log.
 // if is -1, disable print stacktrace when alloc large memory.
 DECLARE_mInt64(stacktrace_in_alloc_large_memory_bytes);
+
 // when alloc memory larger than crash_in_alloc_large_memory_bytes will crash, default -1 means disabled.
 // if you need a core dump to analyze large memory allocation,
 // modify this parameter to crash when large memory allocation occur will help
 DECLARE_mInt64(crash_in_alloc_large_memory_bytes);
+
+// If memory tracker value is inaccurate, BE will crash. usually used in test environments, default value is false.
+DECLARE_mBool(crash_in_memory_tracker_inaccurate);
 
 // default is true. if any memory tracking in Orphan mem tracker will report error.
 // !! not modify the default value of this conf!! otherwise memory errors cannot be detected in time.
@@ -641,12 +648,6 @@ DECLARE_mInt32(memory_maintenance_sleep_time_ms);
 // After minor gc, no minor gc during sleep, but full gc is possible.
 DECLARE_mInt32(memory_gc_sleep_time_ms);
 
-// Sleep time in milliseconds between memtbale flush mgr memory refresh iterations
-DECLARE_mInt64(memtable_mem_tracker_refresh_interval_ms);
-
-// Sleep time in milliseconds between refresh iterations of workload group weighted memory ratio
-DECLARE_mInt64(wg_weighted_memory_ratio_refresh_interval_ms);
-
 // percent of (active memtables size / all memtables size) when reach hard limit
 DECLARE_mInt32(memtable_hard_limit_active_percent);
 
@@ -987,6 +988,8 @@ DECLARE_mInt64(nodechannel_pending_queue_max_bytes);
 // The batch size for sending data by brpc streaming client
 DECLARE_mInt64(brpc_streaming_client_batch_bytes);
 
+DECLARE_Bool(enable_brpc_builtin_services);
+
 // Max waiting time to wait the "plan fragment start" rpc.
 // If timeout, the fragment will be cancelled.
 // This parameter is usually only used when the FE loses connection,
@@ -1049,6 +1052,8 @@ DECLARE_mInt64(file_cache_ttl_valid_check_interval_second);
 // If true, evict the ttl cache using LRU when full.
 // Otherwise, only expiration can evict ttl and new data won't add to cache when full.
 DECLARE_Bool(enable_ttl_cache_evict_using_lru);
+// rename ttl filename to new format during read, with some performance cost
+DECLARE_Bool(translate_to_new_ttl_format_during_read);
 
 // inverted index searcher cache
 // cache entry stay time after lookup
@@ -1417,6 +1422,9 @@ DECLARE_mInt32(snappy_compression_block_size);
 DECLARE_mInt32(lz4_compression_block_size);
 
 DECLARE_mBool(enable_pipeline_task_leakage_detect);
+
+// MB
+DECLARE_Int32(query_cache_size);
 
 #ifdef BE_TEST
 // test s3

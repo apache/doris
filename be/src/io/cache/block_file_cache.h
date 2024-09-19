@@ -104,8 +104,9 @@ public:
     std::string reset_capacity(size_t new_capacity);
 
     std::map<size_t, FileBlockSPtr> get_blocks_by_key(const UInt128Wrapper& hash);
-    /// For debug.
+    /// For debug and UT
     std::string dump_structure(const UInt128Wrapper& hash);
+    std::string dump_single_cache_type(const UInt128Wrapper& hash, size_t offset);
 
     [[nodiscard]] size_t get_used_cache_size(FileCacheType type) const;
 
@@ -130,7 +131,7 @@ public:
     [[nodiscard]] std::vector<std::tuple<size_t, size_t, FileCacheType, uint64_t>>
     get_hot_blocks_meta(const UInt128Wrapper& hash) const;
 
-    [[nodiscard]] bool get_lazy_open_success() const { return _lazy_open_done; }
+    [[nodiscard]] bool get_async_open_success() const { return _async_open_done; }
 
     BlockFileCache& operator=(const BlockFileCache&) = delete;
     BlockFileCache(const BlockFileCache&) = delete;
@@ -338,7 +339,7 @@ private:
                              const CacheContext& context, size_t offset, size_t size,
                              std::lock_guard<std::mutex>& cache_lock);
 
-    bool try_reserve_for_lazy_load(size_t size, std::lock_guard<std::mutex>& cache_lock);
+    bool try_reserve_during_async_load(size_t size, std::lock_guard<std::mutex>& cache_lock);
 
     std::vector<FileCacheType> get_other_cache_type(FileCacheType cur_cache_type);
 
@@ -357,6 +358,9 @@ private:
 
     std::string dump_structure_unlocked(const UInt128Wrapper& hash,
                                         std::lock_guard<std::mutex>& cache_lock);
+
+    std::string dump_single_cache_type_unlocked(const UInt128Wrapper& hash, size_t offset,
+                                                std::lock_guard<std::mutex>& cache_lock);
 
     void fill_holes_with_empty_file_blocks(FileBlocks& file_blocks, const UInt128Wrapper& hash,
                                            const CacheContext& context,
@@ -413,7 +417,7 @@ private:
     std::mutex _close_mtx;
     std::condition_variable _close_cv;
     std::thread _cache_background_thread;
-    std::atomic_bool _lazy_open_done {false};
+    std::atomic_bool _async_open_done {false};
     bool _async_clear_file_cache {false};
     // disk space or inode is less than the specified value
     bool _disk_resource_limit_mode {false};

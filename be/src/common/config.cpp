@@ -37,10 +37,10 @@
 #include <utility>
 #include <vector>
 
+#include "cloud/config.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
-#include "config.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "util/cpu_info.h"
@@ -95,6 +95,9 @@ DEFINE_String(mem_limit, "90%");
 // Soft memory limit as a fraction of hard memory limit.
 DEFINE_Double(soft_mem_limit_frac, "0.9");
 
+// Cache capacity reduce mem limit as a fraction of soft mem limit.
+DEFINE_mDouble(cache_capacity_reduce_mem_limit_frac, "0.6");
+
 // Schema change memory limit as a fraction of soft memory limit.
 DEFINE_Double(schema_change_mem_limit_frac, "0.6");
 
@@ -146,6 +149,9 @@ DEFINE_mBool(enable_stacktrace, "true");
 DEFINE_mInt64(stacktrace_in_alloc_large_memory_bytes, "2147483648");
 
 DEFINE_mInt64(crash_in_alloc_large_memory_bytes, "-1");
+
+// If memory tracker value is inaccurate, BE will crash. usually used in test environments, default value is false.
+DEFINE_mBool(crash_in_memory_tracker_inaccurate, "false");
 
 // default is true. if any memory tracking in Orphan mem tracker will report error.
 // !! not modify the default value of this conf!! otherwise memory errors cannot be detected in time.
@@ -286,7 +292,7 @@ DEFINE_mInt32(exchg_buffer_queue_capacity_factor, "64");
 DEFINE_mInt64(memory_limitation_per_thread_for_schema_change_bytes, "2147483648");
 
 DEFINE_mInt32(cache_prune_interval_sec, "10");
-DEFINE_mInt32(cache_periodic_prune_stale_sweep_sec, "300");
+DEFINE_mInt32(cache_periodic_prune_stale_sweep_sec, "60");
 // the clean interval of tablet lookup cache
 DEFINE_mInt32(tablet_lookup_cache_stale_sweep_time_sec, "30");
 DEFINE_mInt32(point_query_row_cache_stale_sweep_time_sec, "300");
@@ -510,8 +516,12 @@ DEFINE_Int32(brpc_heavy_work_pool_max_queue_size, "-1");
 DEFINE_Int32(brpc_light_work_pool_max_queue_size, "-1");
 DEFINE_mBool(enable_bthread_transmit_block, "true");
 
+//Enable brpc builtin services, see:
+//https://brpc.apache.org/docs/server/basics/#disable-built-in-services-completely
+DEFINE_Bool(enable_brpc_builtin_services, "true");
+
 // The maximum amount of data that can be processed by a stream load
-DEFINE_mInt64(streaming_load_max_mb, "10240");
+DEFINE_mInt64(streaming_load_max_mb, "102400");
 // Some data formats, such as JSON, cannot be streamed.
 // Therefore, it is necessary to limit the maximum number of
 // such data when using stream load to prevent excessive memory consumption.
@@ -565,7 +575,7 @@ DEFINE_String(pprof_profile_dir, "${DORIS_HOME}/log");
 // for jeprofile in jemalloc
 DEFINE_mString(jeprofile_dir, "${DORIS_HOME}/log");
 DEFINE_mBool(enable_je_purge_dirty_pages, "true");
-DEFINE_mString(je_dirty_pages_mem_limit_percent, "5%");
+DEFINE_mString(je_dirty_pages_mem_limit_percent, "2%");
 
 // to forward compatibility, will be removed later
 DEFINE_mBool(enable_token_check, "true");
@@ -582,16 +592,11 @@ DEFINE_Int32(num_cores, "0");
 DEFINE_Bool(ignore_broken_disk, "false");
 
 // Sleep time in milliseconds between memory maintenance iterations
-DEFINE_mInt32(memory_maintenance_sleep_time_ms, "100");
+DEFINE_mInt32(memory_maintenance_sleep_time_ms, "20");
 
 // After full gc, no longer full gc and minor gc during sleep.
 // After minor gc, no minor gc during sleep, but full gc is possible.
 DEFINE_mInt32(memory_gc_sleep_time_ms, "500");
-
-// Sleep time in milliseconds between memtbale flush mgr refresh iterations
-DEFINE_mInt64(memtable_mem_tracker_refresh_interval_ms, "5");
-
-DEFINE_mInt64(wg_weighted_memory_ratio_refresh_interval_ms, "50");
 
 // percent of (active memtables size / all memtables size) when reach hard limit
 DEFINE_mInt32(memtable_hard_limit_active_percent, "50");
@@ -999,6 +1004,8 @@ DEFINE_mInt64(file_cache_ttl_valid_check_interval_second, "0"); // zero for not 
 // If true, evict the ttl cache using LRU when full.
 // Otherwise, only expiration can evict ttl and new data won't add to cache when full.
 DEFINE_Bool(enable_ttl_cache_evict_using_lru, "true");
+// rename ttl filename to new format during read, with some performance cost
+DEFINE_mBool(translate_to_new_ttl_format_during_read, "false");
 
 DEFINE_mInt32(index_cache_entry_stay_time_after_lookup_s, "1800");
 DEFINE_mInt32(inverted_index_cache_stale_sweep_time_sec, "600");
@@ -1328,6 +1335,8 @@ DEFINE_mInt32(snappy_compression_block_size, "262144");
 DEFINE_mInt32(lz4_compression_block_size, "262144");
 
 DEFINE_mBool(enable_pipeline_task_leakage_detect, "false");
+
+DEFINE_Int32(query_cache_size, "512");
 
 // clang-format off
 #ifdef BE_TEST
@@ -1664,6 +1673,8 @@ bool init(const char* conf_file, bool fill_conf_map, bool must_exist, bool set_t
         SET_FIELD(it.second, std::vector<double>, fill_conf_map, set_to_default);
         SET_FIELD(it.second, std::vector<std::string>, fill_conf_map, set_to_default);
     }
+
+    set_cloud_unique_id(cloud_instance_id);
 
     return true;
 }

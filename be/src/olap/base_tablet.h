@@ -105,6 +105,10 @@ public:
 
     virtual size_t tablet_footprint() = 0;
 
+    // this method just return the compaction sum on each rowset
+    // note(tsy): we should unify the compaction score calculation finally
+    uint32_t get_real_compaction_score() const;
+
     // MUST hold shared meta lock
     Status capture_rs_readers_unlocked(const Versions& version_path,
                                        std::vector<RowSetSplits>* rs_splits) const;

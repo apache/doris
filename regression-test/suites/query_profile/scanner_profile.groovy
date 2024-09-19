@@ -98,6 +98,10 @@ suite('scanner_profile') {
     logger.info("queryIdWithLimit1_${uuidString}: {}", queryIdWithLimit1)
 
     assertTrue(queryIdWithLimit1 != "")
+
+    // Sleep 5 seconds to make sure profile collection is done
+    Thread.sleep(5000)
+
     def String profileWithLimit1 = getProfile(queryIdWithLimit1).toString()
     logger.info("query profile {}", profileWithLimit1)
     assertTrue(profileWithLimit1.contains("- PeakRunningScanner: 1"))

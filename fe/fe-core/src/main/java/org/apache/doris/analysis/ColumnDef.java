@@ -99,6 +99,7 @@ public class ColumnDef {
             this.defaultValueExprDef = new DefaultValueExprDef(exprName, precision);
         }
 
+        public static String E_NUM = "E";
         public static String PI = "PI";
         public static String CURRENT_DATE = "CURRENT_DATE";
         // default "CURRENT_TIMESTAMP", only for DATETIME type
@@ -353,6 +354,10 @@ public class ColumnDef {
         return visible;
     }
 
+    public int getClusterKeyId() {
+        return this.clusterKeyId;
+    }
+
     public void setClusterKeyId(int clusterKeyId) {
         this.clusterKeyId = clusterKeyId;
     }
@@ -534,6 +539,14 @@ public class ColumnDef {
                     break;
                 default:
                     throw new AnalysisException("Types other than DOUBLE cannot use pi as the default value");
+            }
+        } else if (null != defaultValueExprDef
+                && defaultValueExprDef.getExprName().equalsIgnoreCase(DefaultValue.E_NUM)) {
+            switch (primitiveType) {
+                case DOUBLE:
+                    break;
+                default:
+                    throw new AnalysisException("Types other than DOUBLE cannot use e as the default value");
             }
         }
         switch (primitiveType) {

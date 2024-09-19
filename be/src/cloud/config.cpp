@@ -17,10 +17,14 @@
 
 #include "cloud/config.h"
 
+#include "common/status.h"
+
 namespace doris::config {
 
-DEFINE_String(cloud_unique_id, "");
-DEFINE_String(meta_service_endpoint, "");
+DEFINE_String(deploy_mode, "");
+DEFINE_mString(cloud_instance_id, "");
+DEFINE_mString(cloud_unique_id, "");
+DEFINE_mString(meta_service_endpoint, "");
 DEFINE_Bool(meta_service_use_load_balancer, "false");
 DEFINE_mInt32(meta_service_rpc_timeout_ms, "10000");
 DEFINE_Bool(meta_service_connection_pooled, "true");
@@ -63,5 +67,15 @@ DEFINE_mInt32(sync_load_for_tablets_thread, "32");
 DEFINE_mBool(enable_new_tablet_do_compaction, "false");
 
 DEFINE_Bool(enable_cloud_txn_lazy_commit, "false");
+
+DEFINE_mInt32(remove_expired_tablet_txn_info_interval_seconds, "300");
+
+DEFINE_mInt32(tablet_txn_info_min_expired_seconds, "120");
+
+void set_cloud_unique_id(std::string instance_id) {
+    if (cloud_unique_id.empty() && !instance_id.empty()) {
+        static_cast<void>(set_config("cloud_unique_id", "1:" + instance_id + ":compute", true));
+    }
+}
 
 } // namespace doris::config

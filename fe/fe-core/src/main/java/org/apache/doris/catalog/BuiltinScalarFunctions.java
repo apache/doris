@@ -47,6 +47,8 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayJoin;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayLast;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayLastIndex;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayMap;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayMatchAll;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayMatchAny;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayMax;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayMin;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayPopBack;
@@ -360,6 +362,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondTimesta
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondsAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondsDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondsSub;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.SessionUser;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sha1;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sha2;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sign;
@@ -500,6 +503,8 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(ArrayLast.class, "array_last"),
             scalar(ArrayLastIndex.class, "array_last_index"),
             scalar(ArrayMap.class, "array_map"),
+            scalar(ArrayMatchAll.class, "array_match_all"),
+            scalar(ArrayMatchAny.class, "array_match_any"),
             scalar(ArrayMax.class, "array_max"),
             scalar(ArrayMin.class, "array_min"),
             scalar(ArrayPopBack.class, "array_popback"),
@@ -934,7 +939,8 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(YearsAdd.class, "years_add"),
             scalar(YearsDiff.class, "years_diff"),
             scalar(YearsSub.class, "years_sub"),
-            scalar(MultiMatch.class, "multi_match"));
+            scalar(MultiMatch.class, "multi_match"),
+            scalar(SessionUser.class, "session_user"));
 
     public static final BuiltinScalarFunctions INSTANCE = new BuiltinScalarFunctions();
 

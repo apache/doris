@@ -85,6 +85,7 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
         super(ctx, table, labelName, planner, insertCtx, emptyInsert);
     }
 
+    @Override
     public long getTxnId() {
         return txnId;
     }
@@ -172,6 +173,7 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
                         .createLocation(database.getId(), olapTableSink.getDstTable());
                 dataStreamSink.setTabletSinkLocationParam(locationParams.get(0));
                 dataStreamSink.setTabletSinkTxnId(olapTableSink.getTxnId());
+                dataStreamSink.setTabletSinkExprs(fragment.getOutputExprs());
             }
         } catch (Exception e) {
             throw new AnalysisException(e.getMessage(), e);

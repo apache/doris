@@ -219,7 +219,19 @@ public class CloudClusterChecker extends MasterDaemon {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("current cluster status {} {}", currentClusterStatus, newClusterStatus);
             }
-            if (!currentClusterStatus.equals(newClusterStatus)) {
+            boolean needChange = false;
+            // ATTN: found bug, In the same cluster, the cluster status in the tags of BE nodes is inconsistent.
+            // Using a set to collect the cluster statuses from the BE nodes.
+            Set<String> clusterStatusInMem = new HashSet<>();
+            for (Backend backend : currentBes) {
+                String beClusterStatus = backend.getTagMap().get(Tag.CLOUD_CLUSTER_STATUS);
+                clusterStatusInMem.add(beClusterStatus == null ? "NOT_SET" : beClusterStatus);
+            }
+            if (clusterStatusInMem.size() != 1) {
+                LOG.warn("cluster {}, multi be nodes cluster status inconsistent, fix it {}", cid, clusterStatusInMem);
+                needChange = true;
+            }
+            if (!currentClusterStatus.equals(newClusterStatus) || needChange) {
                 // cluster's status changed
                 LOG.info("cluster_status corresponding to cluster_id has been changed,"
                         + " cluster_id : {} , current_cluster_status : {}, new_cluster_status :{}",
@@ -426,8 +438,8 @@ public class CloudClusterChecker extends MasterDaemon {
             }
             return nodeMap;
         });
-        LOG.info("diffFrontends nodes: {}, current: {}, toAdd: {}, toDel: {}",
-                expectedFes, currentFes, toAdd, toDel);
+        LOG.info("diffFrontends nodes: {}, current: {}, toAdd: {}, toDel: {}, enable auto start: {}",
+                expectedFes, currentFes, toAdd, toDel, Config.enable_auto_start_for_cloud_cluster);
         if (toAdd.isEmpty() && toDel.isEmpty()) {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("runAfterCatalogReady getObserverFes nothing todo");

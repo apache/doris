@@ -1123,9 +1123,8 @@ Status IRuntimeFilter::send_filter_size(RuntimeState* state, uint64_t local_filt
     std::shared_ptr<PBackendService_Stub> stub(
             _state->exec_env->brpc_internal_client_cache()->get_client(addr));
     if (!stub) {
-        std::string msg =
-                fmt::format("Get rpc stub failed, host={},  port=", addr.hostname, addr.port);
-        return Status::InternalError(msg);
+        return Status::InternalError("Get rpc stub failed, host={}, port={}", addr.hostname,
+                                     addr.port);
     }
 
     auto request = std::make_shared<PSendFilterSizeRequest>();
@@ -1158,7 +1157,7 @@ Status IRuntimeFilter::push_to_remote(const TNetworkAddress* addr) {
             _state->exec_env->brpc_internal_client_cache()->get_client(*addr));
     if (!stub) {
         return Status::InternalError(
-                fmt::format("Get rpc stub failed, host={},  port=", addr->hostname, addr->port));
+                fmt::format("Get rpc stub failed, host={}, port={}", addr->hostname, addr->port));
     }
 
     auto merge_filter_request = std::make_shared<PMergeFilterRequest>();
@@ -1275,6 +1274,7 @@ void IRuntimeFilter::signal() {
 }
 
 void IRuntimeFilter::set_filter_timer(std::shared_ptr<pipeline::RuntimeFilterTimer> timer) {
+    std::unique_lock lock(_inner_mutex);
     _filter_timer.push_back(timer);
 }
 

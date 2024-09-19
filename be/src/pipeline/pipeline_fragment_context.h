@@ -69,8 +69,8 @@ public:
 
     ~PipelineFragmentContext();
 
-    std::vector<std::shared_ptr<TRuntimeProfileTree>> collect_realtime_profile_x() const;
-    std::shared_ptr<TRuntimeProfileTree> collect_realtime_load_channel_profile_x() const;
+    std::vector<std::shared_ptr<TRuntimeProfileTree>> collect_realtime_profile() const;
+    std::shared_ptr<TRuntimeProfileTree> collect_realtime_load_channel_profile() const;
 
     bool is_timeout(timespec now) const;
 
@@ -88,7 +88,7 @@ public:
     // should be protected by lock?
     [[nodiscard]] bool is_canceled() const { return _runtime_state->is_cancelled(); }
 
-    Status prepare(const doris::TPipelineFragmentParams& request);
+    Status prepare(const doris::TPipelineFragmentParams& request, ThreadPool* thread_pool);
 
     Status submit();
 
@@ -187,7 +187,8 @@ private:
 
     bool _enable_local_shuffle() const { return _runtime_state->enable_local_shuffle(); }
 
-    Status _build_pipeline_tasks(const doris::TPipelineFragmentParams& request);
+    Status _build_pipeline_tasks(const doris::TPipelineFragmentParams& request,
+                                 ThreadPool* thread_pool);
     void _close_fragment_instance();
     void _init_next_report_time();
 
@@ -206,7 +207,7 @@ private:
     int _closed_tasks = 0;
     // After prepared, `_total_tasks` is equal to the size of `_tasks`.
     // When submit fail, `_total_tasks` is equal to the number of tasks submitted.
-    int _total_tasks = 0;
+    std::atomic<int> _total_tasks = 0;
 
     std::unique_ptr<RuntimeProfile> _runtime_profile;
     bool _is_report_success = false;
@@ -303,7 +304,7 @@ private:
 
     std::vector<TUniqueId> _fragment_instance_ids;
     // Local runtime states for each task
-    std::vector<std::unique_ptr<RuntimeState>> _task_runtime_states;
+    std::vector<std::vector<std::unique_ptr<RuntimeState>>> _task_runtime_states;
 
     std::vector<std::unique_ptr<RuntimeFilterParamsContext>> _runtime_filter_states;
 

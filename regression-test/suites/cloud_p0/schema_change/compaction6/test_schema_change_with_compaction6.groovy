@@ -20,7 +20,7 @@ import org.apache.http.NoHttpResponseException
 import org.apache.doris.regression.util.DebugPoint
 import org.apache.doris.regression.util.NodeType
 
-suite('test_schema_change_with_compaction6', 'nonConcurrent') {
+suite('test_schema_change_with_compaction6', 'docker') {
     def options = new ClusterOptions()
     options.cloudMode = true
     options.enableDebugPoints()

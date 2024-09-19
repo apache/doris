@@ -408,7 +408,7 @@ public abstract class MaterializationContext {
     }
 
     private static String generateIdentifierName(List<String> qualifiers) {
-        return String.join("#", qualifiers);
+        return String.join(".", qualifiers);
     }
 
     @Override

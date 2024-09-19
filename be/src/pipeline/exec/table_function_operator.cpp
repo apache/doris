@@ -215,7 +215,7 @@ void TableFunctionLocalState::process_next_child_row() {
         }
 
         _child_block->clear_column_data(_parent->cast<TableFunctionOperatorX>()
-                                                ._child_x->row_desc()
+                                                ._child->row_desc()
                                                 .num_materialized_slots());
         _cur_child_offset = -1;
         return;
@@ -285,7 +285,7 @@ Status TableFunctionOperatorX::open(doris::RuntimeState* state) {
     }
 
     // get all input slots
-    for (const auto& child_tuple_desc : _child_x->row_desc().tuple_descriptors()) {
+    for (const auto& child_tuple_desc : _child->row_desc().tuple_descriptors()) {
         for (const auto& child_slot_desc : child_tuple_desc->slots()) {
             _child_slots.push_back(child_slot_desc);
         }

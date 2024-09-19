@@ -906,7 +906,7 @@ Status CloudMetaMgr::precommit_txn(const StreamLoadContext& ctx) {
     return retry_rpc("precommit txn", req, &res, &MetaService_Stub::precommit_txn);
 }
 
-Status CloudMetaMgr::get_storage_vault_info(StorageVaultInfos* vault_infos) {
+Status CloudMetaMgr::get_storage_vault_info(StorageVaultInfos* vault_infos, bool* is_vault_mode) {
     GetObjStoreInfoRequest req;
     GetObjStoreInfoResponse resp;
     req.set_cloud_unique_id(config::cloud_unique_id);
@@ -915,6 +915,8 @@ Status CloudMetaMgr::get_storage_vault_info(StorageVaultInfos* vault_infos) {
     if (!s.ok()) {
         return s;
     }
+
+    *is_vault_mode = resp.enable_storage_vault();
 
     auto add_obj_store = [&vault_infos](const auto& obj_store) {
         vault_infos->emplace_back(obj_store.id(), S3Conf::get_s3_conf(obj_store),
@@ -931,6 +933,7 @@ Status CloudMetaMgr::get_storage_vault_info(StorageVaultInfos* vault_infos) {
         }
     });
 
+    // desensitization, hide secret
     for (int i = 0; i < resp.obj_info_size(); ++i) {
         resp.mutable_obj_info(i)->set_sk(resp.obj_info(i).sk().substr(0, 2) + "xxx");
     }
@@ -940,7 +943,8 @@ Status CloudMetaMgr::get_storage_vault_info(StorageVaultInfos* vault_infos) {
         j->mutable_obj_info()->set_sk(j->obj_info().sk().substr(0, 2) + "xxx");
     }
 
-    LOG(INFO) << "get storage vault response: " << resp.ShortDebugString();
+    LOG(INFO) << "get storage vault, enable_storage_vault=" << *is_vault_mode
+              << " response=" << resp.ShortDebugString();
     return Status::OK();
 }
 

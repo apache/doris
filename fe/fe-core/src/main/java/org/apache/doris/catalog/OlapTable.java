@@ -110,6 +110,7 @@ import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
@@ -1420,7 +1421,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         getOrCreatTableProperty().setSequenceMapCol(colName);
     }
 
-    public void setSequenceInfo(Type type) {
+    public void setSequenceInfo(Type type, Column refColumn) {
         this.hasSequenceCol = true;
         this.sequenceType = type;
 
@@ -1433,6 +1434,9 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
             // sequence column is value column with REPLACE aggregate type for
             // unique key table
             sequenceCol = ColumnDef.newSequenceColumnDef(type, AggregateType.REPLACE).toColumn();
+        }
+        if (refColumn != null) {
+            sequenceCol.setDefaultValueInfo(refColumn);
         }
         // add sequence column at last
         fullSchema.add(sequenceCol);
@@ -1861,6 +1865,17 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         if (isAutoBucket()) {
             defaultDistributionInfo.markAutoBucket();
         }
+        if (isUniqKeyMergeOnWrite() && getSequenceMapCol() != null) {
+            // set the hidden sequence column's default value the same with
+            // the sequence map column's for partial update
+            String seqMapColName = getSequenceMapCol();
+            Column seqMapCol = getBaseSchema().stream().filter(col -> col.getName().equalsIgnoreCase(seqMapColName))
+                    .findFirst().orElse(null);
+            Column hiddenSeqCol = getSequenceCol();
+            if (seqMapCol != null && hiddenSeqCol != null) {
+                hiddenSeqCol.setDefaultValueInfo(seqMapCol);
+            }
+        }
         RangePartitionInfo tempRangeInfo = tempPartitions.getPartitionInfo();
         if (tempRangeInfo != null) {
             for (long partitionId : tempRangeInfo.getIdToItem(false).keySet()) {
@@ -1987,6 +2002,10 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         if (state != OlapTableState.NORMAL) {
             throw new DdlException("Table[" + name + "]'s state(" + state.toString()
                     + ") is not NORMAL. Do not allow doing ALTER ops");
+        }
+        if (tableProperty != null && tableProperty.isInAtomicRestore()) {
+            throw new DdlException("Table[" + name + "] is in atomic restore state. "
+                    + "Do not allow doing ALTER ops");
         }
     }
 
@@ -2248,6 +2267,21 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
 
     public boolean containsPartition(String partitionName) {
         return nameToPartition.containsKey(partitionName);
+    }
+
+    public void setInAtomicRestore() {
+        getOrCreatTableProperty().setInAtomicRestore().buildInAtomicRestore();
+    }
+
+    public void clearInAtomicRestore() {
+        getOrCreatTableProperty().clearInAtomicRestore().buildInAtomicRestore();
+    }
+
+    public boolean isInAtomicRestore() {
+        if (tableProperty != null) {
+            return tableProperty.isInAtomicRestore();
+        }
+        return false;
     }
 
     public long getTTLSeconds() {
@@ -3110,6 +3144,16 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         } catch (RpcException e) {
             throw new RuntimeException("get table version from meta service failed", e);
         }
+    }
+
+    public static List<Integer> getClusterKeyIndexes(List<Column> columns) {
+        Map<Integer, Integer> clusterKeyIndexes = new TreeMap<>();
+        for (Column column : columns) {
+            if (column.isClusterKey()) {
+                clusterKeyIndexes.put(column.getClusterKeyId(), column.getUniqueId());
+            }
+        }
+        return clusterKeyIndexes.isEmpty() ? null : new ArrayList<>(clusterKeyIndexes.values());
     }
 
     public long getVisibleVersionTime() {

@@ -82,10 +82,9 @@ public:
 
     doris::segment_v2::InvertedIndexQueryType get_query_type_from_fn_name() const;
 
-    void analyse_query_str_token(std::vector<std::string>* query_tokens,
-                                 InvertedIndexCtx* inverted_index_ctx,
-                                 const std::string& match_query_str,
-                                 const std::string& field_name) const;
+    std::vector<std::string> analyse_query_str_token(InvertedIndexCtx* inverted_index_ctx,
+                                                     const std::string& match_query_str,
+                                                     const std::string& field_name) const;
 
     std::vector<std::string> analyse_data_token(const std::string& column_name,
                                                 InvertedIndexCtx* inverted_index_ctx,

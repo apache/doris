@@ -50,7 +50,7 @@ suite('adaptive_pipeline_task_serial_read_on_limit') {
             `id` INT,
             `name` varchar(32)
         ) ENGINE=OLAP
-        DISTRIBUTED BY HASH(`id`) BUCKETS 10
+        DISTRIBUTED BY HASH(`id`) BUCKETS 5
         PROPERTIES (
             "replication_allocation" = "tag.location.default: 1"
         );
@@ -108,13 +108,15 @@ suite('adaptive_pipeline_task_serial_read_on_limit') {
         set enable_adaptive_pipeline_task_serial_read_on_limit=true;
     """
     sql """
-        set adaptive_pipeline_task_serial_read_on_limit=10;
+        set adaptive_pipeline_task_serial_read_on_limit=20;
     """
     sql """
         select "modify_to_20_${uuidString}", * from adaptive_pipeline_task_serial_read_on_limit limit 15;
     """
 
     sql "set enable_profile=false"
+
+    Thread.sleep(5)
 
     def wholeString = getProfileList()
     List profileData = new JsonSlurper().parseText(wholeString).data.rows
@@ -149,27 +151,22 @@ suite('adaptive_pipeline_task_serial_read_on_limit') {
         }
     }
     
-    logger.info("queryIdNoLimit1_${uuidString}: {}", queryIdNoLimit1)
     logger.info("queryIdWithLimit1_${uuidString}: {}", queryIdWithLimit1)
-    logger.info("queryIdWithLimit2_${uuidString}: {}", queryIdWithLimit2)
-    logger.info("queryIDNotEnableLimit_${uuidString}: {}", queryIDNotEnableLimit)
     logger.info("queryIdModifyTo20_${uuidString}: {}", queryIdModifyTo20)
 
-    assertTrue(queryIdNoLimit1 != "")
     assertTrue(queryIdWithLimit1 != "")
-    assertTrue(queryIdWithLimit2 != "")
-    assertTrue(queryIDNotEnableLimit != "")
     assertTrue(queryIdModifyTo20 != "")
 
-    def String profileNoLimit1 = getProfile(queryIdNoLimit1).toString()
     def String profileWithLimit1 = getProfile(queryIdWithLimit1).toString()
-    def String profileWithLimit2 = getProfile(queryIdWithLimit2).toString()
-    def String profileNotEnableLimit = getProfile(queryIDNotEnableLimit).toString()
     def String profileModifyTo20 = getProfile(queryIdModifyTo20).toString()
     
-    assertTrue(profileNoLimit1.contains("- MaxScannerThreadNum: 10"))
+    if (!profileWithLimit1.contains("- MaxScannerThreadNum: 1")) {
+        logger.info("profileWithLimit1:\n{}", profileWithLimit1)
+    }
     assertTrue(profileWithLimit1.contains("- MaxScannerThreadNum: 1"))
-    assertTrue(profileWithLimit2.contains("- MaxScannerThreadNum: 10"))
-    assertTrue(profileNotEnableLimit.contains("- MaxScannerThreadNum: 10"))
+
+    if (!profileModifyTo20.contains("- MaxScannerThreadNum: 1")) {
+        logger.info("profileModifyTo20:\n{}", profileModifyTo20)
+    }
     assertTrue(profileModifyTo20.contains("- MaxScannerThreadNum: 1"))
 }

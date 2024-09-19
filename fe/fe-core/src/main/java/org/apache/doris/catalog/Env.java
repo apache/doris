@@ -79,6 +79,7 @@ import org.apache.doris.analysis.TableRenameClause;
 import org.apache.doris.analysis.TruncateTableStmt;
 import org.apache.doris.analysis.UninstallPluginStmt;
 import org.apache.doris.backup.BackupHandler;
+import org.apache.doris.backup.RestoreJob;
 import org.apache.doris.binlog.BinlogGcer;
 import org.apache.doris.binlog.BinlogManager;
 import org.apache.doris.blockrule.SqlBlockRuleMgr;
@@ -424,7 +425,7 @@ public class Env {
     // node name is used for bdbje NodeName.
     protected String nodeName;
     protected FrontendNodeType role;
-    private FrontendNodeType feType;
+    protected FrontendNodeType feType;
     // replica and observer use this value to decide provide read service or not
     private long synchronizedTimeMs;
     private MasterInfo masterInfo;
@@ -1141,6 +1142,13 @@ public class Env {
 
     public void setHttpReady(boolean httpReady) {
         this.httpReady.set(httpReady);
+    }
+
+    protected boolean isStartFromEmpty() {
+        File roleFile = new File(this.imageDir, Storage.ROLE_FILE);
+        File versionFile = new File(this.imageDir, Storage.VERSION_FILE);
+
+        return !roleFile.exists() && !versionFile.exists();
     }
 
     protected void getClusterIdAndRole() throws IOException {
@@ -2983,21 +2991,25 @@ public class Env {
         };
     }
 
+    public void addFrontend(FrontendNodeType role, String host, int editLogPort) throws DdlException {
+        addFrontend(role, host, editLogPort, "");
+    }
+
     public void addFrontend(FrontendNodeType role, String host, int editLogPort, String nodeName) throws DdlException {
         if (!tryLock(false)) {
             throw new DdlException("Failed to acquire env lock. Try again");
         }
         try {
+            if (Strings.isNullOrEmpty(nodeName)) {
+                nodeName = genFeNodeName(host, editLogPort, false /* new name style */);
+            }
+
             Frontend fe = checkFeExist(host, editLogPort);
             if (fe != null) {
                 throw new DdlException("frontend already exists " + fe);
             }
             if (Config.enable_fqdn_mode && StringUtils.isEmpty(host)) {
                 throw new DdlException("frontend's hostName should not be empty while enable_fqdn_mode is true");
-            }
-
-            if (Strings.isNullOrEmpty(nodeName)) {
-                nodeName = genFeNodeName(host, editLogPort, false /* new name style */);
             }
 
             if (removedFrontends.contains(nodeName)) {
@@ -3032,7 +3044,7 @@ public class Env {
         modifyFrontendHost(fe.getNodeName(), destHost);
     }
 
-    public void modifyFrontendHost(String nodeName, String destHost) throws DdlException {
+    private void modifyFrontendHost(String nodeName, String destHost) throws DdlException {
         if (!tryLock(false)) {
             throw new DdlException("Failed to acquire env lock. Try again");
         }
@@ -3060,6 +3072,11 @@ public class Env {
     }
 
     public void dropFrontend(FrontendNodeType role, String host, int port) throws DdlException {
+        dropFrontendFromBDBJE(role, host, port);
+    }
+
+    public void dropFrontendFromBDBJE(FrontendNodeType role, String host, int port) throws DdlException {
+
         if (port == selfNode.getPort() && feType == FrontendNodeType.MASTER
                 && selfNode.getHost().equals(host)) {
             throw new DdlException("can not drop current master node.");
@@ -3664,6 +3681,10 @@ public class Env {
                     .append(PropertyAnalyzer.PROPERTIES_ENABLE_DUPLICATE_WITHOUT_KEYS_BY_DEFAULT)
                     .append("\" = \"");
             sb.append(olapTable.isDuplicateWithoutKey()).append("\"");
+        }
+
+        if (olapTable.isInAtomicRestore()) {
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_IN_ATOMIC_RESTORE).append("\" = \"true\"");
         }
     }
 
@@ -4309,8 +4330,8 @@ public class Env {
         return cooldownConfHandler;
     }
 
-    public SystemHandler getClusterHandler() {
-        return (SystemHandler) this.alter.getClusterHandler();
+    public SystemHandler getSystemHandler() {
+        return (SystemHandler) this.alter.getSystemHandler();
     }
 
     public BackupHandler getBackupHandler() {
@@ -4690,6 +4711,9 @@ public class Env {
                 // check if name is already used
                 if (db.getTable(newTableName).isPresent()) {
                     throw new DdlException("Table name[" + newTableName + "] is already used");
+                }
+                if (db.getTable(RestoreJob.tableAliasWithAtomicRestore(newTableName)).isPresent()) {
+                    throw new DdlException("Table name[" + newTableName + "] is already used (in restoring)");
                 }
 
                 if (table.isManagedTable()) {
@@ -5115,11 +5139,7 @@ public class Env {
                     indexIdToSchemaVersion);
             editLog.logColumnRename(info);
             LOG.info("rename coloumn[{}] to {}", colName, newColName);
-            try {
-                Env.getCurrentEnv().getAnalysisManager().dropStats(table, null);
-            } catch (Exception e) {
-                LOG.info("Failed to drop stats after rename column. Reason: {}", e.getMessage());
-            }
+            Env.getCurrentEnv().getAnalysisManager().dropStats(table, null);
         }
     }
 
@@ -5466,15 +5486,15 @@ public class Env {
     }
 
     /*
-     * used for handling AlterClusterStmt
-     * (for client is the ALTER CLUSTER command).
+     * used for handling AlterSystemStmt
+     * (for client is the ALTER SYSTEM command).
      */
-    public void alterCluster(AlterSystemStmt stmt) throws DdlException, UserException {
-        this.alter.processAlterCluster(stmt);
+    public void alterSystem(AlterSystemStmt stmt) throws DdlException, UserException {
+        this.alter.processAlterSystem(stmt);
     }
 
-    public void cancelAlterCluster(CancelAlterSystemStmt stmt) throws DdlException {
-        this.alter.getClusterHandler().cancel(stmt);
+    public void cancelAlterSystem(CancelAlterSystemStmt stmt) throws DdlException {
+        this.alter.getSystemHandler().cancel(stmt);
     }
 
     // Switch catalog of this session
@@ -5530,33 +5550,49 @@ public class Env {
         Database db = getInternalCatalog().getDbOrDdlException(dbName);
 
         // check if table exists in db
+        boolean replace = false;
         if (db.getTable(tableName).isPresent()) {
             if (stmt.isSetIfNotExists()) {
                 LOG.info("create view[{}] which already exists", tableName);
                 return;
+            } else if (stmt.isSetOrReplace()) {
+                replace = true;
+                LOG.info("view[{}] already exists, need to replace it", tableName);
             } else {
                 ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR, tableName);
             }
         }
 
-        List<Column> columns = stmt.getColumns();
+        if (replace) {
+            AlterViewStmt alterViewStmt = new AlterViewStmt(stmt.getTableName(), stmt.getColWithComments(),
+                    stmt.getViewDefStmt());
+            alterViewStmt.setInlineViewDef(stmt.getInlineViewDef());
+            try {
+                alterView(alterViewStmt);
+            } catch (UserException e) {
+                throw new DdlException("failed to replace view[" + tableName + "], reason=" + e.getMessage());
+            }
+            LOG.info("successfully replace view[{}]", tableName);
+        } else {
+            List<Column> columns = stmt.getColumns();
 
-        long tableId = Env.getCurrentEnv().getNextId();
-        View newView = new View(tableId, tableName, columns);
-        newView.setComment(stmt.getComment());
-        newView.setInlineViewDefWithSqlMode(stmt.getInlineViewDef(),
-                ConnectContext.get().getSessionVariable().getSqlMode());
-        // init here in case the stmt string from view.toSql() has some syntax error.
-        try {
-            newView.init();
-        } catch (UserException e) {
-            throw new DdlException("failed to init view stmt, reason=" + e.getMessage());
-        }
+            long tableId = Env.getCurrentEnv().getNextId();
+            View newView = new View(tableId, tableName, columns);
+            newView.setComment(stmt.getComment());
+            newView.setInlineViewDefWithSqlMode(stmt.getInlineViewDef(),
+                    ConnectContext.get().getSessionVariable().getSqlMode());
+            // init here in case the stmt string from view.toSql() has some syntax error.
+            try {
+                newView.init();
+            } catch (UserException e) {
+                throw new DdlException("failed to init view stmt, reason=" + e.getMessage());
+            }
 
-        if (!((Database) db).createTableWithLock(newView, false, stmt.isSetIfNotExists()).first) {
-            throw new DdlException("Failed to create view[" + tableName + "].");
+            if (!((Database) db).createTableWithLock(newView, false, stmt.isSetIfNotExists()).first) {
+                throw new DdlException("Failed to create view[" + tableName + "].");
+            }
+            LOG.info("successfully create view[" + tableName + "-" + newView.getId() + "]");
         }
-        LOG.info("successfully create view[" + tableName + "-" + newView.getId() + "]");
     }
 
     public FunctionRegistry getFunctionRegistry() {

@@ -28,9 +28,11 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FormatOptions;
 import org.apache.doris.datasource.hive.HMSExternalTable;
+import org.apache.doris.datasource.jdbc.JdbcExternalTable;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundHiveTableSink;
 import org.apache.doris.nereids.analyzer.UnboundIcebergTableSink;
+import org.apache.doris.nereids.analyzer.UnboundJdbcTableSink;
 import org.apache.doris.nereids.analyzer.UnboundOneRowRelation;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -266,6 +268,11 @@ public class InsertUtils {
                 throw new AnalysisException("View is not support in hive external table.");
             }
         }
+        if (table instanceof JdbcExternalTable) {
+            // todo:
+            // For JDBC External Table, we always allow certain columns to be missing during insertion
+            // Specific check for non-nullable columns only if insertion is direct VALUES or SELECT constants
+        }
         if (table instanceof OlapTable && ((OlapTable) table).getKeysType() == KeysType.UNIQUE_KEYS) {
             if (unboundLogicalSink instanceof UnboundTableSink
                     && ((UnboundTableSink<? extends Plan>) unboundLogicalSink).isPartialUpdate()) {
@@ -408,6 +415,8 @@ public class InsertUtils {
             unboundTableSink = (UnboundHiveTableSink<? extends Plan>) plan;
         } else if (plan instanceof UnboundIcebergTableSink) {
             unboundTableSink = (UnboundIcebergTableSink<? extends Plan>) plan;
+        } else if (plan instanceof UnboundJdbcTableSink) {
+            unboundTableSink = (UnboundJdbcTableSink<? extends Plan>) plan;
         } else {
             throw new AnalysisException("the root of plan should be"
                     + " [UnboundTableSink, UnboundHiveTableSink, UnboundIcebergTableSink],"

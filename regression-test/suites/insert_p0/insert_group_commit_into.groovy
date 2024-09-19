@@ -116,7 +116,8 @@ suite("insert_group_commit_into") {
             )
             DISTRIBUTED BY HASH(`id`) BUCKETS 1
             PROPERTIES (
-                "replication_num" = "1"
+                "replication_num" = "1",
+                "group_commit_interval_ms" = "200"
             );
             """
 
@@ -333,7 +334,7 @@ suite("insert_group_commit_into") {
             ) UNIQUE key (`teamID`,`service_id`, `start_time`)
             DISTRIBUTED BY hash(`start_time`)
             BUCKETS 1
-            PROPERTIES ("replication_allocation" = "tag.location.default: 1")
+            PROPERTIES ("replication_allocation" = "tag.location.default: 1", "group_commit_interval_ms" = "200")
             """
 
             connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url = context.config.jdbcUrl) {
@@ -384,7 +385,8 @@ suite("insert_group_commit_into") {
             COMMENT 'OLAP'
             DISTRIBUTED BY HASH(`ordernum`) BUCKETS 3
             PROPERTIES (
-            "replication_allocation" = "tag.location.default: 1"
+            "replication_allocation" = "tag.location.default: 1",
+            "group_commit_interval_ms" = "200"
             );"""
             sql """drop table if exists ${table_tmp};"""
             sql """CREATE TABLE ${table_tmp} (
@@ -403,7 +405,8 @@ suite("insert_group_commit_into") {
             COMMENT 'OLAP'
             DISTRIBUTED BY HASH(`ordernum`) BUCKETS 1
             PROPERTIES (
-            "replication_allocation" = "tag.location.default: 1"
+            "replication_allocation" = "tag.location.default: 1",
+            "group_commit_interval_ms" = "200"
             ); """
             sql """DROP MATERIALIZED VIEW IF EXISTS ods_zn_dnt_max1 ON ${table};"""
             createMV("""create materialized view ods_zn_dnt_max1 as
@@ -508,7 +511,8 @@ suite("insert_group_commit_into") {
                 DUPLICATE KEY(`k1`)
                 DISTRIBUTED BY HASH(`k1`) 
                 BUCKETS 1 PROPERTIES (
-                    "replication_allocation" = "tag.location.default: 1"
+                    "replication_allocation" = "tag.location.default: 1",
+                    "group_commit_interval_ms" = "200"
                 ); 
             """
 

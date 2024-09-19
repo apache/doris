@@ -564,9 +564,10 @@ public class NereidsPlanner extends Planner {
         String plan = "";
         String mvSummary = "";
         if (this.getPhysicalPlan() != null && cascadesContext != null) {
-            mvSummary = "\n\n========== MATERIALIZATIONS ==========\n"
-                    + MaterializationContext.toSummaryString(cascadesContext.getMaterializationContexts(),
-                    this.getPhysicalPlan());
+            mvSummary = cascadesContext.getMaterializationContexts().isEmpty() ? "" :
+                    "\n\n========== MATERIALIZATIONS ==========\n"
+                            + MaterializationContext.toSummaryString(cascadesContext.getMaterializationContexts(),
+                            this.getPhysicalPlan());
         }
         switch (explainLevel) {
             case PARSED_PLAN:
@@ -625,9 +626,10 @@ public class NereidsPlanner extends Planner {
             default:
                 plan = super.getExplainString(explainOptions);
                 plan += mvSummary;
+                plan += "\n\n\n========== STATISTICS ==========\n";
                 if (statementContext != null) {
                     if (statementContext.isHasUnknownColStats()) {
-                        plan += "\n\nStatistics\n planed with unknown column statistics\n";
+                        plan += "planed with unknown column statistics\n";
                     }
                 }
         }
@@ -671,7 +673,7 @@ public class NereidsPlanner extends Planner {
         if (physicalPlan instanceof ComputeResultSet) {
             Optional<SqlCacheContext> sqlCacheContext = statementContext.getSqlCacheContext();
             Optional<ResultSet> resultSet = ((ComputeResultSet) physicalPlan)
-                    .computeResultInFe(cascadesContext, sqlCacheContext);
+                    .computeResultInFe(cascadesContext, sqlCacheContext, physicalPlan.getOutput());
             if (resultSet.isPresent()) {
                 return resultSet;
             }

@@ -733,16 +733,33 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
     }
     auto stats_key = stats_tablet_key({instance_id, table_id, index_id, partition_id, tablet_id});
     auto stats_val = stats->SerializeAsString();
+
+    VLOG_DEBUG << "data size, tablet_id=" << tablet_id << " stats.num_rows=" << stats->num_rows()
+               << " stats.data_size=" << stats->data_size()
+               << " stats.num_rowsets=" << stats->num_rowsets()
+               << " stats.num_segments=" << stats->num_segments()
+               << " detached_stats.num_rows=" << detached_stats.num_rows
+               << " detached_stats.data_size=" << detached_stats.data_size
+               << " detached_stats.num_rowset=" << detached_stats.num_rowsets
+               << " detached_stats.num_segments=" << detached_stats.num_segs
+               << " compaction.size_output_rowsets=" << compaction.size_output_rowsets()
+               << " compaction.size_input_rowsets=" << compaction.size_input_rowsets();
     txn->put(stats_key, stats_val);
-    merge_tablet_stats(*stats, detached_stats);
+    merge_tablet_stats(*stats, detached_stats); // this is to check
     if (stats->data_size() < 0 || stats->num_rowsets() < 1) [[unlikely]] {
         INSTANCE_LOG(ERROR) << "buggy data size, tablet_id=" << tablet_id
+                            << " stats.num_rows=" << stats->num_rows()
                             << " stats.data_size=" << stats->data_size()
+                            << " stats.num_rowsets=" << stats->num_rowsets()
+                            << " stats.num_segments=" << stats->num_segments()
+                            << " detached_stats.num_rows=" << detached_stats.num_rows
+                            << " detached_stats.data_size=" << detached_stats.data_size
+                            << " detached_stats.num_rowset=" << detached_stats.num_rowsets
+                            << " detached_stats.num_segments=" << detached_stats.num_segs
                             << " compaction.size_output_rowsets="
                             << compaction.size_output_rowsets()
-                            << " compaction.size_input_rowsets= "
-                            << compaction.size_input_rowsets();
-        DCHECK(false) << "buggy data size";
+                            << " compaction.size_input_rowsets=" << compaction.size_input_rowsets();
+        DCHECK(false) << "buggy data size, tablet_id=" << tablet_id;
     }
 
     VLOG_DEBUG << "update tablet stats tablet_id=" << tablet_id << " key=" << hex(stats_key)
