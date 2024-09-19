@@ -101,6 +101,18 @@ Status VSchemaScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
     if (tnode.schema_scan_node.__isset.catalog) {
         _scanner_param.catalog = _pool->add(new std::string(tnode.schema_scan_node.catalog));
     }
+
+    if (tnode.schema_scan_node.__isset.fe_addr_list) {
+        for (const auto& fe_addr : tnode.schema_scan_node.fe_addr_list) {
+            _scanner_param.fe_addr_list.insert(fe_addr);
+        }
+    } else if (tnode.schema_scan_node.__isset.ip && tnode.schema_scan_node.__isset.port) {
+        TNetworkAddress fe_addr;
+        fe_addr.hostname = tnode.schema_scan_node.ip;
+        fe_addr.port = tnode.schema_scan_node.port;
+        _scanner_param.fe_addr_list.insert(fe_addr);
+    }
+
     return Status::OK();
 }
 

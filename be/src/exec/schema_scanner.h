@@ -55,6 +55,7 @@ struct SchemaScannerParam {
     int64_t thread_id;
     const std::string* catalog;
     std::unique_ptr<RuntimeProfile> profile;
+    std::set<TNetworkAddress> fe_addr_list;
 
     SchemaScannerParam()
             : db(nullptr),
