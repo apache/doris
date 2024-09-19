@@ -50,20 +50,16 @@ using namespace ErrorCode;
 
 MemTable::MemTable(int64_t tablet_id, std::shared_ptr<TabletSchema> tablet_schema,
                    const std::vector<SlotDescriptor*>* slot_descs, TupleDescriptor* tuple_desc,
-                   bool enable_unique_key_mow, PartialUpdateInfo* partial_update_info,
-                   const std::shared_ptr<MemTracker>& insert_mem_tracker,
-                   const std::shared_ptr<MemTracker>& flush_mem_tracker)
-        : _tablet_id(tablet_id),
+                   bool enable_unique_key_mow, PartialUpdateInfo* partial_update_info)
+        : _mem_type(MemType::ACTIVE),
+          _tablet_id(tablet_id),
           _enable_unique_key_mow(enable_unique_key_mow),
           _keys_type(tablet_schema->keys_type()),
           _tablet_schema(tablet_schema),
-          _insert_mem_tracker(insert_mem_tracker),
-          _flush_mem_tracker(flush_mem_tracker),
           _is_first_insertion(true),
           _agg_functions(tablet_schema->num_columns()),
           _offsets_of_aggregate_states(tablet_schema->num_columns()),
-          _total_size_of_aggregate_states(0),
-          _mem_usage(0) {
+          _total_size_of_aggregate_states(0) {
     g_memtable_cnt << 1;
     _query_thread_context.init();
     _arena = std::make_unique<vectorized::Arena>();
@@ -82,6 +78,7 @@ MemTable::MemTable(int64_t tablet_id, std::shared_ptr<TabletSchema> tablet_schem
     }
     // TODO: Support ZOrderComparator in the future
     _init_columns_offset_by_slot_descs(slot_descs, tuple_desc);
+    _mem_tracker = std::make_shared<MemTracker>();
 }
 
 void MemTable::_init_columns_offset_by_slot_descs(const std::vector<SlotDescriptor*>* slot_descs,
@@ -141,6 +138,13 @@ void MemTable::_init_agg_functions(const vectorized::Block* block) {
 
 MemTable::~MemTable() {
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_query_thread_context.query_mem_tracker);
+    if (_is_flush_success) {
+        // If the memtable is flush success, then its memtracker's consumption should be 0
+        if (_mem_tracker->consumption() != 0 && config::crash_in_memory_tracker_inaccurate) {
+            LOG(FATAL) << "memtable flush success but cosumption is not 0, it is "
+                       << _mem_tracker->consumption();
+        }
+    }
     g_memtable_input_block_allocated_size << -_input_mutable_block.allocated_bytes();
     g_memtable_cnt << -1;
     if (_keys_type != KeysType::DUP_KEYS) {
@@ -158,14 +162,7 @@ MemTable::~MemTable() {
         }
     }
     std::for_each(_row_in_blocks.begin(), _row_in_blocks.end(), std::default_delete<RowInBlock>());
-    _insert_mem_tracker->release(_mem_usage);
-    _flush_mem_tracker->set_consumption(0);
-    DCHECK_EQ(_insert_mem_tracker->consumption(), 0)
-            << std::endl
-            << MemTracker::log_usage(_insert_mem_tracker->make_snapshot());
-    DCHECK_EQ(_flush_mem_tracker->consumption(), 0);
     _arena.reset();
-    _agg_buffer_pool.clear();
     _vec_row_comparator.reset();
     _row_in_blocks.clear();
     _agg_functions.clear();
@@ -180,6 +177,7 @@ int RowInBlockComparator::operator()(const RowInBlock* left, const RowInBlock* r
 
 Status MemTable::insert(const vectorized::Block* input_block,
                         const std::vector<uint32_t>& row_idxs) {
+    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
     if (_is_first_insertion) {
         _is_first_insertion = false;
         auto clone_block = input_block->clone_without_columns(&_column_offset);
@@ -214,10 +212,6 @@ Status MemTable::insert(const vectorized::Block* input_block,
                                                   row_idxs.data() + num_rows, &_column_offset));
     auto block_size1 = _input_mutable_block.allocated_bytes();
     g_memtable_input_block_allocated_size << block_size1 - block_size0;
-    auto input_size = size_t(input_block->bytes() * num_rows / input_block->rows() *
-                             config::memtable_insert_memory_ratio);
-    _mem_usage += input_size;
-    _insert_mem_tracker->consume(input_size);
     for (int i = 0; i < num_rows; i++) {
         _row_in_blocks.emplace_back(new RowInBlock {cursor_in_mutableblock + i});
     }
@@ -462,10 +456,6 @@ void MemTable::_aggregate() {
     }
     if constexpr (!is_final) {
         // if is not final, we collect the agg results to input_block and then continue to insert
-        size_t shrunked_after_agg = _output_mutable_block.allocated_bytes();
-        // flush will not run here, so will not duplicate `_flush_mem_tracker`
-        _insert_mem_tracker->consume(shrunked_after_agg - _mem_usage);
-        _mem_usage = shrunked_after_agg;
         _input_mutable_block.swap(_output_mutable_block);
         //TODO(weixang):opt here.
         std::unique_ptr<vectorized::Block> empty_input_block = in_block.create_same_struct_block(0);
@@ -478,6 +468,7 @@ void MemTable::_aggregate() {
 }
 
 void MemTable::shrink_memtable_by_agg() {
+    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
     if (_keys_type == KeysType::DUP_KEYS) {
         return;
     }
@@ -523,8 +514,8 @@ Status MemTable::_to_block(std::unique_ptr<vectorized::Block>* res) {
     }
     g_memtable_input_block_allocated_size << -_input_mutable_block.allocated_bytes();
     _input_mutable_block.clear();
-    _insert_mem_tracker->release(_mem_usage);
-    _mem_usage = 0;
+    // After to block, all data in arena is saved in the block
+    _arena.reset();
     *res = vectorized::Block::create_unique(_output_mutable_block.to_block());
     return Status::OK();
 }
