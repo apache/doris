@@ -2102,7 +2102,6 @@ void MetaServiceImpl::update_delete_bitmap_without_lock(google::protobuf::RpcCon
     RPC_RATE_LIMIT(update_delete_bitmap_without_lock)
 
     uint32_t fdb_txn_size = 0;
-    auto table_id = request->table_id();
     auto tablet_id = request->tablet_id();
 
     std::unique_ptr<Transaction> txn;
