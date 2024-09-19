@@ -18,9 +18,9 @@
 suite("test_decimal256_cast") {
     sql "set enable_nereids_planner = true;"
     sql "set enable_decimal256 = true;"
-    sql """
-        set debug_skip_fold_constant=true;
-    """
+    // sql """
+    //     set debug_skip_fold_constant=true;
+    // """
 
     qt_decimal256_cast0 """SELECT /*+ SET_VAR(enable_fold_constant_by_be = false) */
         cast(999999999999999999999999999999999999999999999999999999999999999999.9999999999 as decimalv3(76,10));"""
