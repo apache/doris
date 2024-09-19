@@ -177,8 +177,12 @@ Status CloudTabletCalcDeleteBitmapTask::handle() const {
     auto sync_rowset_time_us = MonotonicMicros() - t2;
     max_version = tablet->max_version_unlocked();
     if (_version != max_version + 1) {
-        LOG(WARNING) << "version not continuous, current max version=" << max_version
-                     << ", request_version=" << _version << " tablet_id=" << _tablet_id;
+        bool need_log = (config::publish_version_gap_logging_threshold < 0 ||
+                         max_version + config::publish_version_gap_logging_threshold >= _version);
+        if (need_log) {
+            LOG(WARNING) << "version not continuous, current max version=" << max_version
+                         << ", request_version=" << _version << " tablet_id=" << _tablet_id;
+        }
         auto error_st =
                 Status::Error<ErrorCode::DELETE_BITMAP_LOCK_ERROR, false>("version not continuous");
         _engine_calc_delete_bitmap_task->add_error_tablet_id(_tablet_id, error_st);
