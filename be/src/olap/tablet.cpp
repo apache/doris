@@ -2034,8 +2034,8 @@ Status Tablet::_cooldown_data(RowsetSharedPtr rowset) {
     LOG(INFO) << "Upload rowset " << old_rowset->version() << " " << new_rowset_id.to_string()
               << " to " << storage_resource.fs->root_path().native()
               << ", tablet_id=" << tablet_id() << ", duration=" << duration.count()
-              << ", capacity=" << old_rowset->data_disk_size()
-              << ", tp=" << old_rowset->data_disk_size() / duration.count()
+              << ", capacity=" << old_rowset->total_disk_size()
+              << ", tp=" << old_rowset->total_disk_size() / duration.count()
               << ", old rowset_id=" << old_rowset->rowset_id().to_string();
 
     // gen a new rowset
@@ -2414,7 +2414,7 @@ RowsetSharedPtr Tablet::need_cooldown(int64_t* cooldown_timestamp, size_t* file_
     // current time or it's datatime is less than current time
     if (newest_cooldown_time != 0 && newest_cooldown_time < UnixSeconds()) {
         *cooldown_timestamp = newest_cooldown_time;
-        *file_size = rowset->data_disk_size();
+        *file_size = rowset->total_disk_size();
         VLOG_DEBUG << "tablet need cooldown, tablet id: " << tablet_id()
                    << " file_size: " << *file_size;
         return rowset;

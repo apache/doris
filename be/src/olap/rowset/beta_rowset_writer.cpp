@@ -81,7 +81,7 @@ void build_rowset_meta_with_spec_field(RowsetMeta& rowset_meta,
                                        const RowsetMeta& spec_rowset_meta) {
     rowset_meta.set_num_rows(spec_rowset_meta.num_rows());
     rowset_meta.set_total_disk_size(spec_rowset_meta.total_disk_size());
-    rowset_meta.set_data_disk_size(spec_rowset_meta.total_disk_size());
+    rowset_meta.set_data_disk_size(spec_rowset_meta.data_disk_size());
     rowset_meta.set_index_disk_size(spec_rowset_meta.index_disk_size());
     // TODO write zonemap to meta
     rowset_meta.set_empty(spec_rowset_meta.num_rows() == 0);
@@ -597,7 +597,7 @@ Status BaseBetaRowsetWriter::add_rowset(RowsetSharedPtr rowset) {
     assert(rowset->rowset_meta()->rowset_type() == BETA_ROWSET);
     RETURN_IF_ERROR(rowset->link_files_to(_context.tablet_path, _context.rowset_id));
     _num_rows_written += rowset->num_rows();
-    _total_data_size += rowset->rowset_meta()->data_disk_size();
+    _total_data_size += rowset->rowset_meta()->total_disk_size();
     _total_index_size += rowset->rowset_meta()->index_disk_size();
     _num_segment += rowset->num_segments();
     // append key_bounds to current rowset
@@ -830,7 +830,8 @@ Status BaseBetaRowsetWriter::_build_rowset_meta(RowsetMeta* rowset_meta, bool ch
 
     rowset_meta->set_num_segments(segment_num);
     rowset_meta->set_num_rows(num_rows_written + _num_rows_written);
-    rowset_meta->set_total_disk_size(total_data_size + _total_data_size);
+    rowset_meta->set_total_disk_size(total_data_size + _total_data_size + total_index_size +
+                                     _total_index_size);
     rowset_meta->set_data_disk_size(total_data_size + _total_data_size);
     rowset_meta->set_index_disk_size(total_index_size + _total_index_size);
     rowset_meta->set_segments_key_bounds(segments_encoded_key_bounds);
