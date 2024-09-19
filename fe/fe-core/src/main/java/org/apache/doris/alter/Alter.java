@@ -129,7 +129,7 @@ public class Alter {
         Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
         Env.getCurrentInternalCatalog().checkAvailableCapacity(db);
 
-        OlapTable olapTable = (OlapTable) db.getTableOrMetaException(tableName, TableType.OLAP);
+        OlapTable olapTable = (OlapTable) db.getTableWithTypeOrMetaException(tableName, TableType.OLAP);
         ((MaterializedViewHandler) materializedViewHandler).processCreateMaterializedView(stmt, db, olapTable);
     }
 
