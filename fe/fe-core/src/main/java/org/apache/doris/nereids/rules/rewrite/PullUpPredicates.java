@@ -38,6 +38,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.PredicateInferUtils;
 
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSet.Builder;
@@ -226,22 +227,9 @@ public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void
         if (predicates.isEmpty()) {
             return ImmutableSet.of();
         }
-        Set<Expression> inferPredicates = new HashSet<>();
-        Set<Expression> complexPredicates = new HashSet<>();
-        Set<Expression> simplePredicates = new HashSet<>();
-        Set<Expression> tmp = ReplacePredicate.infer(predicates);
-        tmp.addAll(predicates);
-        ExpressionUtils.getComplexAndSimplePredicates(tmp, complexPredicates, simplePredicates);
-        inferPredicates.addAll(complexPredicates);
-        inferPredicates.addAll(NonEqualPredicateInfer.inferUnequalPredicates(simplePredicates));
+        Set<Expression> inferPredicates = PredicateInferUtils.inferPredicate(predicates);
         Builder<Expression> newPredicates = ImmutableSet.builderWithExpectedSize(predicates.size() + 10);
         Set<Slot> outputSet = plan.getOutputSet();
-
-        // for (Expression predicate : predicates) {
-        //     if (outputSet.containsAll(predicate.getInputSlots())) {
-        //         newPredicates.add(predicate);
-        //     }
-        // }
 
         for (Expression inferPredicate : inferPredicates) {
             if (outputSet.containsAll(inferPredicate.getInputSlots())) {

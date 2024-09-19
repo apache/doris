@@ -110,7 +110,7 @@ public class ReplacePredicateTest {
 
         EqualTo expected = new EqualTo(a, b);
         Assertions.assertTrue(result.contains(expected) || result.contains(expected.commute()),
-                "Expected to find a = b in the result.");
+                "Expected to find a = c in the result.");
     }
 
     @Test

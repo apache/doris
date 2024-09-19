@@ -70,7 +70,7 @@ PhysicalResultSink
 PhysicalResultSink
 --NestedLoopJoin[CROSS_JOIN]
 ----PhysicalOlapScan[test_like2]
-----filter((t1.a = t1.c) and (t1.a > 1) and (t1.c > 1))
+----filter((t1.a = t1.c) and (t1.a > 1))
 ------PhysicalOlapScan[test_like1]
 
 -- !infer_long_chain_diff_table --

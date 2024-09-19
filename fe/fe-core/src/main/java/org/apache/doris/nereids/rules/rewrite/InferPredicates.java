@@ -29,13 +29,13 @@ import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.PlanUtils;
+import org.apache.doris.nereids.util.PredicateInferUtils;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
 
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -157,19 +157,7 @@ public class InferPredicates extends DefaultPlanRewriter<JobContext> implements 
         Set<Expression> baseExpressions = pullUpPredicates(left);
         baseExpressions.addAll(pullUpPredicates(right));
         condition.ifPresent(on -> baseExpressions.addAll(ExpressionUtils.extractConjunction(on)));
-        // Set<Expression> newExpressions = new HashSet<>();
-        // newExpressions.addAll(PredicatePropagation.infer(baseExpressions));
-        // newExpressions.addAll(NonEqualPredicateInfer.inferUnequalPredicates(baseExpressions));
-
-        Set<Expression> inferPredicates = new HashSet<>();
-        Set<Expression> complexPredicates = new HashSet<>();
-        Set<Expression> simplePredicates = new HashSet<>();
-        Set<Expression> tmp = ReplacePredicate.infer(baseExpressions);
-        tmp.addAll(baseExpressions);
-        ExpressionUtils.getComplexAndSimplePredicates(tmp, complexPredicates, simplePredicates);
-        inferPredicates.addAll(complexPredicates);
-        inferPredicates.addAll(NonEqualPredicateInfer.inferUnequalPredicates(simplePredicates));
-        return inferPredicates;
+        return PredicateInferUtils.inferPredicate(baseExpressions);
     }
 
     private Set<Expression> pullUpPredicates(Plan plan) {

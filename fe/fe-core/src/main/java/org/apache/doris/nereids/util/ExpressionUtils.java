@@ -34,16 +34,11 @@ import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.GreaterThan;
-import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.IsNull;
-import org.apache.doris.nereids.trees.expressions.LessThan;
-import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Not;
-import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -954,38 +949,5 @@ public class ExpressionUtils {
             }
         }
         return true;
-    }
-
-    public static boolean isSlotOrLiteral(Expression expr) {
-        return expr instanceof SlotReference || expr instanceof Literal;
-    }
-
-    public static void getComplexAndSimplePredicates(Set<Expression> inputs, Set<Expression> complex, Set<Expression> simple) {
-        for (Expression input : inputs) {
-            if (input instanceof ComparisonPredicate && !(input instanceof NullSafeEqual)) {
-                ComparisonPredicate comparisonPredicate = (ComparisonPredicate) input;
-                if (comparisonPredicate.left().equals(comparisonPredicate.right())) {
-                    complex.add(input);
-                }
-                Set<Slot> leftSlots = comparisonPredicate.left().getInputSlots();
-                Set<Slot> rightSlots = comparisonPredicate.right().getInputSlots();
-                if (leftSlots.isEmpty() && rightSlots.isEmpty()) {
-                    complex.add(input);
-                }
-                if (!isSlotOrLiteral(comparisonPredicate.left()) || !isSlotOrLiteral(comparisonPredicate.right())) {
-                    complex.add(input);
-                }
-                if (comparisonPredicate instanceof LessThan || comparisonPredicate instanceof LessThanEqual) {
-                    simple.add(comparisonPredicate.commute());
-                } else if (comparisonPredicate instanceof GreaterThan || comparisonPredicate instanceof GreaterThanEqual
-                        || comparisonPredicate instanceof EqualTo) {
-                    simple.add(comparisonPredicate);
-                } else {
-                    complex.add(input);
-                }
-            } else {
-                complex.add(input);
-            }
-        }
     }
 }

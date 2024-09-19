@@ -19,7 +19,6 @@ package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.analyzer.Scope;
-import org.apache.doris.nereids.rules.AbstractEqualSet;
 import org.apache.doris.nereids.rules.analysis.ExpressionAnalyzer;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
@@ -46,7 +45,6 @@ import org.apache.doris.nereids.util.ImmutableEqualSet;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableSet;
 
 import java.util.Comparator;
 import java.util.HashMap;
@@ -188,8 +186,8 @@ public class ReplacePredicate {
     EqualPairs is the output parameter and the equivalent pair of predicate derivation input,
     which is used to ensure that the derivation
     does not generate repeated equivalent conditions, such as a=b and b=a */
-    private static AbstractEqualSet<Slot> findEqual(Set<Expression> inputs, Set<Pair<Slot, Slot>> equalPairs) {
-        AbstractEqualSet.Builder<Slot> fromCastEqualSetBuilder = new ImmutableEqualSet.Builder<>();
+    private static ImmutableEqualSet<Slot> findEqual(Set<Expression> inputs, Set<Pair<Slot, Slot>> equalPairs) {
+        ImmutableEqualSet.Builder<Slot> fromCastEqualSetBuilder = new ImmutableEqualSet.Builder<>();
         for (Expression input : inputs) {
             if (!(input instanceof EqualTo)) {
                 continue;
@@ -219,10 +217,10 @@ public class ReplacePredicate {
      * The return value is the derived predicates*/
     public static Set<Expression> infer(Set<Expression> inputs) {
         Set<Pair<Slot, Slot>> equalPairs = new HashSet<>();
-        AbstractEqualSet<Slot> hasCastEqualSet = findEqual(inputs, equalPairs);
+        ImmutableEqualSet<Slot> hasCastEqualSet = findEqual(inputs, equalPairs);
         Set<Slot> targetExprs = hasCastEqualSet.getAllItemSet();
         if (targetExprs.isEmpty()) {
-            return ImmutableSet.of();
+            return new HashSet<>();
         }
         Map<Expression, Set<Expression>> exprPredicates = new HashMap<>();
         for (Expression input : inputs) {
@@ -326,7 +324,7 @@ public class ReplacePredicate {
     }
 
     /* This function is used to input a=b b=c to derive a=c, and return a=c.*/
-    private static Set<Expression> deduceTransitiveEquality(AbstractEqualSet<Slot> equalSet,
+    private static Set<Expression> deduceTransitiveEquality(ImmutableEqualSet<Slot> equalSet,
             Set<Pair<Slot, Slot>> equalPairs) {
         List<Set<Slot>> equalSetList = equalSet.calEqualSetList();
         Set<Expression> derivedEqualities = new HashSet<>();
@@ -359,5 +357,4 @@ public class ReplacePredicate {
         }
         return qualifiers.size() == 1;
     }
-
 }
