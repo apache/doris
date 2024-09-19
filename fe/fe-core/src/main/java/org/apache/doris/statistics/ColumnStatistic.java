@@ -46,13 +46,9 @@ public class ColumnStatistic {
 
     private static final Logger LOG = LogManager.getLogger(ColumnStatistic.class);
 
-    public static ColumnStatistic UNKNOWN = new ColumnStatisticBuilder().setAvgSizeByte(1).setNdv(1)
-            .setNumNulls(1).setCount(1).setMaxValue(Double.POSITIVE_INFINITY).setMinValue(Double.NEGATIVE_INFINITY)
+    public static ColumnStatistic UNKNOWN = new ColumnStatisticBuilder(1).setAvgSizeByte(1).setNdv(1)
+            .setNumNulls(1).setMaxValue(Double.POSITIVE_INFINITY).setMinValue(Double.NEGATIVE_INFINITY)
             .setIsUnknown(true).setUpdatedTime("")
-            .build();
-
-    public static ColumnStatistic ZERO = new ColumnStatisticBuilder().setAvgSizeByte(0).setNdv(0)
-            .setNumNulls(0).setCount(0).setMaxValue(Double.NaN).setMinValue(Double.NaN)
             .build();
 
     public static final Set<Type> UNSUPPORTED_TYPE = Sets.newHashSet(
@@ -60,6 +56,8 @@ public class ColumnStatistic {
             Type.VARIANT, Type.TIME, Type.TIMEV2, Type.LAMBDA_FUNCTION
     );
 
+    // ATTENTION: Stats deriving WILL NOT use 'count' field any longer.
+    // Use 'rowCount' field in Statistics if needed.
     @SerializedName("count")
     public final double count;
     @SerializedName("ndv")
@@ -122,9 +120,8 @@ public class ColumnStatistic {
 
     // TODO: use thrift
     public static ColumnStatistic fromResultRow(ResultRow row) {
-        ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder();
         double count = Double.parseDouble(row.get(7));
-        columnStatisticBuilder.setCount(count);
+        ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder(count);
         double ndv = Double.parseDouble(row.getWithDefault(8, "0"));
         columnStatisticBuilder.setNdv(ndv);
         String nullCount = row.getWithDefault(9, "0");
@@ -188,26 +185,6 @@ public class ColumnStatistic {
 
     public static boolean isAlmostUnique(double ndv, double rowCount) {
         return rowCount * ALMOST_UNIQUE_FACTOR < ndv;
-    }
-
-    public ColumnStatistic updateByLimit(long limit, double rowCount) {
-        double ratio = 0;
-        if (rowCount != 0) {
-            ratio = limit / rowCount;
-        }
-        double newNdv = Math.ceil(Math.min(ndv, limit));
-        return new ColumnStatisticBuilder()
-                .setCount(Math.ceil(limit))
-                .setNdv(newNdv)
-                .setAvgSizeByte(Math.ceil(avgSizeByte))
-                .setNumNulls(Math.ceil(numNulls * ratio))
-                .setDataSize(Math.ceil(dataSize * ratio))
-                .setMinValue(minValue)
-                .setMaxValue(maxValue)
-                .setMinExpr(minExpr)
-                .setMaxExpr(maxExpr)
-                .setIsUnknown(isUnKnown)
-                .build();
     }
 
     public boolean hasIntersect(ColumnStatistic other) {

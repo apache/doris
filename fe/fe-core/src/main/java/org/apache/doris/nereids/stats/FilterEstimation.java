@@ -323,6 +323,8 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
             selectivity = DEFAULT_INEQUALITY_COEFFICIENT;
         } else {
             double ndv = statsForLeft.ndv;
+            double numNulls = statsForLeft.numNulls;
+            double rowCount = context.statistics.getRowCount();
             if (statsForRight.isUnKnown) {
                 if (ndv >= 1.0) {
                     selectivity = 1.0 / ndv;
@@ -338,7 +340,7 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
                 } else {
                     selectivity = DEFAULT_INEQUALITY_COEFFICIENT;
                 }
-                selectivity = getNotNullSelectivity(statsForLeft, selectivity);
+                selectivity = getNotNullSelectivity(numNulls, rowCount, ndv, selectivity);
             }
         }
         Statistics equalStats = context.statistics.withSel(selectivity);
@@ -451,7 +453,8 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
         compareExprStatsBuilder.setNumNulls(0);
         Statistics estimated = new StatisticsBuilder(context.statistics).build();
         ColumnStatistic stats = compareExprStatsBuilder.build();
-        selectivity = getNotNullSelectivity(stats, selectivity);
+        selectivity = getNotNullSelectivity(compareExprStats.numNulls, estimated.getRowCount(),
+                compareExprStats.ndv, selectivity);
         estimated = estimated.withSel(selectivity);
         estimated.addColumnStats(compareExpr, stats);
         context.addKeyIfSlot(compareExpr);
@@ -546,7 +549,7 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
             outputRowCount = Math.max(outputRowCount, 1);
         }
         ColumnStatisticBuilder colBuilder = new ColumnStatisticBuilder(childColStats);
-        colBuilder.setCount(outputRowCount).setNumNulls(outputRowCount)
+        colBuilder.setNumNulls(outputRowCount)
                 .setMaxValue(Double.POSITIVE_INFINITY)
                 .setMinValue(Double.NEGATIVE_INFINITY)
                 .setNdv(0);
@@ -597,7 +600,6 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
                     .setMaxValue(Double.POSITIVE_INFINITY)
                     .setMaxExpr(null)
                     .setNdv(0)
-                    .setCount(0)
                     .setNumNulls(0);
         } else {
             leftColumnStatisticBuilder = new ColumnStatisticBuilder(leftStats)
@@ -615,9 +617,8 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
             } else {
                 sel = Math.max(sel, RANGE_SELECTIVITY_THRESHOLD);
             }
-            sel = getNotNullSelectivity(leftStats, sel);
+            sel = getNotNullSelectivity(leftStats.numNulls, context.statistics.getRowCount(), leftStats.ndv, sel);
             updatedStatistics = context.statistics.withSel(sel);
-            leftColumnStatisticBuilder.setCount(updatedStatistics.getRowCount());
         }
         updatedStatistics.addColumnStats(leftExpr, leftColumnStatisticBuilder.build());
         context.addKeyIfSlot(leftExpr);
@@ -720,36 +721,27 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
     @Override
     public Statistics visitLike(Like like, EstimationContext context) {
         StatisticsBuilder statsBuilder = new StatisticsBuilder(context.statistics);
-        statsBuilder.setRowCount(context.statistics.getRowCount() * DEFAULT_LIKE_COMPARISON_SELECTIVITY);
+        double rowCount = context.statistics.getRowCount() * DEFAULT_LIKE_COMPARISON_SELECTIVITY;
+        statsBuilder.setRowCount(rowCount);
         if (like.left() instanceof Slot) {
             ColumnStatistic origin = context.statistics.findColumnStatistics(like.left());
             Preconditions.checkArgument(origin != null,
                     "col stats not found. slot=%s in %s",
                     like.left().toSql(), like.toSql());
             ColumnStatisticBuilder colBuilder = new ColumnStatisticBuilder(origin);
-            double selectivity = StatsMathUtil.divide(DEFAULT_LIKE_COMPARISON_SELECTIVITY, origin.ndv);
-            double notNullSel = getNotNullSelectivity(origin, selectivity);
-            colBuilder.setNdv(origin.ndv * DEFAULT_LIKE_COMPARISON_SELECTIVITY)
-                    .setCount(notNullSel * context.statistics.getRowCount()).setNumNulls(0);
+            colBuilder.setNdv(origin.ndv * DEFAULT_LIKE_COMPARISON_SELECTIVITY).setNumNulls(0);
             statsBuilder.putColumnStatistics(like.left(), colBuilder.build());
             context.addKeyIfSlot(like.left());
         }
         return statsBuilder.build();
     }
 
-    private double getNotNullSelectivity(ColumnStatistic stats, double origSel) {
-        double rowCount = stats.count;
-        double numNulls = stats.numNulls;
-
-        // comment following check since current rowCount and ndv may be inconsistant
-        // e.g, rowCount has been reduced by one filter but another filter column's
-        // ndv and numNull remains originally, which will unexpectedly go into the following
-        // normalization.
-
-        //if (numNulls > rowCount - ndv) {
-        //    numNulls = rowCount - ndv > 0 ? rowCount - ndv : 0;
-        //}
-        double notNullSel = rowCount <= 1.0 ? 1.0 : 1 - Statistics.getValidSelectivity(numNulls / rowCount);
+    private double getNotNullSelectivity(double origNumNulls, double origRowCount, double origNdv, double origSel) {
+        if (origNumNulls > origRowCount - origNdv) {
+            origNumNulls = origRowCount - origNdv > 0 ? origRowCount - origNdv : 0;
+        }
+        double notNullSel = origRowCount <= 1.0 ? 1.0 : 1 - Statistics
+                .getValidSelectivity(origNumNulls / origRowCount);
         double validSel = origSel * notNullSel;
         return Statistics.getValidSelectivity(validSel);
     }
