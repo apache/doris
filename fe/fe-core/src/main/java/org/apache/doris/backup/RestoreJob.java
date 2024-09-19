@@ -651,8 +651,8 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
             }
         }
 
-        // the new tablets -> { local tablet, schema hash }, used in atomic restore.
-        Map<Long, Pair<Long, Integer>> tabletBases = new HashMap<>();
+        // the new tablets -> { local tablet, schema hash, storage medium }, used in atomic restore.
+        Map<Long, TabletRef> tabletBases = new HashMap<>();
 
         // Check and prepare meta objects.
         AgentBatchTask batchTask = new AgentBatchTask();
@@ -1043,13 +1043,29 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
 
     private Status bindLocalAndRemoteOlapTableReplicas(
             OlapTable localOlapTbl, OlapTable remoteOlapTbl,
-            Map<Long, Pair<Long, Integer>> tabletBases) {
+            Map<Long, TabletRef> tabletBases) {
         localOlapTbl.readLock();
         try {
+            // The storage medium of the remote olap table's storage is HDD, because we want to
+            // restore the tables in another cluster might without SSD.
+            //
+            // Keep the storage medium of the new olap table the same as the old one, so that
+            // the replicas in the new olap table will not be migrated to other storage mediums.
+            remoteOlapTbl.setStorageMedium(localOlapTbl.getStorageMedium());
             for (Partition partition : remoteOlapTbl.getPartitions()) {
                 Partition localPartition = localOlapTbl.getPartition(partition.getName());
                 if (localPartition == null) {
                     continue;
+                }
+                // Since the replicas are bound to the same disk, the storage medium must be the same
+                // to avoid media migration.
+                TStorageMedium storageMedium = localOlapTbl.getPartitionInfo()
+                        .getDataProperty(localPartition.getId()).getStorageMedium();
+                remoteOlapTbl.getPartitionInfo().getDataProperty(partition.getId())
+                        .setStorageMedium(storageMedium);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("bind local partition {} and remote partition {} with same storage medium {}, name: {}",
+                            localPartition.getId(), partition.getId(), storageMedium, partition.getName());
                 }
                 for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
                     String indexName = remoteOlapTbl.getIndexNameById(index.getId());
@@ -1098,7 +1114,8 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                                         localOlapTbl.getName());
                             }
                         }
-                        tabletBases.put(remoteTablet.getId(), Pair.of(localTablet.getId(), schemaHash));
+                        tabletBases.put(remoteTablet.getId(),
+                                new TabletRef(localTablet.getId(), schemaHash, storageMedium));
                     }
                 }
             }
@@ -1230,7 +1247,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
     }
 
     private void createReplicas(Database db, AgentBatchTask batchTask, OlapTable localTbl, Partition restorePart,
-            Map<Long, Pair<Long, Integer>> tabletBases) {
+            Map<Long, TabletRef> tabletBases) {
         Set<String> bfColumns = localTbl.getCopiedBfColumns();
         double bfFpp = localTbl.getBfFpp();
 
@@ -1248,8 +1265,12 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
             List<Index> indexes = restoredIdx.getId() == localTbl.getBaseIndexId()
                                     ? localTbl.getCopiedIndexes() : null;
             for (Tablet restoreTablet : restoredIdx.getTablets()) {
+                TabletRef baseTabletRef = tabletBases == null ? null : tabletBases.get(restoreTablet.getId());
+                // All restored replicas will be saved to HDD by default.
+                TStorageMedium storageMedium = baseTabletRef == null
+                        ? TStorageMedium.HDD : baseTabletRef.storageMedium;
                 TabletMeta tabletMeta = new TabletMeta(db.getId(), localTbl.getId(), restorePart.getId(),
-                        restoredIdx.getId(), indexMeta.getSchemaHash(), TStorageMedium.HDD);
+                        restoredIdx.getId(), indexMeta.getSchemaHash(), storageMedium);
                 Env.getCurrentInvertedIndex().addTablet(restoreTablet.getId(), tabletMeta);
                 for (Replica restoreReplica : restoreTablet.getReplicas()) {
                     Env.getCurrentInvertedIndex().addReplica(restoreTablet.getId(), restoreReplica);
@@ -1258,7 +1279,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                             restoreTablet.getId(), restoreReplica.getId(), indexMeta.getShortKeyColumnCount(),
                             indexMeta.getSchemaHash(), restoreReplica.getVersion(),
                             indexMeta.getKeysType(), TStorageType.COLUMN,
-                            TStorageMedium.HDD /* all restored replicas will be saved to HDD */,
+                            storageMedium,
                             indexMeta.getSchema(), bfColumns, bfFpp, null,
                             indexes,
                             localTbl.isInMemory(),
@@ -1283,12 +1304,11 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                             localTbl.variantEnableFlattenNested());
                     task.setInvertedIndexFileStorageFormat(localTbl.getInvertedIndexFileStorageFormat());
                     task.setInRestoreMode(true);
-                    if (tabletBases != null && tabletBases.containsKey(restoreTablet.getId())) {
+                    if (baseTabletRef != null) {
                         // ensure this replica is bound to the same backend disk as the origin table's replica.
-                        Pair<Long, Integer> baseTablet = tabletBases.get(restoreTablet.getId());
-                        task.setBaseTablet(baseTablet.first, baseTablet.second);
+                        task.setBaseTablet(baseTabletRef.tabletId, baseTabletRef.schemaHash);
                         LOG.info("set base tablet {} for replica {} in restore job {}, tablet id={}",
-                                baseTablet.first, restoreReplica.getId(), jobId, restoreTablet.getId());
+                                baseTabletRef.tabletId, restoreReplica.getId(), jobId, restoreTablet.getId());
                     }
                     batchTask.addTask(task);
                 }
@@ -1376,7 +1396,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
     }
 
     private void genFileMapping(OlapTable localTbl, Partition localPartition, Long remoteTblId,
-            BackupPartitionInfo backupPartInfo, boolean overwrite, Map<Long, Pair<Long, Integer>> tabletBases) {
+            BackupPartitionInfo backupPartInfo, boolean overwrite, Map<Long, TabletRef> tabletBases) {
         for (MaterializedIndex localIdx : localPartition.getMaterializedIndices(IndexExtState.VISIBLE)) {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("get index id: {}, index name: {}", localIdx.getId(),
@@ -1393,7 +1413,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                 for (Replica localReplica : localTablet.getReplicas()) {
                     long refTabletId = -1L;
                     if (tabletBases != null && tabletBases.containsKey(localTablet.getId())) {
-                        refTabletId = tabletBases.get(localTablet.getId()).first;
+                        refTabletId = tabletBases.get(localTablet.getId()).tabletId;
                         if (LOG.isDebugEnabled()) {
                             LOG.debug("restored tablet {} is based on exists tablet {}",
                                     localTablet.getId(), refTabletId);
@@ -2567,5 +2587,17 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
 
     public static String tableAliasWithAtomicRestore(String tableName) {
         return ATOMIC_RESTORE_TABLE_PREFIX + tableName;
+    }
+
+    private static class TabletRef {
+        public long tabletId;
+        public int schemaHash;
+        public TStorageMedium storageMedium;
+
+        TabletRef(long tabletId, int schemaHash, TStorageMedium storageMedium) {
+            this.tabletId = tabletId;
+            this.schemaHash = schemaHash;
+            this.storageMedium = storageMedium;
+        }
     }
 }
