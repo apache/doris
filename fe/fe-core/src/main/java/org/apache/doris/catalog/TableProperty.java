@@ -609,8 +609,11 @@ public class TableProperty implements Writable, GsonPostProcessable {
         return compressionType;
     }
 
+    /**
+     * Enable light schema change by force, no matter what users set
+     */
     public boolean getUseSchemaLightChange() {
-        return enableLightSchemaChange;
+        return true;
     }
 
     public void setEnableUniqueKeyMergeOnWrite(boolean enable) {
