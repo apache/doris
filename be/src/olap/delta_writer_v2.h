@@ -70,9 +70,10 @@ public:
 
     ~DeltaWriterV2();
 
-    Status init();
+    Status init(const cctz::time_zone& timezone = {});
 
-    Status write(const vectorized::Block* block, const std::vector<uint32_t>& row_idxs);
+    Status write(const vectorized::Block* block, const std::vector<uint32_t>& row_idxs,
+                 const cctz::time_zone& timezone = {});
 
     // flush the last memtable to flush queue, must call it before close_wait()
     Status close();

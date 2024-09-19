@@ -54,39 +54,44 @@
 
 namespace doris::vectorized {
 
-OlapBlockDataConvertor::OlapBlockDataConvertor(const TabletSchema* tablet_schema) {
+OlapBlockDataConvertor::OlapBlockDataConvertor(const TabletSchema* tablet_schema,
+                                               const cctz::time_zone& timezone) {
     assert(tablet_schema);
     const auto& columns = tablet_schema->columns();
     for (const auto& col : columns) {
-        _convertors.emplace_back(create_olap_column_data_convertor(*col));
+        _convertors.emplace_back(create_olap_column_data_convertor(*col, timezone));
     }
 }
 
 OlapBlockDataConvertor::OlapBlockDataConvertor(const TabletSchema* tablet_schema,
-                                               const std::vector<uint32_t>& col_ids) {
+                                               const std::vector<uint32_t>& col_ids,
+                                               const cctz::time_zone& timezone) {
     assert(tablet_schema);
     for (const auto& id : col_ids) {
         const auto& col = tablet_schema->column(id);
-        _convertors.emplace_back(create_olap_column_data_convertor(col));
+        _convertors.emplace_back(create_olap_column_data_convertor(col, timezone));
     }
 }
 
-void OlapBlockDataConvertor::add_column_data_convertor(const TabletColumn& column) {
-    _convertors.emplace_back(create_olap_column_data_convertor(column));
+void OlapBlockDataConvertor::add_column_data_convertor(const TabletColumn& column,
+                                                       const cctz::time_zone& timezone) {
+    _convertors.emplace_back(create_olap_column_data_convertor(column, timezone));
 }
 
 OlapBlockDataConvertor::OlapColumnDataConvertorBaseUPtr
-OlapBlockDataConvertor::create_map_convertor(const TabletColumn& column) {
+OlapBlockDataConvertor::create_map_convertor(const TabletColumn& column,
+                                             const cctz::time_zone& timezone) {
     const auto& key_column = column.get_sub_column(0);
     const auto& value_column = column.get_sub_column(1);
-    return std::make_unique<OlapColumnDataConvertorMap>(key_column, value_column);
+    return std::make_unique<OlapColumnDataConvertorMap>(key_column, value_column, timezone);
 }
 
 OlapBlockDataConvertor::OlapColumnDataConvertorBaseUPtr
-OlapBlockDataConvertor::create_array_convertor(const TabletColumn& column) {
+OlapBlockDataConvertor::create_array_convertor(const TabletColumn& column,
+                                               const cctz::time_zone& timezone) {
     const auto& sub_column = column.get_sub_column(0);
     return std::make_unique<OlapColumnDataConvertorArray>(
-            create_olap_column_data_convertor(sub_column));
+            create_olap_column_data_convertor(sub_column, timezone));
 }
 
 OlapBlockDataConvertor::OlapColumnDataConvertorBaseUPtr
@@ -112,7 +117,8 @@ OlapBlockDataConvertor::create_agg_state_convertor(const TabletColumn& column) {
 }
 
 OlapBlockDataConvertor::OlapColumnDataConvertorBaseUPtr
-OlapBlockDataConvertor::create_olap_column_data_convertor(const TabletColumn& column) {
+OlapBlockDataConvertor::create_olap_column_data_convertor(const TabletColumn& column,
+                                                          const cctz::time_zone& timezone) {
     switch (column.type()) {
     case FieldType::OLAP_FIELD_TYPE_OBJECT: {
         return std::make_unique<OlapColumnDataConvertorBitMap>();
@@ -148,7 +154,7 @@ OlapBlockDataConvertor::create_olap_column_data_convertor(const TabletColumn& co
         return std::make_unique<OlapColumnDataConvertorDateTimeV2>();
     }
     case FieldType::OLAP_FIELD_TYPE_TIMESTAMP: {
-        return std::make_unique<OlapColumnDataConvertorTimestamp>();
+        return std::make_unique<OlapColumnDataConvertorTimestamp>(timezone);
     }
     case FieldType::OLAP_FIELD_TYPE_DECIMAL: {
         return std::make_unique<OlapColumnDataConvertorDecimal>();
@@ -205,15 +211,15 @@ OlapBlockDataConvertor::create_olap_column_data_convertor(const TabletColumn& co
         std::vector<OlapColumnDataConvertorBaseUPtr> sub_convertors;
         for (uint32_t i = 0; i < column.get_subtype_count(); i++) {
             const TabletColumn& sub_column = column.get_sub_column(i);
-            sub_convertors.emplace_back(create_olap_column_data_convertor(sub_column));
+            sub_convertors.emplace_back(create_olap_column_data_convertor(sub_column, timezone));
         }
         return std::make_unique<OlapColumnDataConvertorStruct>(sub_convertors);
     }
     case FieldType::OLAP_FIELD_TYPE_ARRAY: {
-        return create_array_convertor(column);
+        return create_array_convertor(column, timezone);
     }
     case FieldType::OLAP_FIELD_TYPE_MAP: {
-        return create_map_convertor(column);
+        return create_map_convertor(column, timezone);
     }
     default: {
         throw Exception(ErrorCode::INTERNAL_ERROR, "Invalid type in olap data convertor: {}",

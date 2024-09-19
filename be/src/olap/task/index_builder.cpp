@@ -373,7 +373,8 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
                     continue;
                 }
                 DCHECK(output_rowset_schema->has_inverted_index_with_index_id(index_id, ""));
-                _olap_data_convertor->add_column_data_convertor(column);
+                cctz::time_zone tz {}; //TODOZY
+                _olap_data_convertor->add_column_data_convertor(column, tz);
                 return_columns.emplace_back(column_idx);
                 std::unique_ptr<Field> field(FieldFactory::create(column));
                 const auto* index_meta = output_rowset_schema->get_inverted_index(column);

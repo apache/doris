@@ -109,6 +109,8 @@ struct RowsetWriterContext {
 
     int64_t compaction_level = 0;
 
+    cctz::time_zone timezone;
+
     // For local rowset
     std::string tablet_path;
 

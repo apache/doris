@@ -418,14 +418,14 @@ Status VTabletWriterV2::write(RuntimeState* state, Block& input_block) {
 
     // For each tablet, send its input_rows from block to delta writer
     for (const auto& [tablet_id, rows] : rows_for_tablet) {
-        RETURN_IF_ERROR(_write_memtable(block, tablet_id, rows));
+        RETURN_IF_ERROR(_write_memtable(block, tablet_id, rows, state->timezone_obj()));
     }
 
     return Status::OK();
 }
 
 Status VTabletWriterV2::_write_memtable(std::shared_ptr<vectorized::Block> block, int64_t tablet_id,
-                                        const Rows& rows) {
+                                        const Rows& rows, const cctz::time_zone& timezone) {
     auto delta_writer = _delta_writer_for_tablet->get_or_create(tablet_id, [&]() {
         Streams streams;
         auto st = _select_streams(tablet_id, rows.partition_id, rows.index_id, streams);
@@ -471,7 +471,7 @@ Status VTabletWriterV2::_write_memtable(std::shared_ptr<vectorized::Block> block
         ExecEnv::GetInstance()->memtable_memory_limiter()->handle_memtable_flush();
     }
     SCOPED_TIMER(_write_memtable_timer);
-    auto st = delta_writer->write(block.get(), rows.row_idxes);
+    auto st = delta_writer->write(block.get(), rows.row_idxes, timezone);
     return st;
 }
 

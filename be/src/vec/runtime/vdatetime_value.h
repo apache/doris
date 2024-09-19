@@ -843,8 +843,8 @@ public:
         {
             cctz::time_zone utc_tz {};
             TimezoneUtils::find_cctz_time_zone(TimezoneUtils::utc_time_zone, utc_tz);
-            auto given = cctz::convert(cctz::civil_second {}, timezone);
-            auto local = cctz::convert(cctz::civil_second {}, utc_tz);
+            auto local = cctz::convert(cctz::civil_second {}, timezone);
+            auto given = cctz::convert(cctz::civil_second {}, utc_tz);
             _sec_offset = std::chrono::duration_cast<std::chrono::seconds>(given - local).count();
         }
 
@@ -871,14 +871,15 @@ public:
         {
             cctz::time_zone utc_tz {};
             TimezoneUtils::find_cctz_time_zone(TimezoneUtils::utc_time_zone, utc_tz);
-            auto given = cctz::convert(cctz::civil_second {}, utc_tz);
-            auto local = cctz::convert(cctz::civil_second {}, timezone);
+            auto local = cctz::convert(cctz::civil_second {}, utc_tz);
+            auto given = cctz::convert(cctz::civil_second {}, timezone);
             _sec_offset = std::chrono::duration_cast<std::chrono::seconds>(given - local).count();
         }
 
         tmp = conv.dt;
         tmp.date_add_interval<TimeUnit::SECOND>(
                 TimeInterval {TimeUnit::SECOND, _sec_offset, false});
+        conv.dt = tmp;
 
         return conv.ui64;
     }

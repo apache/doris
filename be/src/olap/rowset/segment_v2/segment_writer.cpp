@@ -263,7 +263,7 @@ Status SegmentWriter::_create_column_writer(uint32_t cid, const TabletColumn& co
     RETURN_IF_ERROR(writer->init());
     _column_writers.push_back(std::move(writer));
 
-    _olap_data_convertor->add_column_data_convertor(column);
+    _olap_data_convertor->add_column_data_convertor(column, _opts.rowset_ctx->timezone);
     return Status::OK();
 }
 

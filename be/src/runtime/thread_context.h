@@ -332,6 +332,7 @@ public:
                        const std::shared_ptr<MemTrackerLimiter>& mem_tracker,
                        const std::weak_ptr<WorkloadGroup>& wg_wptr)
             : query_id(query_id), query_mem_tracker(mem_tracker), wg_wptr(wg_wptr) {}
+
     // If use WorkloadGroup and can get WorkloadGroup ptr, must as a parameter.
     QueryThreadContext(const TUniqueId& query_id,
                        const std::shared_ptr<MemTrackerLimiter>& mem_tracker)
