@@ -95,6 +95,7 @@ Status CloudEngineCalcDeleteBitmapTask::execute() {
     }
     // wait for all finished
     token->wait();
+    DBUG_EXECUTE_IF("CloudEngineCalcDeleteBitmapTask.execute.enable_wait", { sleep(3); });
 
     LOG(INFO) << "finish to calculate delete bitmap on transaction."
               << "transaction_id=" << transaction_id << ", cost(us): " << watch.get_elapse_time_us()
