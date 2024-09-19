@@ -153,12 +153,12 @@ suite("regression_test_variant_github_events_p2", "nonConcurrent,p2"){
     sql """
         CREATE TABLE IF NOT EXISTS ${table_name} (
             k bigint,
-            v variant not null
+            v variant 
             -- INDEX idx_var(v) USING INVERTED PROPERTIES("parser" = "english") COMMENT ''
         )
         DUPLICATE KEY(`k`)
         DISTRIBUTED BY HASH(k) BUCKETS 4 
-        properties("replication_num" = "1", "disable_auto_compaction" = "false", "bloom_filter_columns" = "v");
+        properties("replication_num" = "1", "disable_auto_compaction" = "true", "bloom_filter_columns" = "v", "variant_enable_flatten_nested" = "true");
     """
     set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "1")
     // 2015
@@ -167,9 +167,9 @@ suite("regression_test_variant_github_events_p2", "nonConcurrent,p2"){
     load_json_data.call(table_name, """${getS3Url() + '/regression/gharchive.m/2015-01-01-2.json'}""")
     load_json_data.call(table_name, """${getS3Url() + '/regression/gharchive.m/2015-01-01-3.json'}""")
 
-    // build inverted index at middle of loading the data
+    // // build inverted index at middle of loading the data
     // ADD INDEX
-    sql """ ALTER TABLE github_events ADD INDEX idx_var (`v`) USING INVERTED PROPERTIES("parser" = "chinese", "parser_mode" = "fine_grained", "support_phrase" = "true") """
+    sql """ ALTER TABLE github_events ADD INDEX idx_var (`v`) USING INVERTED PROPERTIES("parser" = "english", "support_phrase" = "true") """
     wait_for_latest_op_on_table_finish("github_events", timeout)
 
     // 2022
@@ -185,7 +185,7 @@ suite("regression_test_variant_github_events_p2", "nonConcurrent,p2"){
         assertEquals("FINISHED", state)
     }
    
-    // add bloom filter at the end of loading data 
+    // // add bloom filter at the end of loading data 
 
     def tablets = sql_return_maparray """ show tablets from github_events; """
     // trigger compactions for all tablets in github_events
@@ -214,9 +214,25 @@ suite("regression_test_variant_github_events_p2", "nonConcurrent,p2"){
         } while (running)
     }
 
-    
-    // TODO fix compaction issue, this case could be stable
+    sql """set enable_match_without_inverted_index = false""" 
+    // filter by bloom filter
     qt_sql """select cast(v["payload"]["pull_request"]["additions"] as int)  from github_events where cast(v["repo"]["name"] as string) = 'xpressengine/xe-core' order by 1;"""
     qt_sql """select * from github_events where  cast(v["repo"]["name"] as string) = 'xpressengine/xe-core' order by 1 limit 10"""
-    // TODO add test case that some certain columns are materialized in some file while others are not materilized(sparse)
+    sql """select * from github_events order by k limit 10"""
+    sql """
+     CREATE TABLE IF NOT EXISTS github_events2 (
+            k bigint,
+            v variant not null
+        )
+        UNIQUE KEY(`k`)
+        DISTRIBUTED BY HASH(k) BUCKETS 4 
+        properties("replication_num" = "1", "disable_auto_compaction" = "false", "bloom_filter_columns" = "v", "variant_enable_flatten_nested" = "true");
+        """
+    sql """insert into github_events2 select * from github_events order by k"""
+    sql """select v['payload']['commits'] from github_events order by k ;"""
+    sql """select v['payload']['commits'] from github_events2 order by k ;"""
+
+    // query with inverted index
+    qt_sql """select cast(v["payload"]["pull_request"]["additions"] as int)  from github_events where v["repo"]["name"] match 'xpressengine' order by 1;"""
+    qt_sql """select count()  from github_events where v["repo"]["name"] match 'apache' order by 1;"""
 }

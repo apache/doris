@@ -662,14 +662,15 @@ public class Role implements Writable, GsonPostProcessable {
                 break;
             case CLUSTER:
                 cloudClusterPrivTable.addEntry(entry, false, false);
-                LOG.info("cloud cluster add list {}", cloudClusterPrivTable);
+                LOG.info("cloud cluster priv table after add {}", cloudClusterPrivTable);
                 break;
             case STAGE:
                 cloudStagePrivTable.addEntry(entry, false, false);
-                LOG.info("cloud stage add list {}", cloudStagePrivTable);
+                LOG.info("cloud stage priv table after add {}", cloudStagePrivTable);
                 break;
             case STORAGE_VAULT:
                 storageVaultPrivTable.addEntry(entry, false, false);
+                LOG.info("cloud storage vault priv table after add {}", storageVaultPrivTable);
                 break;
             default:
                 throw new DdlException("Unknown resource type: " + resourcePattern.getResourceType() + " name="
@@ -1166,18 +1167,26 @@ public class Role implements Writable, GsonPostProcessable {
         workloadGroupPrivTable = new WorkloadGroupPrivTable();
         cloudClusterPrivTable = new ResourcePrivTable();
         cloudStagePrivTable = new ResourcePrivTable();
+        storageVaultPrivTable = new ResourcePrivTable();
         for (Entry<TablePattern, PrivBitSet> entry : tblPatternToPrivs.entrySet()) {
             try {
                 grantPrivs(entry.getKey(), entry.getValue().copy());
             } catch (DdlException e) {
-                LOG.warn("grant failed,", e);
+                LOG.warn("grant tblPatternToPrivs failed,", e);
             }
         }
         for (Entry<ResourcePattern, PrivBitSet> entry : resourcePatternToPrivs.entrySet()) {
             try {
                 grantPrivs(entry.getKey(), entry.getValue().copy());
             } catch (DdlException e) {
-                LOG.warn("grant failed,", e);
+                LOG.warn("grant resourcePatternToPrivs failed,", e);
+            }
+        }
+        for (Entry<ResourcePattern, PrivBitSet> entry : storageVaultPatternToPrivs.entrySet()) {
+            try {
+                grantPrivs(entry.getKey(), entry.getValue().copy());
+            } catch (DdlException e) {
+                LOG.warn("grant storageVaultPatternToPrivs failed,", e);
             }
         }
         for (Entry<ResourcePattern, PrivBitSet> entry : clusterPatternToPrivs.entrySet()) {
@@ -1204,7 +1213,7 @@ public class Role implements Writable, GsonPostProcessable {
             try {
                 grantPrivs(entry.getKey(), entry.getValue().copy());
             } catch (DdlException e) {
-                LOG.warn("grant failed,", e);
+                LOG.warn("grant workloadGroupPatternToPrivs failed,", e);
             }
         }
     }

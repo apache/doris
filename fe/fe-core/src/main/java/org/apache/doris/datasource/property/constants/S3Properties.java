@@ -197,7 +197,8 @@ public class S3Properties extends BaseProperties {
     private static void checkProvider(Map<String, String> properties) throws DdlException {
         if (properties.containsKey(PROVIDER)) {
             properties.put(PROVIDER, properties.get(PROVIDER).toUpperCase());
-            if (!PROVIDERS.stream().anyMatch(s -> s.equals(properties.get(PROVIDER)))) {
+            // S3 Provider properties should be case insensitive.
+            if (!PROVIDERS.stream().anyMatch(s -> s.equals(properties.get(PROVIDER).toUpperCase()))) {
                 throw new DdlException("Provider must be one of OSS, OBS, AZURE, BOS, COS, S3, GCP");
             }
         }
@@ -330,7 +331,8 @@ public class S3Properties extends BaseProperties {
             builder.setExternalEndpoint(properties.get(S3Properties.EXTERNAL_ENDPOINT));
         }
         if (properties.containsKey(S3Properties.PROVIDER)) {
-            builder.setProvider(Provider.valueOf(properties.get(S3Properties.PROVIDER)));
+            // S3 Provider properties should be case insensitive.
+            builder.setProvider(Provider.valueOf(properties.get(S3Properties.PROVIDER).toUpperCase()));
         }
         return builder;
     }

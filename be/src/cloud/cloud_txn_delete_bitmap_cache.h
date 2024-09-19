@@ -30,7 +30,7 @@
 namespace doris {
 
 // Record transaction related delete bitmaps using a lru cache.
-class CloudTxnDeleteBitmapCache : public LRUCachePolicyTrackingManual {
+class CloudTxnDeleteBitmapCache : public LRUCachePolicy {
 public:
     CloudTxnDeleteBitmapCache(size_t size_in_bytes);
 
@@ -50,10 +50,10 @@ public:
                              RowsetSharedPtr rowset, int64_t txn_expirationm,
                              std::shared_ptr<PartialUpdateInfo> partial_update_info);
 
-    void update_tablet_txn_info(TTransactionId transaction_id, int64_t tablet_id,
-                                DeleteBitmapPtr delete_bitmap,
-                                const RowsetIdUnorderedSet& rowset_ids,
-                                PublishStatus publish_status, TxnPublishInfo publish_info = {});
+    Status update_tablet_txn_info(TTransactionId transaction_id, int64_t tablet_id,
+                                  DeleteBitmapPtr delete_bitmap,
+                                  const RowsetIdUnorderedSet& rowset_ids,
+                                  PublishStatus publish_status, TxnPublishInfo publish_info = {});
 
     void remove_expired_tablet_txn_info();
 

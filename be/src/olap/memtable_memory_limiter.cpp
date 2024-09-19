@@ -20,6 +20,7 @@
 #include <bvar/bvar.h>
 
 #include "common/config.h"
+#include "olap/memtable.h"
 #include "olap/memtable_writer.h"
 #include "util/doris_metrics.h"
 #include "util/mem_info.h"
@@ -62,10 +63,7 @@ Status MemTableMemoryLimiter::init(int64_t process_mem_limit) {
             _load_hard_mem_limit * config::load_process_safe_mem_permit_percent / 100;
     g_load_hard_mem_limit.set_value(_load_hard_mem_limit);
     g_load_soft_mem_limit.set_value(_load_soft_mem_limit);
-    _memtable_tracker_set =
-            MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::LOAD, "MemTableTrackerSet");
-    _mem_tracker = std::make_unique<MemTracker>("AllMemTableMemory",
-                                                ExecEnv::GetInstance()->details_mem_tracker_set());
+    _mem_tracker = std::make_unique<MemTracker>("AllMemTableMemory");
     REGISTER_HOOK_METRIC(memtable_memory_limiter_mem_consumption,
                          [this]() { return _mem_tracker->consumption(); });
     _log_timer.start();
@@ -240,13 +238,14 @@ void MemTableMemoryLimiter::_refresh_mem_tracker() {
     _active_writers.clear();
     for (auto it = _writers.begin(); it != _writers.end();) {
         if (auto writer = it->lock()) {
+            // The memtable is currently used by writer to insert blocks.
             auto active_usage = writer->active_memtable_mem_consumption();
             _active_mem_usage += active_usage;
             if (active_usage > 0) {
                 _active_writers.push_back(writer);
             }
             _flush_mem_usage += writer->mem_consumption(MemType::FLUSH);
-            _write_mem_usage += writer->mem_consumption(MemType::WRITE);
+            _write_mem_usage += writer->mem_consumption(MemType::WRITE_FINISHED);
             ++it;
         } else {
             *it = std::move(_writers.back());

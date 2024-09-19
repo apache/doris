@@ -76,6 +76,7 @@ suite("test_unique_mow_sequence", "inverted_index") {
         }
 
         sql "sync"
+        sql """ set enable_common_expr_pushdown = true """
 
         order_qt_sql "select * from $tableName where c_custkey < 6;"
 

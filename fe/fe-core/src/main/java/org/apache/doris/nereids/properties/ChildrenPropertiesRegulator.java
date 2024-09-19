@@ -537,9 +537,19 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Boolean, Void> {
         // process must shuffle
         visit(topN, context);
 
+        int sortPhaseNum = jobContext.getCascadesContext().getConnectContext().getSessionVariable().sortPhaseNum;
+        // if control sort phase, forbid nothing
+        if (sortPhaseNum == 1 || sortPhaseNum == 2) {
+            return true;
+        }
         // If child is DistributionSpecGather, topN should forbid two-phase topN
         if (topN.getSortPhase() == SortPhase.LOCAL_SORT
                 && childrenProperties.get(0).getDistributionSpec().equals(DistributionSpecGather.INSTANCE)) {
+            return false;
+        }
+        // forbid one step topn with distribute as child
+        if (topN.getSortPhase() == SortPhase.GATHER_SORT
+                && children.get(0).getPlan() instanceof PhysicalDistribute) {
             return false;
         }
         return true;

@@ -35,6 +35,7 @@
 #include "pipeline/exec/join/process_hash_table_probe.h"
 #include "vec/common/sort/partition_sorter.h"
 #include "vec/common/sort/sorter.h"
+#include "vec/core/block.h"
 #include "vec/core/types.h"
 #include "vec/spill/spill_stream.h"
 
@@ -541,6 +542,12 @@ public:
     const int _child_count;
 };
 
+struct CacheSharedState : public BasicSharedState {
+    ENABLE_FACTORY_CREATOR(CacheSharedState)
+public:
+    DataQueue data_queue;
+};
+
 class MultiCastDataStreamer;
 
 struct MultiCastSharedState : public BasicSharedState {
@@ -649,8 +656,8 @@ public:
 };
 
 using SetHashTableVariants =
-        std::variant<std::monostate,
-                     vectorized::MethodSerialized<HashMap<StringRef, RowRefListWithFlags>>,
+        std::variant<std::monostate, vectorized::SetSerializedHashTableContext,
+                     vectorized::SetMethodOneString,
                      vectorized::SetPrimaryTypeHashTableContext<vectorized::UInt8>,
                      vectorized::SetPrimaryTypeHashTableContext<vectorized::UInt16>,
                      vectorized::SetPrimaryTypeHashTableContext<vectorized::UInt32>,
@@ -728,6 +735,12 @@ public:
             case TYPE_DATETIMEV2:
                 hash_table_variants->emplace<vectorized::SetPrimaryTypeHashTableContext<UInt64>>();
                 break;
+            case TYPE_CHAR:
+            case TYPE_VARCHAR:
+            case TYPE_STRING: {
+                hash_table_variants->emplace<vectorized::SetMethodOneString>();
+                break;
+            }
             case TYPE_LARGEINT:
             case TYPE_DECIMALV2:
             case TYPE_DECIMAL128I:
@@ -860,13 +873,13 @@ public:
 
     void sub_mem_usage(int channel_id, size_t delta) { mem_trackers[channel_id]->release(delta); }
 
-    virtual void add_total_mem_usage(size_t delta, int channel_id = 0) {
+    virtual void add_total_mem_usage(size_t delta, int channel_id) {
         if (mem_usage.fetch_add(delta) + delta > config::local_exchange_buffer_mem_limit) {
             sink_deps.front()->block();
         }
     }
 
-    virtual void sub_total_mem_usage(size_t delta, int channel_id = 0) {
+    virtual void sub_total_mem_usage(size_t delta, int channel_id) {
         auto prev_usage = mem_usage.fetch_sub(delta);
         DCHECK_GE(prev_usage - delta, 0) << "prev_usage: " << prev_usage << " delta: " << delta
                                          << " channel_id: " << channel_id;

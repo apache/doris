@@ -102,12 +102,15 @@ Status VDataStreamMgr::find_recvr(const TUniqueId& fragment_instance_id, PlanNod
 }
 
 Status VDataStreamMgr::transmit_block(const PTransmitDataParams* request,
-                                      ::google::protobuf::Closure** done) {
+                                      ::google::protobuf::Closure** done,
+                                      const int64_t wait_for_worker) {
     const PUniqueId& finst_id = request->finst_id();
     TUniqueId t_finst_id;
     t_finst_id.hi = finst_id.hi();
     t_finst_id.lo = finst_id.lo();
     std::shared_ptr<VDataStreamRecvr> recvr = nullptr;
+    ThreadCpuStopWatch cpu_time_stop_watch;
+    cpu_time_stop_watch.start();
     static_cast<void>(find_recvr(t_finst_id, request->node_id(), &recvr));
     if (recvr == nullptr) {
         // The receiver may remove itself from the receiver map via deregister_recvr()
@@ -136,9 +139,9 @@ Status VDataStreamMgr::transmit_block(const PTransmitDataParams* request,
 
     bool eos = request->eos();
     if (request->has_block()) {
-        RETURN_IF_ERROR(recvr->add_block(request->block(), request->sender_id(),
-                                         request->be_number(), request->packet_seq(),
-                                         eos ? nullptr : done));
+        RETURN_IF_ERROR(recvr->add_block(
+                request->block(), request->sender_id(), request->be_number(), request->packet_seq(),
+                eos ? nullptr : done, wait_for_worker, cpu_time_stop_watch.elapsed_time()));
     }
 
     if (eos) {

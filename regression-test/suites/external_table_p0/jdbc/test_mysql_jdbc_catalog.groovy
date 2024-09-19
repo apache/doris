@@ -168,7 +168,7 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
         order_qt_ex_tb21_6  """ select `key`, `id` from ${ex_tb21} where `key` = case when id = 1 then 1 else 0 end order by id;"""
         order_qt_ex_tb21_7  """ select (`key` +1) as k, `id` from ${ex_tb21} having abs(k) = 2 order by id;"""
         order_qt_ex_tb21_8  """ select `key` as k, `id` from ${ex_tb21} having abs(k) = 2 order by id;"""
-        order_qt_information_schema """ show tables from information_schema; """
+        order_qt_information_schema """ show tables from information_schema like "processlist"; """
         order_qt_dt """select * from ${dt}; """
         order_qt_dt_null """select * from ${dt_null} order by 1; """
         order_qt_test_dz """select * from ${test_zd} order by 1; """
@@ -628,15 +628,6 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
         qt_sql """desc ctas_partition_text_2"""
         // ctas logic is different between new and old planner.
         // so need to test both.
-        // the old planner's test can be removed once the old planner is removed.
-        sql """set enable_nereids_planner=false"""
-        // 1. test text type column as distribution col
-        sql """create table ctas_partition_text_3 distributed by hash(text) buckets 1 properties("replication_num" = "1") as select int_u, text, text as t2 from mysql_conjuncts.doris_test.all_types;"""
-        qt_sql """desc ctas_partition_text_3"""
-        // 2. test varchar type column as first col
-        sql """create table ctas_partition_text_4 distributed by hash(int_u) buckets 1 properties("replication_num" = "1") as select varchar, int_u from mysql_conjuncts.doris_test.all_types;"""
-        qt_sql """desc ctas_partition_text_4"""
-
         sql """drop catalog if exists mysql_conjuncts;"""
     }
 }

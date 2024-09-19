@@ -155,7 +155,7 @@ public class JobScheduler<T extends AbstractJob<?, C>, C> implements Closeable {
     }
 
 
-    public void schedulerInstantJob(T job, TaskType taskType, C context) {
+    public void schedulerInstantJob(T job, TaskType taskType, C context) throws JobException {
         List<? extends AbstractTask> tasks = job.commonCreateTasks(taskType, context);
         if (CollectionUtils.isEmpty(tasks)) {
             log.info("job create task is empty, skip scheduler, job id is {}, job name is {}", job.getJobId(),
@@ -165,12 +165,15 @@ public class JobScheduler<T extends AbstractJob<?, C>, C> implements Closeable {
             }
             return;
         }
-        tasks.forEach(task -> {
-            taskDisruptorGroupManager.dispatchInstantTask(task, job.getJobType(),
-                    job.getJobConfig());
+        for (AbstractTask task : tasks) {
+            if (!taskDisruptorGroupManager.dispatchInstantTask(task, job.getJobType(),
+                    job.getJobConfig())) {
+                throw new JobException("dispatch instant task failed, job id is "
+                        + job.getJobId() + ", task id is " + task.getTaskId());
+            }
             log.info("dispatch instant job, job id is {}, job name is {}, task id is {}", job.getJobId(),
                     job.getJobName(), task.getTaskId());
-        });
+        }
     }
 
     /**
@@ -192,10 +195,9 @@ public class JobScheduler<T extends AbstractJob<?, C>, C> implements Closeable {
                 clearEndJob(job);
                 continue;
             }
-            if (!job.getJobStatus().equals(JobStatus.RUNNING) && !job.getJobConfig().checkIsTimerJob()) {
-                continue;
+            if (job.getJobStatus().equals(JobStatus.RUNNING) && job.getJobConfig().checkIsTimerJob()) {
+                cycleTimerJobScheduler(job, lastTimeWindowMs);
             }
-            cycleTimerJobScheduler(job, lastTimeWindowMs);
         }
     }
 

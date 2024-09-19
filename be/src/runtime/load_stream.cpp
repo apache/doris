@@ -300,6 +300,13 @@ Status TabletStream::close() {
         return _status;
     }
 
+    // it is necessary to check status after wait_func,
+    // for create_rowset could fail during add_segment when loading to MOW table,
+    // in this case, should skip close to avoid submit_calc_delete_bitmap_task which could cause coredump.
+    if (!_status.ok()) {
+        return _status;
+    }
+
     auto close_func = [this, &mu, &cv]() {
         signal::set_signal_task_id(_load_id);
         auto st = _load_stream_writer->close();

@@ -66,7 +66,12 @@ public:
 };
 
 static constexpr size_t INITIAL_BUFFERED_BLOCK_BYTES = 64 << 20;
+
+#ifndef NDEBUG
+static constexpr size_t PARTITION_SORT_ROWS_THRESHOLD = 10;
+#else
 static constexpr size_t PARTITION_SORT_ROWS_THRESHOLD = 20000;
+#endif
 
 struct PartitionBlocks {
 public:
@@ -255,7 +260,6 @@ public:
 
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
 
-    Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
     DataDistribution required_data_distribution() const override {

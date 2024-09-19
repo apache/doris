@@ -20,6 +20,7 @@ package org.apache.doris.datasource.iceberg;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.info.SimpleTableInfo;
 import org.apache.doris.datasource.ExternalCatalog;
+import org.apache.doris.nereids.trees.plans.commands.insert.IcebergInsertCommandContext;
 import org.apache.doris.thrift.TFileContent;
 import org.apache.doris.thrift.TIcebergCommitData;
 
@@ -199,7 +200,7 @@ public class IcebergTransactionTest {
         txn.finishInsert(tableInfo, Optional.empty());
         txn.commit();
 
-        checkSnapshotProperties(table.currentSnapshot().summary(), "6", "2", "6");
+        checkSnapshotAddProperties(table.currentSnapshot().summary(), "6", "2", "6");
         checkPushDownByPartitionForTs(table, "ts1");
         checkPushDownByPartitionForTs(table, "ts2");
         checkPushDownByPartitionForTs(table, "ts3");
@@ -287,7 +288,7 @@ public class IcebergTransactionTest {
         ctd1.setFileSize(2);
 
         TIcebergCommitData ctd2 = new TIcebergCommitData();
-        ctd2.setFilePath("f1.parquet");
+        ctd2.setFilePath("f2.parquet");
         ctd2.setFileContent(TFileContent.DATA);
         ctd2.setRowCount(4);
         ctd2.setFileSize(4);
@@ -310,20 +311,29 @@ public class IcebergTransactionTest {
         txn.finishInsert(tableInfo, Optional.empty());
         txn.commit();
 
-        checkSnapshotProperties(table.currentSnapshot().summary(), "6", "2", "6");
+        checkSnapshotAddProperties(table.currentSnapshot().summary(), "6", "2", "6");
     }
 
     private IcebergTransaction getTxn() {
         return new IcebergTransaction(ops);
     }
 
-    private void checkSnapshotProperties(Map<String, String> props,
-            String addRecords,
-            String addFileCnt,
-            String addFileSize) {
+    private void checkSnapshotAddProperties(Map<String, String> props,
+                                            String addRecords,
+                                            String addFileCnt,
+                                            String addFileSize) {
         Assert.assertEquals(addRecords, props.get("added-records"));
         Assert.assertEquals(addFileCnt, props.get("added-data-files"));
         Assert.assertEquals(addFileSize, props.get("added-files-size"));
+    }
+
+    private void checkSnapshotTotalProperties(Map<String, String> props,
+                                              String totalRecords,
+                                              String totalFileCnt,
+                                              String totalFileSize) {
+        Assert.assertEquals(totalRecords, props.get("total-records"));
+        Assert.assertEquals(totalFileCnt, props.get("total-data-files"));
+        Assert.assertEquals(totalFileSize, props.get("total-files-size"));
     }
 
     private String numToYear(Integer num) {
@@ -368,4 +378,75 @@ public class IcebergTransactionTest {
         Assert.assertEquals("2024-12-11", numToDay(dt));
     }
 
+    @Test
+    public void testUnPartitionedTableOverwriteWithData() throws UserException {
+
+        testUnPartitionedTable();
+
+        ArrayList<TIcebergCommitData> ctdList = new ArrayList<>();
+        TIcebergCommitData ctd1 = new TIcebergCommitData();
+        ctd1.setFilePath("f3.parquet");
+        ctd1.setFileContent(TFileContent.DATA);
+        ctd1.setRowCount(6);
+        ctd1.setFileSize(6);
+
+        TIcebergCommitData ctd2 = new TIcebergCommitData();
+        ctd2.setFilePath("f4.parquet");
+        ctd2.setFileContent(TFileContent.DATA);
+        ctd2.setRowCount(8);
+        ctd2.setFileSize(8);
+
+        TIcebergCommitData ctd3 = new TIcebergCommitData();
+        ctd3.setFilePath("f5.parquet");
+        ctd3.setFileContent(TFileContent.DATA);
+        ctd3.setRowCount(10);
+        ctd3.setFileSize(10);
+
+        ctdList.add(ctd1);
+        ctdList.add(ctd2);
+        ctdList.add(ctd3);
+
+        Table table = ops.getCatalog().loadTable(TableIdentifier.of(dbName, tbWithoutPartition));
+        new MockUp<IcebergUtils>() {
+            @Mock
+            public Table getRemoteTable(ExternalCatalog catalog, SimpleTableInfo tableInfo) {
+                return table;
+            }
+        };
+
+        IcebergTransaction txn = getTxn();
+        txn.updateIcebergCommitData(ctdList);
+        SimpleTableInfo tableInfo = new SimpleTableInfo(dbName, tbWithPartition);
+        txn.beginInsert(tableInfo);
+        IcebergInsertCommandContext ctx = new IcebergInsertCommandContext();
+        ctx.setOverwrite(true);
+        txn.finishInsert(tableInfo, Optional.of(ctx));
+        txn.commit();
+
+        checkSnapshotTotalProperties(table.currentSnapshot().summary(), "24", "3", "24");
+    }
+
+    @Test
+    public void testUnpartitionedTableOverwriteWithoutData() throws UserException {
+
+        testUnPartitionedTableOverwriteWithData();
+
+        Table table = ops.getCatalog().loadTable(TableIdentifier.of(dbName, tbWithoutPartition));
+        new MockUp<IcebergUtils>() {
+            @Mock
+            public Table getRemoteTable(ExternalCatalog catalog, SimpleTableInfo tableInfo) {
+                return table;
+            }
+        };
+
+        IcebergTransaction txn = getTxn();
+        SimpleTableInfo tableInfo = new SimpleTableInfo(dbName, tbWithPartition);
+        txn.beginInsert(tableInfo);
+        IcebergInsertCommandContext ctx = new IcebergInsertCommandContext();
+        ctx.setOverwrite(true);
+        txn.finishInsert(tableInfo, Optional.of(ctx));
+        txn.commit();
+
+        checkSnapshotTotalProperties(table.currentSnapshot().summary(), "0", "0", "0");
+    }
 }

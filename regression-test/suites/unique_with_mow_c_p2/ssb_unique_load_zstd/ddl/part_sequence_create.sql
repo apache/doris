@@ -13,6 +13,7 @@ UNIQUE KEY (`p_partkey`)
 CLUSTER BY (`p_size`, `p_type`, `p_partkey`)
 DISTRIBUTED BY HASH(`p_partkey`) BUCKETS 10
 PROPERTIES (
+"enable_mow_light_delete" = "true",
 "function_column.sequence_type" = 'int',
 "compression"="zstd",
 "replication_num" = "1",

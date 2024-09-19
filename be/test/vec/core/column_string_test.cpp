@@ -48,8 +48,16 @@ TEST(ColumnStringTest, TestConcat) {
     ColumnNumbers arguments = {0, 1};
 
     FunctionStringConcat func_concat;
-    auto status = func_concat.execute_impl(nullptr, block, arguments, 2, 3);
-    EXPECT_TRUE(status.ok());
+    auto fn_ctx = FunctionContext::create_context(nullptr, TypeDescriptor {}, {});
+    {
+        auto status =
+                func_concat.open(fn_ctx.get(), FunctionContext::FunctionStateScope::FRAGMENT_LOCAL);
+        EXPECT_TRUE(status.ok());
+    }
+    {
+        auto status = func_concat.execute_impl(fn_ctx.get(), block, arguments, 2, 3);
+        EXPECT_TRUE(status.ok());
+    }
 
     auto actual_res_col = block.get_by_position(2).column;
     EXPECT_EQ(actual_res_col->size(), 3);

@@ -31,7 +31,7 @@ public:
                  const TFileScanRangeParams& params);
     ~PaimonReader() override = default;
 
-    Status init_row_filters(const TFileRangeDesc& range) final;
+    Status init_row_filters(const TFileRangeDesc& range, io::IOContext* io_ctx) final;
 
 protected:
     struct PaimonProfile {

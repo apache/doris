@@ -27,6 +27,7 @@
 #include <utility>
 
 #include "common/logging.h"
+#include "exec/schema_scanner/schema_scanner_helper.h"
 #include "io/fs/local_file_reader.h"
 #include "olap/storage_engine.h"
 #include "pipeline/task_queue.h"
@@ -94,6 +95,21 @@ std::string WorkloadGroup::debug_string() const {
             _scan_thread_num, _max_remote_scan_thread_num, _min_remote_scan_thread_num,
             _spill_low_watermark, _spill_high_watermark, _is_shutdown, _query_ctxs.size(),
             _scan_bytes_per_second, _remote_scan_bytes_per_second);
+}
+
+std::string WorkloadGroup::memory_debug_string() const {
+    return fmt::format(
+            "TG[id = {}, name = {}, memory_limit = {}, enable_memory_overcommit = "
+            "{}, weighted_memory_limit = {}, total_mem_used = {}, "
+            "wg_refresh_interval_memory_growth = {}, spill_low_watermark = {}, "
+            "spill_high_watermark = {}, version = {}, is_shutdown = {}, query_num = {}]",
+            _id, _name, PrettyPrinter::print(_memory_limit, TUnit::BYTES),
+            _enable_memory_overcommit ? "true" : "false",
+            PrettyPrinter::print(_weighted_memory_limit, TUnit::BYTES),
+            PrettyPrinter::print(_total_mem_used, TUnit::BYTES),
+            PrettyPrinter::print(_wg_refresh_interval_memory_growth, TUnit::BYTES),
+            _spill_low_watermark, _spill_high_watermark, _version, _is_shutdown,
+            _query_ctxs.size());
 }
 
 void WorkloadGroup::check_and_update(const WorkloadGroupInfo& tg_info) {
@@ -194,21 +210,21 @@ int64_t WorkloadGroup::gc_memory(int64_t need_free_mem, RuntimeProfile* profile,
         cancel_str = fmt::format(
                 "MinorGC kill overcommit query, wg id:{}, name:{}, used:{}, limit:{}, "
                 "backend:{}.",
-                _id, _name, MemTracker::print_bytes(used_memory),
-                MemTracker::print_bytes(_memory_limit), BackendOptions::get_localhost());
+                _id, _name, MemCounter::print_bytes(used_memory),
+                MemCounter::print_bytes(_memory_limit), BackendOptions::get_localhost());
     } else {
         if (_enable_memory_overcommit) {
             cancel_str = fmt::format(
                     "FullGC release wg overcommit mem, wg id:{}, name:{}, "
                     "used:{},limit:{},backend:{}.",
-                    _id, _name, MemTracker::print_bytes(used_memory),
-                    MemTracker::print_bytes(_memory_limit), BackendOptions::get_localhost());
+                    _id, _name, MemCounter::print_bytes(used_memory),
+                    MemCounter::print_bytes(_memory_limit), BackendOptions::get_localhost());
         } else {
             cancel_str = fmt::format(
                     "GC wg for hard limit, wg id:{}, name:{}, used:{}, limit:{}, "
                     "backend:{}.",
-                    _id, _name, MemTracker::print_bytes(used_memory),
-                    MemTracker::print_bytes(_memory_limit), BackendOptions::get_localhost());
+                    _id, _name, MemCounter::print_bytes(used_memory),
+                    MemCounter::print_bytes(_memory_limit), BackendOptions::get_localhost());
         }
     }
     auto cancel_top_overcommit_str = [cancel_str](int64_t mem_consumption,
@@ -216,14 +232,14 @@ int64_t WorkloadGroup::gc_memory(int64_t need_free_mem, RuntimeProfile* profile,
         return fmt::format(
                 "{} cancel top memory overcommit tracker <{}> consumption {}. details:{}, Execute "
                 "again after enough memory, details see be.INFO.",
-                cancel_str, label, MemTracker::print_bytes(mem_consumption),
+                cancel_str, label, MemCounter::print_bytes(mem_consumption),
                 GlobalMemoryArbitrator::process_limit_exceeded_errmsg_str());
     };
     auto cancel_top_usage_str = [cancel_str](int64_t mem_consumption, const std::string& label) {
         return fmt::format(
                 "{} cancel top memory used tracker <{}> consumption {}. details:{}, Execute again "
                 "after enough memory, details see be.INFO.",
-                cancel_str, label, MemTracker::print_bytes(mem_consumption),
+                cancel_str, label, MemCounter::print_bytes(mem_consumption),
                 GlobalMemoryArbitrator::process_soft_limit_exceeded_errmsg_str());
     };
 
@@ -420,7 +436,7 @@ void WorkloadGroup::upsert_task_scheduler(WorkloadGroupInfo* tg_info, ExecEnv* e
                 _cgroup_cpu_ctl = std::move(cgroup_cpu_ctl);
                 LOG(INFO) << "[upsert wg thread pool] cgroup init success, wg_id=" << tg_id;
             } else {
-                LOG(INFO) << "[upsert wg thread pool] cgroup init failed, wg_id= " << tg_id
+                LOG(INFO) << "[upsert wg thread pool] cgroup init failed, wg_id=" << tg_id
                           << ", reason=" << ret.to_string();
             }
         } else {
