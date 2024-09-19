@@ -1091,6 +1091,14 @@ uint64_t DeleteBitmap::cardinality() const {
     return res;
 }
 
+size_t DeleteBitmap::get_size() const {
+    size_t charge = 0;
+    for (auto& [k, v] : delete_bitmap) {
+        charge += v.getSizeInBytes();
+    }
+    return charge;
+}
+
 bool DeleteBitmap::contains_agg_without_cache(const BitmapKey& bmk, uint32_t row_id) const {
     std::shared_lock l(lock);
     DeleteBitmap::BitmapKey start {std::get<0>(bmk), std::get<1>(bmk), 0};

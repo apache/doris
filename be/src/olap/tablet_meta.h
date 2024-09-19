@@ -452,6 +452,12 @@ public:
     uint64_t cardinality() const;
 
     /**
+     * return the total size of the Delete Bitmap(after serialized)
+     */
+
+    size_t get_size() const;
+
+    /**
      * Sets the bitmap of specific segment, it's may be insertion or replacement
      *
      * @return 1 if the insertion took place, 0 if the assignment took place

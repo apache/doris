@@ -2148,13 +2148,6 @@ void MetaServiceImpl::update_delete_bitmap_without_lock(google::protobuf::RpcCon
                 msg = "failed to init txn";
                 return;
             }
-            if (!check_delete_bitmap_lock(code, msg, ss, txn, instance_id, table_id,
-                                          request->lock_id(), request->initiator())) {
-                LOG(WARNING) << "failed to check delete bitmap lock, table_id=" << table_id
-                             << " request lock_id=" << request->lock_id()
-                             << " request initiator=" << request->initiator() << " msg" << msg;
-                return;
-            }
         }
         // splitting large values (>90*1000) into multiple KVs
         cloud::put(txn.get(), key, val, 0);
