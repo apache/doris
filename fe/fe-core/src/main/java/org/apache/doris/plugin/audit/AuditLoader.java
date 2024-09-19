@@ -143,6 +143,7 @@ public class AuditLoader extends Plugin implements AuditPlugin {
     }
 
     private void fillLogBuffer(AuditEvent event, StringBuilder logBuffer) {
+        // The order should be exactly the same as the table structure of InternalSchema.AUDIT_SCHEMA
         logBuffer.append(event.queryId).append("\t");
         logBuffer.append(TimeUtils.longToTimeStringWithms(event.timestamp)).append("\t");
         logBuffer.append(event.clientIp).append("\t");
@@ -155,6 +156,10 @@ public class AuditLoader extends Plugin implements AuditPlugin {
         logBuffer.append(event.queryTime).append("\t");
         logBuffer.append(event.scanBytes).append("\t");
         logBuffer.append(event.scanRows).append("\t");
+        logBuffer.append(event.scanBytesFromLocalStorage).append("\t");
+        logBuffer.append(event.scanBytesFromRemoteStorage).append("\t");
+        logBuffer.append(event.shuffleSendBytes).append("\t");
+        logBuffer.append(event.shuffleSendRows).append("\t");
         logBuffer.append(event.returnRows).append("\t");
         logBuffer.append(event.stmtId).append("\t");
         logBuffer.append(event.stmtType).append("\t");
@@ -165,6 +170,7 @@ public class AuditLoader extends Plugin implements AuditPlugin {
         logBuffer.append(event.sqlDigest).append("\t");
         logBuffer.append(event.peakMemoryBytes).append("\t");
         logBuffer.append(event.workloadGroup).append("\t");
+        logBuffer.append(event.cloudClusterName).append("\t");
         // already trim the query in org.apache.doris.qe.AuditLogHelper#logAuditLog
         String stmt = event.stmt;
         if (LOG.isDebugEnabled()) {

@@ -63,7 +63,8 @@ public:
     Status init(BlockFileCache* _mgr) override;
     Status append(const FileCacheKey& key, const Slice& value) override;
     Status finalize(const FileCacheKey& key) override;
-    Status read(const FileCacheKey& key, size_t value_offset, Slice buffer) override;
+    Status read(const FileCacheKey& key, size_t value_offset, Slice buffer,
+                const IOContext* io_ctx) override;
     Status remove(const FileCacheKey& key) override;
     Status change_key_meta_type(const FileCacheKey& key, const FileCacheType type) override;
     Status change_key_meta_expiration(const FileCacheKey& key, const uint64_t expiration) override;

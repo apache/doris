@@ -306,7 +306,8 @@ Status Segment::_parse_footer(SegmentFooterPB* footer) {
     uint8_t fixed_buf[12];
     size_t bytes_read = 0;
     // TODO(plat1ko): Support session variable `enable_file_cache`
-    io::IOContext io_ctx {.is_index_data = true};
+    io::IOContext io_ctx;
+    io_ctx.is_index_data = true;
     RETURN_IF_ERROR(
             _file_reader->read_at(file_size - 12, Slice(fixed_buf, 12), &bytes_read, &io_ctx));
     DCHECK_EQ(bytes_read, 12);
@@ -411,6 +412,8 @@ Status Segment::_load_index_impl() {
         } else {
             // read and parse short key index page
             OlapReaderStatistics tmp_stats;
+            io::IOContext ctx;
+            ctx.is_index_data = true;
             PageReadOptions opts {
                     .use_page_cache = true,
                     .type = INDEX_PAGE,
@@ -419,7 +422,7 @@ Status Segment::_load_index_impl() {
                     // short key index page uses NO_COMPRESSION for now
                     .codec = nullptr,
                     .stats = &tmp_stats,
-                    .io_ctx = io::IOContext {.is_index_data = true},
+                    .io_ctx = ctx,
             };
             Slice body;
             PageFooterPB footer;
@@ -980,11 +983,13 @@ Status Segment::seek_and_read_by_rowid(const TabletSchema& schema, SlotDescripto
                                        std::unique_ptr<ColumnIterator>& iterator_hint) {
     StorageReadOptions storage_read_opt;
     storage_read_opt.io_ctx.reader_type = ReaderType::READER_QUERY;
+    io::IOContext ctx;
+    ctx.reader_type = ReaderType::READER_QUERY;
     segment_v2::ColumnIteratorOptions opt {
             .use_page_cache = !config::disable_storage_page_cache,
             .file_reader = file_reader().get(),
             .stats = &stats,
-            .io_ctx = io::IOContext {.reader_type = ReaderType::READER_QUERY},
+            .io_ctx = ctx,
     };
     std::vector<segment_v2::rowid_t> single_row_loc {row_id};
     if (!slot->column_paths().empty()) {

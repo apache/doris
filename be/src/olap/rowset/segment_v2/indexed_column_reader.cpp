@@ -115,6 +115,8 @@ Status IndexedColumnReader::read_page(const PagePointer& pp, PageHandle* handle,
                                       PageFooterPB* footer, PageTypePB type,
                                       BlockCompressionCodec* codec, bool pre_decode) const {
     OlapReaderStatistics tmp_stats;
+    io::IOContext ctx;
+    ctx.is_index_data = true;
     PageReadOptions opts {
             .use_page_cache = _use_page_cache,
             .kept_in_memory = _kept_in_memory,
@@ -125,7 +127,7 @@ Status IndexedColumnReader::read_page(const PagePointer& pp, PageHandle* handle,
             .codec = codec,
             .stats = &tmp_stats,
             .encoding_info = _encoding_info,
-            .io_ctx = io::IOContext {.is_index_data = true},
+            .io_ctx = ctx,
     };
     if (_is_pk_index) {
         opts.type = PRIMARY_KEY_INDEX_PAGE;

@@ -75,11 +75,13 @@ Status _get_segment_column_iterator(const BetaRowsetSharedPtr& rowset, uint32_t 
     }
     segment_v2::SegmentSharedPtr segment = *it;
     RETURN_IF_ERROR(segment->new_column_iterator(target_column, column_iterator, nullptr));
+    io::IOContext ctx;
+    ctx.reader_type = ReaderType::READER_QUERY;
     segment_v2::ColumnIteratorOptions opt {
             .use_page_cache = !config::disable_storage_page_cache,
             .file_reader = segment->file_reader().get(),
             .stats = stats,
-            .io_ctx = io::IOContext {.reader_type = ReaderType::READER_QUERY},
+            .io_ctx = ctx,
     };
     RETURN_IF_ERROR((*column_iterator)->init(opt));
     return Status::OK();
