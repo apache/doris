@@ -79,7 +79,7 @@ suite("fold_constant_string_arithmatic") {
     testFoldConst("SELECT  StrRight('Hello World', 5)")
     testFoldConst("SELECT  Overlay('abcdef', '123', 3, 2)")
     testFoldConst("SELECT  Parse_Url('http://www.example.com/path?query=abc', 'HOST')")
-    testFoldConst("SELECT  Url_Decode('%20Hello%20World%20')")
+    testFoldConst("SELECT  Url_Decode('+Hello+World+')")
     testFoldConst("SELECT  Url_Encode(' Hello World ')")
 
     // Substring with negative start index
@@ -439,7 +439,7 @@ suite("fold_constant_string_arithmatic") {
     testFoldConst("SELECT StrRight(cast('Hello World' as string), 5)")
     testFoldConst("SELECT Overlay(cast('abcdef' as string), cast('123' as string), 3, 2)")
     testFoldConst("SELECT Parse_Url(cast('http://www.example.com/path?query=abc' as string), cast('HOST' as string))")
-    testFoldConst("SELECT Url_Decode(cast('%20Hello%20World%20' as string))")
+    testFoldConst("SELECT Url_Decode(cast('+Hello+World+' as string))")
     testFoldConst("SELECT Url_Encode(cast(' Hello World ' as string))")
 
 // Substring with negative start index
