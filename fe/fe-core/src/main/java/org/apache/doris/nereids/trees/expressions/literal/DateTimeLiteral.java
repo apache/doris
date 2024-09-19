@@ -53,7 +53,6 @@ public class DateTimeLiteral extends DateLiteral {
     protected long minute;
     protected long second;
     protected long microSecond;
-    protected boolean hasZone;
 
     public DateTimeLiteral(String s) {
         this(DateTimeType.INSTANCE, s);
@@ -92,7 +91,6 @@ public class DateTimeLiteral extends DateLiteral {
         this.year = year;
         this.month = month;
         this.day = day;
-        this.hasZone = false;
     }
 
     public boolean isMidnight() {
@@ -143,7 +141,6 @@ public class DateTimeLiteral extends DateLiteral {
         hour = DateUtils.getOrDefault(temporal, ChronoField.HOUR_OF_DAY);
         minute = DateUtils.getOrDefault(temporal, ChronoField.MINUTE_OF_HOUR);
         second = DateUtils.getOrDefault(temporal, ChronoField.SECOND_OF_MINUTE);
-        hasZone = false;
 
         ZoneId zoneId = temporal.query(TemporalQueries.zone());
         if (zoneId != null) {
@@ -163,8 +160,6 @@ public class DateTimeLiteral extends DateLiteral {
                 this.month = result.month;
                 this.year = result.year;
             }
-
-            this.hasZone = true;
         }
 
         microSecond = DateUtils.getOrDefault(temporal, ChronoField.NANO_OF_SECOND) / 100L;

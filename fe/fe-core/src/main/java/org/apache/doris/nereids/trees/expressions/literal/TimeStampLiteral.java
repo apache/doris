@@ -27,10 +27,7 @@ import org.apache.doris.nereids.util.StandardDateFormat;
 
 import com.google.common.base.Preconditions;
 
-import java.time.Instant;
 import java.time.LocalDateTime;
-import java.time.ZoneId;
-import java.time.ZonedDateTime;
 import java.util.Objects;
 
 /**
@@ -78,25 +75,6 @@ public class TimeStampLiteral extends DateTimeLiteral {
             this.minute = localDateTime.getMinute();
             this.second = localDateTime.getSecond();
             this.microSecond -= 1000000;
-        }
-
-        if (!hasZone) {
-            Instant thatTime = ZonedDateTime
-                    .of((int) year, (int) month, (int) day, (int) hour, (int) minute, (int) second,
-                            (int) microSecond, ZoneId.systemDefault())
-                    .toInstant();
-            int offset = DateUtils.getTimeZone().getRules().getOffset(thatTime).getTotalSeconds()
-                    - ZoneId.systemDefault().getRules().getOffset(thatTime).getTotalSeconds();
-
-            if (offset != 0) {
-                DateTimeLiteral result = (DateTimeLiteral) this.plusSeconds(offset);
-                this.second = result.second;
-                this.minute = result.minute;
-                this.hour = result.hour;
-                this.day = result.day;
-                this.month = result.month;
-                this.year = result.year;
-            }
         }
 
         if (checkRange() || checkDate()) {
