@@ -1569,6 +1569,11 @@ under the License.
             </dependency>
             <dependency>
                 <groupId>org.apache.hive</groupId>
+                <artifactId>hive-serde</artifactId>
+                <version>${hive.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.hive</groupId>
                 <artifactId>hive-common</artifactId>
                 <version>${hive.common.version}</version>
                 <exclusions>

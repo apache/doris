@@ -24,15 +24,17 @@ public class HiveProperties {
 
     protected static final String IS_GET_TABLE_SCHEMA = "is_get_table_schema";  // 确定是否需要获取表数据
     protected static final String COLUMNS_TYPES = "columns_types";  // 列类型(rc-binary文件本身不存储)
-    protected static final String COLUMNS_NAMES  = "columns_names"; // 列名称(rc-binary文件本身不存储)
+    protected static final String COLUMNS_NAMES = "columns_names"; // 列名称(rc-binary文件本身不存储)
     protected static final String REQUIRED_FIELDS = "required_fields";  // 需要获取的列名
     protected static final String FILE_TYPE = "file_type";  // 文件类型：FILE_LOCAL / FILE_S3 / FILE_HDFS
+    protected static final String INPUT_FORMAT = "input_format";
+    protected static final String FILE_FORMAT = "file_format";
     protected static final String URI = "uri";  // 文件路径
     protected static final String S3_ACCESS_KEY = "s3.access_key";
     protected static final String S3_SECRET_KEY = "s3.secret_key";
     protected static final String S3_ENDPOINT = "s3.endpoint";
     protected static final String S3_REGION = "s3.region";
-    protected static final String HIVE_SERDE = "hive.serde";    // 序列化方法
+    protected static final String HIVE_SERDE = "hive.serde";
     protected static final String COLUMNS = "columns";
     protected static final String COLUMNS2TYPES = "columns.types";
     protected static final String FS_S3A_ACCESS_KEY = "fs.s3a.access.key";

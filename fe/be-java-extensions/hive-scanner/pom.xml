@@ -46,12 +46,12 @@
         <dependency>
             <groupId>org.apache.hive</groupId>
             <artifactId>hive-serde</artifactId>
-            <version>3.1.3</version>
+            <scope>provided</scope>
         </dependency>
         <dependency>
             <groupId>org.apache.hive</groupId>
             <artifactId>hive-common</artifactId>
-            <version>3.1.3</version>
+            <scope>provided</scope>
         </dependency>
     </dependencies>
 

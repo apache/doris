@@ -76,8 +76,14 @@ Status HiveJNIReader::init_fetch_table_reader(
             {"uri", _range.path},
             {"file_type", std::to_string(type)},
             {"is_get_table_schema", "false"},
+            {"file_format", std::to_string(_params.format_type)},
+            {"columns_names", "col_tinyint,col_smallint,col_int,col_bigint,col_float,col_double,col_decimal,col_string,col_char,col_varchar,col_boolean,col_timestamp,col_date,col_array,col_map,col_struct"},
+            {"columns_types", "tinyint#smallint#int#bigint#float#double#decimal(10,2)#string#char(10)#varchar(20)#boolean#timestamp#date#array<string>#map<string,int>#struct<name:string,age:int>"},
+            {"required_fields", "col_tinyint,col_smallint,col_int,col_bigint,col_float,col_double,col_decimal,col_string,col_char,col_varchar,col_boolean,col_timestamp,col_date,col_array,col_map,col_struct"},
+            {"hive.serde", "org.apache.hadoop.hive.serde2.columnar.LazyBinaryColumnarSerDe"},
+            {"input_format", "org.apache.hadoop.hive.ql.io.RCFileInputFormat"},
             {"split_start_offset", std::to_string(_range.start_offset)},
-            {"split_size", std::to_string(_range.size)},
+            {"split_size", std::to_string(_range.size)}
     };
     if (type == TFileType::FILE_S3) {
         required_params.insert(_params.properties.begin(), _params.properties.end());
@@ -92,7 +98,13 @@ Status HiveJNIReader::init_fetch_table_schema_reader() {
     std::map<String, String> required_params = {
         {"uri", _range.path},
         {"file_type", std::to_string(get_file_type())},
-        {"is_get_table_schema", "true"}
+        {"file_format", std::to_string(_params.format_type)},
+        {"is_get_table_schema", "true"},
+        {"columns_names", "col_tinyint,col_smallint,col_int,col_bigint,col_float,col_double,col_decimal,col_string,col_char,col_varchar,col_boolean,col_timestamp,col_date,col_array,col_map,col_struct"},
+        {"columns_types", "tinyint#smallint#int#bigint#float#double#decimal(10,2)#string#char(10)#varchar(20)#boolean#timestamp#date#array<string>#map<string,int>#struct<name:string,age:int>"},
+        {"required_fields", "col_tinyint,col_smallint,col_int,col_bigint,col_float,col_double,col_decimal,col_string,col_char,col_varchar,col_boolean,col_timestamp,col_date,col_array,col_map,col_struct"},
+        {"serde", "org.apache.hadoop.hive.serde2.columnar.LazyBinaryColumnarSerDe"},
+        {"input_format", "org.apache.hadoop.hive.ql.io.RCFileInputFormat"}
     };
     required_params.insert(_params.properties.begin(), _params.properties.end());
     _jni_connector = std::make_unique<JniConnector>("org/apache/doris/hive/HiveJNIScanner",
