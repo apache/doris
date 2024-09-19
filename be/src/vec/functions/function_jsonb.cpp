@@ -1567,7 +1567,7 @@ private:
                 continue;
             }
             const auto& json_doc = col_json_string(i);
-            if (!parser.parse(json_doc.data, json_doc.size, root_element)) {
+            if (!parser.parse({json_doc.data, json_doc.size}, root_element)) {
                 return Status::InvalidArgument(
                         "the json_doc argument {} is not a valid json document", json_doc);
             }
@@ -1654,7 +1654,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        size_t result, size_t input_rows_count) override {
         // the json_doc, one_or_all, and search_str must be given.
         // and we require the positions are static.
         if (arguments.size() < 3) {
