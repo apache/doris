@@ -404,11 +404,48 @@ void WorkloadGroupMgr::handle_paused_queries() {
         }
 
         // 2. If memtable size larger than 10% of wg's limit, then flush memtable and wait.
+        MemTableMemoryLimiter* memtable_limiter =
+                doris::ExecEnv::GetInstance()->memtable_memory_limiter();
+        // Not use memlimit, should use high water mark.
+        int64_t wg_high_water_mark_limit =
+                wg->memory_limit() * wg->spill_threshold_high_water_mark() / 100;
+        int64_t memtable_active_bytes = 0;
+        int64_t memtable_write_bytes = 0;
+        int64_t memtable_flush_bytes = 0;
+        wg->get_load_mem_usage(&memtable_active_bytes, &memtable_write_bytes,
+                               &memtable_flush_bytes);
+        // TODO: should add a signal in memtable limiter to prevent new batch
+        // For example, streamload, it will not reserve many memory, but it will occupy many memtable memory.
+        // TODO: 0.2 should be a workload group properties. For example, the group is optimized for load,then the value
+        // should be larged, if the group is optimized for query, then the value should be smaller.
+        int64_t max_wg_memtable_bytes =
+                std::max<int64_t>(100 * 1024 * 1024, (int64_t)(wg_high_water_mark_limit * 0.2));
+        if (memtable_active_bytes + memtable_write_bytes + memtable_flush_bytes >
+            max_wg_memtable_bytes) {
+            // There are many table in flush queue, just waiting them flush finished.
+            if (memtable_write_bytes + memtable_flush_bytes > max_wg_memtable_bytes / 2) {
+                LOG_EVERY_T(INFO, 60)
+                        << wg->name() << " load memtable size is: " << memtable_active_bytes << ", "
+                        << memtable_write_bytes << ", " << memtable_flush_bytes
+                        << ", wait for flush finished to release more memory";
+                continue;
+            } else {
+                // Flush 50% active bytes, it means flush some memtables(currently written) to flush queue.
+                memtable_limiter->flush_workload_group_memtables(
+                        wg->id(), (int64_t)(memtable_active_bytes * 0.5));
+                LOG_EVERY_T(INFO, 60)
+                        << wg->name() << " load memtable size is: " << memtable_active_bytes << ", "
+                        << memtable_write_bytes << ", " << memtable_flush_bytes
+                        << ", flush half of active memtable to revoke memory";
+                continue;
+            }
+        }
 
         // If the wg enable memory overcommit, then not spill, just cancel query.
-        if (wg->enable_memory_overcommit()) {
-            continue;
-        }
+        // if (wg->enable_memory_overcommit()) {
+        // TODO  should cancel top query here.
+        //    continue;
+        //}
 
         std::shared_ptr<QueryContext> max_revocable_query;
         std::shared_ptr<QueryContext> max_memory_usage_query;
@@ -510,6 +547,23 @@ void WorkloadGroupMgr::handle_paused_queries() {
 void WorkloadGroupMgr::stop() {
     for (auto iter = _workload_groups.begin(); iter != _workload_groups.end(); iter++) {
         iter->second->try_stop_schedulers();
+    }
+}
+
+void WorkloadGroupMgr::update_load_memtable_usage(
+        const std::map<uint64_t, MemtableUsage>& wg_memtable_usages) {
+    // Use readlock here, because it will not modify workload_groups
+    std::shared_lock<std::shared_mutex> r_lock(_group_mutex);
+    for (auto it = _workload_groups.begin(); it != _workload_groups.end(); ++it) {
+        auto wg_usage = wg_memtable_usages.find(it->first);
+        if (wg_usage != wg_memtable_usages.end()) {
+            it->second->update_load_mem_usage(wg_usage->second.active_mem_usage,
+                                              wg_usage->second.queue_mem_usage,
+                                              wg_usage->second.flush_mem_usage);
+        } else {
+            // Not anything in memtable limiter, then set to 0
+            it->second->update_load_mem_usage(0, 0, 0);
+        }
     }
 }
 

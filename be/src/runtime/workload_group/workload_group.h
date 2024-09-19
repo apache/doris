@@ -135,6 +135,20 @@ public:
                                 _spill_high_watermark.load(std::memory_order_relaxed) / 100));
     }
 
+    void update_load_mem_usage(int64_t active_bytes, int64_t queue_bytes, int64_t flush_bytes) {
+        std::unique_lock<std::shared_mutex> wlock(_mutex);
+        _active_mem_usage = active_bytes;
+        _queue_mem_usage = queue_bytes;
+        _flush_mem_usage = flush_bytes;
+    }
+
+    void get_load_mem_usage(int64_t* active_bytes, int64_t* queue_bytes, int64_t* flush_bytes) {
+        std::shared_lock<std::shared_mutex> r_lock(_mutex);
+        *active_bytes += _active_mem_usage;
+        *queue_bytes += _queue_mem_usage;
+        *flush_bytes += _flush_mem_usage;
+    }
+
     std::string debug_string() const;
     std::string memory_debug_string() const;
 
@@ -225,6 +239,12 @@ private:
     std::string _name;
     int64_t _version;
     int64_t _memory_limit; // bytes
+
+    // memory used by load memtable
+    int64_t _active_mem_usage = 0;
+    int64_t _queue_mem_usage = 0;
+    int64_t _flush_mem_usage = 0;
+
     // `weighted_memory_limit` less than or equal to _memory_limit, calculate after exclude public memory.
     // more detailed description in `refresh_wg_weighted_memory_limit`.
     std::atomic<int64_t> _weighted_memory_limit {0}; //

@@ -62,6 +62,13 @@ private:
     std::string query_id_;
 };
 
+class MemtableUsage {
+public:
+    int64_t active_mem_usage = 0;
+    int64_t queue_mem_usage = 0;
+    int64_t flush_mem_usage = 0;
+};
+
 class WorkloadGroupMgr {
 public:
     WorkloadGroupMgr() = default;
@@ -91,6 +98,8 @@ public:
     void add_paused_query(const std::shared_ptr<QueryContext>& query_ctx);
 
     void handle_paused_queries();
+
+    void update_load_memtable_usage(const std::map<uint64_t, MemtableUsage>& wg_memtable_usages);
 
 private:
     std::shared_mutex _group_mutex;
