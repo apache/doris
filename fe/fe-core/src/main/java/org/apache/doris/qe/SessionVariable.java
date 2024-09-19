@@ -787,9 +787,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = QUERY_SLOT_COUNT, needForward = true, checker = "checkQuerySlotCount",
             description = {
-            "每个查询占用的slot的数量，workload group的query slot的总数等于设置的最大并发数",
-            "Number of slots occupied by each query, the total number of query slots "
-            + "of the workload group equals the maximum number of concurrent requests"})
+                "每个查询占用的slot的数量，workload group的query slot的总数等于设置的最大并发数",
+                "Number of slots occupied by each query, the total number of query slots "
+                        + "of the workload group equals the maximum number of concurrent requests"})
     public int wgQuerySlotCount = 1;
 
     public void checkQuerySlotCount(String slotCnt) {
