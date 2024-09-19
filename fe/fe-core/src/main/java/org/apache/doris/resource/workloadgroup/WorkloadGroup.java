@@ -620,7 +620,7 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
         if (!StringUtils.isEmpty(tagStr)) {
             tWorkloadGroupInfo.setTag(tagStr);
         }
-        
+
         String totalQuerySlotCountStr = properties.get(MAX_CONCURRENCY);
         if (totalQuerySlotCountStr != null) {
             tWorkloadGroupInfo.setTotalQuerySlotCount(Integer.parseInt(totalQuerySlotCountStr));
