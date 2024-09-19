@@ -111,6 +111,8 @@ public interface DatabaseIf<T extends TableIf> {
 
     T getTableNullable(String tableName);
 
+    T getNonTempTableNullable(String tableName);
+
     default T getTableNullableIfException(String tableName) {
         try {
             return getTableNullable(tableName);
@@ -139,6 +141,15 @@ public interface DatabaseIf<T extends TableIf> {
         return table;
     }
 
+    default <E extends Exception> T getNonTempTableOrException(String tableName,
+            java.util.function.Function<String, E> e) throws E {
+        T table = getNonTempTableNullable(tableName);
+        if (table == null) {
+            throw e.apply(tableName);
+        }
+        return table;
+    }
+
     default <E extends Exception> T getTableOrException(long tableId, Function<Long, E> e) throws E {
         T table = getTableNullable(tableId);
         if (table == null) {
@@ -150,6 +161,11 @@ public interface DatabaseIf<T extends TableIf> {
     default T getTableOrMetaException(String tableName) throws MetaNotFoundException {
         return getTableOrException(tableName, t -> new MetaNotFoundException("table not found, tableName=" + t,
                                                         ErrorCode.ERR_BAD_TABLE_ERROR));
+    }
+
+    default T getNonTempTableOrMetaException(String tableName) throws MetaNotFoundException {
+        return getNonTempTableOrException(tableName, t -> new MetaNotFoundException("table not found, tableName=" + t,
+            ErrorCode.ERR_BAD_TABLE_ERROR));
     }
 
     default T getTableOrMetaException(long tableId) throws MetaNotFoundException {
@@ -167,11 +183,11 @@ public interface DatabaseIf<T extends TableIf> {
         return table;
     }
 
-    default T getTableWithTypeOrMetaException(String tableName, TableIf.TableType tableType)
+    default T getNonTempTableOrMetaException(String tableName, TableIf.TableType tableType)
             throws MetaNotFoundException {
-        T table = getTableOrMetaException(tableName);
+        T table = getNonTempTableOrMetaException(tableName);
         TableType type = Objects.requireNonNull(table.getType());
-        if (type != tableType) {
+        if (type != tableType && type.getParentType() != tableType) {
             throw new MetaNotFoundException(
                 "table type is not " + tableType + ", tableName=" + tableName + ", type=" + type);
         }
