@@ -365,7 +365,7 @@ public class Profile {
         Gson gson = new GsonBuilder().setPrettyPrinting().create();
         return gson.toJson(rootProfile.toBrief());
     }
-    
+
     // Return is profile has been stored to storage
     public void getExecutionProfileContent(StringBuilder builder) {
         if (builder == null) {
