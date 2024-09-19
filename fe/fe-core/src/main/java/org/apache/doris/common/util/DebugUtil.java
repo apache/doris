@@ -183,32 +183,16 @@ public class DebugUtil {
         if (nestedList == null || nestedList.isEmpty()) {
             return "";
         }
-
+    
         StringBuilder output = new StringBuilder();
-
-        // Get the maximum width of each column for alignment
-        int[] columnWidths = new int[3];  // Assuming each inner list has exactly 3 columns
-
-        // Iterate through the list to determine the maximum width of each column
+        output.append("\n");
+    
+        // Iterate through the data rows
         for (List<String> row : nestedList) {
-            for (int i = 0; i < row.size(); i++) {
-                columnWidths[i] = Math.max(columnWidths[i], row.get(i).length());
-            }
-        }
-        
-        // Build the table with proper formatting and alignment
-        for (List<String> row : nestedList) {
-            for (int i = 0; i < row.size(); i++) {
-                // Append each element, padded to the correct width, followed by " | "
-                output.append(String.format("%-" + columnWidths[i] + "s", row.get(i)));
-                if (i < row.size() - 1) {
-                    output.append(" | ");  // Separator between columns
-                }
-            }
+            output.append(String.join("\t", row));  // Join row elements with tabs
             output.append("\n");  // Newline after each row
         }
-
+    
         return output.toString();
-    }
-
+    }    
 }
