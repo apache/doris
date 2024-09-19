@@ -392,6 +392,7 @@ Status DeleteHandler::init(TabletSchemaSPtr tablet_schema,
 
     for (const auto& delete_pred : delete_preds) {
         // Skip the delete condition with large version
+        LOG(INFO) << "lw test init " << delete_pred->version() << " " << version;
         if (delete_pred->version().first > version) {
             continue;
         }

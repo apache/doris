@@ -148,8 +148,16 @@ Status CloudSchemaChangeJob::process_alter_tablet(const TAlterTabletReqV2& reque
     DeleteHandler delete_handler;
     std::vector<RowsetMetaSharedPtr> delete_predicates;
     for (auto& split : rs_splits) {
+        LOG(INFO) << "lw test rs " << split.rs_reader->rowset()->start_version() << " "
+                  << split.rs_reader->rowset()->end_version() << " tablet id "
+                  << _new_tablet->tablet_id();
         auto& rs_meta = split.rs_reader->rowset()->rowset_meta();
         if (rs_meta->has_delete_predicate()) {
+            LOG(INFO) << "lw test delete predicate, start version " << rs_meta->start_version()
+                      << " end version " << rs_meta->end_version() << " tablet id "
+                      << _new_tablet->tablet_id() << " pred "
+                      << rs_meta->delete_predicate().DebugString();
+
             _base_tablet_schema->merge_dropped_columns(*rs_meta->tablet_schema());
             delete_predicates.push_back(rs_meta);
         }
