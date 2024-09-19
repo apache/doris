@@ -487,4 +487,36 @@ suite("test_aggregate_window_functions") {
     order_qt_agg_window_orthogonal_bitmap2 "select bucket, orthogonal_bitmap_intersect_count(members, tag_group, 1, 2, 3) over(partition by bucket) from test_aggregate_window_functions;"
     order_qt_agg_window_orthogonal_bitmap3 "select bucket, orthogonal_bitmap_union_count(members) over(partition by bucket) from test_aggregate_window_functions;"
 
+    // window_funnel
+    sql """
+        drop table if exists test_aggregate_window_functions;
+    """
+    sql """
+        CREATE TABLE test_aggregate_window_functions(
+            user_id BIGINT,
+            event_name VARCHAR(64),
+            event_timestamp datetime,
+            phone_brand varchar(64),
+            tab_num int
+        ) distributed by hash(event_timestamp) buckets 3 properties("replication_num"="1");
+    """
+    sql """
+        INSERT INTO test_aggregate_window_functions VALUES
+            (100123, '登录', '2022-05-14 10:01:00', 'HONOR', 1),
+            (100123, '访问', '2022-05-14 10:02:00', 'HONOR', 2),
+            (100123, '登录2', '2022-05-14 10:03:00', 'HONOR', 3),
+            (100123, '下单', '2022-05-14 10:04:00', "HONOR", 4),
+            (100123, '付款', '2022-05-14 10:10:00', 'HONOR', 4),
+            (100125, '登录', '2022-05-15 11:00:00', 'XIAOMI', 1),
+            (100125, '访问', '2022-05-15 11:01:00', 'XIAOMI', 2),
+            (100125, '下单', '2022-05-15 11:02:00', 'XIAOMI', 6),
+            (100126, '登录', '2022-05-15 12:00:00', 'IPHONE', 1),
+            (100126, '访问', '2022-05-15 12:01:00', 'HONOR', 2),
+            (100127, '登录', '2022-05-15 11:30:00', 'VIVO', 1),
+            (100127, '访问', '2022-05-15 11:31:00', 'VIVO', 5);
+    """
+    order_qt_agg_window_window_funnel """
+        select user_id, window_funnel(3600, "fixed", event_timestamp, event_name = '登录', event_name = '访问', event_name = '下单', event_name = '付款') over(partition by user_id) from test_aggregate_window_functions;
+    """
+
 }
