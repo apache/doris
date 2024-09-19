@@ -81,9 +81,11 @@ void register_aggregate_function_covar_pop(AggregateFunctionSimpleFactory& facto
 
 void register_aggregate_function_covar_samp_old(AggregateFunctionSimpleFactory& factory) {
     factory.register_alternative_function(
-            "covar_samp", create_aggregate_function_covariance_samp_old<NOTNULLABLE>);
-    factory.register_alternative_function(
-            "covar_samp", create_aggregate_function_covariance_samp_old<NULLABLE>, NULLABLE);
+            "covar_samp", create_aggregate_function_covariance_samp_old<NOTNULLABLE>, false,
+            AGG_FUNCTION_NULLABLE);
+    factory.register_alternative_function("covar_samp",
+                                          create_aggregate_function_covariance_samp_old<NULLABLE>,
+                                          true, AGG_FUNCTION_NULLABLE);
 }
 
 void register_aggregate_function_covar_samp(AggregateFunctionSimpleFactory& factory) {

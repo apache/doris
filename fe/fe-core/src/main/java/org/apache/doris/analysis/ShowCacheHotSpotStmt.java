@@ -43,8 +43,8 @@ import java.util.List;
 public class ShowCacheHotSpotStmt extends ShowStmt implements NotFallbackInParser {
     public static final ShowResultSetMetaData[] RESULT_SET_META_DATAS = {
         ShowResultSetMetaData.builder()
-            .addColumn(new Column("cluster_id", ScalarType.createType(PrimitiveType.BIGINT)))
-            .addColumn(new Column("cluster_name", ScalarType.createVarchar(128)))
+            .addColumn(new Column("compute_group_id", ScalarType.createType(PrimitiveType.BIGINT)))
+            .addColumn(new Column("compute_group_name", ScalarType.createVarchar(128)))
             .addColumn(new Column("table_id", ScalarType.createType(PrimitiveType.BIGINT)))
             .addColumn(new Column("table_name", ScalarType.createVarchar(128)))
             .build(),
@@ -129,7 +129,8 @@ public class ShowCacheHotSpotStmt extends ShowStmt implements NotFallbackInParse
                             + "sum(query_per_week) as query_per_week_total "
                             + "FROM " + TABLE_NAME.toString()
                             + " group by cluster_id, cluster_name, table_id, table_name, insert_day) ");
-            StringBuilder q2 = new StringBuilder("select cluster_id, cluster_name, "
+            StringBuilder q2 = new StringBuilder("select cluster_id as compute_group_id, "
+                            + "cluster_name as compute_group_name, "
                             + "table_id, table_name as hot_table_name from (select row_number() "
                             + "over (partition by cluster_id order by insert_day desc, "
                             + "query_per_day_total desc, query_per_week_total desc) as dr2, "
