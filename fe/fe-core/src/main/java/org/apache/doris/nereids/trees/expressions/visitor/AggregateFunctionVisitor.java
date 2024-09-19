@@ -213,7 +213,7 @@ public interface AggregateFunctionVisitor<R, C> {
     }
 
     default R visitKurt(Kurt kurt, C context) {
-        return visitNullableAggregateFunction(kurt, context);
+        return visitAggregateFunction(kurt, context);
     }
 
     default R visitMapAgg(MapAgg mapAgg, C context) {
@@ -285,7 +285,7 @@ public interface AggregateFunctionVisitor<R, C> {
     }
 
     default R visitSkew(Skew skew, C context) {
-        return visitNullableAggregateFunction(skew, context);
+        return visitAggregateFunction(skew, context);
     }
 
     default R visitStddev(Stddev stddev, C context) {

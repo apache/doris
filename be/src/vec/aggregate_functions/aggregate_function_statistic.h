@@ -28,6 +28,7 @@
 #include "vec/aggregate_functions/moments.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
+#include "vec/common/assert_cast.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_nullable.h"
@@ -58,10 +59,11 @@ struct StatFuncOneArg {
     static constexpr UInt32 num_args = 1;
 };
 
-template <typename StatFunc>
+template <typename StatFunc, bool NullableInput>
 class AggregateFunctionVarianceSimple
-        : public IAggregateFunctionDataHelper<typename StatFunc::Data,
-                                              AggregateFunctionVarianceSimple<StatFunc>> {
+        : public IAggregateFunctionDataHelper<
+                  typename StatFunc::Data,
+                  AggregateFunctionVarianceSimple<StatFunc, NullableInput>> {
 public:
     using T1 = typename StatFunc::Type1;
     using T2 = typename StatFunc::Type2;
@@ -72,20 +74,30 @@ public:
 
     explicit AggregateFunctionVarianceSimple(StatisticsFunctionKind kind_,
                                              const DataTypes& argument_types_)
-            : IAggregateFunctionDataHelper<typename StatFunc::Data,
-                                           AggregateFunctionVarianceSimple<StatFunc>>(
-                      argument_types_),
+            : IAggregateFunctionDataHelper<
+                      typename StatFunc::Data,
+                      AggregateFunctionVarianceSimple<StatFunc, NullableInput>>(argument_types_),
               kind(kind_) {
         DCHECK(!argument_types_.empty());
     }
 
     String get_name() const override { return to_string(kind); }
 
-    DataTypePtr get_return_type() const override { return std::make_shared<DataTypeFloat64>(); }
+    DataTypePtr get_return_type() const override {
+        return make_nullable(std::make_shared<DataTypeFloat64>());
+    }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena*) const override {
-        this->data(place).add(assert_cast<const ColVecT1&>(*columns[0]).get_data()[row_num]);
+        if constexpr (NullableInput) {
+            const ColumnNullable& column_with_nullable =
+                    assert_cast<const ColumnNullable&>(*columns[0]);
+            this->data(place).add(
+                    assert_cast<const ColVecT1&>(column_with_nullable.get_nested_column())
+                            .get_data()[row_num]);
+        } else {
+            this->data(place).add(assert_cast<const ColVecT1&>(*columns[0]).get_data()[row_num]);
+        }
     }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
@@ -104,43 +116,37 @@ public:
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         const auto& data = this->data(place);
-        ColVecResult* dst_column = assert_cast<ColVecResult*>(&to);
-
+        ColumnNullable& dst_column_with_nullable = assert_cast<ColumnNullable&>(to);
+        ColVecResult* dst_column =
+                assert_cast<ColVecResult*>(&(dst_column_with_nullable.get_nested_column()));
+        ;
         switch (kind) {
         case StatisticsFunctionKind::skewPop: {
             // If input is empty set, we will get NAN from getPopulation()
             ResultType var_value = data.getPopulation();
-            if (!std::isnan(var_value) && var_value > 0) {
-                ResultType moments3 = data.getMoment3();
-                if (!std::isnan(moments3)) [[likely]] {
-                    dst_column->get_data().push_back(
-                            static_cast<ResultType>(moments3 / pow(var_value, 1.5)));
-                } else {
-                    throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                                           "skewness calculation error, result is NAN");
-                }
-            } else {
-                // Empty input, result column will be:
-                // Nullable if without group by
-                // Nullable if with group by, and input column is nullable
-                // Non-Nullable if with group by, and input column is non-nullable
+            ResultType moments_3 = data.getMoment3();
+
+            if (std::isnan(var_value) || std::isnan(moments_3) || var_value <= 0) {
+                dst_column_with_nullable.get_null_map_data().push_back(1);
                 dst_column->insert_default();
+            } else {
+                dst_column_with_nullable.get_null_map_data().push_back(0);
+                dst_column->get_data().push_back(
+                        static_cast<ResultType>(moments_3 / pow(var_value, 1.5)));
             }
             break;
         }
         case StatisticsFunctionKind::kurtPop: {
             ResultType var_value = data.getPopulation();
-            if (!std::isnan(var_value) && var_value > 0) {
-                ResultType moments4 = data.getMoment4();
-                if (!std::isnan(moments4)) [[likely]] {
-                    dst_column->get_data().push_back(
-                            static_cast<ResultType>(moments4 / pow(var_value, 2)));
-                } else {
-                    throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                                           "skewness calculation error, result is NAN");
-                }
-            } else {
+            ResultType moments_4 = data.getMoment4();
+
+            if (std::isnan(var_value) || std::isnan(moments_4) || var_value <= 0) {
+                dst_column_with_nullable.get_null_map_data().push_back(1);
                 dst_column->insert_default();
+            } else {
+                dst_column_with_nullable.get_null_map_data().push_back(0);
+                dst_column->get_data().push_back(
+                        static_cast<ResultType>(moments_4 / pow(var_value, 2)));
             }
             break;
         }

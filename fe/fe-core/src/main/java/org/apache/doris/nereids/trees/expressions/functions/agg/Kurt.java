@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.expressions.functions.agg;
 
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
@@ -38,8 +39,8 @@ import java.util.List;
 /**
  * AggregateFunction 'Kurt'.
  */
-public class Kurt extends NullableAggregateFunction
-        implements UnaryExpression, ExplicitlyCastableSignature {
+public class Kurt extends AggregateFunction
+        implements UnaryExpression, ExplicitlyCastableSignature, AlwaysNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(DoubleType.INSTANCE).args(FloatType.INSTANCE),
@@ -56,11 +57,7 @@ public class Kurt extends NullableAggregateFunction
     }
 
     public Kurt(boolean distinct, Expression arg1) {
-        this(distinct, false, arg1);
-    }
-
-    public Kurt(boolean distinct, boolean alwaysNullable, Expression arg1) {
-        super("Kurt", distinct, alwaysNullable, arg1);
+        super("kurt", distinct, arg1);
     }
 
     /**
@@ -69,12 +66,7 @@ public class Kurt extends NullableAggregateFunction
     @Override
     public Kurt withDistinctAndChildren(boolean distinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Kurt(distinct, alwaysNullable, children.get(0));
-    }
-
-    @Override
-    public Kurt withAlwaysNullable(boolean alwaysNullable) {
-        return new Kurt(distinct, alwaysNullable, children.get(0));
+        return new Kurt(distinct, children.get(0));
     }
 
     @Override

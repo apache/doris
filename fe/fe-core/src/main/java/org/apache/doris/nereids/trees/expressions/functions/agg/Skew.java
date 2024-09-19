@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.expressions.functions.agg;
 
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
@@ -38,8 +39,9 @@ import java.util.List;
 /**
  * AggregateFunction 'Skew'.
  */
-public class Skew extends NullableAggregateFunction
-        implements UnaryExpression, ExplicitlyCastableSignature {
+
+public class Skew extends AggregateFunction
+        implements UnaryExpression, ExplicitlyCastableSignature, AlwaysNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(DoubleType.INSTANCE).args(FloatType.INSTANCE),
@@ -56,11 +58,7 @@ public class Skew extends NullableAggregateFunction
     }
 
     public Skew(boolean distinct, Expression arg1) {
-        this(distinct, false, arg1);
-    }
-
-    public Skew(boolean distinct, boolean alwaysNullable, Expression arg1) {
-        super("Skew", distinct, alwaysNullable, arg1);
+        super("skew", distinct, arg1);
     }
 
     /**
@@ -69,12 +67,7 @@ public class Skew extends NullableAggregateFunction
     @Override
     public Skew withDistinctAndChildren(boolean distinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Skew(distinct, alwaysNullable, children.get(0));
-    }
-
-    @Override
-    public Skew withAlwaysNullable(boolean alwaysNullable) {
-        return new Skew(distinct, alwaysNullable, children.get(0));
+        return new Skew(distinct, children.get(0));
     }
 
     @Override
