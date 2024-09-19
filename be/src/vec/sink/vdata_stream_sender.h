@@ -135,7 +135,7 @@ public:
 
     // Initialize channel.
     // Returns OK if successful, error indication otherwise.
-    Status init_stub(RuntimeState* state);
+    Status init(RuntimeState* state);
     Status open(RuntimeState* state);
 
     // Asynchronously sends a row batch.
