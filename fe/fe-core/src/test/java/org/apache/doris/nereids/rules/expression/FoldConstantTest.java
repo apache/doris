@@ -38,7 +38,11 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ConvertTz;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DateFormat;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DateTrunc;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FromUnixtime;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursAdd;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MinutesAdd;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondsAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StrToDate;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ToDays;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UnixTimestamp;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
@@ -177,6 +181,46 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
         Expression rewritten = executor.rewrite(c, context);
         Literal expected = Literal.of((byte) 1);
         Assertions.assertEquals(rewritten, expected);
+    }
+
+    @Test
+    void testFoldDate() {
+        executor = new ExpressionRuleExecutor(ImmutableList.of(
+            bottomUp(FoldConstantRuleOnFE.VISITOR_INSTANCE)
+        ));
+        HoursAdd hoursAdd = new HoursAdd(DateLiteral.fromJavaDateType(LocalDateTime.of(1, 1, 1, 1, 1, 1)),
+                new IntegerLiteral(1));
+        Expression rewritten = executor.rewrite(hoursAdd, context);
+        Assertions.assertTrue(new DateTimeLiteral("0001-01-01 01:00:00").compareTo((Literal) rewritten) == 0);
+        hoursAdd = new HoursAdd(DateV2Literal.fromJavaDateType(LocalDateTime.of(1, 1, 1, 1, 1, 1)),
+                new IntegerLiteral(1));
+        rewritten = executor.rewrite(hoursAdd, context);
+        Assertions.assertTrue(new DateTimeV2Literal("0001-01-01 01:00:00").compareTo((Literal) rewritten) == 0);
+
+        MinutesAdd minutesAdd = new MinutesAdd(DateLiteral.fromJavaDateType(LocalDateTime.of(1, 1, 1, 1, 1, 1)),
+                new IntegerLiteral(1));
+        rewritten = executor.rewrite(minutesAdd, context);
+        Assertions.assertTrue(new DateTimeLiteral("0001-01-01 00:01:00").compareTo((Literal) rewritten) == 0);
+        minutesAdd = new MinutesAdd(DateV2Literal.fromJavaDateType(LocalDateTime.of(1, 1, 1, 1, 1, 1)),
+                new IntegerLiteral(1));
+        rewritten = executor.rewrite(minutesAdd, context);
+        Assertions.assertTrue(new DateTimeV2Literal("0001-01-01 00:01:00").compareTo((Literal) rewritten) == 0);
+
+        SecondsAdd secondsAdd = new SecondsAdd(DateLiteral.fromJavaDateType(LocalDateTime.of(1, 1, 1, 1, 1, 1)),
+                new IntegerLiteral(1));
+        rewritten = executor.rewrite(secondsAdd, context);
+        Assertions.assertTrue(new DateTimeLiteral("0001-01-01 00:00:01").compareTo((Literal) rewritten) == 0);
+        secondsAdd = new SecondsAdd(DateV2Literal.fromJavaDateType(LocalDateTime.of(1, 1, 1, 1, 1, 1)),
+                new IntegerLiteral(1));
+        rewritten = executor.rewrite(secondsAdd, context);
+        Assertions.assertTrue(new DateTimeV2Literal("0001-01-01 00:00:01").compareTo((Literal) rewritten) == 0);
+
+        ToDays toDays = new ToDays(DateLiteral.fromJavaDateType(LocalDateTime.of(1, 1, 1, 1, 1, 1)));
+        rewritten = executor.rewrite(toDays, context);
+        Assertions.assertTrue(new IntegerLiteral(366).compareTo((Literal) rewritten) == 0);
+        toDays = new ToDays(DateV2Literal.fromJavaDateType(LocalDateTime.of(1, 1, 1, 1, 1, 1)));
+        rewritten = executor.rewrite(toDays, context);
+        Assertions.assertTrue(new IntegerLiteral(366).compareTo((Literal) rewritten) == 0);
     }
 
     @Test
