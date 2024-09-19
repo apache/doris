@@ -1292,7 +1292,8 @@ public class UdfConvert {
             int num = data.size();
             int[] offsets = new int[num];
             byte[][] byteRes = new byte[num][];
-            int offset = 0;
+            int oldOffsetNum = UdfUtils.UNSAFE.getInt(null, strOffsetAddr + ((hasPutElementNum - 1) * 4L));
+            int offset = oldOffsetNum;
             for (int i = 0; i < num; ++i) {
                 String value = data.get(i);
                 if (value == null) {
@@ -1304,23 +1305,22 @@ public class UdfConvert {
                 offset += byteRes[i].length;
                 offsets[i] = offset;
             }
-            int oldOffsetNum = UdfUtils.UNSAFE.getInt(null, strOffsetAddr + ((hasPutElementNum - 1) * 4L));
             int oldSzie = 0;
             if (num > 0) {
                 oldSzie = offsets[num - 1];
             }
             byte[] bytes = new byte[oldSzie];
-            long bytesAddr = JNINativeMethod.resizeStringColumn(dataAddr, oldOffsetNum + oldSzie);
+            long bytesAddr = JNINativeMethod.resizeStringColumn(dataAddr, oldSzie);
             int dst = 0;
             for (int i = 0; i < num; i++) {
                 for (int j = 0; j < byteRes[i].length; j++) {
                     bytes[dst++] = byteRes[i][j];
                 }
             }
-            UdfUtils.copyMemory(offsets, UdfUtils.INT_ARRAY_OFFSET, null, strOffsetAddr + (4L * oldOffsetNum),
+            UdfUtils.copyMemory(offsets, UdfUtils.INT_ARRAY_OFFSET, null, strOffsetAddr + (4L * hasPutElementNum),
                     num * 4L);
             UdfUtils.copyMemory(bytes, UdfUtils.BYTE_ARRAY_OFFSET, null, bytesAddr + oldOffsetNum,
-                    oldSzie);
+                    oldSzie - oldOffsetNum);
             hasPutElementNum = hasPutElementNum + num;
         }
         UdfUtils.UNSAFE.putLong(null, offsetsAddr + 8L * row, hasPutElementNum);
