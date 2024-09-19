@@ -1208,6 +1208,9 @@ void DeleteBitmap::remove_stale_delete_bitmap_from_queue(const std::vector<std::
             _stale_delete_bitmap.erase(version_str);
         }
     }
+    if (tablet_id == -1 || to_delete.empty()) {
+        return;
+    }
     CloudStorageEngine& engine = ExecEnv::GetInstance()->storage_engine().to_cloud();
     auto st = engine.meta_mgr().remove_old_version_delete_bitmap(tablet_id, to_delete);
     if (!st.ok()) {
