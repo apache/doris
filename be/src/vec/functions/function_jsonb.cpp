@@ -1593,8 +1593,8 @@ private:
                 state_ptr = std::make_shared<LikeState>();
                 state_ptr->is_like_pattern = true;
                 const auto& search_str = col_search_string->get_data_at(i);
-                RETURN_IF_ERROR(
-                        FunctionLike::construct_like_const_state(context, search_str, state_ptr));
+                RETURN_IF_ERROR(FunctionLike::construct_like_const_state(context, search_str,
+                                                                         state_ptr, false));
                 state = state_ptr.get();
             }
 
@@ -1647,7 +1647,8 @@ public:
             state->is_like_pattern = true;
             const auto pattern_col = context->get_constant_col(2)->column_ptr;
             const auto& pattern = pattern_col->get_data_at(0);
-            RETURN_IF_ERROR(FunctionLike::construct_like_const_state(context, pattern, state));
+            RETURN_IF_ERROR(
+                    FunctionLike::construct_like_const_state(context, pattern, state, false));
             context->set_function_state(scope, state);
         }
         return Status::OK();

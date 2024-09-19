@@ -814,7 +814,8 @@ void verbose_log_match(const std::string& str, const std::string& pattern_name, 
 }
 
 Status FunctionLike::construct_like_const_state(FunctionContext* context, const StringRef& pattern,
-                                                std::shared_ptr<LikeState>& state) {
+                                                std::shared_ptr<LikeState>& state,
+                                                bool try_hyperscan) {
     std::string pattern_str = pattern.to_string();
     state->search_state.pattern_str = pattern_str;
     std::string search_string;
@@ -886,7 +887,7 @@ Status FunctionLike::construct_like_const_state(FunctionContext* context, const 
 
         hs_database_t* database = nullptr;
         hs_scratch_t* scratch = nullptr;
-        if (hs_prepare(context, re_pattern.c_str(), &database, &scratch).ok()) {
+        if (try_hyperscan && hs_prepare(context, re_pattern.c_str(), &database, &scratch).ok()) {
             // use hyperscan
             state->search_state.hs_database.reset(database);
             state->search_state.hs_scratch.reset(scratch);
