@@ -2777,7 +2777,7 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public boolean isDebugSkipFoldConstant() {
-        return debugSkipFoldConstant;
+        return true;
     }
 
     public boolean isEnableRewriteElementAtToSlot() {
