@@ -2793,16 +2793,12 @@ public class Config extends ConfigBase {
     public static String deploy_mode = "";
 
     // compatibily with elder version.
-    // cloud_unique_id is introduced before cloud_instance_id, so it has higher priority.
+    // cloud_unique_id has higher priority than cluster_id.
     @ConfField
     public static String cloud_unique_id = "";
 
-    // If cloud_unique_id is empty, cloud_instance_id works, otherwise cloud_unique_id works.
-    @ConfField
-    public static String cloud_instance_id = "";
-
     public static boolean isCloudMode() {
-        return deploy_mode.equals("cloud") || !cloud_unique_id.isEmpty() || !cloud_instance_id.isEmpty();
+        return deploy_mode.equals("cloud") || !cloud_unique_id.isEmpty();
     }
 
     public static boolean isNotCloudMode() {
@@ -2877,6 +2873,8 @@ public class Config extends ConfigBase {
     @ConfField
     public static boolean enable_cloud_snapshot_version = true;
 
+    // Interval in seconds for checking the status of compute groups (cloud clusters).
+    // Compute groups and cloud clusters refer to the same concept.
     @ConfField
     public static int cloud_cluster_check_interval_second = 10;
 

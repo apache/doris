@@ -33,7 +33,7 @@ import org.apache.doris.qe.ShowResultSetMetaData;
  **/
 public class ShowStorageVaultStmt extends ShowStmt implements NotFallbackInParser {
 
-    private final String stmt = "SHOW STORAGE VAULT";
+    private final String stmt = "SHOW STORAGE VAULTS";
 
     public ShowStorageVaultStmt() {
     }

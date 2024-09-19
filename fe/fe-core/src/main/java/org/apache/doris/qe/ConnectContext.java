@@ -1157,10 +1157,10 @@ public class ConnectContext {
         StringBuilder sb = new StringBuilder();
         if (ConnectContext.get() != null) {
             String clusterName = ConnectContext.get().getCloudCluster();
-            String hits = "or you may not have permission to access the current cluster = ";
+            String hits = "or you may not have permission to access the current compute group = ";
             sb.append(" ");
             if (Strings.isNullOrEmpty(clusterName)) {
-                return sb.append(hits).append("cluster name empty").toString();
+                return sb.append(hits).append("compute group name empty").toString();
             }
             String clusterStatus = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
                     .getCloudStatusByName(clusterName);
@@ -1193,12 +1193,12 @@ public class ConnectContext {
                 // valid
                 r = new CloudClusterResult(defaultCloudCluster,
                     CloudClusterResult.Comment.FOUND_BY_DEFAULT_CLUSTER);
-                LOG.info("use default cluster {}", defaultCloudCluster);
+                LOG.info("use default compute group {}", defaultCloudCluster);
             } else {
                 // invalid
                 r = new CloudClusterResult(defaultCloudCluster,
                     CloudClusterResult.Comment.DEFAULT_CLUSTER_SET_BUT_NOT_EXIST);
-                LOG.warn("default cluster {} current invalid, please change it", r);
+                LOG.warn("default compute group {} current invalid, please change it", r);
             }
             return r;
         }
@@ -1214,7 +1214,7 @@ public class ConnectContext {
                         .getBackendsByClusterName(cloudClusterName);
                 AtomicBoolean hasAliveBe = new AtomicBoolean(false);
                 bes.stream().filter(Backend::isAlive).findAny().ifPresent(backend -> {
-                    LOG.debug("get a clusterName {}, it's has more than one alive be {}", cloudCluster, backend);
+                    LOG.debug("get a compute group {}, it's has more than one alive be {}", cloudCluster, backend);
                     hasAliveBe.set(true);
                 });
                 if (hasAliveBe.get()) {

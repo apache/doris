@@ -322,19 +322,19 @@ class UpCommand(Command):
 
         if self._support_boolean_action():
             parser.add_argument(
-                "--be-cloud-instanceid",
+                "--be-cluster-id",
                 default=True,
                 action=self._get_parser_bool_action(False),
                 help=
-                "Do not set BE cloud instance ID in conf. Default is False.")
+                "Do not set BE cluster ID in conf. Default is False.")
         else:
             parser.add_argument(
-                "--no-be-cloud-instanceid",
-                dest='be_cloud_instanceid',
+                "--no-be-cluster-id",
+                dest='be_cluster_id',
                 default=True,
                 action=self._get_parser_bool_action(False),
                 help=
-                "Do not set BE cloud instance ID in conf. Default is False.")
+                "Do not set BE cluser ID in conf. Default is False.")
 
         parser.add_argument(
             "--fdb-version",
@@ -434,7 +434,7 @@ class UpCommand(Command):
                 args.be_config, args.ms_config, args.recycle_config,
                 args.fe_follower, args.be_disks, args.be_cluster, args.reg_be,
                 args.coverage_dir, cloud_store_config, args.sql_mode_node_mgr,
-                args.be_metaservice_endpoint, args.be_cloud_instanceid)
+                args.be_metaservice_endpoint, args.be_cluster_id)
             LOG.info("Create new cluster {} succ, cluster path is {}".format(
                 args.NAME, cluster.get_path()))
 

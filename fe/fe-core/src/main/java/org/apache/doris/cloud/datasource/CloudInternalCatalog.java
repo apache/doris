@@ -184,7 +184,7 @@ public class CloudInternalCatalog extends InternalCatalog {
             requestBuilder.setDbId(dbId);
 
             LOG.info("create tablets, dbId: {}, tableId: {}, tableName: {}, partitionId: {}, partitionName: {}, "
-                    + "indexId: {}, vault name {}",
+                    + "indexId: {}, vault name: {}",
                     dbId, tbl.getId(), tbl.getName(), partitionId, partitionName, indexId, storageVaultName);
             Cloud.CreateTabletsResponse resp = sendCreateTabletsRpc(requestBuilder);
             // If the resp has no vault id set, it means the MS is running with enable_storage_vault false
