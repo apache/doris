@@ -199,7 +199,7 @@ protected:
                 static_cast<const Derived*>(this)->push_number_reserved(chars.data(), num, offset);
                 offsets[row_num] = offset;
             }
-            DCHECK_EQ(offset, static_cast<const Derived*>(this)->number_length() * size);
+            DCHECK_LE(offset, static_cast<const Derived*>(this)->number_length() * size);
             chars.resize(offset);
         } else {
             for (int row_num = 0; row_num < size; row_num++) {
