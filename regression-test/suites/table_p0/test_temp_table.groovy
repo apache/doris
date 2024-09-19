@@ -18,20 +18,9 @@
 import org.junit.Assert;
 
 suite("test_temp_table") {
-
-    sql """
-        DROP DATABASE if exists regression_test_table_p0;
-    """
-    sql """
-        CREATE DATABASE regression_test_table_p0;
-    """
-    sql """
-        USE regression_test_table_p0;
-    """
     sql """
         DROP TABLE IF EXISTS `t_test_table_with_data`
     """
-
     sql """
         CREATE TABLE `t_test_table_with_data` (
             `id` int,
@@ -97,10 +86,22 @@ suite("test_temp_table") {
         """
 
     def show_tables = sql "show tables"
-    assertEquals(show_tables.size(), 2)
+    def hasTempTable = false
+    for(int i = 0; i < show_tables.size(); i++) {
+        if (show_tables[i][0].equals("t_test_temp_table2")) {
+            hasTempTable = true;
+        }
+    }
+    assertFalse(hasTempTable)
 
     def show_data = sql "show data"
-    assertEquals(show_data.size(), 2 + 3)
+    def containTempTable = false
+    for(int i = 0; i < show_data.size(); i++) {
+        if (show_data[i][0].equals("t_test_temp_table2")) {
+            containTempTable = true;
+        }
+    }
+    assertTrue(containTempTable)
 
     def show_result = sql "show create table t_test_temp_table1"
     assertEquals(show_result[0][0], "t_test_temp_table1")

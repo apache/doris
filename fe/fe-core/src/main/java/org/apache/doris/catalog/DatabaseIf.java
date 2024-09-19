@@ -167,6 +167,17 @@ public interface DatabaseIf<T extends TableIf> {
         return table;
     }
 
+    default T getTableWithTypeOrMetaException(String tableName, TableIf.TableType tableType)
+            throws MetaNotFoundException {
+        T table = getTableOrMetaException(tableName);
+        TableType type = Objects.requireNonNull(table.getType());
+        if (type != tableType) {
+            throw new MetaNotFoundException(
+                "table type is not " + tableType + ", tableName=" + tableName + ", type=" + type);
+        }
+        return table;
+    }
+
     default T getTableOrMetaException(String tableName, List<TableIf.TableType> tableTypes)
             throws MetaNotFoundException {
         T table = getTableOrMetaException(tableName);
