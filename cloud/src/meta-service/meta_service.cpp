@@ -2112,27 +2112,20 @@ void MetaServiceImpl::update_delete_bitmap_without_lock(google::protobuf::RpcCon
         return;
     }
 
-    PendingDeleteBitmapPB delete_bitmap_keys;
+    // Update delete bitmap for curent txn
+    size_t total_key = 0;
+    size_t total_size = 0;
     for (size_t i = 0; i < request->rowset_ids_size(); ++i) {
+        std::string key;
         MetaDeleteBitmapInfo key_info {instance_id, tablet_id, request->rowset_ids(i),
                                        request->versions(i), request->segment_ids(i)};
-        std::string key;
         meta_delete_bitmap_key(key_info, &key);
-        delete_bitmap_keys.add_delete_bitmap_keys(key);
-    }
-
-    // remove old delete bitmap
-
-    // Update delete bitmap for curent txn
-    for (size_t i = 0; i < request->rowset_ids_size(); ++i) {
-        auto& key = delete_bitmap_keys.delete_bitmap_keys(i);
         auto& val = request->segment_delete_bitmaps(i);
 
         // Split into multiple fdb transactions, because the size of one fdb
         // transaction can't exceed 10MB.
         if (fdb_txn_size + key.size() + val.size() > 9 * 1024 * 1024) {
-            LOG(INFO) << "fdb txn size more than 9MB, current size: " << fdb_txn_size
-                      << " lock_id=" << request->lock_id();
+            VLOG_DEBUG << "fdb txn size more than 9MB, current size: " << fdb_txn_size;
             err = txn->commit();
             if (err != TxnErrorCode::TXN_OK) {
                 code = cast_as<ErrCategory::COMMIT>(err);
@@ -2151,8 +2144,10 @@ void MetaServiceImpl::update_delete_bitmap_without_lock(google::protobuf::RpcCon
         // splitting large values (>90*1000) into multiple KVs
         cloud::put(txn.get(), key, val, 0);
         fdb_txn_size = fdb_txn_size + key.size() + val.size();
-        LOG(INFO) << "xxx update delete bitmap put delete_bitmap_key=" << hex(key)
-                  << " lock_id=" << request->lock_id() << " value_size: " << val.size();
+        total_key++;
+        total_size += fdb_txn_size;
+        VLOG_DEBUG << "xxx update delete bitmap put delete_bitmap_key=" << hex(key)
+                   << " value_size: " << val.size();
     }
 
     err = txn->commit();
@@ -2162,6 +2157,9 @@ void MetaServiceImpl::update_delete_bitmap_without_lock(google::protobuf::RpcCon
         msg = ss.str();
         return;
     }
+    LOG(INFO) << "update_delete_bitmap_without_lock,tablet_id=" << tablet_id
+              << ",rowset_num=" << request->rowset_ids_size() << ",total_key=" << total_key
+              << ",total_size=" << total_size;
 }
 
 void MetaServiceImpl::remove_delete_bitmap(google::protobuf::RpcController* controller,
@@ -2184,7 +2182,6 @@ void MetaServiceImpl::remove_delete_bitmap(google::protobuf::RpcController* cont
         return;
     }
     RPC_RATE_LIMIT(remove_delete_bitmap)
-    // remove delete bitmap of input rowset for MoW table
     auto tablet_id = request->tablet_id();
     auto& rowset_ids = request->rowset_ids();
     auto& begin_versions = request->begin_versions();
@@ -2218,6 +2215,8 @@ void MetaServiceImpl::remove_delete_bitmap(google::protobuf::RpcController* cont
         msg = ss.str();
         return;
     }
+    LOG(INFO) << "remove_delete_bitmap,tablet_id=" << tablet_id
+              << ",rowset_num=" << rowset_ids.size();
 }
 
 std::pair<MetaServiceCode, std::string> MetaServiceImpl::get_instance_info(

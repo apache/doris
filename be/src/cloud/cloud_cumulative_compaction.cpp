@@ -360,7 +360,6 @@ void CloudCumulativeCompaction::process_old_version_delete_bitmap() {
         }
     }
     std::sort(pre_rowsets.begin(), pre_rowsets.end(), Rowset::comparator);
-    pre_rowsets.erase(pre_rowsets.begin());
     if (!pre_rowsets.empty()) {
         auto pre_max_version = _output_rowset->version().second;
         DeleteBitmapPtr new_delete_bitmap =
@@ -368,6 +367,9 @@ void CloudCumulativeCompaction::process_old_version_delete_bitmap() {
         std::vector<std::tuple<int64_t, DeleteBitmap::BitmapKey, DeleteBitmap::BitmapKey>>
                 to_remove_vec;
         for (auto& rowset : pre_rowsets) {
+            if (rowset->rowset_meta()->total_disk_size() == 0) {
+                continue;
+            }
             for (uint32_t seg_id = 0; seg_id < rowset->num_segments(); ++seg_id) {
                 rowset->rowset_id().to_string();
                 DeleteBitmap::BitmapKey start {rowset->rowset_id(), seg_id, 0};
@@ -403,16 +405,15 @@ void CloudCumulativeCompaction::process_old_version_delete_bitmap() {
                    << " st=" << update_st.to_string();
                 std::string msg = ss.str();
                 LOG(WARNING) << msg;
-            }
-            if (update_st.ok()) {
+            } else {
                 Version version(_input_rowsets.front()->start_version(),
                                 _input_rowsets.back()->end_version());
-                _tablet->tablet_meta()->delete_bitmap().add_to_remove_queue(version.to_string(),
-                                                                            to_remove_vec);
                 for (auto it = new_delete_bitmap->delete_bitmap.begin();
                      it != new_delete_bitmap->delete_bitmap.end(); it++) {
                     _tablet->tablet_meta()->delete_bitmap().set(it->first, it->second);
                 }
+                _tablet->tablet_meta()->delete_bitmap().add_to_remove_queue(version.to_string(),
+                                                                            to_remove_vec);
                 DBUG_EXECUTE_IF(
                         "CloudCumulativeCompaction.modify_rowsets.delete_expired_stale_rowsets", {
                             static_cast<CloudTablet*>(_tablet.get())
