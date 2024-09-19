@@ -237,6 +237,10 @@ public class MTMVTask extends AbstractTask {
         ctx.setQueryId(queryId);
         ctx.getState().setNereids(true);
         command.run(ctx, executor);
+        if (getStatus() == TaskStatus.CANCELED) {
+            // Throwing an exception to interrupt subsequent partition update tasks
+            throw new JobException("task is CANCELED");
+        }
         if (ctx.getState().getStateType() != MysqlStateType.OK) {
             throw new JobException(ctx.getState().getErrorMessage());
         }
