@@ -2294,8 +2294,7 @@ non_null_result_with_null_param_functions = [
     'coalesce',
     'array',
     'json_array',
-    'json_object',
-    'json_search',
+    'json_object'
 ]
 
 # Nondeterministic functions may return different results each time they are called

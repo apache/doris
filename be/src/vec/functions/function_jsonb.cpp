@@ -1795,35 +1795,13 @@ private:
 
     static constexpr auto one = "one";
     static constexpr auto all = "all";
-    static bool _is_one(const std::string& all_or_one) {
-        if (all_or_one == one) {
-            return true;
-        }
-        if (all_or_one.size() != 3) {
-            return false;
-        }
-        return (all_or_one.at(0) == 'o' || all_or_one.at(0) == 'O') &&
-               (all_or_one.at(1) == 'n' || all_or_one.at(1) == 'N') &&
-               (all_or_one.at(2) == 'e' || all_or_one.at(2) == 'E');
-    }
-    static bool _is_all(const std::string& all_or_one) {
-        if (all_or_one == all) {
-            return true;
-        }
-        if (all_or_one.size() != 3) {
-            return false;
-        }
-        return (all_or_one.at(0) == 'a' || all_or_one.at(0) == 'A') &&
-               (all_or_one.at(1) == 'l' || all_or_one.at(1) == 'L') &&
-               (all_or_one.at(2) == 'l' || all_or_one.at(2) == 'L');
-    }
 
 public:
     static constexpr auto name = "json_search";
     static FunctionPtr create() { return std::make_shared<FunctionJsonSearch>(); }
 
     String get_name() const override { return name; }
-    bool is_variadic() const override { return true; }
+    bool is_variadic() const override { return false; }
     size_t get_number_of_arguments() const override { return 0; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
@@ -1908,9 +1886,9 @@ public:
             } else {
                 const auto& one_or_all = col_one_string->get_data_at(0);
                 std::string one_or_all_str = one_or_all.to_string();
-                if (_is_all(one_or_all_str)) {
+                if (strcasecmp(one_or_all_str.c_str(), all) == 0) {
                     one_check = always_all;
-                } else if (_is_one(one_or_all_str)) {
+                } else if (strcasecmp(one_or_all_str.c_str(), one) == 0) {
                     // nothing
                 } else {
                     // an error occurs if the one_or_all argument is not 'one' nor 'all'.
@@ -1920,13 +1898,13 @@ public:
             }
         } else {
             one_null_check = [col_one](size_t i) { return col_one->is_null_at(i); };
-            one_check = [col_one_string](size_t i, bool* res) {
+            one_check = [col_one_string](size_t i, bool* is_one) {
                 const auto& one_or_all = col_one_string->get_data_at(i);
                 std::string one_or_all_str = one_or_all.to_string();
-                if (_is_all(one_or_all_str)) {
-                    *res = false;
-                } else if (_is_one(one_or_all_str)) {
-                    *res = true;
+                if (strcasecmp(one_or_all_str.c_str(), all) == 0) {
+                    *is_one = false;
+                } else if (strcasecmp(one_or_all_str.c_str(), one) == 0) {
+                    *is_one = true;
                 } else {
                     // an error occurs if the one_or_all argument is not 'one' nor 'all'.
                     return Status::InvalidArgument(
