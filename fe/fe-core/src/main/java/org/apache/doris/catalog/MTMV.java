@@ -59,6 +59,7 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 
@@ -380,6 +381,10 @@ public class MTMV extends OlapTable {
                     System.currentTimeMillis() - start, name);
         }
         return res;
+    }
+
+    public ConcurrentLinkedQueue<MTMVTask> getHistoryTasks() {
+        return jobInfo.getHistoryTasks();
     }
 
     // for test
