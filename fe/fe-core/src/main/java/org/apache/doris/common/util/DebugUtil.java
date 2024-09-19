@@ -183,26 +183,26 @@ public class DebugUtil {
         if (nestedList == null || nestedList.isEmpty()) {
             return "";
         }
-    
+
         StringBuilder output = new StringBuilder();
-    
+
         // Assuming each inner list has exactly 3 columns
         int[] columnWidths = new int[3];
-    
+
         // Calculate the maximum width of each column
         // First consider the header widths: "VarName", "CurrentValue", "DefaultValue"
         String[] headers = {"VarName", "CurrentValue", "DefaultValue"};
         for (int i = 0; i < headers.length; i++) {
             columnWidths[i] = headers[i].length();  // Initialize with header length
         }
-    
+
         // Update column widths based on data
         for (List<String> row : nestedList) {
             for (int i = 0; i < row.size(); i++) {
                 columnWidths[i] = Math.max(columnWidths[i], row.get(i).length());
             }
         }
-    
+
         // Build the table header
         for (int i = 0; i < headers.length; i++) {
             output.append(String.format("%-" + columnWidths[i] + "s", headers[i]));
@@ -211,7 +211,7 @@ public class DebugUtil {
             }
         }
         output.append("\n");  // Newline after the header
-    
+
         // Add a separator line for better readability (optional)
         for (int i = 0; i < headers.length; i++) {
             output.append(String.format("%-" + columnWidths[i] + "s", "-".repeat(columnWidths[i])));
@@ -220,7 +220,7 @@ public class DebugUtil {
             }
         }
         output.append("\n");  // Newline after the separator
-    
+
         // Build the table body with proper alignment based on column widths
         for (List<String> row : nestedList) {
             for (int i = 0; i < row.size(); i++) {
@@ -233,7 +233,7 @@ public class DebugUtil {
             }
             output.append("\n");  // Newline after each row
         }
-    
+
         return output.toString();
-    }    
+    }
 }
