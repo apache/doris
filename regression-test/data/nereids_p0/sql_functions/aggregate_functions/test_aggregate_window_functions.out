@@ -752,6 +752,13 @@ shanxi	windows	1
 4	\N
 5	[null, 2]
 
+-- !agg_window_sum_foreach2 --
+1	\N
+2	[1, 2, 3]
+3	[21, 2, 3]
+4	[120]
+5	[100]
+
 -- !agg_window_covar_foreach --
 1	[0, 0, 0]
 2	[0]
@@ -767,14 +774,6 @@ shanxi	windows	1
 2	string3,string3
 2	string3,string3
 
--- !agg_window_group_concat_state_union --
-1	string1,string1,string2,string2,
-1	string1,string1,string2,string2,
-1	string1,string1,string2,string2,
-1	string1,string1,string2,string2,
-2	string3,string3,
-2	string3,string3,
-
 -- !agg_window_group_concat_state_merge --
 1	string1,string1,string2,string2
 1	string1,string1,string2,string2
@@ -782,4 +781,28 @@ shanxi	windows	1
 1	string1,string1,string2,string2
 2	string3,string3
 2	string3,string3
+
+-- !agg_window_orthogonal_bitmap1 --
+1	1,2
+1	1,2
+1	1,2
+2	2,3
+2	2,3
+2	2,3
+
+-- !agg_window_orthogonal_bitmap2 --
+1	2
+1	2
+1	2
+2	2
+2	2
+2	2
+
+-- !agg_window_orthogonal_bitmap3 --
+1	4
+1	4
+1	4
+2	5
+2	5
+2	5
 

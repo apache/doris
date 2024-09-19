@@ -130,7 +130,8 @@ public:
 
     void get(IColumn& to) const {
         auto& column = assert_cast<ColumnBitmap&>(to);
-        column.get_data().emplace_back(result);
+        column.get_data().emplace_back(result.empty() ? AggOrthBitmapBaseData<T>::bitmap.intersect()
+                                                      : result);
     }
 
 private:

@@ -143,6 +143,10 @@ suite("test_aggregate_window_functions") {
     // multi_distinct_count
     order_qt_agg_window_multi_distinct_count "select id, multi_distinct_count(price) over(partition by id) from test_aggregate_window_functions;"
 
+    // multi_distinct_count_distribute_key, FE not implemented yet
+    // order_qt_agg_window_multi_distinct_count_distribute_key "select id, multi_distinct_distribute_key(id) over(partition by id) from test_aggregate_window_functions;"
+    // order_qt_agg_window_multi_distinct_count_distribute_key "select id, multi_distinct_count_distribute_key(price) over(partition by id) from test_aggregate_window_functions;"
+
     // multi_distinct_sum
     order_qt_agg_window_multi_distinct_sum "select id, multi_distinct_sum(price) over(partition by id) from test_aggregate_window_functions;"
 
@@ -426,6 +430,7 @@ suite("test_aggregate_window_functions") {
    """
     // sum_foreach
     order_qt_agg_window_sum_foreach "select id, sum_foreach(a) over(partition by id) from test_aggregate_window_functions;"
+    order_qt_agg_window_sum_foreach2 "select id, sum_foreach(a) over(order by id rows between 2 preceding and 1 preceding) from test_aggregate_window_functions;"
     // covar_foreach
     order_qt_agg_window_covar_foreach "select id, covar_foreach(a, a) over(partition by id) from test_aggregate_window_functions;"
 
@@ -456,5 +461,30 @@ suite("test_aggregate_window_functions") {
     order_qt_agg_window_group_concat_state1 "select kint, group_concat(kstr) over(partition by kint) from test_aggregate_window_functions;"
     sql "select kint, group_concat_union(group_concat_state(kstr)) over(partition by kint) from test_aggregate_window_functions;"
     order_qt_agg_window_group_concat_state_merge "select kint, group_concat_merge(group_concat_state(kstr)) over(partition by kint) from test_aggregate_window_functions;"
+
+    sql """
+        drop table if exists test_aggregate_window_functions;
+    """
+    sql """ CREATE TABLE IF NOT EXISTS test_aggregate_window_functions (
+        tag_group bigint(20) NULL COMMENT "标签组",
+        bucket int(11) NOT NULL COMMENT "分桶字段",
+        members bitmap BITMAP_UNION  COMMENT "人群") ENGINE=OLAP
+        AGGREGATE KEY(tag_group, bucket)
+        DISTRIBUTED BY HASH(bucket) BUCKETS 64
+        PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1");
+    """
+    sql """
+        insert into test_aggregate_window_functions values
+        (1, 1, bitmap_from_string('1,2,3,4')),
+        (2, 1, bitmap_from_string('1,2,3')),
+        (3, 1, bitmap_from_string('1,2')),
+        (1, 2, bitmap_from_string('2,3,4,5,6')),
+        (2, 2, bitmap_from_string('2,3,4')),
+        (3, 2, bitmap_from_string('2,3'));
+    """
+    order_qt_agg_window_orthogonal_bitmap1 "select bucket, bitmap_to_string(orthogonal_bitmap_intersect(members, tag_group, 1, 2, 3) over(partition by bucket)) from test_aggregate_window_functions;"
+    order_qt_agg_window_orthogonal_bitmap2 "select bucket, orthogonal_bitmap_intersect_count(members, tag_group, 1, 2, 3) over(partition by bucket) from test_aggregate_window_functions;"
+    order_qt_agg_window_orthogonal_bitmap3 "select bucket, orthogonal_bitmap_union_count(members) over(partition by bucket) from test_aggregate_window_functions;"
 
 }
