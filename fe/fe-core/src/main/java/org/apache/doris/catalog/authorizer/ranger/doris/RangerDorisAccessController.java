@@ -28,10 +28,8 @@ import org.apache.doris.mysql.privilege.Privilege;
 import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
 
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.apache.ranger.plugin.policyengine.RangerAccessRequest;
 import org.apache.ranger.plugin.policyengine.RangerAccessRequestImpl;
 import org.apache.ranger.plugin.policyengine.RangerAccessResult;
 import org.apache.ranger.plugin.policyengine.RangerAccessResultProcessor;
@@ -39,7 +37,6 @@ import org.apache.ranger.plugin.service.RangerAuthContextListener;
 import org.apache.ranger.plugin.service.RangerBasePlugin;
 
 import java.util.Date;
-import java.util.List;
 import java.util.Set;
 
 public class RangerDorisAccessController extends RangerAccessController {
@@ -173,37 +170,29 @@ public class RangerDorisAccessController extends RangerAccessController {
     @Override
     public void checkColsPriv(UserIdentity currentUser, String ctl, String db, String tbl, Set<String> cols,
             PrivPredicate wanted) throws AuthorizationException {
-        long start = System.currentTimeMillis();
-        for (String col : cols) {
-            checkColPrivInternal(currentUser, ctl, db, tbl, col);
+        PrivBitSet checkedPrivs = PrivBitSet.of();
+        boolean hasTablePriv = checkGlobalPrivInternal(currentUser, wanted, checkedPrivs)
+                || checkCtlPrivInternal(currentUser, ctl, wanted, checkedPrivs)
+                || checkDbPrivInternal(currentUser, ctl, db, wanted, checkedPrivs)
+                || checkTblPrivInternal(currentUser, ctl, db, tbl, wanted, checkedPrivs);
+        if (hasTablePriv) {
+            return;
         }
-        LOG.warn("=============every============= {} ms", System.currentTimeMillis() - start);
-        long start1 = System.currentTimeMillis();
-        checkColPrivInternal2(currentUser, ctl, db, tbl, cols);
-        LOG.warn("=============batch============= {} ms", System.currentTimeMillis() - start1);
+
+        for (String col : cols) {
+            if (!checkColPrivInternal(currentUser, ctl, db, tbl, col, wanted, checkedPrivs.copy())) {
+                throw new AuthorizationException(String.format(
+                        "Permission denied: user [%s] does not have privilege for [%s] command on [%s].[%s].[%s].[%s]",
+                        currentUser, wanted, ctl, db, tbl, col));
+            }
+        }
     }
 
-    private boolean checkColPrivInternal(UserIdentity currentUser, String ctl, String db, String tbl, String col) {
+    private boolean checkColPrivInternal(UserIdentity currentUser, String ctl, String db, String tbl, String col,
+            PrivPredicate wanted, PrivBitSet checkedPrivs) {
         RangerDorisResource resource = new RangerDorisResource(DorisObjectType.COLUMN,
                 ctl, ClusterNamespace.getNameFromFullName(db), tbl, col);
-        RangerAccessRequestImpl request = createRequest(currentUser, DorisAccessType.SELECT);
-        request.setResource(resource);
-        dorisPlugin.isAccessAllowed(request);
-        return true;
-    }
-
-    private boolean checkColPrivInternal2(UserIdentity currentUser, String ctl, String db, String tbl,
-            Set<String> cols) {
-        List<RangerAccessRequest> requests = Lists.newArrayList();
-        for (String col : cols) {
-            RangerDorisResource resource = new RangerDorisResource(DorisObjectType.COLUMN,
-                    ctl, ClusterNamespace.getNameFromFullName(db), tbl, col);
-            RangerAccessRequestImpl request = createRequest(currentUser, DorisAccessType.SELECT);
-            request.setResource(resource);
-            requests.add(request);
-        }
-        dorisPlugin.isAccessAllowed(requests);
-        return true;
+        return checkPrivilege(currentUser, wanted, resource, checkedPrivs);
     }
 
     @Override
