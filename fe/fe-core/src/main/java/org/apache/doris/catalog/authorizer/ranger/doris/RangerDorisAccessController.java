@@ -170,23 +170,22 @@ public class RangerDorisAccessController extends RangerAccessController {
     @Override
     public void checkColsPriv(UserIdentity currentUser, String ctl, String db, String tbl, Set<String> cols,
             PrivPredicate wanted) throws AuthorizationException {
+        PrivBitSet checkedPrivs = PrivBitSet.of();
+        boolean hasTablePriv = checkGlobalPrivInternal(currentUser, wanted, checkedPrivs)
+                || checkCtlPrivInternal(currentUser, ctl, wanted, checkedPrivs)
+                || checkDbPrivInternal(currentUser, ctl, db, wanted, checkedPrivs)
+                || checkTblPrivInternal(currentUser, ctl, db, tbl, wanted, checkedPrivs);
+        if (hasTablePriv) {
+            return;
+        }
+
         for (String col : cols) {
-            if (!checkColPriv(currentUser, ctl, db, tbl, col, wanted)) {
+            if (!checkColPrivInternal(currentUser, ctl, db, tbl, col, wanted, checkedPrivs.copy())) {
                 throw new AuthorizationException(String.format(
                         "Permission denied: user [%s] does not have privilege for [%s] command on [%s].[%s].[%s].[%s]",
                         currentUser, wanted, ctl, db, tbl, col));
             }
         }
-    }
-
-    public boolean checkColPriv(UserIdentity currentUser, String ctl, String db, String tbl,
-            String col, PrivPredicate wanted) {
-        PrivBitSet checkedPrivs = PrivBitSet.of();
-        return checkGlobalPrivInternal(currentUser, wanted, checkedPrivs)
-                || checkCtlPrivInternal(currentUser, ctl, wanted, checkedPrivs)
-                || checkDbPrivInternal(currentUser, ctl, db, wanted, checkedPrivs)
-                || checkTblPrivInternal(currentUser, ctl, db, tbl, wanted, checkedPrivs)
-                || checkColPrivInternal(currentUser, ctl, db, tbl, col, wanted, checkedPrivs);
     }
 
     private boolean checkColPrivInternal(UserIdentity currentUser, String ctl, String db, String tbl, String col,
