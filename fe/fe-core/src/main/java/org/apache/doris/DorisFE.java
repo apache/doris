@@ -86,13 +86,6 @@ public class DorisFE {
         start(DORIS_HOME_DIR, PID_DIR, args, options);
     }
 
-    private static void startMonitor() {
-        if (Config.enable_deadlock_detection) {
-            DeadlockMonitor deadlockMonitor = new DeadlockMonitor();
-            deadlockMonitor.startMonitoring(Config.deadlock_detection_interval_minute, TimeUnit.MINUTES);
-        }
-    }
-
     // entrance for doris frontend
     public static void start(String dorisHomeDir, String pidDir, String[] args, StartupOptions options) {
         if (System.getenv("DORIS_LOG_TO_STDERR") != null) {
@@ -211,7 +204,6 @@ public class DorisFE {
             }
 
             ThreadPoolManager.registerAllThreadPoolMetric();
-            startMonitor();
             while (true) {
                 Thread.sleep(2000);
             }
