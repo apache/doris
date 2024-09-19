@@ -197,19 +197,31 @@ public:
             this->data(place).add(columns[0], columns[1], row_num);
         } else {
             if constexpr (is_nullable) { //this if check could remove with old function
+                // nullable means at least one child is null.
+                // so here, maybe JUST ONE OF ups is null. so nullptr perhaps in ..._x or ..._y!
                 const auto* nullable_column_x = check_and_get_column<ColumnNullable>(columns[0]);
                 const auto* nullable_column_y = check_and_get_column<ColumnNullable>(columns[1]);
 
-                bool x_is_null = (nullable_column_x && nullable_column_x->is_null_at(row_num));
-                bool y_is_null = (nullable_column_y && nullable_column_y->is_null_at(row_num));
-                if (x_is_null || y_is_null) {
-                    return; // if have null value, should return directly
+                if (nullable_column_x && nullable_column_y) { // both nullable
+                    if (!nullable_column_x->is_null_at(row_num) &&
+                        !nullable_column_y->is_null_at(row_num)) {
+                        this->data(place).add(&nullable_column_x->get_nested_column(),
+                                              &nullable_column_y->get_nested_column(), row_num);
+                    }
+                } else if (nullable_column_x) { // x nullable
+                    if (!nullable_column_x->is_null_at(row_num)) {
+                        this->data(place).add(&nullable_column_x->get_nested_column(), columns[1],
+                                              row_num);
+                    }
+                } else if (nullable_column_y) { // y nullable
+                    if (!nullable_column_y->is_null_at(row_num)) {
+                        this->data(place).add(columns[0], &nullable_column_y->get_nested_column(),
+                                              row_num);
+                    }
+                } else {
+                    throw Exception(ErrorCode::INTERNAL_ERROR,
+                                    "Nullable function {} get non-nullable columns!", get_name());
                 }
-                const auto* column_x =
-                        nullable_column_x ? &nullable_column_x->get_nested_column() : columns[0];
-                const auto* column_y =
-                        nullable_column_y ? &nullable_column_y->get_nested_column() : columns[1];
-                this->data(place).add(column_x, column_y, row_num);
             } else {
                 this->data(place).add(columns[0], columns[1], row_num);
             }
