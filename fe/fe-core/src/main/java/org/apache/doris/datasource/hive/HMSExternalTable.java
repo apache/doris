@@ -760,26 +760,26 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         if (getPartitionType() == PartitionType.UNPARTITIONED) {
             return new MTMVMaxTimestampSnapshot(getName(), getLastDdlTime());
         }
-        Long maxPartitionId = 0L;
+        HivePartition maxPartition = null;
         long maxVersionTime = 0L;
         long visibleVersionTime;
         HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
                 .getMetaStoreCache((HMSExternalCatalog) getCatalog());
         HiveMetaStoreCache.HivePartitionValues hivePartitionValues = cache.getPartitionValues(
                 getDbName(), getName(), getPartitionColumnTypes());
-        BiMap<Long, String> idToName = hivePartitionValues.getPartitionNameToIdMap().inverse();
-        if (MapUtils.isEmpty(idToName)) {
-            throw new AnalysisException("partitions is empty for : " + getName());
+        List<HivePartition> partitionList = cache.getAllPartitionsWithCache(getDbName(), getName(),
+                Lists.newArrayList(hivePartitionValues.getPartitionValuesMap().values()));
+        if (CollectionUtils.isEmpty(partitionList)) {
+            throw new AnalysisException("partitionList is empty, table name: " + getName());
         }
-        for (Long partitionId : idToName.keySet()) {
-            visibleVersionTime = getHivePartitionByIdOrAnalysisException(partitionId, hivePartitionValues,
-                    cache).getLastModifiedTime();
+        for (HivePartition hivePartition : partitionList) {
+            visibleVersionTime = hivePartition.getLastModifiedTime();
             if (visibleVersionTime > maxVersionTime) {
                 maxVersionTime = visibleVersionTime;
-                maxPartitionId = partitionId;
+                maxPartition = hivePartition;
             }
         }
-        return new MTMVMaxTimestampSnapshot(idToName.get(maxPartitionId), maxVersionTime);
+        return new MTMVMaxTimestampSnapshot(maxPartition.getPartitionName(getPartitionColumns()), maxVersionTime);
     }
 
     private Long getPartitionIdByNameOrAnalysisException(String partitionName,
