@@ -92,12 +92,19 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
     /**
      * This method will update the stats according to the selectivity.
      */
-    public Statistics estimate(Expression expression, Statistics statistics) {
-        // For a comparison predicate, only when it's left side is a slot and right side is a literal, we would
-        // consider is a valid predicate.
-        Statistics stats = expression.accept(this, new EstimationContext(statistics));
-        stats.enforceValid();
-        return stats;
+    public Statistics estimate(Expression expression, Statistics inputStats) {
+        Statistics outputStats = expression.accept(this, new EstimationContext(inputStats));
+        if (outputStats.getRowCount() == 0 && inputStats.getDeltaRowCount() > 0) {
+            StatisticsBuilder deltaStats = new StatisticsBuilder();
+            deltaStats.setDeltaRowCount(0);
+            deltaStats.setRowCount(inputStats.getDeltaRowCount());
+            for (Expression expr : inputStats.columnStatistics().keySet()) {
+                deltaStats.putColumnStatistics(expr, ColumnStatistic.UNKNOWN);
+            }
+            outputStats = expression.accept(this, new EstimationContext(deltaStats.build()));
+        }
+        outputStats.enforceValid();
+        return outputStats;
     }
 
     @Override
@@ -600,11 +607,13 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
                     .setMaxExpr(intersectRange.getHighExpr())
                     .setNdv(intersectRange.getDistinctValues())
                     .setNumNulls(0);
-            double sel = leftRange.overlapPercentWith(rightRange);
+            double sel = leftRange.getDistinctValues() == 0
+                    ? 1.0
+                    : intersectRange.getDistinctValues() / leftRange.getDistinctValues();
             if (!(dataType instanceof RangeScalable) && (sel != 0.0 && sel != 1.0)) {
                 sel = DEFAULT_INEQUALITY_COEFFICIENT;
-            } else if (sel < RANGE_SELECTIVITY_THRESHOLD) {
-                sel = RANGE_SELECTIVITY_THRESHOLD;
+            } else {
+                sel = Math.max(sel, RANGE_SELECTIVITY_THRESHOLD);
             }
             sel = getNotNullSelectivity(leftStats, sel);
             updatedStatistics = context.statistics.withSel(sel);

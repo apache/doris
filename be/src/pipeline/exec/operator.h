@@ -39,7 +39,6 @@
 #include "vec/runtime/vdata_stream_recvr.h"
 
 namespace doris {
-class DataSink;
 class RowDescriptor;
 class RuntimeState;
 class TDataSink;
@@ -54,13 +53,10 @@ class OperatorBase;
 class OperatorXBase;
 class DataSinkOperatorXBase;
 
-using OperatorPtr = std::shared_ptr<OperatorBase>;
+using OperatorPtr = std::shared_ptr<OperatorXBase>;
 using Operators = std::vector<OperatorPtr>;
 
-using OperatorXPtr = std::shared_ptr<OperatorXBase>;
-using OperatorXs = std::vector<OperatorXPtr>;
-
-using DataSinkOperatorXPtr = std::shared_ptr<DataSinkOperatorXBase>;
+using DataSinkOperatorPtr = std::shared_ptr<DataSinkOperatorXBase>;
 
 // This struct is used only for initializing local state.
 struct LocalStateInfo {
@@ -85,7 +81,7 @@ struct LocalSinkStateInfo {
 
 class OperatorBase {
 public:
-    explicit OperatorBase() : _child_x(nullptr), _is_closed(false) {}
+    explicit OperatorBase() : _child(nullptr), _is_closed(false) {}
     virtual ~OperatorBase() = default;
 
     virtual bool is_sink() const { return false; }
@@ -96,14 +92,12 @@ public:
 
     [[nodiscard]] virtual Status init(const TDataSink& tsink) { return Status::OK(); }
 
-    // Prepare for running. (e.g. resource allocation, etc.)
-    [[nodiscard]] virtual Status prepare(RuntimeState* state) = 0;
     [[nodiscard]] virtual std::string get_name() const = 0;
     [[nodiscard]] virtual Status open(RuntimeState* state) = 0;
     [[nodiscard]] virtual Status close(RuntimeState* state);
 
-    [[nodiscard]] virtual Status set_child(OperatorXPtr child) {
-        _child_x = std::move(child);
+    [[nodiscard]] virtual Status set_child(OperatorPtr child) {
+        _child = std::move(child);
         return Status::OK();
     }
 
@@ -113,7 +107,7 @@ public:
 
     virtual Status revoke_memory(RuntimeState* state) { return Status::OK(); }
     [[nodiscard]] virtual bool require_data_distribution() const { return false; }
-    OperatorXPtr child_x() { return _child_x; }
+    OperatorPtr child() { return _child; }
     [[nodiscard]] bool followed_by_shuffled_join() const { return _followed_by_shuffled_join; }
     void set_followed_by_shuffled_join(bool followed_by_shuffled_join) {
         _followed_by_shuffled_join = followed_by_shuffled_join;
@@ -121,7 +115,7 @@ public:
     [[nodiscard]] virtual bool require_shuffled_data_distribution() const { return false; }
 
 protected:
-    OperatorXPtr _child_x = nullptr;
+    OperatorPtr _child = nullptr;
 
     bool _is_closed;
     bool _followed_by_shuffled_join = false;
@@ -450,7 +444,6 @@ public:
         return Status::InternalError("init() is only implemented in local exchange!");
     }
 
-    Status prepare(RuntimeState* state) override { return Status::OK(); }
     Status open(RuntimeState* state) override { return Status::OK(); }
     [[nodiscard]] bool is_finished(RuntimeState* state) const {
         auto result = state->get_sink_local_state_result();
@@ -651,20 +644,18 @@ public:
     }
     [[nodiscard]] std::string get_name() const override { return _op_name; }
     [[nodiscard]] virtual DataDistribution required_data_distribution() const {
-        return _child_x && _child_x->ignore_data_distribution() && !is_source()
+        return _child && _child->ignore_data_distribution() && !is_source()
                        ? DataDistribution(ExchangeType::PASSTHROUGH)
                        : DataDistribution(ExchangeType::NOOP);
     }
     [[nodiscard]] virtual bool ignore_data_distribution() const {
-        return _child_x ? _child_x->ignore_data_distribution() : _ignore_data_distribution;
+        return _child ? _child->ignore_data_distribution() : _ignore_data_distribution;
     }
     [[nodiscard]] bool ignore_data_hash_distribution() const {
-        return _child_x ? _child_x->ignore_data_hash_distribution() : _ignore_data_distribution;
+        return _child ? _child->ignore_data_hash_distribution() : _ignore_data_distribution;
     }
     [[nodiscard]] virtual bool need_more_input_data(RuntimeState* state) const { return true; }
     void set_ignore_data_distribution() { _ignore_data_distribution = true; }
-
-    Status prepare(RuntimeState* state) override;
 
     Status open(RuntimeState* state) override;
 
@@ -716,7 +707,7 @@ public:
         return reinterpret_cast<const TARGET&>(*this);
     }
 
-    [[nodiscard]] OperatorXPtr get_child() { return _child_x; }
+    [[nodiscard]] OperatorPtr get_child() { return _child; }
 
     [[nodiscard]] vectorized::VExprContextSPtrs& conjuncts() { return _conjuncts; }
     [[nodiscard]] virtual RowDescriptor& row_descriptor() { return _row_descriptor; }

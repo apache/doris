@@ -434,7 +434,7 @@ public class LoadAction extends RestBaseController {
             throw new LoadException(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG + ", policy: " + policy);
         }
         if (groupCommit) {
-            backend = selectBackendForGroupCommit("", request, tableId, false);
+            backend = selectBackendForGroupCommit("", request, tableId);
         } else {
             backend = Env.getCurrentSystemInfo().getBackend(backendIds.get(0));
         }
@@ -449,7 +449,7 @@ public class LoadAction extends RestBaseController {
             throws LoadException {
         Backend backend = null;
         if (groupCommit) {
-            backend = selectBackendForGroupCommit(clusterName, req, tableId, true);
+            backend = selectBackendForGroupCommit(clusterName, req, tableId);
         } else {
             backend = StreamLoadHandler.selectBackend(clusterName);
         }
@@ -665,8 +665,7 @@ public class LoadAction extends RestBaseController {
         return headers.toString();
     }
 
-    private Backend selectBackendForGroupCommit(String clusterName, HttpServletRequest req, long tableId,
-            boolean isCloud)
+    private Backend selectBackendForGroupCommit(String clusterName, HttpServletRequest req, long tableId)
             throws LoadException {
         ConnectContext ctx = new ConnectContext();
         ctx.setEnv(Env.getCurrentEnv());
@@ -676,14 +675,14 @@ public class LoadAction extends RestBaseController {
         // TMasterOpRequest(FrontendService.thrift)
         ctx.setQualifiedUser(Auth.ADMIN_USER);
         ctx.setThreadLocalInfo();
-        if (isCloud) {
+        if (Config.isCloudMode()) {
             ctx.setCloudCluster(clusterName);
         }
 
         Backend backend = null;
         try {
             backend = Env.getCurrentEnv().getGroupCommitManager()
-                    .selectBackendForGroupCommit(tableId, ctx, isCloud);
+                    .selectBackendForGroupCommit(tableId, ctx);
         } catch (DdlException e) {
             throw new LoadException(e.getMessage(), e);
         }

@@ -93,6 +93,7 @@ import org.apache.doris.thrift.TEsScanRange;
 import org.apache.doris.thrift.TExternalScanRange;
 import org.apache.doris.thrift.TFileScanRange;
 import org.apache.doris.thrift.TFileScanRangeParams;
+import org.apache.doris.thrift.TFragmentInstanceReport;
 import org.apache.doris.thrift.THivePartitionUpdate;
 import org.apache.doris.thrift.TIcebergCommitData;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -285,6 +286,8 @@ public class Coordinator implements CoordInterface {
 
     private StatsErrorEstimator statsErrorEstimator;
 
+    private int receiverOffset = 0;
+
     // A countdown latch to mark the completion of each instance.
     // use for old pipeline
     // instance id -> dummy value
@@ -423,15 +426,12 @@ public class Coordinator implements CoordInterface {
 
     private void initQueryOptions(ConnectContext context) {
         this.queryOptions = context.getSessionVariable().toThrift();
-        this.queryOptions.setBeExecVersion(Config.be_exec_version);
         this.queryOptions.setQueryTimeout(context.getExecTimeout());
         this.queryOptions.setExecutionTimeout(context.getExecTimeout());
         if (this.queryOptions.getExecutionTimeout() < 1) {
             LOG.info("try set timeout less than 1", new RuntimeException(""));
         }
-        this.queryOptions.setEnableScanNodeRunSerial(context.getSessionVariable().isEnableScanRunSerial());
         this.queryOptions.setFeProcessUuid(ExecuteEnv.getInstance().getProcessUUID());
-        this.queryOptions.setWaitFullBlockScheduleTimes(context.getSessionVariable().getWaitFullBlockScheduleTimes());
         this.queryOptions.setMysqlRowBinaryFormat(
                     context.getCommand() == MysqlCommand.COM_STMT_EXECUTE);
     }
@@ -1162,7 +1162,8 @@ public class Coordinator implements CoordInterface {
 
         RowBatch resultBatch;
         Status status = new Status();
-        resultBatch = receivers.get(receivers.size() - 1).getNext(status);
+        ResultReceiver receiver = receivers.get(receiverOffset);
+        resultBatch = receiver.getNext(status);
         if (!status.ok()) {
             LOG.warn("Query {} coordinator get next fail, {}, need cancel.",
                     DebugUtil.printId(queryId), status.getErrorMsg());
@@ -1209,7 +1210,7 @@ public class Coordinator implements CoordInterface {
         }
 
         if (resultBatch.isEos()) {
-            receivers.remove(receivers.size() - 1);
+            receivers.remove(receiver);
             if (receivers.isEmpty()) {
                 returnedAllResults = true;
             } else {
@@ -1227,6 +1228,10 @@ public class Coordinator implements CoordInterface {
             }
         }
 
+        if (!returnedAllResults) {
+            receiverOffset += 1;
+            receiverOffset %= receivers.size();
+        }
         return resultBatch;
     }
 
@@ -1884,9 +1889,9 @@ public class Coordinator implements CoordInterface {
                         boolean forceToLocalShuffle = context != null
                                 && context.getSessionVariable().isForceToLocalShuffle()
                                 && !fragment.hasNullAwareLeftAntiJoin() && useNereids;
-                        boolean ignoreStorageDataDistribution = forceToLocalShuffle || (node.isPresent()
+                        boolean ignoreStorageDataDistribution = (forceToLocalShuffle || (node.isPresent()
                                 && node.get().ignoreStorageDataDistribution(context, addressToBackendID.size())
-                                && useNereids);
+                                && useNereids)) && fragment.queryCacheParam == null;
                         if (node.isPresent() && ignoreStorageDataDistribution) {
                             expectedInstanceNum = Math.max(expectedInstanceNum, 1);
                             // if have limit and no conjuncts, only need 1 instance to save cpu and
@@ -1906,6 +1911,9 @@ public class Coordinator implements CoordInterface {
                             // mem resource
                             if (node.get().shouldUseOneInstance(context)) {
                                 expectedInstanceNum = 1;
+                            }
+                            if (fragment.queryCacheParam != null) {
+                                expectedInstanceNum = perNodeScanRanges.size();
                             }
 
                             perInstanceScanRanges = ListUtil.splitBySize(perNodeScanRanges,
@@ -2155,9 +2163,10 @@ public class Coordinator implements CoordInterface {
             FragmentScanRangeAssignment assignment
                     = fragmentExecParamsMap.get(scanNode.getFragmentId()).scanRangeAssignment;
             boolean fragmentContainsColocateJoin = isColocateFragment(scanNode.getFragment(),
-                    scanNode.getFragment().getPlanRoot());
+                    scanNode.getFragment().getPlanRoot()) && (scanNode instanceof OlapScanNode);
             boolean fragmentContainsBucketShuffleJoin = bucketShuffleJoinController
-                    .isBucketShuffleJoin(scanNode.getFragmentId().asInt(), scanNode.getFragment().getPlanRoot());
+                    .isBucketShuffleJoin(scanNode.getFragmentId().asInt(), scanNode.getFragment().getPlanRoot())
+                    && (scanNode instanceof OlapScanNode);
 
             // A fragment may contain both colocate join and bucket shuffle join
             // on need both compute scanRange to init basic data for query coordinator
@@ -2448,11 +2457,21 @@ public class Coordinator implements CoordInterface {
         }
 
         if (params.isSetLoadedRows() && jobId != -1) {
-            Env.getCurrentEnv().getLoadManager().updateJobProgress(
-                    jobId, params.getBackendId(), params.getQueryId(), params.getFragmentInstanceId(),
-                    params.getLoadedRows(), params.getLoadedBytes(), params.isDone());
-            Env.getCurrentEnv().getProgressManager().updateProgress(String.valueOf(jobId),
-                    params.getQueryId(), params.getFragmentInstanceId(), params.getFinishedScanRanges());
+            if (params.isSetFragmentInstanceReports()) {
+                for (TFragmentInstanceReport report : params.getFragmentInstanceReports()) {
+                    Env.getCurrentEnv().getLoadManager().updateJobProgress(
+                            jobId, params.getBackendId(), params.getQueryId(), report.getFragmentInstanceId(),
+                            params.getLoadedRows(), params.getLoadedBytes(), params.isDone());
+                    Env.getCurrentEnv().getProgressManager().updateProgress(String.valueOf(jobId),
+                            params.getQueryId(), report.getFragmentInstanceId(), report.getNumFinishedRange());
+                }
+            } else {
+                Env.getCurrentEnv().getLoadManager().updateJobProgress(
+                        jobId, params.getBackendId(), params.getQueryId(), params.getFragmentInstanceId(),
+                        params.getLoadedRows(), params.getLoadedBytes(), params.isDone());
+                Env.getCurrentEnv().getProgressManager().updateProgress(String.valueOf(jobId),
+                        params.getQueryId(), params.getFragmentInstanceId(), params.getFinishedScanRanges());
+            }
         }
     }
 
@@ -2569,13 +2588,6 @@ public class Coordinator implements CoordInterface {
 
         // check whether the node fragment is bucket shuffle join fragment
         protected boolean isBucketShuffleJoin(int fragmentId, PlanNode node) {
-            if (ConnectContext.get() != null) {
-                if (!ConnectContext.get().getSessionVariable().isEnableBucketShuffleJoin()
-                        && !ConnectContext.get().getSessionVariable().isEnableNereidsPlanner()) {
-                    return false;
-                }
-            }
-
             // check the node is be the part of the fragment
             if (fragmentId != node.getFragmentId().asInt()) {
                 return false;
@@ -2733,12 +2745,12 @@ public class Coordinator implements CoordInterface {
          */
         boolean forceToLocalShuffle = context != null
                 && context.getSessionVariable().isForceToLocalShuffle() && !hasNullAwareLeftAntiJoin && useNereids;
-        boolean ignoreStorageDataDistribution = forceToLocalShuffle || (scanNodes.stream()
+        boolean ignoreStorageDataDistribution = (forceToLocalShuffle || (scanNodes.stream()
                 .allMatch(node -> node.ignoreStorageDataDistribution(context,
                         addressToBackendID.size()))
                 && addressToScanRanges.entrySet().stream().allMatch(addressScanRange -> {
                     return addressScanRange.getValue().size() < parallelExecInstanceNum;
-                }) && useNereids);
+                }) && useNereids)) && params.fragment.queryCacheParam == null;
 
         FragmentScanRangeAssignment assignment = params.scanRangeAssignment;
         for (Map.Entry<TNetworkAddress, List<Pair<Integer, Map<Integer, List<TScanRangeParams>>>>> addressScanRange
@@ -3102,6 +3114,7 @@ public class Coordinator implements CoordInterface {
             Map<TNetworkAddress, TPipelineFragmentParams> res = new HashMap();
             Map<TNetworkAddress, Integer> instanceIdx = new HashMap();
             TPlanFragment fragmentThrift = fragment.toThrift();
+            fragmentThrift.query_cache_param = fragment.queryCacheParam;
             for (int i = 0; i < instanceExecParams.size(); ++i) {
                 final FInstanceExecParam instanceExecParam = instanceExecParams.get(i);
                 Map<Integer, List<TScanRangeParams>> scanRanges = instanceExecParam.perNodeScanRanges;

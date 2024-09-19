@@ -29,6 +29,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "agent/be_exec_version_manager.h"
 #include "common/status.h" // Status
 #include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/file_system.h"
@@ -285,6 +286,8 @@ private:
     DorisCallOnce<Status> _inverted_index_file_reader_open;
 
     InvertedIndexFileInfo _idx_file_info;
+
+    int _be_exec_version = BeExecVersionManager::get_newest_version();
 };
 
 } // namespace segment_v2

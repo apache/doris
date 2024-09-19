@@ -734,6 +734,7 @@ suite("txn_insert") {
                     UNIQUE KEY(`id`)
                     DISTRIBUTED BY HASH(`id`) BUCKETS 1
                     PROPERTIES (
+                        "enable_mow_light_delete" = "false",
                         "replication_num" = "1"
                     );
                 """

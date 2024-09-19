@@ -140,6 +140,10 @@ Status CloudSchemaChangeJob::process_alter_tablet(const TAlterTabletReqV2& reque
     _base_tablet_schema->update_tablet_columns(*_base_tablet->tablet_schema(), request.columns);
     _new_tablet_schema = _new_tablet->tablet_schema();
 
+    std::vector<ColumnId> return_columns;
+    return_columns.resize(_base_tablet_schema->num_columns());
+    std::iota(return_columns.begin(), return_columns.end(), 0);
+
     // delete handlers to filter out deleted rows
     DeleteHandler delete_handler;
     std::vector<RowsetMetaSharedPtr> delete_predicates;
@@ -152,10 +156,6 @@ Status CloudSchemaChangeJob::process_alter_tablet(const TAlterTabletReqV2& reque
     }
     RETURN_IF_ERROR(delete_handler.init(_base_tablet_schema, delete_predicates,
                                         start_resp.alter_version()));
-
-    std::vector<ColumnId> return_columns;
-    return_columns.resize(_base_tablet_schema->num_columns());
-    std::iota(return_columns.begin(), return_columns.end(), 0);
 
     // reader_context is stack variables, it's lifetime MUST keep the same with rs_readers
     RowsetReaderContext reader_context;

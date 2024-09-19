@@ -1722,6 +1722,8 @@ public class ShowExecutor {
                     + " in db " + showRoutineLoadStmt.getDbFullName()
                     + ". Include history? " + showRoutineLoadStmt.isIncludeHistory());
         }
+        // sort by create time
+        rows.sort(Comparator.comparing(x -> x.get(2)));
         resultSet = new ShowResultSet(showRoutineLoadStmt.getMetaData(), rows);
     }
 
@@ -2720,19 +2722,12 @@ public class ShowExecutor {
             if (tableStats == null) {
                 resultSet = showTableStatsStmt.constructEmptyResultSet();
             } else {
-                resultSet = showTableStatsStmt.constructResultSet(tableStats);
+                resultSet = showTableStatsStmt.constructResultSet(tableStats, tableIf);
             }
             return;
         }
         TableStatsMeta tableStats = Env.getCurrentEnv().getAnalysisManager().findTableStatsStatus(tableIf.getId());
-        /*
-           tableStats == null means it's not analyzed, in this case show the estimated row count.
-         */
-        if (tableStats == null) {
-            resultSet = showTableStatsStmt.constructResultSet(tableIf.getCachedRowCount());
-        } else {
-            resultSet = showTableStatsStmt.constructResultSet(tableStats);
-        }
+        resultSet = showTableStatsStmt.constructResultSet(tableStats, tableIf);
     }
 
     private void handleShowColumnStats() throws AnalysisException {

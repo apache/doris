@@ -31,7 +31,7 @@ suite("test_group_commit_stream_load_with_nonexist_db_and_table") {
         code = process.waitFor()
         out = process.text
         log.info("stream lad result: ${out}".toString())
-        assertTrue(out.toString().contains("table not found"))
+        assertTrue(out.toString().contains("OlapTable not found"))
     } catch (Exception e) {
         logger.info("failed: " + e.getMessage())
         assertTrue(false)

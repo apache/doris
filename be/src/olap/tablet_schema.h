@@ -90,6 +90,7 @@ public:
     bool is_bf_column() const { return _is_bf_column; }
     bool has_bitmap_index() const { return _has_bitmap_index; }
     bool is_array_type() const { return _type == FieldType::OLAP_FIELD_TYPE_ARRAY; }
+    bool is_agg_state_type() const { return _type == FieldType::OLAP_FIELD_TYPE_AGG_STATE; }
     bool is_jsonb_type() const { return _type == FieldType::OLAP_FIELD_TYPE_JSONB; }
     bool is_length_variable_type() const {
         return _type == FieldType::OLAP_FIELD_TYPE_CHAR ||
@@ -122,8 +123,9 @@ public:
     void set_path_info(const vectorized::PathInData& path);
     FieldAggregationMethod aggregation() const { return _aggregation; }
     vectorized::AggregateFunctionPtr get_aggregate_function_union(
-            vectorized::DataTypePtr type) const;
-    vectorized::AggregateFunctionPtr get_aggregate_function(std::string suffix) const;
+            vectorized::DataTypePtr type, int current_be_exec_version) const;
+    vectorized::AggregateFunctionPtr get_aggregate_function(std::string suffix,
+                                                            int current_be_exec_version) const;
     int precision() const { return _precision; }
     int frac() const { return _frac; }
     inline bool visible() const { return _visible; }

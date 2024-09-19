@@ -111,14 +111,12 @@ Suite.metaClass.http_client = { String method, String url /* param */ ->
 
 logger.info("Added 'http_client' function to Suite")
 
-Suite.metaClass.curl = { String method, String url /* param */-> 
+Suite.metaClass.curl = { String method, String url, String body = null /* param */-> 
     Suite suite = delegate as Suite
-    if (method != "GET" && method != "POST")
-    {
+    if (method != "GET" && method != "POST") {
         throw new Exception(String.format("invalid curl method: %s", method))
     }
-    if (url.isBlank())
-    {
+    if (url.isBlank()) {
         throw new Exception("invalid curl url, blank")
     }
     
@@ -127,7 +125,13 @@ Suite.metaClass.curl = { String method, String url /* param */->
     Integer retryCount = 0; // Current retry count
     Integer sleepTime = 5000; // Sleep time in milliseconds
 
-    String cmd = String.format("curl --max-time %d -X %s %s", timeout, method, url).toString()
+    String cmd
+    if (method == "POST" && body != null) {
+        cmd = String.format("curl --max-time %d -X %s -H Content-Type:application/json -d %s %s", timeout, method, body, url).toString()
+    } else {
+        cmd = String.format("curl --max-time %d -X %s %s", timeout, method, url).toString()
+    }
+    
     logger.info("curl cmd: " + cmd)
     def process
     int code

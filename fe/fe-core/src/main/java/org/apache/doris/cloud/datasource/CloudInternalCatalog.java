@@ -101,8 +101,7 @@ public class CloudInternalCatalog extends InternalCatalog {
                                                    String storagePolicy,
                                                    IdGeneratorBuffer idGeneratorBuffer,
                                                    BinlogConfig binlogConfig,
-                                                   boolean isStorageMediumSpecified,
-                                                   List<Integer> clusterKeyIndexes)
+                                                   boolean isStorageMediumSpecified)
             throws DdlException {
         // create base index first.
         Preconditions.checkArgument(tbl.getBaseIndexId() != -1);
@@ -181,6 +180,7 @@ public class CloudInternalCatalog extends InternalCatalog {
             if (!storageVaultIdSet && ((CloudEnv) Env.getCurrentEnv()).getEnableStorageVault()) {
                 requestBuilder.setStorageVaultName(storageVaultName);
             }
+            requestBuilder.setDbId(dbId);
 
             LOG.info("create tablets, dbId: {}, tableId: {}, tableName: {}, partitionId: {}, partitionName: {}, "
                     + "indexId: {}, vault name {}",
@@ -682,7 +682,7 @@ public class CloudInternalCatalog extends InternalCatalog {
             sendCreateTabletsRpc(Cloud.CreateTabletsRequest.Builder requestBuilder) throws DdlException  {
         requestBuilder.setCloudUniqueId(Config.cloud_unique_id);
         Cloud.CreateTabletsRequest createTabletsReq = requestBuilder.build();
-
+        Preconditions.checkState(createTabletsReq.hasDbId(), "createTabletsReq must set dbId");
         if (LOG.isDebugEnabled()) {
             LOG.debug("send create tablets rpc, createTabletsReq: {}", createTabletsReq);
         }
@@ -1035,7 +1035,7 @@ public class CloudInternalCatalog extends InternalCatalog {
                     clusterId = realClusterId;
                 }
 
-                ((CloudReplica) replica).updateClusterToBe(clusterId, info.getBeId());
+                ((CloudReplica) replica).updateClusterToBe(clusterId, info.getBeId(), true);
 
                 LOG.debug("update single cloud replica cluster {} replica {} be {}", info.getClusterId(),
                         replica.getId(), info.getBeId());
@@ -1061,7 +1061,7 @@ public class CloudInternalCatalog extends InternalCatalog {
 
                     LOG.debug("update cloud replica cluster {} replica {} be {}", info.getClusterId(),
                             replica.getId(), info.getBeIds().get(i));
-                    ((CloudReplica) replica).updateClusterToBe(clusterId, info.getBeIds().get(i));
+                    ((CloudReplica) replica).updateClusterToBe(clusterId, info.getBeIds().get(i), true);
                 }
             }
         } catch (Exception e) {

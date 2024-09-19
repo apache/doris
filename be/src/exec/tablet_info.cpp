@@ -129,6 +129,9 @@ Status OlapTableSchemaParam::init(const POlapTableSchemaParam& pschema) {
         _auto_increment_column_unique_id = pschema.auto_increment_column_unique_id();
     }
     _timestamp_ms = pschema.timestamp_ms();
+    if (pschema.has_nano_seconds()) {
+        _nano_seconds = pschema.nano_seconds();
+    }
     _timezone = pschema.timezone();
 
     for (const auto& col : pschema.partial_update_input_columns()) {
@@ -273,6 +276,7 @@ void OlapTableSchemaParam::to_protobuf(POlapTableSchemaParam* pschema) const {
     pschema->set_auto_increment_column_unique_id(_auto_increment_column_unique_id);
     pschema->set_timestamp_ms(_timestamp_ms);
     pschema->set_timezone(_timezone);
+    pschema->set_nano_seconds(_nano_seconds);
     for (auto col : _partial_update_input_columns) {
         *pschema->add_partial_update_input_columns() = col;
     }

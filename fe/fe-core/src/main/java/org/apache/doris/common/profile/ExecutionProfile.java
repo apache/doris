@@ -182,6 +182,7 @@ public class ExecutionProfile {
                 }
                 newFragmentProfile.addChild(mergedpipelineProfile);
                 pipelineIdx++;
+                fragmentsProfile.rowsProducedMap.putAll(mergedpipelineProfile.rowsProducedMap);
             }
         }
         return fragmentsProfile;

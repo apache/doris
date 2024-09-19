@@ -312,7 +312,7 @@ under the License.
         <!-- Please modify iceberg.version and avro.version together,
          you can find avro version info in iceberg mvn repository -->
         <iceberg.version>1.4.3</iceberg.version>
-        <maxcompute.version>0.45.2-public</maxcompute.version>
+        <maxcompute.version>0.48.8-public</maxcompute.version>
         <avro.version>1.11.3</avro.version>
         <arrow.version>17.0.0</arrow.version>
         <!-- hudi -->

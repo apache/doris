@@ -299,8 +299,6 @@ public:
 
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
 
-    Status prepare(RuntimeState* state) override;
-
     Status open(RuntimeState* state) override;
 
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
@@ -316,7 +314,7 @@ public:
         return _agg_sink_operator->require_shuffled_data_distribution();
     }
 
-    Status set_child(OperatorXPtr child) override {
+    Status set_child(OperatorPtr child) override {
         RETURN_IF_ERROR(DataSinkOperatorX<PartitionedAggSinkLocalState>::set_child(child));
         return _agg_sink_operator->set_child(child);
     }

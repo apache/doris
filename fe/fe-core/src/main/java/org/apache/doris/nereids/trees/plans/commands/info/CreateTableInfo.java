@@ -131,7 +131,6 @@ public class CreateTableInfo {
     private boolean isExternal = false;
     private String clusterName = null;
     private List<String> clusterKeysColumnNames = null;
-    private List<Integer> clusterKeysColumnIds = null;
     private PartitionTableInfo partitionTableInfo; // get when validate
 
     /**
@@ -424,9 +423,6 @@ public class CreateTableInfo {
 
             validateKeyColumns();
             if (!clusterKeysColumnNames.isEmpty()) {
-                if (Config.isCloudMode()) {
-                    throw new AnalysisException("Cluster key is not supported in cloud mode");
-                }
                 if (!isEnableMergeOnWrite) {
                     throw new AnalysisException(
                             "Cluster keys only support unique keys table which enabled "
@@ -736,50 +732,6 @@ public class CreateTableInfo {
                     "The number of key columns should be less than the number of columns.");
         }
 
-        if (!clusterKeysColumnNames.isEmpty()) {
-            if (Config.isCloudMode()) {
-                throw new AnalysisException("Cluster key is not supported in cloud mode");
-            }
-            if (keysType != KeysType.UNIQUE_KEYS) {
-                throw new AnalysisException("Cluster keys only support unique keys table.");
-            }
-            clusterKeysColumnIds = Lists.newArrayList();
-            for (int i = 0; i < clusterKeysColumnNames.size(); ++i) {
-                String name = clusterKeysColumnNames.get(i);
-                // check if key is duplicate
-                for (int j = 0; j < i; j++) {
-                    if (clusterKeysColumnNames.get(j).equalsIgnoreCase(name)) {
-                        throw new AnalysisException("Duplicate cluster key column[" + name + "].");
-                    }
-                }
-                // check if key exists and generate key column ids
-                for (int j = 0; j < columns.size(); j++) {
-                    if (columns.get(j).getName().equalsIgnoreCase(name)) {
-                        columns.get(j).setClusterKeyId(clusterKeysColumnIds.size());
-                        clusterKeysColumnIds.add(j);
-                        break;
-                    }
-                    if (j == columns.size() - 1) {
-                        throw new AnalysisException(
-                                "Key cluster column[" + name + "] doesn't exist.");
-                    }
-                }
-            }
-
-            int minKeySize = keys.size() < clusterKeysColumnNames.size() ? keys.size()
-                    : clusterKeysColumnNames.size();
-            boolean sameKey = true;
-            for (int i = 0; i < minKeySize; ++i) {
-                if (!keys.get(i).equalsIgnoreCase(clusterKeysColumnNames.get(i))) {
-                    sameKey = false;
-                    break;
-                }
-            }
-            if (sameKey) {
-                throw new AnalysisException("Unique keys and cluster keys should be different.");
-            }
-        }
-
         for (int i = 0; i < keys.size(); ++i) {
             String name = columns.get(i).getName();
             if (!keys.get(i).equalsIgnoreCase(name)) {
@@ -812,6 +764,50 @@ public class CreateTableInfo {
                     throw new AnalysisException(
                             keysType.name() + " table should not specify aggregate type for "
                                     + "non-key column[" + columns.get(i).getName() + "]");
+                }
+            }
+        }
+
+        if (!clusterKeysColumnNames.isEmpty()) {
+            // the same code as KeysDesc#analyzeClusterKeys
+            if (Config.isCloudMode()) {
+                throw new AnalysisException("Cluster key is not supported in cloud mode");
+            }
+            if (keysType != KeysType.UNIQUE_KEYS) {
+                throw new AnalysisException("Cluster keys only support unique keys table");
+            }
+            // check that cluster keys is not duplicated
+            for (int i = 0; i < clusterKeysColumnNames.size(); i++) {
+                String name = clusterKeysColumnNames.get(i);
+                for (int j = 0; j < i; j++) {
+                    if (clusterKeysColumnNames.get(j).equalsIgnoreCase(name)) {
+                        throw new AnalysisException("Duplicate cluster key column[" + name + "].");
+                    }
+                }
+            }
+            // check that cluster keys is not equal to primary keys
+            int minKeySize = Math.min(keys.size(), clusterKeysColumnNames.size());
+            boolean sameKey = true;
+            for (int i = 0; i < minKeySize; ++i) {
+                if (!keys.get(i).equalsIgnoreCase(clusterKeysColumnNames.get(i))) {
+                    sameKey = false;
+                    break;
+                }
+            }
+            if (sameKey) {
+                throw new AnalysisException("Unique keys and cluster keys should be different.");
+            }
+            // check that cluster key column exists
+            for (int i = 0; i < clusterKeysColumnNames.size(); ++i) {
+                String name = clusterKeysColumnNames.get(i);
+                for (int j = 0; j < columns.size(); j++) {
+                    if (columns.get(j).getName().equalsIgnoreCase(name)) {
+                        columns.get(j).setClusterKeyId(i);
+                        break;
+                    }
+                    if (j == columns.size() - 1) {
+                        throw new AnalysisException("Cluster key column[" + name + "] doesn't exist.");
+                    }
                 }
             }
         }
@@ -858,7 +854,7 @@ public class CreateTableInfo {
         return new CreateTableStmt(ifNotExists, isExternal,
                 new TableName(ctlName, dbName, tableName),
                 catalogColumns, catalogIndexes, engineName,
-                new KeysDesc(keysType, keys, clusterKeysColumnNames, clusterKeysColumnIds),
+                new KeysDesc(keysType, keys, clusterKeysColumnNames),
                 partitionDesc, distributionDesc, Maps.newHashMap(properties), extProperties,
                 comment, addRollups, null);
     }

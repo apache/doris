@@ -30,6 +30,7 @@
 #include <tuple>
 #include <utility>
 
+#include "agent/be_exec_version_manager.h"
 #include "cloud/cloud_schema_change_job.h"
 #include "cloud/config.h"
 #include "common/consts.h"
@@ -133,7 +134,8 @@ public:
                 try {
                     vectorized::AggregateFunctionPtr function =
                             tablet_schema->column(i).get_aggregate_function(
-                                    vectorized::AGG_LOAD_SUFFIX);
+                                    vectorized::AGG_LOAD_SUFFIX,
+                                    tablet_schema->column(i).get_be_exec_version());
                     agg_functions.push_back(function);
                     // create aggregate data
                     auto* place = new char[function->size_of_data()];
@@ -314,9 +316,9 @@ Status BlockChanger::change_block(vectorized::Block* ref_block,
 
             if (result_tmp_column_def.column->size() != row_num) {
                 return Status::Error<ErrorCode::INTERNAL_ERROR>(
-                        "result size invalid, expect={}, real={}; input expr={}", row_num,
+                        "result size invalid, expect={}, real={}; input expr={}, block={}", row_num,
                         result_tmp_column_def.column->size(),
-                        apache::thrift::ThriftDebugString(*expr));
+                        apache::thrift::ThriftDebugString(*expr), ref_block->dump_structure());
             }
 
             if (_type == SCHEMA_CHANGE) {
