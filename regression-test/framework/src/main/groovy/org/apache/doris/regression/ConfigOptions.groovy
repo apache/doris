@@ -73,6 +73,7 @@ class ConfigOptions {
     static Option stopWhenFailOpt
     static Option timesOpt
     static Option withOutLoadDataOpt
+    static Option runNonConcurrentOpt
     static Option caseNamePrefixOpt
     static Option dryRunOpt
     static Option isSmokeTestOpt
@@ -467,6 +468,11 @@ class ConfigOptions {
                 .longOpt("withOutLoadData")
                 .desc("do not run load.groovy to reload data to Doris.")
                 .build()
+        runNonConcurrentOpt = Option.builder("runNonConcurrent")
+                .required(false)
+                .hasArg(false)
+                .desc("whether run non-concurrent tests")
+                .build()
         caseNamePrefixOpt = Option.builder("cnp")
                 .required(false)
                 .hasArg(true)
@@ -622,6 +628,7 @@ class ConfigOptions {
                 .addOption(stopWhenFailOpt)
                 .addOption(timesOpt)
                 .addOption(withOutLoadDataOpt)
+                .addOption(runNonConcurrentOpt)
                 .addOption(caseNamePrefixOpt)
                 .addOption(dryRunOpt)
                 .addOption(isSmokeTestOpt)
