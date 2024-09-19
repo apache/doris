@@ -374,7 +374,7 @@ public class BrokerLoadJob extends BulkLoadJob {
                 if (e.getErrorCode() == InternalErrorCode.DELETE_BITMAP_LOCK_ERR) {
                     retryTimes++;
                     if (retryTimes >= Config.mow_calculate_delete_bitmap_retry_times) {
-                        LOG.warn("cancelJob {} because up to max retry time", id);
+                        LOG.warn("cancelJob {} because up to max retry time,exception {}", id, e);
                         cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.LOAD_RUN_FAIL, e.getMessage()), true,
                                 true);
                         return;

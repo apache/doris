@@ -676,6 +676,9 @@ public class SparkLoadJob extends BulkLoadJob {
                         new LoadJobFinalOperation(id, loadingStatus, progress, loadStartTimestamp,
                                 finishTimestamp, state, failMsg));
                 return;
+            } catch (TabletQuorumFailedException e) {
+                // retry in next loop
+                return;
             } catch (UserException e) {
                 LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
                         .add("txn_id", transactionId)
@@ -686,15 +689,12 @@ public class SparkLoadJob extends BulkLoadJob {
                 if (e.getErrorCode() == InternalErrorCode.DELETE_BITMAP_LOCK_ERR) {
                     retryTimes++;
                     if (retryTimes >= Config.mow_calculate_delete_bitmap_retry_times) {
-                        LOG.warn("cancelJob {} because up to max retry time", id);
+                        LOG.warn("cancelJob {} because up to max retry time, exception {}", id, e);
                         throw e;
                     }
                 } else {
                     throw e;
                 }
-            } catch (TabletQuorumFailedException e) {
-                // retry in next loop
-                return;
             } finally {
                 if (Config.isCloudMode()) {
                     MetaLockUtils.commitUnlockTables(tableList);
