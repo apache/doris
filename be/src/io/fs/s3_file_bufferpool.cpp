@@ -247,7 +247,10 @@ Status FileBufferBuilder::build(std::shared_ptr<FileBuffer>* buf) {
     auto* thread_ctx = doris::thread_context(true);
     if (thread_ctx != nullptr) {
         // if thread local mem tracker is set, use it instead.
-        auto mem_tracker = thread_ctx->thread_mem_tracker_mgr->limiter_mem_tracker();
+        auto curr_tracker = thread_ctx->thread_mem_tracker_mgr->limiter_mem_tracker();
+        if (curr_tracker != ExecEnv::GetInstance()->orphan_mem_tracker()) {
+            mem_tracker = std::move(curr_tracker);
+        }
     }
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(mem_tracker);
     OperationState state(_sync_after_complete_task, _is_cancelled);
