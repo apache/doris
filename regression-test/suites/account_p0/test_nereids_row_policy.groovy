@@ -32,25 +32,16 @@ suite("test_nereids_row_policy") {
     }
 
     def assertQueryResult = { size ->
-        def result1 = connect(user=user, password='123abc!@#', url=url) {
-            sql "set enable_nereids_planner = false"
-            sql "SELECT * FROM ${tableName}"
-        }
-        def result2 = connect(user=user, password='123abc!@#', url=url) {
-            sql "set enable_nereids_planner = true"
-            sql "set enable_fallback_to_original_planner = false"
+        def result = connect(user=user, password='123abc!@#', url=url) {
             sql "SELECT * FROM ${tableName}"
         }
         connect(user=user, password='123abc!@#', url=url) {
-            sql "set enable_nereids_planner = true"
-            sql "set enable_fallback_to_original_planner = false"
             test {
                 sql "SELECT * FROM ${viewName}"
                 exception "does not have privilege for"
             }
         }
-        assertEquals(size, result1.size())
-        assertEquals(size, result2.size())
+        assertEquals(size, result.size())
     }
 
     def createPolicy = { name, predicate, type ->
