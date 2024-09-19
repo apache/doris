@@ -144,12 +144,14 @@ public class MaterializedViewUtils {
                                 + "expressions map is %s",
                         checkContext.getPartitionAndRollupExpressionChecked()));
             }
-            return RelatedTableInfo.successWith(
-                    partitionColumn.getTable().map(BaseTableInfo::new).get(),
-                    true,
-                    partitionColumn.getColumn().get().getName(),
-                    entry.getValue().key().orElse(null),
-                    entry.getValue().value());
+            if (entry.getValue().value()) {
+                return RelatedTableInfo.successWith(
+                        partitionColumn.getTable().map(BaseTableInfo::new).get(),
+                        true,
+                        partitionColumn.getColumn().get().getName(),
+                        entry.getValue().key().orElse(null),
+                        entry.getValue().value());
+            }
         }
         return RelatedTableInfo.failWith("can't not find valid partition track column finally");
     }
