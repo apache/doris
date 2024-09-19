@@ -316,9 +316,9 @@ Status BlockChanger::change_block(vectorized::Block* ref_block,
 
             if (result_tmp_column_def.column->size() != row_num) {
                 return Status::Error<ErrorCode::INTERNAL_ERROR>(
-                        "result size invalid, expect={}, real={}; input expr={}", row_num,
+                        "result size invalid, expect={}, real={}; input expr={}, block={}", row_num,
                         result_tmp_column_def.column->size(),
-                        apache::thrift::ThriftDebugString(*expr));
+                        apache::thrift::ThriftDebugString(*expr), ref_block->dump_structure());
             }
 
             if (_type == SCHEMA_CHANGE) {
