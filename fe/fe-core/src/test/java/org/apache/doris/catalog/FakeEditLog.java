@@ -32,6 +32,7 @@ import mockit.Mock;
 import mockit.MockUp;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 public class FakeEditLog extends MockUp<EditLog> {
@@ -48,6 +49,15 @@ public class FakeEditLog extends MockUp<EditLog> {
         // do nothing
         System.out.println("insert transaction manager is called");
         allTransactionState.put(transactionState.getTransactionId(), transactionState);
+    }
+
+    @Mock
+    public void logBatchInsertTransactionState(List<TransactionState> transactionStates) {
+        // do nothing
+        System.out.println("insert transaction manager is called");
+        for (TransactionState transactionState : transactionStates) {
+            allTransactionState.put(transactionState.getTransactionId(), transactionState);
+        }
     }
 
     @Mock

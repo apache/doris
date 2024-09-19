@@ -100,6 +100,9 @@ public interface GlobalTransactionMgrIface extends Writable {
     public void commitTransaction2PC(Database db, List<Table> tableList, long transactionId, long timeoutMillis)
             throws UserException;
 
+    public void batchCommitTransaction2PC(Database db, List<Table> tableList, List<Long> txnIds, long timeoutMillis)
+            throws UserException;
+
     public void abortTransaction(Long dbId, Long transactionId, String reason) throws UserException;
 
     public void abortTransaction(Long dbId, Long txnId, String reason,
