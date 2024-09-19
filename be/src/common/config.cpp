@@ -1118,7 +1118,7 @@ DEFINE_mInt32(mow_publish_max_discontinuous_version_num, "20");
 // When the version is not continuous for MOW table in publish phase and the gap between
 // current txn's publishing version and the max version of the tablet exceeds this value,
 // don't print warning log
-DEFINE_mInt32(publish_version_gap_logging_threshold, "200")
+DEFINE_mInt32(publish_version_gap_logging_threshold, "200");
 
 // The secure path with user files, used in the `local` table function.
 DEFINE_mString(user_files_secure_path, "${DORIS_HOME}");
