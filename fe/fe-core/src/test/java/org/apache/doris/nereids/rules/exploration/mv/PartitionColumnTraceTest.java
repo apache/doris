@@ -19,15 +19,20 @@ package org.apache.doris.nereids.rules.exploration.mv;
 
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewUtils.RelatedTableInfo;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.DateTrunc;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.ImmutableSet;
+import org.apache.commons.lang3.StringUtils;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.HashSet;
+import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 
 public class PartitionColumnTraceTest extends TestWithFeService {
@@ -97,7 +102,8 @@ public class PartitionColumnTraceTest extends TestWithFeService {
                             Set<RelatedTableInfo> relatedTableInfos =
                                     MaterializedViewUtils.getRelatedTableInfos("l_shipdate", null,
                                             rewrittenPlan, nereidsPlanner.getCascadesContext());
-                            successWith(relatedTableInfos, ImmutableSet.of(Pair.of("lineitem", "l_shipdate")));
+                            successWith(relatedTableInfos, ImmutableSet.of(Pair.of("lineitem", "l_shipdate")),
+                                    "");
                         });
     }
 
@@ -134,7 +140,8 @@ public class PartitionColumnTraceTest extends TestWithFeService {
                             Set<RelatedTableInfo> relatedTableInfos =
                                     MaterializedViewUtils.getRelatedTableInfos("l_shipdate", null,
                                             rewrittenPlan, nereidsPlanner.getCascadesContext());
-                            successWith(relatedTableInfos, ImmutableSet.of(Pair.of("lineitem", "l_shipdate")));
+                            successWith(relatedTableInfos, ImmutableSet.of(Pair.of("lineitem", "l_shipdate")),
+                                    "");
                         });
     }
 
@@ -192,7 +199,26 @@ public class PartitionColumnTraceTest extends TestWithFeService {
                                             rewrittenPlan, nereidsPlanner.getCascadesContext());
                             successWith(relatedTableInfos,
                                     ImmutableSet.of(Pair.of("lineitem", "l_shipdate"),
-                                            Pair.of("orders", "o_orderdate")));
+                                            Pair.of("orders", "o_orderdate")), "");
+                        });
+    }
+
+    @Test
+    public void test500() {
+        PlanChecker.from(connectContext)
+                .checkExplain("        select l_shipdate, o.o_orderdate_alias, count(l_shipdate) \n"
+                                + "        from lineitem\n"
+                                + "        inner join (select date_trunc(o_orderdate, 'day') o_orderdate_alias from orders) o\n"
+                                + "        on l_shipdate = o.o_orderdate_alias\n"
+                                + "        group by l_shipdate, o.o_orderdate_alias",
+                        nereidsPlanner -> {
+                            Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
+                            Set<RelatedTableInfo> relatedTableInfos =
+                                    MaterializedViewUtils.getRelatedTableInfos("l_shipdate", null,
+                                            rewrittenPlan, nereidsPlanner.getCascadesContext());
+                            successWith(relatedTableInfos,
+                                    ImmutableSet.of(Pair.of("lineitem", "l_shipdate"),
+                                            Pair.of("orders", "o_orderdate")), "");
                         });
     }
 
@@ -212,7 +238,7 @@ public class PartitionColumnTraceTest extends TestWithFeService {
                                             rewrittenPlan, nereidsPlanner.getCascadesContext());
                             successWith(relatedTableInfos,
                                     ImmutableSet.of(Pair.of("lineitem", "l_shipdate"),
-                                            Pair.of("orders", "o_orderdate")));
+                                            Pair.of("orders", "o_orderdate")), "");
                         });
     }
 
@@ -231,7 +257,7 @@ public class PartitionColumnTraceTest extends TestWithFeService {
                                     MaterializedViewUtils.getRelatedTableInfos("l_shipdate", null,
                                             rewrittenPlan, nereidsPlanner.getCascadesContext());
                             successWith(relatedTableInfos,
-                                    ImmutableSet.of(Pair.of("lineitem", "l_shipdate")));
+                                    ImmutableSet.of(Pair.of("lineitem", "l_shipdate")), "");
                         });
     }
 
@@ -250,7 +276,7 @@ public class PartitionColumnTraceTest extends TestWithFeService {
                                     MaterializedViewUtils.getRelatedTableInfos("o_orderdate", null,
                                             rewrittenPlan, nereidsPlanner.getCascadesContext());
                             successWith(relatedTableInfos,
-                                    ImmutableSet.of(Pair.of("orders", "o_orderdate")));
+                                    ImmutableSet.of(Pair.of("orders", "o_orderdate")), "");
                         });
     }
 
@@ -349,7 +375,7 @@ public class PartitionColumnTraceTest extends TestWithFeService {
                                     MaterializedViewUtils.getRelatedTableInfos("l_shipdate", null,
                                             rewrittenPlan, nereidsPlanner.getCascadesContext());
                             successWith(relatedTableInfos,
-                                    ImmutableSet.of(Pair.of("lineitem", "l_shipdate")));
+                                    ImmutableSet.of(Pair.of("lineitem", "l_shipdate")), "");
                         });
     }
 
@@ -387,7 +413,7 @@ public class PartitionColumnTraceTest extends TestWithFeService {
                                     MaterializedViewUtils.getRelatedTableInfos("l_shipdate", null,
                                             rewrittenPlan, nereidsPlanner.getCascadesContext());
                             successWith(relatedTableInfos,
-                                    ImmutableSet.of(Pair.of("lineitem", "l_shipdate")));
+                                    ImmutableSet.of(Pair.of("lineitem", "l_shipdate")), "");
                         });
     }
 
@@ -523,7 +549,7 @@ public class PartitionColumnTraceTest extends TestWithFeService {
                                     MaterializedViewUtils.getRelatedTableInfos("o_orderdate", null,
                                             rewrittenPlan, nereidsPlanner.getCascadesContext());
                             successWith(relatedTableInfos,
-                                    ImmutableSet.of(Pair.of("orders", "o_orderdate")));
+                                    ImmutableSet.of(Pair.of("orders", "o_orderdate")), "");
                         });
     }
 
@@ -561,7 +587,7 @@ public class PartitionColumnTraceTest extends TestWithFeService {
                                     MaterializedViewUtils.getRelatedTableInfos("o_orderdate", null,
                                             rewrittenPlan, nereidsPlanner.getCascadesContext());
                             successWith(relatedTableInfos,
-                                    ImmutableSet.of(Pair.of("orders", "o_orderdate")));
+                                    ImmutableSet.of(Pair.of("orders", "o_orderdate")), "");
                         });
     }
 
@@ -721,11 +747,18 @@ public class PartitionColumnTraceTest extends TestWithFeService {
     }
 
     private static void successWith(Set<RelatedTableInfo> relatedTableInfos,
-            Set<Pair<String, String>> expectTableColumnPairSet) {
+            Set<Pair<String, String>> expectTableColumnPairSet, String timeUnit) {
         Assertions.assertFalse(relatedTableInfos.isEmpty());
         Set<Pair<String, String>> relatedTableColumnPairs = new HashSet<>();
         for (RelatedTableInfo info : relatedTableInfos) {
             Assertions.assertTrue(info.isPctPossible());
+            Optional<Expression> partitionExpression = info.getPartitionExpression();
+            if (StringUtils.isNotEmpty(timeUnit)) {
+                Assertions.assertTrue(partitionExpression.isPresent());
+                List<DateTrunc> dateTruncs = partitionExpression.get().collectToList(DateTrunc.class::isInstance);
+                Assertions.assertEquals(1, dateTruncs.size());
+                Assertions.assertEquals(dateTruncs.get(0).getArgument(1).toString().toLowerCase(), timeUnit);
+            }
             try {
                 relatedTableColumnPairs.add(
                         Pair.of(info.getTableInfo().getTableName(), info.getColumn().toLowerCase()));
