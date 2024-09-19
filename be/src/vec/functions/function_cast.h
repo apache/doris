@@ -1686,16 +1686,6 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
-        RETURN_IF_ERROR(_execute_impl(context, block, arguments, result, input_rows_count));
-        if (context->enable_strict_cast_mode()) {
-            RETURN_IF_ERROR(strict_cast_check(block.get_by_position(arguments[0]),
-                                              block.get_by_position(result)));
-        }
-        return Status::OK();
-    }
-
-    Status _execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                         size_t result, size_t input_rows_count) const {
         const IDataType* from_type = block.get_by_position(arguments[0]).type.get();
 
         if (check_and_get_data_type<DataTypeString>(from_type)) {
