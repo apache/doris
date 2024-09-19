@@ -91,12 +91,23 @@ Status SnapshotManager::make_snapshot(const TSnapshotRequest& request, string* s
     }
 
     TabletSharedPtr ref_tablet = target_tablet;
+    std::shared_lock<std::shared_timed_mutex> migration_rlock;
     if (request.__isset.ref_tablet_id) {
         int64_t ref_tablet_id = request.ref_tablet_id;
-        ref_tablet = _engine.tablet_manager()->get_tablet(ref_tablet_id);
-        if (ref_tablet == nullptr) {
+        TabletSharedPtr base_tablet = _engine.tablet_manager()->get_tablet(ref_tablet_id);
+        if (base_tablet == nullptr) {
             return Status::Error<TABLE_NOT_FOUND>("failed to get ref tablet. tablet={}",
                                                   ref_tablet_id);
+        }
+
+        auto rlock = std::shared_lock<std::shared_timed_mutex>(base_tablet->get_migration_lock());
+        // Some tasks, like medium migration, cause the target tablet and base tablet to stay on
+        // different disks. In this case, we fall through to the normal restore path.
+        //
+        // Otherwise, we can directly link the rowset files from the base tablet to the target tablet.
+        if (base_tablet->data_dir()->path() == target_tablet->data_dir()->path()) {
+            ref_tablet = std::move(base_tablet);
+            std::swap(migration_rlock, rlock);
         }
     }
 
