@@ -31,13 +31,11 @@ HiveJNIReader::HiveJNIReader(RuntimeState* state, RuntimeProfile* profile,
                              const std::vector<SlotDescriptor*>& file_slot_descs,
                              const TFileRangeDesc& range)
         : JniReader(file_slot_descs, state, profile), _params(params), _range(range) {
-            // TODO: process _column_names & _column_types
         }
 
 HiveJNIReader::HiveJNIReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
               const TFileRangeDesc& range, const std::vector<SlotDescriptor*>& file_slot_descs)
     : JniReader(file_slot_descs, nullptr, profile), _params(params), _range(range) {
-            // TODO: process _column_names & _column_types
     }
 
 HiveJNIReader::~HiveJNIReader() = default;
@@ -78,6 +76,8 @@ Status HiveJNIReader::init_fetch_table_reader(
             {"uri", _range.path},
             {"file_type", std::to_string(type)},
             {"is_get_table_schema", "false"},
+            {"split_start_offset", std::to_string(_range.start_offset)},
+            {"split_size", std::to_string(_range.size)},
     };
     if (type == TFileType::FILE_S3) {
         required_params.insert(_params.properties.begin(), _params.properties.end());
