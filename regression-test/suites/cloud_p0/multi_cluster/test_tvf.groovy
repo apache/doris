@@ -52,7 +52,7 @@ suite('test_tvf_in_cloud', 'multi_cluster,docker') {
 
         def jsonSlurper = new JsonSlurper()
         def jsonObject = jsonSlurper.parseText(tag)
-        def cloudClusterId = jsonObject.cloud_cluster_id
+        def cloudClusterId = jsonObject.compute_group_id
         // multi cluster env
 
         // current cluster

@@ -66,6 +66,7 @@ import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.Future
 import java.util.concurrent.ThreadFactory
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.stream.Collectors
 import java.util.stream.LongStream
@@ -833,6 +834,11 @@ class Suite implements GroovyInterceptable {
         return s3Url
     }
 
+    String getJdbcPassword() {
+        String sk = context.config.otherConfigs.get("jdbcPassword");
+        return sk
+    }
+
     static void scpFiles(String username, String host, String files, String filePath, boolean fromDst=true) {
         String cmd = "scp -o StrictHostKeyChecking=no -r ${username}@${host}:${files} ${filePath}"
         if (!fromDst) {
@@ -937,14 +943,31 @@ class Suite implements GroovyInterceptable {
         return sql_return_maparray("show frontends").collect { it.Host + ":" + it.HttpPort };
     }
 
+    List<String> getFrontendIpEditlogPort() {
+        return sql_return_maparray("show frontends").collect { it.Host + ":" + it.EditLogPort };
+    }
+
     void getBackendIpHttpPort(Map<String, String> backendId_to_backendIP, Map<String, String> backendId_to_backendHttpPort) {
         List<List<Object>> backends = sql("show backends");
+        logger.info("Content of backends: ${backends}")
         for (List<Object> backend : backends) {
             backendId_to_backendIP.put(String.valueOf(backend[0]), String.valueOf(backend[1]));
             backendId_to_backendHttpPort.put(String.valueOf(backend[0]), String.valueOf(backend[4]));
         }
         return;
     }
+
+    void getBackendIpHeartbeatPort(Map<String, String> backendId_to_backendIP,
+            Map<String, String> backendId_to_backendHeartbeatPort) {
+        List<List<Object>> backends = sql("show backends");
+        logger.info("Content of backends: ${backends}")
+        for (List<Object> backend : backends) {
+            backendId_to_backendIP.put(String.valueOf(backend[0]), String.valueOf(backend[1]));
+            backendId_to_backendHeartbeatPort.put(String.valueOf(backend[0]), String.valueOf(backend[2]));
+        }
+        return;
+    }
+
 
     void getBackendIpHttpAndBrpcPort(Map<String, String> backendId_to_backendIP,
         Map<String, String> backendId_to_backendHttpPort, Map<String, String> backendId_to_backendBrpcPort) {
@@ -1492,6 +1515,71 @@ class Suite implements GroovyInterceptable {
         }
     }
 
+    void waitAddFeFinished(String host, int port) {
+        logger.info("waiting for ${host}:${port}")
+        Awaitility.await().atMost(60, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).and()
+                .pollInterval(100, TimeUnit.MILLISECONDS).await().until(() -> {
+            def frontends = getFrontendIpEditlogPort()
+            logger.info("frontends ${frontends}")
+            boolean matched = false
+            String expcetedFE = "${host}:${port}"
+            for (frontend: frontends) {
+                logger.info("checking fe ${frontend}, expectedFe ${expcetedFE}")
+                if (frontend.equals(expcetedFE)) {
+                    matched = true;
+                }
+            }
+            return matched;
+        });
+    }
+
+    void waitDropFeFinished(String host, int port) {
+        Awaitility.await().atMost(60, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).and()
+                .pollInterval(100, TimeUnit.MILLISECONDS).await().until(() -> {
+            def frontends = getFrontendIpEditlogPort()
+            boolean matched = false
+            for (frontend: frontends) {
+                if (frontend == "$host:$port") {
+                    matched = true
+                }
+            }
+            return !matched;
+        });
+    }
+
+    void waitAddBeFinished(String host, int port) {
+        logger.info("waiting ${host}:${port} added");
+        Awaitility.await().atMost(60, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).and()
+                .pollInterval(100, TimeUnit.MILLISECONDS).await().until(() -> {
+            def ipList = [:]
+            def portList = [:]
+            getBackendIpHeartbeatPort(ipList, portList)
+            boolean matched = false
+            ipList.each { beid, ip ->
+                if (ip.equals(host) && ((portList[beid] as int) == port)) {
+                    matched = true;
+                }
+            }
+            return matched;
+        });
+    }
+
+    void waitDropBeFinished(String host, int port) {
+        Awaitility.await().atMost(60, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).and()
+                .pollInterval(100, TimeUnit.MILLISECONDS).await().until(() -> {
+            def ipList = [:]
+            def portList = [:]
+            getBackendIpHeartbeatPort(ipList, portList)
+            boolean matched = false
+            ipList.each { beid, ip ->
+                if (ip == host && portList[beid] as int == port) {
+                    matched = true;
+                }
+            }
+            return !matched;
+        });
+    }
+
     void waiteCreateTableFinished(String tableName) {
         Thread.sleep(2000);
         String showCreateTable = "SHOW CREATE TABLE ${tableName}"
@@ -1791,7 +1879,7 @@ class Suite implements GroovyInterceptable {
 
         drop_cluster_api.call(js) {
             respCode, body ->
-                log.info("dorp cluster resp: ${body} ${respCode}".toString())
+                log.info("drop cluster resp: ${body} ${respCode}".toString())
                 def json = parseJson(body)
                 assertTrue(json.code.equalsIgnoreCase("OK") || json.code.equalsIgnoreCase("ALREADY_EXISTED"))
         }
