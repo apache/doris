@@ -233,6 +233,10 @@ void WorkloadGroupMgr::refresh_wg_weighted_memory_limit() {
             continue;
         }
 
+        // If the wg enable over commit memory, then it is no need to update query memlimit
+        if (wg.second->enable_memory_overcommit()) {
+            continue;
+        }
         int32_t total_used_slot_count = 0;
         int32_t total_slot_count = wg.second->total_query_slot_count();
         // calculate total used slot count
@@ -335,6 +339,11 @@ void WorkloadGroupMgr::add_paused_query(const std::shared_ptr<QueryContext>& que
 void WorkloadGroupMgr::handle_paused_queries() {
     std::unique_lock<std::mutex> lock(_paused_queries_lock);
     if (_paused_queries_list.empty()) {
+        if (doris::GlobalMemoryArbitrator::last_wg_trigger_cache_capacity_adjust_weighted != 1) {
+            doris::GlobalMemoryArbitrator::last_wg_trigger_cache_capacity_adjust_weighted = 1;
+            doris::GlobalMemoryArbitrator::notify_cache_adjust_capacity();
+            LOG(INFO) << "There are no queries in paused list, so that set cache capacity to 1 now";
+        }
         return;
     }
 
@@ -371,13 +380,10 @@ void WorkloadGroupMgr::handle_paused_queries() {
             ++it;
         }
 
-        std::shared_ptr<QueryContext> max_revocable_query;
-        std::shared_ptr<QueryContext> max_memory_usage_query;
-        std::shared_ptr<QueryContext> running_query;
-        bool has_running_query = false;
-        size_t max_revocable_size = 0;
-        size_t max_memory_usage = 0;
-        auto it_to_remove = queries_list.end();
+        // If the wg's query list is empty, then should do nothing
+        if (queries_list.empty()) {
+            continue;
+        }
 
         // TODO: should check buffer type memory first, if could release many these memory, then not need do spill disk
         // Buffer Memory are:
@@ -386,6 +392,31 @@ void WorkloadGroupMgr::handle_paused_queries() {
         // 3. scan queue, exchange sink buffer, union queue
         // 4. streaming aggs.
         // If we could not recycle memory from these buffers(< 10%), then do spill disk.
+
+        // 1. Check cache used, if cache is larger than > 0, then just return and wait for it to 0 to release some memory.
+        if (doris::GlobalMemoryArbitrator::last_affected_cache_capacity_adjust_weighted > 0 &&
+            doris::GlobalMemoryArbitrator::last_wg_trigger_cache_capacity_adjust_weighted > 0) {
+            doris::GlobalMemoryArbitrator::last_wg_trigger_cache_capacity_adjust_weighted = 0;
+            doris::GlobalMemoryArbitrator::notify_cache_adjust_capacity();
+            LOG(INFO) << "There are some queries need memory, so that set cache capacity to 0 now";
+            // If there is cache, then return, only check to do spill disk when cache is larger than 0.
+            return;
+        }
+
+        // 2. If memtable size larger than 10% of wg's limit, then flush memtable and wait.
+
+        // If the wg enable memory overcommit, then not spill, just cancel query.
+        if (wg->enable_memory_overcommit()) {
+            continue;
+        }
+
+        std::shared_ptr<QueryContext> max_revocable_query;
+        std::shared_ptr<QueryContext> max_memory_usage_query;
+        std::shared_ptr<QueryContext> running_query;
+        bool has_running_query = false;
+        size_t max_revocable_size = 0;
+        size_t max_memory_usage = 0;
+        auto it_to_remove = queries_list.end();
 
         for (auto query_it = queries_list.begin(); query_it != queries_list.end();) {
             const auto query_ctx = query_it->query_ctx_.lock();
