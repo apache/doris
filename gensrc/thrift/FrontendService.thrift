@@ -417,6 +417,11 @@ struct TReportWorkloadRuntimeStatusParams {
     2: optional map<string, TQueryStatistics> query_statistics_map
 }
 
+struct TFragmentInstanceReport {
+  1: optional Types.TUniqueId fragment_instance_id;
+  2: optional i32 num_finished_range;
+}
+
 // The results of an INSERT query, sent to the coordinator as part of
 // TReportExecStatusParams
 struct TReportExecStatusParams {
@@ -487,6 +492,8 @@ struct TReportExecStatusParams {
   26: optional list<DataSinks.THivePartitionUpdate> hive_partition_updates
 
   28: optional list<DataSinks.TIcebergCommitData> iceberg_commit_datas
+
+  31: optional list<TFragmentInstanceReport> fragment_instance_reports;
 }
 
 struct TFeResult {
