@@ -43,17 +43,14 @@ bool DataTypeDateTime::equals(const IDataType& rhs) const {
 }
 
 size_t DataTypeDateTime::number_length() const {
-    //2024-01-01 00:00:00
-    return 20;
+    return sizeof("2024-01-01 00:00:00"); //20
 }
 
-void DataTypeDateTime::push_number(ColumnString::Chars& chars, const Int64& num) const {
+void DataTypeDateTime::push_number_reserved(ColumnString::Char* chars, const Int64& num,
+                                            size_t& offset) const {
     doris::VecDateTimeValue value = binary_cast<Int64, doris::VecDateTimeValue>(num);
-
-    char buf[64];
-    char* pos = value.to_string(buf);
-    // DateTime to_string the end is /0
-    chars.insert(buf, pos - 1);
+    const auto len = value.to_buffer((char*)chars + offset);
+    offset += len;
 }
 
 std::string DataTypeDateTime::to_string(const IColumn& column, size_t row_num) const {

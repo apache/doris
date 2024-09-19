@@ -177,6 +177,12 @@ protected:
         }
     }
 
+    template <typename Derived>
+    constexpr static bool has_push_number_reserved =
+            requires(Derived t, ColumnString::Char* chars, const FieldType& num, size_t& offset) {
+                { t.push_number_reserved(chars, num, offset) } -> std::same_as<void>;
+            };
+
     template <typename Derived, bool is_const>
     void _to_string_batch_impl(const ColumnPtr& column_ptr, ColumnString& column_to) const {
         auto& col_vec = assert_cast<const ColumnVector<T>&>(*column_ptr);
@@ -185,10 +191,22 @@ protected:
         auto& offsets = column_to.get_offsets();
         offsets.resize(size);
         chars.reserve(static_cast<const Derived*>(this)->number_length() * size);
-        for (int row_num = 0; row_num < size; row_num++) {
-            auto num = is_const ? col_vec.get_element(0) : col_vec.get_element(row_num);
-            static_cast<const Derived*>(this)->push_number(chars, num);
-            offsets[row_num] = chars.size();
+
+        if constexpr (has_push_number_reserved<Derived>) {
+            size_t offset = 0;
+            for (int row_num = 0; row_num < size; row_num++) {
+                auto num = is_const ? col_vec.get_element(0) : col_vec.get_element(row_num);
+                static_cast<const Derived*>(this)->push_number_reserved(chars.data(), num, offset);
+                offsets[row_num] = offset;
+            }
+            DCHECK_EQ(offset, static_cast<const Derived*>(this)->number_length() * size);
+            chars.resize(offset);
+        } else {
+            for (int row_num = 0; row_num < size; row_num++) {
+                auto num = is_const ? col_vec.get_element(0) : col_vec.get_element(row_num);
+                static_cast<const Derived*>(this)->push_number(chars, num);
+                offsets[row_num] = chars.size();
+            }
         }
     }
 

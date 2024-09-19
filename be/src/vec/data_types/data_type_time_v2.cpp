@@ -48,16 +48,13 @@ bool DataTypeDateV2::equals(const IDataType& rhs) const {
 }
 
 size_t DataTypeDateV2::number_length() const {
-    //2024-01-01
-    return 10;
+    return sizeof("2024-01-01"); //11
 }
-void DataTypeDateV2::push_number(ColumnString::Chars& chars, const UInt32& num) const {
+void DataTypeDateV2::push_number_reserved(ColumnString::Char* chars, const UInt32& num,
+                                          size_t& offset) const {
     DateV2Value<DateV2ValueType> val = binary_cast<UInt32, DateV2Value<DateV2ValueType>>(num);
-
-    char buf[64];
-    char* pos = val.to_string(buf);
-    // DateTime to_string the end is /0
-    chars.insert(buf, pos - 1);
+    const auto len = val.to_buffer((char*)chars + offset);
+    offset += len;
 }
 
 std::string DataTypeDateV2::to_string(const IColumn& column, size_t row_num) const {
@@ -168,15 +165,14 @@ std::string DataTypeDateTimeV2::to_string(UInt64 int_val) const {
 }
 
 size_t DataTypeDateTimeV2::number_length() const {
-    //2024-01-01 00:00:00-000000
-    return 32;
+    return sizeof("2024-01-01 00:00:00-000000"); //27
 }
-void DataTypeDateTimeV2::push_number(ColumnString::Chars& chars, const UInt64& num) const {
+void DataTypeDateTimeV2::push_number_reserved(ColumnString::Char* chars, const UInt64& num,
+                                              size_t& offset) const {
     DateV2Value<DateTimeV2ValueType> val =
             binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(num);
-    char buf[64];
-    char* pos = val.to_string(buf, _scale);
-    chars.insert(buf, pos - 1);
+    const auto len = val.to_buffer((char*)chars + offset, _scale);
+    offset += len;
 }
 
 void DataTypeDateTimeV2::to_string(const IColumn& column, size_t row_num,
