@@ -79,6 +79,14 @@ public class InternalSchema {
         AUDIT_SCHEMA.add(new ColumnDef("query_time", TypeDef.create(PrimitiveType.BIGINT), true));
         AUDIT_SCHEMA.add(new ColumnDef("scan_bytes", TypeDef.create(PrimitiveType.BIGINT), true));
         AUDIT_SCHEMA.add(new ColumnDef("scan_rows", TypeDef.create(PrimitiveType.BIGINT), true));
+        AUDIT_SCHEMA.add(new ColumnDef("local_scan_bytes",
+                TypeDef.create(PrimitiveType.BIGINT), true));
+        AUDIT_SCHEMA.add(new ColumnDef("remote_scan_bytes",
+                TypeDef.create(PrimitiveType.BIGINT), true));
+        AUDIT_SCHEMA.add(new ColumnDef("shuffle_bytes",
+                TypeDef.create(PrimitiveType.BIGINT), true));
+        AUDIT_SCHEMA.add(new ColumnDef("shuffle_rows",
+                TypeDef.create(PrimitiveType.BIGINT), true));
         AUDIT_SCHEMA.add(new ColumnDef("return_rows", TypeDef.create(PrimitiveType.BIGINT), true));
         AUDIT_SCHEMA.add(new ColumnDef("shuffle_send_rows", TypeDef.create(PrimitiveType.BIGINT), true));
         AUDIT_SCHEMA.add(new ColumnDef("shuffle_send_bytes", TypeDef.create(PrimitiveType.BIGINT), true));

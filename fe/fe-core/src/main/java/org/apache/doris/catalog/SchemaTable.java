@@ -455,6 +455,8 @@ public class SchemaTable extends Table {
                                     .column("TASK_CPU_TIME_MS", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("SCAN_ROWS", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("SCAN_BYTES", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("LOCAL_SCAN_BYTES", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("REMOTE_SCAN_BYTES", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("BE_PEAK_MEMORY_BYTES", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("CURRENT_USED_MEMORY_BYTES", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("SHUFFLE_SEND_BYTES", ScalarType.createType(PrimitiveType.BIGINT))

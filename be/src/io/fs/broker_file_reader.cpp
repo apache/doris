@@ -62,7 +62,7 @@ Status BrokerFileReader::close() {
 }
 
 Status BrokerFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_read,
-                                      const IOContext* /*io_ctx*/) {
+                                      const IOContext* io_ctx) {
     DCHECK(!closed());
     size_t bytes_req = result.size;
     char* to = result.data;
@@ -76,6 +76,9 @@ Status BrokerFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes
 
     *bytes_read = data.size();
     memcpy(to, data.data(), *bytes_read);
+    if (io_ctx && io_ctx->file_cache_stats) {
+        io_ctx->file_cache_stats->bytes_read_from_remote += bytes_req;
+    }
     return Status::OK();
 }
 

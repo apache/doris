@@ -97,6 +97,8 @@ protected:
 
     void _collect_profile_before_close() override;
 
+    void _update_bytes_and_rows_read() override;
+
 protected:
     const TFileScanRangeParams* _params = nullptr;
     std::shared_ptr<vectorized::SplitSourceConnector> _split_source;

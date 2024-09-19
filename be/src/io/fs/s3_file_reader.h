@@ -35,7 +35,6 @@ namespace doris {
 class RuntimeProfile;
 
 namespace io {
-struct IOContext;
 
 class S3FileReader final : public FileReader {
 public:

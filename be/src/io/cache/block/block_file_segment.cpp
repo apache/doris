@@ -179,7 +179,7 @@ std::string FileBlock::get_path_in_local_cache() const {
     return _cache->get_path_in_local_cache(key(), offset(), _cache_type);
 }
 
-Status FileBlock::read_at(Slice buffer, size_t read_offset) {
+Status FileBlock::read_at(Slice buffer, size_t read_offset, const IOContext* io_ctx) {
     Status st = Status::OK();
     std::shared_ptr<FileReader> reader;
     if (!(reader = _cache_reader.lock())) {
@@ -192,7 +192,7 @@ Status FileBlock::read_at(Slice buffer, size_t read_offset) {
         }
     }
     size_t bytes_reads = buffer.size;
-    RETURN_IF_ERROR(reader->read_at(read_offset, buffer, &bytes_reads));
+    RETURN_IF_ERROR(reader->read_at(read_offset, buffer, &bytes_reads, io_ctx));
     DCHECK(bytes_reads == buffer.size);
     return st;
 }

@@ -19,6 +19,8 @@
 
 #include <gen_cpp/Types_types.h>
 
+#include <sstream>
+
 namespace doris {
 
 enum class ReaderType : uint8_t {
@@ -45,6 +47,38 @@ struct FileCacheStatistics {
     int64_t write_cache_io_timer = 0;
     int64_t bytes_write_into_cache = 0;
     int64_t num_skip_cache_io_total = 0;
+
+    void update(const FileCacheStatistics& other) {
+        num_local_io_total += other.num_local_io_total;
+        num_remote_io_total += other.num_remote_io_total;
+        local_io_timer += other.local_io_timer;
+        bytes_read_from_local += other.bytes_read_from_local;
+        bytes_read_from_remote += other.bytes_read_from_remote;
+        remote_io_timer += other.remote_io_timer;
+        write_cache_io_timer += other.write_cache_io_timer;
+        write_cache_io_timer += other.write_cache_io_timer;
+        bytes_write_into_cache += other.bytes_write_into_cache;
+        num_skip_cache_io_total += other.num_skip_cache_io_total;
+    }
+
+    void reset() {
+        num_local_io_total = 0;
+        num_remote_io_total = 0;
+        local_io_timer = 0;
+        bytes_read_from_local = 0;
+        bytes_read_from_remote = 0;
+        remote_io_timer = 0;
+        write_cache_io_timer = 0;
+        bytes_write_into_cache = 0;
+        num_skip_cache_io_total = 0;
+    }
+
+    std::string debug_string() const {
+        std::stringstream ss;
+        ss << "bytes_read_from_local: " << bytes_read_from_local
+           << ", bytes_read_from_remote: " << bytes_read_from_remote;
+        return ss.str();
+    }
 };
 
 struct IOContext {
@@ -60,6 +94,14 @@ struct IOContext {
     int64_t expiration_time = 0;
     const TUniqueId* query_id = nullptr;             // Ref
     FileCacheStatistics* file_cache_stats = nullptr; // Ref
+
+    std::string debug_string() const {
+        if (file_cache_stats != nullptr) {
+            return file_cache_stats->debug_string();
+        } else {
+            return "no file cache stats";
+        }
+    }
 };
 
 } // namespace io
