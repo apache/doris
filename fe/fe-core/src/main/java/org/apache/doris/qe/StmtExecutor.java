@@ -1471,6 +1471,11 @@ public class StmtExecutor {
 
     // Because this is called by other thread
     public void cancel() {
+        Optional<InsertOverwriteTableCommand> insertOverwriteTableCommand = getInsertOverwriteTableCommand();
+        if (insertOverwriteTableCommand.isPresent()) {
+            // If the be scheduling has not been triggered yet, cancel the scheduling first
+            insertOverwriteTableCommand.get().cancel();
+        }
         Coordinator coordRef = coord;
         if (coordRef != null) {
             coordRef.cancel();
@@ -1481,6 +1486,22 @@ public class StmtExecutor {
         if (parsedStmt instanceof AnalyzeTblStmt || parsedStmt instanceof AnalyzeDBStmt) {
             Env.getCurrentEnv().getAnalysisManager().cancelSyncTask(context);
         }
+        if (insertOverwriteTableCommand.isPresent()) {
+            // Wait for the command to run or cancel completion
+            insertOverwriteTableCommand.get().waitNotRunning();
+        }
+    }
+
+    private Optional<InsertOverwriteTableCommand> getInsertOverwriteTableCommand() {
+        if (parsedStmt instanceof LogicalPlanAdapter) {
+            LogicalPlanAdapter logicalPlanAdapter = (LogicalPlanAdapter) parsedStmt;
+            LogicalPlan logicalPlan = logicalPlanAdapter.getLogicalPlan();
+            if (logicalPlan instanceof InsertOverwriteTableCommand) {
+                InsertOverwriteTableCommand insertOverwriteTableCommand = (InsertOverwriteTableCommand) logicalPlan;
+                return Optional.of(insertOverwriteTableCommand);
+            }
+        }
+        return Optional.empty();
     }
 
     // Because this is called by other thread
