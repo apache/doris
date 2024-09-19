@@ -165,12 +165,12 @@ struct ToIso8601Impl {
 
     static inline auto execute(const typename DateTraits<ArgType>::T& dt,
                                ColumnString::Chars& res_data, size_t& offset) {
-        char buf[50];
-        auto length = dt.to_buffer(buf, std::is_same_v<ArgType, UInt32> ? -1 : 6);
+        auto length = dt.to_buffer((char*)res_data.data() + offset,
+                                   std::is_same_v<ArgType, UInt32> ? -1 : 6);
         if (std::is_same_v<ArgType, UInt64>) {
-            buf[10] = 'T';
+            res_data[offset + 10] = 'T';
         }
-        memcpy(&res_data[offset], buf, length);
+
         offset += length;
         return offset;
     }

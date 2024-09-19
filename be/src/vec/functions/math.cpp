@@ -389,17 +389,17 @@ public:
             }
         }
 
-        auto* mean_col = static_cast<const ColumnFloat64*>(argument_columns[0].get());
-        auto* sd_col = static_cast<const ColumnFloat64*>(argument_columns[1].get());
-        auto* value_col = static_cast<const ColumnFloat64*>(argument_columns[2].get());
+        auto* mean_col = assert_cast<const ColumnFloat64*>(argument_columns[0].get());
+        auto* sd_col = assert_cast<const ColumnFloat64*>(argument_columns[1].get());
+        auto* value_col = assert_cast<const ColumnFloat64*>(argument_columns[2].get());
 
         result_column->reserve(input_rows_count);
         for (size_t i = 0; i < input_rows_count; ++i) {
-            double mean = mean_col->get_element(col_const[0] ? 0 : i);
-            double sd = sd_col->get_element(col_const[1] ? 0 : i);
-            double v = value_col->get_element(col_const[2] ? 0 : i);
+            double mean = mean_col->get_element(index_check_const(i, col_const[0]));
+            double sd = sd_col->get_element(index_check_const(i, col_const[1]));
+            double v = value_col->get_element(index_check_const(i, col_const[2]));
 
-            if (!check_argument(sd)) {
+            if (!check_argument(sd)) [[unlikely]] {
                 result_null_map[i] = true;
                 continue;
             }

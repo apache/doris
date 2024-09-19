@@ -1207,20 +1207,112 @@ struct FromIso8601DateV2 {
 
         auto null_map = ColumnUInt8::create(input_rows_count, 0);
 
-        ColumnPtr res = ColumnDateV2::create(input_rows_count);
-        auto& result_data = static_cast<ColumnDateV2*>(res->assume_mutable().get())->get_data();
+        ColumnDateV2::MutablePtr res = ColumnDateV2::create(input_rows_count);
+        auto& result_data = res->get_data();
+
+        static const std::tuple<std::vector<int>, int, std::string> ISO_STRING_FORMAT[] = {
+                {{
+                         8,
+                 },
+                 1,
+                 "%04d%02d%02d"},                         //YYYYMMDD
+                {{4, -1, 2, -1, 2}, 1, "%04d-%02d-%02d"}, //YYYY-MM-DD
+                {{4, -1, 2}, 2, "%04d-%02d"},             //YYYY-MM
+                {
+                        {
+                                4,
+                        },
+                        3,
+                        "%04d",
+                }, //YYYY
+                {
+                        {4, -1, 3},
+                        4,
+                        "%04d-%03d",
+                }, //YYYY-DDD
+                {
+                        {
+                                7,
+                        },
+                        4,
+                        "%04d%03d",
+                }, //YYYYDDD
+                {
+                        {4, -1, -2, 2},
+                        5,
+                        "%04d-W%02d",
+                }, //YYYY-Www
+                {
+                        {4, -2, 2},
+                        5,
+                        "%04dW%02d",
+                }, //YYYYWww
+                {
+                        {4, -1, -2, 2, -1, 1},
+                        6,
+                        "%04d-W%02d-%1d",
+                }, //YYYY-Www-D
+                {
+                        {4, -2, 3},
+                        6,
+                        "%04dW%02d%1d",
+                }, //YYYYWwwD
+        };
+        //The integer represents the number of consecutive numbers.
+        // -1 represent char '-'
+        // -2 represent char 'W'
 
         for (size_t i = 0; i < input_rows_count; ++i) {
-            std::string dash1, dash2;
             int year, month, day, week, day_of_year;
             int weekday = 1; // YYYYWww  YYYY-Www  default D = 1
-            auto iso_date = re2::StringPiece(src_column_ptr->get_data_at(i).to_string_view());
+            auto src_string = src_column_ptr->get_data_at(i).to_string_view();
+
+            int iso_string_format_value = 0;
+
+            vector<int> src_string_values;
+            src_string_values.reserve(10);
+
+            if (src_string.size() <= 10) {
+                for (int idx = 0; idx < src_string.size();) {
+                    char current = src_string[idx];
+                    if (current == '-') {
+                        src_string_values.emplace_back(-1);
+                        idx++;
+                        continue;
+                    } else if (current == 'W') {
+                        src_string_values.emplace_back(-2);
+                        idx++;
+                        continue;
+                    } else if (!isdigit(current)) {
+                        iso_string_format_value = -1;
+                        break;
+                    }
+                    int currLen = 0;
+                    for (; idx < src_string.size() && isdigit(src_string[idx]); ++idx) {
+                        ++currLen;
+                    }
+                    src_string_values.emplace_back(currLen);
+                }
+            }
+
+            std::string_view iso_format_string;
+            if (iso_string_format_value != -1) {
+                for (const auto& j : ISO_STRING_FORMAT) {
+                    const auto& v = std::get<0>(j);
+                    if (v == src_string_values) {
+                        iso_string_format_value = std::get<1>(j);
+                        iso_format_string = std::get<2>(j);
+                        break;
+                    }
+                }
+            }
 
             auto& ts_value = *reinterpret_cast<DateV2Value<DateV2ValueType>*>(&result_data[i]);
-            if (RE2::FullMatch(iso_date, CALENDAR_PATTERN, &year, &dash1, &month, &dash2, &day)) {
-                if ((dash1.empty() && !dash2.empty()) || (!dash1.empty() && dash2.empty()))
+            if (iso_string_format_value == 1) {
+                if (sscanf(src_string.data(), iso_format_string.data(), &year, &month, &day) != 3)
                         [[unlikely]] {
                     null_map->get_data().data()[i] = true;
+                    continue;
                 }
 
                 if (!(ts_value.template set_time_unit<YEAR>(year) &&
@@ -1228,21 +1320,44 @@ struct FromIso8601DateV2 {
                       ts_value.template set_time_unit<DAY>(day))) [[unlikely]] {
                     null_map->get_data().data()[i] = true;
                 }
-            } else if (RE2::FullMatch(iso_date, YEAR_HONTH_PATTERN, &year, &month)) {
+            } else if (iso_string_format_value == 2) {
+                if (sscanf(src_string.data(), iso_format_string.data(), &year, &month) != 2)
+                        [[unlikely]] {
+                    null_map->get_data().data()[i] = true;
+                    continue;
+                }
+
                 if (!(ts_value.template set_time_unit<YEAR>(year) &&
                       ts_value.template set_time_unit<MONTH>(month))) [[unlikely]] {
                     null_map->get_data().data()[i] = true;
                 }
                 ts_value.template unchecked_set_time_unit<DAY>(1);
-            } else if (RE2::FullMatch(iso_date, YEAR_ONLY_PATTERN, &year)) {
+            } else if (iso_string_format_value == 3) {
+                if (sscanf(src_string.data(), iso_format_string.data(), &year) != 1) [[unlikely]] {
+                    null_map->get_data().data()[i] = true;
+                    continue;
+                }
+
                 if (!ts_value.template set_time_unit<YEAR>(year)) [[unlikely]] {
                     null_map->get_data().data()[i] = true;
                 }
                 ts_value.template unchecked_set_time_unit<MONTH>(1);
                 ts_value.template unchecked_set_time_unit<DAY>(1);
 
-            } else if (RE2::FullMatch(iso_date, WEEK_PATTERN, &year, &week, &weekday) ||
-                       RE2::FullMatch(iso_date, WEEK_PATTERN, &year, &week)) {
+            } else if (iso_string_format_value == 5 || iso_string_format_value == 6) {
+                if (iso_string_format_value == 5) {
+                    if (sscanf(src_string.data(), iso_format_string.data(), &year, &week) != 2)
+                            [[unlikely]] {
+                        null_map->get_data().data()[i] = true;
+                        continue;
+                    }
+                } else {
+                    if (sscanf(src_string.data(), iso_format_string.data(), &year, &week,
+                               &weekday) != 3) [[unlikely]] {
+                        null_map->get_data().data()[i] = true;
+                        continue;
+                    }
+                }
                 // weekday [1,7]    week [1,53]
                 if (weekday < 1 || weekday > 7 || week < 1 || week > 53) [[unlikely]] {
                     null_map->get_data().data()[i] = true;
@@ -1260,7 +1375,12 @@ struct FromIso8601DateV2 {
                 auto day_diff = (week - 1) * 7 + weekday - 1;
                 TimeInterval interval(DAY, day_diff, false);
                 ts_value.date_add_interval<DAY>(interval);
-            } else if (RE2::FullMatch(iso_date, DAY_OF_YEAR_PATTERN, &year, &dash1, &day_of_year)) {
+            } else if (iso_string_format_value == 4) {
+                if (sscanf(src_string.data(), iso_format_string.data(), &year, &day_of_year) != 2) {
+                    null_map->get_data().data()[i] = true;
+                    continue;
+                }
+
                 if (is_leap(year)) {
                     if (day_of_year < 0 || day_of_year > 366) [[unlikely]] {
                         null_map->get_data().data()[i] = true;
@@ -1284,12 +1404,6 @@ struct FromIso8601DateV2 {
         return Status::OK();
     }
 
-    static const RE2 CALENDAR_PATTERN;
-    static const RE2 YEAR_HONTH_PATTERN;
-    static const RE2 YEAR_ONLY_PATTERN;
-    static const RE2 WEEK_PATTERN;
-    static const RE2 DAY_OF_YEAR_PATTERN;
-
 private:
     //Get the date corresponding to Monday of the first week of the year according to the ISO8601 standard.
     static std::chrono::year_month_day getFirstDayOfISOWeek(int year) {
@@ -1301,13 +1415,6 @@ private:
         return year_month_day {floor<days>(first_day_of_week)};
     }
 };
-
-const RE2 FromIso8601DateV2::CALENDAR_PATTERN {
-        R"((\d{4})(-)?(\d{2})(-)?(\d{2}))"}; // YYYY-MM-DD or YYYYMMDD
-const RE2 FromIso8601DateV2::YEAR_HONTH_PATTERN {R"((\d{4})(?:-)(\d{2}))"}; // YYYY-MM
-const RE2 FromIso8601DateV2::YEAR_ONLY_PATTERN {R"((\d{4}))"};              // YYYY
-const RE2 FromIso8601DateV2::WEEK_PATTERN {R"((\d{4})(?:-)?W(\d{2})(?:-)?(\d)?)"};
-const RE2 FromIso8601DateV2::DAY_OF_YEAR_PATTERN {R"((\d{4})(-)?(\d{3}))"}; // YYYY-DDD or YYYYDDD
 
 using FunctionStrToDate = FunctionOtherTypesToDateType<StrToDate<DataTypeDate>>;
 using FunctionStrToDatetime = FunctionOtherTypesToDateType<StrToDate<DataTypeDateTime>>;
