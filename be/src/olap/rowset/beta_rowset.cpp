@@ -498,7 +498,7 @@ Status BetaRowset::upload_to(const StorageResource& dest_fs, const RowsetId& new
     auto st = dest_fs.fs->batch_upload(local_paths, dest_paths);
     if (st.ok()) {
         DorisMetrics::instance()->upload_rowset_count->increment(1);
-        DorisMetrics::instance()->upload_total_byte->increment(data_disk_size());
+        DorisMetrics::instance()->upload_total_byte->increment(total_disk_size());
     } else {
         DorisMetrics::instance()->upload_fail_count->increment(1);
     }
