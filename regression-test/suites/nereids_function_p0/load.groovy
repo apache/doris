@@ -27,6 +27,53 @@ suite("load") {
         DROP TABLE IF EXISTS `fn_test_bitmap`
     """
 
+    // test ipv4/ipv6
+    sql """ drop table if exists fn_test_ip """
+    sql """ CREATE TABLE IF NOT EXISTS fn_test_ip (id int, ip4 ipv4, ip6 ipv6) engine=olap
+                                                                                         DISTRIBUTED BY HASH(`id`) BUCKETS 4
+                                                                                         properties("replication_num" = "1") """
+    // make some normal/non-normal ipv4/ipv6 data for sql function
+    streamLoad {
+        table "fn_test_ip"
+        db "regression_test_nereids_function_p0"
+        file "fn_test_ip.csv"
+        set 'column_separator', ';'
+        time 60000
+
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            log.info("Stream load result: ${result}".toString())
+            def json = parseJson(result)
+            assertEquals(100, json.NumberTotalRows)
+            assertEquals(100, json.NumberLoadedRows)
+        }
+    }
+
+    sql """ drop table if exists fn_test_ip_nullable """
+    sql """ CREATE TABLE IF NOT EXISTS fn_test_ip_nullable (id int, ip4 ipv4, ip6 ipv6) engine=olap
+                                                                                         DISTRIBUTED BY HASH(`id`) BUCKETS 4
+                                                                                         properties("replication_num" = "1") """
+    // make some normal/non-normal ipv4/ipv6 data for sql function
+    streamLoad {
+        table "fn_test_ip_nullable"
+        db "regression_test_nereids_function_p0"
+        file "fn_test_ip_nullable.csv"
+        set 'column_separator', ';'
+        time 60000
+
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            log.info("Stream load result: ${result}".toString())
+            def json = parseJson(result)
+            assertEquals(100, json.NumberTotalRows)
+            assertEquals(100, json.NumberLoadedRows)
+        }
+    }
+
     sql """
         CREATE TABLE IF NOT EXISTS `fn_test` (
             `id` int null,
