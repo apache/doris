@@ -484,11 +484,7 @@ public class PlanFragment extends TreeNode<PlanFragment> {
     }
 
     public int getFragmentSequenceNum() {
-        if (ConnectContext.get().getSessionVariable().isEnableNereidsPlanner()) {
-            return fragmentSequenceNum;
-        } else {
-            return fragmentId.asInt();
-        }
+        return fragmentSequenceNum;
     }
 
     public void setFragmentSequenceNum(int seq) {

@@ -3314,17 +3314,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         InvalidateStatsTarget target = GsonUtils.GSON.fromJson(request.key, InvalidateStatsTarget.class);
         AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
         TableStatsMeta tableStats = analysisManager.findTableStatsStatus(target.tableId);
-        if (tableStats == null) {
-            return new TStatus(TStatusCode.OK);
-        }
         PartitionNames partitionNames = null;
         if (target.partitions != null) {
             partitionNames = new PartitionNames(false, new ArrayList<>(target.partitions));
         }
         if (target.isTruncate) {
-            if (partitionNames == null || partitionNames.isStar() || partitionNames.getPartitionNames() == null) {
-                tableStats.clearIndexesRowCount();
-            }
             analysisManager.submitAsyncDropStatsTask(target.catalogId, target.dbId,
                     target.tableId, tableStats, partitionNames);
         } else {

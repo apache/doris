@@ -361,8 +361,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             MultiCastDataSink multiCastDataSink = (MultiCastDataSink) inputFragment.getSink();
             DataStreamSink dataStreamSink = multiCastDataSink.getDataStreamSinks().get(
                     multiCastDataSink.getDataStreamSinks().size() - 1);
-            TupleDescriptor tupleDescriptor = generateTupleDesc(distribute.getOutput(), null, context);
-            exchangeNode.updateTupleIds(tupleDescriptor);
+            exchangeNode.updateTupleIds(dataStreamSink.getOutputTupleDesc());
             dataStreamSink.setExchNodeId(exchangeNode.getId());
             dataStreamSink.setOutputPartition(dataPartition);
             parentFragment.addChild(inputFragment);
@@ -1256,9 +1255,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         multiCastPlanFragment.setOutputExprs(outputs);
         context.getCteProduceFragments().put(cteId, multiCastPlanFragment);
         context.getCteProduceMap().put(cteId, cteProducer);
-        if (context.getRuntimeTranslator().isPresent()) {
-            context.getRuntimeTranslator().get().getContext().getCteProduceMap().put(cteId, cteProducer);
-        }
         context.getPlanFragments().add(multiCastPlanFragment);
         return child;
     }

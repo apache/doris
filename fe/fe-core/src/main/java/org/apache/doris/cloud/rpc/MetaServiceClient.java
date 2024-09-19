@@ -403,4 +403,9 @@ public class MetaServiceClient {
         }
         return blockingStub.finishTabletJob(request);
     }
+
+    public Cloud.CreateInstanceResponse
+            createInstance(Cloud.CreateInstanceRequest request) {
+        return blockingStub.createInstance(request);
+    }
 }

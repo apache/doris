@@ -309,6 +309,7 @@ class Suite implements GroovyInterceptable {
                 Thread.sleep(1000)
             }
 
+            logger.info("get fe {}", fe)
             assertNotNull(fe)
             if (!dockerIsCloud) {
                 for (def be : cluster.getAllBackends()) {
@@ -325,8 +326,8 @@ class Suite implements GroovyInterceptable {
             def sql = "CREATE DATABASE IF NOT EXISTS " + context.dbName
             logger.info("try create database if not exists {}", context.dbName)
             JdbcUtils.executeToList(conn, sql)
-            url = Config.buildUrlWithDb(url, context.dbName)
 
+            url = Config.buildUrlWithDb(url, context.dbName)
             logger.info("connect to docker cluster: suite={}, url={}", name, url)
             connect(user, password, url, actionSupplier)
         } finally {
@@ -1275,7 +1276,29 @@ class Suite implements GroovyInterceptable {
             }
             logger.info("The state of ${showTasks} is ${status}")
             Thread.sleep(1000);
-        } while (timeoutTimestamp > System.currentTimeMillis() && (status == 'PENDING' || status == 'RUNNING' || status == 'NULL'))
+        } while (timeoutTimestamp > System.currentTimeMillis() && (status == 'PENDING' || status == 'RUNNING'  || status == 'NULL'))
+        if (status != "SUCCESS") {
+            logger.info("status is not success")
+        }
+        Assert.assertEquals("SUCCESS", status)
+    }
+
+    void waitingMTMVTaskFinishedByMvNameAllowCancel(String mvName) {
+        Thread.sleep(2000);
+        String showTasks = "select TaskId,JobId,JobName,MvId,Status,MvName,MvDatabaseName,ErrorMsg from tasks('type'='mv') where MvName = '${mvName}' order by CreateTime ASC"
+        String status = "NULL"
+        List<List<Object>> result
+        long startTime = System.currentTimeMillis()
+        long timeoutTimestamp = startTime + 5 * 60 * 1000 // 5 min
+        do {
+            result = sql(showTasks)
+            logger.info("result: " + result.toString())
+            if (!result.isEmpty()) {
+                status = result.last().get(4)
+            }
+            logger.info("The state of ${showTasks} is ${status}")
+            Thread.sleep(1000);
+        } while (timeoutTimestamp > System.currentTimeMillis() && (status == 'PENDING' || status == 'RUNNING'  || status == 'NULL' || status == 'CANCELED'))
         if (status != "SUCCESS") {
             logger.info("status is not success")
         }
@@ -1382,6 +1405,20 @@ class Suite implements GroovyInterceptable {
             }
         }
         Assert.assertEquals("FINISHED", result)
+    }
+
+    void testFoldConst(String foldSql) {
+        String openFoldConstant = "set debug_skip_fold_constant=false";
+        sql(openFoldConstant)
+        logger.info(foldSql)
+        List<List<Object>> resultByFoldConstant = sql(foldSql)
+        logger.info("result by fold constant: " + resultByFoldConstant.toString())
+        String closeFoldConstant = "set debug_skip_fold_constant=true";
+        sql(closeFoldConstant)
+        logger.info(foldSql)
+        List<List<Object>> resultExpected = sql(foldSql)
+        logger.info("result expected: " + resultExpected.toString())
+        Assert.assertEquals(resultExpected, resultByFoldConstant)
     }
 
     String getJobName(String dbName, String mtmvName) {

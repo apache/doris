@@ -37,10 +37,10 @@
 #include <utility>
 #include <vector>
 
+#include "cloud/config.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
-#include "config.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "util/cpu_info.h"
@@ -149,6 +149,9 @@ DEFINE_mBool(enable_stacktrace, "true");
 DEFINE_mInt64(stacktrace_in_alloc_large_memory_bytes, "2147483648");
 
 DEFINE_mInt64(crash_in_alloc_large_memory_bytes, "-1");
+
+// If memory tracker value is inaccurate, BE will crash. usually used in test environments, default value is false.
+DEFINE_mBool(crash_in_memory_tracker_inaccurate, "false");
 
 // default is true. if any memory tracking in Orphan mem tracker will report error.
 // !! not modify the default value of this conf!! otherwise memory errors cannot be detected in time.
@@ -513,8 +516,12 @@ DEFINE_Int32(brpc_heavy_work_pool_max_queue_size, "-1");
 DEFINE_Int32(brpc_light_work_pool_max_queue_size, "-1");
 DEFINE_mBool(enable_bthread_transmit_block, "true");
 
+//Enable brpc builtin services, see:
+//https://brpc.apache.org/docs/server/basics/#disable-built-in-services-completely
+DEFINE_Bool(enable_brpc_builtin_services, "true");
+
 // The maximum amount of data that can be processed by a stream load
-DEFINE_mInt64(streaming_load_max_mb, "10240");
+DEFINE_mInt64(streaming_load_max_mb, "102400");
 // Some data formats, such as JSON, cannot be streamed.
 // Therefore, it is necessary to limit the maximum number of
 // such data when using stream load to prevent excessive memory consumption.
@@ -597,8 +604,6 @@ DEFINE_mInt32(memtable_hard_limit_active_percent, "50");
 // percent of (active memtables size / all memtables size) when reach soft limit
 DEFINE_mInt32(memtable_soft_limit_active_percent, "50");
 
-// memtable insert memory tracker will multiply input block size with this ratio
-DEFINE_mDouble(memtable_insert_memory_ratio, "1.4");
 // max write buffer size before flush, default 200MB
 DEFINE_mInt64(write_buffer_size, "209715200");
 // max buffer size used in memtable for the aggregated table, default 400MB
@@ -997,6 +1002,8 @@ DEFINE_mInt64(file_cache_ttl_valid_check_interval_second, "0"); // zero for not 
 // If true, evict the ttl cache using LRU when full.
 // Otherwise, only expiration can evict ttl and new data won't add to cache when full.
 DEFINE_Bool(enable_ttl_cache_evict_using_lru, "true");
+// rename ttl filename to new format during read, with some performance cost
+DEFINE_mBool(translate_to_new_ttl_format_during_read, "false");
 
 DEFINE_mInt32(index_cache_entry_stay_time_after_lookup_s, "1800");
 DEFINE_mInt32(inverted_index_cache_stale_sweep_time_sec, "600");
@@ -1664,6 +1671,8 @@ bool init(const char* conf_file, bool fill_conf_map, bool must_exist, bool set_t
         SET_FIELD(it.second, std::vector<double>, fill_conf_map, set_to_default);
         SET_FIELD(it.second, std::vector<std::string>, fill_conf_map, set_to_default);
     }
+
+    set_cloud_unique_id(cloud_instance_id);
 
     return true;
 }

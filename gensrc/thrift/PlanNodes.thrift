@@ -347,7 +347,10 @@ struct TTrinoConnectorFileDesc {
 }
 
 struct TMaxComputeFileDesc {
-    1: optional string partition_spec
+    1: optional string partition_spec // deprecated 
+    2: optional string session_id 
+    3: optional string table_batch_read_session
+
 }
 
 struct THudiFileDesc {

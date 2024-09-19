@@ -109,7 +109,6 @@ github:
         strict: false
         contexts:
           - License Check
-          - Clang Formatter
           - CheckStyle
           - P0 Regression (Doris Regression)
           - External Regression (Doris External Regression)

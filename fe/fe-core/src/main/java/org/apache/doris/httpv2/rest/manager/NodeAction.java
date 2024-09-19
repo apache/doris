@@ -661,7 +661,7 @@ public class NodeAction extends RestBaseController {
             }
             HostInfo info = SystemInfoService.getHostAndPort(reqInfo.getHostPort());
             if ("ADD".equals(action)) {
-                currentEnv.addFrontend(frontendNodeType, info.getHost(), info.getPort(), "");
+                currentEnv.addFrontend(frontendNodeType, info.getHost(), info.getPort());
             } else if ("DROP".equals(action)) {
                 currentEnv.dropFrontend(frontendNodeType, info.getHost(), info.getPort());
             }

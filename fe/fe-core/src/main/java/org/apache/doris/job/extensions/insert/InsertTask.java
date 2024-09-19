@@ -155,7 +155,6 @@ public class InsertTask extends AbstractTask {
             ctx.setDatabase(currentDb);
         }
         TUniqueId queryId = generateQueryId(UUID.randomUUID().toString());
-        ctx.getSessionVariable().enableFallbackToOriginalPlanner = false;
         stmtExecutor = new StmtExecutor(ctx, (String) null);
         ctx.setQueryId(queryId);
         if (StringUtils.isNotEmpty(sql)) {

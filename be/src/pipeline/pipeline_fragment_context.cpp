@@ -139,8 +139,10 @@ PipelineFragmentContext::~PipelineFragmentContext() {
         }
     }
     _tasks.clear();
-    for (auto& runtime_state : _task_runtime_states) {
-        runtime_state.reset();
+    for (auto& runtime_states : _task_runtime_states) {
+        for (auto& runtime_state : runtime_states) {
+            runtime_state.reset();
+        }
     }
     _pipelines.clear();
     _sink.reset();
@@ -231,7 +233,8 @@ PipelinePtr PipelineFragmentContext::add_pipeline(PipelinePtr parent, int idx) {
     return pipeline;
 }
 
-Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& request) {
+Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& request,
+                                        ThreadPool* thread_pool) {
     if (_prepared) {
         return Status::InternalError("Already prepared");
     }
@@ -348,7 +351,7 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
     {
         SCOPED_TIMER(_build_tasks_timer);
         // 5. Build pipeline tasks and initialize local state.
-        RETURN_IF_ERROR(_build_pipeline_tasks(request));
+        RETURN_IF_ERROR(_build_pipeline_tasks(request, thread_pool));
     }
 
     _init_next_report_time();
@@ -357,17 +360,23 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
     return Status::OK();
 }
 
-Status PipelineFragmentContext::_build_pipeline_tasks(
-        const doris::TPipelineFragmentParams& request) {
+Status PipelineFragmentContext::_build_pipeline_tasks(const doris::TPipelineFragmentParams& request,
+                                                      ThreadPool* thread_pool) {
     _total_tasks = 0;
-    int target_size = request.local_params.size();
+    const auto target_size = request.local_params.size();
     _tasks.resize(target_size);
+    _fragment_instance_ids.resize(target_size);
+    _runtime_filter_states.resize(target_size);
+    _task_runtime_states.resize(_pipelines.size());
+    for (size_t pip_idx = 0; pip_idx < _pipelines.size(); pip_idx++) {
+        _task_runtime_states[pip_idx].resize(_pipelines[pip_idx]->num_tasks());
+    }
     auto pipeline_id_to_profile = _runtime_state->build_pipeline_profile(_pipelines.size());
 
-    for (size_t i = 0; i < target_size; i++) {
+    auto pre_and_submit = [&](int i, PipelineFragmentContext* ctx) {
         const auto& local_params = request.local_params[i];
         auto fragment_instance_id = local_params.fragment_instance_id;
-        _fragment_instance_ids.push_back(fragment_instance_id);
+        _fragment_instance_ids[i] = fragment_instance_id;
         std::unique_ptr<RuntimeFilterMgr> runtime_filter_mgr;
         auto init_runtime_state = [&](std::unique_ptr<RuntimeState>& runtime_state) {
             runtime_state->set_query_mem_tracker(_query_ctx->query_mem_tracker);
@@ -426,7 +435,7 @@ Status PipelineFragmentContext::_build_pipeline_tasks(
 
         filterparams->runtime_filter_mgr = runtime_filter_mgr.get();
 
-        _runtime_filter_states.push_back(std::move(filterparams));
+        _runtime_filter_states[i] = std::move(filterparams);
         std::map<PipelineId, PipelineTask*> pipeline_id_to_task;
         auto get_local_exchange_state = [&](PipelinePtr pipeline)
                 -> std::map<int, std::pair<std::shared_ptr<LocalExchangeSharedState>,
@@ -449,13 +458,15 @@ Status PipelineFragmentContext::_build_pipeline_tasks(
 
         for (size_t pip_idx = 0; pip_idx < _pipelines.size(); pip_idx++) {
             auto& pipeline = _pipelines[pip_idx];
-            if (pipeline->need_to_create_task()) {
-                // build task runtime state
-                _task_runtime_states.push_back(RuntimeState::create_unique(
+            if (pipeline->num_tasks() > 1 || i == 0) {
+                DCHECK(_task_runtime_states[pip_idx][i] == nullptr)
+                        << print_id(_task_runtime_states[pip_idx][i]->fragment_instance_id()) << " "
+                        << pipeline->debug_string();
+                _task_runtime_states[pip_idx][i] = RuntimeState::create_unique(
                         this, local_params.fragment_instance_id, request.query_id,
                         request.fragment_id, request.query_options, _query_ctx->query_globals,
-                        _exec_env, _query_ctx.get()));
-                auto& task_runtime_state = _task_runtime_states.back();
+                        _exec_env, _query_ctx.get());
+                auto& task_runtime_state = _task_runtime_states[pip_idx][i];
                 init_runtime_state(task_runtime_state);
                 auto cur_task_id = _total_tasks++;
                 task_runtime_state->set_task_id(cur_task_id);
@@ -528,6 +539,39 @@ Status PipelineFragmentContext::_build_pipeline_tasks(
         {
             std::lock_guard<std::mutex> l(_state_map_lock);
             _runtime_filter_mgr_map[fragment_instance_id] = std::move(runtime_filter_mgr);
+        }
+        return Status::OK();
+    };
+    if (target_size > 1 &&
+        (_runtime_state->query_options().__isset.parallel_prepare_threshold &&
+         target_size > _runtime_state->query_options().parallel_prepare_threshold)) {
+        std::vector<Status> prepare_status(target_size);
+        std::mutex m;
+        std::condition_variable cv;
+        int prepare_done = 0;
+        for (size_t i = 0; i < target_size; i++) {
+            RETURN_IF_ERROR(thread_pool->submit_func([&, i]() {
+                SCOPED_ATTACH_TASK(_query_ctx.get());
+                prepare_status[i] = pre_and_submit(i, this);
+                std::unique_lock<std::mutex> lock(m);
+                prepare_done++;
+                if (prepare_done == target_size) {
+                    cv.notify_one();
+                }
+            }));
+        }
+        std::unique_lock<std::mutex> lock(m);
+        if (prepare_done != target_size) {
+            cv.wait(lock);
+            for (size_t i = 0; i < target_size; i++) {
+                if (!prepare_status[i].ok()) {
+                    return prepare_status[i];
+                }
+            }
+        }
+    } else {
+        for (size_t i = 0; i < target_size; i++) {
+            RETURN_IF_ERROR(pre_and_submit(i, this));
         }
     }
     _pipeline_parent_map.clear();
@@ -1749,8 +1793,12 @@ Status PipelineFragmentContext::send_report(bool done) {
 
     std::vector<RuntimeState*> runtime_states;
 
-    for (auto& task_state : _task_runtime_states) {
-        runtime_states.push_back(task_state.get());
+    for (auto& task_states : _task_runtime_states) {
+        for (auto& task_state : task_states) {
+            if (task_state) {
+                runtime_states.push_back(task_state.get());
+            }
+        }
     }
 
     ReportStatusRequest req {exec_status,
@@ -1821,15 +1869,17 @@ PipelineFragmentContext::collect_realtime_load_channel_profile() const {
         return nullptr;
     }
 
-    for (auto& runtime_state : _task_runtime_states) {
-        if (runtime_state->runtime_profile() == nullptr) {
-            continue;
+    for (auto& runtime_states : _task_runtime_states) {
+        for (auto& runtime_state : runtime_states) {
+            if (runtime_state->runtime_profile() == nullptr) {
+                continue;
+            }
+
+            auto tmp_load_channel_profile = std::make_shared<TRuntimeProfileTree>();
+
+            runtime_state->runtime_profile()->to_thrift(tmp_load_channel_profile.get());
+            this->_runtime_state->load_channel_profile()->update(*tmp_load_channel_profile);
         }
-
-        auto tmp_load_channel_profile = std::make_shared<TRuntimeProfileTree>();
-
-        runtime_state->runtime_profile()->to_thrift(tmp_load_channel_profile.get());
-        this->_runtime_state->load_channel_profile()->update(*tmp_load_channel_profile);
     }
 
     auto load_channel_profile = std::make_shared<TRuntimeProfileTree>();
