@@ -31,6 +31,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.VariableAnnotation;
+import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.persist.GlobalVarPersistInfo;
 
@@ -797,6 +798,36 @@ public class VariableMgr {
         });
 
         changedRows.addAll(defaultRows);
+        return changedRows;
+    }
+
+    public static List<List<String>> dumpChangedVars(SessionVariable sessionVar) {
+        List<List<String>> changedRows = Lists.newArrayList();
+        for (Map.Entry<String, VarContext> entry : ctxByDisplayVarName.entrySet()) {
+            VarContext ctx = entry.getValue();
+            List<String> row = Lists.newArrayList();
+            String varName = entry.getKey();
+            String curValue = getValue(sessionVar, ctx.getField());
+            String defaultValue = ctx.getDefaultValue();
+            if (VariableVarConverters.hasConverter(varName)) {
+                try {
+                    defaultValue = VariableVarConverters.decode(varName, Long.valueOf(defaultValue));
+                    curValue = VariableVarConverters.decode(varName, Long.valueOf(curValue));
+                } catch (DdlException e) {
+                    row.add("");
+                    LOG.warn("Encode session variable failed");
+                }
+            }
+
+            if (curValue.equals(defaultValue)) {
+                continue;
+            }
+
+            row.add(varName);
+            row.add(curValue);
+            row.add(defaultValue);
+            changedRows.add(row);
+        }
         return changedRows;
     }
 

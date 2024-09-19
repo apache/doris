@@ -671,6 +671,8 @@ public class StmtExecutor {
         context.setQueryId(queryId);
         context.setStartTime();
         profile.getSummaryProfile().setQueryBeginTime();
+        List<List<String>> changedSessionVar = VariableMgr.dumpChangedVars(context.getSessionVariable());
+        profile.setChangedSessionVar(DebugUtil.prettyPrintChangedSessionVar(changedSessionVar));
         context.setStmtId(STMT_ID_GENERATOR.incrementAndGet());
 
         parseByNereids();

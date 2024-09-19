@@ -26,6 +26,7 @@ import com.google.common.base.Strings;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.text.DecimalFormat;
+import java.util.List;
 import java.util.UUID;
 
 public class DebugUtil {
@@ -177,4 +178,37 @@ public class DebugUtil {
         e.printStackTrace(new PrintWriter(sw));
         return sw.toString();
     }
+
+    public static String prettyPrintChangedSessionVar(List<List<String>> nestedList) {
+        if (nestedList == null || nestedList.isEmpty()) {
+            return "";
+        }
+
+        StringBuilder output = new StringBuilder();
+
+        // Get the maximum width of each column for alignment
+        int[] columnWidths = new int[3];  // Assuming each inner list has exactly 3 columns
+
+        // Iterate through the list to determine the maximum width of each column
+        for (List<String> row : nestedList) {
+            for (int i = 0; i < row.size(); i++) {
+                columnWidths[i] = Math.max(columnWidths[i], row.get(i).length());
+            }
+        }
+        
+        // Build the table with proper formatting and alignment
+        for (List<String> row : nestedList) {
+            for (int i = 0; i < row.size(); i++) {
+                // Append each element, padded to the correct width, followed by " | "
+                output.append(String.format("%-" + columnWidths[i] + "s", row.get(i)));
+                if (i < row.size() - 1) {
+                    output.append(" | ");  // Separator between columns
+                }
+            }
+            output.append("\n");  // Newline after each row
+        }
+
+        return output.toString();
+    }
+
 }
