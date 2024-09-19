@@ -278,7 +278,13 @@
       CAST(-7.0 AS DOUBLE),
       CAST(8.00 AS DECIMAL(5,2))
     );
-  
+    drop table mc_test_null;
+    CREATE TABLE `mc_test_null` (
+      `id` int,
+      `col` int
+    );
+    insert into mc_test_null values (1,1),(2,NULL),(3,NULL),(4,4),(5,NULL),(6,6);
+
  */
 suite("test_external_catalog_maxcompute", "p2,external,maxcompute,external_remote,external_remote_maxcompute") {
     String enabled = context.config.otherConfigs.get("enableMaxComputeTest")
@@ -353,5 +359,12 @@ suite("test_external_catalog_maxcompute", "p2,external,maxcompute,external_remot
         order_qt_multi_partition_q8 """ select count(*) from multi_partitions where pt>=3; """
         order_qt_multi_partition_q9 """ select city,mnt,gender,finished_time,order_rate,cut_date,create_time,pt, yy, mm, dd from multi_partitions where pt >= 2 and pt < 4 and finished_time is not null; """
         order_qt_multi_partition_q10 """ select pt, yy, mm, dd from multi_partitions where pt >= 2 and create_time > '2023-08-03 03:11:00' order by pt, yy, mm, dd; """
+
+        //test null value 
+        order_qt_null_1 """ select * from mc_test_null; """
+        order_qt_null_2 """ select * from mc_test_null where col is not null ; """ 
+        order_qt_null_3 """ select * from mc_test_null where col is  null ; """ 
+      
+
     }
 }
