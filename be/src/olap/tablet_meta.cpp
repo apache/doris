@@ -1084,6 +1084,7 @@ bool DeleteBitmap::empty() const {
 }
 
 uint64_t DeleteBitmap::cardinality() const {
+    std::shared_lock l(lock);
     uint64_t res = 0;
     for (auto entry : delete_bitmap) {
         res += entry.second.cardinality();
