@@ -133,7 +133,7 @@ public abstract class FileScanNode extends ExternalScanNode {
         output.append(prefix).append("partition=").append(selectedPartitionNum).append("/").append(totalPartitionNum)
             .append("\n");
 
-        if (detailLevel == TExplainLevel.VERBOSE) {
+        if (detailLevel == TExplainLevel.VERBOSE && !isBatchMode()) {
             output.append(prefix).append("backends:").append("\n");
             Multimap<Long, TFileRangeDesc> scanRangeLocationsMap = ArrayListMultimap.create();
             // 1. group by backend id
