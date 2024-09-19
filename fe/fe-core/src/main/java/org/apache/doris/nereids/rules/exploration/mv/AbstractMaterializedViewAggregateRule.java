@@ -17,8 +17,10 @@
 
 package org.apache.doris.nereids.rules.exploration.mv;
 
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.common.Pair;
+import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.jobs.executor.Rewriter;
 import org.apache.doris.nereids.properties.DataTrait;
@@ -65,6 +67,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Supplier;
@@ -338,19 +341,21 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
      */
     @Override
     protected boolean canUnionRewrite(Plan queryPlan, MTMV mtmv, CascadesContext cascadesContext) {
-        // check query plan is contain the partition column
+        // Check query plan is contain the partition column
+        // Query plan in the current rule must contain aggregate node, because the rule pattern is
+        //
         Optional<LogicalAggregate<Plan>> logicalAggregateOptional =
                 queryPlan.collectFirst(planTreeNode -> planTreeNode instanceof LogicalAggregate);
         if (!logicalAggregateOptional.isPresent()) {
             return true;
         }
-
         List<Expression> groupByExpressions = logicalAggregateOptional.get().getGroupByExpressions();
         if (groupByExpressions.isEmpty()) {
             // Scalar aggregate can not compensate union all
             return false;
         }
-        String relatedCol = mtmv.getMvPartitionInfo().getRelatedCol();
+        final String relatedCol = mtmv.getMvPartitionInfo().getRelatedCol();
+        final BaseTableInfo relatedTableInfo = mtmv.getMvPartitionInfo().getRelatedTableInfo();
         boolean canUnionRewrite = false;
         // Check the query plan group by expression contains partition col or not
         List<? extends Expression> groupByShuttledExpressions =
@@ -358,7 +363,10 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
         for (Expression expression : groupByShuttledExpressions) {
             canUnionRewrite = !expression.collectToSet(expr -> expr instanceof SlotReference
                     && ((SlotReference) expr).isColumnFromTable()
-                    && ((SlotReference) expr).getColumn().get().getName().equals(relatedCol)).isEmpty();
+                    && Objects.equals(((SlotReference) expr).getColumn().map(Column::getName).orElse(null),
+                    relatedCol)
+                    && Objects.equals(((SlotReference) expr).getTable().map(BaseTableInfo::new).orElse(null),
+                    relatedTableInfo)).isEmpty();
             if (canUnionRewrite) {
                 break;
             }
