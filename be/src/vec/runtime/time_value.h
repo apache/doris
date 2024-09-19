@@ -43,9 +43,13 @@ public:
     /// TODO: Why is the time type stored as double? Can we directly use int64 and remove the time limit?
     static int64_t check_over_max_time(double time) {
         const static int64_t max_time = 3020399LL * 1000 * 1000;
-        if (time > max_time) {
-            return max_time;
-        } else if (time < -max_time) {
+        // cast(-4562632 as time)
+        // -456:26:32
+        // hour(cast(-4562632 as time))
+        // 456
+        // second(cast(-4562632 as time))
+        // 32
+        if (time > max_time || time < -max_time) {
             return max_time;
         }
         return static_cast<int64_t>(time);

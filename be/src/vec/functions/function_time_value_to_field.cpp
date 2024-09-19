@@ -34,6 +34,8 @@ public:
     static FunctionPtr create() { return std::make_shared<FunctionTimeValueToField>(); }
     String get_name() const override { return name; }
 
+    // is_variadic and get_number_of_arguments are consistent with FunctionDateOrDateTimeToSomething,
+    // as FunctionDateOrDateTimeToSomething supports Date and DateTime types as arguments.
     bool is_variadic() const override { return true; }
     size_t get_number_of_arguments() const override { return 0; }
 
