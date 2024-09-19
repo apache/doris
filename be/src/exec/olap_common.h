@@ -455,7 +455,7 @@ public:
 
     template <PrimitiveType primitive_type>
     Status extend_scan_key(ColumnValueRange<primitive_type>& range, int32_t max_scan_key_num,
-                           bool* exact_value, bool* eos);
+                           bool* exact_value, bool* eos, bool* should_break);
 
     Status get_key_range(std::vector<std::unique_ptr<OlapScanRange>>* key_range);
 
@@ -1100,7 +1100,8 @@ bool ColumnValueRange<primitive_type>::has_intersection(ColumnValueRange<primiti
 
 template <PrimitiveType primitive_type>
 Status OlapScanKeys::extend_scan_key(ColumnValueRange<primitive_type>& range,
-                                     int32_t max_scan_key_num, bool* exact_value, bool* eos) {
+                                     int32_t max_scan_key_num, bool* exact_value, bool* eos,
+                                     bool* should_break) {
     using CppType = typename PrimitiveTypeTraits<primitive_type>::CppType;
     using ConstIterator = typename std::set<CppType>::const_iterator;
 
@@ -1124,6 +1125,7 @@ Status OlapScanKeys::extend_scan_key(ColumnValueRange<primitive_type>& range,
                 range.convert_to_range_value();
                 *exact_value = false;
             } else {
+                *should_break = true;
                 return Status::OK();
             }
         }
