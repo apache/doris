@@ -939,6 +939,10 @@ class Suite implements GroovyInterceptable {
         }
     }
 
+    List<String> getFrontendIpHttpPort() {
+        return sql_return_maparray("show frontends").collect { it.Host + ":" + it.HttpPort };
+    }
+
     List<String> getFrontendIpEditlogPort() {
         return sql_return_maparray("show frontends").collect { it.Host + ":" + it.EditLogPort };
     }
