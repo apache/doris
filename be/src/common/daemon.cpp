@@ -487,7 +487,9 @@ void Daemon::cache_adjust_capacity_thread() {
             doris::GlobalMemoryArbitrator::cache_adjust_capacity_cv.wait_for(
                     l, std::chrono::seconds(1));
         }
-        double adjust_weighted = GlobalMemoryArbitrator::last_cache_capacity_adjust_weighted;
+        double adjust_weighted = std::min<double>(
+                GlobalMemoryArbitrator::last_cache_capacity_adjust_weighted,
+                GlobalMemoryArbitrator::last_wg_trigger_cache_capacity_adjust_weighted);
         if (_stop_background_threads_latch.count() == 0) {
             break;
         }
@@ -502,6 +504,7 @@ void Daemon::cache_adjust_capacity_thread() {
         LOG(INFO) << fmt::format(
                 "[MemoryGC] refresh cache capacity end, free memory {}, details: {}",
                 PrettyPrinter::print(freed_mem, TUnit::BYTES), ss.str());
+        GlobalMemoryArbitrator::last_affected_cache_capacity_adjust_weighted = adjust_weighted;
         doris::GlobalMemoryArbitrator::cache_adjust_capacity_notify.store(
                 false, std::memory_order_relaxed);
     } while (true);
