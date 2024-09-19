@@ -2145,7 +2145,7 @@ void MetaServiceImpl::update_delete_bitmap_without_lock(google::protobuf::RpcCon
         cloud::put(txn.get(), key, val, 0);
         fdb_txn_size = fdb_txn_size + key.size() + val.size();
         total_key++;
-        total_size += fdb_txn_size;
+        total_size += key.size() + val.size();
         VLOG_DEBUG << "xxx update delete bitmap put delete_bitmap_key=" << hex(key)
                    << " value_size: " << val.size();
     }
