@@ -221,7 +221,8 @@ Status CloudCumulativeCompaction::execute_compact() {
     _state = CompactionState::SUCCESS;
 
     DorisMetrics::instance()->cumulative_compaction_deltas_total->increment(_input_rowsets.size());
-    DorisMetrics::instance()->cumulative_compaction_bytes_total->increment(_input_rowsets_total_size);
+    DorisMetrics::instance()->cumulative_compaction_bytes_total->increment(
+            _input_rowsets_total_size);
     cumu_output_size << _output_rowset->total_disk_size();
 
     return Status::OK();
