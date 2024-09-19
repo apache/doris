@@ -257,7 +257,7 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
         PlanChecker.from(connectContext)
                 .checkExplain("select t1.upgrade_day, t2.batch_no, count(*) "
                                 + "from test2 t2 join test1 t1 on "
-                                + "t1.upgrade_day = t2.upgrade_day "
+                                + "t1.vin_type1 = t2.vin_type2 "
                                 + "group by t1.upgrade_day, t2.batch_no;",
                         nereidsPlanner -> {
                             Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();

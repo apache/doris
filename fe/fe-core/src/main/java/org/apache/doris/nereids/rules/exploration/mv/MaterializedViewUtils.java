@@ -75,11 +75,9 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
 
-import com.google.common.collect.HashMultimap;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
-import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
 
 import java.util.ArrayList;
@@ -87,8 +85,10 @@ import java.util.BitSet;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
@@ -132,16 +132,24 @@ public class MaterializedViewUtils {
         IncrementCheckerContext checkContext = new IncrementCheckerContext(columnExpr, cascadesContext);
         checkContext.addPartitionAndRollupExpressionMap(columnExpr, null, true);
         materializedViewPlan.accept(MaterializedViewIncrementChecker.INSTANCE, checkContext);
-        Multimap<BaseTableInfo, SlotReference> partitionRelatedTableAndColumnMap =
-                checkContext.getPartitionRelatedTableAndColumnMap();
-        if (partitionRelatedTableAndColumnMap.isEmpty()) {
+        if (checkContext.getPartitionAndRollupExpressionChecked().isEmpty()) {
             return RelatedTableInfo.failWith(String.format("can't not find valid partition track column, because %s",
                     String.join(",", checkContext.getFailReasons())));
         }
-        for (Map.Entry<BaseTableInfo, SlotReference> entry : partitionRelatedTableAndColumnMap.entries()) {
-            return RelatedTableInfo.successWith(entry.getKey(), true,
-                    entry.getValue().getColumn().get().getName(),
-                    checkContext.getPartitionAndRollupExpressionMap().get(entry.getValue()).first.orElse(null));
+        for (Map.Entry<SlotReference, Pair<Optional<Expression>, Boolean>> entry
+                : checkContext.getPartitionAndRollupExpressionChecked().entrySet()) {
+            SlotReference partitionColumn = entry.getKey();
+            if (!partitionColumn.isColumnFromTable()) {
+                return RelatedTableInfo.failWith(String.format("partition checked is not from table, partition rollup "
+                                + "expressions map is %s",
+                        checkContext.getPartitionAndRollupExpressionChecked()));
+            }
+            return RelatedTableInfo.successWith(
+                    partitionColumn.getTable().map(BaseTableInfo::new).get(),
+                    true,
+                    partitionColumn.getColumn().get().getName(),
+                    entry.getValue().key().orElse(null),
+                    entry.getValue().value());
         }
         return RelatedTableInfo.failWith("can't not find valid partition track column finally");
     }
@@ -179,23 +187,69 @@ public class MaterializedViewUtils {
         IncrementCheckerContext checkContext = new IncrementCheckerContext(columnExpr, cascadesContext);
         checkContext.addPartitionAndRollupExpressionMap(columnExpr, null, true);
         materializedViewPlan.accept(MaterializedViewIncrementChecker.INSTANCE, checkContext);
-        Multimap<BaseTableInfo, SlotReference> partitionRelatedTableAndColumnMap =
-                checkContext.getPartitionRelatedTableAndColumnMap();
-        if (partitionRelatedTableAndColumnMap.isEmpty()) {
+        if (checkContext.getPartitionAndRollupExpressionChecked().isEmpty()) {
             return ImmutableSet.of(
                     RelatedTableInfo.failWith(String.format("can't not find valid partition track column, because %s",
                             String.join(",", checkContext.getFailReasons()))));
         }
-        for (Map.Entry<BaseTableInfo, SlotReference> entry : partitionRelatedTableAndColumnMap.entries()) {
-            relatedTableInfos.add(RelatedTableInfo.successWith(entry.getKey(), true,
-                    entry.getValue().getColumn().get().getName(),
-                    checkContext.getPartitionAndRollupExpressionMap().get(entry.getValue()).key().orElse(null)));
+        if (!checkRollupExpression(checkContext.getPartitionAndRollupExpressionChecked().values())) {
+            return ImmutableSet.of(RelatedTableInfo.failWith(String.format(
+                    "partition rollup expressions is not consistent, partition rollup expressions map is %s",
+                    checkContext.getPartitionAndRollupExpressionChecked())));
+        }
+        for (Map.Entry<SlotReference, Pair<Optional<Expression>, Boolean>> entry
+                : checkContext.getPartitionAndRollupExpressionChecked().entrySet()) {
+            SlotReference partitionColumn = entry.getKey();
+            if (!partitionColumn.isColumnFromTable()) {
+                return ImmutableSet.of(RelatedTableInfo.failWith(String.format(
+                        "partition checked is not from table, partition rollup expressions map is %s",
+                        checkContext.getPartitionAndRollupExpressionChecked())));
+            }
+            relatedTableInfos.add(RelatedTableInfo.successWith(
+                    partitionColumn.getTable().map(BaseTableInfo::new).get(),
+                    true,
+                    partitionColumn.getColumn().get().getName(),
+                    entry.getValue().key().orElse(null),
+                    entry.getValue().value()));
         }
         if (!relatedTableInfos.isEmpty()) {
             return relatedTableInfos;
         }
         return ImmutableSet.of(
                 RelatedTableInfo.failWith("can't not find valid partition track column finally"));
+    }
+
+    private static boolean checkRollupExpression(Collection<Pair<Optional<Expression>, Boolean>> rollupExpressions) {
+        Iterator<Pair<Optional<Expression>, Boolean>> iterator = rollupExpressions.iterator();
+        if (!iterator.hasNext()) {
+            return false;
+        }
+        Pair<Optional<Expression>, Boolean> firstExpression = iterator.next();
+        boolean isPresent = firstExpression.key().isPresent();
+        String timeUnit = null;
+        if (isPresent) {
+            List<DateTrunc> dateTruncs = firstExpression.key().get().collectToList(DateTrunc.class::isInstance);
+            if (dateTruncs.size() > 1) {
+                return false;
+            }
+            timeUnit = dateTruncs.get(0).getArgument(1).toString();
+        }
+        while (iterator.hasNext()) {
+            Pair<Optional<Expression>, Boolean> expression = iterator.next();
+            if (isPresent != expression.key().isPresent()) {
+                return false;
+            }
+            if (isPresent) {
+                List<DateTrunc> dateTruncs = firstExpression.key().get().collectToList(DateTrunc.class::isInstance);
+                if (dateTruncs.size() > 1) {
+                    return false;
+                }
+                if (!timeUnit.equalsIgnoreCase(dateTruncs.get(0).getArgument(1).toString())) {
+                    return false;
+                }
+            }
+        }
+        return true;
     }
 
     /**
@@ -464,7 +518,7 @@ public class MaterializedViewUtils {
                             && slot.isColumnFromTable())
                     .map(slot -> ((SlotReference) slot).getColumn().get())
                     .collect(Collectors.toSet());
-            Set<SlotReference> contextPartitionColumnSet = new HashSet<>(getContextPartitionColumn(context));
+            Set<SlotReference> contextPartitionColumnSet = new HashSet<>(getPartitionColumnsToCheck(context));
             if (contextPartitionColumnSet.isEmpty()) {
                 return null;
             }
@@ -478,7 +532,7 @@ public class MaterializedViewUtils {
                 }
                 for (Slot partitionEqualSlot : partitionEqualSlotSet) {
                     context.addPartitionAndRollupExpressionMap(partitionEqualSlot, partitionSlot,
-                            context.getPartitionAndRollupExpressionMap().get(partitionSlot).key(),
+                            context.getPartitionAndRollupExpressionToCheck().get(partitionSlot).key(),
                             false);
                 }
                 boolean useLeft = leftColumnSet.contains(partitionSlot.getColumn().get());
@@ -510,14 +564,14 @@ public class MaterializedViewUtils {
                         + "but now is %s", relation.getClass().getSimpleName()));
                 return null;
             }
-            Set<SlotReference> contextPartitionColumnSet = getContextPartitionColumn(context);
-            if (contextPartitionColumnSet.isEmpty()) {
+            Set<SlotReference> partitionColumnsToCheck = getPartitionColumnsToCheck(context);
+            if (partitionColumnsToCheck.isEmpty()) {
                 context.addFailReason("mv partition column is not from table when relation check, "
                                 + "Or the partition column is in the invalid table");
                 return null;
             }
             // Check the table which mv partition column belonged to is same as the current check relation or not
-            if (contextPartitionColumnSet.stream().noneMatch(columnSlot ->
+            if (partitionColumnsToCheck.stream().noneMatch(columnSlot ->
                     columnSlot.getTable().map(TableIf::getFullQualifiers).orElse(ImmutableList.of())
                             .equals(((LogicalCatalogRelation) relation).getTable().getFullQualifiers()))) {
                 context.addFailReason(String.format("mv partition column name is not belonged to current check , "
@@ -540,7 +594,7 @@ public class MaterializedViewUtils {
                 return null;
             }
             Set<Column> partitionColumnSet = new HashSet<>(relatedTable.getPartitionColumns());
-            for (SlotReference partitionColumn : contextPartitionColumnSet) {
+            for (SlotReference partitionColumn : partitionColumnsToCheck) {
                 Column mvReferenceColumn = partitionColumn.getColumn().get();
                 Expr definExpr = mvReferenceColumn.getDefineExpr();
                 if (definExpr instanceof SlotRef) {
@@ -559,11 +613,12 @@ public class MaterializedViewUtils {
                             currentPartitionSlot = (SlotReference) catalogSlot;
                         }
                     }
-                    // If self join should also check the partition column is in the shuttled equal set
-                    Collection<SlotReference> existTableColumnMap =
-                            new HashSet<>(context.getPartitionRelatedTableAndColumnMap().get(new BaseTableInfo(table)));
-                    if (!existTableColumnMap.isEmpty()
-                            || context.getInvalidTableSet().contains(new BaseTableInfo(table))) {
+                    // If self join or partition is in invalid side,
+                    // should also check the partition column is in the shuttled equal set
+                    boolean tableChecked = context.getPartitionAndRollupExpressionChecked().keySet().stream()
+                            .anyMatch(slot -> Objects.equals(slot.getTable().map(BaseTableInfo::new).orElse(null),
+                                            new BaseTableInfo(table)));
+                    if (tableChecked || context.getInvalidTableSet().contains(new BaseTableInfo(table))) {
                         boolean checkSuccess = false;
                         for (Set<Slot> equalSlotSet : context.getShttuledEqualSlotSet()) {
                             checkSuccess = equalSlotSet.contains(partitionColumn)
@@ -575,13 +630,13 @@ public class MaterializedViewUtils {
                         if (!checkSuccess) {
                             context.addFailReason(String.format("partition column is in join invalid side, "
                                     + "but is not in join condition, the mvReferenceColumn is %s", mvReferenceColumn));
-                            context.getPartitionRelatedTableAndColumnMap().removeAll(new BaseTableInfo(table));
-                            existTableColumnMap.forEach(partitionCol ->
-                                    context.getPartitionAndRollupExpressionMap().remove(partitionCol));
+                            context.getPartitionAndRollupExpressionToCheck().remove(partitionColumn);
+                            context.getPartitionAndRollupExpressionChecked().remove(partitionColumn);
                             continue;
                         }
                     }
-                    context.addTableColumn(table, partitionColumn);
+                    context.getPartitionAndRollupExpressionChecked().put(partitionColumn,
+                            context.partitionAndRollupExpressionToCheck.get(partitionColumn));
                 } else {
                     context.addFailReason(String.format("related base table partition column doesn't contain the mv"
                                     + " partition or partition nullable check fail, the mvReferenceColumn is %s",
@@ -650,7 +705,7 @@ public class MaterializedViewUtils {
                         originalPartitionbyExprSet.add(((SlotReference) groupExpr).getColumn().get());
                     }
                 });
-                Set<SlotReference> contextPartitionColumnSet = getContextPartitionColumn(context);
+                Set<SlotReference> contextPartitionColumnSet = getPartitionColumnsToCheck(context);
                 if (contextPartitionColumnSet.isEmpty()) {
                     return false;
                 }
@@ -662,8 +717,8 @@ public class MaterializedViewUtils {
             return true;
         }
 
-        private Set<SlotReference> getContextPartitionColumn(IncrementCheckerContext context) {
-            Set<NamedExpression> partitionExpressionSet = context.getPartitionAndRollupExpressionMap().keySet();
+        private Set<SlotReference> getPartitionColumnsToCheck(IncrementCheckerContext context) {
+            Set<NamedExpression> partitionExpressionSet = context.getPartitionAndRollupExpressionToCheck().keySet();
             Set<SlotReference> partitionSlotSet = new HashSet<>();
             for (NamedExpression namedExpression : partitionExpressionSet) {
                 if (!namedExpression.isColumnFromTable()) {
@@ -694,8 +749,10 @@ public class MaterializedViewUtils {
         private static boolean checkPartition(Collection<? extends Expression> expressionsToCheck, Plan plan,
                 IncrementCheckerContext context) {
 
+            Set<Entry<NamedExpression, Pair<Optional<Expression>, Boolean>>> partitionAndExprEntrySet
+                    = new HashSet<>(context.getPartitionAndRollupExpressionToCheck().entrySet());
             for (Map.Entry<NamedExpression, Pair<Optional<Expression>, Boolean>> partitionExpressionEntry
-                    : context.getPartitionAndRollupExpressionMap().entrySet()) {
+                    : partitionAndExprEntrySet) {
                 NamedExpression partitionColumn = partitionExpressionEntry.getKey();
 
                 OUTER_CHECK:
@@ -769,13 +826,13 @@ public class MaterializedViewUtils {
                         context.addPartitionAndRollupExpressionMap(checkedPartition, partitionExpression,
                                 partitionExpressionEntry.getValue().value());
                     }
-                    if (!context.getPartitionAndRollupExpressionMap().get(partitionColumn).key().isPresent()) {
+                    if (!context.getPartitionAndRollupExpressionToCheck().get(partitionColumn).key().isPresent()) {
                         context.addPartitionAndRollupExpressionMap(checkedPartition, partitionExpression,
                                 partitionExpressionEntry.getValue().value());
                     }
                 }
             }
-            return context.getPartitionAndRollupExpressionMap().keySet().stream().anyMatch(
+            return context.getPartitionAndRollupExpressionToCheck().keySet().stream().anyMatch(
                     Expression::isColumnFromTable);
         }
     }
@@ -783,10 +840,10 @@ public class MaterializedViewUtils {
     private static final class IncrementCheckerContext {
         // This is used to record partition slot, and the map value is rollup expression and bool value which
         // identify it's original partition or not
-        private final Map<NamedExpression, Pair<Optional<Expression>, Boolean>> partitionAndRollupExpressionMap
+        private final Map<NamedExpression, Pair<Optional<Expression>, Boolean>> partitionAndRollupExpressionToCheck
                 = new HashMap<>();
-        // This is used to record table and it's partition slot
-        private final Multimap<BaseTableInfo, SlotReference> partitionRelatedTableAndColumnMap = HashMultimap.create();
+        private final Map<SlotReference, Pair<Optional<Expression>, Boolean>> partitionAndRollupExpressionChecked
+                = new HashMap<>();
         private final Set<String> failReasons = new HashSet<>();
         private final CascadesContext cascadesContext;
         // This record the invalid table, such as the right side of left join, the partition column
@@ -798,16 +855,8 @@ public class MaterializedViewUtils {
 
         public IncrementCheckerContext(NamedExpression mvPartitionColumn,
                 CascadesContext cascadesContext) {
-            this.partitionAndRollupExpressionMap.put(mvPartitionColumn, Pair.of(Optional.empty(), true));
+            this.partitionAndRollupExpressionToCheck.put(mvPartitionColumn, Pair.of(Optional.empty(), true));
             this.cascadesContext = cascadesContext;
-        }
-
-        public void addTableColumn(TableIf relatedTable, SlotReference partitionColumn) {
-            partitionRelatedTableAndColumnMap.put(new BaseTableInfo(relatedTable), partitionColumn);
-        }
-
-        public Multimap<BaseTableInfo, SlotReference> getPartitionRelatedTableAndColumnMap() {
-            return this.partitionRelatedTableAndColumnMap;
         }
 
         public Set<String> getFailReasons() {
@@ -826,13 +875,13 @@ public class MaterializedViewUtils {
             return cascadesContext;
         }
 
-        public Map<NamedExpression, Pair<Optional<Expression>, Boolean>> getPartitionAndRollupExpressionMap() {
-            return this.partitionAndRollupExpressionMap;
+        public Map<NamedExpression, Pair<Optional<Expression>, Boolean>> getPartitionAndRollupExpressionToCheck() {
+            return this.partitionAndRollupExpressionToCheck;
         }
 
         public void addPartitionAndRollupExpressionMap(NamedExpression partitionSlot,
                 Expression rollupExpression, boolean originalPartition) {
-            this.partitionAndRollupExpressionMap.put(partitionSlot,
+            this.partitionAndRollupExpressionToCheck.put(partitionSlot,
                     Pair.of(Optional.ofNullable(rollupExpression), originalPartition));
         }
 
@@ -858,13 +907,17 @@ public class MaterializedViewUtils {
                     replacedExpression.collectToSet(expr -> expr.equals(partitionSlot));
             if (partitionSlotSet.isEmpty()) {
                 // If replaced successfully, then add to partition and rollup expression map
-                this.partitionAndRollupExpressionMap.put(partitionEqualSlot,
+                this.partitionAndRollupExpressionToCheck.put(partitionEqualSlot,
                         Pair.of(Optional.ofNullable(replacedExpression), originalPartition));
             }
         }
 
         public Set<Set<Slot>> getShttuledEqualSlotSet() {
             return shttuledEqualSlotSet;
+        }
+
+        public Map<SlotReference, Pair<Optional<Expression>, Boolean>> getPartitionAndRollupExpressionChecked() {
+            return partitionAndRollupExpressionChecked;
         }
 
         public void addEqualSlotSet(Set<Slot> equalSet, List<Plan> planContext) {
@@ -903,26 +956,30 @@ public class MaterializedViewUtils {
         private final boolean pctPossible;
         private final String column;
         private final Set<String> failReasons = new HashSet<>();
-        // This records the partition expression if exist
+        // This records the partition rollup expression if exist
         private Optional<Expression> partitionExpression;
+        // This record the partition column is original or derived from equal set
+        private final boolean isOriginalPartition;
 
-        public RelatedTableInfo(BaseTableInfo tableInfo, boolean pctPossible, String column, String failReason,
-                Expression partitionExpression) {
+        private RelatedTableInfo(BaseTableInfo tableInfo, boolean pctPossible, String column, String failReason,
+                Expression partitionExpression, boolean isOriginalPartition) {
             this.tableInfo = tableInfo;
             this.pctPossible = pctPossible;
             this.column = column;
             this.failReasons.add(failReason);
             this.partitionExpression = Optional.ofNullable(partitionExpression);
+            this.isOriginalPartition = isOriginalPartition;
         }
 
         public static RelatedTableInfo failWith(String failReason) {
             return new RelatedTableInfo(null, false, null, failReason,
-                    null);
+                    null, true);
         }
 
         public static RelatedTableInfo successWith(BaseTableInfo tableInfo, boolean pctPossible, String column,
-                Expression partitionExpression) {
-            return new RelatedTableInfo(tableInfo, pctPossible, column, "", partitionExpression);
+                Expression partitionExpression, boolean isOriginalPartition) {
+            return new RelatedTableInfo(tableInfo, pctPossible, column, "", partitionExpression,
+                    isOriginalPartition);
         }
 
         public BaseTableInfo getTableInfo() {
@@ -949,23 +1006,15 @@ public class MaterializedViewUtils {
             return partitionExpression;
         }
 
-        @Override
-        public boolean equals(Object o) {
-            if (this == o) {
-                return true;
-            }
-            if (o == null || getClass() != o.getClass()) {
-                return false;
-            }
-            RelatedTableInfo that = (RelatedTableInfo) o;
-            return pctPossible == that.pctPossible && Objects.equals(tableInfo, that.tableInfo)
-                    && Objects.equals(column, that.column) && Objects.equals(partitionExpression.orElse(null),
-                    that.partitionExpression.orElse(null));
+        public boolean isOriginalPartition() {
+            return isOriginalPartition;
         }
 
         @Override
-        public int hashCode() {
-            return Objects.hash(tableInfo, pctPossible, column, partitionExpression.orElse(null));
+        public String toString() {
+            return "RelatedTableInfo{" + "tableInfo=" + tableInfo + ", pctPossible=" + pctPossible
+                    + ", column='" + column + '\'' + ", failReasons=" + failReasons + ", partitionExpression="
+                    + partitionExpression + ", isOriginalPartition=" + isOriginalPartition + '}';
         }
     }
 }

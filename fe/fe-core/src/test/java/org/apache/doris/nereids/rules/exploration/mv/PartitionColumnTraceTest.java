@@ -216,9 +216,7 @@ public class PartitionColumnTraceTest extends TestWithFeService {
                             Set<RelatedTableInfo> relatedTableInfos =
                                     MaterializedViewUtils.getRelatedTableInfos("l_shipdate", null,
                                             rewrittenPlan, nereidsPlanner.getCascadesContext());
-                            successWith(relatedTableInfos,
-                                    ImmutableSet.of(Pair.of("lineitem", "l_shipdate"),
-                                            Pair.of("orders", "o_orderdate")), "");
+                            failWith(relatedTableInfos, "partition rollup expressions is not consistent");
                         });
     }
 
@@ -758,6 +756,9 @@ public class PartitionColumnTraceTest extends TestWithFeService {
                 List<DateTrunc> dateTruncs = partitionExpression.get().collectToList(DateTrunc.class::isInstance);
                 Assertions.assertEquals(1, dateTruncs.size());
                 Assertions.assertEquals(dateTruncs.get(0).getArgument(1).toString().toLowerCase(), timeUnit);
+            }
+            if (StringUtils.isEmpty(timeUnit)) {
+                Assertions.assertFalse(partitionExpression.isPresent());
             }
             try {
                 relatedTableColumnPairs.add(
