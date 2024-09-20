@@ -274,7 +274,7 @@ class RegressionTest {
             }
         }
 
-        if (!config.runNonconcurrent) {
+        if (!config.runNonConcurrent) {
             return
         }
         
