@@ -84,11 +84,6 @@ public class PhysicalFileSink<CHILD_TYPE extends Plan> extends PhysicalSink<CHIL
         return properties;
     }
 
-    /**
-     * if enable parallel outfile and not broker export, we should request any here.
-     * and it will add a top fragment to summary export result in
-     * PhysicalPlanTranslator.
-     */
     public PhysicalProperties requestProperties(ConnectContext ctx) {
         if (!ctx.getSessionVariable().enableParallelOutfile) {
             return PhysicalProperties.GATHER;
