@@ -561,14 +561,14 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                                     tabletCtx.setIsUniqKeyMergeOnWrite(isUniqKeyMergeOnWrite);
 
                                     AddResult res = tabletScheduler.addTablet(tabletCtx, false /* not force */);
-                                    if (res == AddResult.LIMIT_EXCEED || res == AddResult.DISABLED) {
+                                    if (res == AddResult.DISABLED) {
                                         // tablet in scheduler exceed limit, or scheduler is disabled,
                                         // skip this group and check next one.
                                         LOG.info("tablet scheduler return: {}. stop colocate table check", res.name());
                                         break OUT;
                                     } else if (res == AddResult.ADDED) {
                                         counter.addToSchedulerTabletNum++;
-                                    }  else {
+                                    }  else if (res == AddResult.ALREADY_IN) {
                                         counter.tabletInScheduler++;
                                     }
                                 }
