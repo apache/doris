@@ -155,7 +155,7 @@ Status CloudSchemaChangeJob::process_alter_tablet(const TAlterTabletReqV2& reque
         }
     }
     RETURN_IF_ERROR(delete_handler.init(_base_tablet_schema, delete_predicates,
-                                        start_resp.alter_version()));
+                                        start_resp.alter_version(), true));
 
     // reader_context is stack variables, it's lifetime MUST keep the same with rs_readers
     RowsetReaderContext reader_context;
