@@ -138,7 +138,7 @@ void register_suites() {
     // curl be_ip:http_port/api/injection_point/apply_suite?name=Segment::parse_footer:magic_number_corruption'
     suite_map.emplace("Segment::parse_footer:magic_number_corruption", [] {
         auto* sp = SyncPoint::get_instance();
-        sp->set_call_back("Segment::parse_footer:magic_number_corruption", [](auto&& args) {
+        sp->set_call_back("Segment::parse_footer:magic_number_corruption_inj", [](auto&& args) {
             if (auto p = std::any_cast<uint8_t*>(args[0])) {
                 memset(p, 0, 12);
             } else {
