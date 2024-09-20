@@ -1663,7 +1663,9 @@ class Suite implements GroovyInterceptable {
     def mv_rewrite_success_without_check_chosen = { query_sql, mv_name ->
         explain {
             sql(" memo plan ${query_sql}")
-            contains("${mv_name} not chose")
+            check { result ->
+                result.contains("${mv_name} chose") || result.contains("${mv_name} not chose")
+            }
         }
     }
 
@@ -1721,7 +1723,9 @@ class Suite implements GroovyInterceptable {
 
         explain {
             sql(" memo plan ${query_sql}")
-            notContains("${mv_name} fail")
+            check { result ->
+                result.contains("${mv_name} chose") || result.contains("${mv_name} not chose")
+            }
         }
     }
 
@@ -1744,8 +1748,7 @@ class Suite implements GroovyInterceptable {
 
         explain {
             sql(" memo plan ${query_sql}")
-            notContains("${mv_name} chose")
-            notContains("${mv_name} not chose")
+            contains("${mv_name} fail")
         }
     }
 
