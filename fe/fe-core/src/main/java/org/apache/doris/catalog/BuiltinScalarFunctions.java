@@ -240,6 +240,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonLength;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonObject;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonQuote;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonReplace;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonSearch;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonSet;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonUnQuote;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbExistsPath;
@@ -742,6 +743,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(JsonbParseNullableErrorToNull.class, "jsonb_parse_nullable_error_to_null"),
             scalar(JsonbParseNullableErrorToValue.class, "json_parse_nullable_error_to_value"),
             scalar(JsonbParseNullableErrorToValue.class, "jsonb_parse_nullable_error_to_value"),
+            scalar(JsonSearch.class, "json_search"),
             scalar(JsonbValid.class, "json_valid"),
             scalar(JsonbValid.class, "jsonb_valid"),
             scalar(JsonbType.class, "json_type"),
