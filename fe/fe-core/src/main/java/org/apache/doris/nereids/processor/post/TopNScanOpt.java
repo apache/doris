@@ -68,12 +68,6 @@ public class TopNScanOpt extends PlanPostProcessor {
             return false;
         }
 
-        // topn opt
-        long topNOptLimitThreshold = getTopNOptLimitThreshold();
-        if (topNOptLimitThreshold == -1 || topN.getLimit() > topNOptLimitThreshold) {
-            return false;
-        }
-
         Expression firstKey = topN.getOrderKeys().get(0).getExpr();
 
         if (firstKey.getDataType().isFloatType()
@@ -95,12 +89,5 @@ public class TopNScanOpt extends PlanPostProcessor {
             topN.accept(pusher, pushdownContext);
         }
         return topN;
-    }
-
-    private long getTopNOptLimitThreshold() {
-        if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable() != null) {
-            return ConnectContext.get().getSessionVariable().topnFilterLimitThreshold;
-        }
-        return -1;
     }
 }
