@@ -369,12 +369,12 @@ Status DistinctStreamingAggOperatorX::init(const TPlanNode& tnode, RuntimeState*
     return Status::OK();
 }
 
-Status DistinctStreamingAggOperatorX::prepare(RuntimeState* state) {
-    RETURN_IF_ERROR(StatefulOperatorX<DistinctStreamingAggLocalState>::prepare(state));
+Status DistinctStreamingAggOperatorX::open(RuntimeState* state) {
+    RETURN_IF_ERROR(StatefulOperatorX<DistinctStreamingAggLocalState>::open(state));
     _intermediate_tuple_desc = state->desc_tbl().get_tuple_descriptor(_intermediate_tuple_id);
     _output_tuple_desc = state->desc_tbl().get_tuple_descriptor(_output_tuple_id);
     DCHECK_EQ(_intermediate_tuple_desc->slots().size(), _output_tuple_desc->slots().size());
-    RETURN_IF_ERROR(vectorized::VExpr::prepare(_probe_expr_ctxs, state, _child_x->row_desc()));
+    RETURN_IF_ERROR(vectorized::VExpr::prepare(_probe_expr_ctxs, state, _child->row_desc()));
 
     int j = _probe_expr_ctxs.size();
     for (int i = 0; i < j; ++i) {
@@ -389,7 +389,7 @@ Status DistinctStreamingAggOperatorX::prepare(RuntimeState* state) {
         SlotDescriptor* intermediate_slot_desc = _intermediate_tuple_desc->slots()[j];
         SlotDescriptor* output_slot_desc = _output_tuple_desc->slots()[j];
         RETURN_IF_ERROR(_aggregate_evaluators[i]->prepare(
-                state, _child_x->row_desc(), intermediate_slot_desc, output_slot_desc));
+                state, _child->row_desc(), intermediate_slot_desc, output_slot_desc));
         _aggregate_evaluators[i]->set_version(state->be_exec_version());
     }
 
@@ -412,12 +412,6 @@ Status DistinctStreamingAggOperatorX::prepare(RuntimeState* state) {
                     alignment_of_next_state * alignment_of_next_state;
         }
     }
-
-    return Status::OK();
-}
-
-Status DistinctStreamingAggOperatorX::open(RuntimeState* state) {
-    RETURN_IF_ERROR(StatefulOperatorX<DistinctStreamingAggLocalState>::open(state));
     RETURN_IF_ERROR(vectorized::VExpr::open(_probe_expr_ctxs, state));
 
     for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
@@ -462,8 +456,8 @@ Status DistinctStreamingAggOperatorX::pull(RuntimeState* state, vectorized::Bloc
     local_state._make_nullable_output_key(block);
     if (!_is_streaming_preagg) {
         // dispose the having clause, should not be execute in prestreaming agg
-        RETURN_IF_ERROR(
-                vectorized::VExprContext::filter_block(_conjuncts, block, block->columns()));
+        RETURN_IF_ERROR(vectorized::VExprContext::filter_block(local_state._conjuncts, block,
+                                                               block->columns()));
     }
     local_state.add_num_rows_returned(block->rows());
     COUNTER_UPDATE(local_state.blocks_returned_counter(), 1);
@@ -506,8 +500,12 @@ Status DistinctStreamingAggLocalState::close(RuntimeState* state) {
     _aggregated_block->clear();
     // If the limit is reached, there may still be remaining data in the cache block.
     // If the limit is not reached, the cache block must be empty.
-    DCHECK(_reach_limit || _aggregated_block->empty());
-    DCHECK(_reach_limit || _cache_block.empty());
+    // If the query is canceled, it might not satisfy the above conditions.
+    if (!state->is_cancelled()) {
+        if (!_reach_limit && !_cache_block.empty()) {
+            LOG_WARNING("If the limit is not reached, the cache block must be empty.");
+        }
+    }
     _cache_block.clear();
     return Base::close(state);
 }

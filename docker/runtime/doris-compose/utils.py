@@ -291,6 +291,13 @@ def get_path_owner(path):
         return ""
 
 
+def get_path_uid(path):
+    try:
+        return os.stat(path).st_uid
+    except:
+        return ""
+
+
 def read_compose_file(file):
     with open(file, "r") as f:
         return yaml.safe_load(f.read())

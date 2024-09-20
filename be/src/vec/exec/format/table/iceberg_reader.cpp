@@ -157,7 +157,7 @@ Status IcebergTableReader::get_columns(
     return _file_format_reader->get_columns(name_to_type, missing_cols);
 }
 
-Status IcebergTableReader::init_row_filters(const TFileRangeDesc& range) {
+Status IcebergTableReader::init_row_filters(const TFileRangeDesc& range, io::IOContext* io_ctx) {
     // We get the count value by doris's be, so we don't need to read the delete file
     if (_push_down_agg_type == TPushAggOp::type::COUNT && _remaining_push_down_count > 0) {
         return Status::OK();
@@ -548,7 +548,7 @@ Status IcebergParquetReader::init_reader(
     _gen_new_colname_to_value_range();
     parquet_reader->set_table_to_file_col_map(_table_col_to_file_col);
     parquet_reader->iceberg_sanitize(_all_required_col_names);
-    RETURN_IF_ERROR(init_row_filters(_range));
+    RETURN_IF_ERROR(init_row_filters(_range, _io_ctx));
     return parquet_reader->init_reader(
             _all_required_col_names, _not_in_file_col_names, &_new_colname_to_value_range,
             conjuncts, tuple_descriptor, row_descriptor, colname_to_slot_id,
@@ -621,7 +621,7 @@ Status IcebergOrcReader::init_reader(
     _gen_file_col_names();
     _gen_new_colname_to_value_range();
     orc_reader->set_table_col_to_file_col(_table_col_to_file_col);
-    RETURN_IF_ERROR(init_row_filters(_range));
+    RETURN_IF_ERROR(init_row_filters(_range, _io_ctx));
     return orc_reader->init_reader(&_all_required_col_names, &_new_colname_to_value_range,
                                    conjuncts, false, tuple_descriptor, row_descriptor,
                                    not_single_slot_filter_conjuncts, slot_id_to_filter_conjuncts);

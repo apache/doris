@@ -35,6 +35,7 @@
 #include "pipeline/exec/join/process_hash_table_probe.h"
 #include "vec/common/sort/partition_sorter.h"
 #include "vec/common/sort/sorter.h"
+#include "vec/core/block.h"
 #include "vec/core/types.h"
 #include "vec/spill/spill_stream.h"
 
@@ -316,7 +317,6 @@ public:
     vectorized::VExprContextSPtrs probe_expr_ctxs;
     size_t input_num_rows = 0;
     std::vector<vectorized::AggregateDataPtr> values;
-    std::unique_ptr<vectorized::Arena> agg_profile_arena;
     /// The total size of the row from the aggregate functions.
     size_t total_size_of_aggregate_states = 0;
     size_t align_aggregate_states = 1;
@@ -542,6 +542,12 @@ public:
     const int _child_count;
 };
 
+struct CacheSharedState : public BasicSharedState {
+    ENABLE_FACTORY_CREATOR(CacheSharedState)
+public:
+    DataQueue data_queue;
+};
+
 class MultiCastDataStreamer;
 
 struct MultiCastSharedState : public BasicSharedState {
@@ -650,8 +656,8 @@ public:
 };
 
 using SetHashTableVariants =
-        std::variant<std::monostate,
-                     vectorized::MethodSerialized<HashMap<StringRef, RowRefListWithFlags>>,
+        std::variant<std::monostate, vectorized::SetSerializedHashTableContext,
+                     vectorized::SetMethodOneString,
                      vectorized::SetPrimaryTypeHashTableContext<vectorized::UInt8>,
                      vectorized::SetPrimaryTypeHashTableContext<vectorized::UInt16>,
                      vectorized::SetPrimaryTypeHashTableContext<vectorized::UInt32>,
@@ -683,6 +689,10 @@ public:
     /// init in setup_local_state
     std::unique_ptr<SetHashTableVariants> hash_table_variants = nullptr; // the real data HERE.
     std::vector<bool> build_not_ignore_null;
+
+    // The SET operator's child might have different nullable attributes.
+    // If a calculation involves both nullable and non-nullable columns, the final output should be a nullable column
+    Status update_build_not_ignore_null(const vectorized::VExprContextSPtrs& ctxs);
 
     /// init in both upstream side.
     //The i-th result expr list refers to the i-th child.
@@ -725,6 +735,12 @@ public:
             case TYPE_DATETIMEV2:
                 hash_table_variants->emplace<vectorized::SetPrimaryTypeHashTableContext<UInt64>>();
                 break;
+            case TYPE_CHAR:
+            case TYPE_VARCHAR:
+            case TYPE_STRING: {
+                hash_table_variants->emplace<vectorized::SetMethodOneString>();
+                break;
+            }
             case TYPE_LARGEINT:
             case TYPE_DECIMALV2:
             case TYPE_DECIMAL128I:
@@ -857,13 +873,13 @@ public:
 
     void sub_mem_usage(int channel_id, size_t delta) { mem_trackers[channel_id]->release(delta); }
 
-    virtual void add_total_mem_usage(size_t delta, int channel_id = 0) {
+    virtual void add_total_mem_usage(size_t delta, int channel_id) {
         if (mem_usage.fetch_add(delta) + delta > config::local_exchange_buffer_mem_limit) {
             sink_deps.front()->block();
         }
     }
 
-    virtual void sub_total_mem_usage(size_t delta, int channel_id = 0) {
+    virtual void sub_total_mem_usage(size_t delta, int channel_id) {
         auto prev_usage = mem_usage.fetch_sub(delta);
         DCHECK_GE(prev_usage - delta, 0) << "prev_usage: " << prev_usage << " delta: " << delta
                                          << " channel_id: " << channel_id;

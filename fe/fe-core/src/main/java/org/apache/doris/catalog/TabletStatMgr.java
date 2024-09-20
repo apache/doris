@@ -35,7 +35,6 @@ import org.apache.logging.log4j.Logger;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ForkJoinPool;
-import java.util.concurrent.TimeUnit;
 
 /*
  * TabletStatMgr is for collecting tablet(replica) statistics from backends.
@@ -121,13 +120,7 @@ public class TabletStatMgr extends MasterDaemon {
 
                 Long tableRowCount = 0L;
 
-                // Use try write lock to avoid such cases
-                //    Time1: Thread1 hold read lock for 5min
-                //    Time2: Thread2 want to add write lock, then it will be the first element in lock queue
-                //    Time3: Thread3 want to add read lock, but it will not, because thread 2 want to add write lock
-                // In this case, thread 3 has to wait more than 5min, because it has to wait thread 2 to add
-                // write lock and release write lock and thread 2 has to wait thread 1 to release read lock
-                if (!table.tryWriteLockIfExist(3000, TimeUnit.MILLISECONDS)) {
+                if (!table.readLockIfExist()) {
                     continue;
                 }
                 try {
@@ -135,6 +128,7 @@ public class TabletStatMgr extends MasterDaemon {
                         long version = partition.getVisibleVersion();
                         for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
                             long indexRowCount = 0L;
+                            boolean indexReported = true;
                             for (Tablet tablet : index.getTablets()) {
 
                                 Long tabletDataSize = 0L;
@@ -142,9 +136,26 @@ public class TabletStatMgr extends MasterDaemon {
 
                                 Long tabletRowCount = 0L;
 
+                                boolean tabletReported = false;
                                 for (Replica replica : tablet.getReplicas()) {
+                                    LOG.debug("Table {} replica {} current version {}, report version {}",
+                                            olapTable.getName(), replica.getId(),
+                                            replica.getVersion(), replica.getLastReportVersion());
                                     if (replica.checkVersionCatchUp(version, false)
-                                            && replica.getRowCount() > tabletRowCount) {
+                                            && replica.getRowCount() >= tabletRowCount) {
+                                        // 1. If replica version and reported replica version are all equal to
+                                        // PARTITION_INIT_VERSION, set tabletReported to true, which indicates this
+                                        // tablet is empty for sure when previous report.
+                                        // 2. If last report version is larger than PARTITION_INIT_VERSION, set
+                                        // tabletReported to true as well. That is, we only guarantee all replicas of
+                                        // the tablet are reported for the init version.
+                                        // e.g. When replica version is 2, but last reported version is 1,
+                                        // tabletReported would be false.
+                                        if (replica.getVersion() == Partition.PARTITION_INIT_VERSION
+                                                && replica.getLastReportVersion() == Partition.PARTITION_INIT_VERSION
+                                                || replica.getLastReportVersion() > Partition.PARTITION_INIT_VERSION) {
+                                            tabletReported = true;
+                                        }
                                         tabletRowCount = replica.getRowCount();
                                     }
 
@@ -164,11 +175,18 @@ public class TabletStatMgr extends MasterDaemon {
 
                                 tableRowCount += tabletRowCount;
                                 indexRowCount += tabletRowCount;
+                                // Only when all tablets of this index are reported, we set indexReported to true.
+                                indexReported = indexReported && tabletReported;
                             } // end for tablets
+                            index.setRowCountReported(indexReported);
                             index.setRowCount(indexRowCount);
+                            LOG.debug("Table {} index {} all tablets reported[{}], row count {}",
+                                    olapTable.getName(), olapTable.getIndexNameById(index.getId()),
+                                    indexReported, indexRowCount);
                         } // end for indices
                     } // end for partitions
 
+                    // this is only one thread to update table statistics, readLock is enough
                     olapTable.setStatistics(new OlapTable.Statistics(db.getName(), table.getName(),
                             tableDataSize, tableTotalReplicaDataSize,
                             tableRemoteDataSize, tableReplicaCount, tableRowCount, 0L, 0L));
@@ -178,7 +196,7 @@ public class TabletStatMgr extends MasterDaemon {
                                  table.getName(), db.getFullName());
                     }
                 } finally {
-                    table.writeUnlock();
+                    table.readUnlock();
                 }
             }
         }
@@ -199,6 +217,9 @@ public class TabletStatMgr extends MasterDaemon {
                         replica.setTotalVersionCount(stat.getTotalVersionCount());
                         replica.setVisibleVersionCount(stat.isSetVisibleVersionCount() ? stat.getVisibleVersionCount()
                                 : stat.getTotalVersionCount());
+                        // Older version BE doesn't set visible version. Set it to max for compatibility.
+                        replica.setLastReportVersion(stat.isSetVisibleVersion() ? stat.getVisibleVersion()
+                                : Long.MAX_VALUE);
                     }
                 }
             }

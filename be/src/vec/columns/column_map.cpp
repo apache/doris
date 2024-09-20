@@ -47,12 +47,7 @@ ColumnMap::ColumnMap(MutableColumnPtr&& keys, MutableColumnPtr&& values, Mutable
         : keys_column(std::move(keys)),
           values_column(std::move(values)),
           offsets_column(std::move(offsets)) {
-    const COffsets* offsets_concrete = typeid_cast<const COffsets*>(offsets_column.get());
-
-    if (!offsets_concrete) {
-        throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
-                               "offsets_column must be a ColumnUInt64.");
-    }
+    const auto* offsets_concrete = assert_cast<const COffsets*>(offsets_column.get());
 
     if (!offsets_concrete->empty() && keys_column && values_column) {
         auto last_offset = offsets_concrete->get_data().back();

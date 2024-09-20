@@ -31,7 +31,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
 // SHOW CREATE TABLE statement.
-public class ShowCreateTableStmt extends ShowStmt {
+public class ShowCreateTableStmt extends ShowStmt implements NotFallbackInParser {
     private static final ShowResultSetMetaData META_DATA =
             ShowResultSetMetaData.builder()
                     .addColumn(new Column("Table", ScalarType.createVarchar(20)))

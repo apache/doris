@@ -129,6 +129,8 @@ public class CreateReplicaTask extends AgentTask {
     private Map<Object, Object> objectPool;
     private List<Integer> rowStoreColumnUniqueIds;
 
+    private boolean variantEnableFlattenNested;
+
     public CreateReplicaTask(long backendId, long dbId, long tableId, long partitionId, long indexId, long tabletId,
                              long replicaId, short shortKeyColumnCount, int schemaHash, long version,
                              KeysType keysType, TStorageType storageType,
@@ -153,7 +155,8 @@ public class CreateReplicaTask extends AgentTask {
                              BinlogConfig binlogConfig,
                              List<Integer> rowStoreColumnUniqueIds,
                              Map<Object, Object> objectPool,
-                             long rowStorePageSize) {
+                             long rowStorePageSize,
+                             boolean variantEnableFlattenNested) {
         super(null, backendId, TTaskType.CREATE, dbId, tableId, partitionId, indexId, tabletId);
 
         this.replicaId = replicaId;
@@ -200,6 +203,7 @@ public class CreateReplicaTask extends AgentTask {
         this.binlogConfig = binlogConfig;
         this.objectPool = objectPool;
         this.rowStorePageSize = rowStorePageSize;
+        this.variantEnableFlattenNested = variantEnableFlattenNested;
     }
 
     public void setIsRecoverTask(boolean isRecoverTask) {
@@ -339,6 +343,7 @@ public class CreateReplicaTask extends AgentTask {
         }
         tSchema.setIsInMemory(isInMemory);
         tSchema.setDisableAutoCompaction(disableAutoCompaction);
+        tSchema.setVariantEnableFlattenNested(variantEnableFlattenNested);
         tSchema.setEnableSingleReplicaCompaction(enableSingleReplicaCompaction);
         tSchema.setSkipWriteIndexOnLoad(skipWriteIndexOnLoad);
         tSchema.setStoreRowColumn(storeRowColumn);

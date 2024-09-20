@@ -176,9 +176,10 @@ struct BlockWrapper {
     BlockWrapper(vectorized::Block&& data_block_) : data_block(std::move(data_block_)) {}
     ~BlockWrapper() { DCHECK_EQ(ref_count.load(), 0); }
     void ref(int delta) { ref_count += delta; }
-    void unref(LocalExchangeSharedState* shared_state, size_t allocated_bytes) {
+    void unref(LocalExchangeSharedState* shared_state, size_t allocated_bytes, int channel_id) {
         if (ref_count.fetch_sub(1) == 1) {
-            shared_state->sub_total_mem_usage(allocated_bytes);
+            DCHECK_GT(allocated_bytes, 0);
+            shared_state->sub_total_mem_usage(allocated_bytes, channel_id);
             if (shared_state->exchanger->_free_block_limit == 0 ||
                 shared_state->exchanger->_free_blocks.size_approx() <
                         shared_state->exchanger->_free_block_limit *
@@ -188,18 +189,11 @@ struct BlockWrapper {
             }
         }
     }
-    void unref(LocalExchangeSharedState* shared_state) {
-        if (ref_count.fetch_sub(1) == 1) {
-            shared_state->sub_total_mem_usage(data_block.allocated_bytes());
-            if (shared_state->exchanger->_free_block_limit == 0 ||
-                shared_state->exchanger->_free_blocks.size_approx() <
-                        shared_state->exchanger->_free_block_limit *
-                                shared_state->exchanger->_num_sources) {
-                data_block.clear_column_data();
-                shared_state->exchanger->_free_blocks.enqueue(std::move(data_block));
-            }
-        }
+
+    void unref(LocalExchangeSharedState* shared_state, int channel_id) {
+        unref(shared_state, data_block.allocated_bytes(), channel_id);
     }
+    int ref_value() const { return ref_count.load(); }
     std::atomic<int> ref_count = 0;
     vectorized::Block data_block;
 };
@@ -230,8 +224,7 @@ protected:
         _data_queue.resize(num_partitions);
     }
     Status _split_rows(RuntimeState* state, const uint32_t* __restrict channel_ids,
-                       vectorized::Block* block, bool eos,
-                       LocalExchangeSinkLocalState& local_state);
+                       vectorized::Block* block, LocalExchangeSinkLocalState& local_state);
 
     const bool _ignore_source_data_distribution = false;
 };
@@ -348,13 +341,12 @@ public:
     void close(LocalExchangeSourceLocalState& local_state) override;
 
 private:
-    Status _passthrough_sink(RuntimeState* state, vectorized::Block* in_block, bool eos,
+    Status _passthrough_sink(RuntimeState* state, vectorized::Block* in_block,
                              LocalExchangeSinkLocalState& local_state);
-    Status _shuffle_sink(RuntimeState* state, vectorized::Block* in_block, bool eos,
+    Status _shuffle_sink(RuntimeState* state, vectorized::Block* in_block,
                          LocalExchangeSinkLocalState& local_state);
     Status _split_rows(RuntimeState* state, const uint32_t* __restrict channel_ids,
-                       vectorized::Block* block, bool eos,
-                       LocalExchangeSinkLocalState& local_state);
+                       vectorized::Block* block, LocalExchangeSinkLocalState& local_state);
 
     std::atomic_bool _is_pass_through = false;
     std::atomic_int32_t _total_block = 0;

@@ -68,7 +68,7 @@ public:
     MutableColumnPtr create_column() const override;
 
     virtual Field get_default() const override {
-        std::string default_json = "{}";
+        std::string default_json = "null";
         JsonBinaryValue binary_val(default_json.c_str(), default_json.size());
         return JsonbField(binary_val.value(), binary_val.size());
     }

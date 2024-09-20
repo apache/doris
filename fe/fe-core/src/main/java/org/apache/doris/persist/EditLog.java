@@ -1576,7 +1576,9 @@ public class EditLog {
     }
 
     public void logColumnRename(TableRenameColumnInfo info) {
-        logEdit(OperationType.OP_RENAME_COLUMN, info);
+        long logId = logEdit(OperationType.OP_RENAME_COLUMN, info);
+        LOG.info("log column rename, logId : {}, infos: {}", logId, info);
+        Env.getCurrentEnv().getBinlogManager().addColumnRename(info, logId);
     }
 
     public void logAddBroker(BrokerMgr.ModifyBrokerInfo info) {

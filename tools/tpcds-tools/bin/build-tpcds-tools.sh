@@ -51,7 +51,7 @@ if [[ -d "${CURDIR}/DSGen-software-code-3.2.0rc1" ]]; then
 elif [[ -f "${CURDIR}/TPC-DS_Tools_v3.2.0new.zip" ]]; then
     unzip TPC-DS_Tools_v3.2.0new.zip -d "${CURDIR}/"
 else
-    wget "https://doris-build-1308700295.cos.ap-beijing.myqcloud.com/tools/TPC-DS_Tools_v3.2.0new.zip"
+    wget "https://qa-build.oss-cn-beijing.aliyuncs.com/tools/TPC-DS_Tools_v3.2.0new.zip"
     unzip TPC-DS_Tools_v3.2.0new.zip -d "${CURDIR}/"
 fi
 

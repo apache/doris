@@ -23,6 +23,7 @@ import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.rules.analysis.ExpressionAnalyzer;
+import org.apache.doris.nereids.rules.expression.rules.FoldConstantRule;
 import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -752,6 +753,21 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
         Expression e1 = parser.parseExpression(actualExpression);
         e1 = new ExpressionNormalization().rewrite(ExpressionAnalyzer.FUNCTION_ANALYZER_RULE.rewrite(e1, context), context);
         Assertions.assertTrue(e1.getDataType() instanceof VarcharType);
+    }
+
+    @Test
+    void testFoldNvl() {
+        executor = new ExpressionRuleExecutor(ImmutableList.of(
+                ExpressionAnalyzer.FUNCTION_ANALYZER_RULE,
+                bottomUp(
+                        FoldConstantRule.INSTANCE
+                )
+        ));
+
+        assertRewriteExpression("nvl(NULL, 1)", "1");
+        assertRewriteExpression("nvl(NULL, NULL)", "NULL");
+        assertRewriteAfterTypeCoercion("nvl(IA, NULL)", "ifnull(IA, NULL)");
+        assertRewriteAfterTypeCoercion("nvl(IA, 1)", "ifnull(IA, 1)");
     }
 
     private void assertRewriteExpression(String actualExpression, String expectedExpression) {

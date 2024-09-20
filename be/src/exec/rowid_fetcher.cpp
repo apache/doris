@@ -80,7 +80,8 @@ Status RowIDFetcher::init() {
         if (!client) {
             LOG(WARNING) << "Get rpc stub failed, host=" << node_info.host
                          << ", port=" << node_info.brpc_port;
-            return Status::InternalError("RowIDFetcher failed to init rpc client");
+            return Status::InternalError("RowIDFetcher failed to init rpc client, host={}, port={}",
+                                         node_info.host, node_info.brpc_port);
         }
         _stubs.push_back(client);
     }

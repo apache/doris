@@ -61,7 +61,8 @@
         "store_row_column": false,
         "is_dynamic_schema": false,
         "is_partial_update": false,
-        "enable_single_replica_compaction": false
+        "enable_single_replica_compaction": false,
+        "variant_enable_flatten_nested": false
     },
     "rs_metas": [
         {

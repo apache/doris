@@ -23,6 +23,7 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
     String s3_endpoint = getS3Endpoint()
     String bucket = getS3BucketName()
     String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-java-8.0.25.jar"
+    // String driver_url = "mysql-connector-java-8.0.25.jar"
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String user = "test_jdbc_user";
         String pwd = '123456';
@@ -167,7 +168,7 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
         order_qt_ex_tb21_6  """ select `key`, `id` from ${ex_tb21} where `key` = case when id = 1 then 1 else 0 end order by id;"""
         order_qt_ex_tb21_7  """ select (`key` +1) as k, `id` from ${ex_tb21} having abs(k) = 2 order by id;"""
         order_qt_ex_tb21_8  """ select `key` as k, `id` from ${ex_tb21} having abs(k) = 2 order by id;"""
-        order_qt_information_schema """ show tables from information_schema; """
+        order_qt_information_schema """ show tables from information_schema like "processlist"; """
         order_qt_dt """select * from ${dt}; """
         order_qt_dt_null """select * from ${dt_null} order by 1; """
         order_qt_test_dz """select * from ${test_zd} order by 1; """
@@ -612,6 +613,21 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
 
         order_qt_sql """select * from mysql_conjuncts.doris_test.text_push where pk <=7;"""
 
+        // test create table as select
+        sql """use internal.${internal_db_name}"""
+        sql """drop table if exists ctas_partition_text_1"""
+        sql """drop table if exists ctas_partition_text_2"""
+        sql """drop table if exists ctas_partition_text_3"""
+        sql """drop table if exists ctas_partition_text_4"""
+        sql """set enable_nereids_planner=true"""
+        // 1. test text type column as distribution col
+        sql """create table ctas_partition_text_1 distributed by hash(text) buckets 1 properties("replication_num" = "1") as select int_u, text, text as t2 from mysql_conjuncts.doris_test.all_types;"""
+        qt_sql """desc ctas_partition_text_1"""
+        // 2. test varchar type column as first col
+        sql """create table ctas_partition_text_2 distributed by hash(int_u) buckets 1 properties("replication_num" = "1") as select varchar, int_u from mysql_conjuncts.doris_test.all_types;"""
+        qt_sql """desc ctas_partition_text_2"""
+        // ctas logic is different between new and old planner.
+        // so need to test both.
         sql """drop catalog if exists mysql_conjuncts;"""
     }
 }

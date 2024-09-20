@@ -24,7 +24,7 @@ import org.apache.doris.common.UserException;
 //
 // syntax:
 //      RESUME SYNC JOB [db.]jobName
-public class ResumeSyncJobStmt extends DdlStmt {
+public class ResumeSyncJobStmt extends DdlStmt implements NotFallbackInParser {
 
     private JobName jobName;
 

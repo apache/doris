@@ -197,7 +197,9 @@ void handle_get_rowset_meta(StorageEngine& engine, HttpRequest* req) {
 DownloadBinlogAction::DownloadBinlogAction(
         ExecEnv* exec_env, StorageEngine& engine,
         std::shared_ptr<bufferevent_rate_limit_group> rate_limit_group)
-        : _exec_env(exec_env), _engine(engine), _rate_limit_group(std::move(rate_limit_group)) {}
+        : HttpHandlerWithAuth(exec_env),
+          _engine(engine),
+          _rate_limit_group(std::move(rate_limit_group)) {}
 
 void DownloadBinlogAction::handle(HttpRequest* req) {
     VLOG_CRITICAL << "accept one download binlog request " << req->debug_string();

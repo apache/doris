@@ -157,6 +157,10 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
         return outputExpressions;
     }
 
+    public NamedExpression getOutputExpression(int index) {
+        return outputExpressions.get(index);
+    }
+
     public String getOutputExprsSql() {
         return outputExpressions.stream().map(ExpressionTrait::toSql).collect(Collectors.joining(", "));
     }

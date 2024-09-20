@@ -18,6 +18,7 @@
 package org.apache.doris.cloud.analysis;
 
 import org.apache.doris.analysis.Analyzer;
+import org.apache.doris.analysis.NotFallbackInParser;
 import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.analysis.ResourceTypeEnum;
 import org.apache.doris.analysis.StatementBase;
@@ -39,7 +40,7 @@ import org.apache.logging.log4j.Logger;
 /**
  * Representation of a use cluster statement.
  */
-public class UseCloudClusterStmt extends StatementBase {
+public class UseCloudClusterStmt extends StatementBase implements NotFallbackInParser {
     private static final Logger LOG = LogManager.getLogger(UseCloudClusterStmt.class);
     private String cluster;
     private String database;
