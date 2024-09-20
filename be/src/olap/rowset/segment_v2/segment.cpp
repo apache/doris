@@ -298,7 +298,7 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
 
 Status Segment::_write_error_file(size_t file_size, size_t offset, size_t bytes_read, char* data,
                                   io::IOContext& io_ctx) {
-    if (!doris::config::is_cloud_mode()) {
+    if (!config::enbale_dump_error_file || !doris::config::is_cloud_mode()) {
         return Status::OK();
     }
 
