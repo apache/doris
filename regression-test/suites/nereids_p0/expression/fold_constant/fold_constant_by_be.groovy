@@ -40,4 +40,9 @@ suite("fold_constant_by_be") {
     sql """ INSERT INTO str_tb VALUES (2, repeat("test1111", 10000)); """
 
     qt_sql_1 """ select length(v1) from str_tb; """
+    
+    explain {
+        sql("verbose select substring('123456', 1, 3)")
+        contains "varchar(3)"
+    }
 }
