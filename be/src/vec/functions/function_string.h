@@ -45,6 +45,7 @@
 #include "gutil/strings/numbers.h"
 #include "gutil/strings/substitute.h"
 #include "runtime/decimalv2_value.h"
+#include "runtime/runtime_state.h"
 #include "runtime/string_search.hpp"
 #include "util/sha.h"
 #include "util/string_util.h"
