@@ -19,7 +19,7 @@
 
 #include "olap/rowset/segment_v2/inverted_index/query_v2/operator.h"
 
-namespace doris::segment_v2::idx_query_v2 {
+namespace doris::segment_v2::inverted_index {
 
 class ConjunctionOp : public Operator {
 public:
@@ -43,4 +43,4 @@ private:
 
 using ConjunctionOpPtr = std::shared_ptr<ConjunctionOp>;
 
-} // namespace doris::segment_v2::idx_query_v2
+} // namespace doris::segment_v2::inverted_index

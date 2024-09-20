@@ -30,7 +30,7 @@
 
 #include "common/status.h"
 
-namespace doris::segment_v2::idx_query_v2 {
+namespace doris::segment_v2::inverted_index {
 
 enum class QueryType { TERM_QUERY, PHRASE_QUERY, ROARING_QUERY };
 
@@ -49,4 +49,4 @@ public:
     virtual ~Query() = default;
 };
 
-} // namespace doris::segment_v2::idx_query_v2
+} // namespace doris::segment_v2::inverted_index

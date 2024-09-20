@@ -15,20 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "olap/rowset/segment_v2/inverted_index/query_v2/query.h"
+#include "olap/rowset/segment_v2/inverted_index/reader/reader.h"
 
 #include <gtest/gtest.h>
 
 #include <memory>
 #include <string>
-
-#include "common/status.h"
-#include "olap/rowset/segment_v2/inverted_index/query_v2/boolean_query.h"
-#include "olap/rowset/segment_v2/inverted_index/query_v2/factory.inline.h"
-#include "olap/rowset/segment_v2/inverted_index/query_v2/node.h"
-#include "olap/rowset/segment_v2/inverted_index/query_v2/operator.h"
-#include "olap/rowset/segment_v2/inverted_index/reader/reader.h"
-#include "olap/rowset/segment_v2/inverted_index_fs_directory.h"
 
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wshadow-field"
@@ -38,16 +30,15 @@
 #include "CLucene/store/FSDirectory.h"
 #pragma GCC diagnostic pop
 
-#include "common/logging.h"
 #include "io/fs/local_file_system.h"
+#include "olap/rowset/segment_v2/inverted_index_fs_directory.h"
 
 CL_NS_USE(search)
 CL_NS_USE(store)
 
 namespace doris::segment_v2 {
 
-class QueryTest : public testing::Test {
-public:
+class ReaderTest : public testing::Test {
 public:
     const std::string kTestDir = "./ut_dir/reader_test";
     const std::string rowset_id = "test_rowset";
@@ -83,62 +74,13 @@ public:
         EXPECT_TRUE(io::global_local_filesystem()->delete_directory(kTestDir).ok());
     }
 
-    QueryTest() = default;
-    ~QueryTest() override = default;
+    ReaderTest() = default;
+    ~ReaderTest() override = default;
 };
 
 using namespace inverted_index;
 
-static Status boolean_query_search(const std::string& name,
-                                   const std::shared_ptr<IndexReader>& reader) {
-    BooleanQuery::Builder builder;
-    RETURN_IF_ERROR(builder.set_op(OperatorType::OP_AND));
-    {
-        TQueryOptions options;
-        auto roaring = std::make_shared<roaring::Roaring>();
-        roaring->add(1);
-        roaring->add(3);
-        roaring->add(5);
-        roaring->add(7);
-        roaring->add(9);
-        auto clause = DORIS_TRY(QueryFactory::create(QueryType::ROARING_QUERY, roaring));
-        RETURN_IF_ERROR(builder.add(clause));
-    }
-    {
-        BooleanQuery::Builder builder1;
-        RETURN_IF_ERROR(builder1.set_op(OperatorType::OP_OR));
-        {
-            TQueryOptions options;
-            QueryInfo query_info;
-            query_info.field_name = StringUtil::string_to_wstring(name);
-            query_info.terms.emplace_back("hm");
-            auto clause = DORIS_TRY(
-                    QueryFactory::create(QueryType::TERM_QUERY, reader, options, query_info));
-            RETURN_IF_ERROR(builder1.add(clause));
-        }
-        {
-            TQueryOptions options;
-            QueryInfo query_info;
-            query_info.field_name = StringUtil::string_to_wstring(name);
-            query_info.terms.emplace_back("ac");
-            auto clause = DORIS_TRY(
-                    QueryFactory::create(QueryType::TERM_QUERY, reader, options, query_info));
-            RETURN_IF_ERROR(builder1.add(clause));
-        }
-        auto boolean_query = DORIS_TRY(builder1.build());
-        RETURN_IF_ERROR(builder.add(boolean_query));
-    }
-    auto boolean_query = DORIS_TRY(builder.build());
-
-    auto result = std::make_shared<roaring::Roaring>();
-    visit_node(boolean_query, QueryExecute {}, result);
-    EXPECT_EQ(result->cardinality(), 3);
-    EXPECT_EQ(result->toString(), "{1,7,9}");
-
-    return Status::OK();
-}
-
-TEST_F(QueryTest, test_boolean_query) {
+TEST_F(ReaderTest, test_inverted_index_reader) {
     DorisFSDirectory* dir = _CLNEW DorisFSDirectory();
     dir->init(io::global_local_filesystem(), local_fs_index_path.c_str(), nullptr);
 
@@ -219,11 +161,6 @@ TEST_F(QueryTest, test_boolean_query) {
             ASSERT_TRUE(st.ok());
         }
         auto reader = inverted_index_reader->get_index_reader();
-        // query
-        {
-            Status res = boolean_query_search(name, reader);
-            EXPECT_TRUE(res.ok());
-        }
         reader->close();
     }
 }

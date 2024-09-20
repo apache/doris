@@ -19,26 +19,30 @@
 
 #include <memory>
 
-#include "olap/rowset/segment_v2/inverted_index/query_v2/query.h"
+#include "olap/rowset/segment_v2/inverted_index_compound_reader.h"
+#include "olap/rowset/segment_v2/inverted_index_file_reader.h"
+#include "olap/tablet_schema.h"
 
 namespace doris::segment_v2::inverted_index {
+class InvertedIndexReader {
+    ENABLE_FACTORY_CREATOR(InvertedIndexReader);
 
-class TermQuery : public Query {
 public:
-    TermQuery(const std::shared_ptr<lucene::index::IndexReader>& reader,
-              const TQueryOptions& query_options, QueryInfo query_info);
-    ~TermQuery() override;
+    explicit InvertedIndexReader(
+            const TabletIndex* index_meta,
+            std::shared_ptr<InvertedIndexFileReader> inverted_index_file_reader)
+            : _inverted_index_file_reader(std::move(inverted_index_file_reader)),
+              _index_meta(*index_meta) {}
 
-    void execute(const std::shared_ptr<roaring::Roaring>& result) {}
+    ~InvertedIndexReader() = default;
 
-    int32_t doc_id() const { return _iter.nextDoc(); }
-    int32_t next_doc() const { return _iter.nextDoc(); }
-    int32_t advance(int32_t target) const { return _iter.advance(target); }
-    int64_t cost() const { return _iter.docFreq(); }
+    Status init_index_reader();
+    std::shared_ptr<lucene::index::IndexReader> get_index_reader() { return _index_reader; }
 
 private:
-    TermDocs* _term_docs = nullptr;
-    TermIterator _iter;
+    std::shared_ptr<InvertedIndexFileReader> _inverted_index_file_reader = nullptr;
+    std::shared_ptr<lucene::index::IndexReader> _index_reader = nullptr;
+    TabletIndex _index_meta;
 };
-
+using InvertedIndexReaderPtr = std::shared_ptr<InvertedIndexReader>;
 } // namespace doris::segment_v2::inverted_index

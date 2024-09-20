@@ -25,7 +25,7 @@
 #include "olap/rowset/segment_v2/inverted_index/query_v2/roaring_query.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/term_query.h"
 
-namespace doris::segment_v2::idx_query_v2 {
+namespace doris::segment_v2::inverted_index {
 
 Status BooleanQuery::Builder::set_op(OperatorType type) {
     _op = DORIS_TRY(OperatorFactory::create(type));
@@ -88,4 +88,4 @@ void BooleanQuery::search_by_skiplist(const std::shared_ptr<roaring::Roaring>& r
 
 void BooleanQuery::search_by_bitmap(const std::shared_ptr<roaring::Roaring>& result) {}
 
-} // namespace doris::segment_v2::idx_query_v2
+} // namespace doris::segment_v2::inverted_index

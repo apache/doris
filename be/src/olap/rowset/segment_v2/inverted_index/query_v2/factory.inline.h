@@ -19,7 +19,7 @@
 #include "olap/rowset/segment_v2/inverted_index/query_v2/roaring_query.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/term_query.h"
 
-namespace doris::segment_v2::idx_query_v2 {
+namespace doris::segment_v2::inverted_index {
 
 template <typename... Args>
 Result<Node> QueryFactory::create(QueryType query_type, Args&&... args) {
@@ -44,4 +44,4 @@ Result<Node> QueryFactory::create(QueryType query_type, Args&&... args) {
     }
 }
 
-} // namespace doris::segment_v2::idx_query_v2
+} // namespace doris::segment_v2::inverted_index
