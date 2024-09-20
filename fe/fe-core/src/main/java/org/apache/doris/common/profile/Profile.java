@@ -440,8 +440,9 @@ public class Profile {
         this.summaryProfile = summaryProfile;
     }
 
-    public void releaseExecutionProfile() {
+    public void releaseMemory() {
         this.executionProfiles.clear();
+        this.changedSessionVarCache = "";
     }
 
     public boolean shouldStoreToStorage() {
