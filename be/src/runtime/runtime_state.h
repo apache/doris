@@ -490,6 +490,18 @@ public:
                        : 0;
     }
 
+    int partition_topn_max_partitions() const {
+        return _query_options.__isset.partition_topn_max_partitions
+                       ? _query_options.partition_topn_max_partitions
+                       : 1024;
+    }
+
+    int partition_topn_per_partition_rows() const {
+        return _query_options.__isset.partition_topn_pre_partition_rows
+                       ? _query_options.partition_topn_pre_partition_rows
+                       : 1000;
+    }
+
     int64_t parallel_scan_min_rows_per_scanner() const {
         return _query_options.__isset.parallel_scan_min_rows_per_scanner
                        ? _query_options.parallel_scan_min_rows_per_scanner
