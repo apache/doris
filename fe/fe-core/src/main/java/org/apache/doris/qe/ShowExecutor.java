@@ -823,8 +823,12 @@ public class ShowExecutor {
                     PrivPredicate.of(PrivBitSet.of(Privilege.ADMIN_PRIV), Operator.OR))) {
                 users.removeIf(user -> !user.equals(ClusterNamespace.getNameFromFullName(ctx.getQualifiedUser())));
             }
+
             String result = Joiner.on(", ").join(users);
             row.add(result);
+            int backendNum = ((CloudSystemInfoService) Env.getCurrentEnv().getCurrentSystemInfo())
+                    .getBackendsByClusterName(clusterName).size();
+            row.add(String.valueOf(backendNum));
             rows.add(row);
         }
 

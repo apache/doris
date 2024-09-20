@@ -604,8 +604,6 @@ DEFINE_mInt32(memtable_hard_limit_active_percent, "50");
 // percent of (active memtables size / all memtables size) when reach soft limit
 DEFINE_mInt32(memtable_soft_limit_active_percent, "50");
 
-// memtable insert memory tracker will multiply input block size with this ratio
-DEFINE_mDouble(memtable_insert_memory_ratio, "1.4");
 // max write buffer size before flush, default 200MB
 DEFINE_mInt64(write_buffer_size, "209715200");
 // max buffer size used in memtable for the aggregated table, default 400MB
@@ -1115,6 +1113,10 @@ DEFINE_mBool(enable_missing_rows_correctness_check, "false");
 // When the number of missing versions is more than this value, do not directly
 // retry the publish and handle it through async publish.
 DEFINE_mInt32(mow_publish_max_discontinuous_version_num, "20");
+// When the version is not continuous for MOW table in publish phase and the gap between
+// current txn's publishing version and the max version of the tablet exceeds this value,
+// don't print warning log
+DEFINE_mInt32(publish_version_gap_logging_threshold, "200");
 
 // The secure path with user files, used in the `local` table function.
 DEFINE_mString(user_files_secure_path, "${DORIS_HOME}");
@@ -1673,8 +1675,6 @@ bool init(const char* conf_file, bool fill_conf_map, bool must_exist, bool set_t
         SET_FIELD(it.second, std::vector<double>, fill_conf_map, set_to_default);
         SET_FIELD(it.second, std::vector<std::string>, fill_conf_map, set_to_default);
     }
-
-    set_cloud_unique_id(cloud_instance_id);
 
     return true;
 }

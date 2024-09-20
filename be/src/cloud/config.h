@@ -23,14 +23,11 @@ namespace doris::config {
 
 DECLARE_String(deploy_mode);
 // deprecated do not configure directly
-DECLARE_mString(cloud_instance_id);
 DECLARE_mString(cloud_unique_id);
 
 static inline bool is_cloud_mode() {
     return deploy_mode == "cloud" || !cloud_unique_id.empty();
 }
-
-void set_cloud_unique_id(std::string instance_id);
 
 // Set the endpoint of meta service.
 //
@@ -106,5 +103,7 @@ DECLARE_mBool(enable_cloud_txn_lazy_commit);
 DECLARE_mInt32(remove_expired_tablet_txn_info_interval_seconds);
 
 DECLARE_mInt32(tablet_txn_info_min_expired_seconds);
+
+DECLARE_mBool(enable_use_cloud_unique_id_from_fe);
 
 } // namespace doris::config
