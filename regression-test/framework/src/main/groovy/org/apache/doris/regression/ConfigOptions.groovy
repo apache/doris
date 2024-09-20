@@ -470,7 +470,7 @@ class ConfigOptions {
                 .build()
         runNonConcurrentOpt = Option.builder("runNonConcurrent")
                 .required(false)
-                .hasArg(false)
+                .hasArg(true)
                 .desc("whether run non-concurrent tests")
                 .build()
         caseNamePrefixOpt = Option.builder("cnp")
