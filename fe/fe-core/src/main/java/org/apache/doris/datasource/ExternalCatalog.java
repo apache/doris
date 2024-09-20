@@ -319,6 +319,7 @@ public abstract class ExternalCatalog
 
     // init schema related objects
     private void init() {
+        LOG.info("mmc init catalog:{}", name);
         Map<String, Long> tmpDbNameToId = Maps.newConcurrentMap();
         Map<Long, ExternalDatabase<? extends ExternalTable>> tmpIdToDb = Maps.newConcurrentMap();
         InitCatalogLog initCatalogLog = new InitCatalogLog();
@@ -340,6 +341,7 @@ public abstract class ExternalCatalog
             long dbId;
             if (dbNameToId != null && dbNameToId.containsKey(dbName)) {
                 dbId = dbNameToId.get(dbName);
+                LOG.info("mmc put1 db:{}, {}", dbName, dbId);
                 tmpDbNameToId.put(dbName, dbId);
                 ExternalDatabase<? extends ExternalTable> db = idToDb.get(dbId);
                 tmpIdToDb.put(dbId, db);
@@ -347,6 +349,7 @@ public abstract class ExternalCatalog
             } else {
                 dbId = Env.getCurrentEnv().getNextId();
                 tmpDbNameToId.put(dbName, dbId);
+                LOG.info("mmc put2 db:{}, {}", dbName, dbId);
                 ExternalDatabase<? extends ExternalTable> db = buildDbForInit(dbName, dbId, logType);
                 tmpIdToDb.put(dbId, db);
                 initCatalogLog.addCreateDb(dbId, dbName);
@@ -584,6 +587,7 @@ public abstract class ExternalCatalog
     }
 
     public void replayInitCatalog(InitCatalogLog log) {
+        LOG.info("mmc replay catalog {}", name);
         Map<String, Long> tmpDbNameToId = Maps.newConcurrentMap();
         Map<Long,  ExternalDatabase<? extends ExternalTable>> tmpIdToDb = Maps.newConcurrentMap();
         for (int i = 0; i < log.getRefreshCount(); i++) {
@@ -592,6 +596,7 @@ public abstract class ExternalCatalog
             // Because replyInitCatalog can only be called when `use_meta_cache` is false.
             // And if `use_meta_cache` is false, getDbForReplay() will not return null
             Preconditions.checkNotNull(db.get());
+            LOG.info("mmc replay refresh_db {}", db.get().getFullName());
             tmpDbNameToId.put(db.get().getFullName(), db.get().getId());
             tmpIdToDb.put(db.get().getId(), db.get());
         }
@@ -599,8 +604,11 @@ public abstract class ExternalCatalog
             ExternalDatabase<? extends ExternalTable> db =
                     buildDbForInit(log.getCreateDbNames().get(i), log.getCreateDbIds().get(i), log.getType());
             if (db != null) {
+                LOG.info("mmc replay create_db {}", db.getFullName());
                 tmpDbNameToId.put(db.getFullName(), db.getId());
                 tmpIdToDb.put(db.getId(), db);
+            } else {
+                LOG.warn("mmc replay not_found_db {}", log.getCreateDbNames().get(i));
             }
         }
         dbNameToId = tmpDbNameToId;

@@ -172,6 +172,7 @@ public abstract class ExternalDatabase<T extends ExternalTable>
     }
 
     public void replayInitDb(InitDatabaseLog log, ExternalCatalog catalog) {
+        LOG.info("mmc replay db {}", name);
         Map<String, Long> tmpTableNameToId = Maps.newConcurrentMap();
         Map<Long, T> tmpIdToTbl = Maps.newConcurrentMap();
         for (int i = 0; i < log.getRefreshCount(); i++) {
@@ -182,13 +183,17 @@ public abstract class ExternalDatabase<T extends ExternalTable>
             // So we need add a validation here to avoid table(s) not found, this is just a temporary solution
             // because later we will remove all the logics about InitCatalogLog/InitDatabaseLog.
             if (table.isPresent()) {
+                LOG.info("mmc replay refresh_tb {}", table.get().getName());
                 tmpTableNameToId.put(table.get().getName(), table.get().getId());
                 tmpIdToTbl.put(table.get().getId(), table.get());
+            } else {
+                LOG.info("mmc replay not_found_tb {}", log.getRefreshTableIds().get(i));
             }
         }
         for (int i = 0; i < log.getCreateCount(); i++) {
             T table = buildTableForInit(log.getCreateTableNames().get(i), log.getCreateTableIds().get(i), catalog);
             tmpTableNameToId.put(table.getName(), table.getId());
+            LOG.info("mmc replay create_tb {}", table.getName());
             tmpIdToTbl.put(table.getId(), table);
         }
         tableNameToId = tmpTableNameToId;
@@ -198,6 +203,7 @@ public abstract class ExternalDatabase<T extends ExternalTable>
     }
 
     private void init() {
+        LOG.info("mmc init database {}", name);
         InitDatabaseLog initDatabaseLog = new InitDatabaseLog();
         initDatabaseLog.setType(dbLogType);
         initDatabaseLog.setCatalogId(extCatalog.getId());
@@ -212,12 +218,14 @@ public abstract class ExternalDatabase<T extends ExternalTable>
                     tblId = tableNameToId.get(tableName);
                     tmpTableNameToId.put(tableName, tblId);
                     T table = idToTbl.get(tblId);
+                    LOG.info("mmc put1 table:{}, {}", tableName, tblId);
                     tmpIdToTbl.put(tblId, table);
                     initDatabaseLog.addRefreshTable(tblId);
                 } else {
                     tblId = Env.getCurrentEnv().getNextId();
                     tmpTableNameToId.put(tableName, tblId);
                     T table = buildTableForInit(tableName, tblId, extCatalog);
+                    LOG.info("mmc put2 table:{}, {}", tableName, tblId);
                     tmpIdToTbl.put(tblId, table);
                     initDatabaseLog.addCreateTable(tblId, tableName);
                 }
