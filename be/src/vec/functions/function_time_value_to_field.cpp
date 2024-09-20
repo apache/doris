@@ -52,23 +52,18 @@ public:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
         DCHECK_EQ(arguments.size(), 1);
-        const auto& [arg_column, arg_const] =
-                unpack_if_const(block.get_by_position(arguments[0]).column);
-        const auto* column_time = assert_cast<const TimeValue::ColumnTime*>(arg_column.get());
+
+        const auto* column_time = assert_cast<const TimeValue::ColumnTime*>(
+                block.get_by_position(arguments[0]).column.get());
 
         auto col_res = ToDataType::ColumnType::create();
 
         col_res->resize(input_rows_count);
         auto& col_res_data = col_res->get_data();
 
-        std::visit(
-                [&](auto is_const) {
-                    for (size_t i = 0; i < input_rows_count; i++) {
-                        col_res_data[i] = Transform::execute(
-                                column_time->get_element(index_check_const<is_const>(i)));
-                    }
-                },
-                vectorized::make_bool_variant(arg_const));
+        for (size_t i = 0; i < input_rows_count; i++) {
+            col_res_data[i] = Transform::execute(column_time->get_element(i));
+        }
 
         block.replace_by_position(result, std::move(col_res));
         return Status::OK();
