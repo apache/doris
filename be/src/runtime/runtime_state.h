@@ -575,6 +575,11 @@ public:
                _query_options.enable_local_merge_sort;
     }
 
+    bool enable_strict_cast_mode() const {
+        return _query_options.__isset.enable_strict_cast_mode &&
+               _query_options.enable_strict_cast_mode;
+    }
+
     int64_t min_revocable_mem() const {
         if (_query_options.__isset.min_revocable_mem) {
             return std::max(_query_options.min_revocable_mem, (int64_t)1);
