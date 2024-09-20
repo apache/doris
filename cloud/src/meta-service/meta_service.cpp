@@ -1755,7 +1755,7 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
                                       request->initiator())) {
             LOG(WARNING) << "failed to check delete bitmap lock, table_id=" << table_id
                          << " request lock_id=" << request->lock_id()
-                         << " request initiator=" << request->initiator() << " msg" << msg;
+                         << " request initiator=" << request->initiator() << " msg " << msg;
             return;
         }
         // 2. Process pending delete bitmap
