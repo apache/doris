@@ -169,6 +169,8 @@ PGenericType_TypeId IDataType::get_pdata_type(const IDataType* data_type) {
         return PGenericType::VARIANT;
     case TypeIndex::DateTimeV2:
         return PGenericType::DATETIMEV2;
+    case TypeIndex::Timestamp:
+        return PGenericType::TIMESTAMP;
     case TypeIndex::BitMap:
         return PGenericType::BITMAP;
     case TypeIndex::HLL:
