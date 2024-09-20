@@ -1225,7 +1225,15 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
             List<OrderKey> orderKeys = visit(ctx.sortItem(), OrderKey.class);
             if (!orderKeys.isEmpty()) {
-                return parseFunctionWithOrderKeys(functionName, isDistinct, params, orderKeys, ctx);
+                Expression expression = parseFunctionWithOrderKeys(functionName, isDistinct, params, orderKeys, ctx);
+                if (ctx.windowSpec() != null) {
+                    if (isDistinct) {
+                        throw new ParseException("DISTINCT not allowed in analytic function: " + functionName, ctx);
+                    }
+                    return withWindowSpec(ctx.windowSpec(), expression);
+                } else {
+                    return expression;
+                }
             }
 
             List<UnboundStar> unboundStars = ExpressionUtils.collectAll(params, UnboundStar.class::isInstance);
