@@ -352,6 +352,7 @@ Status VNodeChannel::init(RuntimeState* state) {
     _cur_add_block_request->set_sender_id(_parent->_sender_id);
     _cur_add_block_request->set_backend_id(_node_id);
     _cur_add_block_request->set_eos(false);
+   // _cur_add_block_request->set_timezone(state->timezone_obj());
 
     // add block closure
     // Has to using value to capture _task_exec_ctx because tablet writer may destroyed during callback.
@@ -426,6 +427,14 @@ void VNodeChannel::_open_internal(bool is_incremental) {
     request->set_is_incremental(is_incremental);
     request->set_txn_expiration(_parent->_txn_expiration);
     request->set_write_file_cache(_parent->_write_file_cache);
+    // long sec_offset;
+    // cctz::time_zone utc_tz {};
+    // TimezoneUtils::find_cctz_time_zone(TimezoneUtils::utc_time_zone, utc_tz);
+    // auto local = cctz::convert(cctz::civil_second {}, utc_tz);
+    // auto given = cctz::convert(cctz::civil_second {}, _state->timezone_obj());
+    // sec_offset = std::chrono::duration_cast<std::chrono::seconds>(given - local).count();
+    
+    request->set_tz_offset(_state->sec_offset());
 
     auto open_callback = DummyBrpcCallback<PTabletWriterOpenResult>::create_shared();
     auto open_closure = AutoReleaseClosure<

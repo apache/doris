@@ -240,6 +240,12 @@ RuntimeState::RuntimeState()
     _timestamp_ms = 0;
     _nano_seconds = 0;
     TimezoneUtils::find_cctz_time_zone(_timezone, _timezone_obj);
+    cctz::time_zone utc_tz {};
+    TimezoneUtils::find_cctz_time_zone(TimezoneUtils::utc_time_zone, utc_tz);
+    auto given = cctz::convert(cctz::civil_second {}, utc_tz);
+    auto local = cctz::convert(cctz::civil_second {}, _timezone_obj);
+    _sec_offset = std::chrono::duration_cast<std::chrono::seconds>(given - local).count();
+
     _exec_env = ExecEnv::GetInstance();
     init_mem_trackers("<unnamed>");
 }
@@ -281,6 +287,12 @@ Status RuntimeState::init(const TUniqueId& fragment_instance_id, const TQueryOpt
         _nano_seconds = 0;
     }
     TimezoneUtils::find_cctz_time_zone(_timezone, _timezone_obj);
+    cctz::time_zone utc_tz {};
+    TimezoneUtils::find_cctz_time_zone(TimezoneUtils::utc_time_zone, utc_tz);
+    auto given = cctz::convert(cctz::civil_second {}, utc_tz);
+    auto local = cctz::convert(cctz::civil_second {}, _timezone_obj);
+    _sec_offset = std::chrono::duration_cast<std::chrono::seconds>(given - local).count();
+
 
     if (query_globals.__isset.load_zero_tolerance) {
         _load_zero_tolerance = query_globals.load_zero_tolerance;

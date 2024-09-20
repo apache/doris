@@ -515,6 +515,7 @@ Status BaseTabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& req
                 .is_high_priority = _is_high_priority,
                 .write_file_cache = request.write_file_cache(),
                 .storage_vault_id = request.storage_vault_id(),
+                .tz_offset = request.tz_offset(),
         };
 
         auto delta_writer = create_delta_writer(wrequest);

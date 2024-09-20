@@ -44,6 +44,7 @@ struct WriteRequest {
     bool is_high_priority = false;
     bool write_file_cache = false;
     std::string storage_vault_id;
+    int64_t tz_offset;
 };
 
 } // namespace doris

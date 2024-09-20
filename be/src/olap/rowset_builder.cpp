@@ -219,6 +219,8 @@ Status RowsetBuilder::init() {
     context.mow_context = mow_context;
     context.write_file_cache = _req.write_file_cache;
     context.partial_update_info = _partial_update_info;
+    //context.timezone = _req.timezone;
+    context.tz_offset = _req.tz_offset;
     _rowset_writer = DORIS_TRY(_tablet->create_rowset_writer(context, false));
     _pending_rs_guard = _engine.pending_local_rowsets().add(context.rowset_id);
 

@@ -107,6 +107,7 @@ message PTabletWriterOpenRequest {
     optional bool write_file_cache = 17;
     optional string storage_vault_id = 18;
     optional int32 sender_id = 19;
+    required int64 tz_offset = 20;
 };
 
 message PTabletWriterOpenResult {
