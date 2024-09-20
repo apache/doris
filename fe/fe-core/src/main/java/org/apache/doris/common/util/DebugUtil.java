@@ -214,7 +214,7 @@ public class DebugUtil {
 
         // Add a separator line for better readability (optional)
         for (int i = 0; i < headers.length; i++) {
-            output.append(String.format("%-" + columnWidths[i] + "s", "-".repeat(columnWidths[i])));
+            output.append(String.format("%-" + columnWidths[i] + "s", Strings.repeat("-", columnWidths[i])));
             if (i < headers.length - 1) {
                 output.append("-|-");  // Separator between columns
             }
