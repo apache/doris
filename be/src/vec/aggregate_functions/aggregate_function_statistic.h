@@ -94,7 +94,9 @@ public:
             }
 
         } else {
-            this->data(place).add(assert_cast<const InputCol&>(*columns[0]).get_data()[row_num]);
+            this->data(place).add(
+                    assert_cast<const InputCol&, TypeCheckOnRelease::DISABLE>(*columns[0])
+                            .get_data()[row_num]);
         }
     }
 
