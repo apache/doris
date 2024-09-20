@@ -27,7 +27,6 @@ public class HiveProperties {
     protected static final String COLUMNS_NAMES = "columns_names"; // 列名称(rc-binary文件本身不存储)
     protected static final String REQUIRED_FIELDS = "required_fields";  // 需要获取的列名
     protected static final String FILE_TYPE = "file_type";  // 文件类型：FILE_LOCAL / FILE_S3 / FILE_HDFS
-    protected static final String INPUT_FORMAT = "input_format";
     protected static final String FILE_FORMAT = "file_format";
     protected static final String URI = "uri";  // 文件路径
     protected static final String S3_ACCESS_KEY = "s3.access_key";
@@ -43,6 +42,11 @@ public class HiveProperties {
     protected static final String FS_S3A_REGION = "fs.s3a.region";
     protected static final String SPLIT_START_OFFSET = "split_start_offset";
     protected static final String SPLIT_SIZE = "split_size";
-    protected static final String SPLIT_FILE_SIZE = "split_file_size";
-
+    protected static final String RC_BINARY_SERDE_CLASS
+            = "org.apache.hadoop.hive.serde2.columnar.LazyBinaryColumnarSerDe";
+    protected static final String RC_BINARY_INPUT_FORMAT = "org.apache.hadoop.hive.ql.io.RCFileInputFormat";
+    protected static final String RC_TEXT_SERDE_CLASS = "org.apache.hadoop.hive.serde2.columnar.ColumnarSerDe";
+    protected static final String RC_TEXT_INPUT_FORMAT = "org.apache.hadoop.hive.ql.io.RCFileInputFormat";
+    protected static final String SEQUENCE_SERDE_CLASS = "org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe";
+    protected static final String SEQUENCE_INPUT_FORMAT = "org.apache.hadoop.mapred.SequenceFileInputFormat";
 }

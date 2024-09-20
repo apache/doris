@@ -21,13 +21,13 @@ import org.apache.doris.common.jni.JniScanner;
 import org.apache.doris.common.jni.vec.ColumnType;
 import org.apache.doris.common.jni.vec.TableSchema;
 import org.apache.doris.common.jni.vec.TableSchema.SchemaColumn;
+import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
 
 import io.trino.spi.classloader.ThreadContextClassLoader;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hive.common.JavaUtils;
-import org.apache.hadoop.hive.ql.io.RCFileRecordReader;
 import org.apache.hadoop.hive.serde.serdeConstants;
 import org.apache.hadoop.hive.serde2.ColumnProjectionUtils;
 import org.apache.hadoop.hive.serde2.Deserializer;
@@ -36,9 +36,11 @@ import org.apache.hadoop.hive.serde2.objectinspector.ObjectInspector;
 import org.apache.hadoop.hive.serde2.objectinspector.StructField;
 import org.apache.hadoop.hive.serde2.objectinspector.StructObjectInspector;
 import org.apache.hadoop.io.LongWritable;
+import org.apache.hadoop.io.Writable;
 import org.apache.hadoop.mapred.FileSplit;
 import org.apache.hadoop.mapred.InputFormat;
 import org.apache.hadoop.mapred.JobConf;
+import org.apache.hadoop.mapred.RecordReader;
 import org.apache.hadoop.mapred.Reporter;
 import org.apache.hadoop.util.ReflectionUtils;
 import org.apache.log4j.LogManager;
@@ -64,21 +66,20 @@ public class HiveJNIScanner extends JniScanner {
     private final String[] columnTypes;
     private final String[] columnNames;
     private final String[] requiredFields;
-    private final String serde;
     private final boolean isGetTableSchema;
-    private ColumnType[] requiredTypes;
+    private final ColumnType[] requiredTypes;
+    private final int[] requiredColumnIds;
+    private final TFileFormatType fileFormat;
     private StructField[] structFields;
     private ObjectInspector[] fieldInspectors;
-    private int[] requiredColumnIds;
     private Long splitStartOffset;
-    private String inputFormat;
     private Long splitSize;
     private StructObjectInspector rowInspector;
     private Deserializer deserializer;
-    private RCFileRecordReader<LongWritable, BytesRefArrayWritable> reader;
-    private LongWritable key;
-    private BytesRefArrayWritable value;
-    private int fileFormat;
+    private RecordReader<Writable, Writable> reader;
+    private Writable key;
+    private Writable value;
+    private HiveFileContext hiveFileContext;
 
     public HiveJNIScanner(int fetchSize, Map<String, String> requiredParams) {
         this.classLoader = this.getClass().getClassLoader();
@@ -86,17 +87,14 @@ public class HiveJNIScanner extends JniScanner {
         this.requiredParams = requiredParams;
         this.fileType = TFileType.findByValue(Integer.parseInt(requiredParams.get(HiveProperties.FILE_TYPE)));
         this.isGetTableSchema = Boolean.parseBoolean(requiredParams.get(HiveProperties.IS_GET_TABLE_SCHEMA));
-        this.fileFormat = Integer.parseInt(requiredParams.get(HiveProperties.FILE_FORMAT));
+        this.fileFormat = TFileFormatType.findByValue(Integer.parseInt(requiredParams.get(HiveProperties.FILE_FORMAT)));
         this.columnNames = requiredParams.get(HiveProperties.COLUMNS_NAMES).split(HiveProperties.FIELDS_DELIMITER);
         this.columnTypes = requiredParams.get(HiveProperties.COLUMNS_TYPES)
                 .split(HiveProperties.COLUMNS_TYPE_DELIMITER);
         this.requiredFields = requiredParams.get(HiveProperties.REQUIRED_FIELDS).split(HiveProperties.FIELDS_DELIMITER);
-        this.inputFormat = requiredParams.get(HiveProperties.INPUT_FORMAT);
         this.requiredTypes = new ColumnType[requiredFields.length];
         this.requiredColumnIds = new int[requiredFields.length];
-
         this.uri = requiredParams.get(HiveProperties.URI);
-        this.serde = requiredParams.get(HiveProperties.HIVE_SERDE);
         if (!isGetTableSchema) {
             this.key = new LongWritable();
             this.value = new BytesRefArrayWritable();
@@ -110,12 +108,9 @@ public class HiveJNIScanner extends JniScanner {
     private void initReader(JobConf jobConf, Properties properties) throws Exception {
         Path path = new Path(uri);
         FileSplit fileSplit = new FileSplit(path, splitStartOffset, splitSize, (String[]) null);
-
-        InputFormat<?, ?> inputFormatClass = createInputFormat(jobConf, inputFormat);
-        reader = (RCFileRecordReader<LongWritable, BytesRefArrayWritable>) inputFormatClass.getRecordReader(fileSplit,
-                jobConf, Reporter.NULL);
-
-        deserializer = getDeserializer(jobConf, properties, serde);
+        InputFormat<?, ?> inputFormatClass = createInputFormat(jobConf, hiveFileContext.getInputFormat());
+        reader = (RecordReader<Writable, Writable>) inputFormatClass.getRecordReader(fileSplit, jobConf, Reporter.NULL);
+        deserializer = getDeserializer(jobConf, properties, hiveFileContext.getSerde());
         rowInspector = getTableObjectInspector(deserializer);
         for (int i = 0; i < requiredFields.length; i++) {
             StructField field = rowInspector.getStructFieldRef(requiredFields[i]);
@@ -131,10 +126,6 @@ public class HiveJNIScanner extends JniScanner {
         return ReflectionUtils.newInstance(cls, conf);
     }
 
-    private void createRecorder() throws Exception {
-        // TODO:
-    }
-
     private StructObjectInspector getTableObjectInspector(Deserializer deserializer) throws Exception {
         ObjectInspector inspector = deserializer.getObjectInspector();
         return (StructObjectInspector) inspector;
@@ -147,7 +138,7 @@ public class HiveJNIScanner extends JniScanner {
         properties.setProperty(ColumnProjectionUtils.READ_COLUMN_NAMES_CONF_STR, String.join(",", requiredFields));
         properties.setProperty(HiveProperties.COLUMNS, String.join(",", columnNames));
         properties.setProperty(HiveProperties.COLUMNS2TYPES, String.join(",", columnTypes));
-        properties.setProperty(serdeConstants.SERIALIZATION_LIB, this.serde);
+        properties.setProperty(serdeConstants.SERIALIZATION_LIB, hiveFileContext.getSerde());
         return properties;
     }
 
@@ -173,6 +164,7 @@ public class HiveJNIScanner extends JniScanner {
         try (ThreadContextClassLoader ignored = new ThreadContextClassLoader(classLoader)) {
             parseRequiredTypes();
             initTableInfo(requiredTypes, requiredFields, fetchSize);
+            this.hiveFileContext = new HiveFileContext(fileFormat);
             if (!isGetTableSchema) {
                 Properties properties = createProperties();
                 JobConf jobConf = makeJobConf(properties);
@@ -221,8 +213,8 @@ public class HiveJNIScanner extends JniScanner {
             return numRows;
         } catch (Exception e) {
             close();
-            LOG.error("Failed to get the next off-heap table chunk of hive.", e);
-            throw new IOException("Failed to get the next off-heap table chunk of hive.", e);
+            LOG.error("Failed to get next row of data.", e);
+            throw new IOException("Failed to get next row of data.", e);
         }
     }
 

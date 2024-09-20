@@ -113,26 +113,19 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
             .add(FileFormatConstants.PROP_CSV_SCHEMA)
             .add(FileFormatConstants.PROP_COMPRESS_TYPE)
             .add(FileFormatConstants.PROP_PATH_PARTITION_KEYS)
-            .add(FileFormatConstants.PROP_HIVE_COLNAMES)
-            .add(FileFormatConstants.PROP_HIVE_COLTYPES)
             .build();
 
     // Columns got from file and path(if has)
     protected List<Column> columns = null;
-    // User specified csv columns, it will override columns got from file
-    private final List<Column> csvSchema = Lists.newArrayList();
-
-    // Partition columns from path, e.g. /path/to/columnName=columnValue.
-    private List<String> pathPartitionKeys;
-
     protected List<TBrokerFileStatus> fileStatuses = Lists.newArrayList();
     protected Map<String, String> locationProperties = Maps.newHashMap();
     protected String filePath;
-
     protected TFileFormatType fileFormatType;
-
     protected Optional<String> resourceName = Optional.empty();
-
+    // User specified csv columns, it will override columns got from file
+    private final List<Column> csvSchema = Lists.newArrayList();
+    // Partition columns from path, e.g. /path/to/columnName=columnValue.
+    private List<String> pathPartitionKeys;
     private TFileCompressType compressionType;
     private String headerType = "";
 
@@ -148,6 +141,21 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
     private boolean trimDoubleQuotes;
     private int skipLines;
     private long tableId;
+    private static final ImmutableSet<TFileFormatType> HIVE_FILE_FORMATS = new ImmutableSet.Builder<TFileFormatType>()
+            .add(TFileFormatType.FORMAT_RCBINARY)
+            .add(TFileFormatType.FORMAT_RCTEXT)
+            .add(TFileFormatType.FORMAT_SEQUENCE)
+            .build();
+
+    // When useMetastore is "false", users can specify column names and column types
+    // for file formats such as RCFile and SequenceFile that rely on metadata stored in Hive Metastore
+    private String useMetastore;
+    // Comma-separated list of column names.
+    // Only applicable when useMetastore is false and for formats like RCFile and SequenceFile.
+    private String columnNamesStr;
+    // Hashtag-separated list of column types.
+    // Only applicable when useMetastore is false and for formats like RCFile and SequenceFile.
+    private String columnTypesStr;
 
     public abstract TFileType getTFileType();
 
@@ -288,6 +296,24 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
             }
         }
 
+        this.useMetastore = getOrDefaultAndRemove(copiedProps, FileFormatConstants.PROP_USE_METASTORE,
+                "").toLowerCase();
+
+        if (!useMetastore.isEmpty() && !useMetastore.equals("true") && !useMetastore.equals("false")) {
+            throw new AnalysisException("useMetastore field cannot be recognized, should be \"true\" or \"false\". ");
+        }
+
+        if (!useMetastore.isEmpty() && HIVE_FILE_FORMATS.contains(this.fileFormatType)) {
+            if (useMetastore.equals("false")) {
+                columnNamesStr = getOrDefaultAndRemove(copiedProps, FileFormatConstants.PROP_HIVE_COLUMN_NAMES, "");
+                columnTypesStr = getOrDefaultAndRemove(copiedProps, FileFormatConstants.PROP_HIVE_COLUMN_TYPES, "");
+                if (columnNamesStr.isEmpty() || columnTypesStr.isEmpty()) {
+                    throw new AnalysisException("use metastore is disable, should set column names and column types.");
+                }
+            }
+            // TODO: set metastore address in else branch
+        }
+
         pathPartitionKeys = Optional.ofNullable(
                         getOrDefaultAndRemove(copiedProps, FileFormatConstants.PROP_PATH_PARTITION_KEYS, null))
                 .map(str -> Arrays.stream(str.split(","))
@@ -327,11 +353,6 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
             fileAttributes.setFuzzyParse(fuzzyParse);
         }
         return fileAttributes;
-    }
-
-    @Override
-    public ScanNode getScanNode(PlanNodeId id, TupleDescriptor desc) {
-        return new TVFScanNode(id, desc, false);
     }
 
     @Override
@@ -404,6 +425,22 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
             throw new AnalysisException("getFetchTableStructureRequest exception", e);
         }
         return columns;
+    }
+
+    @Override
+    public ScanNode getScanNode(PlanNodeId id, TupleDescriptor desc) {
+        return new TVFScanNode(id, desc, false);
+    }
+
+    public void checkAuth(ConnectContext ctx) {
+        if (resourceName.isPresent()) {
+            if (!Env.getCurrentEnv().getAccessManager()
+                    .checkResourcePriv(ctx, resourceName.get(), PrivPredicate.USAGE)) {
+                String message = ErrorCode.ERR_RESOURCE_ACCESS_DENIED_ERROR.formatErrorMsg(
+                        PrivPredicate.USAGE.getPrivs().toString(), resourceName.get());
+                throw new org.apache.doris.nereids.exceptions.AnalysisException(message);
+            }
+        }
     }
 
     protected Backend getBackend() {
@@ -589,17 +626,6 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
             }
         }
         return false;
-    }
-
-    public void checkAuth(ConnectContext ctx) {
-        if (resourceName.isPresent()) {
-            if (!Env.getCurrentEnv().getAccessManager()
-                    .checkResourcePriv(ctx, resourceName.get(), PrivPredicate.USAGE)) {
-                String message = ErrorCode.ERR_RESOURCE_ACCESS_DENIED_ERROR.formatErrorMsg(
-                        PrivPredicate.USAGE.getPrivs().toString(), resourceName.get());
-                throw new org.apache.doris.nereids.exceptions.AnalysisException(message);
-            }
-        }
     }
 }
 
