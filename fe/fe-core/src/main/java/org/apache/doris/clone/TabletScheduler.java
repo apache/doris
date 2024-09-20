@@ -277,8 +277,8 @@ public class TabletScheduler extends MasterDaemon {
         // if this is not a force add,
         // and number of scheduling tablets exceed the limit,
         // refuse to add.
-        if (!force && (pendingTablets.size() > Config.max_scheduling_tablets
-                || runningTablets.size() > Config.max_scheduling_tablets)) {
+        if (!force && (pendingTablets.size() >= Config.max_scheduling_tablets
+                || runningTablets.size() >= Config.max_scheduling_tablets)) {
             TabletSchedCtx lowestPriorityTablet = pendingTablets.peekLast();
             if (lowestPriorityTablet == null || lowestPriorityTablet.compareTo(tablet) <= 0) {
                 return AddResult.LIMIT_EXCEED;
