@@ -498,10 +498,11 @@ public class StmtExecutor {
             return logicalPlan instanceof InsertIntoTableCommand
                     || logicalPlan instanceof InsertOverwriteTableCommand
                     || (logicalPlan instanceof CreateTableCommand
-                    && ((CreateTableCommand) logicalPlan).isCtasCommand());
+                    && ((CreateTableCommand) logicalPlan).isCtasCommand())
+                    || logicalPlan instanceof DeleteFromCommand;
         }
         return parsedStmt instanceof InsertStmt || parsedStmt instanceof InsertOverwriteTableStmt
-                || parsedStmt instanceof CreateTableAsSelectStmt;
+                || parsedStmt instanceof CreateTableAsSelectStmt || parsedStmt instanceof DeleteStmt;
     }
 
     public boolean isAnalyzeStmt() {
