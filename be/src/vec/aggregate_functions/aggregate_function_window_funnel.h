@@ -84,10 +84,9 @@ struct WindowFunnelState {
     bool enable_mode;
     WindowFunnelMode window_funnel_mode;
     mutable vectorized::MutableBlock mutable_block;
-    ColumnVector<NativeType>::Container* timestamp_column_data;
+    ColumnVector<NativeType>::Container* timestamp_column_data = nullptr;
     std::vector<ColumnVector<UInt8>::Container*> event_columns_datas;
     SortDescription sort_description {1};
-    bool sorted;
 
     WindowFunnelState() {
         event_count = 0;
@@ -97,20 +96,15 @@ struct WindowFunnelState {
         sort_description[0].column_number = 0;
         sort_description[0].direction = 1;
         sort_description[0].nulls_direction = -1;
-        sorted = false;
     }
     WindowFunnelState(int arg_event_count) : WindowFunnelState() {
         event_count = arg_event_count;
+        event_columns_datas.resize(event_count);
         auto timestamp_column = ColumnVector<NativeType>::create();
-        timestamp_column_data =
-                &assert_cast<ColumnVector<NativeType>&>(*timestamp_column).get_data();
 
         MutableColumns event_columns;
         for (int i = 0; i < event_count; i++) {
-            auto event_column = ColumnVector<UInt8>::create();
-            event_columns_datas.emplace_back(
-                    &assert_cast<ColumnVector<UInt8>&>(*event_column).get_data());
-            event_columns.emplace_back(std::move(event_column));
+            event_columns.emplace_back(ColumnVector<UInt8>::create());
         }
         Block tmp_block;
         tmp_block.insert({std::move(timestamp_column),
@@ -122,15 +116,18 @@ struct WindowFunnelState {
         }
 
         mutable_block = MutableBlock(std::move(tmp_block));
+        _reset_columns_ptr();
     }
 
-    void reset() {
-        window = 0;
-        mutable_block.clear();
-        timestamp_column_data = nullptr;
-        event_columns_datas.clear();
-        sorted = false;
+    void _reset_columns_ptr() {
+        auto& ts_column = mutable_block.get_column_by_position(0);
+        timestamp_column_data = &assert_cast<ColumnVector<NativeType>&>(*ts_column).get_data();
+        for (int i = 0; i != event_count; i++) {
+            auto& event_column = mutable_block.get_column_by_position(i + 1);
+            event_columns_datas[i] = &assert_cast<ColumnVector<UInt8>&>(*event_column).get_data();
+        }
     }
+    void reset() { mutable_block.clear_column_data(); }
 
     void add(const IColumn** arg_columns, ssize_t row_num, int64_t win, WindowFunnelMode mode) {
         window = win;
@@ -146,26 +143,23 @@ struct WindowFunnelState {
     }
 
     void sort() {
-        if (sorted) {
-            return;
-        }
-
         Block tmp_block = mutable_block.to_block();
         auto block = tmp_block.clone_without_columns();
         sort_block(tmp_block, block, sort_description, 0);
-        mutable_block = MutableBlock(std::move(block));
-        sorted = true;
+        mutable_block = std::move(block);
+        _reset_columns_ptr();
     }
 
     template <WindowFunnelMode WINDOW_FUNNEL_MODE>
-    int _match_event_list(size_t& start_row, size_t row_count,
-                          const NativeType* timestamp_data) const {
+    int _match_event_list(size_t& start_row, size_t row_count) const {
         int matched_count = 0;
         DateValueType start_timestamp;
         DateValueType end_timestamp;
         TimeInterval interval(SECOND, window, false);
 
         int column_idx = 1;
+
+        const NativeType* timestamp_data = timestamp_column_data->data();
         const auto& first_event_column = mutable_block.get_column_by_position(column_idx);
         const auto& first_event_data =
                 assert_cast<const ColumnVector<UInt8>&>(*first_event_column).get_data();
@@ -250,14 +244,9 @@ struct WindowFunnelState {
     int _get_internal() const {
         size_t start_row = 0;
         int max_found_event_count = 0;
-        const auto& ts_column = mutable_block.get_column_by_position(0)->get_ptr();
-        const auto& timestamp_data =
-                assert_cast<const ColumnVector<NativeType>&>(*ts_column).get_data().data();
-
         auto row_count = mutable_block.rows();
         while (start_row < row_count) {
-            auto found_event_count =
-                    _match_event_list<WINDOW_FUNNEL_MODE>(start_row, row_count, timestamp_data);
+            auto found_event_count = _match_event_list<WINDOW_FUNNEL_MODE>(start_row, row_count);
             if (found_event_count == event_count) {
                 return found_event_count;
             }
@@ -324,6 +313,7 @@ struct WindowFunnelState {
         status = block.serialize(
                 5, &pblock, &uncompressed_bytes, &compressed_bytes,
                 segment_v2::CompressionTypePB::ZSTD); // ZSTD for better compression ratio
+        block.clear_column_data();
         if (!status.ok()) {
             throw doris::Exception(ErrorCode::INTERNAL_ERROR, status.to_string());
             return;
@@ -336,6 +326,9 @@ struct WindowFunnelState {
         auto data_bytes = buff.size();
         write_var_uint(data_bytes, out);
         out.write(buff.data(), data_bytes);
+
+        mutable_block = std::move(block);
+        const_cast<WindowFunnelState<TYPE_INDEX, NativeType>*>(this)->_reset_columns_ptr();
     }
 
     void read(BufferReadable& in) {
@@ -366,6 +359,7 @@ struct WindowFunnelState {
             throw doris::Exception(ErrorCode::INTERNAL_ERROR, status.to_string());
         }
         mutable_block = MutableBlock(std::move(block));
+        _reset_columns_ptr();
     }
 };
 
