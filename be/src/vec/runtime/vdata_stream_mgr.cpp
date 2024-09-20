@@ -124,7 +124,7 @@ Status VDataStreamMgr::transmit_block(const PTransmitDataParams* request,
         //
         // TODO: Rethink the lifecycle of DataStreamRecvr to distinguish
         // errors from receiver-initiated teardowns.
-        return Status::OK(); // local data stream receiver closed
+        return Status::EndOfFile("data stream receiver closed");
     }
 
     // Lock the fragment context to ensure the runtime state and other objects are not
@@ -134,7 +134,7 @@ Status VDataStreamMgr::transmit_block(const PTransmitDataParams* request,
         // Do not return internal error, because when query finished, the downstream node
         // may finish before upstream node. And the object maybe deconstructed. If return error
         // then the upstream node may report error status to FE, the query is failed.
-        return Status::OK(); // data stream receiver is deconstructed
+        return Status::EndOfFile("data stream receiver is deconstructed");
     }
 
     bool eos = request->eos();
