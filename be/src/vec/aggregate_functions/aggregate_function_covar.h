@@ -140,13 +140,22 @@ struct PopData : Data {
 template <typename T, typename Data>
 struct SampData_OLDER : Data {
     void insert_result_into(IColumn& to) const {
-        ColumnNullable& nullable_column = assert_cast<ColumnNullable&>(to);
-        if (this->count == 1 || this->count == 0) {
-            nullable_column.insert_default();
+        if (to.is_nullable()) {
+            ColumnNullable& nullable_column = assert_cast<ColumnNullable&>(to);
+            if (this->count == 1 || this->count == 0) {
+                nullable_column.insert_default();
+            } else {
+                auto& col = assert_cast<ColumnFloat64&>(nullable_column.get_nested_column());
+                col.get_data().push_back(this->get_samp_result());
+                nullable_column.get_null_map_data().push_back(0);
+            }
         } else {
-            auto& col = assert_cast<ColumnFloat64&>(nullable_column.get_nested_column());
-            col.get_data().push_back(this->get_samp_result());
-            nullable_column.get_null_map_data().push_back(0);
+            auto& col = assert_cast<ColumnFloat64&>(to);
+            if (this->count == 1 || this->count == 0) {
+                col.insert_default();
+            } else {
+                col.get_data().push_back(this->get_samp_result());
+            }
         }
     }
     static DataTypePtr get_return_type() {
