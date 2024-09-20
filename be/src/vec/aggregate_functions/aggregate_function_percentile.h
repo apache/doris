@@ -581,7 +581,7 @@ public:
 };
 
 template <typename T>
-struct PercentileState {
+struct PercentileStateArray {
     mutable std::vector<Counts<T>> vec_counts;
     std::vector<double> vec_quantile {-1};
     bool inited_flag = false;
@@ -635,7 +635,7 @@ struct PercentileState {
         }
     }
 
-    void merge(const PercentileState& rhs) {
+    void merge(const PercentileStateArray& rhs) {
         if (!rhs.inited_flag) {
             return;
         }
@@ -671,6 +671,44 @@ struct PercentileState {
 };
 
 template <typename T>
+struct PercentileState {
+    mutable Counts<T> count;
+    double quantile {-1};
+
+    void write(BufferWritable& buf) const {
+        write_binary(quantile, buf);
+        count.serialize(buf);
+    }
+
+    void read(BufferReadable& buf) {
+        read_binary(quantile, buf);
+        count.unserialize(buf);
+    }
+
+    void add(T source, const Float64& q) {
+        DCHECK(quantile == -1 || quantile == q);
+        quantile = q;
+        count.increment(source, 1);
+    }
+
+    void merge(const PercentileState& rhs) {
+        if (quantile == -1) {
+            quantile = rhs.quantile;
+        }
+        count.merge(const_cast<Counts<T>*>(&(rhs.count)));
+    }
+
+    void reset() {}
+
+    double get() const { return quantile == -1 ? 0 : count.terminate(quantile); }
+
+    void insert_result_into(IColumn& to) const {
+        auto& column_data = assert_cast<ColumnFloat64&>(to).get_data();
+        column_data.push_back(get());
+    }
+};
+
+template <typename T>
 class AggregateFunctionPercentile final
         : public IAggregateFunctionDataHelper<PercentileState<T>, AggregateFunctionPercentile<T>> {
 public:
@@ -689,7 +727,7 @@ public:
         const auto& quantile =
                 assert_cast<const ColumnFloat64&, TypeCheckOnRelease::DISABLE>(*columns[1]);
         AggregateFunctionPercentile::data(place).add(sources.get_data()[row_num],
-                                                     quantile.get_data(), 1);
+                                                     quantile.get_data()[0]);
     }
 
     void reset(AggregateDataPtr __restrict place) const override {
@@ -718,12 +756,12 @@ public:
 
 template <typename T>
 class AggregateFunctionPercentileArray final
-        : public IAggregateFunctionDataHelper<PercentileState<T>,
+        : public IAggregateFunctionDataHelper<PercentileStateArray<T>,
                                               AggregateFunctionPercentileArray<T>> {
 public:
     using ColVecType = ColumnVector<T>;
-    using Base =
-            IAggregateFunctionDataHelper<PercentileState<T>, AggregateFunctionPercentileArray<T>>;
+    using Base = IAggregateFunctionDataHelper<PercentileStateArray<T>,
+                                              AggregateFunctionPercentileArray<T>>;
     AggregateFunctionPercentileArray(const DataTypes& argument_types_) : Base(argument_types_) {}
 
     String get_name() const override { return "percentile_array"; }
