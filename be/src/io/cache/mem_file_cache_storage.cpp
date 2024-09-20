@@ -104,7 +104,14 @@ Status MemFileCacheStorage::remove(const FileCacheKey& key) {
     return Status::OK();
 }
 
-Status MemFileCacheStorage::change_key_meta(const FileCacheKey& key, const KeyMeta& new_meta) {
+Status MemFileCacheStorage::change_key_meta_type(const FileCacheKey& key,
+                                                 const FileCacheType type) {
+    // do nothing for in memory cache coz nothing to persist
+    return Status::OK();
+}
+
+Status MemFileCacheStorage::change_key_meta_expiration(const FileCacheKey& key,
+                                                       const uint64_t expiration) {
     // do nothing for in memory cache coz nothing to persist
     return Status::OK();
 }
