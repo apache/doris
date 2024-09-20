@@ -138,7 +138,6 @@ calculate_process_numbers() {
     local memory_limit_gb=$1
     local cpu_cores_limit=$2
 
-    local min_processes=1
     local data_dir_count
 
     # Convert comma-separated DATA_DIRS into an array
@@ -146,7 +145,7 @@ calculate_process_numbers() {
     data_dir_count=${#DATA_DIR_ARRAY[@]}
 
     # Parse the ratio input
-    IFS=':' read -r num_storage num_stateless num_log <<<"$STORAGE_STATELESS_LOG_RATIO"
+    IFS=':' read -r num_storage num_stateless num_log <<<"${STORAGE_STATELESS_LOG_RATIO}"
 
     # Initialize process counts
     local storage_processes=0   # Storage processes
@@ -156,7 +155,7 @@ calculate_process_numbers() {
     local storage_process_num_limit=$((STORAGE_PROCESSES_NUM_PER_SSD * data_dir_count))
     local log_process_num_limit=$((LOG_PROCESSES_NUM_PER_SSD * data_dir_count))
 
-    if [ "#$MEDIUM_TYPE" = "#HDD" ]; then
+    if [[ "#${MEDIUM_TYPE}" = "#HDD" ]]; then
         storage_process_num_limit=$((STORAGE_PROCESSES_NUM_PER_HDD * data_dir_count))
         log_process_num_limit=$((LOG_PROCESSES_NUM_PER_HDD * data_dir_count))
     fi
@@ -196,11 +195,9 @@ calculate_process_numbers() {
 }
 
 function check_vars() {
-    IFS=',' read -r -a IPS <<<"$FDB_CLUSTER_IPS"
+    IFS=',' read -r -a IPS <<<"${FDB_CLUSTER_IPS}"
 
-    if [[ -z $(which ping) ]]; then
-        echo "ping is not available to check machines are available, please install ping."
-    fi
+    command -v ping || echo "ping is not available to check machines are available, please install ping."
 
     for IP_ADDRESS in "${IPS[@]}"; do
         if ping -c 1 "${IP_ADDRESS}" &>/dev/null; then
@@ -211,12 +208,12 @@ function check_vars() {
         fi
     done
 
-    if [ ${CPU_CORES_LIMIT} -gt $(nproc) ]; then
+    if [[ ${CPU_CORES_LIMIT} -gt $(nproc) ]]; then
         echo "CPU_CORES_LIMIT beyonds number of machine, which is $(nproc)"
         exit 1
     fi
 
-    if [ ${MEMORY_LIMIT_GB} -gt $(free -g | awk '/^Mem:/{print $2}') ]; then
+    if [[ ${MEMORY_LIMIT_GB} -gt $(free -g | awk '/^Mem:/{print $2}') ]]; then
         echo "MEMORY_LIMIT_GB beyonds memory of machine, which is $(free -g | awk '/^Mem:/{print $2}')"
         exit 1
     fi
@@ -238,7 +235,7 @@ function deploy_fdb() {
     IFS=',' read -r -a DATA_DIR_ARRAY <<<"${DATA_DIRS}"
     for DIR in "${DATA_DIR_ARRAY[@]}"; do
         mkdir -p "${DIR}" || handle_error "Failed to create data directory ${DIR}"
-        if [ ! -z "$(ls -A ${DIR})" ]; then
+        if [[ -n "$(ls -A "${DIR}")" ]]; then
             echo "Error: ${DIR} is not empty. DO NOT run deploy on a node running fdb. If you are sure that the node is not in a fdb cluster, run fdb_ctl.sh clean."
             exit 1
         fi
@@ -276,7 +273,7 @@ EOF
     # Calculate number of processes based on resources and data directories
     read -r stateless_processes storage_processes log_processes <<<"$(calculate_process_numbers "${MEMORY_LIMIT_GB}" "${CPU_CORES_LIMIT}")"
     echo "stateless process num : ${stateless_processes}, storage_processes : ${storage_processes}, log_processes : ${log_processes}"
-    if [ $storage_processes -eq 0 ]; then
+    if [[ ${storage_processes} -eq 0 ]]; then
         # Add one process
         PORT=$((FDB_PORT))
         echo "[fdbserver.${PORT}]
@@ -421,7 +418,7 @@ function start() {
     fi
 
     echo "Start fdb success, and you can set conf for MetaService:"
-    echo "fdb_cluster = $(cat ${FDB_HOME}/conf/fdb.cluster)"
+    echo "fdb_cluster = $(cat "${FDB_HOME}"/conf/fdb.cluster)"
 }
 
 function stop() {
