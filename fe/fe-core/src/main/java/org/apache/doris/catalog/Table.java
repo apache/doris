@@ -194,7 +194,7 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
 
     private void checkAndLogLockDuration(String type, long lockStart, long lockEnd) {
         long duration = lockEnd - lockStart;
-        if (duration > Config.lock_reporting_threshold_ms) {
+        if (duration > Config.max_lock_hold_threshold_seconds * 1000) {
             StringBuilder msgBuilder = new StringBuilder();
             msgBuilder.append(getId())
                     .append(" ")

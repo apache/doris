@@ -2088,6 +2088,10 @@ public class Config extends ConfigBase {
     @ConfField
     public static long lock_reporting_threshold_ms = 500L;
 
+    @ConfField(mutable = true, description = {"表示最大锁持有时间，超过该时间会打印告警日志，单位秒",
+            "Maximum lock hold time; logs a warning if exceeded"})
+    public static long max_lock_hold_threshold_seconds = 10L;
+
     /**
      * If false, when select from tables in information_schema database,
      * the result will not contain the information of the table in external catalog.
