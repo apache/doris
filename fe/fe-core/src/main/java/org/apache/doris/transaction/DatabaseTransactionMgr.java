@@ -165,14 +165,20 @@ public class DatabaseTransactionMgr {
     private volatile long usedQuotaDataBytes = -1;
 
     private long lockWriteStart;
+    private final ThreadLocal<Long> lockReadStart = new ThreadLocal<>();
 
-    private long lockReportingThresholdMs = Config.lock_reporting_threshold_ms;
+    private final long lockReportingThresholdMs = Config.lock_reporting_threshold_ms;
 
     protected void readLock() {
         this.transactionLock.readLock().lock();
+        lockReadStart.set(System.currentTimeMillis());
     }
 
     protected void readUnlock() {
+        if (lockReadStart.get() != null) {
+            checkAndLogLockDuration("read", lockReadStart.get(), System.currentTimeMillis());
+            lockReadStart.remove();
+        }
         this.transactionLock.readLock().unlock();
     }
 
@@ -182,7 +188,7 @@ public class DatabaseTransactionMgr {
     }
 
     protected void writeUnlock() {
-        checkAndLogWriteLockDuration(lockWriteStart, System.currentTimeMillis());
+        checkAndLogLockDuration("write", lockWriteStart, System.currentTimeMillis());
         this.transactionLock.writeLock().unlock();
     }
 
@@ -2211,11 +2217,12 @@ public class DatabaseTransactionMgr {
      * @param lockStart holing lock start time.
      * @param lockEnd release lock time.
      */
-    private void checkAndLogWriteLockDuration(long lockStart, long lockEnd) {
+    private void checkAndLogLockDuration(String type, long lockStart, long lockEnd) {
         long duration = lockEnd - lockStart;
         if (duration > lockReportingThresholdMs) {
             StringBuilder msgBuilder = new StringBuilder();
-            msgBuilder.append("lock is held at ")
+            msgBuilder.append(type)
+                    .append(" lock is held at ")
                     .append(lockStart)
                     .append(".And release after ")
                     .append(duration)

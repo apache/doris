@@ -19,6 +19,7 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.alter.AlterCancelException;
 import org.apache.doris.analysis.CreateTableStmt;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.io.Text;
@@ -73,6 +74,8 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
     protected TableType type;
     protected long createTime;
     protected QueryableReentrantReadWriteLock rwLock;
+    private final ThreadLocal<Long> lockReadStart = new ThreadLocal<>();
+    private long lockWriteStart;
 
     /*
      *  fullSchema and nameToColumn should contains all columns, both visible and shadow.
@@ -146,6 +149,7 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
 
     public void readLock() {
         this.rwLock.readLock().lock();
+        lockReadStart.set(System.currentTimeMillis());
     }
 
     public boolean tryReadLock(long timeout, TimeUnit unit) {
@@ -155,6 +159,9 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
                 LOG.warn("Failed to try table {}'s read lock. timeout {} {}. Current owner: {}",
                         name, timeout, unit.name(), rwLock.getOwner());
             }
+            if (res) {
+                lockReadStart.set(System.currentTimeMillis());
+            }
             return res;
         } catch (InterruptedException e) {
             LOG.warn("failed to try read lock at table[" + name + "]", e);
@@ -163,11 +170,16 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
     }
 
     public void readUnlock() {
+        if (lockReadStart.get() != null) {
+            checkAndLogLockDuration("read", lockReadStart.get(), System.currentTimeMillis());
+            lockReadStart.remove();
+        }
         this.rwLock.readLock().unlock();
     }
 
     public void writeLock() {
         this.rwLock.writeLock().lock();
+        lockWriteStart = System.currentTimeMillis();
     }
 
     public boolean writeLockIfExist() {
@@ -176,7 +188,37 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
             this.rwLock.writeLock().unlock();
             return false;
         }
+        lockWriteStart = System.currentTimeMillis();
         return true;
+    }
+
+    private void checkAndLogLockDuration(String type, long lockStart, long lockEnd) {
+        long duration = lockEnd - lockStart;
+        if (duration > Config.max_lock_hold_threshold_seconds * 1000) {
+            StringBuilder msgBuilder = new StringBuilder();
+            msgBuilder.append(getId())
+                    .append(" ")
+                    .append(getName())
+                    .append(" ")
+                    .append(type)
+                    .append(" lock is held at ")
+                    .append(lockStart)
+                    .append(".And release after ")
+                    .append(duration)
+                    .append(" ms.")
+                    .append("Call stack is :\n")
+                    .append(getStackTrace(Thread.currentThread()));
+            LOG.info(msgBuilder.toString());
+        }
+    }
+
+    private static String getStackTrace(Thread t) {
+        final StackTraceElement[] stackTrace = t.getStackTrace();
+        StringBuilder msgBuilder = new StringBuilder();
+        for (StackTraceElement e : stackTrace) {
+            msgBuilder.append(e.toString()).append("\n");
+        }
+        return msgBuilder.toString();
     }
 
     public boolean tryWriteLock(long timeout, TimeUnit unit) {
@@ -186,6 +228,9 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
                 LOG.warn("Failed to try table {}'s write lock. timeout {} {}. Current owner: {}",
                         name, timeout, unit.name(), rwLock.getOwner());
             }
+            if (res) {
+                lockWriteStart = System.currentTimeMillis();
+            }
             return res;
         } catch (InterruptedException e) {
             LOG.warn("failed to try write lock at table[" + name + "]", e);
@@ -194,6 +239,7 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
     }
 
     public void writeUnlock() {
+        checkAndLogLockDuration("write", lockWriteStart, System.currentTimeMillis());
         this.rwLock.writeLock().unlock();
     }
 
