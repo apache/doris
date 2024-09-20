@@ -1515,21 +1515,22 @@ struct FromIso8601DateV2 {
                 }
 
                 if (!(ts_value.template set_time_unit<YEAR>(year) &&
-                      ts_value.template set_time_unit<MONTH>(month))) [[unlikely]] {
+                      ts_value.template set_time_unit<MONTH>(month) &&
+                      ts_value.template set_time_unit<DAY>(1))) [[unlikely]] {
                     null_map->get_data().data()[i] = true;
                 }
-                ts_value.template set_time_unit<DAY>(1);
+
             } else if (iso_string_format_value == 3) {
                 if (sscanf(src_string.data(), iso_format_string.data(), &year) != 1) [[unlikely]] {
                     null_map->get_data().data()[i] = true;
                     continue;
                 }
 
-                if (!ts_value.template set_time_unit<YEAR>(year)) [[unlikely]] {
+                if (!(ts_value.template set_time_unit<YEAR>(year) &&
+                      ts_value.template set_time_unit<MONTH>(1) &&
+                      ts_value.template set_time_unit<DAY>(1))) [[unlikely]] {
                     null_map->get_data().data()[i] = true;
                 }
-                ts_value.template set_time_unit<MONTH>(1);
-                ts_value.template set_time_unit<DAY>(1);
 
             } else if (iso_string_format_value == 5 || iso_string_format_value == 6) {
                 if (iso_string_format_value == 5) {
@@ -1552,14 +1553,19 @@ struct FromIso8601DateV2 {
                 }
 
                 auto first_day_of_week = getFirstDayOfISOWeek(year);
-                ts_value.template set_time_unit<YEAR>(first_day_of_week.year().operator int());
-                ts_value.template set_time_unit<MONTH>(
-                        first_day_of_week.month().operator unsigned int());
-                ts_value.template set_time_unit<DAY>(
-                        first_day_of_week.day().operator unsigned int());
+                if (!(ts_value.template set_time_unit<YEAR>(
+                              first_day_of_week.year().operator int()) &&
+                      ts_value.template set_time_unit<MONTH>(
+                              first_day_of_week.month().operator unsigned int()) &&
+                      ts_value.template set_time_unit<DAY>(
+                              first_day_of_week.day().operator unsigned int()))) [[unlikely]] {
+                    null_map->get_data().data()[i] = true;
+                    continue;
+                }
 
                 auto day_diff = (week - 1) * 7 + weekday - 1;
                 TimeInterval interval(DAY, day_diff, false);
+
                 ts_value.date_add_interval<DAY>(interval);
             } else if (iso_string_format_value == 4) {
                 if (sscanf(src_string.data(), iso_format_string.data(), &year, &day_of_year) != 2)
@@ -1577,9 +1583,13 @@ struct FromIso8601DateV2 {
                         null_map->get_data().data()[i] = true;
                     }
                 }
-                ts_value.template set_time_unit<YEAR>(year);
-                ts_value.template set_time_unit<MONTH>(1);
-                ts_value.template set_time_unit<DAY>(1);
+                if (!(ts_value.template set_time_unit<YEAR>(year) &&
+                      ts_value.template set_time_unit<MONTH>(1) &&
+                      ts_value.template set_time_unit<DAY>(1))) [[unlikely]] {
+                    null_map->get_data().data()[i] = true;
+                    continue;
+                }
+
                 TimeInterval interval(DAY, day_of_year - 1, false);
                 ts_value.template date_add_interval<DAY>(interval);
             } else {
