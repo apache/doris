@@ -17,6 +17,8 @@
 
 #include "partition_sort_sink_operator.h"
 
+#include <cstdint>
+
 #include "common/status.h"
 #include "partition_sort_source_operator.h"
 #include "vec/common/hash_table/hash.h"
@@ -107,8 +109,13 @@ Status PartitionSortSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
     for (size_t i = 0; i < p._partition_expr_ctxs.size(); i++) {
         RETURN_IF_ERROR(p._partition_expr_ctxs[i]->clone(state, _partition_expr_ctxs[i]));
     }
+    _topn_phase = p._topn_phase;
     _partition_exprs_num = p._partition_exprs_num;
     _hash_table_size_counter = ADD_COUNTER(_profile, "HashTableSize", TUnit::UNIT);
+    _serialize_key_arena_memory_usage =
+            _profile->AddHighWaterMarkCounter("SerializeKeyArena", TUnit::BYTES, "MemoryUsage", 1);
+    _hash_table_memory_usage =
+            ADD_CHILD_COUNTER_WITH_LEVEL(_profile, "HashTable", TUnit::BYTES, "MemoryUsage", 1);
     _build_timer = ADD_TIMER(_profile, "HashTableBuildTime");
     _selector_block_timer = ADD_TIMER(_profile, "SelectorBlockTime");
     _emplace_key_timer = ADD_TIMER(_profile, "EmplaceKeyTime");
@@ -119,6 +126,8 @@ Status PartitionSortSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
             &_vsort_exec_exprs, p._limit, 0, p._pool, p._is_asc_order, p._nulls_first,
             p._child->row_desc(), state, _profile, p._has_global_limit, p._partition_inner_limit,
             p._top_n_algorithm, p._topn_phase);
+    _profile->add_info_string("PartitionTopNPhase", to_string(p._topn_phase));
+    _profile->add_info_string("PartitionTopNLimit", std::to_string(p._partition_inner_limit));
     RETURN_IF_ERROR(_init_hash_method());
     return Status::OK();
 }
@@ -177,11 +186,7 @@ Status PartitionSortSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
             }
             local_state._value_places[0]->append_whole_block(input_block, _child->row_desc());
         } else {
-            //just simply use partition num to check
-            //if is TWO_PHASE_GLOBAL, must be sort all data thought partition num threshold have been exceeded.
-            if (_topn_phase != TPartTopNPhase::TWO_PHASE_GLOBAL &&
-                local_state._num_partition > config::partition_topn_partition_threshold &&
-                local_state._sorted_partition_input_rows < 10000 * local_state._num_partition) {
+            if (local_state._is_need_passthrough) {
                 {
                     COUNTER_UPDATE(local_state._passthrough_rows_counter, (int64_t)current_rows);
                     std::lock_guard<std::mutex> lock(local_state._shared_state->buffer_mutex);
@@ -193,8 +198,6 @@ Status PartitionSortSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
                 RETURN_IF_ERROR(_split_block_by_partition(input_block, local_state, eos));
                 RETURN_IF_CANCELLED(state);
                 input_block->clear_column_data();
-                local_state._sorted_partition_input_rows =
-                        local_state._sorted_partition_input_rows + current_rows;
             }
         }
     }
@@ -225,6 +228,8 @@ Status PartitionSortSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
             local_state._shared_state->sink_eos = true;
             local_state._dependency->set_ready_to_read();
         }
+        local_state._profile->add_info_string("HasPassThrough",
+                                              local_state._is_need_passthrough ? "Yes" : "No");
     }
 
     return Status::OK();
@@ -245,7 +250,7 @@ Status PartitionSortSinkOperatorX::_split_block_by_partition(
 }
 
 Status PartitionSortSinkOperatorX::_emplace_into_hash_table(
-        const vectorized::ColumnRawPtrs& key_columns, const vectorized::Block* input_block,
+        const vectorized::ColumnRawPtrs& key_columns, vectorized::Block* input_block,
         PartitionSortSinkLocalState& local_state, bool eos) {
     return std::visit(
             vectorized::Overload {
@@ -280,15 +285,37 @@ Status PartitionSortSinkOperatorX::_emplace_into_hash_table(
                         };
 
                         SCOPED_TIMER(local_state._emplace_key_timer);
-                        for (size_t row = 0; row < num_rows; ++row) {
+                        int row = num_rows;
+                        for (row = row - 1; row >= 0 && !local_state._is_need_passthrough; --row) {
                             auto& mapped = agg_method.lazy_emplace(state, row, creator,
                                                                    creator_for_null_key);
                             mapped->add_row_idx(row);
+                            local_state._sorted_partition_input_rows++;
+                            local_state._is_need_passthrough =
+                                    local_state.check_whether_need_passthrough();
                         }
                         for (auto* place : local_state._value_places) {
                             SCOPED_TIMER(local_state._selector_block_timer);
                             RETURN_IF_ERROR(place->append_block_by_selector(input_block, eos));
                         }
+                        if (local_state._is_need_passthrough) {
+                            {
+                                COUNTER_UPDATE(local_state._passthrough_rows_counter,
+                                               (int64_t)(num_rows - row));
+                                std::lock_guard<std::mutex> lock(
+                                        local_state._shared_state->buffer_mutex);
+                                // have emplace (num_rows - row) to hashtable, and now have row remaining needed in block;
+                                input_block->set_num_rows(row);
+                                local_state._shared_state->blocks_buffer.push(
+                                        std::move(*input_block));
+                                // buffer have data, source could read this.
+                                local_state._dependency->set_ready_to_read();
+                            }
+                        }
+                        local_state._serialize_key_arena_memory_usage->set(
+                                (int64_t)local_state._agg_arena_pool->size());
+                        COUNTER_SET(local_state._hash_table_memory_usage,
+                                    (int64_t)agg_method.hash_table->get_buffer_size_in_bytes());
                         return Status::OK();
                     }},
             local_state._partitioned_data->method_variant);
@@ -302,5 +329,21 @@ Status PartitionSortSinkLocalState::_init_hash_method() {
             init_partition_hash_method(_partitioned_data.get(), _partition_expr_ctxs, true));
     return Status::OK();
 }
+
+// NOLINTBEGIN(readability-simplify-boolean-expr)
+// just simply use partition num to check
+// but if is TWO_PHASE_GLOBAL, must be sort all data thought partition num threshold have been exceeded.
+// partition_topn_max_partitions     default is : 1024
+// partition_topn_per_partition_rows default is : 1000
+bool PartitionSortSinkLocalState::check_whether_need_passthrough() {
+    if (_topn_phase != TPartTopNPhase::TWO_PHASE_GLOBAL &&
+        _num_partition > _state->partition_topn_max_partitions() &&
+        _sorted_partition_input_rows <
+                _state->partition_topn_per_partition_rows() * _num_partition) {
+        return true;
+    }
+    return false;
+}
+// NOLINTEND(readability-simplify-boolean-expr)
 
 } // namespace doris::pipeline
