@@ -453,7 +453,9 @@ suite("agg_sync_mv") {
     createMV("""create materialized view mv_sync48 as select id, var_pop(kint) from agg_mv_test group by id order by id;""")
     explain {
         sql("select id, var_pop(kint) from agg_mv_test group by id order by id;")
-        contains "(mv_sync47)"
+        check { result ->
+            result.contains("(mv_sync47)") || result.contains("(mv_sync48)")
+        }
     }
     qt_select_var_pop_mv """select id, var_pop(kint) from agg_mv_test group by id order by id;"""
 

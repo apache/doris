@@ -1440,29 +1440,26 @@ class Suite implements GroovyInterceptable {
         }
     }
 
-    def getMVJobState = { tableName, limit  ->
-        def jobStateResult = sql """  SHOW ALTER TABLE ROLLUP WHERE TableName='${tableName}' ORDER BY CreateTime DESC limit ${limit}"""
-        if (jobStateResult.size() != limit) {
+    def getMVJobState = { tableName, rollUpName  ->
+        def jobStateResult = sql """ SHOW ALTER TABLE ROLLUP WHERE TableName='${tableName}' and IndexName = '${rollUpName}' ORDER BY CreateTime DESC limit 1"""
+        if (jobStateResult == null || jobStateResult.isEmpty()) {
             logger.info("show alter table roll is empty" + jobStateResult)
             return "NOT_READY"
         }
-        for (int i = 0; i < jobStateResult.size(); i++) {
-            logger.info("getMVJobState is " + jobStateResult[i][8])
-            if (!jobStateResult[i][8].equals("FINISHED")) {
-                return "NOT_READY"
-            }
+        logger.info("getMVJobState jobStateResult is " + jobStateResult.toString())
+        if (!jobStateResult[0][8].equals("FINISHED")) {
+            return "NOT_READY"
         }
         return "FINISHED";
     }
-    def waitForRollUpJob =  (tbName, timeoutMillisecond, limit) -> {
+    def waitForRollUpJob =  (tbName, rollUpName, timeoutMillisecond) -> {
 
         long startTime = System.currentTimeMillis()
         long timeoutTimestamp = startTime + timeoutMillisecond
 
         String result
-        // time out or has run exceed 10 minute, then break
-        while (timeoutTimestamp > System.currentTimeMillis() && System.currentTimeMillis() - startTime < 600000){
-            result = getMVJobState(tbName, limit)
+        while (timeoutTimestamp > System.currentTimeMillis()){
+            result = getMVJobState(tbName, rollUpName)
             if (result == "FINISHED") {
                 sleep(200)
                 return
