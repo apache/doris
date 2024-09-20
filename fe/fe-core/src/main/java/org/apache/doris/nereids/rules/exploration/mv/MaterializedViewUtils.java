@@ -148,7 +148,7 @@ public class MaterializedViewUtils {
                 return RelatedTableInfo.successWith(
                         partitionColumn.getTable().map(BaseTableInfo::new).get(),
                         true,
-                        partitionColumn.getColumn().get().getName(),
+                        extractColumn(partitionColumn).getName(),
                         entry.getValue().key().orElse(null),
                         entry.getValue().value());
             }
@@ -210,7 +210,7 @@ public class MaterializedViewUtils {
             relatedTableInfos.add(RelatedTableInfo.successWith(
                     partitionColumn.getTable().map(BaseTableInfo::new).get(),
                     true,
-                    partitionColumn.getColumn().get().getName(),
+                    extractColumn(partitionColumn).getName(),
                     entry.getValue().key().orElse(null),
                     entry.getValue().value()));
         }
@@ -572,15 +572,6 @@ public class MaterializedViewUtils {
                                 + "Or the partition column is in the invalid table");
                 return null;
             }
-            // Check the table which mv partition column belonged to is same as the current check relation or not
-            if (partitionColumnsToCheck.stream().noneMatch(columnSlot ->
-                    columnSlot.getTable().map(TableIf::getFullQualifiers).orElse(ImmutableList.of())
-                            .equals(((LogicalCatalogRelation) relation).getTable().getFullQualifiers()))) {
-                context.addFailReason(String.format("mv partition column name is not belonged to current check , "
-                                + "table, current table is %s",
-                        ((LogicalCatalogRelation) relation).getTable().getFullQualifiers()));
-                return null;
-            }
             LogicalCatalogRelation logicalCatalogRelation = (LogicalCatalogRelation) relation;
             TableIf table = logicalCatalogRelation.getTable();
             if (!(table instanceof MTMVRelatedTableIf)) {
@@ -597,14 +588,12 @@ public class MaterializedViewUtils {
             }
             Set<Column> partitionColumnSet = new HashSet<>(relatedTable.getPartitionColumns());
             for (SlotReference partitionColumn : partitionColumnsToCheck) {
-                Column mvReferenceColumn = partitionColumn.getColumn().get();
-                Expr definExpr = mvReferenceColumn.getDefineExpr();
-                if (definExpr instanceof SlotRef) {
-                    Column referenceRollupColumn = ((SlotRef) definExpr).getColumn();
-                    if (referenceRollupColumn != null) {
-                        mvReferenceColumn = referenceRollupColumn;
-                    }
+                if (!partitionColumn.getTable().map(TableIf::getFullQualifiers).orElse(ImmutableList.of())
+                        .equals(((LogicalCatalogRelation) relation).getTable().getFullQualifiers())) {
+                    // mv partition column name is not belonged to current table, continue check
+                    continue;
                 }
+                Column mvReferenceColumn = extractColumn(partitionColumn);
                 if (partitionColumnSet.contains(mvReferenceColumn)
                         && (!mvReferenceColumn.isAllowNull() || relatedTable.isPartitionColumnAllowNull())) {
                     SlotReference currentPartitionSlot = null;
@@ -615,12 +604,12 @@ public class MaterializedViewUtils {
                             currentPartitionSlot = (SlotReference) catalogSlot;
                         }
                     }
-                    // If self join or partition is in invalid side,
+                    // If self join such as inner join or partition is in invalid side such as null generate side,
                     // should also check the partition column is in the shuttled equal set
                     boolean tableChecked = context.getPartitionAndRollupExpressionChecked().keySet().stream()
                             .anyMatch(slot -> Objects.equals(slot.getTable().map(BaseTableInfo::new).orElse(null),
                                             new BaseTableInfo(table)));
-                    if (tableChecked || context.getInvalidTableSet().contains(new BaseTableInfo(table))) {
+                    if (tableChecked || context.getInvalidCatalogRelation().contains(relation)) {
                         boolean checkSuccess = false;
                         for (Set<Slot> equalSlotSet : context.getShttuledEqualSlotSet()) {
                             checkSuccess = equalSlotSet.contains(partitionColumn)
@@ -839,6 +828,22 @@ public class MaterializedViewUtils {
         }
     }
 
+    private static Column extractColumn(SlotReference slotReference) {
+        Optional<Column> slotReferenceColumn = slotReference.getColumn();
+        if (!slotReferenceColumn.isPresent()) {
+            return null;
+        }
+        Expr definExpr = slotReferenceColumn.get().getDefineExpr();
+        if (definExpr instanceof SlotRef) {
+            // If slotReference is from sync mv when rbo, should get actual column
+            Column referenceRollupColumn = ((SlotRef) definExpr).getColumn();
+            if (referenceRollupColumn != null) {
+                return referenceRollupColumn;
+            }
+        }
+        return slotReferenceColumn.get();
+    }
+
     private static final class IncrementCheckerContext {
         // This is used to record partition slot, and the map value is rollup expression and bool value which
         // identify it's original partition or not
@@ -850,7 +855,7 @@ public class MaterializedViewUtils {
         private final CascadesContext cascadesContext;
         // This record the invalid table, such as the right side of left join, the partition column
         // is invalid if is form the table
-        private final Set<BaseTableInfo> invalidTableSet = new HashSet<>();
+        private final Set<LogicalCatalogRelation> invalidCatalogRelation = new HashSet<>();
         // This is used to check multi join input partition slot is in the join equal slot set or not
         // if not, can not multi join input trigger partition update
         private final Set<Set<Slot>> shttuledEqualSlotSet = new HashSet<>();
@@ -869,8 +874,8 @@ public class MaterializedViewUtils {
             this.failReasons.add(failReason);
         }
 
-        public Set<BaseTableInfo> getInvalidTableSet() {
-            return invalidTableSet;
+        public Set<LogicalCatalogRelation> getInvalidCatalogRelation() {
+            return invalidCatalogRelation;
         }
 
         public CascadesContext getCascadesContext() {
@@ -938,15 +943,16 @@ public class MaterializedViewUtils {
         }
 
         public void collectInvalidTableSet(Plan plan) {
-            plan.accept(new DefaultPlanVisitor<Void, Set<BaseTableInfo>>() {
+            plan.accept(new DefaultPlanVisitor<Void, Set<LogicalCatalogRelation>>() {
                 @Override
-                public Void visitLogicalRelation(LogicalRelation relation, Set<BaseTableInfo> invalidTableSet) {
+                public Void visitLogicalRelation(LogicalRelation relation,
+                        Set<LogicalCatalogRelation> invalidTableSet) {
                     if (relation instanceof LogicalCatalogRelation) {
-                        invalidTableSet.add(new BaseTableInfo(((LogicalCatalogRelation) relation).getTable()));
+                        invalidTableSet.add((LogicalCatalogRelation) relation);
                     }
                     return null;
                 }
-            }, this.invalidTableSet);
+            }, this.invalidCatalogRelation);
         }
     }
 

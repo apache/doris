@@ -220,6 +220,24 @@ public class PartitionColumnTraceTest extends TestWithFeService {
                         });
     }
 
+    @Test
+    public void test501() {
+        PlanChecker.from(connectContext)
+                .checkExplain("        select l_shipdate_alias, o.o_orderdate_alias, count(l_shipdate_alias) \n"
+                                + "        from (select date_trunc(l_shipdate, 'day') l_shipdate_alias from lineitem) l\n"
+                                + "        inner join (select date_trunc(o_orderdate, 'day') o_orderdate_alias from orders) o\n"
+                                + "        on l_shipdate_alias = o.o_orderdate_alias\n"
+                                + "        group by l_shipdate_alias, o.o_orderdate_alias",
+                        nereidsPlanner -> {
+                            Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
+                            Set<RelatedTableInfo> relatedTableInfos =
+                                    MaterializedViewUtils.getRelatedTableInfos("l_shipdate_alias", "month",
+                                            rewrittenPlan, nereidsPlanner.getCascadesContext());
+                            successWith(relatedTableInfos,
+                                    ImmutableSet.of(Pair.of("lineitem", "l_shipdate")), "month");
+                        });
+    }
+
     // inner join + not self join + partition in join condition + invalid side
     @Test
     public void test6() {
@@ -755,7 +773,8 @@ public class PartitionColumnTraceTest extends TestWithFeService {
                 Assertions.assertTrue(partitionExpression.isPresent());
                 List<DateTrunc> dateTruncs = partitionExpression.get().collectToList(DateTrunc.class::isInstance);
                 Assertions.assertEquals(1, dateTruncs.size());
-                Assertions.assertEquals(dateTruncs.get(0).getArgument(1).toString().toLowerCase(), timeUnit);
+                Assertions.assertEquals(dateTruncs.get(0).getArgument(1).toString().toLowerCase(),
+                        "'" + timeUnit + "'");
             }
             if (StringUtils.isEmpty(timeUnit)) {
                 Assertions.assertFalse(partitionExpression.isPresent());
