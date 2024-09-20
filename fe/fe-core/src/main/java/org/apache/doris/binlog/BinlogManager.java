@@ -33,6 +33,7 @@ import org.apache.doris.persist.ModifyTablePropertyOperationLog;
 import org.apache.doris.persist.ReplacePartitionOperationLog;
 import org.apache.doris.persist.TableAddOrDropColumnsInfo;
 import org.apache.doris.persist.TableInfo;
+import org.apache.doris.persist.TableRenameColumnInfo;
 import org.apache.doris.persist.TruncateTableInfo;
 import org.apache.doris.thrift.TBinlog;
 import org.apache.doris.thrift.TBinlogType;
@@ -327,6 +328,17 @@ public class BinlogManager {
         long timestamp = -1;
         TBinlogType type = TBinlogType.RENAME_TABLE;
         String data = info.toJson();
+        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false, info);
+    }
+
+    public void addColumnRename(TableRenameColumnInfo info, long commitSeq) {
+        long dbId = info.getDbId();
+        List<Long> tableIds = Lists.newArrayList();
+        tableIds.add(info.getTableId());
+        long timestamp = -1;
+        TBinlogType type = TBinlogType.RENAME_COLUMN;
+        String data = info.toJson();
+
         addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false, info);
     }
 
