@@ -816,8 +816,7 @@ public class VariableMgr {
                         defaultValue = VariableVarConverters.decode(varName, Long.valueOf(defaultValue));
                         curValue = VariableVarConverters.decode(varName, Long.valueOf(curValue));
                     } catch (DdlException e) {
-                        row.add("");
-                        LOG.warn("Encode session variable failed");
+                        LOG.warn("Decode session variable {} failed, reason: {}", varName, e.getMessage());
                     }
                 }
 
