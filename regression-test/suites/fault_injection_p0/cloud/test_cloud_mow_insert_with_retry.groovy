@@ -29,11 +29,10 @@ suite("test_cloud_mow_insert_with_retry", "nonConcurrent") {
     def dbName = "regression_test_fault_injection_p0_cloud"
     def table1 = dbName + ".test_cloud_mow_insert_with_retry"
     setFeConfigTemporary(customFeConfig) {
-        for (item in ["legacy", "nereids"]) {
-            try {
-                GetDebugPoint().enableDebugPointForAllBEs("CloudEngineCalcDeleteBitmapTask.execute.enable_wait")
-                sql "DROP TABLE IF EXISTS ${table1} FORCE;"
-                sql """ CREATE TABLE IF NOT EXISTS ${table1} (
+        try {
+            GetDebugPoint().enableDebugPointForAllBEs("CloudEngineCalcDeleteBitmapTask.execute.enable_wait")
+            sql "DROP TABLE IF EXISTS ${table1} FORCE;"
+            sql """ CREATE TABLE IF NOT EXISTS ${table1} (
                         `k1` int NOT NULL,
                         `c1` int,
                         `c2` int
@@ -43,44 +42,35 @@ suite("test_cloud_mow_insert_with_retry", "nonConcurrent") {
                         "enable_unique_key_merge_on_write" = "true",
                         "disable_auto_compaction" = "true",
                         "replication_num" = "1"); """
-                connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url = context.config.jdbcUrl + "&useLocalSessionState=true") {
-                    if (item == "nereids") {
-                        sql """ set enable_nereids_planner=true; """
-                        sql """ set enable_fallback_to_original_planner=false; """
-                    } else {
-                        sql """ set enable_nereids_planner = false; """
-                    }
-                    def timeout = 2000
-                    def now = System.currentTimeMillis()
-                    sql "insert into ${table1} values(1,1,1);"
-                    def time_diff = System.currentTimeMillis() - now
-                    logger.info("time_diff:" + time_diff)
-                    assertTrue(time_diff > timeout, "insert or delete should take over " + timeout + " ms")
+            connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url = context.config.jdbcUrl + "&useLocalSessionState=true") {
+                def timeout = 2000
+                def now = System.currentTimeMillis()
+                sql "insert into ${table1} values(1,1,1);"
+                def time_diff = System.currentTimeMillis() - now
+                logger.info("time_diff:" + time_diff)
+                assertTrue(time_diff > timeout, "insert or delete should take over " + timeout + " ms")
 
-                    now = System.currentTimeMillis()
-                    sql "insert into ${table1} values(2,2,2);"
-                    time_diff = System.currentTimeMillis() - now
-                    logger.info("time_diff:" + time_diff)
-                    assertTrue(time_diff > timeout, "insert or delete should take over " + timeout + " ms")
-                    order_qt_sql "select * from ${table1};"
+                now = System.currentTimeMillis()
+                sql "insert into ${table1} values(2,2,2);"
+                time_diff = System.currentTimeMillis() - now
+                logger.info("time_diff:" + time_diff)
+                assertTrue(time_diff > timeout, "insert or delete should take over " + timeout + " ms")
+                order_qt_sql "select * from ${table1};"
 
-                    now = System.currentTimeMillis()
-                    sql "delete from ${table1} where k1=2;"
-                    time_diff = System.currentTimeMillis() - now
-                    logger.info("time_diff:" + time_diff)
-                    assertTrue(time_diff > timeout, "insert or delete should take over " + timeout + " ms")
-                    order_qt_sql "select * from ${table1};"
-                }
-            } catch (Exception e) {
-                logger.info(e.getMessage())
-                throw e
-            } finally {
-                GetDebugPoint().disableDebugPointForAllFEs("CloudEngineCalcDeleteBitmapTask.execute.enable_wait")
-                sql "DROP TABLE IF EXISTS ${table1};"
-                GetDebugPoint().clearDebugPointsForAllBEs()
+                now = System.currentTimeMillis()
+                sql "delete from ${table1} where k1=2;"
+                time_diff = System.currentTimeMillis() - now
+                logger.info("time_diff:" + time_diff)
+                assertTrue(time_diff > timeout, "insert or delete should take over " + timeout + " ms")
+                order_qt_sql "select * from ${table1};"
             }
+        } catch (Exception e) {
+            logger.info(e.getMessage())
+            throw e
+        } finally {
+            GetDebugPoint().disableDebugPointForAllFEs("CloudEngineCalcDeleteBitmapTask.execute.enable_wait")
+            sql "DROP TABLE IF EXISTS ${table1};"
+            GetDebugPoint().clearDebugPointsForAllBEs()
         }
-
     }
-
 }
