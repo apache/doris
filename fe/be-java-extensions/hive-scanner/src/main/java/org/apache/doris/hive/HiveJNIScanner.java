@@ -31,11 +31,9 @@ import org.apache.hadoop.hive.common.JavaUtils;
 import org.apache.hadoop.hive.serde.serdeConstants;
 import org.apache.hadoop.hive.serde2.ColumnProjectionUtils;
 import org.apache.hadoop.hive.serde2.Deserializer;
-import org.apache.hadoop.hive.serde2.columnar.BytesRefArrayWritable;
 import org.apache.hadoop.hive.serde2.objectinspector.ObjectInspector;
 import org.apache.hadoop.hive.serde2.objectinspector.StructField;
 import org.apache.hadoop.hive.serde2.objectinspector.StructObjectInspector;
-import org.apache.hadoop.io.LongWritable;
 import org.apache.hadoop.io.Writable;
 import org.apache.hadoop.mapred.FileSplit;
 import org.apache.hadoop.mapred.InputFormat;
@@ -96,8 +94,6 @@ public class HiveJNIScanner extends JniScanner {
         this.requiredColumnIds = new int[requiredFields.length];
         this.uri = requiredParams.get(HiveProperties.URI);
         if (!isGetTableSchema) {
-            this.key = new LongWritable();
-            this.value = new BytesRefArrayWritable();
             this.splitStartOffset = Long.parseLong(requiredParams.get(HiveProperties.SPLIT_START_OFFSET));
             this.splitSize = Long.parseLong(requiredParams.get(HiveProperties.SPLIT_SIZE));
             this.structFields = new StructField[requiredFields.length];
