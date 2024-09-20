@@ -35,11 +35,11 @@ AggregateFunctionPtr type_dispatch_for_aggregate_function_skew(const DataTypes& 
     if (nullable_input) {
         return creator_without_type::create_ignore_nullable<
                 AggregateFunctionVarianceSimple<StatFunctionTemplate, true>>(
-                argument_types, result_is_nullable, StatisticsFunctionKind::skewPop);
+                argument_types, result_is_nullable, STATISTICS_FUNCTION_KIND::SKEW_POP);
     } else {
         return creator_without_type::create_ignore_nullable<
                 AggregateFunctionVarianceSimple<StatFunctionTemplate, false>>(
-                argument_types, result_is_nullable, StatisticsFunctionKind::skewPop);
+                argument_types, result_is_nullable, STATISTICS_FUNCTION_KIND::SKEW_POP);
     }
 };
 

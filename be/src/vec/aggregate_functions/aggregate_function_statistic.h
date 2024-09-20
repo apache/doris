@@ -36,13 +36,13 @@
 
 namespace doris::vectorized {
 
-enum class StatisticsFunctionKind : uint8_t { skewPop, kurtPop };
+enum class STATISTICS_FUNCTION_KIND : uint8_t { SKEW_POP, KURT_POP };
 
-inline std::string to_string(StatisticsFunctionKind kind) {
+inline std::string to_string(STATISTICS_FUNCTION_KIND kind) {
     switch (kind) {
-    case StatisticsFunctionKind::skewPop:
+    case STATISTICS_FUNCTION_KIND::SKEW_POP:
         return "skewness";
-    case StatisticsFunctionKind::kurtPop:
+    case STATISTICS_FUNCTION_KIND::KURT_POP:
         return "kurtosis";
     default:
         return "Unknown";
@@ -51,12 +51,8 @@ inline std::string to_string(StatisticsFunctionKind kind) {
 
 template <typename T, std::size_t _level>
 struct StatFuncOneArg {
-    using Type1 = T;
-    using Type2 = T;
-    using ResultType = Float64;
-    using Data = VarMoments<ResultType, _level>;
-
-    static constexpr UInt32 num_args = 1;
+    using Type = T;
+    using Data = VarMoments<Float64, _level>;
 };
 
 template <typename StatFunc, bool NullableInput>
@@ -65,14 +61,10 @@ class AggregateFunctionVarianceSimple
                   typename StatFunc::Data,
                   AggregateFunctionVarianceSimple<StatFunc, NullableInput>> {
 public:
-    using T1 = typename StatFunc::Type1;
-    using T2 = typename StatFunc::Type2;
-    using ColVecT1 = ColumnVectorOrDecimal<T1>;
-    using ColVecT2 = ColumnVectorOrDecimal<T2>;
-    using ResultType = typename StatFunc::ResultType;
-    using ColVecResult = ColumnVector<ResultType>;
+    using InputCol = ColumnVector<typename StatFunc::Type>;
+    using ResultCol = ColumnVector<Float64>;
 
-    explicit AggregateFunctionVarianceSimple(StatisticsFunctionKind kind_,
+    explicit AggregateFunctionVarianceSimple(STATISTICS_FUNCTION_KIND kind_,
                                              const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper<
                       typename StatFunc::Data,
@@ -91,12 +83,18 @@ public:
              Arena*) const override {
         if constexpr (NullableInput) {
             const ColumnNullable& column_with_nullable =
-                    assert_cast<const ColumnNullable&>(*columns[0]);
-            this->data(place).add(
-                    assert_cast<const ColVecT1&>(column_with_nullable.get_nested_column())
-                            .get_data()[row_num]);
+                    assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(*columns[0]);
+
+            if (column_with_nullable.is_null_at(row_num)) {
+                return;
+            } else {
+                this->data(place).add(assert_cast<const InputCol&, TypeCheckOnRelease::DISABLE>(
+                                              column_with_nullable.get_nested_column())
+                                              .get_data()[row_num]);
+            }
+
         } else {
-            this->data(place).add(assert_cast<const ColVecT1&>(*columns[0]).get_data()[row_num]);
+            this->data(place).add(assert_cast<const InputCol&>(*columns[0]).get_data()[row_num]);
         }
     }
 
@@ -117,14 +115,14 @@ public:
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         const auto& data = this->data(place);
         ColumnNullable& dst_column_with_nullable = assert_cast<ColumnNullable&>(to);
-        ColVecResult* dst_column =
-                assert_cast<ColVecResult*>(&(dst_column_with_nullable.get_nested_column()));
-        ;
+        ResultCol* dst_column =
+                assert_cast<ResultCol*>(&(dst_column_with_nullable.get_nested_column()));
+
         switch (kind) {
-        case StatisticsFunctionKind::skewPop: {
-            // If input is empty set, we will get NAN from getPopulation()
-            ResultType var_value = data.getPopulation();
-            ResultType moments_3 = data.getMoment3();
+        case STATISTICS_FUNCTION_KIND::SKEW_POP: {
+            // If input is empty set, we will get NAN from get_population()
+            Float64 var_value = data.get_population();
+            Float64 moments_3 = data.get_moment_3();
 
             if (std::isnan(var_value) || std::isnan(moments_3) || var_value <= 0) {
                 dst_column_with_nullable.get_null_map_data().push_back(1);
@@ -132,13 +130,13 @@ public:
             } else {
                 dst_column_with_nullable.get_null_map_data().push_back(0);
                 dst_column->get_data().push_back(
-                        static_cast<ResultType>(moments_3 / pow(var_value, 1.5)));
+                        static_cast<Float64>(moments_3 / pow(var_value, 1.5)));
             }
             break;
         }
-        case StatisticsFunctionKind::kurtPop: {
-            ResultType var_value = data.getPopulation();
-            ResultType moments_4 = data.getMoment4();
+        case STATISTICS_FUNCTION_KIND::KURT_POP: {
+            Float64 var_value = data.get_population();
+            Float64 moments_4 = data.get_moment_4();
 
             if (std::isnan(var_value) || std::isnan(moments_4) || var_value <= 0) {
                 dst_column_with_nullable.get_null_map_data().push_back(1);
@@ -146,7 +144,7 @@ public:
             } else {
                 dst_column_with_nullable.get_null_map_data().push_back(0);
                 dst_column->get_data().push_back(
-                        static_cast<ResultType>(moments_4 / pow(var_value, 2)));
+                        static_cast<Float64>(moments_4 / pow(var_value, 2)));
             }
             break;
         }
@@ -156,7 +154,7 @@ public:
     }
 
 private:
-    StatisticsFunctionKind kind;
+    STATISTICS_FUNCTION_KIND kind;
 };
 
 } // namespace doris::vectorized

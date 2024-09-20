@@ -27,7 +27,6 @@ import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.FloatType;
 import org.apache.doris.nereids.types.IntegerType;
-import org.apache.doris.nereids.types.LargeIntType;
 import org.apache.doris.nereids.types.SmallIntType;
 import org.apache.doris.nereids.types.TinyIntType;
 
@@ -43,13 +42,12 @@ public class Kurt extends AggregateFunction
         implements UnaryExpression, ExplicitlyCastableSignature, AlwaysNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(DoubleType.INSTANCE).args(FloatType.INSTANCE),
             FunctionSignature.ret(DoubleType.INSTANCE).args(DoubleType.INSTANCE),
-            FunctionSignature.ret(DoubleType.INSTANCE).args(TinyIntType.INSTANCE),
-            FunctionSignature.ret(DoubleType.INSTANCE).args(SmallIntType.INSTANCE),
-            FunctionSignature.ret(DoubleType.INSTANCE).args(IntegerType.INSTANCE),
             FunctionSignature.ret(DoubleType.INSTANCE).args(BigIntType.INSTANCE),
-            FunctionSignature.ret(DoubleType.INSTANCE).args(LargeIntType.INSTANCE)
+            FunctionSignature.ret(DoubleType.INSTANCE).args(IntegerType.INSTANCE),
+            FunctionSignature.ret(DoubleType.INSTANCE).args(SmallIntType.INSTANCE),
+            FunctionSignature.ret(DoubleType.INSTANCE).args(TinyIntType.INSTANCE),
+            FunctionSignature.ret(DoubleType.INSTANCE).args(FloatType.INSTANCE)
     );
 
     public Kurt(Expression arg1) {

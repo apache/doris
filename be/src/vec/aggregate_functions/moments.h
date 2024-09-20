@@ -58,11 +58,10 @@ struct VarMoments {
 
     T get() const {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                               "Variation moments should be obtained by either 'getSample' or "
-                               "'getPopulation' method");
+                               "Variation moments should be obtained by 'get_population' method");
     }
 
-    T getPopulation() const {
+    T get_population() const {
         if (m[0] == 0) return std::numeric_limits<T>::quiet_NaN();
 
         /// Due to numerical errors, the result can be slightly less than zero,
@@ -71,16 +70,16 @@ struct VarMoments {
         return std::max(T {}, (m[2] - m[1] * m[1] / m[0]) / m[0]);
     }
 
-    T getSample() const {
+    T get_sample() const {
         if (m[0] <= 1) return std::numeric_limits<T>::quiet_NaN();
         return std::max(T {}, (m[2] - m[1] * m[1] / m[0]) / (m[0] - 1));
     }
 
-    T getMoment3() const {
+    T get_moment_3() const {
         if constexpr (_level < 3) {
-            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                                   "Variation moments should be obtained by either 'getSample' or "
-                                   "'getPopulation' method");
+            throw doris::Exception(
+                    ErrorCode::INTERNAL_ERROR,
+                    "Variation moments should be obtained by 'get_population' method");
         } else {
             if (m[0] == 0) return std::numeric_limits<T>::quiet_NaN();
             // to avoid accuracy problem
@@ -90,11 +89,11 @@ struct VarMoments {
         }
     }
 
-    T getMoment4() const {
+    T get_moment_4() const {
         if constexpr (_level < 4) {
-            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                                   "Variation moments should be obtained by either 'getSample' or "
-                                   "'getPopulation' method");
+            throw doris::Exception(
+                    ErrorCode::INTERNAL_ERROR,
+                    "Variation moments should be obtained by 'get_population' method");
         } else {
             if (m[0] == 0) return std::numeric_limits<T>::quiet_NaN();
             // to avoid accuracy problem
@@ -106,7 +105,10 @@ struct VarMoments {
         }
     }
 
-    void reset() { return; }
+    void reset() {
+        m = {};
+        return;
+    }
 };
 
 } // namespace doris::vectorized
