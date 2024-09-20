@@ -99,7 +99,7 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
 
     // Make sure brpc stub is ready before execution.
     for (int i = 0; i < channels.size(); ++i) {
-        RETURN_IF_ERROR(channels[i]->init_stub(state));
+        RETURN_IF_ERROR(channels[i]->init(state));
         _wait_channel_timer.push_back(_profile->add_nonzero_counter(
                 fmt::format("WaitForLocalExchangeBuffer{}", i), TUnit ::TIME_NS, timer_name, 1));
     }
