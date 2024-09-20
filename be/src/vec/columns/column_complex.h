@@ -98,7 +98,7 @@ public:
 
     void insert_many_binary_data(char* data_array, uint32_t* len_array,
                                  uint32_t* start_offset_array, size_t num,
-                                 const cctz::time_zone& timezone) override {
+                                 long tz_offset) override {
         for (size_t i = 0; i < num; i++) {
             insert_binary_data(data_array + start_offset_array[i], len_array[i]);
         }

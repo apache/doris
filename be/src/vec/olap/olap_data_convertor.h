@@ -75,9 +75,9 @@ public:
 class OlapBlockDataConvertor {
 public:
     OlapBlockDataConvertor() = default;
-    OlapBlockDataConvertor(const TabletSchema* tablet_schema, const cctz::time_zone& timezone);
+    OlapBlockDataConvertor(const TabletSchema* tablet_schema, long tz_offset);
     OlapBlockDataConvertor(const TabletSchema* tablet_schema, const std::vector<uint32_t>& col_ids,
-                           const cctz::time_zone& timezone);
+                           long tz_offset);
     void set_source_content(const vectorized::Block* block, size_t row_pos, size_t num_rows);
     Status set_source_content_with_specifid_columns(const vectorized::Block* block, size_t row_pos,
                                                     size_t num_rows, std::vector<uint32_t> cids);
@@ -86,7 +86,7 @@ public:
 
     void clear_source_content();
     std::pair<Status, IOlapColumnDataAccessor*> convert_column_data(size_t cid);
-    void add_column_data_convertor(const TabletColumn& colum, const cctz::time_zone& timezone);
+    void add_column_data_convertor(const TabletColumn& colum, long tz_offset);
 
     bool empty() const { return _convertors.empty(); }
     void reserve(size_t size) { _convertors.reserve(size); }
@@ -99,11 +99,11 @@ private:
     using OlapColumnDataConvertorBaseSPtr = std::shared_ptr<OlapColumnDataConvertorBase>;
 
     static OlapColumnDataConvertorBaseUPtr create_olap_column_data_convertor(
-            const TabletColumn& column, const cctz::time_zone& timezone);
+            const TabletColumn& column, long tz_offset);
     static OlapColumnDataConvertorBaseUPtr create_map_convertor(const TabletColumn& column,
-                                                                const cctz::time_zone& timezone);
+                                                                long tz_offset);
     static OlapColumnDataConvertorBaseUPtr create_array_convertor(const TabletColumn& column,
-                                                                  const cctz::time_zone& timezone);
+                                                                  long tz_offset);
     static OlapColumnDataConvertorBaseUPtr create_agg_state_convertor(const TabletColumn& column);
 
     // accessors for different data types;
@@ -271,13 +271,13 @@ private:
     class OlapColumnDataConvertorTimestamp
             : public OlapColumnDataConvertorPaddedPODArray<uint64_t> {
     public:
-        OlapColumnDataConvertorTimestamp(const cctz::time_zone& timezone) { tz = timezone; }
+        OlapColumnDataConvertorTimestamp(long tz_offset) { _tz_offset = tz_offset; }
         void set_source_column(const ColumnWithTypeAndName& typed_column, size_t row_pos,
                                size_t num_rows) override;
         Status convert_to_olap() override;
 
     private:
-        cctz::time_zone tz;
+        long _tz_offset;
     };
 
     class OlapColumnDataConvertorDecimal
@@ -487,9 +487,9 @@ private:
     class OlapColumnDataConvertorMap : public OlapColumnDataConvertorBase {
     public:
         OlapColumnDataConvertorMap(const TabletColumn& key_column, const TabletColumn& value_column,
-                                   const cctz::time_zone& timezone)
-                : _key_convertor(create_olap_column_data_convertor(key_column, timezone)),
-                  _value_convertor(create_olap_column_data_convertor(value_column, timezone)),
+                                   long tz_offset)
+                : _key_convertor(create_olap_column_data_convertor(key_column, tz_offset)),
+                  _value_convertor(create_olap_column_data_convertor(value_column, tz_offset)),
                   _data_type(DataTypeFactory::instance().create_data_type(key_column),
                              DataTypeFactory::instance().create_data_type(value_column)) {
             _base_offset = 0;

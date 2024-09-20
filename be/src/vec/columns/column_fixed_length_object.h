@@ -294,7 +294,7 @@ public:
 
     void insert_many_binary_data(char* data_array, uint32_t* len_array,
                                  uint32_t* start_offset_array, size_t num,
-                                 const cctz::time_zone& timezone) override {
+                                 long tz_offset) override {
         if (UNLIKELY(num == 0)) {
             return;
         }

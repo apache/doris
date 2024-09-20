@@ -33,11 +33,11 @@ public:
 
     ~LazyInitSegmentIterator() override = default;
 
-    Status init(const StorageReadOptions& opts, const cctz::time_zone& timezone) override;
+    Status init(const StorageReadOptions& opts, long tz_offset) override;
 
     Status next_batch(Block* block) override {
         if (UNLIKELY(_need_lazy_init)) {
-            RETURN_IF_ERROR(init(_read_options, _timezone_obj));
+            RETURN_IF_ERROR(init(_read_options, _tz_offset));
             DCHECK(_inner_iterator != nullptr);
         }
 
@@ -63,6 +63,6 @@ private:
     std::shared_ptr<Segment> _segment;
     StorageReadOptions _read_options;
     RowwiseIteratorUPtr _inner_iterator;
-    cctz::time_zone _timezone_obj;
+    long _tz_offset;
 };
 } // namespace doris::segment_v2

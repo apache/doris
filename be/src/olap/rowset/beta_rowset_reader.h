@@ -48,13 +48,13 @@ public:
     ~BetaRowsetReader() override { _rowset->release(); }
 
     Status init(RowsetReaderContext* read_context, const RowSetSplits& rs_splits,
-                const cctz::time_zone& timezone) override;
+                long tz_offset) override;
 
     Status get_segment_iterators(RowsetReaderContext* read_context,
                                  std::vector<RowwiseIteratorUPtr>* out_iters,
                                  bool use_cache = false) override;
 
-    const cctz::time_zone& timezone_obj() const { return _timezone_obj; }
+    long tz_offset() { return _tz_offset; }
     void reset_read_options() override;
     Status next_block(vectorized::Block* block) override;
     Status next_block_view(vectorized::BlockView* block_view) override;
@@ -130,7 +130,7 @@ private:
     bool _empty = false;
     size_t _topn_limit = 0;
     uint64_t _merged_rows = 0;
-    cctz::time_zone _timezone_obj;
+    long _tz_offset;
 };
 
 } // namespace doris

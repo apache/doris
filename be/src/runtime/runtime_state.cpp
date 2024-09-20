@@ -293,7 +293,6 @@ Status RuntimeState::init(const TUniqueId& fragment_instance_id, const TQueryOpt
     auto local = cctz::convert(cctz::civil_second {}, _timezone_obj);
     _sec_offset = std::chrono::duration_cast<std::chrono::seconds>(given - local).count();
 
-
     if (query_globals.__isset.load_zero_tolerance) {
         _load_zero_tolerance = query_globals.load_zero_tolerance;
     }

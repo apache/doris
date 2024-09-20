@@ -121,8 +121,7 @@ public:
     Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst) override;
 
     Status read_by_rowids(const rowid_t* rowids, ordinal_t page_first_ordinal, size_t* n,
-                          vectorized::MutableColumnPtr& dst,
-                          const cctz::time_zone& timezone) override;
+                          vectorized::MutableColumnPtr& dst, long tz_offset = 0) override;
 
     size_t count() const override { return _data_page_decoder->count(); }
 

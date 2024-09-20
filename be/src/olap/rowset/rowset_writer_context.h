@@ -109,7 +109,6 @@ struct RowsetWriterContext {
 
     int64_t compaction_level = 0;
 
-    cctz::time_zone timezone;
     int64_t tz_offset;
 
     // For local rowset

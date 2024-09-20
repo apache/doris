@@ -151,8 +151,7 @@ Status Segment::_open_inverted_index() {
 }
 
 Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_options,
-                             std::unique_ptr<RowwiseIterator>* iter,
-                             const cctz::time_zone& timezone) {
+                             std::unique_ptr<RowwiseIterator>* iter, long tz_offset) {
     RETURN_IF_ERROR(_create_column_readers_once());
 
     read_options.stats->total_segment_number++;
@@ -247,10 +246,10 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
                 options_with_pruned_predicates.col_id_to_predicates[pred->column_id()]
                         ->add_column_predicate(SingleColumnBlockPredicate::create_unique(pred));
             }
-            return iter->get()->init(options_with_pruned_predicates, timezone);
+            return iter->get()->init(options_with_pruned_predicates, tz_offset);
         }
     }
-    return iter->get()->init(read_options, timezone);
+    return iter->get()->init(read_options, tz_offset);
 }
 
 Status Segment::_parse_footer(SegmentFooterPB* footer) {
@@ -505,8 +504,7 @@ static Status new_default_iterator(const TabletColumn& tablet_column,
             tablet_column.frac()));
     ColumnIteratorOptions iter_opts;
 
-    cctz::time_zone tz {}; //TODOZY
-    RETURN_IF_ERROR(default_value_iter->init(iter_opts, tz));
+    RETURN_IF_ERROR(default_value_iter->init(iter_opts, 0)); //TODOZY
     *iter = std::move(default_value_iter);
     return Status::OK();
 }
@@ -834,7 +832,7 @@ Status Segment::seek_and_read_by_rowid(const TabletSchema& schema, SlotDescripto
                                        uint32_t row_id, vectorized::MutableColumnPtr& result,
                                        OlapReaderStatistics& stats,
                                        std::unique_ptr<ColumnIterator>& iterator_hint,
-                                       const cctz::time_zone& timezone = {}) {
+                                       long tz_offset = 0) {
     StorageReadOptions storage_read_opt;
     storage_read_opt.io_ctx.reader_type = ReaderType::READER_QUERY;
     segment_v2::ColumnIteratorOptions opt {
@@ -856,7 +854,7 @@ Status Segment::seek_and_read_by_rowid(const TabletSchema& schema, SlotDescripto
                 slot->col_unique_id());
         if (iterator_hint == nullptr) {
             RETURN_IF_ERROR(new_column_iterator(column, &iterator_hint, &storage_read_opt));
-            RETURN_IF_ERROR(iterator_hint->init(opt, timezone));
+            RETURN_IF_ERROR(iterator_hint->init(opt, tz_offset));
         }
         RETURN_IF_ERROR(
                 iterator_hint->read_by_rowids(single_row_loc.data(), 1, file_storage_column));
@@ -878,7 +876,7 @@ Status Segment::seek_and_read_by_rowid(const TabletSchema& schema, SlotDescripto
         if (iterator_hint == nullptr) {
             RETURN_IF_ERROR(
                     new_column_iterator(schema.column(index), &iterator_hint, &storage_read_opt));
-            RETURN_IF_ERROR(iterator_hint->init(opt, timezone));
+            RETURN_IF_ERROR(iterator_hint->init(opt, tz_offset));
         }
         RETURN_IF_ERROR(iterator_hint->read_by_rowids(single_row_loc.data(), 1, result));
     }

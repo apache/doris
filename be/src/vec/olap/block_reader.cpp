@@ -119,8 +119,7 @@ bool BlockReader::_rowsets_overlapping(const ReaderParams& read_params) {
     }
     return false;
 }
-Status BlockReader::_init_collect_iter(const ReaderParams& read_params,
-                                       const cctz::time_zone& timezone) {
+Status BlockReader::_init_collect_iter(const ReaderParams& read_params, long tz_offset) {
     auto res = _capture_rs_readers(read_params);
     if (!res.ok()) {
         LOG(WARNING) << "fail to init reader when _capture_rs_readers. res:" << res
@@ -133,7 +132,7 @@ Status BlockReader::_init_collect_iter(const ReaderParams& read_params,
     // check if rowsets are noneoverlapping
     _is_rowsets_overlapping = _rowsets_overlapping(read_params);
     _vcollect_iter.init(this, _is_rowsets_overlapping, read_params.read_orderby_key,
-                        read_params.read_orderby_key_reverse, timezone);
+                        read_params.read_orderby_key_reverse, tz_offset);
 
     std::vector<RowsetReaderSharedPtr> valid_rs_readers;
 
@@ -142,7 +141,7 @@ Status BlockReader::_init_collect_iter(const ReaderParams& read_params,
 
         // _vcollect_iter.topn_next() will init rs_reader by itself
         if (!_vcollect_iter.use_topn_next()) {
-            RETURN_IF_ERROR(rs_split.rs_reader->init(&_reader_context, rs_split, timezone));
+            RETURN_IF_ERROR(rs_split.rs_reader->init(&_reader_context, rs_split, tz_offset));
         }
 
         Status res = _vcollect_iter.add_child(rs_split);
@@ -207,8 +206,8 @@ Status BlockReader::_init_agg_state(const ReaderParams& read_params) {
     return Status::OK();
 }
 
-Status BlockReader::init(const ReaderParams& read_params, const cctz::time_zone& timezone) {
-    RETURN_IF_ERROR(TabletReader::init(read_params, timezone));
+Status BlockReader::init(const ReaderParams& read_params, long tz_offset) {
+    RETURN_IF_ERROR(TabletReader::init(read_params, tz_offset));
 
     int32_t return_column_size = read_params.origin_return_columns->size();
     _return_columns_loc.resize(read_params.return_columns.size());
@@ -227,7 +226,7 @@ Status BlockReader::init(const ReaderParams& read_params, const cctz::time_zone&
         }
     }
 
-    auto status = _init_collect_iter(read_params, timezone);
+    auto status = _init_collect_iter(read_params, tz_offset);
     if (!status.ok()) [[unlikely]] {
         if (!config::is_cloud_mode()) {
             static_cast<Tablet*>(_tablet.get())->report_error(status);

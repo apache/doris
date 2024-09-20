@@ -121,7 +121,7 @@ TabletReader::~TabletReader() {
     }
 }
 
-Status TabletReader::init(const ReaderParams& read_params, const cctz::time_zone& timezone) {
+Status TabletReader::init(const ReaderParams& read_params, long tz_offset) {
     _predicate_arena = std::make_unique<vectorized::Arena>();
 
     Status res = _init_params(read_params);

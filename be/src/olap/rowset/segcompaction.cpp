@@ -86,8 +86,7 @@ Status SegcompactionWorker::_get_segcompaction_reader(
     std::map<uint32_t, uint32_t> segment_rows;
     for (auto& seg_ptr : *segments) {
         std::unique_ptr<RowwiseIterator> iter;
-        cctz::time_zone tz {}; //TODOZY
-        auto s = seg_ptr->new_iterator(schema, read_options, &iter, tz);
+        auto s = seg_ptr->new_iterator(schema, read_options, &iter, 0); //TODOZY
         if (!s.ok()) {
             return Status::Error<INIT_FAILED>("failed to create iterator[{}]: {}", seg_ptr->id(),
                                               s.to_string());

@@ -122,8 +122,7 @@ public:
     ~SegmentIterator() override;
 
     [[nodiscard]] Status init_iterators();
-    [[nodiscard]] Status init(const StorageReadOptions& opts,
-                              const cctz::time_zone& timezone) override;
+    [[nodiscard]] Status init(const StorageReadOptions& opts, long tz_offset) override;
     [[nodiscard]] Status next_batch(vectorized::Block* block) override;
 
     // Get current block row locations. This function should be called
@@ -342,7 +341,7 @@ private:
                 } else if (field->type() == FieldType::OLAP_FIELD_TYPE_DATETIME) {
                     _short_key[cid]->set_datetime_type();
                 } else if (field->type() == FieldType::OLAP_FIELD_TYPE_TIMESTAMP) {
-                    _short_key[cid]->set_timestamp_type(_timezone_obj);
+                    _short_key[cid]->set_timestamp_type();
                 }
             }
         } else {
@@ -367,7 +366,7 @@ private:
                     _short_key[cid]->insert_data(slice->data, slice->size);
                 } else {
                     _short_key[cid]->insert_many_fix_len_data(
-                            reinterpret_cast<const char*>(cell.cell_ptr()), 1, _timezone_obj);
+                            reinterpret_cast<const char*>(cell.cell_ptr()), 1, _tz_offset);
                 }
             }
         }
@@ -536,7 +535,7 @@ private:
             _column_predicate_inverted_index_status;
 
     DorisCallOnce<Status> _init_single_inverted_index_iterator;
-    cctz::time_zone _timezone_obj;
+    long _tz_offset;
 };
 
 } // namespace segment_v2

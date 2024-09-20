@@ -436,10 +436,9 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequest& request,
                 iterator_map[iterator_key].segment = segment;
             }
             segment = iterator_item.segment;
-            cctz::time_zone tz {}; //TODOZY
             RETURN_IF_ERROR(segment->seek_and_read_by_rowid(full_read_schema, desc.slots()[x],
                                                             row_id, column, stats,
-                                                            iterator_item.iterator, tz));
+                                                            iterator_item.iterator, 0)); // TODOZY
         }
     }
     // serialize block if not empty

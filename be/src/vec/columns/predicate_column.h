@@ -204,7 +204,7 @@ public:
         data.set_end_ptr(res_ptr + num);
     }
 
-    void insert_many_timezone(const char* data_ptr, size_t num, const cctz::time_zone& timezone) {
+    void insert_many_timezone(const char* data_ptr, size_t num, long tz_offset) {
         constexpr size_t input_type_size =
                 sizeof(PrimitiveTypeTraits<TYPE_DATETIME>::StorageFieldType);
         static_assert(input_type_size == sizeof(uint64_t));
@@ -214,7 +214,7 @@ public:
         for (int i = 0; i < num; i++) {
             const char* cur_ptr = data_ptr + input_type_size * i;
             uint64_t value = *reinterpret_cast<const uint64_t*>(cur_ptr);
-            target[i] = DateV2Value<DateTimeV2ValueType>::from_utc_datetime(timezone, value);
+            target[i] = DateV2Value<DateTimeV2ValueType>::from_utc_datetime(tz_offset, value);
         }
     }
 
@@ -232,8 +232,7 @@ public:
         }
     }
 
-    void insert_many_fix_len_data(const char* data_ptr, size_t num,
-                                  const cctz::time_zone& timezone) override {
+    void insert_many_fix_len_data(const char* data_ptr, size_t num, long tz_offset) override {
         if constexpr (Type == TYPE_DECIMALV2) {
             // DecimalV2 is special, its storage is <int64, int32>, but its compute type is <int64,int64>
             // should convert here, but it may have some performance lost
@@ -246,7 +245,7 @@ public:
         } else if constexpr (Type == TYPE_DATETIME) {
             insert_many_datetime(data_ptr, num);
         } else if constexpr (Type == TYPE_DATETIME) {
-            insert_many_timezone(data_ptr, num, timezone);
+            insert_many_timezone(data_ptr, num, tz_offset);
         } else {
             insert_many_default_type(data_ptr, num);
         }
@@ -288,7 +287,7 @@ public:
 
     void insert_many_binary_data(char* data_array, uint32_t* len_array,
                                  uint32_t* start_offset_array, size_t num,
-                                 const cctz::time_zone& timezone) override {
+                                 long tz_offset) override {
         if (num == 0) {
             return;
         }

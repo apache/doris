@@ -123,8 +123,7 @@ Status _get_segment_column_iterator(const BetaRowsetSharedPtr& rowset, uint32_t 
             .stats = stats,
             .io_ctx = io::IOContext {.reader_type = ReaderType::READER_QUERY},
     };
-    cctz::time_zone tz {}; //TODOZY
-    RETURN_IF_ERROR((*column_iterator)->init(opt, tz));
+    RETURN_IF_ERROR((*column_iterator)->init(opt, 0)); // TODOZY
     return Status::OK();
 }
 

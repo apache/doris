@@ -233,8 +233,7 @@ public:
     /// All data will be inserted as single element
     virtual void insert_data(const char* pos, size_t length) = 0;
 
-    virtual void insert_many_fix_len_data(const char* pos, size_t num,
-                                          const cctz::time_zone& timezone = {}) {
+    virtual void insert_many_fix_len_data(const char* pos, size_t num, long tz_offset = 0) {
         throw doris::Exception(
                 ErrorCode::NOT_IMPLEMENTED_ERROR,
                 "Method insert_many_fix_len_data is not supported for " + get_name());
@@ -250,7 +249,7 @@ public:
 
     virtual void insert_many_binary_data(char* data_array, uint32_t* len_array,
                                          uint32_t* start_offset_array, size_t num,
-                                         const cctz::time_zone& timezone = {}) {
+                                         long tz_offset = 0) {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "Method insert_many_binary_data is not supported for " + get_name());
     }
@@ -668,14 +667,10 @@ public:
     virtual bool is_date_type() const { return is_date; }
     virtual bool is_datetime_type() const { return is_date_time; }
     virtual bool is_timestamp_type() const { return is_timestamp; }
-    virtual const cctz::time_zone& timezone_obj() const { return _timezone_obj; }
 
     virtual void set_date_type() { is_date = true; }
     virtual void set_datetime_type() { is_date_time = true; }
-    virtual void set_timestamp_type(const cctz::time_zone& timezone) {
-        is_timestamp = true;
-        _timezone_obj = timezone;
-    }
+    virtual void set_timestamp_type() { is_timestamp = true; }
 
     void copy_date_types(const IColumn& col) {
         if (col.is_date_type()) {
@@ -686,7 +681,7 @@ public:
         }
 
         if (col.is_timestamp_type()) {
-            set_timestamp_type(col.timezone_obj());
+            set_timestamp_type();
         }
     }
 
@@ -694,7 +689,6 @@ public:
     bool is_date = false;
     bool is_date_time = false;
     bool is_timestamp = false;
-    cctz::time_zone _timezone_obj;
 
 protected:
     template <typename Derived>

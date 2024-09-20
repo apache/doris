@@ -244,8 +244,7 @@ public:
     }
 
     Status read_by_rowids(const rowid_t* rowids, ordinal_t page_first_ordinal, size_t* n,
-                          vectorized::MutableColumnPtr& dst,
-                          const cctz::time_zone& timezone) override {
+                          vectorized::MutableColumnPtr& dst, long tz_offset) override {
         DCHECK(_parsed);
         if (PREDICT_FALSE(*n == 0 || _cur_index >= _num_elements)) {
             *n = 0;

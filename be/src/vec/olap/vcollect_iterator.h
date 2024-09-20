@@ -54,7 +54,7 @@ public:
     ~VCollectIterator();
 
     void init(TabletReader* reader, bool ori_data_overlapping, bool force_merge, bool is_reverse,
-              cctz::time_zone timezone);
+              long tz_offset);
 
     Status add_child(const RowSetSplits& rs_splits);
 

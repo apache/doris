@@ -268,8 +268,8 @@ SegmentIterator::SegmentIterator(std::shared_ptr<Segment> segment, SchemaSPtr sc
           _inited(false),
           _pool(new ObjectPool) {}
 
-Status SegmentIterator::init(const StorageReadOptions& opts, const cctz::time_zone& timezone) {
-    _timezone_obj = timezone;
+Status SegmentIterator::init(const StorageReadOptions& opts, long tz_offset) {
+    _tz_offset = tz_offset;
     auto status = _init_impl(opts);
     if (!status.ok() && !config::disable_segment_cache) {
         _segment->remove_from_segment_cache();
@@ -524,7 +524,7 @@ Status SegmentIterator::_prepare_seek(const StorageReadOptions::KeyRange& key_ra
                     .stats = _opts.stats,
                     .io_ctx = _opts.io_ctx,
             };
-            RETURN_IF_ERROR(_column_iterators[cid]->init(iter_opts, _timezone_obj));
+            RETURN_IF_ERROR(_column_iterators[cid]->init(iter_opts, _tz_offset));
         }
     }
 
@@ -1441,7 +1441,7 @@ Status SegmentIterator::_init_return_column_iterators() {
                     .stats = _opts.stats,
                     .io_ctx = _opts.io_ctx,
             };
-            RETURN_IF_ERROR(_column_iterators[cid]->init(iter_opts, _timezone_obj));
+            RETURN_IF_ERROR(_column_iterators[cid]->init(iter_opts, _tz_offset));
         }
     }
     return Status::OK();
@@ -2023,7 +2023,7 @@ Status SegmentIterator::_init_current_block(
                 } else if (column_desc->type() == FieldType::OLAP_FIELD_TYPE_DATETIME) {
                     current_columns[cid]->set_datetime_type();
                 } else if (column_desc->type() == FieldType::OLAP_FIELD_TYPE_TIMESTAMP) {
-                    current_columns[cid]->set_timestamp_type(_timezone_obj);
+                    current_columns[cid]->set_timestamp_type();
                 }
                 current_columns[cid]->reserve(nrows_read_limit);
             }

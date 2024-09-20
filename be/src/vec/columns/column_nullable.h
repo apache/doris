@@ -144,10 +144,9 @@ public:
     void insert_range_from_not_nullable(const IColumn& src, size_t start, size_t length);
     void insert_many_from_not_nullable(const IColumn& src, size_t position, size_t length);
 
-    void insert_many_fix_len_data(const char* pos, size_t num,
-                                  const cctz::time_zone& timezone) override {
+    void insert_many_fix_len_data(const char* pos, size_t num, long tz_offset) override {
         _get_null_map_column().insert_many_vals(0, num);
-        get_nested_column().insert_many_fix_len_data(pos, num, timezone);
+        get_nested_column().insert_many_fix_len_data(pos, num, tz_offset);
     }
 
     void insert_many_raw_data(const char* pos, size_t num) override {
@@ -174,10 +173,10 @@ public:
 
     void insert_many_binary_data(char* data_array, uint32_t* len_array,
                                  uint32_t* start_offset_array, size_t num,
-                                 const cctz::time_zone& timezone) override {
+                                 long tz_offset) override {
         _get_null_map_column().insert_many_vals(0, num);
         get_nested_column().insert_many_binary_data(data_array, len_array, start_offset_array, num,
-                                                    timezone);
+                                                    tz_offset);
     }
 
     void insert_default() override {
@@ -267,8 +266,8 @@ public:
     bool is_datetime_type() const override { return get_nested_column().is_datetime_type(); }
     void set_date_type() override { get_nested_column().set_date_type(); }
     void set_datetime_type() override { get_nested_column().set_datetime_type(); }
-    void set_timestamp_type(const cctz::time_zone& timezone) override {
-        get_nested_column().set_timestamp_type(timezone);
+    void set_timestamp_type() override {
+        get_nested_column().set_timestamp_type();
     }
     bool is_nullable() const override { return true; }
     bool is_bitmap() const override { return get_nested_column().is_bitmap(); }

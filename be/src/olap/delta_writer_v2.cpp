@@ -93,7 +93,7 @@ DeltaWriterV2::~DeltaWriterV2() {
     static_cast<void>(_memtable_writer->cancel());
 }
 
-Status DeltaWriterV2::init(const cctz::time_zone& timezone) {
+Status DeltaWriterV2::init() {
     if (_is_init) {
         return Status::OK();
     }
@@ -124,7 +124,7 @@ Status DeltaWriterV2::init(const cctz::time_zone& timezone) {
     context.data_dir = nullptr;
     context.partial_update_info = _partial_update_info;
     context.memtable_on_sink_support_index_v2 = true;
-    context.timezone = timezone;
+    context.tz_offset = _req.tz_offset;
 
     _rowset_writer = std::make_shared<BetaRowsetWriterV2>(_streams);
     RETURN_IF_ERROR(_rowset_writer->init(context));
@@ -141,8 +141,7 @@ Status DeltaWriterV2::init(const cctz::time_zone& timezone) {
     return Status::OK();
 }
 
-Status DeltaWriterV2::write(const vectorized::Block* block, const std::vector<uint32_t>& row_idxs,
-                            const cctz::time_zone& timezone) {
+Status DeltaWriterV2::write(const vectorized::Block* block, const std::vector<uint32_t>& row_idxs) {
     if (UNLIKELY(row_idxs.empty())) {
         return Status::OK();
     }
@@ -150,7 +149,7 @@ Status DeltaWriterV2::write(const vectorized::Block* block, const std::vector<ui
     std::lock_guard<std::mutex> l(_lock);
     _lock_watch.stop();
     if (!_is_init && !_is_cancelled) {
-        RETURN_IF_ERROR(init(timezone));
+        RETURN_IF_ERROR(init());
     }
     {
         SCOPED_RAW_TIMER(&_wait_flush_limit_time);

@@ -285,8 +285,7 @@ void ColumnDecimal<T>::insert_data(const char* src, size_t /*length*/) {
 }
 
 template <typename T>
-void ColumnDecimal<T>::insert_many_fix_len_data(const char* data_ptr, size_t num,
-                                                const cctz::time_zone& timezone) {
+void ColumnDecimal<T>::insert_many_fix_len_data(const char* data_ptr, size_t num, long tz_offset) {
     size_t old_size = data.size();
     data.resize(old_size + num);
 

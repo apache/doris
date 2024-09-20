@@ -119,8 +119,7 @@ Status Merger::vmerge_rowsets(BaseTabletSPtr tablet, ReaderType reader_type,
     reader_params.return_columns.resize(cur_tablet_schema.num_columns());
     std::iota(reader_params.return_columns.begin(), reader_params.return_columns.end(), 0);
     reader_params.origin_return_columns = &reader_params.return_columns;
-    cctz::time_zone utc_tz {};
-    RETURN_IF_ERROR(reader.init(reader_params, utc_tz));
+    RETURN_IF_ERROR(reader.init(reader_params, 0)); //TODOZY
 
     if (reader_params.record_rowids) {
         stats_output->rowid_conversion->set_dst_rowset_id(dst_rowset_writer->rowset_id());

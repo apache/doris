@@ -373,8 +373,7 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
                     continue;
                 }
                 DCHECK(output_rowset_schema->has_inverted_index_with_index_id(index_id, ""));
-                cctz::time_zone tz {}; //TODOZY
-                _olap_data_convertor->add_column_data_convertor(column, tz);
+                _olap_data_convertor->add_column_data_convertor(column, 0); //TODOZY
                 return_columns.emplace_back(column_idx);
                 std::unique_ptr<Field> field(FieldFactory::create(column));
                 const auto* index_meta = output_rowset_schema->get_inverted_index(column);
@@ -412,8 +411,7 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
             std::shared_ptr<Schema> schema =
                     std::make_shared<Schema>(output_rowset_schema->columns(), return_columns);
             std::unique_ptr<RowwiseIterator> iter;
-            cctz::time_zone tz {}; //TODOZY
-            auto res = seg_ptr->new_iterator(schema, read_options, &iter, tz);
+            auto res = seg_ptr->new_iterator(schema, read_options, &iter, 0); //TODOZY
             if (!res.ok()) {
                 LOG(WARNING) << "failed to create iterator[" << seg_ptr->id()
                              << "]: " << res.to_string();

@@ -140,7 +140,7 @@ public:
     // Input options may contain scan range in which this scan.
     // Return Status::OK() if init successfully,
     // Return other error otherwise
-    virtual Status init(const StorageReadOptions& opts, const cctz::time_zone& timezone) {
+    virtual Status init(const StorageReadOptions& opts, long tz_offset) {
         return Status::NotSupported("to be implemented");
     }
 
