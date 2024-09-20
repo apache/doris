@@ -21,7 +21,7 @@ PhysicalResultSink
 PhysicalResultSink
 --NestedLoopJoin[INNER_JOIN](t1.c < t2.a)
 ----filter((t1.c < 1))
-------PhysicalOlapScan[test_like1] apply RFs: RF0
+------PhysicalOlapScan[test_like1]
 ----filter((t2.a < 1))
 ------PhysicalOlapScan[test_like2]
 
@@ -37,9 +37,9 @@ PhysicalResultSink
 
 -- !infer_with_equal --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((t1.a = t2.c)) otherCondition=() build RFs:RF0 c->[a];RF1 c->[a]
+--hashJoin[INNER_JOIN] hashCondition=((t1.a = t2.c)) otherCondition=()
 ----filter((t1.a < 1))
-------PhysicalOlapScan[test_like1] apply RFs: RF0 RF1
+------PhysicalOlapScan[test_like1]
 ----filter((t2.c < 1))
 ------PhysicalOlapScan[test_like2]
 
@@ -47,7 +47,7 @@ PhysicalResultSink
 PhysicalResultSink
 --NestedLoopJoin[INNER_JOIN](t1.a < t2.a)
 ----filter((t1.a < 1))
-------PhysicalOlapScan[test_like1] apply RFs: RF0
+------PhysicalOlapScan[test_like1]
 ----filter((t2.a < 1) and (t2.c < 1) and (t2.c > t2.a))
 ------PhysicalOlapScan[test_like2]
 
@@ -69,44 +69,44 @@ PhysicalResultSink
 -- !remove_useless_predicate --
 PhysicalResultSink
 --NestedLoopJoin[CROSS_JOIN]
-----PhysicalOlapScan[test_like2]
 ----filter((t1.a = t1.c) and (t1.a > 1))
 ------PhysicalOlapScan[test_like1]
+----PhysicalOlapScan[test_like2]
 
 -- !infer_long_chain_diff_table --
 PhysicalResultSink
 --NestedLoopJoin[INNER_JOIN](t1.a < t2.d)
 ----filter((t1.a < 10))
-------PhysicalOlapScan[test_like1] apply RFs: RF0
+------PhysicalOlapScan[test_like1]
 ----filter((t2.c < 10) and (t2.c > t2.d) and (t2.d < 10))
 ------PhysicalOlapScan[test_like2]
 
 -- !infer_with_constant_and_columns --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((t1.a = t2.c)) otherCondition=() build RFs:RF0 c->[a];RF1 c->[a]
+--hashJoin[INNER_JOIN] hashCondition=((t1.a = t2.c)) otherCondition=()
 ----filter((t1.a > 1))
-------PhysicalOlapScan[test_like1] apply RFs: RF0 RF1
+------PhysicalOlapScan[test_like1]
 ----filter((t2.c > 1) and (t2.d > 1) and (t2.d > t2.c))
 ------PhysicalOlapScan[test_like2]
 
 -- !no_infer --
 PhysicalResultSink
 --NestedLoopJoin[INNER_JOIN](t1.a < t2.d)
-----PhysicalOlapScan[test_like1] apply RFs: RF0
+----PhysicalOlapScan[test_like1]
 ----filter((t2.d > t2.c))
 ------PhysicalOlapScan[test_like2]
 
 -- !no_infer_cyclic_dependency --
 PhysicalResultSink
 --NestedLoopJoin[INNER_JOIN](t1.a < t2.c)(t2.c < t1.a)
-----PhysicalOlapScan[test_like1] apply RFs: RF0
+----PhysicalOlapScan[test_like1]
 ----PhysicalOlapScan[test_like2]
 
 -- !infer_multiple_conditions --
 PhysicalResultSink
 --NestedLoopJoin[INNER_JOIN](t1.a < t2.a)
 ----filter((t1.a < 10))
-------PhysicalOlapScan[test_like1] apply RFs: RF0
+------PhysicalOlapScan[test_like1]
 ----filter((t2.a < 10) and (t2.c > t2.a) and (t2.d < 10) and (t2.d > t2.c))
 ------PhysicalOlapScan[test_like2]
 

@@ -17,6 +17,8 @@
 
 suite("infer_unequal_predicates") {
     sql """SET ignore_shape_nodes='PhysicalDistribute,PhysicalProject'"""
+    sql "set runtime_filter_mode = OFF"
+    sql "set disable_join_reorder=true "
     sql "drop table if exists test_like1"
     sql """
         CREATE TABLE `test_like1` (
