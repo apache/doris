@@ -1192,7 +1192,7 @@ havingClause
     : HAVING booleanExpression
     ;
 
-selectHint: HINT_START hintStatements+=hintStatement (COMMA? hintStatements+=hintStatement)* HINT_END;
+selectHint: hintStatements+=hintStatement (COMMA? hintStatements+=hintStatement)* HINT_END;
 
 hintStatement
     : hintName=identifier (LEFT_PAREN parameters+=hintAssignment (COMMA? parameters+=hintAssignment)* RIGHT_PAREN)?
@@ -1809,6 +1809,7 @@ nonReserved
     | COLOCATE
     | COLUMNS
     | COMMENT
+    | COMMENT_START
     | COMMIT
     | COMMITTED
     | COMPACT
@@ -1894,6 +1895,8 @@ nonReserved
     | HASH
     | HDFS
     | HELP
+    | HINT_END
+    | HINT_START
     | HISTOGRAM
     | HLL_UNION
     | HOSTNAME
