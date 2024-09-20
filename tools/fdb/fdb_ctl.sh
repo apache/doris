@@ -146,47 +146,47 @@ calculate_process_numbers() {
     data_dir_count=${#DATA_DIR_ARRAY[@]}
 
     # Parse the ratio input
-    IFS=':' read -r num_storage num_stateless num_log <<< "$STORAGE_STATELESS_LOG_RATIO"
+    IFS=':' read -r num_storage num_stateless num_log <<<"$STORAGE_STATELESS_LOG_RATIO"
 
     # Initialize process counts
-    local storage_processes=0  # Storage processes
+    local storage_processes=0   # Storage processes
     local stateless_processes=0 # Stateless processes
-    local log_processes=0  # Log processes
+    local log_processes=0       # Log processes
 
-    local storage_process_num_limit=$(( STORAGE_PROCESSES_NUM_PER_SSD * data_dir_count ))
-    local log_process_num_limit=$(( LOG_PROCESSES_NUM_PER_SSD * data_dir_count ))
+    local storage_process_num_limit=$((STORAGE_PROCESSES_NUM_PER_SSD * data_dir_count))
+    local log_process_num_limit=$((LOG_PROCESSES_NUM_PER_SSD * data_dir_count))
 
     if [ "#$MEDIUM_TYPE" = "#HDD" ]; then
-        storage_process_num_limit=$(( STORAGE_PROCESSES_NUM_PER_HDD * data_dir_count ))
-        log_process_num_limit=$(( LOG_PROCESSES_NUM_PER_HDD * data_dir_count))
+        storage_process_num_limit=$((STORAGE_PROCESSES_NUM_PER_HDD * data_dir_count))
+        log_process_num_limit=$((LOG_PROCESSES_NUM_PER_HDD * data_dir_count))
     fi
 
     # Find maximum number of processes while maintaining the specified ratio
     while true; do
         # Calculate process counts based on the ratio
-        storage_processes=$(( storage_processes + num_storage ))
-        stateless_processes=$(( storage_processes * num_stateless / num_storage ))
-        log_processes=$(( storage_processes * num_log / num_storage ))
+        storage_processes=$((storage_processes + num_storage))
+        stateless_processes=$((storage_processes * num_stateless / num_storage))
+        log_processes=$((storage_processes * num_log / num_storage))
 
         # Calculate total CPUs used
-        local total_cpu_used=$(( storage_processes + stateless_processes + log_processes ))
+        local total_cpu_used=$((storage_processes + stateless_processes + log_processes))
 
         # Check memory constraint
-        local total_memory_used=$(( (MEMORY_STORAGE_GB * storage_processes) + (MEMORY_STATELESS_GB * stateless_processes) + (MEMORY_LOG_GB * log_processes) ))
+        local total_memory_used=$(((MEMORY_STORAGE_GB * storage_processes) + (MEMORY_STATELESS_GB * stateless_processes) + (MEMORY_LOG_GB * log_processes)))
 
         # Check datadir limits
-        if ((storage_processes > storage_process_num_limit || log_processes > log_process_num_limit )); then
+        if ((storage_processes > storage_process_num_limit || log_processes > log_process_num_limit)); then
             break
         fi
 
         # Check overall constraints
-        if (( total_memory_used <= memory_limit_gb && total_cpu_used <= cpu_cores_limit )); then
+        if ((total_memory_used <= memory_limit_gb && total_cpu_used <= cpu_cores_limit)); then
             continue
         else
             # If constraints are violated, revert back
-            storage_processes=$(( storage_processes - num_storage ))
-            stateless_processes=$(( storage_processes * num_stateless / num_storage ))
-            log_processes=$((storage_processes * num_log / num_storage ))
+            storage_processes=$((storage_processes - num_storage))
+            stateless_processes=$((storage_processes * num_stateless / num_storage))
+            log_processes=$((storage_processes * num_log / num_storage))
             break
         fi
     done
@@ -203,14 +203,14 @@ function check_vars() {
     fi
 
     for IP_ADDRESS in "${IPS[@]}"; do
-        if ping -c 1 "${IP_ADDRESS}" &> /dev/null; then
+        if ping -c 1 "${IP_ADDRESS}" &>/dev/null; then
             echo "${IP_ADDRESS} is reachable"
         else
             echo "${IP_ADDRESS} is not reachable"
             exit 1
         fi
     done
-    
+
     if [ ${CPU_CORES_LIMIT} -gt $(nproc) ]; then
         echo "CPU_CORES_LIMIT beyonds number of machine, which is $(nproc)"
         exit 1
@@ -414,10 +414,10 @@ function start() {
         echo "Try create database in fdb ${fdb_mode}"
 
         "${FDB_HOME}/fdbcli" -C "${FDB_HOME}/conf/fdb.cluster" \
-            --exec "configure new ${fdb_mode} ssd" || \
-            "${FDB_HOME}/fdbcli" -C "${FDB_HOME}/conf/fdb.cluster" --exec "status" || \
-            (echo "failed to start fdb, please check that all nodes have same FDB_CLUSTER_ID" && \
-            exit 1)
+            --exec "configure new ${fdb_mode} ssd" ||
+            "${FDB_HOME}/fdbcli" -C "${FDB_HOME}/conf/fdb.cluster" --exec "status" ||
+            (echo "failed to start fdb, please check that all nodes have same FDB_CLUSTER_ID" &&
+                exit 1)
     fi
 
     echo "Start fdb success, and you can set conf for MetaService:"
