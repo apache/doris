@@ -31,9 +31,12 @@ import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewri
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
+import org.apache.doris.nereids.trees.plans.logical.LogicalEsScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalGenerate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJdbcScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOdbcScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPartitionTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
@@ -251,6 +254,39 @@ public class AdjustNullable extends DefaultPlanRewriter<Map<ExprId, Slot>> imple
             }
         }
         return cteConsumer.withTwoMaps(consumerToProducerOutputMap, producerToConsumerOutputMap);
+    }
+
+    @Override
+    public Plan visitLogicalEsScan(LogicalEsScan scan, Map<ExprId, Slot> replaceMap) {
+        if (!scan.getConjuncts().isEmpty()) {
+            scan.getOutputSet().forEach(s -> replaceMap.put(s.getExprId(), s));
+            Set<Expression> conjuncts = updateExpressions(scan.getConjuncts(), replaceMap);
+            return scan.withConjuncts(conjuncts).recomputeLogicalProperties();
+        } else {
+            return scan;
+        }
+    }
+
+    @Override
+    public Plan visitLogicalJdbcScan(LogicalJdbcScan scan, Map<ExprId, Slot> replaceMap) {
+        if (!scan.getConjuncts().isEmpty()) {
+            scan.getOutputSet().forEach(s -> replaceMap.put(s.getExprId(), s));
+            Set<Expression> conjuncts = updateExpressions(scan.getConjuncts(), replaceMap);
+            return scan.withConjuncts(conjuncts).recomputeLogicalProperties();
+        } else {
+            return scan;
+        }
+    }
+
+    @Override
+    public Plan visitLogicalOdbcScan(LogicalOdbcScan scan, Map<ExprId, Slot> replaceMap) {
+        if (!scan.getConjuncts().isEmpty()) {
+            scan.getOutputSet().forEach(s -> replaceMap.put(s.getExprId(), s));
+            Set<Expression> conjuncts = updateExpressions(scan.getConjuncts(), replaceMap);
+            return scan.withConjuncts(conjuncts).recomputeLogicalProperties();
+        } else {
+            return scan;
+        }
     }
 
     private <T extends Expression> T updateExpression(T input, Map<ExprId, Slot> replaceMap) {
