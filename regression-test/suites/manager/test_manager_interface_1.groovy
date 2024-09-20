@@ -118,7 +118,7 @@ suite('test_manager_interface_1',"p0") {
     
 	    sql """ drop table test_metadata_name_ids """ 
 
-        qt_metadata_2 """ select CATALOG_NAME,DATABASE_NAME,TABLE_NAME from ${tableName}
+        qt_metadata_3 """ select CATALOG_NAME,DATABASE_NAME,TABLE_NAME from ${tableName}
             where CATALOG_NAME="internal" and DATABASE_NAME ="test_manager_metadata_name_ids" and TABLE_NAME="test_metadata_name_ids";""" 
     }
     test_metadata_name_ids()
@@ -273,18 +273,19 @@ suite('test_manager_interface_1',"p0") {
         assertTrue(result[0][0].toLowerCase() ==  "test_manager_tb_1")
 
         
-        result = sql """ show create table  test_manager_tb_1"""   
+        result = sql """ show create table  test_manager_tb_1"""
+        logger.info ("result = ${result}")   
         assertTrue(result[0][0] == "test_manager_tb_1") // TABLE NAME
         // assertTrue(result[0][1].substring() == "test_manager_tb_1") //DDL 
         def ddl_str =  result[0][1] 
         def idx =  ddl_str.indexOf("PROPERTIES")
         assertTrue(idx != -1 );
         assertTrue( ddl_str.startsWith("""CREATE TABLE `test_manager_tb_1` (
-  `k1` TINYINT NULL,
-  `k2` DECIMAL(10, 2) NULL DEFAULT "10.05",
-  `k3` CHAR(10) NULL COMMENT 'string column',
-  `k4` INT NOT NULL DEFAULT "1" COMMENT 'int column',
-  `k5` TEXT NULL
+  `k1` tinyint NULL,
+  `k2` decimal(10,2) NULL DEFAULT "10.05",
+  `k3` char(10) NULL COMMENT 'string column',
+  `k4` int NOT NULL DEFAULT "1" COMMENT 'int column',
+  `k5` text NULL
 ) ENGINE=OLAP
 DUPLICATE KEY(`k1`, `k2`, `k3`)
 COMMENT 'manager_test_table'
@@ -680,28 +681,28 @@ DISTRIBUTED BY HASH(`k1`) BUCKETS 1"""))
         assertTrue(result[0][0] == "audit_log")
 
         assertTrue(result[0][1].contains("CREATE TABLE `audit_log`"))
-        assertTrue(result[0][1].contains("`query_id` VARCHAR(48) NULL,"))
-        assertTrue(result[0][1].contains("`time` DATETIME(3) NULL,"))
-        assertTrue(result[0][1].contains("`client_ip` VARCHAR(128) NULL,")) 
-        assertTrue(result[0][1].contains("`user` VARCHAR(128) NULL,")) 
-        assertTrue(result[0][1].contains("`catalog` VARCHAR(128) NULL")) 
-        assertTrue(result[0][1].contains("`db` VARCHAR(128) NULL,"))
-        assertTrue(result[0][1].contains("`state` VARCHAR(128) NULL"))
-        assertTrue(result[0][1].contains("`error_code` INT NULL,"))
-        assertTrue(result[0][1].contains("`error_message` TEXT NULL,"))
-        assertTrue(result[0][1].contains("`query_time` BIGINT NULL,"))
-        assertTrue(result[0][1].contains("`scan_bytes` BIGINT NULL,"))
-        assertTrue(result[0][1].contains("`scan_rows` BIGINT NULL,"))
-        assertTrue(result[0][1].contains("`return_rows` BIGINT NULL,")) 
-        assertTrue(result[0][1].contains("`stmt_id` BIGINT NULL,"))
-        assertTrue(result[0][1].contains("`is_query` TINYINT NULL,"))
-        assertTrue(result[0][1].contains("`frontend_ip` VARCHAR(128) NULL,"))
-        assertTrue(result[0][1].contains("`cpu_time_ms` BIGINT NULL,"))
-        assertTrue(result[0][1].contains("`sql_hash` VARCHAR(128) NULL,"))
-        assertTrue(result[0][1].contains("`sql_digest` VARCHAR(128) NULL,"))
-        assertTrue(result[0][1].contains("`peak_memory_bytes` BIGINT NULL,"))
-        assertTrue(result[0][1].contains("`workload_group` TEXT NULL,"))
-        assertTrue(result[0][1].contains("`stmt` TEXT NULL"))
+        assertTrue(result[0][1].contains("`query_id` varchar(48) NULL,"))
+        assertTrue(result[0][1].contains("`time` datetime(3) NULL,"))
+        assertTrue(result[0][1].contains("`client_ip` varchar(128) NULL,")) 
+        assertTrue(result[0][1].contains("`user` varchar(128) NULL,")) 
+        assertTrue(result[0][1].contains("`catalog` varchar(128) NULL")) 
+        assertTrue(result[0][1].contains("`db` varchar(128) NULL,"))
+        assertTrue(result[0][1].contains("`state` varchar(128) NULL"))
+        assertTrue(result[0][1].contains("`error_code` int NULL,"))
+        assertTrue(result[0][1].contains("`error_message` text NULL,"))
+        assertTrue(result[0][1].contains("`query_time` bigint NULL,"))
+        assertTrue(result[0][1].contains("`scan_bytes` bigint NULL,"))
+        assertTrue(result[0][1].contains("`scan_rows` bigint NULL,"))
+        assertTrue(result[0][1].contains("`return_rows` bigint NULL,")) 
+        assertTrue(result[0][1].contains("`stmt_id` bigint NULL,"))
+        assertTrue(result[0][1].contains("`is_query` tinyint NULL,"))
+        assertTrue(result[0][1].contains("`frontend_ip` varchar(128) NULL,"))
+        assertTrue(result[0][1].contains("`cpu_time_ms` bigint NULL,"))
+        assertTrue(result[0][1].contains("`sql_hash` varchar(128) NULL,"))
+        assertTrue(result[0][1].contains("`sql_digest` varchar(128) NULL,"))
+        assertTrue(result[0][1].contains("`peak_memory_bytes` bigint NULL,"))
+        assertTrue(result[0][1].contains("`workload_group` text NULL,"))
+        assertTrue(result[0][1].contains("`stmt` text NULL"))
 
         assertTrue(result[0][1].contains("ENGINE=OLAP"))
 
