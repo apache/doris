@@ -1384,6 +1384,7 @@ message UpdateDeleteBitmapRequest {
     repeated int64 versions = 9;
     // Serialized roaring bitmaps indexed with {rowset_id, segment_id, version}
     repeated bytes segment_delete_bitmaps = 10;
+    optional bool unlock = 11;
 }
 
 message UpdateDeleteBitmapResponse {
@@ -1562,7 +1563,6 @@ service MetaService {
     rpc update_delete_bitmap(UpdateDeleteBitmapRequest) returns(UpdateDeleteBitmapResponse);
     rpc get_delete_bitmap(GetDeleteBitmapRequest) returns(GetDeleteBitmapResponse);
     rpc get_delete_bitmap_update_lock(GetDeleteBitmapUpdateLockRequest) returns(GetDeleteBitmapUpdateLockResponse);
-    rpc update_delete_bitmap_without_lock(UpdateDeleteBitmapRequest) returns(UpdateDeleteBitmapResponse);
     rpc remove_delete_bitmap(RemoveDeleteBitmapRequest) returns(RemoveDeleteBitmapResponse);
 
     // routine load progress

@@ -1054,12 +1054,22 @@ Status CloudMetaMgr::update_delete_bitmap(const CloudTablet& tablet, int64_t loc
 Status CloudMetaMgr::update_delete_bitmap_without_lock(const CloudTablet& tablet,
                                                        DeleteBitmap* delete_bitmap) {
     VLOG_DEBUG << "update_delete_bitmap_without_lock , tablet_id: " << tablet.tablet_id();
+    auto uuid = UUIDGenerator::instance()->next_uuid();
+    std::stringstream ss;
+    ss << uuid;
+    auto _uuid = ss.str();
+    int64_t initiator =
+            HashUtil::hash64(_uuid.data(), _uuid.size(), 0) & std::numeric_limits<int64_t>::max();
     UpdateDeleteBitmapRequest req;
     UpdateDeleteBitmapResponse res;
     req.set_cloud_unique_id(config::cloud_unique_id);
     req.set_table_id(tablet.table_id());
     req.set_partition_id(tablet.partition_id());
     req.set_tablet_id(tablet.tablet_id());
+//    req.set_initiator()
+    // use a fake lock id to resolve compatibility issues
+    req.set_lock_id(-3);
+    req.set_unlock(true);
     for (auto& [key, bitmap] : delete_bitmap->delete_bitmap) {
         req.add_rowset_ids(std::get<0>(key).to_string());
         req.add_segment_ids(std::get<1>(key));
@@ -1070,8 +1080,7 @@ Status CloudMetaMgr::update_delete_bitmap_without_lock(const CloudTablet& tablet
         bitmap.write(bitmap_data.data());
         *(req.add_segment_delete_bitmaps()) = std::move(bitmap_data);
     }
-    return retry_rpc("update delete bitmap", req, &res,
-                     &MetaService_Stub::update_delete_bitmap_without_lock);
+    return retry_rpc("update delete bitmap", req, &res, &MetaService_Stub::update_delete_bitmap);
 }
 
 Status CloudMetaMgr::get_delete_bitmap_update_lock(const CloudTablet& tablet, int64_t lock_id,
