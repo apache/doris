@@ -103,5 +103,5 @@ suite('print_changed_session_var') {
 
     def String profileContent = getProfile(queryId).toString()
     logger.info("query {} profile\n{}", queryId, profileContent)
-    assertTrue(profileContent.contains("parallel_pipeline_task_num                      | 8"))
+    assertTrue(profileContent.contains("parallel_pipeline_task_num                     | 8"))
 }
