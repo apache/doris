@@ -329,9 +329,6 @@ Status retry_rpc(std::string_view op_name, const Request& req, Response* res,
         (stub.get()->*method)(&cntl, &req, res, nullptr);
         if (cntl.Failed()) [[unlikely]] {
             error_msg = cntl.ErrorText();
-            if (cntl.ErrorCode() == MetaServiceCode::KV_TXN_CREATE_ERR) {
-                break;
-            }
         } else if (res->status().code() == MetaServiceCode::OK) {
             return Status::OK();
         } else if (res->status().code() == MetaServiceCode::INVALID_ARGUMENT) {
