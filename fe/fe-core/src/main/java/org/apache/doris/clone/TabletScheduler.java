@@ -67,10 +67,12 @@ import org.apache.doris.transaction.TransactionState;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.EvictingQueue;
+import com.google.common.collect.HashBasedTable;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import com.google.common.collect.Table;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -375,7 +377,7 @@ public class TabletScheduler extends MasterDaemon {
         Map<Tag, LoadStatisticForTag> newStatisticMap = Maps.newHashMap();
         Set<Tag> tags = infoService.getTags();
         for (Tag tag : tags) {
-            LoadStatisticForTag loadStatistic = new LoadStatisticForTag(tag, infoService, invertedIndex);
+            LoadStatisticForTag loadStatistic = new LoadStatisticForTag(tag, infoService, invertedIndex, rebalancer);
             loadStatistic.init();
             newStatisticMap.put(tag, loadStatistic);
             if (LOG.isDebugEnabled()) {
@@ -2054,7 +2056,7 @@ public class TabletScheduler extends MasterDaemon {
         private Map<Long, Slot> pathSlots = Maps.newConcurrentMap();
         private long beId;
         // only use in takeAnAvailBalanceSlotFrom, make pick RR
-        private Map<TStorageMedium, Long> lastPickPathHashs = Maps.newHashMap();
+        private Table<Tag, TStorageMedium, Long> lastPickPathHashs = HashBasedTable.create();
 
         public PathSlot(Map<Long, TStorageMedium> paths, long beId) {
             this.beId = beId;
@@ -2204,14 +2206,22 @@ public class TabletScheduler extends MasterDaemon {
             return -1;
         }
 
-        public long takeAnAvailBalanceSlotFrom(List<Long> pathHashs, TStorageMedium medium) {
+        public long takeAnAvailBalanceSlotFrom(List<Long> pathHashs, Tag tag, TStorageMedium medium) {
             if (pathHashs.isEmpty()) {
                 return -1;
             }
 
+            if (tag == null) {
+                tag = Tag.DEFAULT_BACKEND_TAG;
+            }
+
             Collections.sort(pathHashs);
             synchronized (this) {
-                int preferSlotIndex = pathHashs.indexOf(lastPickPathHashs.getOrDefault(medium, -1L)) + 1;
+                Long lastPathHash = lastPickPathHashs.get(tag, medium);
+                if (lastPathHash == null) {
+                    lastPathHash = -1L;
+                }
+                int preferSlotIndex = pathHashs.indexOf(lastPathHash) + 1;
                 if (preferSlotIndex < 0 || preferSlotIndex >= pathHashs.size()) {
                     preferSlotIndex = 0;
                 }
@@ -2219,14 +2229,14 @@ public class TabletScheduler extends MasterDaemon {
                 for (int i = preferSlotIndex; i < pathHashs.size(); i++) {
                     long pathHash = pathHashs.get(i);
                     if (takeBalanceSlot(pathHash) != -1) {
-                        lastPickPathHashs.put(medium, pathHash);
+                        lastPickPathHashs.put(tag, medium, pathHash);
                         return pathHash;
                     }
                 }
                 for (int i = 0; i < preferSlotIndex; i++) {
                     long pathHash = pathHashs.get(i);
                     if (takeBalanceSlot(pathHash) != -1) {
-                        lastPickPathHashs.put(medium, pathHash);
+                        lastPickPathHashs.put(tag, medium, pathHash);
                         return pathHash;
                     }
                 }

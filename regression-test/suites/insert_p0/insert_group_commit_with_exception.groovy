@@ -20,7 +20,7 @@ import java.sql.DriverManager
 import java.sql.Statement
 import java.sql.PreparedStatement
 
-suite("insert_group_commit_with_exception", "nonConcurrent") {
+suite("insert_group_commit_with_exception") {
     def table = "insert_group_commit_with_exception"
     def getRowCount = { expectedRowCount ->
         def retry = 0
@@ -57,19 +57,19 @@ suite("insert_group_commit_with_exception", "nonConcurrent") {
             DUPLICATE KEY(`id`, `name`)
             DISTRIBUTED BY HASH(`id`) BUCKETS 1
             PROPERTIES (
+                "group_commit_interval_ms" = "200",
                 "replication_num" = "1"
             );
             """
 
             sql """ set group_commit = async_mode; """
             if (item == "nereids") {
-                sql """ set enable_nereids_dml = true; """
                 sql """ set enable_nereids_planner=true; """
                 sql """ set enable_fallback_to_original_planner=false; """
-                sql "set global enable_server_side_prepared_statement = true"
+                sql "set enable_server_side_prepared_statement = true"
             } else {
-                sql """ set enable_nereids_dml = false; """
-                sql "set global enable_server_side_prepared_statement = false"
+                sql """ set enable_nereids_planner = false; """
+                sql "set enable_server_side_prepared_statement = false"
             }
 
             // insert into without column
@@ -127,13 +127,12 @@ suite("insert_group_commit_with_exception", "nonConcurrent") {
                 statement.execute("use ${db}");
                 statement.execute("set group_commit = eventual_consistency;");
                 if (item == "nereids") {
-                    statement.execute("set enable_nereids_dml = true;");
                     statement.execute("set enable_nereids_planner=true;");
                     statement.execute("set enable_fallback_to_original_planner=false;");
-                    sql "set global enable_server_side_prepared_statement = true"
+                    sql "set enable_server_side_prepared_statement = true"
                 } else {
-                    statement.execute("set enable_nereids_dml = false;");
-                    sql "set global enable_server_side_prepared_statement = false"
+                    statement.execute("set enable_nereids_planner = false;")
+                    sql "set enable_server_side_prepared_statement = false"
                 }
                 // without column
                 try (PreparedStatement ps = connection.prepareStatement("insert into ${table} values(?, ?, ?, ?)")) {
@@ -293,5 +292,4 @@ suite("insert_group_commit_with_exception", "nonConcurrent") {
             // try_sql("DROP TABLE ${table}")
         }
     }
-    sql "set global enable_server_side_prepared_statement = true"
 }

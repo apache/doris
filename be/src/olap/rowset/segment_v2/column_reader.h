@@ -29,6 +29,7 @@
 #include <vector>
 
 #include "common/config.h"
+#include "common/exception.h"
 #include "common/logging.h"
 #include "common/status.h" // for Status
 #include "io/fs/file_reader_writer_fwd.h"
@@ -46,6 +47,7 @@
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h" // ColumnArray
 #include "vec/columns/subcolumn_tree.h"
+#include "vec/common/hash_table/hash_map_context_creator.h"
 #include "vec/data_types/data_type.h"
 #include "vec/json/path_in_data.h"
 
@@ -83,6 +85,8 @@ struct ColumnReaderOptions {
     bool verify_checksum = true;
     // for in memory olap table, use DURABLE CachePriority in page cache
     bool kept_in_memory = false;
+
+    int be_exec_version = -1;
 };
 
 struct ColumnIteratorOptions {
@@ -204,7 +208,7 @@ public:
 
 private:
     ColumnReader(const ColumnReaderOptions& opts, const ColumnMetaPB& meta, uint64_t num_rows,
-                 io::FileReaderSPtr file_reader, vectorized::DataTypePtr agg_state_ptr = nullptr);
+                 io::FileReaderSPtr file_reader);
     Status init(const ColumnMetaPB* meta);
 
     // Read column inverted indexes into memory
@@ -246,6 +250,7 @@ private:
     FieldType _meta_children_column_type;
     bool _meta_is_nullable;
     bool _use_index_page_cache;
+    int _be_exec_version = -1;
 
     PagePointer _meta_dict_page;
     CompressionTypePB _meta_compression;
@@ -273,8 +278,6 @@ private:
     std::shared_ptr<BloomFilterIndexReader> _bloom_filter_index;
 
     std::vector<std::unique_ptr<ColumnReader>> _sub_readers;
-
-    vectorized::DataTypePtr _agg_state_ptr;
 
     DorisCallOnce<Status> _set_dict_encoding_type_once;
 };
@@ -712,6 +715,61 @@ private:
     int _scale;
     std::vector<char> _mem_value;
 
+    // current rowid
+    ordinal_t _current_rowid = 0;
+};
+
+// This iterator is used to read default value column
+class DefaultNestedColumnIterator : public ColumnIterator {
+public:
+    DefaultNestedColumnIterator(std::unique_ptr<ColumnIterator>&& sibling,
+                                DataTypePtr file_column_type)
+            : _sibling_iter(std::move(sibling)), _file_column_type(std::move(file_column_type)) {}
+
+    Status init(const ColumnIteratorOptions& opts) override {
+        if (_sibling_iter) {
+            return _sibling_iter->init(opts);
+        }
+        return Status::OK();
+    }
+
+    Status seek_to_first() override {
+        _current_rowid = 0;
+        if (_sibling_iter) {
+            return _sibling_iter->seek_to_first();
+        }
+        return Status::OK();
+    }
+
+    Status seek_to_ordinal(ordinal_t ord_idx) override {
+        _current_rowid = ord_idx;
+        if (_sibling_iter) {
+            return _sibling_iter->seek_to_ordinal(ord_idx);
+        }
+        return Status::OK();
+    }
+
+    Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst);
+
+    Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) override;
+
+    Status read_by_rowids(const rowid_t* rowids, const size_t count,
+                          vectorized::MutableColumnPtr& dst) override;
+
+    Status next_batch_of_zone_map(size_t* n, vectorized::MutableColumnPtr& dst) override {
+        return Status::NotSupported("Not supported next_batch_of_zone_map");
+    }
+
+    ordinal_t get_current_ordinal() const override {
+        if (_sibling_iter) {
+            return _sibling_iter->get_current_ordinal();
+        }
+        return _current_rowid;
+    }
+
+private:
+    std::unique_ptr<ColumnIterator> _sibling_iter;
+    std::shared_ptr<const vectorized::IDataType> _file_column_type;
     // current rowid
     ordinal_t _current_rowid = 0;
 };

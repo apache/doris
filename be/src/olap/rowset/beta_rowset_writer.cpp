@@ -195,7 +195,7 @@ BaseBetaRowsetWriter::BaseBetaRowsetWriter()
           _num_rows_written(0),
           _total_data_size(0),
           _total_index_size(0),
-          _segment_creator(_context, _seg_files) {}
+          _segment_creator(_context, _seg_files, _idx_files_info) {}
 
 BetaRowsetWriter::BetaRowsetWriter(StorageEngine& engine)
         : _engine(engine), _segcompaction_worker(std::make_shared<SegcompactionWorker>(this)) {}
@@ -737,6 +737,14 @@ Status BetaRowsetWriter::build(RowsetSharedPtr& rowset) {
                                                                   : _context.tablet_schema;
     _rowset_meta->set_tablet_schema(rowset_schema);
 
+    if (auto idx_files_info = _idx_files_info.get_inverted_files_info(_segment_start_id);
+        !idx_files_info.has_value()) [[unlikely]] {
+        LOG(ERROR) << "expected inverted index files info, but none presents: "
+                   << idx_files_info.error();
+    } else {
+        _rowset_meta->add_inverted_index_files_info(idx_files_info.value());
+    }
+
     RETURN_NOT_OK_STATUS_WITH_WARN(RowsetFactory::create_rowset(rowset_schema, _context.tablet_path,
                                                                 _rowset_meta, &rowset),
                                    "rowset init failed when build new rowset");
@@ -989,8 +997,8 @@ Status BetaRowsetWriter::flush_segment_writer_for_segcompaction(
 
     SegmentStatistics segstat;
     segstat.row_num = row_num;
-    segstat.data_size = segment_size + (*writer)->get_inverted_index_file_size();
-    segstat.index_size = index_size + (*writer)->get_inverted_index_file_size();
+    segstat.data_size = segment_size + (*writer)->get_inverted_index_total_size();
+    segstat.index_size = index_size + (*writer)->get_inverted_index_total_size();
     segstat.key_bounds = key_bounds;
     {
         std::lock_guard<std::mutex> lock(_segid_statistics_map_mutex);

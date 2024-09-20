@@ -72,7 +72,6 @@ import org.apache.doris.thrift.TTextSerdeType;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.protobuf.ByteString;
@@ -97,23 +96,6 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
     public static final Logger LOG = LogManager.getLogger(ExternalFileTableValuedFunction.class);
 
     public static final String PROP_TABLE_ID = "table_id";
-
-    protected static final ImmutableSet<String> FILE_FORMAT_PROPERTIES = new ImmutableSet.Builder<String>()
-            .add(FileFormatConstants.PROP_FORMAT)
-            .add(FileFormatConstants.PROP_JSON_ROOT)
-            .add(FileFormatConstants.PROP_JSON_PATHS)
-            .add(FileFormatConstants.PROP_STRIP_OUTER_ARRAY)
-            .add(FileFormatConstants.PROP_READ_JSON_BY_LINE)
-            .add(FileFormatConstants.PROP_NUM_AS_STRING)
-            .add(FileFormatConstants.PROP_FUZZY_PARSE)
-            .add(FileFormatConstants.PROP_COLUMN_SEPARATOR)
-            .add(FileFormatConstants.PROP_LINE_DELIMITER)
-            .add(FileFormatConstants.PROP_TRIM_DOUBLE_QUOTES)
-            .add(FileFormatConstants.PROP_SKIP_LINES)
-            .add(FileFormatConstants.PROP_CSV_SCHEMA)
-            .add(FileFormatConstants.PROP_COMPRESS_TYPE)
-            .add(FileFormatConstants.PROP_PATH_PARTITION_KEYS)
-            .build();
 
     // Columns got from file and path(if has)
     protected List<Column> columns = null;

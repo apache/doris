@@ -283,11 +283,10 @@ suite("test_rowstore", "p0,nonConcurrent") {
     """
     sql "select /*+ SET_VAR(enable_nereids_planner=true)*/ * from table_with_column_group where k1 = 1"
 
-    def tableName = "rs_query"
-    sql """DROP TABLE IF EXISTS ${tableName}"""
+    sql """DROP TABLE IF EXISTS rs_query"""
     sql "set enable_decimal256 = true"
     sql """
-              CREATE TABLE IF NOT EXISTS ${tableName} (
+              CREATE TABLE IF NOT EXISTS rs_query (
                 `k1` int(11) NULL COMMENT "",
                 `v1` text NULL COMMENT "",
                 `v2` DECIMAL(50, 18) NULL COMMENT ""
@@ -303,26 +302,29 @@ suite("test_rowstore", "p0,nonConcurrent") {
               )
           """
 
-    sql """insert into ${tableName} values (1, 'abc', 1111919.12345678919)"""
+    sql """
+        insert into rs_query values (1, 'abc', 1111919.12345678919), (2, 'abc', 1111919.12345678919);
+        analyze table rs_query with sync;
+        """
     explain {
-        sql("select * from ${tableName} order by k1 limit 1")
+        sql("select * from rs_query order by k1 limit 1")
         contains "TOPN OPT"
     } 
-    qt_sql """select * from ${tableName} order by k1 limit 1"""
+    qt_sql """select * from rs_query order by k1 limit 1"""
 
     sql """
-         ALTER table ${tableName} ADD COLUMN new_column1 INT default "123";
+         ALTER table rs_query ADD COLUMN new_column1 INT default "123";
     """
-    qt_sql """select * from ${tableName} where k1 = 1"""
+    qt_sql """select * from rs_query where k1 = 1"""
 
     sql """
-         ALTER table ${tableName} ADD COLUMN new_column2 DATETIMEV2(3) DEFAULT "1970-01-01 00:00:00.111";
+         ALTER table rs_query ADD COLUMN new_column2 DATETIMEV2(3) DEFAULT "1970-01-01 00:00:00.111";
     """
     sleep(1000)
-    qt_sql """select * from ${tableName} where k1 = 1"""
+    qt_sql """select * from rs_query where k1 = 1"""
    
-    sql """insert into ${tableName} values (2, 'def', 1111919.12345678919, 456, NULL)"""
-    qt_sql """select * from ${tableName} where k1 = 2"""
+    sql """insert into rs_query values (2, 'def', 1111919.12345678919, 456, NULL)"""
+    qt_sql """select * from rs_query where k1 = 2"""
 
     sql "set global enable_short_circuit_query_access_column_store = false"
     test {

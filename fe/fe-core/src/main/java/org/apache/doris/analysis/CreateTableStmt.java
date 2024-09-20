@@ -420,9 +420,14 @@ public class CreateTableStmt extends DdlStmt implements NotFallbackInParser {
             }
 
             keysDesc.analyze(columnDefs);
-            if (!CollectionUtils.isEmpty(keysDesc.getClusterKeysColumnNames()) && !enableUniqueKeyMergeOnWrite) {
-                throw new AnalysisException("Cluster keys only support unique keys table which enabled "
-                        + PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE);
+            if (!CollectionUtils.isEmpty(keysDesc.getClusterKeysColumnNames())) {
+                if (Config.isCloudMode()) {
+                    throw new AnalysisException("Cluster key is not supported in cloud mode");
+                }
+                if (!enableUniqueKeyMergeOnWrite) {
+                    throw new AnalysisException("Cluster keys only support unique keys table which enabled "
+                            + PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE);
+                }
             }
             for (int i = 0; i < keysDesc.keysColumnSize(); ++i) {
                 columnDefs.get(i).setIsKey(true);

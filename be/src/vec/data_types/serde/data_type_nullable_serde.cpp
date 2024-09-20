@@ -79,7 +79,7 @@ Status DataTypeNullableSerDe::deserialize_column_from_json_vector(
     return Status::OK();
 }
 
-void DataTypeNullableSerDe::serialize_one_cell_to_hive_text(
+Status DataTypeNullableSerDe::serialize_one_cell_to_hive_text(
         const IColumn& column, int row_num, BufferWritable& bw, FormatOptions& options,
         int hive_text_complex_type_delimiter_level) const {
     auto result = check_column_const_set_readability(column, row_num);
@@ -90,10 +90,11 @@ void DataTypeNullableSerDe::serialize_one_cell_to_hive_text(
     if (col_null.is_null_at(row_num)) {
         bw.write(NULL_IN_CSV_FOR_ORDINARY_TYPE.c_str(), 2);
     } else {
-        nested_serde->serialize_one_cell_to_hive_text(col_null.get_nested_column(), row_num, bw,
-                                                      options,
-                                                      hive_text_complex_type_delimiter_level);
+        RETURN_IF_ERROR(nested_serde->serialize_one_cell_to_hive_text(
+                col_null.get_nested_column(), row_num, bw, options,
+                hive_text_complex_type_delimiter_level));
     }
+    return Status::OK();
 }
 
 Status DataTypeNullableSerDe::deserialize_one_cell_from_hive_text(

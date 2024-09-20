@@ -24,9 +24,11 @@
 
 #include "common/status.h"
 #include "vec/columns/column.h"
+#include "vec/columns/column_object.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
+#include "vec/data_types/data_type.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
 
@@ -44,9 +46,18 @@ Status VExplodeTableFunction::process_init(Block* block, RuntimeState* state) {
     int value_column_idx = -1;
     RETURN_IF_ERROR(_expr_context->root()->children()[0]->execute(_expr_context.get(), block,
                                                                   &value_column_idx));
-
-    _array_column =
-            block->get_by_position(value_column_idx).column->convert_to_full_column_if_const();
+    if (WhichDataType(remove_nullable(block->get_by_position(value_column_idx).type))
+                .is_variant_type()) {
+        // explode variant array
+        const auto& variant_column = check_and_get_column<ColumnObject>(
+                remove_nullable(block->get_by_position(value_column_idx)
+                                        .column->convert_to_full_column_if_const())
+                        .get());
+        _array_column = variant_column->get_root();
+    } else {
+        _array_column =
+                block->get_by_position(value_column_idx).column->convert_to_full_column_if_const();
+    }
     if (!extract_column_array_info(*_array_column, _detail)) {
         return Status::NotSupported("column type {} not supported now",
                                     block->get_by_position(value_column_idx).column->get_name());

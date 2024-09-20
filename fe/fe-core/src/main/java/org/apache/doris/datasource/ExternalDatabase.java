@@ -451,13 +451,14 @@ public abstract class ExternalDatabase<T extends ExternalTable>
 
     @Override
     public void unregisterTable(String tableName) {
+        makeSureInitialized();
         if (LOG.isDebugEnabled()) {
             LOG.debug("create table [{}]", tableName);
         }
 
         if (extCatalog.getUseMetaCache().get()) {
             if (isInitialized()) {
-                metaCache.invalidate(tableName);
+                metaCache.invalidate(tableName, Util.genIdByName(getQualifiedName(tableName)));
             }
         } else {
             Long tableId = tableNameToId.remove(tableName);
@@ -480,6 +481,7 @@ public abstract class ExternalDatabase<T extends ExternalTable>
     // Only used for sync hive metastore event
     @Override
     public boolean registerTable(TableIf tableIf) {
+        makeSureInitialized();
         long tableId = tableIf.getId();
         String tableName = tableIf.getName();
         if (LOG.isDebugEnabled()) {
@@ -487,11 +489,13 @@ public abstract class ExternalDatabase<T extends ExternalTable>
         }
         if (extCatalog.getUseMetaCache().get()) {
             if (isInitialized()) {
-                metaCache.updateCache(tableName, (T) tableIf);
+                metaCache.updateCache(tableName, (T) tableIf, Util.genIdByName(getQualifiedName(tableName)));
             }
         } else {
-            tableNameToId.put(tableName, tableId);
-            idToTbl.put(tableId, buildTableForInit(tableName, tableId, extCatalog));
+            if (!tableNameToId.containsKey(tableName)) {
+                tableNameToId.put(tableName, tableId);
+                idToTbl.put(tableId, buildTableForInit(tableName, tableId, extCatalog));
+            }
         }
         setLastUpdateTime(System.currentTimeMillis());
         return true;

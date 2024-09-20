@@ -46,6 +46,7 @@ class VerticalSegmentWriter;
 struct SegmentStatistics;
 class BetaRowsetWriter;
 class SegmentFileCollection;
+class InvertedIndexFilesInfo;
 
 class FileWriterCreator {
 public:
@@ -93,7 +94,8 @@ private:
 
 class SegmentFlusher {
 public:
-    SegmentFlusher(RowsetWriterContext& context, SegmentFileCollection& seg_files);
+    SegmentFlusher(RowsetWriterContext& context, SegmentFileCollection& seg_files,
+                   InvertedIndexFilesInfo& idx_files_info);
 
     ~SegmentFlusher();
 
@@ -139,7 +141,11 @@ public:
     bool need_buffering();
 
 private:
-    Status _parse_variant_columns(vectorized::Block& block);
+    // This method will catch exception when allocate memory failed
+    Status _parse_variant_columns(vectorized::Block& block) {
+        RETURN_IF_CATCH_EXCEPTION({ return _internal_parse_variant_columns(block); });
+    }
+    Status _internal_parse_variant_columns(vectorized::Block& block);
     Status _add_rows(std::unique_ptr<segment_v2::SegmentWriter>& segment_writer,
                      const vectorized::Block* block, size_t row_offset, size_t row_num);
     Status _add_rows(std::unique_ptr<segment_v2::VerticalSegmentWriter>& segment_writer,
@@ -158,6 +164,7 @@ private:
 private:
     RowsetWriterContext& _context;
     SegmentFileCollection& _seg_files;
+    InvertedIndexFilesInfo& _idx_files_info;
 
     // written rows by add_block/add_row
     std::atomic<int64_t> _num_rows_written = 0;
@@ -169,7 +176,8 @@ private:
 
 class SegmentCreator {
 public:
-    SegmentCreator(RowsetWriterContext& context, SegmentFileCollection& seg_files);
+    SegmentCreator(RowsetWriterContext& context, SegmentFileCollection& seg_files,
+                   InvertedIndexFilesInfo& idx_files_info);
 
     ~SegmentCreator() = default;
 

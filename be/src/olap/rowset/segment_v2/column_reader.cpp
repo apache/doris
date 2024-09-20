@@ -197,6 +197,7 @@ Status ColumnReader::create_agg_state(const ColumnReaderOptions& opts, const Col
 
     auto data_type = vectorized::DataTypeFactory::instance().create_data_type(meta);
     const auto* agg_state_type = assert_cast<const vectorized::DataTypeAggState*>(data_type.get());
+    agg_state_type->check_agg_state_compatibility(opts.be_exec_version);
     auto type = agg_state_type->get_serialized_type()->get_type_as_type_descriptor().type;
 
     if (read_as_string(type)) {
@@ -250,14 +251,12 @@ Status ColumnReader::create(const ColumnReaderOptions& opts, const ColumnMetaPB&
 }
 
 ColumnReader::ColumnReader(const ColumnReaderOptions& opts, const ColumnMetaPB& meta,
-                           uint64_t num_rows, io::FileReaderSPtr file_reader,
-                           vectorized::DataTypePtr agg_state_ptr)
+                           uint64_t num_rows, io::FileReaderSPtr file_reader)
         : _use_index_page_cache(!config::disable_storage_page_cache),
           _opts(opts),
           _num_rows(num_rows),
           _file_reader(std::move(file_reader)),
-          _dict_encoding_type(UNKNOWN_DICT_ENCODING),
-          _agg_state_ptr(std::move(agg_state_ptr)) {
+          _dict_encoding_type(UNKNOWN_DICT_ENCODING) {
     _meta_length = meta.length();
     _meta_type = (FieldType)meta.type();
     if (_meta_type == FieldType::OLAP_FIELD_TYPE_ARRAY) {
@@ -278,13 +277,18 @@ ColumnReader::~ColumnReader() {
 
 Status ColumnReader::init(const ColumnMetaPB* meta) {
     _type_info = get_type_info(meta);
+
+    if (meta->has_be_exec_version()) {
+        _be_exec_version = meta->be_exec_version();
+    }
+
     if (_type_info == nullptr) {
         return Status::NotSupported("unsupported typeinfo, type={}", meta->type());
     }
     RETURN_IF_ERROR(EncodingInfo::get(_type_info.get(), meta->encoding(), &_encoding_info));
 
     for (int i = 0; i < meta->indexes_size(); i++) {
-        auto& index_meta = meta->indexes(i);
+        const auto& index_meta = meta->indexes(i);
         switch (index_meta.type()) {
         case ORDINAL_INDEX:
             _ordinal_index.reset(
@@ -726,21 +730,8 @@ Status ColumnReader::new_iterator(ColumnIterator** iterator) {
 }
 
 Status ColumnReader::new_agg_state_iterator(ColumnIterator** iterator) {
-    if (!_agg_state_ptr) { // meet old version ColumnMetaPB
-        *iterator = new FileColumnIterator(this);
-        return Status::OK();
-    }
-
-    const auto* agg_state_type =
-            assert_cast<const vectorized::DataTypeAggState*>(_agg_state_ptr.get());
-    auto type = agg_state_type->get_serialized_type()->get_type_as_type_descriptor().type;
-
-    if (read_as_string(type)) {
-        *iterator = new FileColumnIterator(this);
-        return Status::OK();
-    }
-
-    return Status::InternalError("Not supported");
+    *iterator = new FileColumnIterator(this);
+    return Status::OK();
 }
 
 Status ColumnReader::new_array_iterator(ColumnIterator** iterator) {
@@ -1609,7 +1600,7 @@ Status VariantRootColumnIterator::next_batch(size_t* n, vectorized::MutableColum
     obj.incr_num_rows(*n);
     for (auto& entry : obj.get_subcolumns()) {
         if (entry->data.size() != size + *n) {
-            entry->data.insertManyDefaults(*n);
+            entry->data.insert_many_defaults(*n);
         }
     }
     // fill nullmap
@@ -1645,7 +1636,7 @@ Status VariantRootColumnIterator::read_by_rowids(const rowid_t* rowids, const si
     obj.incr_num_rows(count);
     for (auto& entry : obj.get_subcolumns()) {
         if (entry->data.size() != (size + count)) {
-            entry->data.insertManyDefaults(count);
+            entry->data.insert_many_defaults(count);
         }
     }
     // fill nullmap
@@ -1660,6 +1651,58 @@ Status VariantRootColumnIterator::read_by_rowids(const rowid_t* rowids, const si
 #ifndef NDEBUG
     obj.check_consistency();
 #endif
+    return Status::OK();
+}
+
+Status DefaultNestedColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr& dst) {
+    bool has_null = false;
+    return next_batch(n, dst, &has_null);
+}
+
+static void fill_nested_with_defaults(vectorized::MutableColumnPtr& dst,
+                                      vectorized::MutableColumnPtr& sibling_column, size_t nrows) {
+    const auto* sibling_array = vectorized::check_and_get_column<vectorized::ColumnArray>(
+            remove_nullable(sibling_column->get_ptr()));
+    const auto* dst_array = vectorized::check_and_get_column<vectorized::ColumnArray>(
+            remove_nullable(dst->get_ptr()));
+    if (!dst_array || !sibling_array) {
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "Expected array column, but met %s and %s", dst->get_name(),
+                               sibling_column->get_name());
+    }
+    auto new_nested =
+            dst_array->get_data_ptr()->clone_resized(sibling_array->get_data_ptr()->size());
+    auto new_array = make_nullable(vectorized::ColumnArray::create(
+            new_nested->assume_mutable(), sibling_array->get_offsets_ptr()->assume_mutable()));
+    dst->insert_range_from(*new_array, 0, new_array->size());
+#ifndef NDEBUG
+    if (!dst_array->has_equal_offsets(*sibling_array)) {
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Expected same array offsets");
+    }
+#endif
+}
+
+Status DefaultNestedColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr& dst,
+                                               bool* has_null) {
+    if (_sibling_iter) {
+        vectorized::MutableColumnPtr sibling_column = _file_column_type->create_column();
+        RETURN_IF_ERROR(_sibling_iter->next_batch(n, sibling_column, has_null));
+        fill_nested_with_defaults(dst, sibling_column, *n);
+    } else {
+        dst->insert_many_defaults(*n);
+    }
+    return Status::OK();
+}
+
+Status DefaultNestedColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t count,
+                                                   vectorized::MutableColumnPtr& dst) {
+    if (_sibling_iter) {
+        vectorized::MutableColumnPtr sibling_column = _file_column_type->create_column();
+        RETURN_IF_ERROR(_sibling_iter->read_by_rowids(rowids, count, sibling_column));
+        fill_nested_with_defaults(dst, sibling_column, count);
+    } else {
+        dst->insert_many_defaults(count);
+    }
     return Status::OK();
 }
 

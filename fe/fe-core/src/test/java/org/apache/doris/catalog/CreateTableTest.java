@@ -372,17 +372,16 @@ public class CreateTableTest extends TestWithFeService {
 
         // single partition column with multi keys
         ExceptionChecker
-                .expectThrowsWithMsg(IllegalArgumentException.class, "partition key desc list size[2] is not equal to partition column size[1]",
-                        () -> createTable("create table test.tbl10\n"
-                                + "(k1 int not null, k2 varchar(128), k3 int, v1 int, v2 int)\n"
-                                + "partition by list(k1)\n"
-                                + "(\n"
-                                + "partition p1 values in (\"1\", \"3\", \"5\"),\n"
-                                + "partition p2 values in (\"2\", \"4\", \"6\"),\n"
-                                + "partition p3 values in ((\"7\", \"8\"))\n"
-                                + ")\n"
-                                + "distributed by hash(k2) buckets 1\n"
-                                + "properties('replication_num' = '1');"));
+                        .expectThrowsWithMsg(AnalysisException.class,
+                                        "partition item's size out of partition columns: Index 1 out of bounds for length 1",
+                                        () -> createTable("create table test.tbl10\n"
+                                                        + "(k1 int not null, k2 varchar(128), k3 int, v1 int, v2 int)\n"
+                                                        + "partition by list(k1)\n" + "(\n"
+                                                        + "partition p1 values in (\"1\", \"3\", \"5\"),\n"
+                                                        + "partition p2 values in (\"2\", \"4\", \"6\"),\n"
+                                                        + "partition p3 values in ((\"7\", \"8\"))\n" + ")\n"
+                                                        + "distributed by hash(k2) buckets 1\n"
+                                                        + "properties('replication_num' = '1');"));
 
         // multi partition columns with single key
         ExceptionChecker
@@ -399,7 +398,7 @@ public class CreateTableTest extends TestWithFeService {
 
         // multi partition columns with multi keys
         ExceptionChecker
-                .expectThrowsWithMsg(IllegalArgumentException.class, "partition key desc list size[3] is not equal to partition column size[2]",
+                .expectThrowsWithMsg(AnalysisException.class, "partition item's size out of partition columns: Index 2 out of bounds for length 2",
                         () -> createTable("create table test.tbl12\n"
                                 + "(k1 int not null, k2 varchar(128) not null, k3 int, v1 int, v2 int)\n"
                                 + "partition by list(k1, k2)\n"
@@ -922,8 +921,8 @@ public class CreateTableTest extends TestWithFeService {
 
     @Test
     public void testCreateTableWithNerieds() throws Exception {
-        ExceptionChecker.expectThrowsWithMsg(org.apache.doris.nereids.exceptions.AnalysisException.class,
-                "Failed to check min load replica num",
+        ExceptionChecker.expectThrowsWithMsg(org.apache.doris.common.DdlException.class,
+                                "Failed to check min load replica num",
                 () -> createTable("create table test.tbl_min_load_replica_num_2_nereids\n"
                         + "(k1 int, k2 int)\n"
                         + "duplicate key(k1)\n"
@@ -964,7 +963,7 @@ public class CreateTableTest extends TestWithFeService {
                         + "distributed by hash(k1) buckets 10", true));
 
         createDatabaseWithSql("create database db2 properties('replication_num' = '4')");
-        ExceptionChecker.expectThrowsWithMsg(org.apache.doris.nereids.exceptions.AnalysisException.class,
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class,
                 "replication num should be less than the number of available backends. "
                         + "replication num is 4, available backend num is 3",
                 () -> createTable("create table db2.tbl_4_replica\n"

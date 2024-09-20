@@ -184,10 +184,10 @@ OlapBlockDataConvertor::create_olap_column_data_convertor(const TabletColumn& co
         return std::make_unique<OlapColumnDataConvertorSimple<vectorized::Int128>>();
     }
     case FieldType::OLAP_FIELD_TYPE_IPV4: {
-        return std::make_unique<OlapColumnDataConvertorSimple<vectorized::IPv4>>();
+        return std::make_unique<OlapColumnDataConvertorSimple<IPv4>>();
     }
     case FieldType::OLAP_FIELD_TYPE_IPV6: {
-        return std::make_unique<OlapColumnDataConvertorSimple<vectorized::IPv6>>();
+        return std::make_unique<OlapColumnDataConvertorSimple<IPv6>>();
     }
     case FieldType::OLAP_FIELD_TYPE_FLOAT: {
         return std::make_unique<OlapColumnDataConvertorSimple<vectorized::Float32>>();
@@ -1111,7 +1111,7 @@ void OlapBlockDataConvertor::OlapColumnDataConvertorVariant::set_source_column(
     }
     // ensure data finalized
     _source_column_ptr = &const_cast<ColumnObject&>(variant);
-    _source_column_ptr->finalize(false);
+    _source_column_ptr->finalize(ColumnObject::FinalizeMode::WRITE_MODE);
     _root_data_convertor = std::make_unique<OlapColumnDataConvertorVarChar>(true);
     _root_data_convertor->set_source_column(
             {_source_column_ptr->get_root()->get_ptr(), nullptr, ""}, row_pos, num_rows);

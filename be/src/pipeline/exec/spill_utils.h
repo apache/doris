@@ -40,16 +40,17 @@ public:
     ~SpillRunnable() override = default;
 
     void run() override {
+        // Should lock task context before scope task, because the _state maybe
+        // destroyed when run is called.
+        auto task_context_holder = _task_context_holder.lock();
+        if (!task_context_holder) {
+            return;
+        }
         SCOPED_ATTACH_TASK(_state);
         Defer defer([&] {
             std::function<void()> tmp;
             std::swap(tmp, _func);
         });
-
-        auto task_context_holder = _task_context_holder.lock();
-        if (!task_context_holder) {
-            return;
-        }
 
         auto shared_state_holder = _shared_state_holder.lock();
         if (!shared_state_holder) {

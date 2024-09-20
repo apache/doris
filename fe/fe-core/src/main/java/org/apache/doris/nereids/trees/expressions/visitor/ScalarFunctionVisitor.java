@@ -24,9 +24,7 @@ import org.apache.doris.nereids.trees.expressions.functions.combinator.StateComb
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Abs;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Acos;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.AesDecrypt;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.AesDecryptV2;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.AesEncrypt;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.AesEncryptV2;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.AppendTrailingCharIfAbsent;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Array;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayApply;
@@ -81,6 +79,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayZip;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraysOverlap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ascii;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Asin;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.AssertTrue;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Atan;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Atan2;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.AutoPartitionName;
@@ -359,6 +358,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondFloor;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondsAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondsDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondsSub;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.SessionUser;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sha1;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sha2;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sign;
@@ -367,9 +367,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Sleep;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sm3;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sm3sum;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sm4Decrypt;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.Sm4DecryptV2;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sm4Encrypt;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.Sm4EncryptV2;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Space;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SplitByChar;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SplitByRegexp;
@@ -479,16 +477,8 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(aesDecrypt, context);
     }
 
-    default R visitAesDecryptV2(AesDecryptV2 aesDecryptV2, C context) {
-        return visitScalarFunction(aesDecryptV2, context);
-    }
-
     default R visitAesEncrypt(AesEncrypt aesEncrypt, C context) {
         return visitScalarFunction(aesEncrypt, context);
-    }
-
-    default R visitAesEncryptV2(AesEncryptV2 aesEncryptV2, C context) {
-        return visitScalarFunction(aesEncryptV2, context);
     }
 
     default R visitAppendTrailingCharIfAbsent(AppendTrailingCharIfAbsent function, C context) {
@@ -705,6 +695,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitAsin(Asin asin, C context) {
         return visitScalarFunction(asin, context);
+    }
+
+    default R visitAssertTrue(AssertTrue assertTrue, C context) {
+        return visitScalarFunction(assertTrue, context);
     }
 
     default R visitAtan(Atan atan, C context) {
@@ -1831,16 +1825,8 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(sm4Decrypt, context);
     }
 
-    default R visitSm4DecryptV2(Sm4DecryptV2 sm4DecryptV2, C context) {
-        return visitScalarFunction(sm4DecryptV2, context);
-    }
-
     default R visitSm4Encrypt(Sm4Encrypt sm4Encrypt, C context) {
         return visitScalarFunction(sm4Encrypt, context);
-    }
-
-    default R visitSm4EncryptV2(Sm4EncryptV2 sm4EncryptV2, C context) {
-        return visitScalarFunction(sm4EncryptV2, context);
     }
 
     default R visitSpace(Space space, C context) {
@@ -2096,6 +2082,10 @@ public interface ScalarFunctionVisitor<R, C> {
     }
 
     default R visitUser(User user, C context) {
+        return visitScalarFunction(user, context);
+    }
+
+    default R visitSessionUser(SessionUser user, C context) {
         return visitScalarFunction(user, context);
     }
 

@@ -392,4 +392,15 @@ public class MetaServiceClient {
         }
         return blockingStub.abortTxnWithCoordinator(request);
     }
+
+    public Cloud.FinishTabletJobResponse
+            finishTabletJob(Cloud.FinishTabletJobRequest request) {
+        if (!request.hasCloudUniqueId()) {
+            Cloud.FinishTabletJobRequest.Builder builder =
+                    Cloud.FinishTabletJobRequest.newBuilder();
+            builder.mergeFrom(request);
+            return blockingStub.finishTabletJob(builder.setCloudUniqueId(Config.cloud_unique_id).build());
+        }
+        return blockingStub.finishTabletJob(request);
+    }
 }

@@ -124,7 +124,7 @@ suite("insert_group_commit_into_unique_sync_mode") {
             DISTRIBUTED BY HASH(`id`) BUCKETS 1
             PROPERTIES (
                 "replication_num" = "1",
-                "group_commit_interval_ms" = "1000"
+                "group_commit_interval_ms" = "10"
             );
             """
 
@@ -132,11 +132,10 @@ suite("insert_group_commit_into_unique_sync_mode") {
             connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url = context.config.jdbcUrl) {
                 sql """ set group_commit = sync_mode; """
                 if (item == "nereids") {
-                    sql """ set enable_nereids_dml = true; """
                     sql """ set enable_nereids_planner=true; """
                     sql """ set enable_fallback_to_original_planner=false; """
                 } else {
-                    sql """ set enable_nereids_dml = false; """
+                    sql """ set enable_nereids_planner = false; """
                 }
 
                 group_commit_insert """ insert into ${dbTableName} values (1, 'a', 10),(5, 'q', 50); """, 2
@@ -212,7 +211,7 @@ suite("insert_group_commit_into_unique_sync_mode") {
             PROPERTIES (
                 "replication_num" = "1",
                 "function_column.sequence_col" = "score",
-                "group_commit_interval_ms" = "1000"
+                "group_commit_interval_ms" = "10"
             );
             """
 
@@ -220,11 +219,10 @@ suite("insert_group_commit_into_unique_sync_mode") {
             connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url = context.config.jdbcUrl) {
                 sql """ set group_commit = sync_mode; """
                 if (item == "nereids") {
-                    sql """ set enable_nereids_dml = true; """
                     sql """ set enable_nereids_planner=true; """
                     sql """ set enable_fallback_to_original_planner=false; """
                 } else {
-                    sql """ set enable_nereids_dml = false; """
+                    sql """ set enable_nereids_planner = false; """
                 }
 
                 group_commit_insert """ insert into ${dbTableName} values (1, 'a', 10),(5, 'q', 50); """, 2
@@ -303,7 +301,7 @@ suite("insert_group_commit_into_unique_sync_mode") {
             PROPERTIES (
                 "replication_num" = "1",
                 "function_column.sequence_type" = "int",
-                "group_commit_interval_ms" = "1000"
+                "group_commit_interval_ms" = "10"
             );
             """
 
@@ -311,11 +309,10 @@ suite("insert_group_commit_into_unique_sync_mode") {
             connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url = context.config.jdbcUrl) {
                 sql """ set group_commit = sync_mode; """
                 if (item == "nereids") {
-                    sql """ set enable_nereids_dml = true; """
                     sql """ set enable_nereids_planner=true; """
                     sql """ set enable_fallback_to_original_planner=false; """
                 } else {
-                    sql """ set enable_nereids_dml = false; """
+                    sql """ set enable_nereids_planner = false; """
                 }
 
                 group_commit_insert """ insert into ${dbTableName}(id, name, score, __DORIS_SEQUENCE_COL__) values (1, 'a', 10, 100),(5, 'q', 50, 500); """, 2

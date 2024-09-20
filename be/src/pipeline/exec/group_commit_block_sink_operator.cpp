@@ -259,19 +259,15 @@ Status GroupCommitBlockSinkOperatorX::init(const TDataSink& t_sink) {
     return Status::OK();
 }
 
-Status GroupCommitBlockSinkOperatorX::prepare(RuntimeState* state) {
-    RETURN_IF_ERROR(Base::prepare(state));
+Status GroupCommitBlockSinkOperatorX::open(RuntimeState* state) {
+    RETURN_IF_ERROR(Base::open(state));
     // get table's tuple descriptor
     _output_tuple_desc = state->desc_tbl().get_tuple_descriptor(_tuple_desc_id);
     if (_output_tuple_desc == nullptr) {
         LOG(WARNING) << "unknown destination tuple descriptor, id=" << _tuple_desc_id;
         return Status::InternalError("unknown destination tuple descriptor");
     }
-    return vectorized::VExpr::prepare(_output_vexpr_ctxs, state, _row_desc);
-}
-
-Status GroupCommitBlockSinkOperatorX::open(RuntimeState* state) {
-    // Prepare the exprs to run.
+    RETURN_IF_ERROR(vectorized::VExpr::prepare(_output_vexpr_ctxs, state, _row_desc));
     return vectorized::VExpr::open(_output_vexpr_ctxs, state);
 }
 

@@ -115,6 +115,14 @@ Status CloudRowsetWriter::build(RowsetSharedPtr& rowset) {
         _rowset_meta->add_segments_file_size(seg_file_size.value());
     }
 
+    if (auto idx_files_info = _idx_files_info.get_inverted_files_info(_segment_start_id);
+        !idx_files_info.has_value()) [[unlikely]] {
+        LOG(ERROR) << "expected inverted index files info, but none presents: "
+                   << idx_files_info.error();
+    } else {
+        _rowset_meta->add_inverted_index_files_info(idx_files_info.value());
+    }
+
     RETURN_NOT_OK_STATUS_WITH_WARN(RowsetFactory::create_rowset(rowset_schema, _context.tablet_path,
                                                                 _rowset_meta, &rowset),
                                    "rowset init failed when build new rowset");

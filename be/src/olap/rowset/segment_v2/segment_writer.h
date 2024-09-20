@@ -102,9 +102,10 @@ public:
     int64_t max_row_to_add(size_t row_avg_size_in_bytes);
 
     uint64_t estimate_segment_size();
-    size_t try_get_inverted_index_file_size();
 
-    size_t get_inverted_index_file_size() const { return _inverted_index_file_size; }
+    InvertedIndexFileInfo get_inverted_index_file_info() const { return _inverted_index_file_info; }
+    int64_t get_inverted_index_total_size();
+
     uint32_t num_rows_written() const { return _num_rows_written; }
 
     // for partial update
@@ -135,10 +136,6 @@ public:
     TabletSchemaSPtr flush_schema() const { return _flush_schema; };
 
     void set_mow_context(std::shared_ptr<MowContext> mow_context);
-    Status fill_missing_columns(vectorized::MutableColumns& mutable_full_columns,
-                                const std::vector<bool>& use_default_or_null_flag,
-                                bool has_default_or_nullable, const size_t& segment_start_pos,
-                                const vectorized::Block* block);
 
 private:
     DISALLOW_COPY_AND_ASSIGN(SegmentWriter);
@@ -183,6 +180,8 @@ private:
             vectorized::IOlapColumnDataAccessor* seq_column, size_t num_rows, bool need_sort);
     Status _generate_short_key_index(std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns,
                                      size_t num_rows, const std::vector<size_t>& short_key_pos);
+    bool _is_mow();
+    bool _is_mow_with_cluster_key();
 
 private:
     uint32_t _segment_id;
@@ -195,9 +194,11 @@ private:
     io::FileWriter* _file_writer = nullptr;
     std::unique_ptr<InvertedIndexFileWriter> _inverted_index_file_writer;
     SegmentFooterPB _footer;
-    size_t _num_key_columns;
+    // for mow tables with cluster key, the sort key is the cluster keys not unique keys
+    // for other tables, the sort key is the keys
+    size_t _num_sort_key_columns;
     size_t _num_short_key_columns;
-    size_t _inverted_index_file_size;
+    InvertedIndexFileInfo _inverted_index_file_info;
     std::unique_ptr<ShortKeyIndexBuilder> _short_key_index_builder;
     std::unique_ptr<PrimaryKeyIndexBuilder> _primary_key_index_builder;
     std::vector<std::unique_ptr<ColumnWriter>> _column_writers;
@@ -236,7 +237,6 @@ private:
 
     std::shared_ptr<MowContext> _mow_context;
     // group every rowset-segment row id to speed up reader
-    PartialUpdateReadPlan _rssid_to_rid;
     std::map<RowsetId, RowsetSharedPtr> _rsid_to_rowset;
     // contains auto generated columns, should be nullptr if no variants's subcolumns
     TabletSchemaSPtr _flush_schema = nullptr;

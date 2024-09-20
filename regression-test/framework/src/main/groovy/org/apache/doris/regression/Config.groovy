@@ -117,6 +117,7 @@ class Config {
     public InetSocketAddress recycleServiceHttpInetSocketAddress
     public Integer parallel
     public Integer suiteParallel
+    public Integer dockerSuiteParallel
     public Integer actionParallel
     public Integer times
     public boolean withOutLoadData
@@ -467,6 +468,7 @@ class Config {
         config.forceGenerateOutputFile = cmd.hasOption(forceGenOutOpt)
         config.parallel = Integer.parseInt(cmd.getOptionValue(parallelOpt, "10"))
         config.suiteParallel = Integer.parseInt(cmd.getOptionValue(suiteParallelOpt, "10"))
+        config.dockerSuiteParallel = Integer.parseInt(cmd.getOptionValue(dockerSuiteParallelOpt, "1"))
         config.actionParallel = Integer.parseInt(cmd.getOptionValue(actionParallelOpt, "10"))
         config.times = Integer.parseInt(cmd.getOptionValue(timesOpt, "1"))
         config.randomOrder = cmd.hasOption(randomOrderOpt)
@@ -630,7 +632,7 @@ class Config {
             } else if (config.s3Source == "huawei") {
                 s3Provider = "OBS"
             } else if (config.s3Source == "azure") {
-                s3Provider = "AZURE"
+                s3Provider = "Azure" // case insensitive test
             } else if (config.s3Source == "gcp") {
                 s3Provider = "GCP"
             }
@@ -888,6 +890,11 @@ class Config {
             log.info("Set suiteParallel to 1 because not specify.".toString())
         }
 
+        if (config.dockerSuiteParallel == null) {
+            config.dockerSuiteParallel = 1
+            log.info("Set dockerSuiteParallel to 1 because not specify.".toString())
+        }
+
         if (config.actionParallel == null) {
             config.actionParallel = 10
             log.info("Set actionParallel to 10 because not specify.".toString())
@@ -924,6 +931,21 @@ class Config {
             }
         } catch (Throwable t) {
             throw new IllegalStateException("Create database failed, jdbcUrl: ${jdbcUrl}", t)
+        }
+    }
+
+    void tryCreateDownstreamDbIfNotExist(String dbName = defaultDb) {
+        // connect without specify default db
+        try {
+            String sql = "CREATE DATABASE IF NOT EXISTS ${dbName}"
+            log.info("Try to create db, sql: ${sql}".toString())
+            if (!dryRun) {
+                getDownstreamConnection().withCloseable { conn ->
+                    JdbcUtils.executeToList(conn, sql)
+                }
+            }
+        } catch (Throwable t) {
+            throw new IllegalStateException("Create database failed, ccrDownstreamUrl: ${ccrDownstreamUrl}", t)
         }
     }
 
@@ -970,11 +992,15 @@ class Config {
         return DriverManager.getConnection(dbUrl, arrowFlightSqlJdbcUser, arrowFlightSqlJdbcPassword)
     }
 
+    Connection getDownstreamConnection() {
+        return DriverManager.getConnection(ccrDownstreamUrl, ccrDownstreamUser, ccrDownstreamPassword)
+    }
+
     Connection getDownstreamConnectionByDbName(String dbName) {
         log.info("get downstream connection, url: ${ccrDownstreamUrl}, db: ${dbName}, " +
                 "user: ${ccrDownstreamUser}, passwd: ${ccrDownstreamPassword}")
         String dbUrl = buildUrlWithDb(ccrDownstreamUrl, dbName)
-        tryCreateDbIfNotExist(dbName)
+        tryCreateDownstreamDbIfNotExist(dbName)
         log.info("connect to ${dbUrl}".toString())
         return DriverManager.getConnection(dbUrl, ccrDownstreamUser, ccrDownstreamPassword)
     }

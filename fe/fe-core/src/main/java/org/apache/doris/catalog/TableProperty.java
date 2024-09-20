@@ -96,6 +96,8 @@ public class TableProperty implements Writable, GsonPostProcessable {
 
     private boolean disableAutoCompaction = false;
 
+    private boolean variantEnableFlattenNested = false;
+
     private boolean enableSingleReplicaCompaction = false;
 
     private boolean storeRowColumn = false;
@@ -120,6 +122,9 @@ public class TableProperty implements Writable, GsonPostProcessable {
 
     private long timeSeriesCompactionLevelThreshold
                                     = PropertyAnalyzer.TIME_SERIES_COMPACTION_LEVEL_THRESHOLD_DEFAULT_VALUE;
+
+    private String autoAnalyzePolicy = PropertyAnalyzer.ENABLE_AUTO_ANALYZE_POLICY;
+
 
     private DataSortInfo dataSortInfo = new DataSortInfo();
 
@@ -160,6 +165,7 @@ public class TableProperty implements Writable, GsonPostProcessable {
                 buildTimeSeriesCompactionEmptyRowsetsThreshold();
                 buildTimeSeriesCompactionLevelThreshold();
                 buildTTLSeconds();
+                buildAutoAnalyzeProperty();
                 break;
             default:
                 break;
@@ -233,8 +239,25 @@ public class TableProperty implements Writable, GsonPostProcessable {
         return this;
     }
 
+    public TableProperty buildAutoAnalyzeProperty() {
+        autoAnalyzePolicy = properties.getOrDefault(PropertyAnalyzer.PROPERTIES_AUTO_ANALYZE_POLICY,
+                PropertyAnalyzer.ENABLE_AUTO_ANALYZE_POLICY);
+        return this;
+    }
+
     public boolean disableAutoCompaction() {
         return disableAutoCompaction;
+    }
+
+
+    public TableProperty buildVariantEnableFlattenNested() {
+        variantEnableFlattenNested = Boolean.parseBoolean(
+                properties.getOrDefault(PropertyAnalyzer.PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED, "false"));
+        return this;
+    }
+
+    public boolean variantEnableFlattenNested() {
+        return variantEnableFlattenNested;
     }
 
     public TableProperty buildEnableSingleReplicaCompaction() {
@@ -681,6 +704,7 @@ public class TableProperty implements Writable, GsonPostProcessable {
         buildTimeSeriesCompactionEmptyRowsetsThreshold();
         buildTimeSeriesCompactionLevelThreshold();
         buildTTLSeconds();
+        buildVariantEnableFlattenNested();
 
         if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_105) {
             // get replica num from property map and create replica allocation

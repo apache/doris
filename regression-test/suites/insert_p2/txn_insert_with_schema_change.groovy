@@ -98,7 +98,7 @@ suite("txn_insert_with_schema_change") {
         sql "use ${dbName};"
         def last_state = ""
         while (true) {
-            sleep(2000)
+            sleep(4000)
             def state = sql """ show alter table column where tablename = "${tName}" order by CreateTime desc limit 1"""
             logger.info("alter table state: ${state}")
             last_state = state[0][9]
@@ -106,7 +106,7 @@ suite("txn_insert_with_schema_change") {
                 return
             }
             retry++
-            if (retry >= 10 || last_state == "FINISHED" || last_state == "CANCELLED") {
+            if (retry >= 60 || last_state == "FINISHED" || last_state == "CANCELLED") {
                 break
             }
         }

@@ -63,11 +63,10 @@ suite("test_group_commit_interval_ms_property") {
             sql """ set group_commit = async_mode; """
 
             if (item == "nereids") {
-                sql """ set enable_nereids_dml = true; """
                 sql """ set enable_nereids_planner=true; """
                 sql """ set enable_fallback_to_original_planner=false; """
             } else {
-                sql """ set enable_nereids_dml = false; """
+                sql """ set enable_nereids_planner = false; """
             }
 
             def res1 = sql """show create table ${test_table}"""
@@ -75,7 +74,7 @@ suite("test_group_commit_interval_ms_property") {
 
             def msg1 = group_commit_insert """insert into ${test_table} values(1,1); """, 1
 
-            Thread.sleep(8000);
+            Thread.sleep(2000);
 
             def msg2 = group_commit_insert """insert into ${test_table} values(2,2) """, 1
 
@@ -88,7 +87,7 @@ suite("test_group_commit_interval_ms_property") {
 
             def msg3 = group_commit_insert """insert into ${test_table} values(3,3); """, 1
 
-            Thread.sleep(2000);
+            Thread.sleep(8000);
 
             def msg4 = group_commit_insert """insert into ${test_table} values(4,4); """, 1
 

@@ -245,6 +245,13 @@ class UpCommand(Command):
                             type=str,
                             help="Specify recycle configs for doris_cloud.conf. "\
                                     "Example: --recycle-config \"log_level = warn\".")
+        group1.add_argument(
+            "--fe-follower",
+            default=False,
+            action=self._get_parser_bool_action(True),
+            help=
+            "The new added fe is follower but not observer. Only support in cloud mode."
+        )
         group1.add_argument("--be-disks",
                             nargs="*",
                             default=["HDD=1"],
@@ -383,17 +390,19 @@ class UpCommand(Command):
                 args.add_ms_num = 0
                 args.add_recycle_num = 0
 
-            cluster = CLUSTER.Cluster.new(args.NAME, args.IMAGE, args.cloud,
-                                          args.fe_config, args.be_config,
-                                          args.ms_config, args.recycle_config,
-                                          args.be_disks, args.be_cluster,
-                                          args.reg_be, args.coverage_dir,
-                                          cloud_store_config)
+            cluster = CLUSTER.Cluster.new(
+                args.NAME, args.IMAGE, args.cloud, args.fe_config,
+                args.be_config, args.ms_config, args.recycle_config,
+                args.fe_follower, args.be_disks, args.be_cluster, args.reg_be,
+                args.coverage_dir, cloud_store_config)
             LOG.info("Create new cluster {} succ, cluster path is {}".format(
                 args.NAME, cluster.get_path()))
 
         if args.be_cluster and cluster.is_cloud:
             cluster.be_cluster = args.be_cluster
+
+        if cluster.is_cloud:
+            cluster.fe_follower = args.fe_follower
 
         _, related_nodes, _ = get_ids_related_nodes(cluster, args.fe_id,
                                                     args.be_id, args.ms_id,
@@ -702,6 +711,8 @@ class ListNode(object):
         if detail:
             query_port = ""
             http_port = ""
+            node_path = CLUSTER.get_node_path(self.cluster_name,
+                                              self.node_type, self.id)
             if self.node_type == CLUSTER.Node.TYPE_FE:
                 query_port = CLUSTER.FE_QUERY_PORT
                 http_port = CLUSTER.FE_HTTP_PORT
@@ -714,6 +725,7 @@ class ListNode(object):
             result += [
                 query_port,
                 http_port,
+                node_path,
             ]
         return result
 
@@ -814,7 +826,16 @@ cloudUniqueId= "{fe_cloud_unique_id}"
                 print("\nNo write regression custom file.")
                 return
 
+        annotation_start = "//---------- Start auto generate by doris-compose.py---------"
+        annotation_end = "//---------- End auto generate by doris-compose.py---------"
+
+        old_contents = []
+        if os.path.exists(regression_conf_custom):
+            with open(regression_conf_custom, "r") as f:
+                old_contents = f.readlines()
         with open(regression_conf_custom, "w") as f:
+            # write auto gen config
+            f.write(annotation_start)
             f.write(base_conf.format(fe_ip=fe_ip))
             if cluster.is_cloud:
                 multi_cluster_bes = ",".join([
@@ -833,6 +854,23 @@ cloudUniqueId= "{fe_cloud_unique_id}"
                         multi_cluster_bes=multi_cluster_bes,
                         fe_cloud_unique_id=cluster.get_node(
                             CLUSTER.Node.TYPE_FE, 1).cloud_unique_id()))
+            f.write(annotation_end + "\n\n")
+            annotation_end_line_count = -1
+
+            # write not-auto gen config
+            in_annotation = False
+            annotation_end_line_idx = -100
+            for line_idx, line in enumerate(old_contents):
+                line = line.rstrip()
+                if line == annotation_start:
+                    in_annotation = True
+                elif line == annotation_end:
+                    in_annotation = False
+                    annotation_end_line_idx = line_idx
+                elif not in_annotation:
+                    if line or line_idx != annotation_end_line_idx + 1:
+                        f.write(line + "\n")
+
         print("\nWrite succ: " + regression_conf_custom)
 
 
@@ -967,6 +1005,7 @@ class ListCommand(Command):
             header += [
                 "query_port",
                 "http_port",
+                "path",
             ]
 
         rows = []

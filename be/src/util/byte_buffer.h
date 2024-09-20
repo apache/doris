@@ -24,6 +24,7 @@
 
 #include "common/logging.h"
 #include "common/status.h"
+#include "runtime/thread_context.h"
 #include "vec/common/allocator.h"
 #include "vec/common/allocator_fwd.h"
 
@@ -33,17 +34,15 @@ struct ByteBuffer;
 using ByteBufferPtr = std::shared_ptr<ByteBuffer>;
 
 struct ByteBuffer : private Allocator<false> {
-    static ByteBufferPtr allocate(size_t size) {
-        ByteBufferPtr ptr(new ByteBuffer(size));
-        return ptr;
-    }
-
-    static Status create_and_allocate(ByteBufferPtr& ptr, size_t size) {
-        ptr = ByteBufferPtr(new ByteBuffer(size));
+    static Status allocate(const size_t size, ByteBufferPtr* ptr) {
+        RETURN_IF_CATCH_EXCEPTION({ *ptr = ByteBufferPtr(new ByteBuffer(size)); });
         return Status::OK();
     }
 
-    ~ByteBuffer() { Allocator<false>::free(ptr, capacity); }
+    ~ByteBuffer() {
+        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(mem_tracker_);
+        Allocator<false>::free(ptr, capacity);
+    }
 
     void put_bytes(const char* data, size_t size) {
         memcpy(ptr + pos, data, size);
@@ -70,9 +69,15 @@ struct ByteBuffer : private Allocator<false> {
     size_t capacity;
 
 private:
-    ByteBuffer(size_t capacity_) : pos(0), limit(capacity_), capacity(capacity_) {
+    ByteBuffer(size_t capacity_)
+            : pos(0),
+              limit(capacity_),
+              capacity(capacity_),
+              mem_tracker_(doris::thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker()) {
         ptr = reinterpret_cast<char*>(Allocator<false>::alloc(capacity_));
     }
+
+    std::shared_ptr<MemTrackerLimiter> mem_tracker_;
 };
 
 } // namespace doris

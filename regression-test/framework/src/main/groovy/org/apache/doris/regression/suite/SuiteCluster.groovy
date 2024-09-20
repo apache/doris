@@ -40,6 +40,7 @@ class ClusterOptions {
     ]
 
     List<String> beConfigs = [
+        'max_sys_mem_available_low_water_mark_bytes=0', //no check mem available memory
         'report_disk_state_interval_seconds=2',
         'report_random_wait=false',
     ]
@@ -50,6 +51,12 @@ class ClusterOptions {
     // 2. cloudMode = false, only create none-cloud cluster.
     // 3. cloudMode = null, create both cloud and none-cloud cluster, depend on the running pipeline mode.
     Boolean cloudMode = false
+
+    // in cloud mode, deployment methods are divided into
+    // 1. master - multi observers
+    // 2. mutli followers - multi observers
+    // default use 1
+    Boolean useFollowersMode = false
 
     // when cloudMode = true/false,  but the running pipeline is diff with cloudMode,
     // skip run this docker test or not.
@@ -95,12 +102,14 @@ class ServerNode {
     String host
     int httpPort
     boolean alive
+    String path
 
     static void fromCompose(ServerNode node, ListHeader header, int index, List<Object> fields) {
         node.index = index
         node.host = (String) fields.get(header.indexOf('IP'))
         node.httpPort = (Integer) fields.get(header.indexOf('http_port'))
         node.alive = fields.get(header.indexOf('alive')) == 'true'
+        node.path = (String) fields.get(header.indexOf('path'))
     }
 
     static long toLongOrDefault(Object val, long defValue) {
@@ -130,6 +139,14 @@ class ServerNode {
         assert false : 'Unknown node type'
     }
 
+    String getLogFilePath() {
+        assert false : 'Unknown node type'
+    }
+
+    String getConfFilePath() {
+        assert false : 'Unknown node type'
+    }
+
 }
 
 class Frontend extends ServerNode {
@@ -147,6 +164,14 @@ class Frontend extends ServerNode {
 
     NodeType getNodeType() {
         return NodeType.FE
+    }
+
+    String getLogFilePath() {
+        return path + '/log/fe.log'
+    }
+
+    String getConfFilePath() {
+        return path + '/conf/fe.conf'
     }
 
 }
@@ -168,6 +193,14 @@ class Backend extends ServerNode {
         return NodeType.BE
     }
 
+    String getLogFilePath() {
+        return path + '/log/be.INFO'
+    }
+
+    String getConfFilePath() {
+        return path + '/conf/be.conf'
+    }
+
 }
 
 class MetaService extends ServerNode {
@@ -182,6 +215,14 @@ class MetaService extends ServerNode {
         return NodeType.MS
     }
 
+    String getLogFilePath() {
+        return path + '/log/meta_service.INFO'
+    }
+
+    String getConfFilePath() {
+        return path + '/conf/doris_cloud.conf'
+    }
+
 }
 
 class Recycler extends ServerNode {
@@ -194,6 +235,14 @@ class Recycler extends ServerNode {
 
     NodeType getNodeType() {
         return NodeType.RECYCLER
+    }
+
+    String getLogFilePath() {
+        return path + '/log/recycler.INFO'
+    }
+
+    String getConfFilePath() {
+        return path + '/conf/doris_cloud.conf'
     }
 
 }
@@ -248,6 +297,11 @@ class SuiteCluster {
         if (isCloud) {
             cmd += ['--cloud']
         }
+
+        if (isCloud && options.useFollowersMode) {
+            cmd += ['--fe-follower']
+        }
+
         cmd += ['--wait-timeout', String.valueOf(180)]
 
         runCmd(cmd.join(' '), -1)
@@ -362,14 +416,14 @@ class SuiteCluster {
             } else if (name.startsWith('fe-')) {
                 int index = name.substring('fe-'.length()) as int
                 frontends.add(Frontend.fromCompose(header, index, row))
-            } else if (name.startsWith('ms-')){
+            } else if (name.startsWith('ms-')) {
                 int index = name.substring('ms-'.length()) as int
                 metaservices.add(MetaService.fromCompose(header, index, row))
-            } else if (name.startsWith('recycle-')){
+            } else if (name.startsWith('recycle-')) {
                 int index = name.substring('recycle-'.length()) as int
                 recyclers.add(Recycler.fromCompose(header, index, row))
             } else if (name.startsWith('fdb-')) {
-                // current not used
+            // current not used
             } else {
                 assert false : 'Unknown node type with name: ' + name
             }
@@ -377,24 +431,28 @@ class SuiteCluster {
         return new Tuple4(frontends, backends, metaservices, recyclers)
     }
 
-    List<Integer> addFrontend(int num) throws Exception {
-        def result = add(num, 0, null)
+    List<Integer> addFrontend(int num, boolean followerMode=false) throws Exception {
+        def result = add(num, 0, null, followerMode)
         return result.first
     }
 
-    List<Integer> addBackend(int num, String ClusterName="") throws Exception {
+    List<Integer> addBackend(int num, String ClusterName='') throws Exception {
         def result = add(0, num, ClusterName)
         return result.second
     }
 
-    // APPR: clusterName just used for cloud mode, 1 cluster has n bes
-    Tuple2<List<Integer>, List<Integer>> add(int feNum, int beNum, String clusterName) throws Exception {
+    // ATTN: clusterName just used for cloud mode, 1 cluster has n bes
+    // ATTN: followerMode just used for cloud mode
+    Tuple2<List<Integer>, List<Integer>> add(int feNum, int beNum, String clusterName, boolean followerMode=false) throws Exception {
         assert feNum > 0 || beNum > 0
 
         def sb = new StringBuilder()
         sb.append('up ' + name + ' ')
         if (feNum > 0) {
             sb.append('--add-fe-num ' + feNum + ' ')
+            if (followerMode) {
+                sb.append('--fe-follower' + ' ')
+            }
         }
         if (beNum > 0) {
             sb.append('--add-be-num ' + beNum + ' ')
@@ -545,7 +603,7 @@ class SuiteCluster {
     }
 
     private Object runCmd(String cmd, int timeoutSecond = 60) throws Exception {
-        def fullCmd = String.format('python %s %s --output-json', config.dorisComposePath, cmd)
+        def fullCmd = String.format('python -W ignore %s %s --output-json', config.dorisComposePath, cmd)
         logger.info('Run doris compose cmd: {}', fullCmd)
         def proc = fullCmd.execute()
         def outBuf = new StringBuilder()

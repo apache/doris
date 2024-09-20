@@ -224,7 +224,7 @@ test_backquote_in_view_define	CREATE VIEW `test_backquote_in_view_define` AS sel
 7	1
 
 -- !test_backquote_in_table_alias_sql --
-test_backquote_in_table_alias	CREATE VIEW `test_backquote_in_table_alias` AS select `ab``c`.`a` AS `c1`, `ab``c`.`b` AS `c2` from (select `internal`.`regression_test_ddl_p0`.`mal_test_view`.`a`,`internal`.`regression_test_ddl_p0`.`mal_test_view`.`b` from `internal`.`regression_test_ddl_p0`.`mal_test_view`) `ab``c`;	utf8mb4	utf8mb4_0900_bin
+test_backquote_in_table_alias	CREATE VIEW `test_backquote_in_table_alias` AS select `internal`.`regression_test_ddl_p0`.`ab``c`.`a` AS `c1`, `internal`.`regression_test_ddl_p0`.`ab``c`.`b` AS `c2` from (select `internal`.`regression_test_ddl_p0`.`mal_test_view`.`a`,`internal`.`regression_test_ddl_p0`.`mal_test_view`.`b` from `internal`.`regression_test_ddl_p0`.`mal_test_view`) `ab``c`;	utf8mb4	utf8mb4_0900_bin
 
 -- !test_generate --
 1	10	A	30
@@ -288,7 +288,7 @@ test_view_table_alias	CREATE VIEW `test_view_table_alias` AS select `t`.`c1`, `t
 4	40
 
 -- !test_join_table_alias_sql --
-test_view_join_table_alias	CREATE VIEW `test_view_join_table_alias` AS select `t`.`c1`, `t`.`c2` from (\n            select `t1`.`id` as `c1`, `t1`.`value1` as `c2` from `internal`.`regression_test_ddl_p0`.`create_view_table1` `t1` inner join `internal`.`regression_test_ddl_p0`.`create_view_table2` `t2` on `t1`.`id`=`t2`.`id` limit 10) as `t`;	utf8mb4	utf8mb4_0900_bin
+test_view_join_table_alias	CREATE VIEW `test_view_join_table_alias` AS select `t`.`c1`, `t`.`c2` from (\n            select `internal`.`regression_test_ddl_p0`.`t1`.`id` as `c1`, `internal`.`regression_test_ddl_p0`.`t1`.`value1` as `c2` from `internal`.`regression_test_ddl_p0`.`create_view_table1` `t1` inner join `internal`.`regression_test_ddl_p0`.`create_view_table2` `t2` on `internal`.`regression_test_ddl_p0`.`t1`.`id`=`internal`.`regression_test_ddl_p0`.`t2`.`id` limit 10) as `t`;	utf8mb4	utf8mb4_0900_bin
 
 -- !test_alias_udf --
 1****1	1
@@ -361,5 +361,5 @@ test_having	CREATE VIEW `test_having` AS select sum(`internal`.`regression_test_
 2	200	1
 
 -- !complicated_view1_sql --
-test_view_complicated	CREATE VIEW `test_view_complicated` AS SELECT `t`.`id`, `t`.`value3`, `t`.`row_num` FROM (\n        SELECT `t1`.`id`, `tt`.`value3`, ROW_NUMBER() OVER (PARTITION BY `t1`.`id` ORDER BY `tt`.`value3` DESC) as `row_num`\n    FROM (SELECT `internal`.`regression_test_ddl_p0`.`create_view_table1`.`id` FROM `internal`.`regression_test_ddl_p0`.`create_view_table1` GROUP BY `internal`.`regression_test_ddl_p0`.`create_view_table1`.`id`) `t1`\n    FULL OUTER JOIN (SELECT `internal`.`regression_test_ddl_p0`.`create_view_table2`.`value3`, `internal`.`regression_test_ddl_p0`.`create_view_table2`.`id`, MAX(`internal`.`regression_test_ddl_p0`.`create_view_table2`.`value4`) FROM `internal`.`regression_test_ddl_p0`.`create_view_table2` GROUP BY `internal`.`regression_test_ddl_p0`.`create_view_table2`.`value3`, `internal`.`regression_test_ddl_p0`.`create_view_table2`.`id`) `tt`\n    ON `tt`.`id` = `t1`.`id`\n    ORDER BY `t1`.`id`\n    ) `t`\n    WHERE `t`.`value3` < 280 AND (`t`.`id` < 3 or `t`.`id` >8);	utf8mb4	utf8mb4_0900_bin
+test_view_complicated	CREATE VIEW `test_view_complicated` AS SELECT `internal`.`regression_test_ddl_p0`.`t`.`id`, `internal`.`regression_test_ddl_p0`.`t`.`value3`, `t`.`row_num` FROM (\n        SELECT `internal`.`regression_test_ddl_p0`.`t1`.`id`, `internal`.`regression_test_ddl_p0`.`tt`.`value3`, ROW_NUMBER() OVER (PARTITION BY `internal`.`regression_test_ddl_p0`.`t1`.`id` ORDER BY `internal`.`regression_test_ddl_p0`.`tt`.`value3` DESC) as `row_num`\n    FROM (SELECT `internal`.`regression_test_ddl_p0`.`create_view_table1`.`id` FROM `internal`.`regression_test_ddl_p0`.`create_view_table1` GROUP BY `internal`.`regression_test_ddl_p0`.`create_view_table1`.`id`) `t1`\n    FULL OUTER JOIN (SELECT `internal`.`regression_test_ddl_p0`.`create_view_table2`.`value3`, `internal`.`regression_test_ddl_p0`.`create_view_table2`.`id`, MAX(`internal`.`regression_test_ddl_p0`.`create_view_table2`.`value4`) FROM `internal`.`regression_test_ddl_p0`.`create_view_table2` GROUP BY `internal`.`regression_test_ddl_p0`.`create_view_table2`.`value3`, `internal`.`regression_test_ddl_p0`.`create_view_table2`.`id`) `tt`\n    ON `internal`.`regression_test_ddl_p0`.`tt`.`id` = `internal`.`regression_test_ddl_p0`.`t1`.`id`\n    ORDER BY `internal`.`regression_test_ddl_p0`.`t1`.`id`\n    ) `t`\n    WHERE `internal`.`regression_test_ddl_p0`.`t`.`value3` < 280 AND (`internal`.`regression_test_ddl_p0`.`t`.`id` < 3 or `internal`.`regression_test_ddl_p0`.`t`.`id` >8);	utf8mb4	utf8mb4_0900_bin
 

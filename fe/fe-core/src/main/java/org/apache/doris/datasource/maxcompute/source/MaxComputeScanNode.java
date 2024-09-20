@@ -17,44 +17,66 @@
 
 package org.apache.doris.datasource.maxcompute.source;
 
+import org.apache.doris.analysis.BinaryPredicate;
+import org.apache.doris.analysis.CastExpr;
+import org.apache.doris.analysis.CompoundPredicate;
+import org.apache.doris.analysis.CompoundPredicate.Operator;
+import org.apache.doris.analysis.DateLiteral;
+import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.InPredicate;
+import org.apache.doris.analysis.IsNullPredicate;
+import org.apache.doris.analysis.LiteralExpr;
+import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
-import org.apache.doris.catalog.PartitionItem;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.FileQueryScanNode;
-import org.apache.doris.datasource.FileSplit;
 import org.apache.doris.datasource.TableFormatType;
-import org.apache.doris.datasource.TablePartitionValues;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalCatalog;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalTable;
-import org.apache.doris.planner.ListPartitionPrunerV2;
+import org.apache.doris.datasource.maxcompute.source.MaxComputeSplit.SplitType;
+import org.apache.doris.datasource.property.constants.MCProperties;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
-import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TMaxComputeFileDesc;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
-import com.aliyun.odps.Table;
-import com.aliyun.odps.tunnel.TunnelException;
-import org.apache.hadoop.fs.Path;
+import com.aliyun.odps.OdpsType;
+import com.aliyun.odps.table.TableIdentifier;
+import com.aliyun.odps.table.configuration.ArrowOptions;
+import com.aliyun.odps.table.configuration.ArrowOptions.TimestampUnit;
+import com.aliyun.odps.table.optimizer.predicate.Predicate;
+import com.aliyun.odps.table.read.TableBatchReadSession;
+import com.aliyun.odps.table.read.TableReadSessionBuilder;
+import com.aliyun.odps.table.read.split.InputSplitAssigner;
+import com.aliyun.odps.table.read.split.impl.IndexedInputSplit;
+import com.google.common.collect.Maps;
+import jline.internal.Log;
 
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.ObjectOutputStream;
+import java.io.Serializable;
 import java.util.ArrayList;
-import java.util.Collection;
+import java.util.Base64;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 public class MaxComputeScanNode extends FileQueryScanNode {
 
     private final MaxComputeExternalTable table;
-    private final MaxComputeExternalCatalog catalog;
-    public static final int MIN_SPLIT_SIZE = 4096;
+    TableBatchReadSession tableBatchReadSession;
 
     public MaxComputeScanNode(PlanNodeId id, TupleDescriptor desc, boolean needCheckColumnPriv) {
         this(id, desc, "MCScanNode", StatisticalType.MAX_COMPUTE_SCAN_NODE, needCheckColumnPriv);
@@ -64,7 +86,6 @@ public class MaxComputeScanNode extends FileQueryScanNode {
                               StatisticalType statisticalType, boolean needCheckColumnPriv) {
         super(id, desc, planNodeName, statisticalType, needCheckColumnPriv);
         table = (MaxComputeExternalTable) desc.getTable();
-        catalog = (MaxComputeExternalCatalog) table.getCatalog();
     }
 
     @Override
@@ -74,25 +95,292 @@ public class MaxComputeScanNode extends FileQueryScanNode {
         }
     }
 
-    public void setScanParams(TFileRangeDesc rangeDesc, MaxComputeSplit maxComputeSplit) {
+    private void setScanParams(TFileRangeDesc rangeDesc, MaxComputeSplit maxComputeSplit) {
         TTableFormatFileDesc tableFormatFileDesc = new TTableFormatFileDesc();
         tableFormatFileDesc.setTableFormatType(TableFormatType.MAX_COMPUTE.value());
         TMaxComputeFileDesc fileDesc = new TMaxComputeFileDesc();
-        if (maxComputeSplit.getPartitionSpec().isPresent()) {
-            fileDesc.setPartitionSpec(maxComputeSplit.getPartitionSpec().get());
-        }
+        fileDesc.setPartitionSpec("deprecated");
+        fileDesc.setTableBatchReadSession(maxComputeSplit.scanSerialize);
+        fileDesc.setSessionId(maxComputeSplit.getSessionId());
         tableFormatFileDesc.setMaxComputeParams(fileDesc);
         rangeDesc.setTableFormatParams(tableFormatFileDesc);
+        rangeDesc.setPath("[ " + maxComputeSplit.getStart() + " , " + maxComputeSplit.getLength() + " ]");
+        rangeDesc.setStartOffset(maxComputeSplit.getStart());
+        rangeDesc.setSize(maxComputeSplit.getLength());
     }
 
-    @Override
-    protected TFileType getLocationType() throws UserException {
-        return getLocationType(null);
+    void createTableBatchReadSession() throws UserException {
+        Predicate filterPredicate = convertPredicate();
+
+
+        List<String> requiredPartitionColumns = new ArrayList<>();
+        List<String> orderedRequiredDataColumns = new ArrayList<>();
+
+        Set<String> requiredSlots =
+                desc.getSlots().stream().map(e -> e.getColumn().getName()).collect(Collectors.toSet());
+
+        Set<String> partitionColumns =
+                table.getPartitionColumns().stream().map(Column::getName).collect(Collectors.toSet());
+
+        for (Column column : table.getColumns()) {
+            String columnName =  column.getName();
+            if (!requiredSlots.contains(columnName)) {
+                continue;
+            }
+            if (partitionColumns.contains(columnName)) {
+                requiredPartitionColumns.add(columnName);
+            } else {
+                orderedRequiredDataColumns.add(columnName);
+            }
+        }
+
+
+
+        MaxComputeExternalCatalog mcCatalog = (MaxComputeExternalCatalog) table.getCatalog();
+
+        try {
+            TableReadSessionBuilder scanBuilder = new TableReadSessionBuilder();
+            tableBatchReadSession =
+                    scanBuilder.identifier(TableIdentifier.of(table.getDbName(), table.getName()))
+                            .withSettings(mcCatalog.getSettings())
+                            .withSplitOptions(mcCatalog.getSplitOption())
+                            .requiredPartitionColumns(requiredPartitionColumns)
+                            .requiredDataColumns(orderedRequiredDataColumns)
+                            .withArrowOptions(
+                                    ArrowOptions.newBuilder()
+                                            .withDatetimeUnit(TimestampUnit.MILLI)
+                                            .withTimestampUnit(TimestampUnit.NANO)
+                                            .build()
+                            )
+                            .withFilterPredicate(filterPredicate)
+                            .buildBatchReadSession();
+        } catch (java.io.IOException e) {
+            throw new RuntimeException(e);
+        }
+
     }
 
-    @Override
-    protected TFileType getLocationType(String location) throws UserException {
-        return TFileType.FILE_NET;
+    protected Predicate convertPredicate() {
+        if (conjuncts.isEmpty()) {
+            return Predicate.NO_PREDICATE;
+        }
+
+        if (conjuncts.size() == 1) {
+            try {
+                return convertExprToOdpsPredicate(conjuncts.get(0));
+            } catch (AnalysisException e) {
+                Log.info("Failed to convert predicate " + conjuncts.get(0) + " to odps predicate");
+                Log.info("Reason: " + e.getMessage());
+                return Predicate.NO_PREDICATE;
+            }
+        }
+
+        com.aliyun.odps.table.optimizer.predicate.CompoundPredicate
+                filterPredicate = new com.aliyun.odps.table.optimizer.predicate.CompoundPredicate(
+                        com.aliyun.odps.table.optimizer.predicate.CompoundPredicate.Operator.AND
+        );
+
+        for (Expr predicate : conjuncts) {
+            try {
+                filterPredicate.addPredicate(convertExprToOdpsPredicate(predicate));
+            } catch (AnalysisException e) {
+                Log.info("Failed to convert predicate " + predicate);
+                Log.info("Reason: " + e.getMessage());
+                return Predicate.NO_PREDICATE;
+            }
+        }
+        return filterPredicate;
+    }
+
+    private Predicate convertExprToOdpsPredicate(Expr expr) throws AnalysisException {
+        Predicate odpsPredicate = null;
+        if (expr instanceof CompoundPredicate) {
+            CompoundPredicate compoundPredicate = (CompoundPredicate) expr;
+
+            com.aliyun.odps.table.optimizer.predicate.CompoundPredicate.Operator odpsOp;
+            switch (compoundPredicate.getOp()) {
+                case AND:
+                    odpsOp = com.aliyun.odps.table.optimizer.predicate.CompoundPredicate.Operator.AND;
+                    break;
+                case OR:
+                    odpsOp = com.aliyun.odps.table.optimizer.predicate.CompoundPredicate.Operator.OR;
+                    break;
+                case NOT:
+                    odpsOp = com.aliyun.odps.table.optimizer.predicate.CompoundPredicate.Operator.NOT;
+                    break;
+                default:
+                    throw new AnalysisException("Unknown operator: " + compoundPredicate.getOp());
+            }
+
+            List<Predicate> odpsPredicates = new ArrayList<>();
+
+            odpsPredicates.add(convertExprToOdpsPredicate(expr.getChild(0)));
+
+            if (compoundPredicate.getOp() != Operator.NOT) {
+                odpsPredicates.add(convertExprToOdpsPredicate(expr.getChild(1)));
+            }
+            odpsPredicate = new com.aliyun.odps.table.optimizer.predicate.CompoundPredicate(odpsOp, odpsPredicates);
+
+        } else if (expr instanceof InPredicate) {
+
+            InPredicate inPredicate = (InPredicate) expr;
+            if (inPredicate.getChildren().size() > 2) {
+                return Predicate.NO_PREDICATE;
+            }
+            com.aliyun.odps.table.optimizer.predicate.InPredicate.Operator odpsOp =
+                    inPredicate.isNotIn()
+                            ? com.aliyun.odps.table.optimizer.predicate.InPredicate.Operator.IN
+                            : com.aliyun.odps.table.optimizer.predicate.InPredicate.Operator.NOT_IN;
+
+            String columnName = convertSlotRefToColumnName(expr.getChild(0));
+            com.aliyun.odps.OdpsType odpsType  =  table.getColumnNameToOdpsColumn().get(columnName).getType();
+
+            StringBuilder stringBuilder = new StringBuilder();
+
+
+            stringBuilder.append(columnName);
+            stringBuilder.append(" ");
+            stringBuilder.append(odpsOp.getDescription());
+            stringBuilder.append(" (");
+
+            for (int i = 1; i < inPredicate.getChildren().size(); i++) {
+                stringBuilder.append(convertLiteralToOdpsValues(odpsType, expr.getChild(i)));
+                if (i < inPredicate.getChildren().size() - 1) {
+                    stringBuilder.append(", ");
+                }
+            }
+            stringBuilder.append(" )");
+
+            odpsPredicate = new com.aliyun.odps.table.optimizer.predicate.RawPredicate(stringBuilder.toString());
+
+        } else if (expr instanceof BinaryPredicate) {
+            BinaryPredicate binaryPredicate = (BinaryPredicate) expr;
+
+
+            com.aliyun.odps.table.optimizer.predicate.BinaryPredicate.Operator odpsOp;
+            switch (binaryPredicate.getOp()) {
+                case EQ: {
+                    odpsOp = com.aliyun.odps.table.optimizer.predicate.BinaryPredicate.Operator.EQUALS;
+                    break;
+                }
+                case NE: {
+                    odpsOp = com.aliyun.odps.table.optimizer.predicate.BinaryPredicate.Operator.NOT_EQUALS;
+                    break;
+                }
+                case GE: {
+                    odpsOp = com.aliyun.odps.table.optimizer.predicate.BinaryPredicate.Operator.GREATER_THAN_OR_EQUAL;
+                    break;
+                }
+                case LE: {
+                    odpsOp = com.aliyun.odps.table.optimizer.predicate.BinaryPredicate.Operator.LESS_THAN_OR_EQUAL;
+                    break;
+                }
+                case LT: {
+                    odpsOp = com.aliyun.odps.table.optimizer.predicate.BinaryPredicate.Operator.LESS_THAN;
+                    break;
+                }
+                case GT: {
+                    odpsOp = com.aliyun.odps.table.optimizer.predicate.BinaryPredicate.Operator.GREATER_THAN;
+                    break;
+                }
+                default: {
+                    odpsOp = null;
+                    break;
+                }
+            }
+
+            if (odpsOp != null) {
+                String columnName = convertSlotRefToColumnName(expr.getChild(0));
+                com.aliyun.odps.OdpsType odpsType  =  table.getColumnNameToOdpsColumn().get(columnName).getType();
+                StringBuilder stringBuilder = new StringBuilder();
+                stringBuilder.append(columnName);
+                stringBuilder.append(" ");
+                stringBuilder.append(odpsOp.getDescription());
+                stringBuilder.append(" ");
+                stringBuilder.append(convertLiteralToOdpsValues(odpsType, expr.getChild(1)));
+
+                odpsPredicate = new com.aliyun.odps.table.optimizer.predicate.RawPredicate(stringBuilder.toString());
+            }
+        } else if (expr instanceof IsNullPredicate) {
+            IsNullPredicate isNullPredicate = (IsNullPredicate) expr;
+            com.aliyun.odps.table.optimizer.predicate.UnaryPredicate.Operator odpsOp =
+                    isNullPredicate.isNotNull()
+                            ? com.aliyun.odps.table.optimizer.predicate.UnaryPredicate.Operator.NOT_NULL
+                            : com.aliyun.odps.table.optimizer.predicate.UnaryPredicate.Operator.IS_NULL;
+
+            odpsPredicate =  new com.aliyun.odps.table.optimizer.predicate.UnaryPredicate(odpsOp,
+                    new com.aliyun.odps.table.optimizer.predicate.Attribute(
+                        convertSlotRefToColumnName(expr.getChild(0))
+                    )
+            );
+        }
+
+
+        if (odpsPredicate == null) {
+            throw new AnalysisException("Do not support convert ["
+                    + expr.getExprName() + "] in convertExprToOdpsPredicate.");
+        }
+        return odpsPredicate;
+    }
+
+    private String convertSlotRefToColumnName(Expr expr) throws AnalysisException {
+        if (expr instanceof SlotRef) {
+            return ((SlotRef) expr).getColumnName();
+        } else if (expr instanceof CastExpr) {
+            if (expr.getChild(0) instanceof SlotRef) {
+                return ((SlotRef) expr.getChild(0)).getColumnName();
+            }
+        }
+
+        throw new AnalysisException("Do not support convert ["
+                + expr.getExprName() + "] in convertSlotRefToAttribute.");
+
+
+    }
+
+    private String convertLiteralToOdpsValues(OdpsType odpsType, Expr expr) throws AnalysisException {
+        if (!(expr instanceof LiteralExpr)) {
+            throw new AnalysisException("Do not support convert ["
+                    + expr.getExprName() + "] in convertSlotRefToAttribute.");
+        }
+        LiteralExpr literalExpr = (LiteralExpr) expr;
+
+        switch (odpsType) {
+            case BOOLEAN:
+            case TINYINT:
+            case SMALLINT:
+            case INT:
+            case BIGINT:
+            case DECIMAL:
+            case FLOAT:
+            case DOUBLE: {
+                return " " + literalExpr.toString() + " ";
+            }
+            case STRING:
+            case CHAR:
+            case VARCHAR: {
+                return " \"" + literalExpr.toString() + "\" ";
+            }
+            case DATE: {
+                DateLiteral dateLiteral = (DateLiteral) literalExpr;
+                ScalarType dstType = ScalarType.createDateV2Type();
+                return  " \"" + dateLiteral.getStringValue(dstType) + "\" ";
+            }
+            case DATETIME: {
+                DateLiteral dateLiteral = (DateLiteral) literalExpr;
+                ScalarType dstType = ScalarType.createDatetimeV2Type(3);
+                return  " \"" + dateLiteral.getStringValue(dstType) + "\" ";
+            }
+            case TIMESTAMP_NTZ: {
+                DateLiteral dateLiteral = (DateLiteral) literalExpr;
+                ScalarType dstType = ScalarType.createDatetimeV2Type(6);
+                return  " \"" + dateLiteral.getStringValue(dstType) + "\" ";
+            }
+            default: {
+                break;
+            }
+        }
+        throw new AnalysisException("Do not support convert odps type [" + odpsType + "] to odps values.");
     }
 
     @Override
@@ -122,88 +410,64 @@ public class MaxComputeScanNode extends FileQueryScanNode {
         if (desc.getSlots().isEmpty() || odpsTable.getFileNum() <= 0) {
             return result;
         }
+        createTableBatchReadSession();
+
         try {
-            if (!table.getPartitionNames().isEmpty()) {
-                if (conjuncts.isEmpty()) {
-                    throw new IllegalArgumentException("Max Compute partition table need partition predicate.");
-                }
-                List<String> partitionSpecs = getPartitionSpecs();
-                for (String partitionSpec : partitionSpecs) {
-                    addPartitionSplits(result, odpsTable, partitionSpec);
+            String scanSessionSerialize =  serializeSession(tableBatchReadSession);
+            InputSplitAssigner assigner = tableBatchReadSession.getInputSplitAssigner();
+            long modificationTime = table.getOdpsTable().getLastDataModifiedTime().getTime();
+
+            MaxComputeExternalCatalog mcCatalog = (MaxComputeExternalCatalog) table.getCatalog();
+
+            if (mcCatalog.getSplitStrategy().equals(MCProperties.SPLIT_BY_BYTE_SIZE_STRATEGY)) {
+
+                for (com.aliyun.odps.table.read.split.InputSplit split : assigner.getAllSplits()) {
+                    MaxComputeSplit maxComputeSplit =
+                            new MaxComputeSplit(new LocationPath("/byte_size", Maps.newHashMap()),
+                                    ((IndexedInputSplit) split).getSplitIndex(), -1,
+                                    mcCatalog.getSplitByteSize(),
+                                    modificationTime, null,
+                                    Collections.emptyList());
+
+
+                    maxComputeSplit.scanSerialize = scanSessionSerialize;
+                    maxComputeSplit.splitType = SplitType.BYTE_SIZE;
+                    maxComputeSplit.sessionId = split.getSessionId();
+
+                    result.add(maxComputeSplit);
                 }
             } else {
-                addBatchSplits(result, odpsTable, table.getTotalRows());
-            }
-        } catch (TunnelException e) {
-            throw new UserException("Max Compute tunnel SDK exception: " + e.getMessage(), e);
+                long totalRowCount =  assigner.getTotalRowCount();
 
+                long recordsPerSplit = mcCatalog.getSplitRowCount();
+                for (long offset = 0; offset < totalRowCount; offset += recordsPerSplit) {
+                    recordsPerSplit = Math.min(recordsPerSplit, totalRowCount - offset);
+                    com.aliyun.odps.table.read.split.InputSplit split =
+                            assigner.getSplitByRowOffset(offset, recordsPerSplit);
+
+                    MaxComputeSplit maxComputeSplit =
+                            new MaxComputeSplit(new LocationPath("/row_offset", Maps.newHashMap()),
+                            offset, recordsPerSplit, totalRowCount, modificationTime, null,
+                            Collections.emptyList());
+
+                    maxComputeSplit.scanSerialize = scanSessionSerialize;
+                    maxComputeSplit.splitType = SplitType.ROW_OFFSET;
+                    maxComputeSplit.sessionId = split.getSessionId();
+
+                    result.add(maxComputeSplit);
+                }
+            }
+        } catch (IOException e) {
+            throw new RuntimeException(e);
         }
         return result;
     }
 
-    private static void addPartitionSplits(List<Split> result, Table odpsTable, String partitionSpec) {
-        long modificationTime = odpsTable.getLastDataModifiedTime().getTime();
-        // use '-1' to read whole partition, avoid expending too much time on calling table.getTotalRows()
-        Pair<Long, Long> range = Pair.of(0L, -1L);
-        FileSplit rangeSplit = new FileSplit(new Path("/virtual_slice_part"),
-                range.first, range.second, -1, modificationTime, null, Collections.emptyList());
-        result.add(new MaxComputeSplit(partitionSpec, rangeSplit));
-    }
-
-    private static void addBatchSplits(List<Split> result, Table odpsTable, long totalRows) {
-        List<Pair<Long, Long>> sliceRange = new ArrayList<>();
-        long fileNum = odpsTable.getFileNum();
-        long start = 0;
-        long splitSize = (long) Math.ceil((double) totalRows / fileNum);
-        if (splitSize <= 0 || totalRows < MIN_SPLIT_SIZE) {
-            // use whole split
-            sliceRange.add(Pair.of(start, totalRows));
-        } else {
-            for (int i = 0; i < fileNum; i++) {
-                if (start > totalRows) {
-                    break;
-                }
-                sliceRange.add(Pair.of(start, splitSize));
-                start += splitSize;
-            }
-        }
-        long modificationTime = odpsTable.getLastDataModifiedTime().getTime();
-        if (!sliceRange.isEmpty()) {
-            for (int i = 0; i < sliceRange.size(); i++) {
-                Pair<Long, Long> range = sliceRange.get(i);
-                FileSplit rangeSplit = new FileSplit(new Path("/virtual_slice_" + i),
-                        range.first, range.second, totalRows, modificationTime, null, Collections.emptyList());
-                result.add(new MaxComputeSplit(rangeSplit));
-            }
-        }
-    }
-
-    private List<String> getPartitionSpecs() throws AnalysisException {
-        return getPrunedPartitionSpecs();
-    }
-
-    private List<String> getPrunedPartitionSpecs() throws AnalysisException {
-        List<String> result = new ArrayList<>();
-        TablePartitionValues partitionValues = table.getPartitionValues();
-        // prune partitions by expr
-        partitionValues.readLock().lock();
-        try {
-            Map<Long, PartitionItem> idToPartitionItem = partitionValues.getIdToPartitionItem();
-            this.totalPartitionNum = idToPartitionItem.size();
-            ListPartitionPrunerV2 pruner = new ListPartitionPrunerV2(idToPartitionItem,
-                    table.getPartitionColumns(), columnNameToRange,
-                    partitionValues.getUidToPartitionRange(),
-                    partitionValues.getRangeToId(),
-                    partitionValues.getSingleColumnRangeMap(),
-                    false);
-            Collection<Long> filteredPartitionIds = pruner.prune();
-            this.selectedPartitionNum = filteredPartitionIds.size();
-            // get partitions from cache
-            Map<Long, String> partitionIdToNameMap = partitionValues.getPartitionIdToNameMap();
-            filteredPartitionIds.forEach(id -> result.add(partitionIdToNameMap.get(id)));
-            return result;
-        } finally {
-            partitionValues.readLock().unlock();
-        }
+    private static String serializeSession(Serializable object) throws IOException {
+        ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
+        ObjectOutputStream objectOutputStream = new ObjectOutputStream(byteArrayOutputStream);
+        objectOutputStream.writeObject(object);
+        byte[] serializedBytes = byteArrayOutputStream.toByteArray();
+        return Base64.getEncoder().encodeToString(serializedBytes);
     }
 }

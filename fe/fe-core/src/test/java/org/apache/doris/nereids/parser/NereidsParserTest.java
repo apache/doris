@@ -591,4 +591,58 @@ public class NereidsParserTest extends ParserTestBase {
         sql = "describe function tvf('a' = 'b') as tvf";
         nereidsParser.parseSingle(sql);
     }
+
+    @Test
+    public void testCreateDatabase() {
+        NereidsParser nereidsParser = new NereidsParser();
+        String sql = "create database if not exists a properties('k'='v')";
+        nereidsParser.parseSingle(sql);
+
+        sql = "create schema ctl.db";
+        nereidsParser.parseSingle(sql);
+    }
+
+    @Test
+    public void testCreateCatalog() {
+        NereidsParser nereidsParser = new NereidsParser();
+        String sql = "create catalog if not exists ctl";
+        nereidsParser.parseSingle(sql);
+
+        sql = "create catalog ctl with resource rsc comment '' properties('k'='v')";
+        nereidsParser.parseSingle(sql);
+    }
+
+    @Test
+    public void testCreateFunction() {
+        NereidsParser nereidsParser = new NereidsParser();
+        String sql = "create session tables function func_a (int, ...) returns boolean properties('k'='v')";
+        nereidsParser.parseSingle(sql);
+
+        sql = "create local aggregate function func_a (int, ...) returns boolean intermediate varchar properties('k'='v')";
+        nereidsParser.parseSingle(sql);
+
+        sql = "create alias function func_a (int) with parameter(id) as abs(id)";
+        nereidsParser.parseSingle(sql);
+    }
+
+    @Test
+    public void testCreateUser() {
+        NereidsParser nereidsParser = new NereidsParser();
+        String sql = "create user a superuser comment 'create user'";
+        nereidsParser.parseSingle(sql);
+    }
+
+    @Test
+    public void testCreateRepository() {
+        NereidsParser nereidsParser = new NereidsParser();
+        String sql = "create repository a with S3 on location 's3://xxx' properties('k'='v')";
+        nereidsParser.parseSingle(sql);
+    }
+
+    @Test
+    public void testCreateRole() {
+        NereidsParser nereidsParser = new NereidsParser();
+        String sql = "create role a comment 'create user'";
+        nereidsParser.parseSingle(sql);
+    }
 }

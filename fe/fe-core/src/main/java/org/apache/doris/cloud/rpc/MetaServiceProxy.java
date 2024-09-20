@@ -107,7 +107,7 @@ public class MetaServiceProxy {
 
         String address = Config.meta_service_endpoint;
         MetaServiceClient service = serviceMap.get(address);
-        if (service != null && service.isNormalState()) {
+        if (service != null && service.isNormalState() && !service.isConnectionAgeExpired()) {
             return service;
         }
 
@@ -126,7 +126,7 @@ public class MetaServiceProxy {
                 removedClient = service;
                 service = null;
             }
-            if (service != null && !service.isConnectionAgeExpired()) {
+            if (service != null && service.isConnectionAgeExpired()) {
                 serviceMap.remove(address);
                 removedClient = service;
                 service = null;
@@ -492,6 +492,16 @@ public class MetaServiceProxy {
         try {
             final MetaServiceClient client = getProxy();
             return client.alterStorageVault(request);
+        } catch (Exception e) {
+            throw new RpcException("", e.getMessage(), e);
+        }
+    }
+
+    public Cloud.FinishTabletJobResponse finishTabletJob(Cloud.FinishTabletJobRequest request)
+            throws RpcException {
+        try {
+            final MetaServiceClient client = getProxy();
+            return client.finishTabletJob(request);
         } catch (Exception e) {
             throw new RpcException("", e.getMessage(), e);
         }

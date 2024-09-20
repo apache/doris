@@ -84,8 +84,8 @@ Status InvertedIndexFileWriter::delete_index(const TabletIndex* index_meta) {
     return Status::OK();
 }
 
-size_t InvertedIndexFileWriter::headerLength() {
-    size_t header_size = 0;
+int64_t InvertedIndexFileWriter::headerLength() {
+    int64_t header_size = 0;
     header_size +=
             sizeof(int32_t) * 2; // Account for the size of the version number and number of indices
 
@@ -122,7 +122,7 @@ Status InvertedIndexFileWriter::close() {
     })
     if (_storage_format == InvertedIndexStorageFormatPB::V1) {
         try {
-            _file_size = write_v1();
+            _total_file_size = write_v1();
             for (const auto& entry : _indices_dirs) {
                 const auto& dir = entry.second;
                 // delete index path, which contains separated inverted index files
@@ -137,7 +137,7 @@ Status InvertedIndexFileWriter::close() {
         }
     } else {
         try {
-            _file_size = write_v2();
+            _total_file_size = write_v2();
             for (const auto& entry : _indices_dirs) {
                 const auto& dir = entry.second;
                 // delete index path, which contains separated inverted index files
@@ -220,8 +220,8 @@ void InvertedIndexFileWriter::copyFile(const char* fileName, lucene::store::Dire
     input->close();
 }
 
-size_t InvertedIndexFileWriter::write_v1() {
-    size_t total_size = 0;
+int64_t InvertedIndexFileWriter::write_v1() {
+    int64_t total_size = 0;
     for (const auto& entry : _indices_dirs) {
         const int64_t index_id = entry.first.first;
         const auto& index_suffix = entry.first.second;
@@ -330,6 +330,12 @@ size_t InvertedIndexFileWriter::write_v1() {
             output->close();
             //LOG(INFO) << (idx_path / idx_name).c_str() << " size:" << compound_file_size;
             total_size += compound_file_size;
+            InvertedIndexFileInfo_IndexInfo index_info;
+            index_info.set_index_id(index_id);
+            index_info.set_index_suffix(index_suffix);
+            index_info.set_index_file_size(compound_file_size);
+            auto* new_index_info = _file_info.add_index_info();
+            *new_index_info = index_info;
         } catch (CLuceneError& err) {
             LOG(ERROR) << "CLuceneError occur when close idx file "
                        << InvertedIndexDescriptor::get_index_file_path_v1(_index_path_prefix,
@@ -342,7 +348,7 @@ size_t InvertedIndexFileWriter::write_v1() {
     return total_size;
 }
 
-size_t InvertedIndexFileWriter::write_v2() {
+int64_t InvertedIndexFileWriter::write_v2() {
     // Create the output stream to write the compound file
     int64_t current_offset = headerLength();
 
@@ -434,6 +440,7 @@ size_t InvertedIndexFileWriter::write_v2() {
     _CLDECDELETE(out_dir)
     auto compound_file_size = compound_file_output->getFilePointer();
     compound_file_output->close();
+    _file_info.set_index_size(compound_file_size);
     return compound_file_size;
 }
 } // namespace doris::segment_v2

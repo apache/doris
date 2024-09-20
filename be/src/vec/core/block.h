@@ -399,6 +399,11 @@ public:
     // for debug purpose.
     std::string print_use_count();
 
+    // remove tmp columns in block
+    // in inverted index apply logic, in order to optimize query performance,
+    // we built some temporary columns into block
+    void erase_tmp_columns() noexcept;
+
 private:
     void erase_impl(size_t position);
 };

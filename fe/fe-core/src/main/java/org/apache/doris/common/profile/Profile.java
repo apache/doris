@@ -22,8 +22,11 @@ import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.ProfileManager;
 import org.apache.doris.common.util.RuntimeProfile;
 import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.distribute.DistributedPlan;
 import org.apache.doris.nereids.trees.plans.distribute.FragmentIdMapping;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.planner.Planner;
 
@@ -45,6 +48,8 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.zip.Deflater;
@@ -103,9 +108,13 @@ public class Profile {
     private long queryFinishTimestamp = Long.MAX_VALUE;
     private Map<Integer, String> planNodeMap = Maps.newHashMap();
     private int profileLevel = MergedProfileLevel;
-    private long autoProfileDurationMs = 500;
+    private long autoProfileDurationMs = -1;
     // Profile size is the size of profile file
     private long profileSize = 0;
+
+    private PhysicalPlan physicalPlan;
+    public Map<String, Long> rowsProducedMap = new HashMap<>();
+    private List<PhysicalRelation> physicalRelations = new ArrayList<>();
 
     // Need default constructor for read from storage
     public Profile() {}
@@ -273,20 +282,8 @@ public class Profile {
 
             if (planner instanceof NereidsPlanner) {
                 NereidsPlanner nereidsPlanner = ((NereidsPlanner) planner);
-                StringBuilder builder = new StringBuilder();
-                builder.append("\n");
-                builder.append(nereidsPlanner.getPhysicalPlan()
-                        .treeString());
-                builder.append("\n");
-                for (PhysicalRelation relation : nereidsPlanner.getPhysicalRelations()) {
-                    if (relation.getStats() != null) {
-                        builder.append(relation).append("\n")
-                                .append(relation.getStats().printColumnStats());
-                    }
-                }
-                summaryInfo.put(SummaryProfile.PHYSICAL_PLAN,
-                        builder.toString().replace("\n", "\n     "));
-
+                physicalPlan = nereidsPlanner.getPhysicalPlan();
+                physicalRelations.addAll(nereidsPlanner.getPhysicalRelations());
                 FragmentIdMapping<DistributedPlan> distributedPlans = nereidsPlanner.getDistributedPlans();
                 if (distributedPlans != null) {
                     summaryInfo.put(SummaryProfile.DISTRIBUTED_PLAN,
@@ -414,15 +411,43 @@ public class Profile {
 
         // Only generate merged profile for select, insert into select.
         // Not support broker load now.
+        RuntimeProfile mergedProfile = null;
         if (this.profileLevel == MergedProfileLevel && this.executionProfiles.size() == 1) {
             try {
-                builder.append("\n MergedProfile \n");
-                this.executionProfiles.get(0).getAggregatedFragmentsProfile(planNodeMap).prettyPrint(builder, "     ");
+                mergedProfile = this.executionProfiles.get(0).getAggregatedFragmentsProfile(planNodeMap);
+                this.rowsProducedMap.putAll(mergedProfile.rowsProducedMap);
+                if (physicalPlan != null) {
+                    updateActualRowCountOnPhysicalPlan(physicalPlan);
+                }
             } catch (Throwable aggProfileException) {
-                LOG.warn("build merged simple profile failed", aggProfileException);
+                LOG.warn("build merged simple profile {} failed", this.id, aggProfileException);
+            }
+        }
+
+        if (physicalPlan != null) {
+            builder.append("\nPhysical Plan \n");
+            StringBuilder physcialPlanBuilder = new StringBuilder();
+            physcialPlanBuilder.append(physicalPlan.treeString());
+            physcialPlanBuilder.append("\n");
+            for (PhysicalRelation relation : physicalRelations) {
+                if (relation.getStats() != null) {
+                    physcialPlanBuilder.append(relation).append("\n")
+                            .append(relation.getStats().printColumnStats());
+                }
+            }
+            builder.append(
+                    physcialPlanBuilder.toString().replace("\n", "\n     "));
+        }
+
+        if (this.profileLevel == MergedProfileLevel && this.executionProfiles.size() == 1) {
+            builder.append("\nMergedProfile \n");
+            if (mergedProfile != null) {
+                mergedProfile.prettyPrint(builder, "     ");
+            } else {
                 builder.append("build merged simple profile failed");
             }
         }
+
         try {
             // For load task, they will have multiple execution_profiles.
             for (ExecutionProfile executionProfile : executionProfiles) {
@@ -463,6 +488,11 @@ public class Profile {
 
         // below is the case where query has finished
         boolean hasReportingProfile = false;
+
+        if (this.executionProfiles.isEmpty()) {
+            LOG.warn("Profile {} has no execution profile, it is abnormal", id);
+            return false;
+        }
 
         for (ExecutionProfile executionProfile : executionProfiles) {
             if (!executionProfile.isCompleted()) {
@@ -624,5 +654,42 @@ public class Profile {
 
     public long getProfileSize() {
         return this.profileSize;
+    }
+
+    public boolean shouldBeRemoveFromMemory() {
+        if (!this.isQueryFinished) {
+            return false;
+        }
+
+        if (this.profileHasBeenStored()) {
+            return false;
+        }
+
+        if (this.queryFinishTimestamp - this.summaryProfile.getQueryBeginTime() >= autoProfileDurationMs) {
+            return false;
+        }
+
+        return true;
+    }
+
+    public PhysicalPlan getPhysicalPlan() {
+        return physicalPlan;
+    }
+
+    public void setPhysicalPlan(PhysicalPlan physicalPlan) {
+        this.physicalPlan = physicalPlan;
+    }
+
+    private void updateActualRowCountOnPhysicalPlan(Plan plan) {
+        if (plan == null || rowsProducedMap.isEmpty()) {
+            return;
+        }
+        Long actualRowCount = rowsProducedMap.get(String.valueOf(((AbstractPlan) plan).getId()));
+        if (actualRowCount != null) {
+            ((AbstractPlan) plan).updateActualRowCount(actualRowCount);
+        }
+        for (Plan child : plan.children()) {
+            updateActualRowCountOnPhysicalPlan(child);
+        }
     }
 }

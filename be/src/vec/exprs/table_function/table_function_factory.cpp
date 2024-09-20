@@ -51,6 +51,7 @@ struct VExplodeJsonArrayCreator {
 
 const std::unordered_map<std::string, std::function<std::unique_ptr<TableFunction>()>>
         TableFunctionFactory::_function_map {
+                {"explode_variant_array", TableFunctionCreator<VExplodeTableFunction>()},
                 {"explode_split", TableFunctionCreator<VExplodeSplitTableFunction>()},
                 {"explode_numbers", TableFunctionCreator<VExplodeNumbersTableFunction>()},
                 {"explode_json_array_int", VExplodeJsonArrayCreator<ParsedDataInt>()},

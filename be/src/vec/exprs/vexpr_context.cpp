@@ -121,12 +121,14 @@ int VExprContext::register_function_context(RuntimeState* state, const TypeDescr
     return _fn_contexts.size() - 1;
 }
 
-Status VExprContext::eval_inverted_index(
-        const std::unordered_map<ColumnId, std::pair<vectorized::IndexFieldNameAndTypePair,
-                                                     segment_v2::InvertedIndexIterator*>>&
-                colid_to_inverted_index_iter,
-        uint32_t num_rows, roaring::Roaring* bitmap) {
-    return _root->eval_inverted_index(this, colid_to_inverted_index_iter, num_rows, bitmap);
+Status VExprContext::evaluate_inverted_index(uint32_t segment_num_rows) {
+    Status st;
+    RETURN_IF_CATCH_EXCEPTION({ st = _root->evaluate_inverted_index(this, segment_num_rows); });
+    return st;
+}
+
+bool VExprContext::all_expr_inverted_index_evaluated() {
+    return _inverted_index_context->has_inverted_index_result_for_expr(_root.get());
 }
 
 Status VExprContext::filter_block(VExprContext* vexpr_ctx, Block* block, int column_to_keep) {
