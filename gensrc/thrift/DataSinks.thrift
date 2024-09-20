@@ -133,6 +133,13 @@ struct TResultFileSinkOptions {
     18: optional bool with_bom;
 
     19: optional PlanNodes.TFileCompressType orc_compression_type;
+
+    // Since we have changed the type mapping from Doris to Orc type,
+    // using the Outfile to export Date/Datetime types will cause BE core dump
+    // when only upgrading BE without upgrading FE.
+    // orc_writer_version = 1 means doris FE is higher than version 2.1.5
+    // orc_writer_version = 0 means doris FE is less than or equal to version 2.1.5
+    20: optional i64 orc_writer_version;
 }
 
 struct TMemoryScratchSink {
@@ -181,6 +188,7 @@ struct TDataStreamSink {
   10: optional Descriptors.TOlapTableLocationParam tablet_sink_location
   11: optional i64 tablet_sink_txn_id
   12: optional Types.TTupleId tablet_sink_tuple_id
+  13: optional list<Exprs.TExpr> tablet_sink_exprs
 }
 
 struct TMultiCastDataStreamSink {
@@ -324,6 +332,15 @@ struct THivePartition {
   3: optional PlanNodes.TFileFormatType file_format
 }
 
+struct THiveSerDeProperties {
+    1: optional string field_delim
+    2: optional string line_delim
+    3: optional string collection_delim // array ,map ,struct delimiter 
+    4: optional string mapkv_delim
+    5: optional string escape_char
+    6: optional string null_format
+}
+
 struct THiveTableSink {
     1: optional string db_name
     2: optional string table_name
@@ -335,6 +352,7 @@ struct THiveTableSink {
     8: optional THiveLocationParams location
     9: optional map<string, string> hadoop_config
     10: optional bool overwrite
+    11: optional THiveSerDeProperties serde_properties
 }
 
 enum TUpdateMode {

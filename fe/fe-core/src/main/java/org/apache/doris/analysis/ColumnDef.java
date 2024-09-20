@@ -99,6 +99,7 @@ public class ColumnDef {
             this.defaultValueExprDef = new DefaultValueExprDef(exprName, precision);
         }
 
+        public static String E_NUM = "E";
         public static String PI = "PI";
         public static String CURRENT_DATE = "CURRENT_DATE";
         // default "CURRENT_TIMESTAMP", only for DATETIME type
@@ -353,6 +354,10 @@ public class ColumnDef {
         return visible;
     }
 
+    public int getClusterKeyId() {
+        return this.clusterKeyId;
+    }
+
     public void setClusterKeyId(int clusterKeyId) {
         this.clusterKeyId = clusterKeyId;
     }
@@ -422,8 +427,10 @@ public class ColumnDef {
         }
 
         if (type.getPrimitiveType() == PrimitiveType.BITMAP) {
-            if (defaultValue.isSet && defaultValue != DefaultValue.NULL_DEFAULT_VALUE) {
-                throw new AnalysisException("Bitmap type column can not set default value");
+            if (defaultValue.isSet && defaultValue != DefaultValue.NULL_DEFAULT_VALUE
+                    && !defaultValue.value.equals(DefaultValue.BITMAP_EMPTY_DEFAULT_VALUE.value)) {
+                throw new AnalysisException("Bitmap type column default value only support null or "
+                        + DefaultValue.BITMAP_EMPTY_DEFAULT_VALUE.value);
             }
             defaultValue = DefaultValue.BITMAP_EMPTY_DEFAULT_VALUE;
         }
@@ -534,6 +541,14 @@ public class ColumnDef {
                     break;
                 default:
                     throw new AnalysisException("Types other than DOUBLE cannot use pi as the default value");
+            }
+        } else if (null != defaultValueExprDef
+                && defaultValueExprDef.getExprName().equalsIgnoreCase(DefaultValue.E_NUM)) {
+            switch (primitiveType) {
+                case DOUBLE:
+                    break;
+                default:
+                    throw new AnalysisException("Types other than DOUBLE cannot use e as the default value");
             }
         }
         switch (primitiveType) {

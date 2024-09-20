@@ -362,7 +362,7 @@ suite("test_hive_ddl", "p0,external,hive,external_docker,external_docker_hive") 
                 sql """
                         CREATE TABLE schema_check ENGINE=hive ;
                     """
-                exception "AnalysisException, msg: Should contain at least one column in a table"
+                exception "Should contain at least one column in a table"
             }
             sql """ DROP DATABASE IF EXISTS `test_hive_loc` """
         }

@@ -195,6 +195,16 @@ Status RowsetBuilder::init() {
         RETURN_IF_ERROR(check_tablet_version_count());
     }
 
+    int version_count = tablet()->version_count() + tablet()->stale_version_count();
+    if (tablet()->avg_rs_meta_serialize_size() * version_count >
+        config::tablet_meta_serialize_size_limit) {
+        return Status::Error<TOO_MANY_VERSION>(
+                "failed to init rowset builder. meta serialize size : {}, exceed limit: {}, "
+                "tablet: {}",
+                tablet()->avg_rs_meta_serialize_size() * version_count,
+                config::tablet_meta_serialize_size_limit, _tablet->tablet_id());
+    }
+
     RETURN_IF_ERROR(prepare_txn());
 
     DBUG_EXECUTE_IF("BaseRowsetBuilder::init.check_partial_update_column_num", {
@@ -408,12 +418,12 @@ void BaseRowsetBuilder::_build_current_tablet_schema(int64_t index_id,
     }
     // set partial update columns info
     _partial_update_info = std::make_shared<PartialUpdateInfo>();
-    _partial_update_info->init(*_tablet_schema, table_schema_param->is_partial_update(),
-                               table_schema_param->partial_update_input_columns(),
-                               table_schema_param->is_strict_mode(),
-                               table_schema_param->timestamp_ms(), table_schema_param->timezone(),
-                               table_schema_param->auto_increment_coulumn(),
-                               _max_version_in_flush_phase);
+    _partial_update_info->init(
+            *_tablet_schema, table_schema_param->is_partial_update(),
+            table_schema_param->partial_update_input_columns(),
+            table_schema_param->is_strict_mode(), table_schema_param->timestamp_ms(),
+            table_schema_param->nano_seconds(), table_schema_param->timezone(),
+            table_schema_param->auto_increment_coulumn(), _max_version_in_flush_phase);
 }
 
 } // namespace doris

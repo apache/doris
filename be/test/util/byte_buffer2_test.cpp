@@ -32,7 +32,8 @@ public:
 };
 
 TEST_F(ByteBufferTest, normal) {
-    auto buf = ByteBuffer::allocate(4);
+    ByteBufferPtr buf;
+    Status st = ByteBuffer::allocate(4, &buf);
     EXPECT_EQ(0, buf->pos);
     EXPECT_EQ(4, buf->limit);
     EXPECT_EQ(4, buf->capacity);

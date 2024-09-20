@@ -24,7 +24,6 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.nereids.NereidsPlanner;
@@ -93,6 +92,8 @@ public abstract class AbstractInsertExecutor {
     public String getLabelName() {
         return labelName;
     }
+
+    public abstract long getTxnId();
 
     /**
      * begin transaction if necessary
@@ -191,20 +192,7 @@ public abstract class AbstractInsertExecutor {
             executor.updateProfile(false);
             execImpl(executor, jobId);
             checkStrictModeAndFilterRatio();
-            int retryTimes = 0;
-            while (retryTimes < Config.mow_insert_into_commit_retry_times) {
-                try {
-                    onComplete();
-                    break;
-                } catch (UserException e) {
-                    LOG.warn("failed to commit txn", e);
-                    if (e.getErrorCode() == InternalErrorCode.DELETE_BITMAP_LOCK_ERR) {
-                        retryTimes++;
-                    } else {
-                        throw e;
-                    }
-                }
-            }
+            onComplete();
         } catch (Throwable t) {
             onFail(t);
             // retry insert into from select when meet E-230 in cloud

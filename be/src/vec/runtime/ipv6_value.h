@@ -32,17 +32,17 @@ class IPv6Value {
 public:
     IPv6Value() { _value = 0; }
 
-    explicit IPv6Value(vectorized::IPv6 ipv6) { _value = ipv6; }
+    explicit IPv6Value(IPv6 ipv6) { _value = ipv6; }
 
-    const vectorized::IPv6& value() const { return _value; }
+    const IPv6& value() const { return _value; }
 
-    vectorized::IPv6& value() { return _value; }
+    IPv6& value() { return _value; }
 
-    void set_value(vectorized::IPv6 ipv6) { _value = ipv6; }
+    void set_value(IPv6 ipv6) { _value = ipv6; }
 
     bool from_string(const std::string& ipv6_str) { return from_string(_value, ipv6_str); }
 
-    static bool from_string(vectorized::IPv6& value, const char* ipv6_str, size_t len) {
+    static bool from_string(IPv6& value, const char* ipv6_str, size_t len) {
         if (len == 0) {
             return false;
         }
@@ -59,13 +59,13 @@ public:
                                             reinterpret_cast<unsigned char*>(&value));
     }
 
-    static bool from_string(vectorized::IPv6& value, const std::string& ipv6_str) {
+    static bool from_string(IPv6& value, const std::string& ipv6_str) {
         return from_string(value, ipv6_str.c_str(), ipv6_str.size());
     }
 
     std::string to_string() const { return to_string(_value); }
 
-    static std::string to_string(vectorized::IPv6 value) {
+    static std::string to_string(IPv6 value) {
         char buf[IPV6_MAX_TEXT_LENGTH + 1];
         char* start = buf;
         char* end = buf;
@@ -80,7 +80,7 @@ public:
         if (len == 0 || len > IPV6_MAX_TEXT_LENGTH) {
             return false;
         }
-        vectorized::IPv6 value;
+        IPv6 value;
         size_t begin = 0;
         size_t end = len - 1;
         while (begin < len && std::isspace(ipv6_str[begin])) {
@@ -94,7 +94,7 @@ public:
     }
 
 private:
-    vectorized::IPv6 _value;
+    IPv6 _value;
 };
 
 } // namespace doris

@@ -39,7 +39,6 @@ suite("regression_test_variant_rowstore", "variant_type"){
             DISTRIBUTED BY HASH(k) BUCKETS 1
             properties("replication_num" = "1", "disable_auto_compaction" = "false", "store_row_column" = "true");
         """
-    sql "set experimental_enable_nereids_planner = false"
     sql "sync"
     sql """insert into ${table_name} values (-3, '{"a" : 1, "b" : 1.5, "c" : [1, 2, 3]}')"""
     sql """insert into  ${table_name} select -2, '{"a": 11245, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : "null", "e" : 7.111}}'  as json_str

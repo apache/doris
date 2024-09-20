@@ -58,7 +58,7 @@ import org.apache.doris.nereids.stats.StatsErrorEstimator;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.plsql.Exec;
 import org.apache.doris.plsql.executor.PlSqlOperation;
-import org.apache.doris.plugin.audit.AuditEvent.AuditEventBuilder;
+import org.apache.doris.plugin.AuditEvent.AuditEventBuilder;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.service.arrowflight.results.FlightSqlChannel;
 import org.apache.doris.statistics.ColumnStatistic;
@@ -122,6 +122,7 @@ public class ConnectContext {
     protected volatile TUniqueId queryId = null;
     protected volatile AtomicInteger instanceIdGenerator = new AtomicInteger();
     protected volatile String traceId;
+    protected volatile TUniqueId lastQueryId = null;
     // id for this connection
     protected volatile int connectionId;
     // Timestamp when the connection is make
@@ -832,6 +833,11 @@ public class ConnectContext {
         return executor;
     }
 
+    public void clear() {
+        executor = null;
+        statementContext = null;
+    }
+
     public PlSqlOperation getPlSqlOperation() {
         if (plSqlOperation == null) {
             plSqlOperation = new PlSqlOperation();
@@ -861,6 +867,9 @@ public class ConnectContext {
     }
 
     public void setQueryId(TUniqueId queryId) {
+        if (this.queryId != null) {
+            this.lastQueryId = this.queryId.deepCopy();
+        }
         this.queryId = queryId;
         if (connectScheduler != null && !Strings.isNullOrEmpty(traceId)) {
             connectScheduler.putTraceId2QueryId(traceId, queryId);
@@ -877,6 +886,10 @@ public class ConnectContext {
 
     public TUniqueId queryId() {
         return queryId;
+    }
+
+    public TUniqueId getLastQueryId() {
+        return lastQueryId;
     }
 
     public TUniqueId nextInstanceId() {
@@ -1157,10 +1170,10 @@ public class ConnectContext {
         StringBuilder sb = new StringBuilder();
         if (ConnectContext.get() != null) {
             String clusterName = ConnectContext.get().getCloudCluster();
-            String hits = "or you may not have permission to access the current cluster = ";
+            String hits = "or you may not have permission to access the current compute group = ";
             sb.append(" ");
             if (Strings.isNullOrEmpty(clusterName)) {
-                return sb.append(hits).append("cluster name empty").toString();
+                return sb.append(hits).append("compute group name empty").toString();
             }
             String clusterStatus = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
                     .getCloudStatusByName(clusterName);
@@ -1193,12 +1206,12 @@ public class ConnectContext {
                 // valid
                 r = new CloudClusterResult(defaultCloudCluster,
                     CloudClusterResult.Comment.FOUND_BY_DEFAULT_CLUSTER);
-                LOG.info("use default cluster {}", defaultCloudCluster);
+                LOG.info("use default compute group {}", defaultCloudCluster);
             } else {
                 // invalid
                 r = new CloudClusterResult(defaultCloudCluster,
                     CloudClusterResult.Comment.DEFAULT_CLUSTER_SET_BUT_NOT_EXIST);
-                LOG.warn("default cluster {} current invalid, please change it", r);
+                LOG.warn("default compute group {} current invalid, please change it", r);
             }
             return r;
         }
@@ -1214,7 +1227,7 @@ public class ConnectContext {
                         .getBackendsByClusterName(cloudClusterName);
                 AtomicBoolean hasAliveBe = new AtomicBoolean(false);
                 bes.stream().filter(Backend::isAlive).findAny().ifPresent(backend -> {
-                    LOG.debug("get a clusterName {}, it's has more than one alive be {}", cloudCluster, backend);
+                    LOG.debug("get a compute group {}, it's has more than one alive be {}", cloudCluster, backend);
                     hasAliveBe.set(true);
                 });
                 if (hasAliveBe.get()) {
@@ -1249,7 +1262,7 @@ public class ConnectContext {
         String choseWay = null;
         if (!Strings.isNullOrEmpty(this.cloudCluster)) {
             cluster = this.cloudCluster;
-            choseWay = "use @cluster";
+            choseWay = "use context cluster";
             LOG.debug("finally set context cluster name {} for user {} with chose way '{}'",
                     cloudCluster, getCurrentUserIdentity(), choseWay);
             return cluster;
@@ -1260,9 +1273,9 @@ public class ConnectContext {
             cluster = defaultCluster;
             choseWay = "default cluster";
         } else {
-            String authorizedCluster = getAuthorizedCloudCluster();
-            if (!Strings.isNullOrEmpty(authorizedCluster)) {
-                cluster = authorizedCluster;
+            CloudClusterResult cloudClusterTypeAndName = getCloudClusterByPolicy();
+            if (cloudClusterTypeAndName != null && !Strings.isNullOrEmpty(cloudClusterTypeAndName.clusterName)) {
+                cluster = cloudClusterTypeAndName.clusterName;
                 choseWay = "authorized cluster";
             }
         }
@@ -1288,35 +1301,6 @@ public class ConnectContext {
         String defaultCluster = Env.getCurrentEnv().getAuth().getDefaultCloudCluster(getQualifiedUser());
         if (!Strings.isNullOrEmpty(defaultCluster) && cloudClusterNames.contains(defaultCluster)) {
             return defaultCluster;
-        }
-
-        return null;
-    }
-
-    public String getAuthorizedCloudCluster() {
-        List<String> cloudClusterNames = ((CloudSystemInfoService) Env.getCurrentSystemInfo()).getCloudClusterNames();
-        // get all available cluster of the user
-        for (String cloudClusterName : cloudClusterNames) {
-            if (!Env.getCurrentEnv().getAuth().checkCloudPriv(getCurrentUserIdentity(),
-                    cloudClusterName, PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER)) {
-                continue;
-            }
-            // find a cluster has more than one alive be
-            List<Backend> bes = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
-                    .getBackendsByClusterName(cloudClusterName);
-            AtomicBoolean hasAliveBe = new AtomicBoolean(false);
-            bes.stream().filter(Backend::isAlive).findAny().ifPresent(backend -> {
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("get a clusterName {}, it's has more than one alive be {}", cloudClusterName, backend);
-                }
-                hasAliveBe.set(true);
-            });
-            if (hasAliveBe.get()) {
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("set context cluster name {}", cloudClusterName);
-                }
-                return cloudClusterName;
-            }
         }
 
         return null;

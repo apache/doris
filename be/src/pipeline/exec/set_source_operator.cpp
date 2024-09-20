@@ -51,6 +51,12 @@ Status SetSourceLocalState<is_intersect>::open(RuntimeState* state) {
     vector<bool> nullable_flags(column_nums, false);
     for (int i = 0; i < column_nums; ++i) {
         nullable_flags[i] = output_data_types[i]->is_nullable();
+        if (nullable_flags[i] != _shared_state->build_not_ignore_null[i]) {
+            return Status::InternalError(
+                    "SET operator expects a nullalbe : {} column in column {}, but the computed "
+                    "output is a nullable : {} column",
+                    nullable_flags[i], i, _shared_state->build_not_ignore_null[i]);
+        }
     }
 
     _left_table_data_types.clear();

@@ -209,7 +209,15 @@ Status ScalarColumnReader::_skip_values(size_t num_values) {
             level_t def_level = -1;
             size_t loop_skip = def_decoder.get_next_run(&def_level, num_values - skipped);
             if (loop_skip == 0) {
-                continue;
+                std::stringstream ss;
+                auto& bit_reader = def_decoder.rle_decoder().bit_reader();
+                ss << "def_decoder buffer (hex): ";
+                for (size_t i = 0; i < bit_reader.max_bytes(); ++i) {
+                    ss << std::hex << std::setw(2) << std::setfill('0')
+                       << static_cast<int>(bit_reader.buffer()[i]) << " ";
+                }
+                LOG(WARNING) << ss.str();
+                return Status::InternalError("Failed to decode definition level.");
             }
             if (def_level == 0) {
                 null_size += loop_skip;
@@ -254,7 +262,15 @@ Status ScalarColumnReader::_read_values(size_t num_values, ColumnPtr& doris_colu
                 level_t def_level;
                 size_t loop_read = def_decoder.get_next_run(&def_level, num_values - has_read);
                 if (loop_read == 0) {
-                    continue;
+                    std::stringstream ss;
+                    auto& bit_reader = def_decoder.rle_decoder().bit_reader();
+                    ss << "def_decoder buffer (hex): ";
+                    for (size_t i = 0; i < bit_reader.max_bytes(); ++i) {
+                        ss << std::hex << std::setw(2) << std::setfill('0')
+                           << static_cast<int>(bit_reader.buffer()[i]) << " ";
+                    }
+                    LOG(WARNING) << ss.str();
+                    return Status::InternalError("Failed to decode definition level.");
                 }
                 bool is_null = def_level == 0;
                 if (!(prev_is_null ^ is_null)) {
@@ -436,11 +452,6 @@ Status ScalarColumnReader::read_dict_values_to_column(MutableColumnPtr& doris_co
         return _chunk_reader->read_dict_values_to_column(doris_column);
     }
     return Status::OK();
-}
-
-Status ScalarColumnReader::get_dict_codes(const ColumnString* column_string,
-                                          std::vector<int32_t>* dict_codes) {
-    return _chunk_reader->get_dict_codes(column_string, dict_codes);
 }
 
 MutableColumnPtr ScalarColumnReader::convert_dict_column_to_string_column(

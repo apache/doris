@@ -179,8 +179,8 @@ Status BlockReader::_init_agg_state(const ReaderParams& read_params) {
     for (auto idx : _agg_columns_idx) {
         auto column = tablet_schema.column(
                 read_params.origin_return_columns->at(_return_columns_loc[idx]));
-        AggregateFunctionPtr function =
-                column.get_aggregate_function(vectorized::AGG_READER_SUFFIX);
+        AggregateFunctionPtr function = column.get_aggregate_function(
+                vectorized::AGG_READER_SUFFIX, read_params.get_be_exec_version());
 
         // to avoid coredump when something goes wrong(i.e. column missmatch)
         if (!function) {

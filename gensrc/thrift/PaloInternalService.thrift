@@ -82,8 +82,8 @@ struct TResourceLimit {
 }
 
 enum TSerdeDialect {
-  DORIS,
-  PRESTO
+  DORIS = 0,
+  PRESTO = 1
 }
 
 // Query options that correspond to PaloService.PaloQueryOptions,
@@ -317,11 +317,10 @@ struct TQueryOptions {
 
   118: optional TSerdeDialect serde_dialect = TSerdeDialect.DORIS;
 
-  119: optional bool enable_match_without_inverted_index = true;
+  119: optional bool keep_carriage_return = false; // \n,\r\n split line in CSV.
 
-  120: optional bool enable_fallback_on_missing_inverted_index = true;
-
-  121: optional bool keep_carriage_return = false; // \n,\r\n split line in CSV.
+  120: optional bool enable_match_without_inverted_index = true;
+  121: optional bool enable_fallback_on_missing_inverted_index = true;
 
   122: optional i32 runtime_bloom_filter_min_size = 1048576;
 
@@ -334,6 +333,16 @@ struct TQueryOptions {
 
   126: optional i32 runtime_bloom_filter_max_size = 16777216;
 
+  127: optional i32 in_list_value_count_threshold = 10;
+
+  // We need this two fields to make sure thrift id on master is compatible with other branch.
+  128: optional bool enable_verbose_profile = false;
+  129: optional i32 rpc_verbose_profile_max_instance_count = 0;
+
+  130: optional bool enable_adaptive_pipeline_task_serial_read_on_limit = true;
+  131: optional i32 adaptive_pipeline_task_serial_read_on_limit = 10000;
+
+  132: optional i32 parallel_prepare_threshold = 0;
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.
   // In read path, read from file cache or remote storage when execute query.
@@ -803,11 +812,27 @@ struct TPipelineFragmentParams {
   41: optional i64 wal_id
   42: optional i64 content_length
   43: optional Types.TNetworkAddress current_connect_fe
+  // Used by 2.1
+  44: optional list<i32> topn_filter_source_node_ids
 
   // For cloud
   1000: optional bool is_mow_table;
 }
 
 struct TPipelineFragmentParamsList {
-    1: optional list<TPipelineFragmentParams> params_list;
+  1: optional list<TPipelineFragmentParams> params_list;
+  2: optional Descriptors.TDescriptorTable desc_tbl;
+  // scan node id -> scan range params, only for external file scan
+  3: optional map<Types.TPlanNodeId, PlanNodes.TFileScanRangeParams> file_scan_params;
+  4: optional Types.TNetworkAddress coord;
+  5: optional TQueryGlobals query_globals;
+  6: optional Types.TResourceInfo resource_info;
+  // The total number of fragments on same BE host
+  7: optional i32 fragment_num_on_host
+  8: optional TQueryOptions query_options
+  9: optional bool is_nereids = true;
+  10: optional list<TPipelineWorkloadGroup> workload_groups
+  11: optional Types.TUniqueId query_id
+  12: optional list<i32> topn_filter_source_node_ids
+  13: optional Types.TNetworkAddress runtime_filter_merge_addr
 }

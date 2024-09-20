@@ -4,28 +4,30 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --PhysicalCteProducer ( cteId=CTEId#0 )
 ----PhysicalProject
 ------filter((if((mean = 0.0), 0.0, (stdev / mean)) > 1.0))
---------hashAgg[LOCAL]
-----------PhysicalProject
-------------hashJoin[INNER_JOIN shuffle] hashCondition=((inventory.inv_warehouse_sk = warehouse.w_warehouse_sk)) otherCondition=()
+--------hashAgg[GLOBAL]
+----------PhysicalDistribute[DistributionSpecHash]
+------------hashAgg[LOCAL]
 --------------PhysicalProject
-----------------hashJoin[INNER_JOIN broadcast] hashCondition=((inventory.inv_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF1 d_date_sk->[inv_date_sk]
+----------------hashJoin[INNER_JOIN broadcast] hashCondition=((inventory.inv_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF2 d_date_sk->[inv_date_sk]
 ------------------PhysicalProject
---------------------hashJoin[INNER_JOIN broadcast] hashCondition=((inventory.inv_item_sk = item.i_item_sk)) otherCondition=()
-----------------------PhysicalOlapScan[inventory] apply RFs: RF1
+--------------------hashJoin[INNER_JOIN broadcast] hashCondition=((inventory.inv_warehouse_sk = warehouse.w_warehouse_sk)) otherCondition=()
 ----------------------PhysicalProject
-------------------------PhysicalOlapScan[item]
+------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((inventory.inv_item_sk = item.i_item_sk)) otherCondition=()
+--------------------------PhysicalOlapScan[inventory] apply RFs: RF2
+--------------------------PhysicalProject
+----------------------------PhysicalOlapScan[item]
+----------------------PhysicalProject
+------------------------PhysicalOlapScan[warehouse]
 ------------------PhysicalProject
 --------------------filter((date_dim.d_year = 1998) and d_moy IN (1, 2))
 ----------------------PhysicalOlapScan[date_dim]
---------------PhysicalProject
-----------------PhysicalOlapScan[warehouse]
 --PhysicalResultSink
 ----PhysicalQuickSort[MERGE_SORT]
 ------PhysicalDistribute[DistributionSpecGather]
 --------PhysicalQuickSort[LOCAL_SORT]
-----------hashJoin[INNER_JOIN shuffle] hashCondition=((inv1.i_item_sk = inv2.i_item_sk) and (inv1.w_warehouse_sk = inv2.w_warehouse_sk)) otherCondition=()
+----------hashJoin[INNER_JOIN shuffle] hashCondition=((inv1.i_item_sk = inv2.i_item_sk) and (inv1.w_warehouse_sk = inv2.w_warehouse_sk)) otherCondition=() build RFs:RF3 i_item_sk->[i_item_sk];RF4 w_warehouse_sk->[w_warehouse_sk]
 ------------filter((inv1.d_moy = 1))
---------------PhysicalCteConsumer ( cteId=CTEId#0 )
+--------------PhysicalCteConsumer ( cteId=CTEId#0 ) apply RFs: RF3 RF4
 ------------filter((inv2.d_moy = 2))
 --------------PhysicalCteConsumer ( cteId=CTEId#0 )
 

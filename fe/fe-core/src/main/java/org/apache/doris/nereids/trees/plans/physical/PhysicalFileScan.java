@@ -125,10 +125,9 @@ public class PhysicalFileScan extends PhysicalCatalogRelation {
 
     @Override
     public String toString() {
-        return Utils.toSqlString("PhysicalFileScan",
+        return Utils.toSqlString("PhysicalFileScan[" + table.getName() + "]" + getGroupIdWithPrefix(),
+            "stats", statistics,
                 "qualified", Utils.qualifiedName(qualifier, table.getName()),
-                "output", getOutput(),
-                "stats", statistics,
                 "conjuncts", conjuncts,
                 "selected partitions num",
                 selectedPartitions.isPruned ? selectedPartitions.selectedPartitions.size() : "unknown"

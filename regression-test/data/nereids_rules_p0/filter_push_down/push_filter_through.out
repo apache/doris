@@ -331,7 +331,8 @@ PhysicalResultSink
 --------PhysicalOlapScan[t1]
 ------filter((t2.id = 2))
 --------PhysicalOlapScan[t2]
-----PhysicalOlapScan[t3]
+----filter((t3.id = 2))
+------PhysicalOlapScan[t3]
 
 -- !push_filter_subquery --
 PhysicalResultSink
@@ -341,7 +342,8 @@ PhysicalResultSink
 --------PhysicalOlapScan[t1]
 ------filter((t2.id = 2))
 --------PhysicalOlapScan[t2]
-----PhysicalOlapScan[t3]
+----filter((t3.id = 2))
+------PhysicalOlapScan[t3]
 
 -- !filter_window_row_number --
 PhysicalResultSink

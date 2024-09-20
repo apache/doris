@@ -165,7 +165,7 @@ suite("sync_async_same_name") {
         check {result ->
             def splitResult = result.split("MaterializedViewRewriteFail")
             splitResult.length == 2 ? splitResult[0].contains(common_mv_name)
-                    && splitResult[0].contains("orders#${common_mv_name}") : false
+                    && splitResult[0].contains("orders.${common_mv_name}") : false
         }
     }
 

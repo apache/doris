@@ -29,15 +29,13 @@
 #include "olap/tablet_manager.h"
 #include "pipeline/common/runtime_filter_consumer.h"
 #include "pipeline/exec/scan_operator.h"
+#include "pipeline/query_cache/query_cache.h"
 #include "service/backend_options.h"
 #include "util/to_string.h"
 #include "vec/exec/scan/new_olap_scanner.h"
-#include "vec/exec/scan/vscan_node.h"
-#include "vec/exprs/vcompound_pred.h"
 #include "vec/exprs/vectorized_fn_call.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
-#include "vec/exprs/vin_predicate.h"
 #include "vec/exprs/vslot_ref.h"
 #include "vec/functions/in.h"
 
@@ -143,9 +141,10 @@ Status OlapScanLocalState::_init_profile() {
             ADD_COUNTER(_segment_profile, "InvertedIndexSearcherCacheHit", TUnit::UNIT);
     _inverted_index_searcher_cache_miss_counter =
             ADD_COUNTER(_segment_profile, "InvertedIndexSearcherCacheMiss", TUnit::UNIT);
+    _inverted_index_downgrade_count_counter =
+            ADD_COUNTER(_segment_profile, "InvertedIndexDowngradeCount", TUnit::UNIT);
 
     _output_index_result_column_timer = ADD_TIMER(_segment_profile, "OutputIndexResultColumnTimer");
-
     _filtered_segment_counter = ADD_COUNTER(_segment_profile, "NumSegmentFiltered", TUnit::UNIT);
     _total_segment_counter = ADD_COUNTER(_segment_profile, "NumSegmentTotal", TUnit::UNIT);
     _tablet_counter = ADD_COUNTER(_runtime_profile, "TabletNum", TUnit::UNIT);
@@ -258,10 +257,8 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* s
     }
     auto& p = _parent->cast<OlapScanOperatorX>();
 
-    if (!p._olap_scan_node.output_column_unique_ids.empty()) {
-        for (auto uid : p._olap_scan_node.output_column_unique_ids) {
-            _maybe_read_column_ids.emplace(uid);
-        }
+    for (auto uid : p._olap_scan_node.output_column_unique_ids) {
+        _maybe_read_column_ids.emplace(uid);
     }
 
     // ranges constructed from scan keys
@@ -332,7 +329,6 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* s
         for (auto& scanner : *scanners) {
             auto* olap_scanner = assert_cast<vectorized::NewOlapScanner*>(scanner.get());
             RETURN_IF_ERROR(olap_scanner->prepare(state(), _conjuncts));
-            olap_scanner->set_compound_filters(_compound_filters);
         }
         return Status::OK();
     }
@@ -354,7 +350,6 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* s
                               p._olap_scan_node.is_preaggregation,
                       });
         RETURN_IF_ERROR(scanner->prepare(state(), _conjuncts));
-        scanner->set_compound_filters(_compound_filters);
         scanners->push_back(std::move(scanner));
         return Status::OK();
     };
@@ -397,10 +392,25 @@ TOlapScanNode& OlapScanLocalState::olap_scan_node() const {
 
 void OlapScanLocalState::set_scan_ranges(RuntimeState* state,
                                          const std::vector<TScanRangeParams>& scan_ranges) {
-    for (auto& scan_range : scan_ranges) {
-        DCHECK(scan_range.scan_range.__isset.palo_scan_range);
-        _scan_ranges.emplace_back(new TPaloScanRange(scan_range.scan_range.palo_scan_range));
-        COUNTER_UPDATE(_tablet_counter, 1);
+    const auto& cache_param = _parent->cast<OlapScanOperatorX>()._cache_param;
+    bool hit_cache = false;
+    if (!cache_param.digest.empty() && !cache_param.force_refresh_query_cache) {
+        std::string cache_key;
+        int64_t version = 0;
+        auto status = QueryCache::build_cache_key(scan_ranges, cache_param, &cache_key, &version);
+        if (!status.ok()) {
+            throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR, status.msg());
+        }
+        doris::QueryCacheHandle handle;
+        hit_cache = QueryCache::instance()->lookup(cache_key, version, &handle);
+    }
+
+    if (!hit_cache) {
+        for (auto& scan_range : scan_ranges) {
+            DCHECK(scan_range.scan_range.__isset.palo_scan_range);
+            _scan_ranges.emplace_back(new TPaloScanRange(scan_range.scan_range.palo_scan_range));
+            COUNTER_UPDATE(_tablet_counter, 1);
+        }
     }
 }
 
@@ -470,9 +480,13 @@ Status OlapScanLocalState::_build_key_ranges_and_filters() {
         // we use `exact_range` to identify a key range is an exact range or not when we convert
         // it to `_scan_keys`. If `exact_range` is true, we can just discard it from `_olap_filters`.
         bool exact_range = true;
+
+        // If the `_scan_keys` cannot extend by the range of column, should stop.
+        bool should_break = false;
+
         bool eos = false;
-        for (int column_index = 0;
-             column_index < column_names.size() && !_scan_keys.has_range_value() && !eos;
+        for (int column_index = 0; column_index < column_names.size() &&
+                                   !_scan_keys.has_range_value() && !eos && !should_break;
              ++column_index) {
             auto iter = _colname_to_value_range.find(column_names[column_index]);
             if (_colname_to_value_range.end() == iter) {
@@ -486,8 +500,9 @@ Status OlapScanLocalState::_build_key_ranges_and_filters() {
                         // but the original range may be converted to olap filters, if it's not a exact_range.
                         auto temp_range = range;
                         if (range.get_fixed_value_size() <= p._max_pushdown_conditions_per_column) {
-                            RETURN_IF_ERROR(_scan_keys.extend_scan_key(
-                                    temp_range, p._max_scan_key_num, &exact_range, &eos));
+                            RETURN_IF_ERROR(
+                                    _scan_keys.extend_scan_key(temp_range, p._max_scan_key_num,
+                                                               &exact_range, &eos, &should_break));
                             if (exact_range) {
                                 _colname_to_value_range.erase(iter->first);
                             }
@@ -495,8 +510,9 @@ Status OlapScanLocalState::_build_key_ranges_and_filters() {
                             // if exceed max_pushdown_conditions_per_column, use whole_value_rang instead
                             // and will not erase from _colname_to_value_range, it must be not exact_range
                             temp_range.set_whole_value_range();
-                            RETURN_IF_ERROR(_scan_keys.extend_scan_key(
-                                    temp_range, p._max_scan_key_num, &exact_range, &eos));
+                            RETURN_IF_ERROR(
+                                    _scan_keys.extend_scan_key(temp_range, p._max_scan_key_num,
+                                                               &exact_range, &eos, &should_break));
                         }
                         return Status::OK();
                     },
@@ -513,22 +529,6 @@ Status OlapScanLocalState::_build_key_ranges_and_filters() {
 
             for (const auto& filter : filters) {
                 _olap_filters.push_back(filter);
-            }
-        }
-
-        for (auto& iter : _compound_value_ranges) {
-            std::vector<TCondition> filters;
-            std::visit(
-                    [&](auto&& range) {
-                        if (range.is_in_compound_value_range()) {
-                            range.to_condition_in_compound(filters);
-                        } else if (range.is_match_value_range()) {
-                            range.to_match_condition(filters);
-                        }
-                    },
-                    iter);
-            for (const auto& filter : filters) {
-                _compound_filters.push_back(filter);
             }
         }
 
@@ -584,9 +584,11 @@ void OlapScanLocalState::add_filter_info(int id, const PredicateFilterInfo& upda
 }
 
 OlapScanOperatorX::OlapScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
-                                     const DescriptorTbl& descs, int parallel_tasks)
+                                     const DescriptorTbl& descs, int parallel_tasks,
+                                     const TQueryCacheParam& param)
         : ScanOperatorX<OlapScanLocalState>(pool, tnode, operator_id, descs, parallel_tasks),
-          _olap_scan_node(tnode.olap_scan_node) {
+          _olap_scan_node(tnode.olap_scan_node),
+          _cache_param(param) {
     _output_tuple_id = tnode.olap_scan_node.tuple_id;
     if (_olap_scan_node.__isset.sort_info && _olap_scan_node.__isset.sort_limit) {
         _limit_per_scanner = _olap_scan_node.sort_limit;

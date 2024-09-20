@@ -46,8 +46,8 @@ import java.util.Optional;
  * Insert executor for base external table
  */
 public abstract class BaseExternalTableInsertExecutor extends AbstractInsertExecutor {
+    protected static final long INVALID_TXN_ID = -1L;
     private static final Logger LOG = LogManager.getLogger(BaseExternalTableInsertExecutor.class);
-    private static final long INVALID_TXN_ID = -1L;
     protected long txnId = INVALID_TXN_ID;
     protected TransactionStatus txnStatus = TransactionStatus.ABORTED;
     protected final TransactionManager transactionManager;
@@ -70,6 +70,7 @@ public abstract class BaseExternalTableInsertExecutor extends AbstractInsertExec
         }
     }
 
+    @Override
     public long getTxnId() {
         return txnId;
     }
