@@ -214,6 +214,9 @@ Status PipelineTask::execute(bool* eos) {
     SCOPED_ATTACH_TASK(_state);
     int64_t time_spent = 0;
 
+    auto* tarena = new vectorized::Arena();
+    tarena->alloc(4096);
+
     ThreadCpuStopWatch cpu_time_stop_watch;
     cpu_time_stop_watch.start();
     Defer defer {[&]() {
