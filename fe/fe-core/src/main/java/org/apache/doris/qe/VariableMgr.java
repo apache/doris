@@ -820,11 +820,11 @@ public class VariableMgr {
                         LOG.warn("Encode session variable failed");
                     }
                 }
-    
+
                 if (curValue.equals(defaultValue)) {
                     continue;
                 }
-    
+
                 row.add(varName);
                 row.add(curValue);
                 row.add(defaultValue);
@@ -833,7 +833,7 @@ public class VariableMgr {
         } finally {
             rlock.unlock();
         }
-        
+
         return changedRows;
     }
 
