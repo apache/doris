@@ -508,8 +508,15 @@ Status StreamingAggLocalState::_init_hash_method(const vectorized::VExprContextS
     return Status::OK();
 }
 
+void StreamingAggLocalState::set_low_memory_mode() {
+    auto& p = Base::_parent->template cast<StreamingAggOperatorX>();
+    p._spill_streaming_agg_mem_limit = 1024 * 1024;
+}
 Status StreamingAggLocalState::do_pre_agg(vectorized::Block* input_block,
                                           vectorized::Block* output_block) {
+    if (state()->get_query_ctx()->low_memory_mode()) {
+        set_low_memory_mode();
+    }
     RETURN_IF_ERROR(_pre_agg_with_serialized_key(input_block, output_block));
 
     // pre stream agg need use _num_row_return to decide whether to do pre stream agg
@@ -638,8 +645,7 @@ Status StreamingAggLocalState::_pre_agg_with_serialized_key(doris::vectorized::B
     // to avoid wasting memory.
     // But for fixed hash map, it never need to expand
     bool ret_flag = false;
-    const auto spill_streaming_agg_mem_limit =
-            _parent->cast<StreamingAggOperatorX>()._spill_streaming_agg_mem_limit;
+    const auto spill_streaming_agg_mem_limit = p._spill_streaming_agg_mem_limit;
     const bool used_too_much_memory =
             spill_streaming_agg_mem_limit > 0 && _memory_usage() > spill_streaming_agg_mem_limit;
     RETURN_IF_ERROR(std::visit(

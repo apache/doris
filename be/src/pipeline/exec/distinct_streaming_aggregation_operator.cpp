@@ -201,6 +201,10 @@ Status DistinctStreamingAggLocalState::_distinct_pre_agg_with_serialized_key(
     int rows = in_block->rows();
     _distinct_row.clear();
     _distinct_row.reserve(rows);
+    if (_parent->cast<DistinctStreamingAggOperatorX>()._is_streaming_preagg &&
+        state()->get_query_ctx()->low_memory_mode()) {
+        _stop_emplace_flag = true;
+    }
 
     if (!_stop_emplace_flag) {
         _emplace_into_hash_table_to_distinct(_distinct_row, key_columns, rows);

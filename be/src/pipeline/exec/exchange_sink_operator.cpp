@@ -143,7 +143,6 @@ Status ExchangeSinkLocalState::open(RuntimeState* state) {
         !only_local_exchange) {
         _broadcast_dependency = Dependency::create_shared(
                 _parent->operator_id(), _parent->node_id(), "BroadcastDependency", true);
-        _sink_buffer->set_broadcast_dependency(_broadcast_dependency);
         _broadcast_pb_mem_limiter =
                 vectorized::BroadcastPBlockHolderMemLimiter::create_shared(_broadcast_dependency);
     } else if (local_size > 0) {
@@ -377,6 +376,10 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
         return Status::EndOfFile("all data stream channels EOF");
     }
 
+    if (state->get_query_ctx()->low_memory_mode()) {
+        local_state._sink_buffer->set_low_memory_mode();
+    }
+
     if (_part_type == TPartitionType::UNPARTITIONED || local_state.channels.size() == 1) {
         // 1. serialize depends on it is not local exchange
         // 2. send block
@@ -409,6 +412,9 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
                         block_holder->reset_block();
                     }
 
+                    if (state->get_query_ctx()->low_memory_mode()) {
+                        local_state._broadcast_pb_mem_limiter->set_low_memory_mode();
+                    }
                     local_state._broadcast_pb_mem_limiter->acquire(*block_holder);
 
                     for (auto* channel : local_state.channels) {

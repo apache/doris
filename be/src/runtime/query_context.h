@@ -315,8 +315,6 @@ public:
                 return;
             }
         }
-
-        return;
     }
 
     void set_low_memory_mode() { _low_memory_mode = true; }
