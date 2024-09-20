@@ -671,12 +671,6 @@ DECLARE_mInt64(memtable_mem_tracker_refresh_interval_ms);
 // Sleep time in milliseconds between refresh iterations of workload group weighted memory ratio
 DECLARE_mInt64(wg_weighted_memory_ratio_refresh_interval_ms);
 
-// percent of (active memtables size / all memtables size) when reach hard limit
-DECLARE_mInt32(memtable_hard_limit_active_percent);
-
-// percent of (active memtables size / all memtables size) when reach soft limit
-DECLARE_mInt32(memtable_soft_limit_active_percent);
-
 // max write buffer size before flush, default 200MB
 DECLARE_mInt64(write_buffer_size);
 // max buffer size used in memtable for the aggregated table, default 400MB

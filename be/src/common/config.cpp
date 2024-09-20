@@ -618,12 +618,6 @@ DEFINE_mInt64(memtable_mem_tracker_refresh_interval_ms, "5");
 
 DEFINE_mInt64(wg_weighted_memory_ratio_refresh_interval_ms, "50");
 
-// percent of (active memtables size / all memtables size) when reach hard limit
-DEFINE_mInt32(memtable_hard_limit_active_percent, "50");
-
-// percent of (active memtables size / all memtables size) when reach soft limit
-DEFINE_mInt32(memtable_soft_limit_active_percent, "50");
-
 // max write buffer size before flush, default 200MB
 DEFINE_mInt64(write_buffer_size, "209715200");
 // max buffer size used in memtable for the aggregated table, default 400MB
