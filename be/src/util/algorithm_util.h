@@ -51,7 +51,7 @@ public:
         // Then the left step is smaller than actual value.
         // This elimation algo will elimate more cache than actual.
         int64_t left_step = step_num - used_step;
-        return left_step / step_num;
+        return left_step / (step_num * 1.0);
     }
 };
 } // namespace doris
