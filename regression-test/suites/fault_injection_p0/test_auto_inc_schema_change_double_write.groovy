@@ -34,20 +34,6 @@ suite("test_auto_inc_schema_change_double_write", "nonConcurrent") {
         replicaNum = 1
     }
 
-    def tableName = "test_auto_inc_schema_change_double_write"
-    def run_test = {table1, thread_num, rows, iters -> 
-        def threads = []
-        (1..thread_num).each { id1 -> 
-            threads.add(Thread.start {
-                (1..iters).each { id2 -> 
-                    sql """insert into ${table1}(c1,c2,c3,c4) select number,number,number,number from numbers("number"="${rows}");"""
-                }
-            })
-        }
-
-        threads.each { thread -> thread.join() }
-    }    
-
     def block_convert_historical_rowsets = {
         if (isCloudMode()) {
             GetDebugPoint().enableDebugPointForAllBEs("CloudSchemaChangeJob::_convert_historical_rowsets.block")
@@ -68,7 +54,7 @@ suite("test_auto_inc_schema_change_double_write", "nonConcurrent") {
         try {
             GetDebugPoint().clearDebugPointsForAllFEs()
             GetDebugPoint().clearDebugPointsForAllBEs()
-
+            def tableName = "test_auto_inc_schema_change_double_write"
             def table1 = "${tableName}_${model}"
             sql "DROP TABLE IF EXISTS ${table1} FORCE;"
             sql """ CREATE TABLE IF NOT EXISTS ${table1} (
@@ -90,11 +76,24 @@ suite("test_auto_inc_schema_change_double_write", "nonConcurrent") {
             block_convert_historical_rowsets()
             
             AtomicBoolean stopped = new AtomicBoolean(false)
+
+            def iters = 3
+            def rows = 500
+            def thread_num = 4
             def t1 = Thread.start {
-                while (!stopped.get()) {
-                    run_test(table1, 2, 500, 3)
-                    Thread.sleep(200)
+                def threads = []
+                (1..thread_num).each { id1 -> 
+                    threads.add(Thread.start {
+                        while (!stopped.get()) {
+                            (1..iters).each { id2 -> 
+                                sql """insert into ${table1}(c1,c2,c3,c4) select number,number,number,number from numbers("number"="${rows}");"""
+                            }
+                            Thread.sleep(200)
+                        }
+                    })
                 }
+
+                threads.each { thread -> thread.join() }
             }
 
             Thread.sleep(3000)
