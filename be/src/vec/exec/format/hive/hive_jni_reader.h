@@ -42,9 +42,9 @@ namespace vectoried {
 
 class Block;
 
-}   // namespace vectorized
+} // namespace vectoried
 struct TypeDescriptor;
-}   // namespace doris
+} // namespace doris
 
 namespace doris::vectorized {
 
@@ -81,4 +81,4 @@ private:
     std::unordered_map<std::string, ColumnValueRangeType>* _colname_to_value_range = nullptr;
 };
 
-}   // namespace doris::vectorized
+} // namespace doris::vectorized

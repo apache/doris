@@ -15,8 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vec/exec/scan/vfile_scanner.h"
-
 #include <fmt/format.h>
 #include <gen_cpp/Exprs_types.h>
 #include <gen_cpp/Metrics_types.h>
@@ -55,8 +53,8 @@
 #include "vec/data_types/data_type_string.h"
 #include "vec/exec/format/arrow/arrow_stream_reader.h"
 #include "vec/exec/format/avro/avro_jni_reader.h"
-#include "vec/exec/format/hive/hive_jni_reader.h"
 #include "vec/exec/format/csv/csv_reader.h"
+#include "vec/exec/format/hive/hive_jni_reader.h"
 #include "vec/exec/format/json/new_json_reader.h"
 #include "vec/exec/format/orc/vorc_reader.h"
 #include "vec/exec/format/parquet/vparquet_reader.h"
@@ -69,6 +67,7 @@
 #include "vec/exec/format/table/transactional_hive_reader.h"
 #include "vec/exec/format/table/trino_connector_jni_reader.h"
 #include "vec/exec/format/wal/wal_reader.h"
+#include "vec/exec/scan/vfile_scanner.h"
 #include "vec/exec/scan/vscan_node.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
@@ -950,9 +949,9 @@ Status VFileScanner::_get_next_reader() {
         case TFileFormatType::FORMAT_RCTEXT:
         case TFileFormatType::FORMAT_RCBINARY: {
             _cur_reader = HiveJNIReader::create_unique(_state, _profile, *_params, _file_slot_descs,
-                                                           range);
+                                                       range);
             init_status = ((HiveJNIReader*)(_cur_reader.get()))
-                                            ->init_fetch_table_reader(_colname_to_value_range);
+                                  ->init_fetch_table_reader(_colname_to_value_range);
             break;
         }
         case TFileFormatType::FORMAT_WAL: {

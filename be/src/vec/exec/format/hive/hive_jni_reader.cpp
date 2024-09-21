@@ -15,14 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "hive_jni_reader.h"
-
 #include <map>
 #include <ostream>
 
+#include "common/logging.h"
+#include "hive_jni_reader.h"
 #include "runtime/descriptors.h"
 #include "runtime/types.h"
-#include "common/logging.h"
 
 namespace doris::vectorized {
 
@@ -30,8 +29,7 @@ HiveJNIReader::HiveJNIReader(RuntimeState* state, RuntimeProfile* profile,
                              const TFileScanRangeParams& params,
                              const std::vector<SlotDescriptor*>& file_slot_descs,
                              const TFileRangeDesc& range)
-        : JniReader(file_slot_descs, state, profile), _params(params), _range(range) {
-        }
+        : JniReader(file_slot_descs, state, profile), _params(params), _range(range) {}
 
 HiveJNIReader::~HiveJNIReader() = default;
 
@@ -46,8 +44,7 @@ TFileType::type HiveJNIReader::get_file_type() {
 }
 
 Status HiveJNIReader::init_fetch_table_reader(
-            std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range)
-{
+        std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range) {
     _colname_to_value_range = colname_to_value_range;
     std::ostringstream required_fields;
     std::ostringstream columns_types;
@@ -57,7 +54,7 @@ Status HiveJNIReader::init_fetch_table_reader(
         std::string field = desc->col_name();
         column_names.emplace_back(field);
         std::string type = JniConnector::get_jni_type_v2(desc->type());
-        if(index == 0) {
+        if (index == 0) {
             required_fields << field;
             columns_types << type;
         } else {
@@ -75,8 +72,7 @@ Status HiveJNIReader::init_fetch_table_reader(
             {"required_fields", required_fields.str()},
             {"columns_types", columns_types.str()},
             {"split_start_offset", std::to_string(_range.start_offset)},
-            {"split_size", std::to_string(_range.size)}
-    };
+            {"split_size", std::to_string(_range.size)}};
     if (type == TFileType::FILE_S3) {
         required_params.insert(_params.properties.begin(), _params.properties.end());
     }
@@ -102,4 +98,4 @@ Status HiveJNIReader::get_columns(std::unordered_map<std::string, TypeDescriptor
     return Status::OK();
 }
 
-}
+} // namespace doris::vectorized
