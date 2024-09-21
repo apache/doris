@@ -191,7 +191,6 @@ suite("test_string_function") {
 
     qt_sql "select sub_replace(\"this is origin str\",\"NEW-STR\",1);"
     qt_sql "select sub_replace(\"doris\",\"***\",1,2);"
-    sql """ set debug_skip_fold_constant = true;"""
     qt_sub_replace_utf8_sql1 " select sub_replace('你好世界','a',1);"
     qt_sub_replace_utf8_sql2 " select sub_replace('你好世界','ab',1);"
     qt_sub_replace_utf8_sql3 " select sub_replace('你好世界','ab',1,20);"
@@ -202,7 +201,6 @@ suite("test_string_function") {
     qt_sub_replace_utf8_sql8 " select sub_replace('你好世界','大家114514',6,20);"
     qt_sub_replace_utf8_sql9 " select sub_replace('你好世界','大家',4);"
     qt_sub_replace_utf8_sql10 " select sub_replace('你好世界','大家',-1);"
-    sql """ set debug_skip_fold_constant = false;"""
     qt_sub_replace_utf8_sql1 " select sub_replace('你好世界','a',1);"
     qt_sub_replace_utf8_sql2 " select sub_replace('你好世界','ab',1);"
     qt_sub_replace_utf8_sql3 " select sub_replace('你好世界','ab',1,20);"
