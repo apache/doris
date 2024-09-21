@@ -23,6 +23,7 @@
 #include "common/status.h"
 namespace doris {
 class AlgoUtil {
+public:
     // descent the value step by step not linear continuity
     // If the result is linear continuity, then the value will changed very quickly and will cost
     // a lot of CPU and cache will not stable and will hold some lock.
