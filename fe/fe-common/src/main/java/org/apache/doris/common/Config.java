@@ -2786,7 +2786,7 @@ public class Config extends ConfigBase {
 
     // Profile will be spilled to storage after query has finished for this time.
     @ConfField
-    public static int profile_waiting_time_for_spill_secs= 10;
+    public static int profile_waiting_time_for_spill_secs = 10;
 
     @ConfField(mutable = true, description = {
             "是否通过检测协调者BE心跳来 abort 事务",
