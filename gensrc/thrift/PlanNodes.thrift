@@ -369,11 +369,6 @@ struct THudiFileDesc {
     10: optional list<string> nested_fields;
 }
 
-struct THiveFileDesc {
-    1: optional string column_name_str;
-    2: optional string column_type_str;
-}
-
 struct TLakeSoulFileDesc {
     1: optional list<string> file_paths;
     2: optional list<string> primary_keys;
@@ -401,7 +396,6 @@ struct TTableFormatFileDesc {
     6: optional TMaxComputeFileDesc max_compute_params
     7: optional TTrinoConnectorFileDesc trino_connector_params
     8: optional TLakeSoulFileDesc lakesoul_params
-    9: optional THiveFileDesc hive_params
 }
 
 enum TTextSerdeType {

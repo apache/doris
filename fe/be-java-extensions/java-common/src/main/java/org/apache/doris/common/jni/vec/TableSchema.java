@@ -55,10 +55,6 @@ public class TableSchema {
 
         }
 
-        public void setName(String name) {
-            this.name = name;
-        }
-
         public String getName() {
             return name;
         }
@@ -69,6 +65,10 @@ public class TableSchema {
 
         public int getType() {
             return type;
+        }
+
+        public void setName(String name) {
+            this.name = name;
         }
 
         public void setType(TPrimitiveType type) {

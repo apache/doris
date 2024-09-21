@@ -161,7 +161,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         }
     }
 
-    // The keys in properties map need to be lowercase.
+    //The keys in properties map need to be lowercase.
     protected Map<String, String> parseCommonProperties(Map<String, String> properties) throws AnalysisException {
         Map<String, String> mergedProperties = Maps.newHashMap();
         if (properties.containsKey("resource")) {
