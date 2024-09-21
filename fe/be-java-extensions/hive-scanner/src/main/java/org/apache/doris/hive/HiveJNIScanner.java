@@ -59,7 +59,6 @@ public class HiveJNIScanner extends JniScanner {
     private final int fetchSize;
     private final Map<String, String> requiredParams;
     private final String[] columnTypes;
-    private final String[] columnNames;
     private final String[] requiredFields;
     private final ColumnType[] requiredTypes;
     private final int[] requiredColumnIds;
@@ -81,7 +80,6 @@ public class HiveJNIScanner extends JniScanner {
         this.requiredParams = requiredParams;
         this.fileType = TFileType.findByValue(Integer.parseInt(requiredParams.get(HiveProperties.FILE_TYPE)));
         this.fileFormat = TFileFormatType.findByValue(Integer.parseInt(requiredParams.get(HiveProperties.FILE_FORMAT)));
-        this.columnNames = requiredParams.get(HiveProperties.COLUMNS_NAMES).split(HiveProperties.FIELDS_DELIMITER);
         this.columnTypes = requiredParams.get(HiveProperties.COLUMNS_TYPES)
                 .split(HiveProperties.COLUMNS_TYPE_DELIMITER);
         this.requiredFields = requiredParams.get(HiveProperties.REQUIRED_FIELDS).split(HiveProperties.FIELDS_DELIMITER);
@@ -98,6 +96,19 @@ public class HiveJNIScanner extends JniScanner {
         this.hiveFileContext = new HiveFileContext(fileFormat);
         Properties properties = createProperties();
         JobConf jobConf = makeJobConf(properties);
+        switch (fileType) {
+            case FILE_LOCAL:
+            case FILE_HDFS:
+                break;
+            case FILE_S3:
+                String accessKey = requiredParams.get(HiveProperties.S3_ACCESS_KEY);
+                String secretKey = requiredParams.get(HiveProperties.S3_SECRET_KEY);
+                String endpoint = requiredParams.get(HiveProperties.S3_ENDPOINT);
+                String region = requiredParams.get(HiveProperties.S3_REGION);
+                break;
+            default:
+                throw new Exception("Unsupported " + fileType.getValue() + " file type.");
+        }
         Path path = new Path(uri);
         FileSplit fileSplit = new FileSplit(path, splitStartOffset, splitSize, (String[]) null);
         InputFormat<?, ?> inputFormatClass = createInputFormat(jobConf, hiveFileContext.getInputFormat());
@@ -128,7 +139,7 @@ public class HiveJNIScanner extends JniScanner {
         properties.setProperty(ColumnProjectionUtils.READ_COLUMN_IDS_CONF_STR,
                 Arrays.stream(this.requiredColumnIds).mapToObj(String::valueOf).collect(Collectors.joining(",")));
         properties.setProperty(ColumnProjectionUtils.READ_COLUMN_NAMES_CONF_STR, String.join(",", requiredFields));
-        properties.setProperty(HiveProperties.COLUMNS, String.join(",", columnNames));
+        properties.setProperty(HiveProperties.COLUMNS, String.join(",", requiredFields));
         properties.setProperty(HiveProperties.COLUMNS2TYPES, String.join(",", columnTypes));
         properties.setProperty(serdeConstants.SERIALIZATION_LIB, hiveFileContext.getSerde());
         return properties;
@@ -213,9 +224,9 @@ public class HiveJNIScanner extends JniScanner {
     private void parseRequiredTypes() {
         HashMap<String, Integer> hiveColumnNameToIndex = new HashMap<>();
         HashMap<String, String> hiveColumnNameToType = new HashMap<>();
-        for (int i = 0; i < columnNames.length; i++) {
-            hiveColumnNameToIndex.put(columnNames[i], i);
-            hiveColumnNameToType.put(columnNames[i], columnTypes[i]);
+        for (int i = 0; i < requiredFields.length; i++) {
+            hiveColumnNameToIndex.put(requiredFields[i], i);
+            hiveColumnNameToType.put(requiredFields[i], columnTypes[i]);
         }
 
         for (int i = 0; i < requiredFields.length; i++) {

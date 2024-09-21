@@ -72,9 +72,8 @@ Status HiveJNIReader::init_fetch_table_reader(
             {"uri", _range.path},
             {"file_type", std::to_string(type)},
             {"file_format", std::to_string(_params.format_type)},
-            {"columns_names", required_fields.str()},
-            {"columns_types", columns_types.str()},
             {"required_fields", required_fields.str()},
+            {"columns_types", columns_types.str()},
             {"split_start_offset", std::to_string(_range.start_offset)},
             {"split_size", std::to_string(_range.size)}
     };
