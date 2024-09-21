@@ -48,7 +48,9 @@ import java.util.Optional;
  * The derived class should implement the abstract method for certain type of target table
  */
 public abstract class AbstractInsertExecutor {
+    protected static final long INVALID_TXN_ID = -1L;
     private static final Logger LOG = LogManager.getLogger(AbstractInsertExecutor.class);
+
     protected long jobId;
     protected final ConnectContext ctx;
     protected final Coordinator coordinator;
@@ -62,6 +64,7 @@ public abstract class AbstractInsertExecutor {
     protected String errMsg = "";
     protected Optional<InsertCommandContext> insertCtx;
     protected final boolean emptyInsert;
+    protected long txnId = INVALID_TXN_ID;
 
     /**
      * Constructor
@@ -93,7 +96,9 @@ public abstract class AbstractInsertExecutor {
         return labelName;
     }
 
-    public abstract long getTxnId();
+    public long getTxnId() {
+        return txnId;
+    }
 
     /**
      * begin transaction if necessary
@@ -108,7 +113,7 @@ public abstract class AbstractInsertExecutor {
     /**
      * Do something before exec
      */
-    protected abstract void beforeExec();
+    protected abstract void beforeExec() throws UserException;
 
     /**
      * Do something after exec finished
