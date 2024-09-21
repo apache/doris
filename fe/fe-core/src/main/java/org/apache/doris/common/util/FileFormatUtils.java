@@ -104,7 +104,7 @@ public class FileFormatUtils {
             int scale = Integer.parseInt(matcher.group(2));
             return ScalarType.createDecimalV3Type(precision, scale);
         } else if (typeStr.equals("date")) {
-            return ScalarType.DATE;
+            return ScalarType.createDateType();
         } else if (typeStr.startsWith("timestamp")) {
             int scale = 0;
             if (!typeStr.equals("timestamp")) {
