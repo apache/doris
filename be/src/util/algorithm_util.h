@@ -44,9 +44,9 @@ public:
         }
         // Use floor value, so that the step size is a little smaller than the actual value.
         // And then the used step will be a little larger than the actual value.
-        int64_t step_size = (int64_t)std::floor((high_bound - low_bound) / step_num);
+        int64_t step_size = (int64_t)std::floor((high_bound - low_bound) / (step_num * 1.0));
         std::cout << "step_size " << step_size << std::endl;
-        int64_t used_step = (int64_t)std::ceil((current - low_bound) / step_size);
+        int64_t used_step = (int64_t)std::ceil((current - low_bound) / (step_size * 1.0));
         std::cout << "used_step " << used_step << std::endl;
         // Then the left step is smaller than actual value.
         // This elimation algo will elimate more cache than actual.
