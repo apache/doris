@@ -44,6 +44,7 @@ import org.apache.doris.thrift.TStatusCode;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TDeserializer;
@@ -53,6 +54,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
@@ -148,16 +150,18 @@ public class PointQueryExecutor implements CoordInterface {
     void addKeyTuples(
             InternalService.PTabletKeyLookupRequest.Builder requestBuilder) {
         // TODO handle IN predicates
+        Map<String, Expr> columnExpr = Maps.newHashMap();
         KeyTuple.Builder kBuilder = KeyTuple.newBuilder();
         for (Expr expr : shortCircuitQueryContext.scanNode.getConjuncts()) {
             BinaryPredicate predicate = (BinaryPredicate) expr;
             Expr left = predicate.getChild(0);
             Expr right = predicate.getChild(1);
-            // ignore delete sign conjuncts only collect key conjuncts
-            if (left instanceof SlotRef && ((SlotRef) left).getColumnName().equalsIgnoreCase(Column.DELETE_SIGN)) {
-                continue;
-            }
-            kBuilder.addKeyColumnRep(right.getStringValue());
+            SlotRef columnSlot = left.unwrapSlotRef();
+            columnExpr.put(columnSlot.getColumnName(), right);
+        }
+        // add key tuple in keys order
+        for (Column column : shortCircuitQueryContext.scanNode.getOlapTable().getBaseSchemaKeyColumns()) {
+            kBuilder.addKeyColumnRep(columnExpr.get(column.getName()).getStringValue());
         }
         requestBuilder.addKeyTuples(kBuilder);
     }
