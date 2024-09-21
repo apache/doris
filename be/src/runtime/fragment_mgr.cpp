@@ -329,10 +329,6 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
         params.__set_loaded_rows(req.runtime_state->num_rows_load_total());
         params.__set_loaded_bytes(req.runtime_state->num_bytes_load_total());
     } else {
-        if (req.runtime_state->query_type() == TQueryType::LOAD) {
-            params.__set_loaded_rows(req.runtime_state->num_rows_load_total());
-            params.__set_loaded_bytes(req.runtime_state->num_bytes_load_total());
-        }
         DCHECK(!req.runtime_states.empty());
         if (!req.runtime_state->output_files().empty()) {
             params.__isset.delta_urls = true;
