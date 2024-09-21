@@ -185,6 +185,8 @@ void WorkloadGroupMgr::refresh_wg_weighted_memory_limit() {
     if (all_workload_groups_mem_usage < process_memory_usage) {
         int64_t public_memory = process_memory_usage - all_workload_groups_mem_usage;
         weighted_memory_limit_ratio = 1 - (double)public_memory / (double)process_memory_limit;
+        // Round the value from 1% to 100%.
+        weighted_memory_limit_ratio = std::floor(weighted_memory_limit_ratio * 100) / 100;
     }
 
     std::string debug_msg = fmt::format(
@@ -407,8 +409,6 @@ void WorkloadGroupMgr::handle_paused_queries() {
         MemTableMemoryLimiter* memtable_limiter =
                 doris::ExecEnv::GetInstance()->memtable_memory_limiter();
         // Not use memlimit, should use high water mark.
-        int64_t wg_high_water_mark_limit =
-                wg->memory_limit() * wg->spill_threshold_high_water_mark() / 100;
         int64_t memtable_active_bytes = 0;
         int64_t memtable_write_bytes = 0;
         int64_t memtable_flush_bytes = 0;
@@ -418,21 +418,20 @@ void WorkloadGroupMgr::handle_paused_queries() {
         // For example, streamload, it will not reserve many memory, but it will occupy many memtable memory.
         // TODO: 0.2 should be a workload group properties. For example, the group is optimized for load,then the value
         // should be larged, if the group is optimized for query, then the value should be smaller.
-        int64_t max_wg_memtable_bytes =
-                std::max<int64_t>(100 * 1024 * 1024, (int64_t)(wg_high_water_mark_limit * 0.2));
+        int64_t max_wg_memtable_bytes = wg->load_buffer_limit();
         if (memtable_active_bytes + memtable_write_bytes + memtable_flush_bytes >
             max_wg_memtable_bytes) {
             // There are many table in flush queue, just waiting them flush finished.
-            if (memtable_write_bytes + memtable_flush_bytes > max_wg_memtable_bytes / 2) {
+            if (memtable_active_bytes < (int64_t)(max_wg_memtable_bytes * 0.8)) {
                 LOG_EVERY_T(INFO, 60)
                         << wg->name() << " load memtable size is: " << memtable_active_bytes << ", "
                         << memtable_write_bytes << ", " << memtable_flush_bytes
                         << ", wait for flush finished to release more memory";
                 continue;
             } else {
-                // Flush 50% active bytes, it means flush some memtables(currently written) to flush queue.
+                // Flush some memtables(currently written) to flush queue.
                 memtable_limiter->flush_workload_group_memtables(
-                        wg->id(), (int64_t)(memtable_active_bytes * 0.5));
+                        wg->id(), memtable_active_bytes - (int64_t)(max_wg_memtable_bytes * 0.8));
                 LOG_EVERY_T(INFO, 60)
                         << wg->name() << " load memtable size is: " << memtable_active_bytes << ", "
                         << memtable_write_bytes << ", " << memtable_flush_bytes
