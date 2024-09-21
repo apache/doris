@@ -817,16 +817,6 @@ void PInternalService::fetch_table_schema(google::protobuf::RpcController* contr
             st = ((vectorized::AvroJNIReader*)(reader.get()))->init_fetch_table_schema_reader();
             break;
         }
-        case TFileFormatType::FORMAT_SEQUENCE:
-        case TFileFormatType::FORMAT_RCTEXT:
-        case TFileFormatType::FORMAT_RCBINARY: {
-            // file_slots is no use
-            std::vector<SlotDescriptor*> file_slots;
-            reader = vectorized::HiveJNIReader::create_unique(profile.get(), params, range,
-                                                              file_slots);
-            st = ((vectorized::HiveJNIReader*)(reader.get()))->init_fetch_table_schema_reader();
-            break;
-        }
         default:
             st = Status::InternalError("Not supported file format in fetch table schema: {}",
                                        params.format_type);
