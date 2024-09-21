@@ -56,7 +56,7 @@ import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Tablet;
-import org.apache.doris.cloud.qe.ClusterException;
+import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
@@ -896,7 +896,7 @@ public class OlapScanNode extends ScanNode {
                 try {
                     backendId = replica.getBackendId();
                     backend = Env.getCurrentSystemInfo().getBackend(backendId);
-                } catch (ClusterException e) {
+                } catch (ComputeGroupException e) {
                     LOG.warn("failed to get backend {} for replica {}", backendId, replica.getId(), e);
                     errs.add(e.toString());
                     clusterException = true;

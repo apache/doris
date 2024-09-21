@@ -29,7 +29,7 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.cloud.datasource.CloudInternalCatalog;
 import org.apache.doris.cloud.proto.Cloud;
-import org.apache.doris.cloud.qe.ClusterException;
+import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.MetaNotFoundException;
@@ -94,7 +94,7 @@ public class CloudRollupJobV2 extends RollupJobV2 {
             String clusterName = "";
             try {
                 clusterName = context.getCloudCluster();
-            } catch (ClusterException e) {
+            } catch (ComputeGroupException e) {
                 LOG.warn("failed to get cluster name", e);
             }
             LOG.debug("rollup job add cloud cluster, context not null, cluster: {}", clusterName);

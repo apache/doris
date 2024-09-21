@@ -25,7 +25,7 @@ import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.StmtType;
 import org.apache.doris.analysis.ValueList;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.cloud.qe.ClusterException;
+import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.DebugUtil;
@@ -180,7 +180,7 @@ public class AuditLogHelper {
             if (Config.isCloudMode()) {
                 cloudCluster = ctx.getCloudCluster(false);
             }
-        } catch (ClusterException e) {
+        } catch (ComputeGroupException e) {
             LOG.warn("Failed to get cloud cluster", e);
         }
         String cluster = Config.isCloudMode() ? cloudCluster : "";
@@ -217,7 +217,7 @@ public class AuditLogHelper {
                 if (Config.isCloudMode()) {
                     cloudCluster = ctx.getCloudCluster(false);
                 }
-            } catch (ClusterException e) {
+            } catch (ComputeGroupException e) {
                 LOG.warn("Failed to get cloud cluster", e);
                 return;
             }

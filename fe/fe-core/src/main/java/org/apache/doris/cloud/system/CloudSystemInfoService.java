@@ -25,7 +25,7 @@ import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.proto.Cloud.ClusterPB;
 import org.apache.doris.cloud.proto.Cloud.InstanceInfoPB;
-import org.apache.doris.cloud.qe.ClusterException;
+import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -496,7 +496,7 @@ public class CloudSystemInfoService extends SystemInfoService {
         String clusterName = "";
         try {
             clusterName = ConnectContext.get().getCloudCluster(false);
-        } catch (ClusterException e) {
+        } catch (ComputeGroupException e) {
             LOG.warn("failed to get cluster name", e);
             return 1;
         }
@@ -526,7 +526,7 @@ public class CloudSystemInfoService extends SystemInfoService {
             for (Backend be : backends) {
                 idToBackend.put(be.getId(), be);
             }
-        } catch (ClusterException e) {
+        } catch (ComputeGroupException e) {
             throw new AnalysisException(e.getMessage());
         }
 
@@ -972,7 +972,7 @@ public class CloudSystemInfoService extends SystemInfoService {
             String cloudCluster = "";
             try {
                 cloudCluster = context.getCloudCluster();
-            } catch (ClusterException e) {
+            } catch (ComputeGroupException e) {
                 LOG.warn("failed to get cloud cluster", e);
                 return;
             }

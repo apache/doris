@@ -23,7 +23,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
-import org.apache.doris.cloud.qe.ClusterException;
+import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
@@ -92,7 +92,7 @@ public class CloudBrokerLoadJob extends BrokerLoadJob {
             String clusterName = "";
             try {
                 clusterName = context.getCloudCluster();
-            } catch (ClusterException e) {
+            } catch (ComputeGroupException e) {
                 LOG.warn("failed to get cluster name", e);
                 throw new MetaNotFoundException("failed to get cluster name " + e);
             }

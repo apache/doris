@@ -44,7 +44,7 @@ import org.apache.doris.catalog.RandomDistributionInfo;
 import org.apache.doris.catalog.RangePartitionItem;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Tablet;
-import org.apache.doris.cloud.qe.ClusterException;
+import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
@@ -656,7 +656,7 @@ public class OlapTableSink extends DataSink {
                             }
                             throw new UserException(InternalErrorCode.REPLICA_FEW_ERR, errMsg);
                         }
-                    } catch (ClusterException e) {
+                    } catch (ComputeGroupException e) {
                         LOG.warn("failed to get replica backend path for tablet " + tablet.getId(), e);
                         errMsg += e.toString();
                         throw new UserException(InternalErrorCode.INTERNAL_ERR, errMsg);

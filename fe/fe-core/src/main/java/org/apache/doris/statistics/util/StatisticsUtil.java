@@ -46,7 +46,7 @@ import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.VariantType;
-import org.apache.doris.cloud.qe.ClusterException;
+import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -151,7 +151,7 @@ public class StatisticsUtil {
             if (Config.isCloudMode()) {
                 try {
                     r.connectContext.getCloudCluster();
-                } catch (ClusterException e) {
+                } catch (ComputeGroupException e) {
                     LOG.warn("failed to connect to cloud cluster", e);
                     return Collections.emptyList();
                 }
@@ -236,7 +236,7 @@ public class StatisticsUtil {
             AutoCloseConnectContext ctx = new AutoCloseConnectContext(connectContext);
             try {
                 ctx.connectContext.getCloudCluster();
-            } catch (ClusterException e) {
+            } catch (ComputeGroupException e) {
                 LOG.warn("failed to connect to cloud cluster", e);
                 return ctx;
             }
@@ -499,7 +499,7 @@ public class StatisticsUtil {
             try (AutoCloseConnectContext r = buildConnectContext()) {
                 try {
                     r.connectContext.getCloudCluster();
-                } catch (ClusterException e) {
+                } catch (ComputeGroupException e) {
                     LOG.warn("failed to connect to cloud cluster", e);
                     return false;
                 }

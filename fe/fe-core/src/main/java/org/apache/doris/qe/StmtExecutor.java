@@ -95,7 +95,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.cloud.analysis.UseCloudClusterStmt;
 import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cloud.proto.Cloud.ClusterStatus;
-import org.apache.doris.cloud.qe.ClusterException;
+import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.AuditLog;
@@ -1231,7 +1231,7 @@ public class StmtExecutor {
         String clusterName = "";
         try {
             clusterName = ConnectContext.get().getCloudCluster();
-        } catch (ClusterException e) {
+        } catch (ComputeGroupException e) {
             LOG.warn("failed to get cloud cluster", e);
             return false;
         }

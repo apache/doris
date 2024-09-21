@@ -32,7 +32,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cloud.proto.Cloud;
-import org.apache.doris.cloud.qe.ClusterException;
+import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -248,7 +248,7 @@ public abstract class ConnectProcessor {
             if (Config.isCloudMode()) {
                 try {
                     MetricRepo.increaseClusterRequestAll(ctx.getCloudCluster(false));
-                } catch (ClusterException e) {
+                } catch (ComputeGroupException e) {
                     LOG.warn("metrics get cluster exception", e);
                 }
             }

@@ -34,7 +34,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionRegistry;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.cloud.qe.ClusterException;
+import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
@@ -1125,7 +1125,7 @@ public class ConnectContext {
 
     // maybe user set cluster by SQL hint of session variable: cloud_cluster
     // so first check it and then get from connect context.
-    public String getCurrentCloudCluster() throws ClusterException {
+    public String getCurrentCloudCluster() throws ComputeGroupException {
         String cluster = getSessionVariable().getCloudCluster();
         if (Strings.isNullOrEmpty(cluster)) {
             cluster = getCloudCluster();
@@ -1137,7 +1137,7 @@ public class ConnectContext {
         this.cloudCluster = cluster;
     }
 
-    public String getCloudCluster() throws ClusterException {
+    public String getCloudCluster() throws ComputeGroupException {
         return getCloudCluster(true);
     }
 
@@ -1228,11 +1228,11 @@ public class ConnectContext {
      *
      * @param updateErr whether set the connect state to error if the returned cluster is null or empty
      * @return non-empty cluster name if a cluster has been chosen otherwise null or empty string
-     * @throws ClusterException, outer get reason by exception
+     * @throws ComputeGroupException, outer get reason by exception
      */
-    public String getCloudCluster(boolean updateErr) throws ClusterException {
+    public String getCloudCluster(boolean updateErr) throws ComputeGroupException {
         if (!Config.isCloudMode()) {
-            throw new ClusterException("not cloud mode", ClusterException.FailedTypeEnum.NOT_CLOUD_MODE);
+            throw new ComputeGroupException("not cloud mode", ComputeGroupException.FailedTypeEnum.NOT_CLOUD_MODE);
         }
 
         String cluster = null;
@@ -1251,8 +1251,8 @@ public class ConnectContext {
             choseWay = "default cluster";
             if (!Env.getCurrentEnv().getAuth().checkCloudPriv(getCurrentUserIdentity(),
                     cluster, PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER)) {
-                throw new ClusterException(String.format("default cluster %s check auth failed", cluster),
-                    ClusterException.FailedTypeEnum.CURRENT_USER_NO_AUTH_TO_USE_DEFAULT_CLUSTER);
+                throw new ComputeGroupException(String.format("default cluster %s check auth failed", cluster),
+                    ComputeGroupException.FailedTypeEnum.CURRENT_USER_NO_AUTH_TO_USE_DEFAULT_COMPUTE_GROUP);
             }
         } else {
             CloudClusterResult cloudClusterTypeAndName = getCloudClusterByPolicy();
@@ -1264,8 +1264,9 @@ public class ConnectContext {
 
         if (Strings.isNullOrEmpty(cluster)) {
             LOG.warn("cant get a valid cluster for user {} to use", getCurrentUserIdentity());
-            ClusterException exception = new ClusterException("the user is not granted permission to the cluster",
-                    ClusterException.FailedTypeEnum.CURRENT_USER_NO_AUTH_TO_USE_ANY_CLUSTER);
+            ComputeGroupException exception = new ComputeGroupException(
+                    "the user is not granted permission to the cluster",
+                    ComputeGroupException.FailedTypeEnum.CURRENT_USER_NO_AUTH_TO_USE_ANY_COMPUTE_GROUP);
             if (updateErr) {
                 getState().setError(ErrorCode.ERR_CLOUD_CLUSTER_ERROR, exception.getMessage());
             }

@@ -157,7 +157,7 @@ import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cloud.datasource.CloudInternalCatalog;
 import org.apache.doris.cloud.load.CloudLoadManager;
 import org.apache.doris.cloud.proto.Cloud;
-import org.apache.doris.cloud.qe.ClusterException;
+import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.cluster.ClusterNamespace;
@@ -816,7 +816,7 @@ public class ShowExecutor {
             String clusterNameFromCtx = "";
             try {
                 clusterNameFromCtx = ctx.getCloudCluster();
-            } catch (ClusterException e) {
+            } catch (ComputeGroupException e) {
                 LOG.warn("failed to get cluster name", e);
             }
             row.add(clusterName.equals(clusterNameFromCtx) ? "TRUE" : "FALSE");

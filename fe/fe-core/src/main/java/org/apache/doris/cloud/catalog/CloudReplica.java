@@ -21,7 +21,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.cloud.proto.Cloud;
-import org.apache.doris.cloud.qe.ClusterException;
+import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -93,13 +93,13 @@ public class CloudReplica extends Replica {
         return Env.getCurrentColocateIndex().isColocateTable(tableId);
     }
 
-    private long getColocatedBeId(String cluster) throws ClusterException {
+    private long getColocatedBeId(String cluster) throws ComputeGroupException {
         List<Backend> bes = ((CloudSystemInfoService) Env.getCurrentSystemInfo()).getBackendsByClusterId(cluster);
         String clusterName = ((CloudSystemInfoService) Env.getCurrentSystemInfo()).getClusterNameByClusterId(cluster);
         if (bes.isEmpty()) {
-            throw new ClusterException(
+            throw new ComputeGroupException(
                 String.format("There are no Backend nodes in the current cluster %s", clusterName),
-                ClusterException.FailedTypeEnum.CURRENT_CLUSTER_NO_BE);
+                ComputeGroupException.FailedTypeEnum.CURRENT_COMPUTE_GROUP_NO_BE);
         }
         List<Backend> availableBes = new ArrayList<>();
         for (Backend be : bes) {
@@ -110,9 +110,9 @@ public class CloudReplica extends Replica {
 
         if (availableBes.isEmpty()) {
             LOG.warn("failed to get available be, clusterId: {}", cluster);
-            throw new ClusterException(
+            throw new ComputeGroupException(
                 String.format("All the Backend nodes in the current cluster %s are in an abnormal state", clusterName),
-                ClusterException.FailedTypeEnum.CLUSTERS_NO_ALIVE_BE);
+                ComputeGroupException.FailedTypeEnum.COMPUTE_GROUPS_NO_ALIVE_BE);
         }
 
         // Tablets with the same idx will be hashed to the same BE, which
@@ -129,7 +129,7 @@ public class CloudReplica extends Replica {
     }
 
     @Override
-    public long getBackendId() throws ClusterException {
+    public long getBackendId() throws ComputeGroupException {
         String cluster = null;
         // Not in a connect session
         ConnectContext context = ConnectContext.get();
@@ -140,8 +140,8 @@ public class CloudReplica extends Replica {
                     ((CloudEnv) Env.getCurrentEnv()).checkCloudClusterPriv(cluster);
                 } catch (Exception e) {
                     LOG.warn("get cluster by session context exception");
-                    throw new ClusterException(String.format("default cluster %s check auth failed", cluster),
-                        ClusterException.FailedTypeEnum.CURRENT_USER_NO_AUTH_TO_USE_DEFAULT_CLUSTER);
+                    throw new ComputeGroupException(String.format("default cluster %s check auth failed", cluster),
+                        ComputeGroupException.FailedTypeEnum.CURRENT_USER_NO_AUTH_TO_USE_DEFAULT_COMPUTE_GROUP);
                 }
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("get cluster by session context cluster: {}", cluster);
@@ -157,22 +157,22 @@ public class CloudReplica extends Replica {
                         && Cloud.ClusterStatus.valueOf(clusterStatus)
                         == Cloud.ClusterStatus.MANUAL_SHUTDOWN) {
                     LOG.warn("auto start cluster {} in manual shutdown status", cluster);
-                    throw new ClusterException(
+                    throw new ComputeGroupException(
                         String.format("The current cluster %s has been manually shutdown", cluster),
-                        ClusterException.FailedTypeEnum.CURRENT_CLUSTER_BEEN_MANUAL_SHUTDOWN);
+                        ComputeGroupException.FailedTypeEnum.CURRENT_COMPUTE_GROUP_BEEN_MANUAL_SHUTDOWN);
                 }
             }
         } else {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("connect context is null in getBackendId");
             }
-            throw new ClusterException("connect context not set",
-                ClusterException.FailedTypeEnum.CONNECT_CONTEXT_NOT_SET);
+            throw new ComputeGroupException("connect context not set",
+                ComputeGroupException.FailedTypeEnum.CONNECT_CONTEXT_NOT_SET);
         }
         return getBackendIdImpl(cluster);
     }
 
-    private long getBackendIdImpl(String cluster) throws ClusterException {
+    private long getBackendIdImpl(String cluster) throws ComputeGroupException {
         // if cluster is SUSPENDED, wait
         String wakeUPCluster = "";
         try {
@@ -189,16 +189,16 @@ public class CloudReplica extends Replica {
         // check default cluster valid.
         if (Strings.isNullOrEmpty(cluster)) {
             LOG.warn("failed to get available be, clusterName: {}", cluster);
-            throw new ClusterException("cluster name is empty",
-                ClusterException.FailedTypeEnum.CONNECT_CONTEXT_NOT_SET_CLUSTER);
+            throw new ComputeGroupException("cluster name is empty",
+                ComputeGroupException.FailedTypeEnum.CONNECT_CONTEXT_NOT_SET_COMPUTE_GROUP);
         }
         boolean exist = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
                 .getCloudClusterNames().contains(cluster);
         if (!exist) {
             // can't use this default cluster, plz change another
             LOG.warn("cluster: {} is not existed", cluster);
-            throw new ClusterException(String.format("The current cluster %s is not registered in the system", cluster),
-                ClusterException.FailedTypeEnum.CURRENT_CLUSTER_NOT_EXIST);
+            throw new ComputeGroupException(String.format("The current cluster %s is not registered in the system",
+                cluster),  ComputeGroupException.FailedTypeEnum.CURRENT_COMPUTE_GROUP_NOT_EXIST);
         }
 
         String clusterId = ((CloudSystemInfoService) Env.getCurrentSystemInfo()).getCloudClusterIdByName(cluster);
@@ -288,15 +288,15 @@ public class CloudReplica extends Replica {
         return -1;
     }
 
-    public long hashReplicaToBe(String clusterId, boolean isBackGround) throws ClusterException {
+    public long hashReplicaToBe(String clusterId, boolean isBackGround) throws ComputeGroupException {
         // TODO(luwei) list should be sorted
         List<Backend> clusterBes = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
                 .getBackendsByClusterId(clusterId);
         String clusterName = ((CloudSystemInfoService) Env.getCurrentSystemInfo()).getClusterNameByClusterId(clusterId);
         if (clusterBes.isEmpty()) {
-            throw new ClusterException(
+            throw new ComputeGroupException(
                 String.format("There are no Backend nodes in the current cluster %s", clusterName),
-                ClusterException.FailedTypeEnum.CURRENT_CLUSTER_NO_BE);
+                ComputeGroupException.FailedTypeEnum.CURRENT_COMPUTE_GROUP_NO_BE);
         }
         // use alive be to exec sql
         List<Backend> availableBes = new ArrayList<>();
@@ -313,9 +313,9 @@ public class CloudReplica extends Replica {
             if (!isBackGround) {
                 LOG.warn("failed to get available be, clusterId: {}", clusterId);
             }
-            throw new ClusterException(
+            throw new ComputeGroupException(
                 String.format("All the Backend nodes in the current cluster %s are in an abnormal state", clusterName),
-                ClusterException.FailedTypeEnum.CLUSTERS_NO_ALIVE_BE);
+                ComputeGroupException.FailedTypeEnum.COMPUTE_GROUPS_NO_ALIVE_BE);
         }
         if (LOG.isDebugEnabled()) {
             LOG.debug("availableBes={}", availableBes);
@@ -340,15 +340,16 @@ public class CloudReplica extends Replica {
         return pickedBeId;
     }
 
-    public List<Long> hashReplicaToBes(String clusterId, boolean isBackGround, int replicaNum) throws ClusterException {
+    public List<Long> hashReplicaToBes(String clusterId, boolean isBackGround, int replicaNum)
+            throws ComputeGroupException {
         // TODO(luwei) list should be sorted
         List<Backend> clusterBes = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
                 .getBackendsByClusterId(clusterId);
         String clusterName = ((CloudSystemInfoService) Env.getCurrentSystemInfo()).getClusterNameByClusterId(clusterId);
         if (clusterBes.isEmpty()) {
-            throw new ClusterException(
+            throw new ComputeGroupException(
                 String.format("There are no Backend nodes in the current cluster %s", clusterName),
-                ClusterException.FailedTypeEnum.CURRENT_CLUSTER_NO_BE);
+                ComputeGroupException.FailedTypeEnum.CURRENT_COMPUTE_GROUP_NO_BE);
         }
         // use alive be to exec sql
         List<Backend> availableBes = new ArrayList<>();
@@ -365,9 +366,9 @@ public class CloudReplica extends Replica {
             if (!isBackGround) {
                 LOG.warn("failed to get available be, clusterId: {}", clusterId);
             }
-            throw new ClusterException(
+            throw new ComputeGroupException(
                 String.format("All the Backend nodes in the current cluster %s are in an abnormal state", clusterName),
-                ClusterException.FailedTypeEnum.CLUSTERS_NO_ALIVE_BE);
+                ComputeGroupException.FailedTypeEnum.COMPUTE_GROUPS_NO_ALIVE_BE);
         }
         if (LOG.isDebugEnabled()) {
             LOG.debug("availableBes={}", availableBes);

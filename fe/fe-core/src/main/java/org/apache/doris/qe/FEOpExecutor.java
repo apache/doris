@@ -19,7 +19,7 @@ package org.apache.doris.qe;
 
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.cloud.qe.ClusterException;
+import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.thrift.FrontendService;
@@ -155,7 +155,7 @@ public class FEOpExecutor {
         String cluster = "";
         try {
             ctx.getCloudCluster(false);
-        } catch (ClusterException e) {
+        } catch (ComputeGroupException e) {
             LOG.warn("failed to get cloud cluster", e);
         }
         if (!Strings.isNullOrEmpty(cluster)) {

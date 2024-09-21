@@ -28,7 +28,7 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.cloud.persist.UpdateCloudReplicaInfo;
 import org.apache.doris.cloud.proto.Cloud;
-import org.apache.doris.cloud.qe.ClusterException;
+import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.ClientPool;
@@ -506,7 +506,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
                         long beId;
                         try {
                             beId = ((CloudReplica) replica).hashReplicaToBe(cluster, true);
-                        } catch (ClusterException e) {
+                        } catch (ComputeGroupException e) {
                             LOG.warn("failed to hash replica to be {}", cluster, e);
                             beId = -1;
                         }
@@ -988,7 +988,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
                 long beId;
                 try {
                     beId = cloudReplica.getBackendId();
-                } catch (ClusterException e) {
+                } catch (ComputeGroupException e) {
                     LOG.warn("get backend failed cloudReplica {}", cloudReplica, e);
                     beId = -1;
                 }

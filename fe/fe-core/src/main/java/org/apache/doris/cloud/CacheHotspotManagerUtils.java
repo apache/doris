@@ -25,7 +25,7 @@ import org.apache.doris.analysis.VariableExpr;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Table;
-import org.apache.doris.cloud.qe.ClusterException;
+import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.qe.ConnectContext;
@@ -257,7 +257,7 @@ public class CacheHotspotManagerUtils {
             connectContext.setThreadLocalInfo();
             try {
                 connectContext.getCloudCluster();
-            } catch (ClusterException e) {
+            } catch (ComputeGroupException e) {
                 LOG.warn("failed to get cloud cluster", e);
             }
         }
