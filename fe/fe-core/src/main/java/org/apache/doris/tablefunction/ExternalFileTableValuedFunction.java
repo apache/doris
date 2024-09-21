@@ -72,7 +72,6 @@ import org.apache.doris.thrift.TTextSerdeType;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.protobuf.ByteString;
@@ -124,21 +123,6 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
     private boolean trimDoubleQuotes;
     private int skipLines;
     private long tableId;
-    private static final ImmutableSet<TFileFormatType> HIVE_FILE_FORMATS = new ImmutableSet.Builder<TFileFormatType>()
-            .add(TFileFormatType.FORMAT_RCBINARY)
-            .add(TFileFormatType.FORMAT_RCTEXT)
-            .add(TFileFormatType.FORMAT_SEQUENCE)
-            .build();
-
-    // When useMetastore is "false", users can specify column names and column types
-    // for file formats such as RCFile and SequenceFile that rely on metadata stored in Hive Metastore
-    private String useMetastore;
-    // Comma-separated list of column names.
-    // Only applicable when useMetastore is false and for formats like RCFile and SequenceFile.
-    private String columnNamesStr;
-    // Hashtag-separated list of column types.
-    // Only applicable when useMetastore is false and for formats like RCFile and SequenceFile.
-    private String columnTypesStr;
 
     public abstract TFileType getTFileType();
 
@@ -225,10 +209,10 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
             case "sequence":
                 this.fileFormatType = TFileFormatType.FORMAT_SEQUENCE;
                 break;
-            case "rcbinary":
+            case "rc_binary":
                 this.fileFormatType = TFileFormatType.FORMAT_RCBINARY;
                 break;
-            case "rctext":
+            case "rc_text":
                 this.fileFormatType = TFileFormatType.FORMAT_RCTEXT;
                 break;
             default:
@@ -279,22 +263,13 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
             }
         }
 
-        this.useMetastore = getOrDefaultAndRemove(copiedProps, FileFormatConstants.PROP_USE_METASTORE,
-                "").toLowerCase();
-
-        if (!useMetastore.isEmpty() && !useMetastore.equals("true") && !useMetastore.equals("false")) {
-            throw new AnalysisException("useMetastore field cannot be recognized, should be \"true\" or \"false\". ");
-        }
-
-        if (!useMetastore.isEmpty() && HIVE_FILE_FORMATS.contains(this.fileFormatType)) {
-            if (useMetastore.equals("false")) {
-                columnNamesStr = getOrDefaultAndRemove(copiedProps, FileFormatConstants.PROP_HIVE_COLUMN_NAMES, "");
-                columnTypesStr = getOrDefaultAndRemove(copiedProps, FileFormatConstants.PROP_HIVE_COLUMN_TYPES, "");
-                if (columnNamesStr.isEmpty() || columnTypesStr.isEmpty()) {
-                    throw new AnalysisException("use metastore is disable, should set column names and column types.");
-                }
+        // When parsing rc_binary/rc_text/sequence files, reuse parseCsvSchema to parse column names and types
+        if (FileFormatUtils.isHiveFormat(formatString)) {
+            FileFormatUtils.parseCsvSchema(csvSchema, getOrDefaultAndRemove(copiedProps,
+                    FileFormatConstants.PROP_HIVE_SCHEMA, ""));
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("get hive schema: {}", csvSchema);
             }
-            // TODO: set metastore address in else branch
         }
 
         pathPartitionKeys = Optional.ofNullable(

@@ -20,7 +20,6 @@ package org.apache.doris.hive;
 import org.apache.doris.common.jni.JniScanner;
 import org.apache.doris.common.jni.vec.ColumnType;
 import org.apache.doris.common.jni.vec.TableSchema;
-import org.apache.doris.common.jni.vec.TableSchema.SchemaColumn;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
 
@@ -45,10 +44,8 @@ import org.apache.log4j.LogManager;
 import org.apache.log4j.Logger;
 
 import java.io.IOException;
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import java.util.stream.Collectors;
@@ -216,7 +213,7 @@ public class HiveJNIScanner extends JniScanner {
 
     @Override
     protected TableSchema parseTableSchema() throws UnsupportedOperationException {
-        return createTableSchema(requiredFields, requiredTypes);
+        return null;
     }
 
     private void parseRequiredTypes() {
@@ -233,18 +230,5 @@ public class HiveJNIScanner extends JniScanner {
             String typeStr = hiveColumnNameToType.get(fieldName);
             requiredTypes[i] = ColumnType.parseType(fieldName, typeStr);
         }
-    }
-
-    private TableSchema createTableSchema(String[] requiredFields, ColumnType[] requiredTypes) {
-        List<SchemaColumn> schemaColumns = new ArrayList<>();
-        for (int i = 0; i < requiredFields.length; i++) {
-            SchemaColumn schemaColumn = new SchemaColumn();
-            schemaColumn.setName(requiredFields[i]);
-            schemaColumn.setType(HiveTypeUtils.typeFromColumnType(requiredTypes[i], schemaColumn));
-            schemaColumn.setPrecision(requiredTypes[i].getPrecision());
-            schemaColumn.setScale(requiredTypes[i].getScale());
-            schemaColumns.add(schemaColumn);
-        }
-        return new TableSchema(schemaColumns);
     }
 }
