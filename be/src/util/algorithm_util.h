@@ -24,7 +24,13 @@
 namespace doris {
 class AlgoUtil {
     // descent the value step by step not linear continuity
-    double descent_by_step(int step_num, int64_t low_bound, int64_t high_bound, int64_t current) {
+    // If the result is linear continuity, then the value will changed very quickly and will cost
+    // a lot of CPU and cache will not stable and will hold some lock.
+    // Its better to use step num to be 10, do not use 3, the divide value is not stable.
+    // For example, if step num is 3, then the result will be 0.33333... 0.66666..., the double value
+    // is not stable.
+    static double descent_by_step(int step_num, int64_t low_bound, int64_t high_bound,
+                                  int64_t current) {
         if (current <= low_bound) {
             return 1;
         }
@@ -35,8 +41,12 @@ class AlgoUtil {
             // Invalid
             return 0;
         }
+        // Use floor value, so that the step size is a little smaller than the actual value.
+        // And then the used step will be a little larger than the actual value.
         int64_t step_size = (int64_t)std::floor((high_bound - low_bound) / step_num);
         int64_t used_step = (int64_t)std::ceil((current - low_bound) / step_size);
+        // Then the left step is smaller than actual value.
+        // This elimation algo will elimate more cache than actual.
         int64_t left_step = step_num - used_step;
         return left_step / step_num;
     }

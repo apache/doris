@@ -36,6 +36,11 @@ TEST(TestAlgoUtil, DescentByStep) {
     EXPECT_EQ(AlgoUtil::descent_by_step(10, 100, 200, 100), 1);
     EXPECT_EQ(AlgoUtil::descent_by_step(10, 100, 200, 200), 0);
     EXPECT_EQ(AlgoUtil::descent_by_step(10, 100, 200, 300), 0);
+
+    EXPECT_EQ(AlgoUtil::descent_by_step(4, 100, 200, 133), 0.5);
+    EXPECT_EQ(AlgoUtil::descent_by_step(4, 100, 200, 110), 0.75);
+    EXPECT_EQ(AlgoUtil::descent_by_step(4, 100, 200, 125), 0.75);
+    EXPECT_EQ(AlgoUtil::descent_by_step(4, 100, 200, 126), 0.5);
 }
 
 } // namespace doris
