@@ -17,6 +17,7 @@
 
 package org.apache.doris.hive;
 
+import org.apache.doris.avro.S3Utils;
 import org.apache.doris.common.jni.JniScanner;
 import org.apache.doris.common.jni.vec.ColumnType;
 import org.apache.doris.common.jni.vec.TableSchema;
@@ -24,6 +25,7 @@ import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
 
 import io.trino.spi.classloader.ThreadContextClassLoader;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hive.common.JavaUtils;
@@ -55,7 +57,6 @@ public class HiveJNIScanner extends JniScanner {
     private static final Logger LOG = LogManager.getLogger(HiveJNIScanner.class);
     private final ClassLoader classLoader;
     private final TFileType fileType;
-    private final String uri;
     private final int fetchSize;
     private final Map<String, String> requiredParams;
     private final String[] columnTypes;
@@ -67,6 +68,7 @@ public class HiveJNIScanner extends JniScanner {
     private final ObjectInspector[] fieldInspectors;
     private final Long splitStartOffset;
     private final Long splitSize;
+    private String uri;
     private StructObjectInspector rowInspector;
     private Deserializer deserializer;
     private RecordReader<Writable, Writable> reader;
@@ -92,6 +94,22 @@ public class HiveJNIScanner extends JniScanner {
         this.fieldInspectors = new ObjectInspector[requiredFields.length];
     }
 
+    private void processS3Conf(String accessKey, String secretKey, String endpoint,
+            String region, JobConf jobConf) {
+        if (!StringUtils.isEmpty(accessKey) && !StringUtils.isEmpty(secretKey)) {
+            jobConf.set(HiveProperties.FS_S3A_ACCESS_KEY, accessKey);
+            jobConf.set(HiveProperties.FS_S3A_SECRET_KEY, secretKey);
+        }
+        jobConf.set(HiveProperties.FS_S3A_ENDPOINT, endpoint);
+        jobConf.set(HiveProperties.FS_S3A_REGION, region);
+    }
+
+    private String processS3Uri(String uri) throws IOException {
+        S3Utils.parseURI(uri);
+        uri = "s3a://" + S3Utils.getBucket() + "/" + S3Utils.getKey();
+        return uri;
+    }
+
     private void initReader() throws Exception {
         this.hiveFileContext = new HiveFileContext(fileFormat);
         Properties properties = createProperties();
@@ -105,6 +123,8 @@ public class HiveJNIScanner extends JniScanner {
                 String secretKey = requiredParams.get(HiveProperties.S3_SECRET_KEY);
                 String endpoint = requiredParams.get(HiveProperties.S3_ENDPOINT);
                 String region = requiredParams.get(HiveProperties.S3_REGION);
+                processS3Conf(accessKey, secretKey, endpoint, region, jobConf);
+                uri = processS3Uri(uri);
                 break;
             default:
                 throw new Exception("Unsupported " + fileType.getValue() + " file type.");
