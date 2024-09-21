@@ -15,11 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "hive_jni_reader.h"
+
 #include <map>
 #include <ostream>
 
 #include "common/logging.h"
-#include "hive_jni_reader.h"
 #include "runtime/descriptors.h"
 #include "runtime/types.h"
 
