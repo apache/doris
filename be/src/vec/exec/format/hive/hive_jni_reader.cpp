@@ -56,7 +56,7 @@ Status HiveJNIReader::init_fetch_table_reader(
     for (auto& desc : _file_slot_descs) {
         std::string field = desc->col_name();
         column_names.emplace_back(field);
-        std::string type = JniConnector::get_jni_type(desc->type());
+        std::string type = JniConnector::get_jni_type_v2(desc->type());
         if(index == 0) {
             required_fields << field;
             columns_types << type;
@@ -66,15 +66,15 @@ Status HiveJNIReader::init_fetch_table_reader(
         }
         index++;
     }
+
     TFileType::type type = get_file_type();
     std::map<String, String> required_params = {
             {"uri", _range.path},
             {"file_type", std::to_string(type)},
-            {"is_get_table_schema", "false"},
             {"file_format", std::to_string(_params.format_type)},
-            {"columns_names", "col_tinyint,col_smallint,col_int,col_bigint,col_float,col_double,col_decimal,col_string,col_char,col_varchar,col_boolean,col_timestamp,col_date,col_array,col_map,col_struct"},
-            {"columns_types", "tinyint#smallint#int#bigint#float#double#decimal(10,2)#string#char(10)#varchar(20)#boolean#timestamp#date#array<string>#map<string,int>#struct<name:string,age:int>"},
-            {"required_fields", "col_tinyint,col_smallint,col_int,col_bigint,col_float,col_double,col_decimal,col_string,col_char,col_varchar,col_boolean,col_timestamp,col_date,col_array,col_map,col_struct"},
+            {"columns_names", required_fields.str()},
+            {"columns_types", columns_types.str()},
+            {"required_fields", required_fields.str()},
             {"split_start_offset", std::to_string(_range.start_offset)},
             {"split_size", std::to_string(_range.size)}
     };

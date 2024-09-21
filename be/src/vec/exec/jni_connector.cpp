@@ -519,6 +519,84 @@ std::string JniConnector::get_jni_type(const DataTypePtr& data_type) {
     }
 }
 
+std::string JniConnector::get_jni_type_v2(const TypeDescriptor& desc) {
+    std::ostringstream buffer;
+    switch (desc.type) {
+        case TYPE_BOOLEAN:
+            return "boolean";
+        case TYPE_TINYINT:
+            return "tinyint";
+        case TYPE_SMALLINT:
+            return "smallint";
+        case TYPE_INT:
+            return "int";
+        case TYPE_BIGINT:
+            return "bigint";
+        case TYPE_LARGEINT:
+            return "largeint";
+        case TYPE_FLOAT:
+            return "float";
+        case TYPE_DOUBLE:
+            return "double";
+        case TYPE_VARCHAR: {
+            buffer << "varchar(" << desc.len << ")";
+            return buffer.str();
+        }
+        case TYPE_DATE:
+            [[fallthrough]];
+        case TYPE_DATEV2:
+            return "date";
+        case TYPE_DATETIME:
+            [[fallthrough]];
+        case TYPE_TIME:
+            [[fallthrough]];
+        case TYPE_DATETIMEV2:
+            [[fallthrough]];
+        case TYPE_TIMEV2:
+            return "timestamp";
+        case TYPE_BINARY:
+            return "binary";
+        case TYPE_CHAR: {
+            buffer << "char(" << desc.len << ")";
+            return buffer.str();
+        }
+        case TYPE_STRING:
+            return "string";
+        case TYPE_DECIMALV2:
+            [[fallthrough]];
+        case TYPE_DECIMAL32:
+            [[fallthrough]];
+        case TYPE_DECIMAL64:
+            [[fallthrough]];
+        case TYPE_DECIMAL128I: {
+            buffer << "decimal(" << desc.precision << "," << desc.scale << ")";
+            return buffer.str();
+        }
+        case TYPE_STRUCT: {
+            buffer << "struct<";
+            for (int i = 0; i < desc.children.size(); ++i) {
+                if (i != 0) {
+                    buffer << ",";
+                }
+                buffer << desc.field_names[i] << ":" << get_jni_type(desc.children[i]);
+            }
+            buffer << ">";
+            return buffer.str();
+        }
+        case TYPE_ARRAY: {
+            buffer << "array<" << get_jni_type(desc.children[0]) << ">";
+            return buffer.str();
+        }
+        case TYPE_MAP: {
+            buffer << "map<" << get_jni_type(desc.children[0]) << "," << get_jni_type(desc.children[1])
+                << ">";
+            return buffer.str();
+        }
+        default:
+            return "unsupported";
+    }
+}
+
 std::string JniConnector::get_jni_type(const TypeDescriptor& desc) {
     std::ostringstream buffer;
     switch (desc.type) {

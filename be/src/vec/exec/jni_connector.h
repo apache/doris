@@ -261,6 +261,8 @@ public:
     /**
      * Map PrimitiveType to hive type.
      */
+    static std::string get_jni_type_v2(const TypeDescriptor& desc);
+
     static std::string get_jni_type(const TypeDescriptor& desc);
 
     static Status to_java_table(Block* block, size_t num_rows, const ColumnNumbers& arguments,

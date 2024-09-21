@@ -61,14 +61,13 @@ public class HiveJNIScanner extends JniScanner {
     private final String[] columnTypes;
     private final String[] columnNames;
     private final String[] requiredFields;
-    private final boolean isGetTableSchema;
     private final ColumnType[] requiredTypes;
     private final int[] requiredColumnIds;
     private final TFileFormatType fileFormat;
-    private StructField[] structFields;
-    private ObjectInspector[] fieldInspectors;
-    private Long splitStartOffset;
-    private Long splitSize;
+    private final StructField[] structFields;
+    private final ObjectInspector[] fieldInspectors;
+    private final Long splitStartOffset;
+    private final Long splitSize;
     private StructObjectInspector rowInspector;
     private Deserializer deserializer;
     private RecordReader<Writable, Writable> reader;
@@ -81,7 +80,6 @@ public class HiveJNIScanner extends JniScanner {
         this.fetchSize = fetchSize;
         this.requiredParams = requiredParams;
         this.fileType = TFileType.findByValue(Integer.parseInt(requiredParams.get(HiveProperties.FILE_TYPE)));
-        this.isGetTableSchema = Boolean.parseBoolean(requiredParams.get(HiveProperties.IS_GET_TABLE_SCHEMA));
         this.fileFormat = TFileFormatType.findByValue(Integer.parseInt(requiredParams.get(HiveProperties.FILE_FORMAT)));
         this.columnNames = requiredParams.get(HiveProperties.COLUMNS_NAMES).split(HiveProperties.FIELDS_DELIMITER);
         this.columnTypes = requiredParams.get(HiveProperties.COLUMNS_TYPES)
@@ -90,15 +88,16 @@ public class HiveJNIScanner extends JniScanner {
         this.requiredTypes = new ColumnType[requiredFields.length];
         this.requiredColumnIds = new int[requiredFields.length];
         this.uri = requiredParams.get(HiveProperties.URI);
-        if (!isGetTableSchema) {
-            this.splitStartOffset = Long.parseLong(requiredParams.get(HiveProperties.SPLIT_START_OFFSET));
-            this.splitSize = Long.parseLong(requiredParams.get(HiveProperties.SPLIT_SIZE));
-            this.structFields = new StructField[requiredFields.length];
-            this.fieldInspectors = new ObjectInspector[requiredFields.length];
-        }
+        this.splitStartOffset = Long.parseLong(requiredParams.get(HiveProperties.SPLIT_START_OFFSET));
+        this.splitSize = Long.parseLong(requiredParams.get(HiveProperties.SPLIT_SIZE));
+        this.structFields = new StructField[requiredFields.length];
+        this.fieldInspectors = new ObjectInspector[requiredFields.length];
     }
 
-    private void initReader(JobConf jobConf, Properties properties) throws Exception {
+    private void initReader() throws Exception {
+        this.hiveFileContext = new HiveFileContext(fileFormat);
+        Properties properties = createProperties();
+        JobConf jobConf = makeJobConf(properties);
         Path path = new Path(uri);
         FileSplit fileSplit = new FileSplit(path, splitStartOffset, splitSize, (String[]) null);
         InputFormat<?, ?> inputFormatClass = createInputFormat(jobConf, hiveFileContext.getInputFormat());
@@ -157,12 +156,7 @@ public class HiveJNIScanner extends JniScanner {
         try (ThreadContextClassLoader ignored = new ThreadContextClassLoader(classLoader)) {
             parseRequiredTypes();
             initTableInfo(requiredTypes, requiredFields, fetchSize);
-            this.hiveFileContext = new HiveFileContext(fileFormat);
-            if (!isGetTableSchema) {
-                Properties properties = createProperties();
-                JobConf jobConf = makeJobConf(properties);
-                initReader(jobConf, properties);
-            }
+            initReader();
         } catch (Exception e) {
             close();
             LOG.error("Failed to open the hive reader.", e);
