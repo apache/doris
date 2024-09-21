@@ -322,6 +322,7 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
     params.__set_status(exec_status.to_thrift());
     params.__set_done(req.done);
     params.__set_query_type(req.runtime_state->query_type());
+    params.__isset.profile = false;
 
     DCHECK(req.runtime_state != nullptr);
 
