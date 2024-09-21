@@ -17,26 +17,27 @@
 
 package org.apache.doris.transaction;
 
-import org.apache.doris.datasource.hive.HMSTransaction;
-import org.apache.doris.datasource.hive.HiveMetadataOps;
-import org.apache.doris.fs.FileSystemProvider;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
-import java.util.concurrent.Executor;
+public class GlobalExternalTransactionInfoMgr {
+    public Map<Long, Transaction> idToTxn = new ConcurrentHashMap<>();
 
-public class HiveTransactionManager extends AbstractExternalTransactionManager<HMSTransaction> {
-
-    private final FileSystemProvider fileSystemProvider;
-    private final Executor fileSystemExecutor;
-
-    public HiveTransactionManager(HiveMetadataOps ops, FileSystemProvider fileSystemProvider,
-            Executor fileSystemExecutor) {
-        super(ops);
-        this.fileSystemProvider = fileSystemProvider;
-        this.fileSystemExecutor = fileSystemExecutor;
+    public Transaction getTxnById(long txnId) {
+        if (idToTxn.containsKey(txnId)) {
+            return idToTxn.get(txnId);
+        }
+        throw new RuntimeException("Can't find txn for " + txnId);
     }
 
-    @Override
-    HMSTransaction createTransaction() {
-        return new HMSTransaction((HiveMetadataOps) ops, fileSystemProvider, fileSystemExecutor);
+    public void putTxnById(long txnId, Transaction txn) {
+        if (idToTxn.containsKey(txnId)) {
+            throw new RuntimeException("Duplicate txnId for " + txnId);
+        }
+        idToTxn.put(txnId, txn);
+    }
+
+    public void removeTxnById(long txnId) {
+        idToTxn.remove(txnId);
     }
 }
