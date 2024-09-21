@@ -15,13 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "jni_connector.h"
+
 #include <glog/logging.h>
 
 #include <sstream>
 #include <variant>
 
 #include "jni.h"
-#include "jni_connector.h"
 #include "runtime/decimalv2_value.h"
 #include "runtime/runtime_state.h"
 #include "util/jni-util.h"

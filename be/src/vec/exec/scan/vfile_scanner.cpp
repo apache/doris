@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "vec/exec/scan/vfile_scanner.h"
+
 #include <fmt/format.h>
 #include <gen_cpp/Exprs_types.h>
 #include <gen_cpp/Metrics_types.h>
@@ -67,7 +69,6 @@
 #include "vec/exec/format/table/transactional_hive_reader.h"
 #include "vec/exec/format/table/trino_connector_jni_reader.h"
 #include "vec/exec/format/wal/wal_reader.h"
-#include "vec/exec/scan/vfile_scanner.h"
 #include "vec/exec/scan/vscan_node.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
@@ -990,6 +991,7 @@ Status VFileScanner::_get_next_reader() {
         } else if (!init_status.ok()) {
             return Status::InternalError("failed to init reader, err: {}", init_status.to_string());
         }
+
         _name_to_col_type.clear();
         _missing_cols.clear();
         RETURN_IF_ERROR(_cur_reader->get_columns(&_name_to_col_type, &_missing_cols));

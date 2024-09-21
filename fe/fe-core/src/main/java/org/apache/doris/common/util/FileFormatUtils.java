@@ -55,7 +55,7 @@ public class FileFormatUtils {
             return;
         }
         // the schema str is like: "k1:int;k2:bigint;k3:varchar(20);k4:datetime(6);" +
-        // "k5:array<string>;k6:struct<name:string,age:int>"
+        // "k5:array<string>;k6:map<string,int>,k7:struct<name:string,age:int>"
         String[] schemaStrs = csvSchemaStr.split(";");
         try {
             for (String schemaStr : schemaStrs) {
