@@ -57,18 +57,18 @@ suite('test_no_cluster_hits', 'multi_cluster, docker') {
         sql """GRANT SELECT_PRIV ON *.*.* TO ${user}"""
         try {
             connectInDocker(user = user, password = '') {
-                // errCode = 2, detailMessage = the user is not granted permission to the cluster, ClusterException: CURRENT_USER_NO_AUTH_TO_USE_ANY_CLUSTER
+                // errCode = 2, detailMessage = the user is not granted permission to the cluster, ClusterException: CURRENT_USER_NO_AUTH_TO_USE_COMPUTE_GROUP
                 sql """select * from information_schema.columns"""
             }
         } catch (Exception e) {
             logger.info("exception: {}", e.getMessage())
-            assertTrue(e.getMessage().contains("ClusterException: CURRENT_USER_NO_AUTH_TO_USE_ANY_CLUSTER"))
+            assertTrue(e.getMessage().contains("ClusterException: CURRENT_USER_NO_AUTH_TO_USE_ANY_COMPUTE_GROUP"))
             assertTrue(e.getMessage().contains("the user is not granted permission to the cluster"))
         } 
         def result = sql_return_maparray """show clusters"""
         logger.info("show cluster1 : {}", result)
         def currentCluster = result.stream().filter(cluster -> cluster.is_current == "TRUE").findFirst().orElse(null)
-        sql """GRANT USAGE_PRIV ON CLUSTER ${currentCluster.cluster} TO $user"""
+        sql """GRANT USAGE_PRIV ON COMPUTE GROUP ${currentCluster.cluster} TO $user"""
         connectInDocker(user = user, password = '') {
             try {
                 sql """select * from information_schema.columns"""
@@ -85,24 +85,24 @@ suite('test_no_cluster_hits', 'multi_cluster, docker') {
         // cluster all be abnormal
         cluster.stopBackends(1, 2, 3)
         try {
-            // errCode = 2, detailMessage = All the Backend nodes in the current cluster compute_cluster are in an abnormal state, ClusterException: CLUSTERS_NO_ALIVE_BE
+            // errCode = 2, detailMessage = All the Backend nodes in the current cluster compute_cluster are in an abnormal state, ClusterException: COMPUTE_GROUPS_NO_ALIVE_BE
             sql """
                 insert into $table values (2, 2)
             """
         } catch (Exception e) {
             logger.info("exception: {}", e.getMessage())
-            assertTrue(e.getMessage().contains("ClusterException: CLUSTERS_NO_ALIVE_BE"))
+            assertTrue(e.getMessage().contains("ClusterException: COMPUTE_GROUPS_NO_ALIVE_BE"))
             assertTrue(e.getMessage().contains("are in an abnormal state"))
         }
         
         try {
-            // errCode = 2, detailMessage = tablet 10901 err: All the Backend nodes in the current cluster compute_cluster are in an abnormal state, ClusterException: CLUSTERS_NO_ALIVE_BE
+            // errCode = 2, detailMessage = tablet 10901 err: All the Backend nodes in the current cluster compute_cluster are in an abnormal state, ClusterException: COMPUTE_GROUPS_NO_ALIVE_BE
             sql """
                 select * from $table
             """
         } catch (Exception e) {
             logger.info("exception: {}", e.getMessage())
-            assertTrue(e.getMessage().contains("ClusterException: CLUSTERS_NO_ALIVE_BE"))
+            assertTrue(e.getMessage().contains("ClusterException: COMPUTE_GROUPS_NO_ALIVE_BE"))
             assertTrue(e.getMessage().contains("are in an abnormal state"))
         }
 
@@ -113,16 +113,16 @@ suite('test_no_cluster_hits', 'multi_cluster, docker') {
         log.info("result = {}", result)
         assertEquals(2, result.size())
 
-        sql """REVOKE USAGE_PRIV ON CLUSTER ${currentCluster.cluster} from $user"""
+        sql """REVOKE USAGE_PRIV ON COMPUTE GROUP ${currentCluster.cluster} from $user"""
         try {
             connectInDocker(user = user, password = '') {
                 sql """SET PROPERTY FOR '${user}' 'default_cloud_cluster' = '${currentCluster.cluster}'"""
-                // errCode = 2, detailMessage = tablet 10901 err: default cluster compute_cluster check auth failed, ClusterException: CURRENT_USER_NO_AUTH_TO_USE_DEFAULT_CLUSTER
+                // errCode = 2, detailMessage = tablet 10901 err: default cluster compute_cluster check auth failed, ClusterException: CURRENT_USER_NO_AUTH_TO_USE_DEFAULT_COMPUTE_GROUP
                 sql """select * from $table"""
             }
         } catch (Exception e) {
             logger.info("exception: {}", e.getMessage())
-            assertTrue(e.getMessage().contains("ClusterException: CURRENT_USER_NO_AUTH_TO_USE_DEFAULT_CLUSTER"))
+            assertTrue(e.getMessage().contains("ClusterException: CURRENT_USER_NO_AUTH_TO_USE_DEFAULT_COMPUTE_GROUP"))
             assertTrue(e.getMessage().contains("check auth failed"))
         } 
 
@@ -132,7 +132,7 @@ suite('test_no_cluster_hits', 'multi_cluster, docker') {
 
         def jsonSlurper = new JsonSlurper()
         def jsonObject = jsonSlurper.parseText(tag)
-        def cloudClusterId = jsonObject.cloud_cluster_id
+        def cloudClusterId = jsonObject.compute_group_id
 
         def ms = cluster.getAllMetaservices().get(0)
         logger.info("ms addr={}, port={}", ms.host, ms.httpPort)
@@ -145,13 +145,13 @@ suite('test_no_cluster_hits', 'multi_cluster, docker') {
         }
 
         try {
-            // errCode = 2, detailMessage = tablet 10901 err: The current cluster compute_cluster is not registered in the system, ClusterException: CURRENT_CLUSTER_NOT_EXIST
+            // errCode = 2, detailMessage = tablet 10901 err: The current cluster compute_cluster is not registered in the system, ClusterException: CURRENT_COMPUTE_GROUP_NOT_EXIST
             sql """
                 select * from $table
             """
         } catch (Exception e) {
             logger.info("exception: {}", e.getMessage())
-            assertTrue(e.getMessage().contains("ClusterException: CURRENT_CLUSTER_NOT_EXIST"))
+            assertTrue(e.getMessage().contains("ClusterException: CURRENT_COMPUTE_GROUP_NOT_EXIST"))
             assertTrue(e.getMessage().contains("The current cluster compute_cluster is not registered in the system"))
         } 
     }
