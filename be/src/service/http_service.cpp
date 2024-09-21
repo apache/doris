@@ -19,6 +19,7 @@
 
 #include <event2/bufferevent.h>
 #include <event2/http.h>
+#include <gen_cpp/FrontendService_types.h>
 
 #include <string>
 #include <vector>
@@ -33,6 +34,7 @@
 #include "http/action/checksum_action.h"
 #include "http/action/clear_cache_action.h"
 #include "http/action/compaction_action.h"
+#include "http/action/compaction_score_action.h"
 #include "http/action/config_action.h"
 #include "http/action/debug_point_action.h"
 #include "http/action/download_action.h"
@@ -258,6 +260,12 @@ Status HttpService::start() {
     SnapshotAction* snapshot_action =
             _pool.add(new SnapshotAction(_env, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/snapshot", snapshot_action);
+
+    CompactionScoreAction* compaction_score_action =
+            _pool.add(new CompactionScoreAction(_env, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN,
+                                                _env->get_storage_engine()->tablet_manager()));
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/compaction_score",
+                                      compaction_score_action);
 #endif
 
     // 2 compaction actions
