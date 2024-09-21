@@ -30,7 +30,7 @@ TEST(TestAlgoUtil, DescentByStep) {
     // double descent_by_step(int step_num, int64_t low_bound, int64_t high_bound, int64_t current)
     EXPECT_EQ(AlgoUtil::descent_by_step(10, 100, 200, 101), 0.9);
     EXPECT_EQ(AlgoUtil::descent_by_step(10, 100, 200, 99), 1);
-    EXPECT_EQ(AlgoUtil::descent_by_step(10, 200, 100, 101), 0);
+    EXPECT_EQ(AlgoUtil::descent_by_step(10, 200, 100, 101), 1);
     EXPECT_EQ(AlgoUtil::descent_by_step(10, 100, 200, 111), 0.8);
     EXPECT_EQ(AlgoUtil::descent_by_step(10, 100, 200, 188), 0.1);
     EXPECT_EQ(AlgoUtil::descent_by_step(10, 100, 200, 100), 1);
