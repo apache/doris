@@ -49,20 +49,18 @@ public class TableSchema {
     public static class SchemaColumn {
         private String name;
         private int type;
-        private int scale;
-        private int precision;
         private List<SchemaColumn> childColumns;
 
         public SchemaColumn() {
 
         }
 
-        public String getName() {
-            return name;
-        }
-
         public void setName(String name) {
             this.name = name;
+        }
+
+        public String getName() {
+            return name;
         }
 
         public List<SchemaColumn> getChildColumns() {
@@ -75,22 +73,6 @@ public class TableSchema {
 
         public void setType(TPrimitiveType type) {
             this.type = type.getValue();
-        }
-
-        public int getScale() {
-            return scale;
-        }
-
-        public void setScale(int scale) {
-            this.scale = scale;
-        }
-
-        public int getPrecision() {
-            return precision;
-        }
-
-        public void setPrecision(int precision) {
-            this.precision = precision;
         }
 
         public void addChildColumns(List<SchemaColumn> childColumns) {

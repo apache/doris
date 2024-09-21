@@ -99,15 +99,20 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
 
     // Columns got from file and path(if has)
     protected List<Column> columns = null;
+    // User specified csv columns, it will override columns got from file
+    private final List<Column> csvSchema = Lists.newArrayList();
+
+    // Partition columns from path, e.g. /path/to/columnName=columnValue.
+    private List<String> pathPartitionKeys;
+
     protected List<TBrokerFileStatus> fileStatuses = Lists.newArrayList();
     protected Map<String, String> locationProperties = Maps.newHashMap();
     protected String filePath;
+
     protected TFileFormatType fileFormatType;
+
     protected Optional<String> resourceName = Optional.empty();
-    // User specified csv columns, it will override columns got from file
-    private final List<Column> csvSchema = Lists.newArrayList();
-    // Partition columns from path, e.g. /path/to/columnName=columnValue.
-    private List<String> pathPartitionKeys;
+
     private TFileCompressType compressionType;
     private String headerType = "";
 
@@ -253,7 +258,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         try {
             compressionType = Util.getFileCompressType(compressTypeStr);
         } catch (IllegalArgumentException e) {
-            throw new AnalysisException("Compress type : " + compressTypeStr + " is not supported.");
+            throw new AnalysisException("Compress type : " +  compressTypeStr + " is not supported.");
         }
         if (FileFormatUtils.isCsv(formatString)) {
             FileFormatUtils.parseCsvSchema(csvSchema, getOrDefaultAndRemove(copiedProps,
@@ -273,7 +278,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         }
 
         pathPartitionKeys = Optional.ofNullable(
-                        getOrDefaultAndRemove(copiedProps, FileFormatConstants.PROP_PATH_PARTITION_KEYS, null))
+                getOrDefaultAndRemove(copiedProps, FileFormatConstants.PROP_PATH_PARTITION_KEYS, null))
                 .map(str -> Arrays.stream(str.split(","))
                         .map(String::trim)
                         .collect(Collectors.toList()))
@@ -311,6 +316,11 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
             fileAttributes.setFuzzyParse(fuzzyParse);
         }
         return fileAttributes;
+    }
+
+    @Override
+    public ScanNode getScanNode(PlanNodeId id, TupleDescriptor desc) {
+        return new TVFScanNode(id, desc, false);
     }
 
     @Override
@@ -385,22 +395,6 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         return columns;
     }
 
-    @Override
-    public ScanNode getScanNode(PlanNodeId id, TupleDescriptor desc) {
-        return new TVFScanNode(id, desc, false);
-    }
-
-    public void checkAuth(ConnectContext ctx) {
-        if (resourceName.isPresent()) {
-            if (!Env.getCurrentEnv().getAccessManager()
-                    .checkResourcePriv(ctx, resourceName.get(), PrivPredicate.USAGE)) {
-                String message = ErrorCode.ERR_RESOURCE_ACCESS_DENIED_ERROR.formatErrorMsg(
-                        PrivPredicate.USAGE.getPrivs().toString(), resourceName.get());
-                throw new org.apache.doris.nereids.exceptions.AnalysisException(message);
-            }
-        }
-    }
-
     protected Backend getBackend() {
         // For the http stream task, we should obtain the be for processing the task
         ImmutableMap<Long, Backend> beIdToBe;
@@ -457,7 +451,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
                 Pair<Type, Integer> fieldType = getColumnType(typeNodes, start + parsedNodes);
                 PStructField structField = typeNodes.get(start).getStructFields(i);
                 fields.add(new StructField(structField.getName(), fieldType.key(), structField.getComment(),
-                        structField.getContainsNull()));
+                                            structField.getContainsNull()));
                 parsedNodes += fieldType.value();
             }
             type = new StructType(fields);
@@ -584,6 +578,17 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
             }
         }
         return false;
+    }
+
+    public void checkAuth(ConnectContext ctx) {
+        if (resourceName.isPresent()) {
+            if (!Env.getCurrentEnv().getAccessManager()
+                    .checkResourcePriv(ctx, resourceName.get(), PrivPredicate.USAGE)) {
+                String message = ErrorCode.ERR_RESOURCE_ACCESS_DENIED_ERROR.formatErrorMsg(
+                        PrivPredicate.USAGE.getPrivs().toString(), resourceName.get());
+                throw new org.apache.doris.nereids.exceptions.AnalysisException(message);
+            }
+        }
     }
 }
 
