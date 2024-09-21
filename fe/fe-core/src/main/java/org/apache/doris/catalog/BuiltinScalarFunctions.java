@@ -253,6 +253,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbValid;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.L1Distance;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.L2Distance;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.LastDay;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.LastQueryId;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Least;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Left;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Length;
@@ -304,6 +305,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.MultiSearchAl
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MurmurHash332;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MurmurHash364;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Negative;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.NgramSearch;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NonNullable;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NotNullOrEmpty;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Now;
@@ -761,6 +763,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Negative.class, "negative"),
             scalar(NonNullable.class, "non_nullable"),
             scalar(NotNullOrEmpty.class, "not_null_or_empty"),
+            scalar(NgramSearch.class, "ngram_search"),
             scalar(Now.class, "now", "current_timestamp", "localtime", "localtimestamp"),
             scalar(Nullable.class, "nullable"),
             scalar(NullIf.class, "nullif"),
@@ -906,7 +909,8 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(YearsAdd.class, "years_add"),
             scalar(YearsDiff.class, "years_diff"),
             scalar(YearsSub.class, "years_sub"),
-            scalar(MultiMatch.class, "multi_match"));
+            scalar(MultiMatch.class, "multi_match"),
+            scalar(LastQueryId.class, "last_query_id"));
 
     public static final BuiltinScalarFunctions INSTANCE = new BuiltinScalarFunctions();
 

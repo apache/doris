@@ -83,4 +83,12 @@ Status BaseTablet::update_by_least_common_schema(const TabletSchemaSPtr& update_
     return Status::OK();
 }
 
+uint32_t BaseTablet::get_real_compaction_score() const {
+    const auto& rs_metas = _tablet_meta->all_rs_metas();
+    return std::accumulate(rs_metas.begin(), rs_metas.end(), 0,
+                           [](uint32_t score, const RowsetMetaSharedPtr& rs_meta) {
+                               return score + rs_meta->get_compaction_score();
+                           });
+}
+
 } /* namespace doris */

@@ -330,4 +330,5 @@ suite("test_point_query", "nonConcurrent") {
     qt_sql "select * from table_3821461 where col1 = 10 and col2 = 20 and loc3 = 'aabc';"
     sql "update table_3821461 set value = 'update value' where col1 = -10 or col1 = 20;"
     qt_sql """select * from table_3821461 where col1 = -10 and col2 = 20 and loc3 = 'aabc'"""
+    qt_sql """select * from table_3821461 where col2 = 20 and loc3 = 'aabc' and col1 = -10 """
 } 

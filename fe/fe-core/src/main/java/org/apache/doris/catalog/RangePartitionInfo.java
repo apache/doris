@@ -25,7 +25,6 @@ import org.apache.doris.analysis.RangePartitionDesc;
 import org.apache.doris.analysis.SinglePartitionDesc;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.RangeUtils;
 
 import com.google.common.base.Preconditions;
@@ -297,13 +296,6 @@ public class RangePartitionInfo extends PartitionInfo {
             sb.append("PARTITION ").append(partitionName).append(" VALUES [");
             sb.append(range.lowerEndpoint().toSql());
             sb.append(", ").append(range.upperEndpoint().toSql()).append(")");
-
-            Optional.ofNullable(this.idToStoragePolicy.get(entry.getKey())).ifPresent(p -> {
-                if (!p.equals("")) {
-                    sb.append(" (\"" + PropertyAnalyzer.PROPERTIES_STORAGE_POLICY + "\" = \"");
-                    sb.append(p).append("\")");
-                }
-            });
 
             if (partitionId != null) {
                 partitionId.add(entry.getKey());

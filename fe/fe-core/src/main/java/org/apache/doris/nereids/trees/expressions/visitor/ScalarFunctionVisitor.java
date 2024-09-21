@@ -256,6 +256,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbValid;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.L1Distance;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.L2Distance;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.LastDay;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.LastQueryId;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Least;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Left;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Length;
@@ -305,6 +306,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.MultiSearchAl
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MurmurHash332;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MurmurHash364;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Negative;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.NgramSearch;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NotNullOrEmpty;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Now;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NullIf;
@@ -1566,6 +1568,10 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(negative, context);
     }
 
+    default R visitNgramSearch(NgramSearch ngramSearch, C context) {
+        return visitScalarFunction(ngramSearch, context);
+    }
+
     default R visitNotNullOrEmpty(NotNullOrEmpty notNullOrEmpty, C context) {
         return visitScalarFunction(notNullOrEmpty, context);
     }
@@ -2156,5 +2162,9 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitMultiMatch(MultiMatch multiMatch, C context) {
         return visitScalarFunction(multiMatch, context);
+    }
+
+    default R visitLastQueryId(LastQueryId queryId, C context) {
+        return visitScalarFunction(queryId, context);
     }
 }

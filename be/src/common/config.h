@@ -1006,6 +1006,8 @@ DECLARE_mInt64(nodechannel_pending_queue_max_bytes);
 // The batch size for sending data by brpc streaming client
 DECLARE_mInt64(brpc_streaming_client_batch_bytes);
 
+DECLARE_Bool(enable_brpc_builtin_services);
+
 // Max waiting time to wait the "plan fragment start" rpc.
 // If timeout, the fragment will be cancelled.
 // This parameter is usually only used when the FE loses connection,
@@ -1202,6 +1204,10 @@ DECLARE_mBool(enable_missing_rows_correctness_check);
 // When the number of missing versions is more than this value, do not directly
 // retry the publish and handle it through async publish.
 DECLARE_mInt32(mow_publish_max_discontinuous_version_num);
+// When the version is not continuous for MOW table in publish phase and the gap between
+// current txn's publishing version and the max version of the tablet exceeds this value,
+// don't print warning log
+DECLARE_mInt32(publish_version_gap_logging_threshold);
 
 // The secure path with user files, used in the `local` table function.
 DECLARE_mString(user_files_secure_path);
