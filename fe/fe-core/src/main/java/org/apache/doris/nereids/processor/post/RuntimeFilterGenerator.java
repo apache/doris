@@ -276,7 +276,7 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                 long buildSideNdv = getBuildSideNdv(join, equalTo);
                 Pair<PhysicalRelation, Slot> pair = ctx.getAliasTransferMap().get(equalTo.right());
                 // CteConsumer is not allowed to generate RF in order to avoid RF cycle.
-                if ((pair == null) {
+                if (pair == null) {
                     continue;
                 }
                 if (equalTo.left().getInputSlots().size() == 1) {
