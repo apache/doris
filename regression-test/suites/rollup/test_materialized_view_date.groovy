@@ -14,6 +14,10 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+
+import org.awaitility.Awaitility
+import static java.util.concurrent.TimeUnit.SECONDS
+
 suite("test_materialized_view_date", "rollup") {
 
     def tbName1 = "test_materialized_view_date"
@@ -40,70 +44,50 @@ suite("test_materialized_view_date", "rollup") {
 
     int max_try_secs = 120
     sql "CREATE materialized VIEW amt_max1 AS SELECT store_id, max(sale_date1) FROM ${tbName1} GROUP BY store_id;"
-    while (max_try_secs--) {
+    Awaitility.await().atMost(max_try_secs, SECONDS).pollInterval(2, SECONDS).until{
         String res = getJobState(tbName1)
         if (res == "FINISHED" || res == "CANCELLED") {
             assertEquals("FINISHED", res)
             sleep(3000)
-            break
-        } else {
-            Thread.sleep(2000)
-            if (max_try_secs < 1) {
-                println "test timeout," + "state:" + res
-                assertEquals("FINISHED",res)
-            }
+            return true;
         }
+        return false;
     }
     Thread.sleep(2000)
     max_try_secs = 120
     sql "CREATE materialized VIEW amt_max2 AS SELECT store_id, max(sale_datetime1) FROM ${tbName1} GROUP BY store_id;"
-    while (max_try_secs--) {
+    Awaitility.await().atMost(max_try_secs, SECONDS).pollInterval(2, SECONDS).until{
         String res = getJobState(tbName1)
         if (res == "FINISHED" || res == "CANCELLED") {
             assertEquals("FINISHED", res)
             sleep(3000)
-            break
-        } else {
-            Thread.sleep(2000)
-            if (max_try_secs < 1) {
-                println "test timeout," + "state:" + res
-                assertEquals("FINISHED",res)
-            }
+            return true;
         }
+        return false;
     }
     Thread.sleep(2000)
     max_try_secs = 120
     sql "CREATE materialized VIEW amt_max3 AS SELECT store_id, max(sale_datetime2) FROM ${tbName1} GROUP BY store_id;"
-    while (max_try_secs--) {
+    Awaitility.await().atMost(max_try_secs, SECONDS).pollInterval(2, SECONDS).until{
         String res = getJobState(tbName1)
         if (res == "FINISHED" || res == "CANCELLED") {
             assertEquals("FINISHED", res)
             sleep(3000)
-            break
-        } else {
-            Thread.sleep(2000)
-            if (max_try_secs < 1) {
-                println "test timeout," + "state:" + res
-                assertEquals("FINISHED",res)
-            }
+            return true;
         }
+        return false;
     }
     Thread.sleep(2000)
     max_try_secs = 120
     sql "CREATE materialized VIEW amt_max4 AS SELECT store_id, max(sale_datetime3) FROM ${tbName1} GROUP BY store_id;"
-    while (max_try_secs--) {
+    Awaitility.await().atMost(max_try_secs, SECONDS).pollInterval(2, SECONDS).until{
         String res = getJobState(tbName1)
         if (res == "FINISHED" || res == "CANCELLED") {
             assertEquals("FINISHED", res)
             sleep(3000)
-            break
-        } else {
-            Thread.sleep(2000)
-            if (max_try_secs < 1) {
-                println "test timeout," + "state:" + res
-                assertEquals("FINISHED",res)
-            }
+            return true;
         }
+        return false;
     }
 
 
