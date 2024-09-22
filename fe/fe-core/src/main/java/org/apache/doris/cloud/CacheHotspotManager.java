@@ -542,10 +542,11 @@ public class CacheHotspotManager extends MasterDaemon {
                                             .getBackendsByClusterName(dstClusterName);
             List<Partition> warmUpPartitions = new ArrayList<>();
             for (Partition partition : partitions) {
-                if (warmUpTotalFileCache > totalFileCache) {
+                Long partitionSize = partition.getDataSize(true);
+                if ((warmUpTotalFileCache + partitionSize) > totalFileCache) {
                     break;
                 }
-                warmUpTotalFileCache += partition.getDataSize(true);
+                warmUpTotalFileCache += partitionSize;
                 warmUpPartitions.add(partition);
             }
             List<MaterializedIndex> indexes = new ArrayList<>();
