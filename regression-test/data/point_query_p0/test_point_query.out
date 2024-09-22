@@ -149,3 +149,11 @@
 -- !sql --
 0	1	2	3
 
+-- !sql --
+10	20	aabc	value
+
+-- !sql --
+
+-- !sql --
+-10	20	aabc	update value
+

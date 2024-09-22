@@ -329,12 +329,12 @@ suite("test_partial_update_native_insert_stmt", "p0") {
         DISTRIBUTED BY HASH(`user_id`) BUCKETS 1
         PROPERTIES ("replication_allocation" = "tag.location.default: 1", "enable_unique_key_merge_on_write" = "false");"""
 
-        test {
-            sql """insert into ${tableName10} values
-            (10000,"2017-10-01","2017-10-01 08:00:05","北京",20,0,"2017-10-01 06:00:00",20,10,10),
-            (10000,"2017-10-01","2017-10-01 09:00:05","北京",20,0,"2017-10-01 07:00:00",15,2,2);  """
-            exception "Partial update is only allowed on unique table with merge-on-write enabled"
-        }
+
+        sql """insert into ${tableName10} values
+        (10000,"2017-10-01","2017-10-01 08:00:05","北京",20,0,"2017-10-01 06:00:00",20,10,10),
+        (10000,"2017-10-01","2017-10-01 09:00:05","北京",20,0,"2017-10-01 07:00:00",15,2,2);  """
+        order_qt_sql "select * from ${tableName10};"
+
 
         sql """ DROP TABLE IF EXISTS ${tableName8}; """
         sql """ DROP TABLE IF EXISTS ${tableName9}; """

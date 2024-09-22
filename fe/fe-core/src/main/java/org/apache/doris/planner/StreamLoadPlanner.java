@@ -171,7 +171,8 @@ public class StreamLoadPlanner {
                     throw new UserException("Partial update should include all key columns, missing: " + col.getName());
                 }
             }
-            if (taskInfo.getMergeType() == LoadTask.MergeType.DELETE) {
+            if (taskInfo.getMergeType() == LoadTask.MergeType.DELETE
+                    || taskInfo.getMergeType() == LoadTask.MergeType.MERGE) {
                 partialUpdateInputColumns.add(Column.DELETE_SIGN);
             }
         }
@@ -316,7 +317,7 @@ public class StreamLoadPlanner {
 
         params.setQueryOptions(queryOptions);
         TQueryGlobals queryGlobals = new TQueryGlobals();
-        queryGlobals.setNowString(TimeUtils.DATETIME_FORMAT.format(LocalDateTime.now()));
+        queryGlobals.setNowString(TimeUtils.getDatetimeFormatWithTimeZone().format(LocalDateTime.now()));
         queryGlobals.setTimestampMs(System.currentTimeMillis());
         queryGlobals.setTimeZone(taskInfo.getTimezone());
         queryGlobals.setLoadZeroTolerance(taskInfo.getMaxFilterRatio() <= 0.0);
@@ -389,7 +390,8 @@ public class StreamLoadPlanner {
                     throw new UserException("Partial update should include all key columns, missing: " + col.getName());
                 }
             }
-            if (taskInfo.getMergeType() == LoadTask.MergeType.DELETE) {
+            if (taskInfo.getMergeType() == LoadTask.MergeType.DELETE
+                    || taskInfo.getMergeType() == LoadTask.MergeType.MERGE) {
                 partialUpdateInputColumns.add(Column.DELETE_SIGN);
             }
         }
@@ -536,7 +538,7 @@ public class StreamLoadPlanner {
 
         pipParams.setQueryOptions(queryOptions);
         TQueryGlobals queryGlobals = new TQueryGlobals();
-        queryGlobals.setNowString(TimeUtils.DATETIME_FORMAT.format(LocalDateTime.now()));
+        queryGlobals.setNowString(TimeUtils.getDatetimeFormatWithTimeZone().format(LocalDateTime.now()));
         queryGlobals.setTimestampMs(System.currentTimeMillis());
         queryGlobals.setTimeZone(taskInfo.getTimezone());
         queryGlobals.setLoadZeroTolerance(taskInfo.getMaxFilterRatio() <= 0.0);

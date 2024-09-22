@@ -23,7 +23,6 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.MasterDaemon;
@@ -249,9 +248,9 @@ public class StreamLoadRecordMgr extends MasterDaemon {
                 for (Map.Entry<String, TStreamLoadRecord> entry : streamLoadRecordBatch.entrySet()) {
                     TStreamLoadRecord streamLoadItem = entry.getValue();
                     String startTime = TimeUtils.longToTimeString(streamLoadItem.getStartTime(),
-                            TimeUtils.DATETIME_MS_FORMAT);
+                            TimeUtils.getDatetimeMsFormatWithTimeZone());
                     String finishTime = TimeUtils.longToTimeString(streamLoadItem.getFinishTime(),
-                            TimeUtils.DATETIME_MS_FORMAT);
+                            TimeUtils.getDatetimeMsFormatWithTimeZone());
                     if (LOG.isDebugEnabled()) {
                         LOG.debug("receive stream load record info from backend: {}."
                                         + " label: {}, db: {}, tbl: {}, user: {}, user_ip: {},"
@@ -309,7 +308,8 @@ public class StreamLoadRecordMgr extends MasterDaemon {
                         if (Strings.isNullOrEmpty(streamLoadItem.getCluster())) {
                             dbName = streamLoadItem.getDb();
                         }
-                        throw new UserException("unknown database, database=" + dbName);
+                        LOG.warn("unknown database, database=" + dbName);
+                        continue;
                     }
                     long dbId = db.getId();
                     Env.getCurrentEnv().getStreamLoadRecordMgr()

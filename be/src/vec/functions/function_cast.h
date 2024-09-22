@@ -87,6 +87,7 @@
 #include "vec/functions/function.h"
 #include "vec/functions/function_convert_tz.h"
 #include "vec/functions/function_helpers.h"
+#include "vec/io/io_helper.h"
 #include "vec/io/reader_buffer.h"
 #include "vec/runtime/vdatetime_value.h"
 
@@ -624,6 +625,7 @@ struct ConvertImplGenericFromString {
             const bool is_complex = is_complex_type(data_type_to);
             DataTypeSerDe::FormatOptions format_options;
             format_options.converted_from_string = true;
+            format_options.escape_char = '\\';
 
             for (size_t i = 0; i < size; ++i) {
                 const auto& val = col_from_string->get_data_at(i);

@@ -20,6 +20,7 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf;
@@ -58,17 +59,35 @@ public class ShowTableStatsStmt extends ShowStmt {
                     .add("user_inject")
                     .build();
 
-    private final TableName tableName;
+    private static final ImmutableList<String> INDEX_TITLE_NAMES =
+            new ImmutableList.Builder<String>()
+            .add("table_name")
+            .add("index_name")
+            .add("row_count")
+            .build();
 
+    private final TableName tableName;
     private final PartitionNames partitionNames;
-    private final boolean cached;
+    private final String indexName;
+    private final long tableId;
+    private final boolean useTableId;
 
     private TableIf table;
 
-    public ShowTableStatsStmt(TableName tableName, PartitionNames partitionNames, boolean cached) {
+    public ShowTableStatsStmt(long tableId) {
+        this.tableName = null;
+        this.partitionNames = null;
+        this.indexName = null;
+        this.tableId = tableId;
+        this.useTableId = true;
+    }
+
+    public ShowTableStatsStmt(TableName tableName, PartitionNames partitionNames, String indexName) {
         this.tableName = tableName;
         this.partitionNames = partitionNames;
-        this.cached = cached;
+        this.indexName = indexName;
+        this.tableId = -1;
+        this.useTableId = false;
     }
 
     public TableName getTableName() {
@@ -78,6 +97,13 @@ public class ShowTableStatsStmt extends ShowStmt {
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
+        if (useTableId) {
+            if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.SHOW)) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "Permission denied",
+                        ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP());
+            }
+            return;
+        }
         tableName.analyze(analyzer);
         if (partitionNames != null) {
             partitionNames.analyze(analyzer);
@@ -116,7 +142,13 @@ public class ShowTableStatsStmt extends ShowStmt {
     public ShowResultSetMetaData getMetaData() {
         ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
 
-        for (String title : TITLE_NAMES) {
+        ImmutableList<String> titles;
+        if (indexName != null) {
+            titles = INDEX_TITLE_NAMES;
+        } else {
+            titles = TITLE_NAMES;
+        }
+        for (String title : titles) {
             builder.addColumn(new Column(title, ScalarType.createVarchar(30)));
         }
         return builder.build();
@@ -126,35 +158,23 @@ public class ShowTableStatsStmt extends ShowStmt {
         return table;
     }
 
-    public long getPartitionId() {
-        if (partitionNames == null) {
-            return 0;
-        }
-        String partitionName = partitionNames.getPartitionNames().get(0);
-        return table.getPartition(partitionName).getId();
+    public boolean isUseTableId() {
+        return useTableId;
+    }
+
+    public long getTableId() {
+        return tableId;
     }
 
     public ShowResultSet constructResultSet(TableStatsMeta tableStatistic) {
-        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
-        if (tableStatistic == null) {
-            return new ShowResultSet(getMetaData(), new ArrayList<>());
+        if (indexName != null) {
+            return constructIndexResultSet(tableStatistic);
         }
-        List<List<String>> result = Lists.newArrayList();
-        List<String> row = Lists.newArrayList();
-        row.add(String.valueOf(tableStatistic.updatedRows));
-        row.add(String.valueOf(tableStatistic.queriedTimes.get()));
-        row.add(String.valueOf(tableStatistic.rowCount));
-        LocalDateTime dateTime =
-                LocalDateTime.ofInstant(Instant.ofEpochMilli(tableStatistic.updatedTime),
-                        java.time.ZoneId.systemDefault());
-        String formattedDateTime = dateTime.format(formatter);
-        row.add(formattedDateTime);
-        row.add(tableStatistic.analyzeColumns().toString());
-        row.add(tableStatistic.jobType.toString());
-        row.add(String.valueOf(tableStatistic.newPartitionLoaded.get()));
-        row.add(String.valueOf(tableStatistic.userInjected));
-        result.add(row);
-        return new ShowResultSet(getMetaData(), result);
+        return constructTableResultSet(tableStatistic);
+    }
+
+    public ShowResultSet constructEmptyResultSet() {
+        return new ShowResultSet(getMetaData(), new ArrayList<>());
     }
 
     public ShowResultSet constructResultSet(long rowCount) {
@@ -172,7 +192,48 @@ public class ShowTableStatsStmt extends ShowStmt {
         return new ShowResultSet(getMetaData(), result);
     }
 
-    public boolean isCached() {
-        return cached;
+    public ShowResultSet constructTableResultSet(TableStatsMeta tableStatistic) {
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+        if (tableStatistic == null) {
+            return new ShowResultSet(getMetaData(), new ArrayList<>());
+        }
+        List<List<String>> result = Lists.newArrayList();
+        List<String> row = Lists.newArrayList();
+        row.add(String.valueOf(tableStatistic.updatedRows));
+        row.add(String.valueOf(tableStatistic.queriedTimes.get()));
+        row.add(String.valueOf(tableStatistic.rowCount));
+        LocalDateTime dateTime =
+                LocalDateTime.ofInstant(Instant.ofEpochMilli(tableStatistic.updatedTime),
+                java.time.ZoneId.systemDefault());
+        String formattedDateTime = dateTime.format(formatter);
+        row.add(formattedDateTime);
+        row.add(tableStatistic.analyzeColumns().toString());
+        row.add(tableStatistic.jobType.toString());
+        row.add(String.valueOf(tableStatistic.newPartitionLoaded.get()));
+        row.add(String.valueOf(tableStatistic.userInjected));
+        result.add(row);
+        return new ShowResultSet(getMetaData(), result);
+    }
+
+    public ShowResultSet constructIndexResultSet(TableStatsMeta tableStatistic) {
+        List<List<String>> result = Lists.newArrayList();
+        if (!(table instanceof OlapTable)) {
+            return new ShowResultSet(getMetaData(), result);
+        }
+        OlapTable olapTable = (OlapTable) table;
+        Long indexId = olapTable.getIndexIdByName(indexName);
+        if (indexId == null) {
+            throw new RuntimeException(String.format("Index %s not exist.", indexName));
+        }
+        long rowCount = tableStatistic.getRowCount(olapTable.getIndexIdByName(indexName));
+        if (rowCount == -1) {
+            return new ShowResultSet(getMetaData(), result);
+        }
+        List<String> row = Lists.newArrayList();
+        row.add(table.getName());
+        row.add(indexName);
+        row.add(String.valueOf(rowCount));
+        result.add(row);
+        return new ShowResultSet(getMetaData(), result);
     }
 }

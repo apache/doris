@@ -482,6 +482,7 @@ public class ShowExecutor {
             try {
                 TShowProcessListRequest request = new TShowProcessListRequest();
                 request.setShowFullSql(isShowFullSql);
+                request.setCurrentUserIdent(ConnectContext.get().getCurrentUserIdentity().toThrift());
                 List<Pair<String, Integer>> frontends = FrontendsProcNode.getFrontendWithRpcPort(Env.getCurrentEnv(),
                         false);
                 FrontendService.Client client = null;
@@ -2481,6 +2482,17 @@ public class ShowExecutor {
     private void handleShowTableStats() {
         ShowTableStatsStmt showTableStatsStmt = (ShowTableStatsStmt) stmt;
         TableIf tableIf = showTableStatsStmt.getTable();
+        // Handle use table id to show table stats. Mainly for online debug.
+        if (showTableStatsStmt.isUseTableId()) {
+            long tableId = showTableStatsStmt.getTableId();
+            TableStatsMeta tableStats = Env.getCurrentEnv().getAnalysisManager().findTableStatsStatus(tableId);
+            if (tableStats == null) {
+                resultSet = showTableStatsStmt.constructEmptyResultSet();
+            } else {
+                resultSet = showTableStatsStmt.constructResultSet(tableStats);
+            }
+            return;
+        }
         TableStatsMeta tableStats = Env.getCurrentEnv().getAnalysisManager().findTableStatsStatus(tableIf.getId());
         /*
            HMSExternalTable table will fetch row count from HMS
@@ -2523,7 +2535,14 @@ public class ShowExecutor {
                     continue;
                 }
             }
-            columnStatistics.add(Pair.of(Pair.of(row.get(5), indexName), ColumnStatistic.fromResultRow(row)));
+            try {
+                columnStatistics.add(Pair.of(Pair.of(indexName, row.get(5)), ColumnStatistic.fromResultRow(row)));
+            } catch (Exception e) {
+                LOG.warn("Failed to deserialize column statistics. reason: [{}]. Row [{}]", e.getMessage(), row);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug(e);
+                }
+            }
         }
     }
 
@@ -2552,16 +2571,16 @@ public class ShowExecutor {
                     ColumnStatistic columnStatistic = Env.getCurrentEnv().getStatisticsCache().getColumnStatistics(
                             tableIf.getDatabase().getCatalog().getId(),
                             tableIf.getDatabase().getId(), tableIf.getId(), indexId, colName);
-                    columnStatistics.add(Pair.of(Pair.of(colName, indexName), columnStatistic));
+                    columnStatistics.add(Pair.of(Pair.of(indexName, colName), columnStatistic));
                 } else if (partitionNames == null) {
                     ColumnStatistic columnStatistic =
                             StatisticsRepository.queryColumnStatisticsByName(tableIf.getId(), indexId, colName);
-                    columnStatistics.add(Pair.of(Pair.of(colName, indexName), columnStatistic));
+                    columnStatistics.add(Pair.of(Pair.of(indexName, colName), columnStatistic));
                 } else {
                     String finalIndexName = indexName;
                     columnStatistics.addAll(StatisticsRepository.queryColumnStatisticsByPartitions(tableName,
                             colName, partitionNames.getPartitionNames())
-                            .stream().map(s -> Pair.of(Pair.of(colName, finalIndexName), s))
+                            .stream().map(s -> Pair.of(Pair.of(finalIndexName, colName), s))
                             .collect(Collectors.toList()));
                 }
             }
@@ -2748,7 +2767,7 @@ public class ShowExecutor {
                 row.add(analysisInfo.jobType.toString());
                 row.add(analysisInfo.analysisType.toString());
                 row.add(analysisInfo.message);
-                row.add(TimeUtils.DATETIME_FORMAT.format(
+                row.add(TimeUtils.getDatetimeFormatWithTimeZone().format(
                         LocalDateTime.ofInstant(Instant.ofEpochMilli(analysisInfo.lastExecTimeInMs),
                         ZoneId.systemDefault())));
                 row.add(analysisInfo.state.toString());
@@ -3026,7 +3045,7 @@ public class ShowExecutor {
                 row.add("N/A");
             }
             row.add(analysisInfo.message);
-            row.add(TimeUtils.DATETIME_FORMAT.format(
+            row.add(TimeUtils.getDatetimeFormatWithTimeZone().format(
                     LocalDateTime.ofInstant(Instant.ofEpochMilli(analysisInfo.lastExecTimeInMs),
                             ZoneId.systemDefault())));
             row.add(String.valueOf(analysisInfo.timeCostInMs));

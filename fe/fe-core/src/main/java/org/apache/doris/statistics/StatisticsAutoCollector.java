@@ -32,14 +32,12 @@ import org.apache.doris.statistics.AnalysisInfo.JobType;
 import org.apache.doris.statistics.AnalysisInfo.ScheduleType;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
-import com.google.common.collect.Sets;
 import org.apache.hudi.common.util.VisibleForTesting;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.time.LocalTime;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -224,19 +222,6 @@ public class StatisticsAutoCollector extends StatisticsCollector {
         String colNames = jobInfo.colName;
         if (table.needReAnalyzeTable(tblStats)) {
             needRunPartitions = table.findReAnalyzeNeededPartitions();
-        } else if (table instanceof OlapTable && tblStats.newPartitionLoaded.get()) {
-            OlapTable olapTable = (OlapTable) table;
-            needRunPartitions = new HashMap<>();
-            Set<String> partitionColumnNames = olapTable.getPartitionInfo().getPartitionColumns().stream()
-                    .map(Column::getName).collect(Collectors.toSet());
-            colNames = partitionColumnNames.stream().collect(Collectors.joining(","));
-            Set<String> partitions = Sets.newHashSet();
-            // No need to filter unchanged partitions, because it may bring unexpected behavior.
-            // Use dummy partition to skip it.
-            partitions.add("Dummy Partition");
-            for (String column : partitionColumnNames) {
-                needRunPartitions.put(column, partitions);
-            }
         }
 
         if (needRunPartitions == null || needRunPartitions.isEmpty()) {

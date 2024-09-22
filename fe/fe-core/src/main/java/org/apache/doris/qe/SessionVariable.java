@@ -340,6 +340,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_INVERTED_INDEX_QUERY = "enable_inverted_index_query";
 
     public static final String ENABLE_PUSHDOWN_COUNT_ON_INDEX = "enable_count_on_index_pushdown";
+    public static final String ENABLE_NO_NEED_READ_DATA_OPT = "enable_no_need_read_data_opt";
 
     public static final String GROUP_BY_AND_HAVING_USE_ALIAS_FIRST = "group_by_and_having_use_alias_first";
     public static final String DROP_TABLE_IF_CTAS_FAILED = "drop_table_if_ctas_failed";
@@ -476,6 +477,9 @@ public class SessionVariable implements Serializable, Writable {
     public static final String LIMIT_ROWS_FOR_SINGLE_INSTANCE = "limit_rows_for_single_instance";
 
     public static final String ENABLE_INVERTED_INDEX_COMPOUND_INLIST = "enable_inverted_index_compound_inlist";
+
+    public static final String ENABLE_MATCH_WITHOUT_INVERTED_INDEX = "enable_match_without_inverted_index";
+    public static final String ENABLE_FALLBACK_ON_MISSING_INVERTED_INDEX = "enable_fallback_on_missing_inverted_index";
 
     /**
      * If set false, user couldn't submit analyze SQL and FE won't allocate any related resources.
@@ -942,7 +946,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean enableDpHypTrace = false;
 
     @VariableMgr.VarAttr(name = BROADCAST_RIGHT_TABLE_SCALE_FACTOR)
-    private double broadcastRightTableScaleFactor = 10.0;
+    private double broadcastRightTableScaleFactor = 0.0;
 
     @VariableMgr.VarAttr(name = BROADCAST_ROW_COUNT_LIMIT, needForward = true)
     private double broadcastRowCountLimit = 30000000;
@@ -1027,7 +1031,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean enableNewShuffleHashMethod = true;
 
     @VariableMgr.VarAttr(name = "nereids_timeout_second", needForward = true)
-    public int nereidsTimeoutSecond = 5;
+    public int nereidsTimeoutSecond = 30;
 
     @VariableMgr.VarAttr(name = ENABLE_PUSH_DOWN_NO_GROUP_AGG)
     public boolean enablePushDownNoGroupAgg = true;
@@ -1139,6 +1143,11 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_PUSHDOWN_COUNT_ON_INDEX, needForward = true, description = {
             "是否启用count_on_index pushdown。", "Set whether to pushdown count_on_index."})
     public boolean enablePushDownCountOnIndex = true;
+
+    // Whether enable no need read data opt in segment_iterator.
+    @VariableMgr.VarAttr(name = ENABLE_NO_NEED_READ_DATA_OPT, needForward = true, description = {
+            "是否启用no_need_read_data opt。", "Set whether to enable no_need_read_data opt."})
+    public boolean enableNoNeedReadDataOpt = true;
 
     // Whether enable pushdown minmax to scan node of unique table.
     @VariableMgr.VarAttr(name = ENABLE_PUSHDOWN_MINMAX_ON_UNIQUE, needForward = true, description = {
@@ -1329,6 +1338,9 @@ public class SessionVariable implements Serializable, Writable {
             flag = VariableMgr.GLOBAL)
     public boolean enableAutoAnalyze = true;
 
+    @VariableMgr.VarAttr(name = "enable_string_min_max_stats", needForward = true)
+    public boolean enableStringMinMaxStats = true;
+
     @VariableMgr.VarAttr(name = AUTO_ANALYZE_TABLE_WIDTH_THRESHOLD,
             description = {"参与自动收集的最大表宽度，列数多于这个参数的表不参与自动收集",
                 "Maximum table width to enable auto analyze, "
@@ -1470,6 +1482,20 @@ public class SessionVariable implements Serializable, Writable {
         "Whether to enable shard-level scroll requests for ES catalog, enabled by default."
     })
     public boolean enableESShardScroll = true;
+
+    @VariableMgr.VarAttr(name = ENABLE_MATCH_WITHOUT_INVERTED_INDEX, description = {
+        "开启无索引match查询功能，建议正式环境保持开启",
+        "Enable no-index match query functionality."
+                + " it is recommended to keep this enabled in the production environment."
+    })
+    public boolean enableMatchWithoutInvertedIndex = true;
+
+    @VariableMgr.VarAttr(name = ENABLE_FALLBACK_ON_MISSING_INVERTED_INDEX, description = {
+        "开启后在没有找到索引的情况下直接查询报错，建议正式环境保持开启",
+        "After enabling, it will directly query and report an error if no index is found."
+                + " It is recommended to keep this enabled in the production environment."
+    })
+    public boolean enableFallbackOnMissingInvertedIndex = true;
 
     public void setEnableEsShardScroll(boolean enableESShardScroll) {
         this.enableESShardScroll = enableESShardScroll;
@@ -2524,6 +2550,14 @@ public class SessionVariable implements Serializable, Writable {
         this.enablePushDownCountOnIndex = enablePushDownCountOnIndex;
     }
 
+    public boolean isEnableNoNeedReadDataOpt() {
+        return enableNoNeedReadDataOpt;
+    }
+
+    public void setEnableNoNeedReadDataOpt(boolean enableNoNeedReadDataOpt) {
+        this.enableNoNeedReadDataOpt = enableNoNeedReadDataOpt;
+    }
+
     public int getMaxTableCountUseCascadesJoinReorder() {
         return this.maxTableCountUseCascadesJoinReorder;
     }
@@ -2643,6 +2677,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setFileCacheBasePath(fileCacheBasePath);
 
         tResult.setEnableInvertedIndexQuery(enableInvertedIndexQuery);
+        tResult.setEnableNoNeedReadDataOpt(enableNoNeedReadDataOpt);
 
         if (dryRunQuery) {
             tResult.setDryRunQuery(true);
@@ -2665,7 +2700,8 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setEnableInvertedIndexCompoundInlist(enableInvertedIndexCompoundInlist);
 
         tResult.setSkipMissingVersion(skipMissingVersion);
-
+        tResult.setEnableMatchWithoutInvertedIndex(enableMatchWithoutInvertedIndex);
+        tResult.setEnableFallbackOnMissingInvertedIndex(enableFallbackOnMissingInvertedIndex);
         return tResult;
     }
 

@@ -46,7 +46,7 @@ public class ShowCreateFunctionTest extends TestWithFeService {
         String sql = "SHOW CREATE FUNCTION id_masking(bigint)";
         ShowResultSet showResultSet = showCreateFunction(sql);
         String showSql = showResultSet.getResultRows().get(0).get(1);
-        Assertions.assertTrue(showSql.contains("CREATE ALIAS FUNCTION id_masking(BIGINT) WITH PARAMETER(id)"));
+        Assertions.assertTrue(showSql.contains("CREATE ALIAS FUNCTION id_masking(bigint) WITH PARAMETER(id)"));
     }
 
     @Test
@@ -55,7 +55,7 @@ public class ShowCreateFunctionTest extends TestWithFeService {
         ShowResultSet showResultSet = showCreateFunction(sql);
         String showSql = showResultSet.getResultRows().get(0).get(1);
         Assertions.assertTrue(
-                showSql.contains("CREATE GLOBAL ALIAS FUNCTION id_masking_global(BIGINT) WITH PARAMETER(id)"));
+                showSql.contains("CREATE GLOBAL ALIAS FUNCTION id_masking_global(bigint) WITH PARAMETER(id)"));
     }
 
 }

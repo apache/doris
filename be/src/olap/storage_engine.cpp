@@ -815,6 +815,9 @@ Status StorageEngine::start_trash_sweep(double* usage, bool ignore_guard) {
     // cleand unused pending publish info for deleted tablet
     _clean_unused_pending_publish_info();
 
+    // clean unused partial update info for finished txns
+    _clean_unused_partial_update_info();
+
     // clean unused rowsets in remote storage backends
     for (auto data_dir : get_stores()) {
         data_dir->perform_remote_rowset_gc();
@@ -970,6 +973,34 @@ void StorageEngine::_clean_unused_pending_publish_info() {
         LOG(INFO) << "removed invalid pending publish info from dir: " << data_dir->path()
                   << ", deleted pending publish info size: " << removed_infos.size();
         removed_infos.clear();
+    }
+}
+
+void StorageEngine::_clean_unused_partial_update_info() {
+    std::vector<std::tuple<int64_t, int64_t, int64_t>> remove_infos;
+    auto unused_partial_update_info_collector =
+            [this, &remove_infos](int64_t tablet_id, int64_t partition_id, int64_t txn_id,
+                                  std::string_view value) -> bool {
+        TabletSharedPtr tablet = _tablet_manager->get_tablet(tablet_id);
+        if (tablet == nullptr) {
+            remove_infos.emplace_back(tablet_id, partition_id, txn_id);
+            return true;
+        }
+        TxnState txn_state = _txn_manager->get_txn_state(
+                partition_id, txn_id, tablet_id, tablet->schema_hash(), tablet->tablet_uid());
+        if (txn_state == TxnState::NOT_FOUND || txn_state == TxnState::ABORTED ||
+            txn_state == TxnState::DELETED) {
+            remove_infos.emplace_back(tablet_id, partition_id, txn_id);
+            return true;
+        }
+        return true;
+    };
+    auto data_dirs = get_stores();
+    for (auto* data_dir : data_dirs) {
+        static_cast<void>(RowsetMetaManager::traverse_partial_update_info(
+                data_dir->get_meta(), unused_partial_update_info_collector));
+        static_cast<void>(
+                RowsetMetaManager::remove_partial_update_infos(data_dir->get_meta(), remove_infos));
     }
 }
 

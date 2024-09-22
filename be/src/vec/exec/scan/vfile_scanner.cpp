@@ -235,6 +235,7 @@ void VFileScanner::_get_slot_ids(VExpr* expr, std::vector<int>* slot_ids) {
 }
 
 Status VFileScanner::open(RuntimeState* state) {
+    RETURN_IF_CANCELLED(state);
     RETURN_IF_ERROR(VScanner::open(state));
     RETURN_IF_ERROR(_init_expr_ctxes());
 
@@ -271,6 +272,7 @@ Status VFileScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eo
 // _convert_to_output_block     -     -    -  -                 -                -      x
 Status VFileScanner::_get_block_wrapped(RuntimeState* state, Block* block, bool* eof) {
     do {
+        RETURN_IF_CANCELLED(state);
         if (_cur_reader == nullptr || _cur_reader_eof) {
             RETURN_IF_ERROR(_get_next_reader());
         }
@@ -554,8 +556,11 @@ Status VFileScanner::_convert_to_output_block(Block* block) {
                                                                          _num_of_columns_from_file);
                                 },
                                 [&]() -> std::string {
-                                    auto raw_value = _src_block_ptr->get_by_position(ctx_idx)
-                                                             .column->get_data_at(i);
+                                    auto raw_value =
+                                            _src_block_ptr
+                                                    ->get_by_position(_dest_slot_to_src_slot_index
+                                                                              [dest_index])
+                                                    .column->get_data_at(i);
                                     std::string raw_string = raw_value.to_string();
                                     fmt::memory_buffer error_msg;
                                     fmt::format_to(error_msg,

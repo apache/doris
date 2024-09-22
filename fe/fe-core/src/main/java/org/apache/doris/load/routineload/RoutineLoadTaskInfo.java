@@ -27,6 +27,7 @@ import org.apache.doris.common.QuotaExceedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.TRoutineLoadTask;
 import org.apache.doris.transaction.BeginTransactionException;
@@ -75,6 +76,8 @@ public abstract class RoutineLoadTaskInfo {
 
     protected static final int MAX_TIMEOUT_BACK_OFF_COUNT = 3;
     protected int timeoutBackOffCount = 0;
+
+    protected boolean isEof = false;
 
     // this status will be set when corresponding transaction's status is changed.
     // so that user or other logic can know the status of the corresponding txn.
@@ -166,6 +169,10 @@ public abstract class RoutineLoadTaskInfo {
         return timeoutBackOffCount;
     }
 
+    public boolean getIsEof() {
+        return isEof;
+    }
+
     public boolean isTimeout() {
         if (txnStatus == TransactionStatus.COMMITTED || txnStatus == TransactionStatus.VISIBLE) {
             // the corresponding txn is already finished, this task can not be treated as timeout.
@@ -180,7 +187,12 @@ public abstract class RoutineLoadTaskInfo {
         return false;
     }
 
-    public void selfAdaptTimeout(RLTaskTxnCommitAttachment rlTaskTxnCommitAttachment) {
+    public void handleTaskByTxnCommitAttachment(RLTaskTxnCommitAttachment rlTaskTxnCommitAttachment) {
+        selfAdaptTimeout(rlTaskTxnCommitAttachment);
+        judgeEof(rlTaskTxnCommitAttachment);
+    }
+
+    private void selfAdaptTimeout(RLTaskTxnCommitAttachment rlTaskTxnCommitAttachment) {
         long taskExecutionTime = rlTaskTxnCommitAttachment.getTaskExecutionTimeMs();
         long timeoutMs = this.timeoutMs;
 
@@ -195,6 +207,15 @@ public abstract class RoutineLoadTaskInfo {
         this.timeoutMs = timeoutMs;
     }
 
+    private void judgeEof(RLTaskTxnCommitAttachment rlTaskTxnCommitAttachment) {
+        RoutineLoadJob routineLoadJob = routineLoadManager.getJob(jobId);
+        if (rlTaskTxnCommitAttachment.getTotalRows() < routineLoadJob.getMaxBatchRows()
+                && rlTaskTxnCommitAttachment.getReceivedBytes() < routineLoadJob.getMaxBatchSizeBytes()
+                && rlTaskTxnCommitAttachment.getTaskExecutionTimeMs() < this.timeoutMs) {
+            this.isEof = true;
+        }
+    }
+
     abstract TRoutineLoadTask createRoutineLoadTask() throws UserException;
 
     // begin the txn of this task
@@ -206,7 +227,9 @@ public abstract class RoutineLoadTaskInfo {
         try {
             txnId = Env.getCurrentGlobalTransactionMgr().beginTransaction(routineLoadJob.getDbId(),
                     Lists.newArrayList(routineLoadJob.getTableId()), DebugUtil.printId(id), null,
-                    new TxnCoordinator(TxnSourceType.FE, FrontendOptions.getLocalHostAddress()),
+                    new TxnCoordinator(TxnSourceType.FE, 0,
+                            FrontendOptions.getLocalHostAddress(),
+                            ExecuteEnv.getInstance().getStartupTime()),
                     TransactionState.LoadJobSourceType.ROUTINE_LOAD_TASK, routineLoadJob.getId(),
                     timeoutMs / 1000);
         } catch (DuplicatedRequestException e) {

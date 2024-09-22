@@ -3304,6 +3304,10 @@ public class Env {
                 sb.append(olapTable.isDuplicateWithoutKey()).append("\"");
             }
 
+            // enable mow light delete
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_LIGHT_DELETE).append("\" = \"");
+            sb.append(olapTable.getEnableMowLightDelete()).append("\"");
+
             sb.append("\n)");
         } else if (table.getType() == TableType.MYSQL) {
             MysqlTable mysqlTable = (MysqlTable) table;
@@ -4524,6 +4528,11 @@ public class Env {
                     indexIdToSchemaVersion);
             editLog.logColumnRename(info);
             LOG.info("rename coloumn[{}] to {}", colName, newColName);
+            try {
+                Env.getCurrentEnv().getAnalysisManager().dropStats(table);
+            } catch (Exception e) {
+                LOG.info("Failed to drop stats after rename column. Reason: {}", e.getMessage());
+            }
         }
     }
 
@@ -4763,7 +4772,8 @@ public class Env {
                 throw new DdlException("Cannot change default bucket number of colocate table.");
             }
 
-            if (olapTable.getPartitionInfo().getType() != PartitionType.RANGE) {
+            if (olapTable.getPartitionInfo().getType() != PartitionType.RANGE
+                    && olapTable.getPartitionInfo().getType() != PartitionType.LIST) {
                 throw new DdlException("Only support change partitioned table's distribution.");
             }
 
@@ -5609,6 +5619,7 @@ public class Env {
         if (Config.enable_feature_binlog) {
             BinlogManager binlogManager = Env.getCurrentEnv().getBinlogManager();
             dbMeta.setDroppedPartitions(binlogManager.getDroppedPartitions(db.getId()));
+            dbMeta.setDroppedTables(binlogManager.getDroppedTables(db.getId()));
         }
 
         result.setDbMeta(dbMeta);

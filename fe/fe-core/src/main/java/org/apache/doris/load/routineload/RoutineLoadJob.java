@@ -350,7 +350,6 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
             this.isPartialUpdate = true;
         }
         jobProperties.put(CreateRoutineLoadStmt.MAX_FILTER_RATIO_PROPERTY, String.valueOf(maxFilterRatio));
-
         if (Strings.isNullOrEmpty(stmt.getFormat()) || stmt.getFormat().equals("csv")) {
             jobProperties.put(PROPS_FORMAT, "csv");
         } else if (stmt.getFormat().equals("json")) {
@@ -383,6 +382,14 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
             jobProperties.put(PROPS_FUZZY_PARSE, "true");
         } else {
             jobProperties.put(PROPS_FUZZY_PARSE, "false");
+        }
+        if (String.valueOf(stmt.getEnclose()) != null) {
+            this.enclose = stmt.getEnclose();
+            jobProperties.put(LoadStmt.KEY_ENCLOSE, String.valueOf(stmt.getEnclose()));
+        }
+        if (String.valueOf(stmt.getEscape()) != null) {
+            this.escape = stmt.getEscape();
+            jobProperties.put(LoadStmt.KEY_ESCAPE, String.valueOf(stmt.getEscape()));
         }
     }
 
@@ -1240,7 +1247,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         } else if (checkCommitInfo(rlTaskTxnCommitAttachment, txnState, txnStatusChangeReason)) {
             // step2: update job progress
             updateProgress(rlTaskTxnCommitAttachment);
-            routineLoadTaskInfo.selfAdaptTimeout(rlTaskTxnCommitAttachment);
+            routineLoadTaskInfo.handleTaskByTxnCommitAttachment(rlTaskTxnCommitAttachment);
         }
 
         if (rlTaskTxnCommitAttachment != null && !Strings.isNullOrEmpty(rlTaskTxnCommitAttachment.getErrorLogUrl())) {
@@ -1500,25 +1507,30 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
 
     public List<List<String>> getTasksShowInfo() throws AnalysisException {
         List<List<String>> rows = Lists.newArrayList();
-        if (null == routineLoadTaskInfoList || routineLoadTaskInfoList.isEmpty()) {
-            return rows;
-        }
-        DatabaseTransactionMgr databaseTransactionMgr = Env.getCurrentEnv().getGlobalTransactionMgr()
-                .getDatabaseTransactionMgr(dbId);
+        readLock();
+        try {
+            if (null == routineLoadTaskInfoList || routineLoadTaskInfoList.isEmpty()) {
+                return rows;
+            }
+            DatabaseTransactionMgr databaseTransactionMgr = Env.getCurrentEnv().getGlobalTransactionMgr()
+                    .getDatabaseTransactionMgr(dbId);
 
-        routineLoadTaskInfoList.forEach(entity -> {
-            long txnId = entity.getTxnId();
-            if (RoutineLoadTaskInfo.INIT_TXN_ID == txnId) {
+            routineLoadTaskInfoList.forEach(entity -> {
+                long txnId = entity.getTxnId();
+                if (RoutineLoadTaskInfo.INIT_TXN_ID == txnId) {
+                    rows.add(entity.getTaskShowInfo());
+                    return;
+                }
+                TransactionState transactionState = databaseTransactionMgr.getTransactionState(entity.getTxnId());
+                if (null != transactionState && null != transactionState.getTransactionStatus()) {
+                    entity.setTxnStatus(transactionState.getTransactionStatus());
+                }
                 rows.add(entity.getTaskShowInfo());
-                return;
-            }
-            TransactionState transactionState = databaseTransactionMgr.getTransactionState(entity.getTxnId());
-            if (null != transactionState && null != transactionState.getTransactionStatus()) {
-                entity.setTxnStatus(transactionState.getTransactionStatus());
-            }
-            rows.add(entity.getTaskShowInfo());
-        });
-        return rows;
+            });
+            return rows;
+        } finally {
+            readUnlock();
+        }
     }
 
     public String getShowCreateInfo() {
@@ -1634,12 +1646,17 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
 
     private String getTaskStatistic() {
         Map<String, String> result = Maps.newHashMap();
-        result.put("running_task",
-                String.valueOf(routineLoadTaskInfoList.stream().filter(entity -> entity.isRunning()).count()));
-        result.put("waiting_task",
-                String.valueOf(routineLoadTaskInfoList.stream().filter(entity -> !entity.isRunning()).count()));
-        Gson gson = new GsonBuilder().disableHtmlEscaping().create();
-        return gson.toJson(result);
+        readLock();
+        try {
+            result.put("running_task",
+                    String.valueOf(routineLoadTaskInfoList.stream().filter(entity -> entity.isRunning()).count()));
+            result.put("waiting_task",
+                    String.valueOf(routineLoadTaskInfoList.stream().filter(entity -> !entity.isRunning()).count()));
+            Gson gson = new GsonBuilder().disableHtmlEscaping().create();
+            return gson.toJson(result);
+        } finally {
+            readUnlock();
+        }
     }
 
     private String jobPropertiesToJsonString() {

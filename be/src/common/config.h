@@ -1155,6 +1155,10 @@ DECLARE_mBool(enable_missing_rows_correctness_check);
 // When the number of missing versions is more than this value, do not directly
 // retry the publish and handle it through async publish.
 DECLARE_mInt32(mow_publish_max_discontinuous_version_num);
+// When the version is not continuous for MOW table in publish phase and the gap between
+// current txn's publishing version and the max version of the tablet exceeds this value,
+// don't print warning log
+DECLARE_mInt32(publish_version_gap_logging_threshold);
 
 // The secure path with user files, used in the `local` table function.
 DECLARE_mString(user_files_secure_path);
@@ -1178,10 +1182,6 @@ DECLARE_mBool(exit_on_exception);
 
 // Remove predicate that is always true for a segment.
 DECLARE_Bool(ignore_always_true_predicate_for_segment);
-
-// Dir of default timezone files
-DECLARE_String(default_tzfiles_path);
-DECLARE_Bool(use_doris_tzfile);
 
 // the max package bytes be thrift server can receive
 // avoid accepting error or too large package causing OOM,default 20000000(20M)
@@ -1237,6 +1237,8 @@ DECLARE_mDouble(high_disk_avail_level_diff_usages);
 DECLARE_Int32(partition_disk_index_lru_size);
 
 DECLARE_mBool(ignore_schema_change_check);
+
+DECLARE_mInt64(tablet_meta_serialize_size_limit);
 
 #ifdef BE_TEST
 // test s3

@@ -149,6 +149,7 @@ public class LambdaFunctionExpr extends Expr {
         return slotExpr;
     }
 
+    @Override
     public boolean isNullable() {
         for (int i = 1; i < slotExpr.size(); ++i) {
             if (slotExpr.get(i).isNullable()) {

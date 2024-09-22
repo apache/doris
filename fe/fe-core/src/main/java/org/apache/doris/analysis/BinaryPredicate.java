@@ -309,7 +309,9 @@ public class BinaryPredicate extends Predicate implements Writable {
         Preconditions.checkState(match.getReturnType().getPrimitiveType() == PrimitiveType.BOOLEAN);
         //todo(dhc): should add oppCode
         //this.vectorOpcode = match.opcode;
-        LOG.debug(debugString() + " opcode: " + vectorOpcode);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug(debugString() + " opcode: " + vectorOpcode);
+        }
     }
 
     private boolean canCompareDate(PrimitiveType t1, PrimitiveType t2) {
@@ -739,7 +741,7 @@ public class BinaryPredicate extends Predicate implements Writable {
         return compareLiteral((LiteralExpr) leftChildValue, (LiteralExpr) rightChildValue);
     }
 
-    private Expr compareLiteral(LiteralExpr first, LiteralExpr second) throws AnalysisException {
+    private Expr compareLiteral(LiteralExpr first, LiteralExpr second) {
         final boolean isFirstNull = (first instanceof NullLiteral);
         final boolean isSecondNull = (second instanceof NullLiteral);
         if (op == Operator.EQ_FOR_NULL) {
@@ -760,13 +762,13 @@ public class BinaryPredicate extends Predicate implements Writable {
             case EQ_FOR_NULL:
                 return new BoolLiteral(compareResult == 0);
             case GE:
-                return new BoolLiteral(compareResult == 1 || compareResult == 0);
+                return new BoolLiteral(compareResult >= 0);
             case GT:
-                return new BoolLiteral(compareResult == 1);
+                return new BoolLiteral(compareResult > 0);
             case LE:
-                return new BoolLiteral(compareResult == -1 || compareResult == 0);
+                return new BoolLiteral(compareResult <= 0);
             case LT:
-                return new BoolLiteral(compareResult == -1);
+                return new BoolLiteral(compareResult < 0);
             case NE:
                 return new BoolLiteral(compareResult != 0);
             default:

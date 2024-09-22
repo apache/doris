@@ -211,5 +211,19 @@ suite("sql_cache") {
                         k1;
                 """
 
+    def query_nondeterministics = {
+        sql "drop view if exists view_a"
+        sql "CREATE VIEW view_a AS SELECT now() from $tableName"
+
+        sql "set enable_sql_cache=true"
+        sql "admin set frontend config ('cache_last_version_interval_second'='0')"
+        def result1 = sql "select * from view_a"
+
+        sleep(3000)
+
+        def result2 = sql "select * from view_a"
+        assertNotEquals(result1, result2)
+    }()
+
     sql  "ADMIN SET FRONTEND CONFIG ('cache_last_version_interval_second' = '900')"
 }

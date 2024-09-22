@@ -847,7 +847,8 @@ visible_functions = {
         [['to_monday'], 'DATE', ['DATETIME'], 'ALWAYS_NULLABLE'],
         [['to_monday'], 'DATE', ['DATE'], 'ALWAYS_NULLABLE'],
         [['to_days'], 'INT', ['DATE'], 'ALWAYS_NULLABLE'],
-
+        [['date_floor'], 'DATETIMEV2', ['DATETIMEV2', 'INT'], 'ALWAYS_NULLABLE'],
+        [['date_ceil'], 'DATETIMEV2', ['DATETIMEV2', 'INT'], 'ALWAYS_NULLABLE'],
         [['date_trunc'], 'DATETIME', ['DATETIME', 'VARCHAR'], 'ALWAYS_NULLABLE'],
 
         [['date_trunc'], 'DATETIMEV2', ['DATETIMEV2', 'VARCHAR'], 'ALWAYS_NULLABLE'],
@@ -1718,6 +1719,8 @@ visible_functions = {
         [['json_parse_notnull'], 'JSONB', ['VARCHAR'], ''],
         [['json_parse_notnull_error_to_value'], 'JSONB', ['VARCHAR', 'VARCHAR'], ''],
         [['json_parse_notnull_error_to_invalid'], 'JSONB', ['VARCHAR'], ''],
+
+        [['json_search'], 'JSONB', ['VARCHAR', 'VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
 
         [['json_exists_path'], 'BOOLEAN', ['JSONB', 'VARCHAR'], ''],
         [['json_exists_path'], 'BOOLEAN', ['JSONB', 'STRING'], ''],

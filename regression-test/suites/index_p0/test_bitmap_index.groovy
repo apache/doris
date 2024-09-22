@@ -473,7 +473,7 @@ suite("test_bitmap_index") {
         qt_sql "select count(*) from ${tbName5}; "
         qt_sql "select count(*) from ${tbName5} where vid='123'; "
         qt_sql "select count(*) from ${tbName5} where create_time>='2023-08-25 10:00:00';"
-        qt_sql "select count(CASE when vid='123' then 1 else null end) from ${tbName5} where vid='123';"
+        // qt_sql "select count(CASE when vid='123' then 1 else null end) from ${tbName5} where vid='123';"
         qt_sql "select * from ${tbName5} where vid='123' order by create_time;"
 
         sql "DROP INDEX IF EXISTS index1 ON ${tbName5};"

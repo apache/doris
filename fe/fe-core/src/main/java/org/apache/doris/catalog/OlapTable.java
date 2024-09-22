@@ -538,19 +538,34 @@ public class OlapTable extends Table {
             tableProperty.resetPropertiesForRestore(reserveDynamicPartitionEnable, reserveReplica, replicaAlloc);
         }
         if (isBeingSynced) {
-            TableProperty tableProperty = getOrCreatTableProperty();
-            tableProperty.setIsBeingSynced();
-            tableProperty.removeInvalidProperties();
-            if (isAutoBucket()) {
-                markAutoBucket();
-            }
+            setBeingSyncedProperties();
         }
         // remove colocate property.
         setColocateGroup(null);
     }
 
+    /**
+     * Set the related properties when is_being_synced properties is true.
+     *
+     * Some properties, like storage_policy, colocate_with, are not supported by the ccr syncer.
+     */
+    public void setBeingSyncedProperties() {
+        TableProperty tableProperty = getOrCreatTableProperty();
+        tableProperty.setIsBeingSynced();
+        tableProperty.removeInvalidProperties();
+        if (isAutoBucket()) {
+            markAutoBucket();
+        }
+    }
+
+    public void resetVersionForRestore() {
+        for (Partition partition : idToPartition.values()) {
+            partition.setNextVersion(partition.getVisibleVersion() + 1);
+        }
+    }
+
     public Status resetIdsForRestore(Env env, Database db, ReplicaAllocation restoreReplicaAlloc,
-            boolean reserveReplica) {
+            boolean reserveReplica, String srcDbName) {
         // ATTN: The meta of the restore may come from different clusters, so the
         // original ID in the meta may conflict with the ID of the new cluster. For
         // example, if a newly allocated ID happens to be the same as an original ID,
@@ -576,7 +591,7 @@ public class OlapTable extends Table {
                 baseIndexId = newIdxId;
             }
             MaterializedIndexMeta indexMeta = origIdxIdToMeta.get(entry.getKey());
-            indexMeta.resetIndexIdForRestore(newIdxId);
+            indexMeta.resetIndexIdForRestore(newIdxId, srcDbName, db.getFullName());
             indexIdToMeta.put(newIdxId, indexMeta);
             indexNameToId.put(entry.getValue(), newIdxId);
         }
@@ -1126,6 +1141,14 @@ public class OlapTable extends Table {
         return null;
     }
 
+    public void setEnableMowLightDelete(boolean enable) {
+        getOrCreatTableProperty().setEnableMowLightDelete(enable);
+    }
+
+    public boolean getEnableMowLightDelete() {
+        return getOrCreatTableProperty().getEnableMowLightDelete();
+    }
+
     public Boolean hasSequenceCol() {
         return getSequenceCol() != null;
     }
@@ -1195,6 +1218,10 @@ public class OlapTable extends Table {
                 .filter(c -> !StatisticsUtil.isUnsupportedType(c.getType()))
                 .map(Column::getName)
                 .collect(Collectors.toSet()))) {
+            return true;
+        }
+        // Check new partition first loaded.
+        if (tblStats.newPartitionLoaded != null && tblStats.newPartitionLoaded.get()) {
             return true;
         }
         // 1 Check row count.
@@ -1487,7 +1514,7 @@ public class OlapTable extends Table {
                 LOG.warn("HACK: the index id {} in materialized index meta of {} is not equals"
                         + " to the index saved in table {} ({}), reset it to {}",
                         indexMeta.getIndexId(), indexName, name, id, indexId);
-                indexMeta.resetIndexIdForRestore(indexId);
+                indexMeta.resetIndexIdForRestore(indexId, null, null);
             }
         }
 

@@ -474,6 +474,10 @@ public class Config extends ConfigBase {
             "print log interval for publish transaction failed interval"})
     public static long publish_fail_log_interval_second = 5 * 60;
 
+    @ConfField(mutable = true, masterOnly = true, description = {"一个 PUBLISH_VERSION 任务打印失败日志的次数上限",
+            "the upper limit of failure logs of PUBLISH_VERSION task"})
+    public static long publish_version_task_failed_log_threshold = 80;
+
     @ConfField(mutable = true, masterOnly = true, description = {"提交事务的最大超时时间，单位是秒。"
             + "该参数仅用于事务型 insert 操作中。",
             "Maximal waiting time for all data inserted before one transaction to be committed, in seconds. "
@@ -1473,6 +1477,15 @@ public class Config extends ConfigBase {
     public static int max_backup_restore_job_num_per_db = 10;
 
     /**
+     * Control the max num of tablets per backup job involved.
+     */
+    @ConfField(mutable = true, masterOnly = true, description = {
+        "用于控制每次 backup job 允许备份的 tablet 上限，以避免 OOM",
+        "Control the max num of tablets per backup job involved, to avoid OOM"
+    })
+    public static int max_backup_tablets_per_job = 300000;
+
+    /**
      * Control the default max num of the instance for a user.
      */
     @ConfField(mutable = true)
@@ -1813,6 +1826,20 @@ public class Config extends ConfigBase {
     public static long max_backend_heartbeat_failure_tolerance_count = 1;
 
     /**
+     * Abort transaction time after lost heartbeat.
+     * The default value is 300s, which means transactions of be will be aborted after lost heartbeat 300s.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int abort_txn_after_lost_heartbeat_time_second = 300;
+
+    /**
+     * Heartbeat interval in seconds.
+     * Default is 5, which means every 5 seconds, the master will send a heartbeat to all backends.
+     */
+    @ConfField(mutable = false, masterOnly = false)
+    public static int heartbeat_interval_second = 5;
+
+    /**
      * The iceberg and hudi table will be removed in v1.3
      * Use multi catalog instead.
      */
@@ -2064,6 +2091,10 @@ public class Config extends ConfigBase {
      */
     @ConfField
     public static long lock_reporting_threshold_ms = 500L;
+
+    @ConfField(mutable = true, description = {"表示最大锁持有时间，超过该时间会打印告警日志，单位秒",
+            "Maximum lock hold time; logs a warning if exceeded"})
+    public static long max_lock_hold_threshold_seconds = 10L;
 
     /**
      * If false, when select from tables in information_schema database,
@@ -2395,6 +2426,15 @@ public class Config extends ConfigBase {
     @ConfField
     public static boolean ignore_bdbje_log_checksum_read = false;
 
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "是否在unique表mow上开启delete语句写delete predicate。若开启，会提升delete语句的性能，"
+                    + "但delete后进行部分列更新可能会出现部分数据错误的情况。若关闭，会降低delete语句的性能来保证正确性。",
+            "Enable the 'delete predicate' for DELETE statements. If enabled, it will enhance the performance of "
+                    + "DELETE statements, but partial column updates after a DELETE may result in erroneous data. "
+                    + "If disabled, it will reduce the performance of DELETE statements to ensure accuracy."
+    })
+    public static boolean enable_mow_light_delete = false;
+
     @ConfField(description = {
             "是否开启 Proxy Protocol 支持",
             "Whether to enable proxy protocol"
@@ -2421,4 +2461,7 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true)
     public static boolean fix_tablet_partition_id_eq_0 = false;
+
+    @ConfField(mutable = true)
+    public static boolean enable_cooldown_replica_affinity = true;
 }

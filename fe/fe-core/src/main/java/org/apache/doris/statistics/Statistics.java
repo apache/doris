@@ -37,15 +37,23 @@ public class Statistics {
     // the byte size of one tuple
     private double tupleSize;
 
+    private double deltaRowCount = 0.0;
+
     public Statistics(Statistics another) {
         this.rowCount = another.rowCount;
         this.expressionToColumnStats = new HashMap<>(another.expressionToColumnStats);
         this.tupleSize = another.tupleSize;
+        this.deltaRowCount = another.getDeltaRowCount();
+    }
+
+    public Statistics(double rowCount, Map<Expression, ColumnStatistic> expressionToColumnStats, double deltaRowCount) {
+        this.rowCount = rowCount;
+        this.expressionToColumnStats = expressionToColumnStats;
+        this.deltaRowCount = deltaRowCount;
     }
 
     public Statistics(double rowCount, Map<Expression, ColumnStatistic> expressionToColumnStats) {
-        this.rowCount = rowCount;
-        this.expressionToColumnStats = expressionToColumnStats;
+        this(rowCount, expressionToColumnStats, 0);
     }
 
     public ColumnStatistic findColumnStatistics(Expression expression) {
@@ -150,7 +158,11 @@ public class Statistics {
             return "-Infinite";
         }
         DecimalFormat format = new DecimalFormat("#,###.##");
-        return format.format(rowCount);
+        String rows = format.format(rowCount);
+        if (deltaRowCount > 0) {
+            rows = rows + "(" + format.format(deltaRowCount) + ")";
+        }
+        return rows;
     }
 
     public int getBENumber() {
@@ -208,5 +220,13 @@ public class Statistics {
             }
         }
         return builder.build();
+    }
+
+    public double getDeltaRowCount() {
+        return deltaRowCount;
+    }
+
+    public void setDeltaRowCount(double deltaRowCount) {
+        this.deltaRowCount = deltaRowCount;
     }
 }

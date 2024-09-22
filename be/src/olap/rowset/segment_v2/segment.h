@@ -108,7 +108,8 @@ public:
         return _pk_index_reader.get();
     }
 
-    Status lookup_row_key(const Slice& key, bool with_seq_col, RowLocation* row_location);
+    Status lookup_row_key(const Slice& key, const TabletSchema* latest_schema, bool with_seq_col,
+                          RowLocation* row_location);
 
     Status read_key_by_rowid(uint32_t row_id, std::string* key);
 

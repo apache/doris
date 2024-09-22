@@ -23,6 +23,8 @@ import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.ShowAnalyzeStmt;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.Config;
@@ -273,6 +275,7 @@ public class AnalysisManagerTest {
 
     @Test
     public void testReAnalyze() {
+        Database db = new Database();
         new MockUp<OlapTable>() {
 
             int count = 0;
@@ -294,14 +297,25 @@ public class AnalysisManagerTest {
                 return Lists.newArrayList(c);
             }
 
+            @Mock
+            public DatabaseIf getDatabase() {
+                return db;
+            }
+
         };
         OlapTable olapTable = new OlapTable();
+        TableStatsMeta stats0 = new TableStatsMeta(
+                50, new AnalysisInfoBuilder().setColToPartitions(new HashMap<>())
+                .setColName("col1").setRowCount(100).build(), olapTable);
+        stats0.newPartitionLoaded.set(true);
+        Assertions.assertTrue(olapTable.needReAnalyzeTable(stats0));
+
         TableStatsMeta stats1 = new TableStatsMeta(
                 50, new AnalysisInfoBuilder().setColToPartitions(new HashMap<>())
                 .setColName("col1").setRowCount(100).build(), olapTable);
         stats1.updatedRows.addAndGet(70);
-
         Assertions.assertTrue(olapTable.needReAnalyzeTable(stats1));
+
         TableStatsMeta stats2 = new TableStatsMeta(
                 190, new AnalysisInfoBuilder()
                 .setColToPartitions(new HashMap<>()).setColName("col1").setRowCount(200).build(), olapTable);

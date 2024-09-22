@@ -31,7 +31,6 @@ import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.analysis.FunctionParams;
 import org.apache.doris.analysis.IndexDef;
-import org.apache.doris.analysis.InvertedIndexUtil;
 import org.apache.doris.analysis.IsNullPredicate;
 import org.apache.doris.analysis.MatchPredicate;
 import org.apache.doris.analysis.OrderByElement;
@@ -96,9 +95,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
@@ -188,9 +185,7 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
 
     @Override
     public Expr visitMatch(Match match, PlanTranslatorContext context) {
-        String invertedIndexParser = InvertedIndexUtil.INVERTED_INDEX_PARSER_UNKNOWN;
-        String invertedIndexParserMode = InvertedIndexUtil.INVERTED_INDEX_PARSER_COARSE_GRANULARITY;
-        Map<String, String> invertedIndexCharFilter = new HashMap<>();
+        Index invertedIndex = null;
         SlotRef left = (SlotRef) match.left().accept(this, context);
         OlapTable olapTbl = Optional.ofNullable(getOlapTableFromSlotDesc(left.getDesc()))
                                     .orElse(getOlapTableDirectly(left));
@@ -205,9 +200,7 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                 if (index.getIndexType() == IndexDef.IndexType.INVERTED) {
                     List<String> columns = index.getColumns();
                     if (columns != null && !columns.isEmpty() && left.getColumnName().equals(columns.get(0))) {
-                        invertedIndexParser = index.getInvertedIndexParser();
-                        invertedIndexParserMode = index.getInvertedIndexParserMode();
-                        invertedIndexCharFilter = index.getInvertedIndexCharFilter();
+                        invertedIndex = index;
                         break;
                     }
                 }
@@ -220,9 +213,7 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
             match.right().accept(this, context),
             match.getDataType().toCatalogDataType(),
             NullableMode.DEPEND_ON_ARGUMENT,
-            invertedIndexParser,
-            invertedIndexParserMode,
-            invertedIndexCharFilter);
+            invertedIndex);
     }
 
     @Override

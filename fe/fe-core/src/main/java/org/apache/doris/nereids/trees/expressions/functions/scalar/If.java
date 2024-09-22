@@ -20,11 +20,11 @@ package org.apache.doris.nereids.trees.expressions.functions.scalar;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.nereids.analyzer.Unbound;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.shape.TernaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
-import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BitmapType;
 import org.apache.doris.nereids.types.BooleanType;
@@ -45,6 +45,7 @@ import org.apache.doris.nereids.types.SmallIntType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
+import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Suppliers;
@@ -95,53 +96,7 @@ public class If extends ScalarFunction
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT)
                     .args(BooleanType.INSTANCE, VarcharType.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT),
             FunctionSignature.ret(StringType.INSTANCE)
-                    .args(BooleanType.INSTANCE, StringType.INSTANCE, StringType.INSTANCE),
-            FunctionSignature.ret(ArrayType.of(BooleanType.INSTANCE))
-                    .args(BooleanType.INSTANCE, ArrayType.of(BooleanType.INSTANCE), ArrayType.of(BooleanType.INSTANCE)),
-            FunctionSignature.ret(ArrayType.of(TinyIntType.INSTANCE))
-                    .args(BooleanType.INSTANCE, ArrayType.of(TinyIntType.INSTANCE), ArrayType.of(TinyIntType.INSTANCE)),
-            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT)
-                    .args(BooleanType.INSTANCE,
-                            ArrayType.of(SmallIntType.INSTANCE),
-                            ArrayType.of(SmallIntType.INSTANCE)),
-            FunctionSignature.ret(ArrayType.of(IntegerType.INSTANCE))
-                    .args(BooleanType.INSTANCE, ArrayType.of(IntegerType.INSTANCE), ArrayType.of(IntegerType.INSTANCE)),
-            FunctionSignature.ret(ArrayType.of(BigIntType.INSTANCE))
-                    .args(BooleanType.INSTANCE, ArrayType.of(BigIntType.INSTANCE), ArrayType.of(BigIntType.INSTANCE)),
-            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT)
-                    .args(BooleanType.INSTANCE,
-                            ArrayType.of(LargeIntType.INSTANCE),
-                            ArrayType.of(LargeIntType.INSTANCE)),
-            FunctionSignature.ret(ArrayType.of(FloatType.INSTANCE))
-                    .args(BooleanType.INSTANCE, ArrayType.of(FloatType.INSTANCE), ArrayType.of(FloatType.INSTANCE)),
-            FunctionSignature.ret(ArrayType.of(DoubleType.INSTANCE))
-                    .args(BooleanType.INSTANCE, ArrayType.of(DoubleType.INSTANCE), ArrayType.of(DoubleType.INSTANCE)),
-            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT)
-                    .args(BooleanType.INSTANCE,
-                            ArrayType.of(DateTimeType.INSTANCE),
-                            ArrayType.of(DateTimeType.INSTANCE)),
-            FunctionSignature.ret(ArrayType.of(DateType.INSTANCE))
-                    .args(BooleanType.INSTANCE, ArrayType.of(DateType.INSTANCE), ArrayType.of(DateType.INSTANCE)),
-            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT)
-                    .args(BooleanType.INSTANCE,
-                            ArrayType.of(DateTimeV2Type.SYSTEM_DEFAULT),
-                            ArrayType.of(DateTimeV2Type.SYSTEM_DEFAULT)),
-            FunctionSignature.ret(ArrayType.of(DateV2Type.INSTANCE))
-                    .args(BooleanType.INSTANCE, ArrayType.of(DateV2Type.INSTANCE), ArrayType.of(DateV2Type.INSTANCE)),
-            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT)
-                    .args(BooleanType.INSTANCE,
-                            ArrayType.of(DecimalV3Type.WILDCARD),
-                            ArrayType.of(DecimalV3Type.WILDCARD)),
-            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT)
-                    .args(BooleanType.INSTANCE,
-                            ArrayType.of(DecimalV2Type.SYSTEM_DEFAULT),
-                            ArrayType.of(DecimalV2Type.SYSTEM_DEFAULT)),
-            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT)
-                    .args(BooleanType.INSTANCE,
-                            ArrayType.of(VarcharType.SYSTEM_DEFAULT),
-                            ArrayType.of(VarcharType.SYSTEM_DEFAULT)),
-            FunctionSignature.ret(ArrayType.of(StringType.INSTANCE))
-                    .args(BooleanType.INSTANCE, ArrayType.of(StringType.INSTANCE), ArrayType.of(StringType.INSTANCE))
+                    .args(BooleanType.INSTANCE, StringType.INSTANCE, StringType.INSTANCE)
     );
 
     private final Supplier<DataType> widerType = Suppliers.memoize(() -> {
@@ -156,7 +111,8 @@ public class If extends ScalarFunction
      * constructor with 3 arguments.
      */
     public If(Expression arg0, Expression arg1, Expression arg2) {
-        super("if", arg0, arg1, arg2);
+        super("if", arg0 instanceof Unbound ? arg0 : TypeCoercionUtils.castIfNotSameType(arg0, BooleanType.INSTANCE),
+                arg1, arg2);
     }
 
     /**

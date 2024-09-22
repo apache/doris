@@ -40,6 +40,7 @@ import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
 
 import java.util.ArrayList;
@@ -54,6 +55,8 @@ import javax.annotation.concurrent.GuardedBy;
  * Statement context for nereids
  */
 public class StatementContext {
+
+    public boolean hasUnsupportedSqlCacheExpression;
 
     private ConnectContext connectContext;
 
@@ -90,7 +93,7 @@ public class StatementContext {
     private final Map<RelationId, Set<Expression>> consumerIdToFilters = new HashMap<>();
     private final Map<CTEId, Set<RelationId>> cteIdToConsumerUnderProjects = new HashMap<>();
     // Used to update consumer's stats
-    private final Map<CTEId, List<Pair<Map<Slot, Slot>, Group>>> cteIdToConsumerGroup = new HashMap<>();
+    private final Map<CTEId, List<Pair<Multimap<Slot, Slot>, Group>>> cteIdToConsumerGroup = new HashMap<>();
 
     private final Map<CTEId, LogicalPlan> rewrittenCteProducer = new HashMap<>();
     private final Map<CTEId, LogicalPlan> rewrittenCteConsumer = new HashMap<>();
@@ -227,7 +230,7 @@ public class StatementContext {
         return cteIdToConsumerUnderProjects;
     }
 
-    public Map<CTEId, List<Pair<Map<Slot, Slot>, Group>>> getCteIdToConsumerGroup() {
+    public Map<CTEId, List<Pair<Multimap<Slot, Slot>, Group>>> getCteIdToConsumerGroup() {
         return cteIdToConsumerGroup;
     }
 

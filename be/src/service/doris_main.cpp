@@ -545,6 +545,8 @@ int main(int argc, char** argv) {
                                   status.to_string());
     }
 
+    exec_env->storage_engine()->notify_listeners();
+
     while (!doris::k_doris_exit) {
 #if defined(LEAK_SANITIZER)
         __lsan_do_leak_check();

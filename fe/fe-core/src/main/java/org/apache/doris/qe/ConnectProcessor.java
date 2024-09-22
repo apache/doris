@@ -36,6 +36,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.NotSupportPreparedStmtError;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.telemetry.Telemetry;
 import org.apache.doris.common.util.DebugUtil;
@@ -348,7 +349,7 @@ public class ConnectProcessor {
                     // when client not request CLIENT_MULTI_STATEMENTS, mysql treat all query as
                     // single statement. Doris treat it with multi statement, but only return
                     // the last statement result.
-                    if (ctx.getCapability().isClientMultiStatements()) {
+                    if (ctx.getMysqlChannel().clientMultiStatements()) {
                         finalizeCommand();
                     }
                 }
@@ -376,6 +377,12 @@ public class ConnectProcessor {
                                       StatementBase parsedStmt, Data.PQueryStatistics statistics) {
         if (ctx.getMinidump() != null) {
             MinidumpUtils.saveMinidumpString(ctx.getMinidump(), DebugUtil.printId(ctx.queryId()));
+        }
+        if (throwable instanceof NotSupportPreparedStmtError) {
+            LOG.info("Process one query failed because NotSupportPreparedStmtError: ", throwable.getMessage());
+            ctx.getState().setError(ErrorCode.ERR_UNSUPPORTED_PS, throwable.getMessage());
+            // Not audit such error, since we don't support such prepared statement
+            return;
         }
         if (throwable instanceof IOException) {
             // Client failed.

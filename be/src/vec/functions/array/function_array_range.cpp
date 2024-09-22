@@ -122,9 +122,9 @@ struct RangeImplUtil {
         dest_nested_column->reserve(input_rows_count);
         dest_nested_null_map.reserve(input_rows_count);
 
-        vector(start_column->get_data(), end_column->get_data(), step_column->get_data(),
-               args_null_map->get_data(), nested_column->get_data(), dest_nested_null_map,
-               dest_offsets);
+        RETURN_IF_ERROR(vector(start_column->get_data(), end_column->get_data(),
+                               step_column->get_data(), args_null_map->get_data(),
+                               nested_column->get_data(), dest_nested_null_map, dest_offsets));
 
         block.get_by_position(result).column =
                 ColumnNullable::create(std::move(dest_array_column_ptr), std::move(args_null_map));
@@ -132,11 +132,11 @@ struct RangeImplUtil {
     }
 
 private:
-    static void vector(const PaddedPODArray<Int32>& start, const PaddedPODArray<Int32>& end,
-                       const PaddedPODArray<Int32>& step, NullMap& args_null_map,
-                       PaddedPODArray<Int32>& nested_column,
-                       PaddedPODArray<UInt8>& dest_nested_null_map,
-                       ColumnArray::Offsets64& dest_offsets) {
+    static Status vector(const PaddedPODArray<Int32>& start, const PaddedPODArray<Int32>& end,
+                         const PaddedPODArray<Int32>& step, NullMap& args_null_map,
+                         PaddedPODArray<Int32>& nested_column,
+                         PaddedPODArray<UInt8>& dest_nested_null_map,
+                         ColumnArray::Offsets64& dest_offsets) {
         int rows = start.size();
         for (auto row = 0; row < rows; ++row) {
             if (args_null_map[row] || start[row] < 0 || end[row] < 0 || step[row] < 0) {
@@ -145,6 +145,14 @@ private:
                 dest_nested_null_map.push_back(1);
                 args_null_map[row] = 1;
             } else {
+                // to avoid large array make oom
+                if (start[row] < end[row] && step[row] > 0 &&
+                    ((static_cast<__int128_t>(end[row]) - static_cast<__int128_t>(step[row]) - 1) /
+                             static_cast<__int128_t>(step[row]) +
+                     1) > max_array_size_as_field) {
+                    return Status::InvalidArgument("Array size exceeds the limit {}",
+                                                   max_array_size_as_field);
+                }
                 int offset = dest_offsets.back();
                 for (auto idx = start[row]; idx < end[row]; idx = idx + step[row]) {
                     nested_column.push_back(idx);
@@ -154,6 +162,7 @@ private:
                 dest_offsets.push_back(offset);
             }
         }
+        return Status::OK();
     }
 };
 

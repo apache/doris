@@ -189,7 +189,7 @@ bool Compaction::is_rowset_tidy(std::string& pre_max_key, const RowsetSharedPtr&
     if (!ret) {
         return false;
     }
-    if (min_key < pre_max_key) {
+    if (min_key <= pre_max_key) {
         return false;
     }
     CHECK(rhs->max_key(&pre_max_key));
@@ -308,7 +308,11 @@ Status Compaction::do_compaction_impl(int64_t permits) {
 
         int64_t now = UnixMillis();
         if (compaction_type() == ReaderType::READER_CUMULATIVE_COMPACTION) {
-            _tablet->set_last_cumu_compaction_success_time(now);
+            // TIME_SERIES_POLICY, generating an empty rowset doesn't need to update the timestamp.
+            if (!(_tablet->tablet_meta()->compaction_policy() == CUMULATIVE_TIME_SERIES_POLICY &&
+                  _output_rowset->num_segments() == 0)) {
+                _tablet->set_last_cumu_compaction_success_time(now);
+            }
         } else if (compaction_type() == ReaderType::READER_BASE_COMPACTION) {
             _tablet->set_last_base_compaction_success_time(now);
         } else if (compaction_type() == ReaderType::READER_FULL_COMPACTION) {
@@ -431,8 +435,8 @@ Status Compaction::do_compaction_impl(int64_t permits) {
                         stats.merged_rows, missed_rows_size, _tablet->tablet_id(),
                         _tablet->table_id());
                 DCHECK(false) << err_msg;
+                // Log here just for debugging, do not return error.
                 LOG(WARNING) << err_msg;
-                return Status::InternalError(err_msg);
             }
         }
 
@@ -616,7 +620,11 @@ Status Compaction::do_compaction_impl(int64_t permits) {
     int64_t now = UnixMillis();
     // TODO(yingchun): do the judge in Tablet class
     if (compaction_type() == ReaderType::READER_CUMULATIVE_COMPACTION) {
-        _tablet->set_last_cumu_compaction_success_time(now);
+        // TIME_SERIES_POLICY, generating an empty rowset doesn't need to update the timestamp.
+        if (!(_tablet->tablet_meta()->compaction_policy() == CUMULATIVE_TIME_SERIES_POLICY &&
+              _output_rowset->num_segments() == 0)) {
+            _tablet->set_last_cumu_compaction_success_time(now);
+        }
     } else if (compaction_type() == ReaderType::READER_BASE_COMPACTION) {
         _tablet->set_last_base_compaction_success_time(now);
     } else if (compaction_type() == ReaderType::READER_FULL_COMPACTION) {

@@ -21,10 +21,10 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundOlapTableSink;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.Explainable;
@@ -98,15 +98,16 @@ public class DeleteCommand extends Command implements ForwardWithSync, Explainab
         String tableName = tableAlias != null ? tableAlias : targetTable.getName();
         for (Column column : targetTable.getFullSchema()) {
             if (column.getName().equalsIgnoreCase(Column.DELETE_SIGN)) {
-                selectLists.add(new Alias(new TinyIntLiteral(((byte) 1)), Column.DELETE_SIGN));
-            } else if (column.getName().equalsIgnoreCase(Column.SEQUENCE_COL)) {
+                selectLists.add(new UnboundAlias(new TinyIntLiteral(((byte) 1)), Column.DELETE_SIGN));
+            } else if (column.getName().equalsIgnoreCase(Column.SEQUENCE_COL)
+                    && targetTable.getSequenceMapCol() != null) {
                 selectLists.add(new UnboundSlot(tableName, targetTable.getSequenceMapCol()));
             } else if (column.isKey()) {
                 selectLists.add(new UnboundSlot(tableName, column.getName()));
             } else if (!isMow && (!column.isVisible() || (!column.isAllowNull() && !column.hasDefaultValue()))) {
                 selectLists.add(new UnboundSlot(tableName, column.getName()));
             } else {
-                continue;
+                selectLists.add(new UnboundSlot(tableName, column.getName()));
             }
             cols.add(column.getName());
         }

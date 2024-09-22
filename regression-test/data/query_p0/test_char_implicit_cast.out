@@ -6,10 +6,10 @@
 7
 
 -- !test_timediff_varchar --
--24:00:00
+-24:00:00.000000
 
 -- !test_timediff_char --
--24:00:00
+-24:00:00.000000
 
 -- !test_money_format_varchar --
 123,456.00

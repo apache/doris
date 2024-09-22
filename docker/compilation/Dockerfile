@@ -17,6 +17,13 @@
 
 FROM centos:7 AS builder
 
+# Switch repos to point to to vault.centos.org because CentOS 7 is EOL
+RUN sed -i \
+  -e 's/^mirrorlist/#mirrorlist/' \
+  -e 's/^#baseurl/baseurl/' \
+  -e 's/mirror\.centos\.org/vault.centos.org/' \
+  /etc/yum.repos.d/*.repo
+
 # install epel repo for ccache
 RUN yum install epel-release -y && yum clean all && yum makecache
 

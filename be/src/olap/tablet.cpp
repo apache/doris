@@ -982,6 +982,14 @@ Status Tablet::capture_consistent_versions(const Version& spec_version,
             }
         }
     }
+
+    DBUG_EXECUTE_IF("TTablet::capture_consistent_versions.inject_failure", {
+        auto tablet_id = dp->param<int64>("tablet_id", -1);
+        if (tablet_id != -1 && tablet_id == _tablet_meta->tablet_id()) {
+            status = Status::Error<VERSION_ALREADY_MERGED>("version already merged");
+        }
+    });
+
     return status;
 }
 
@@ -1980,8 +1988,14 @@ Status Tablet::prepare_compaction_and_calculate_permits(CompactionType compactio
     }
 
     permits = 0;
-    for (auto&& rowset : compaction->input_rowsets()) {
-        permits += rowset->rowset_meta()->get_compaction_score();
+    // Time series policy does not rely on permits, it uses goal size to control memory
+    if (tablet->tablet_meta()->compaction_policy() != CUMULATIVE_TIME_SERIES_POLICY) {
+        for (auto&& rowset : compaction->input_rowsets()) {
+            permits += rowset->rowset_meta()->get_compaction_score();
+        }
+    } else {
+        // permits = 0 means that prepare_compaction failed
+        permits = 1;
     }
     return Status::OK();
 }
@@ -3027,15 +3041,18 @@ Status Tablet::lookup_row_data(const Slice& encoded_key, const RowLocation& row_
     return Status::OK();
 }
 
-Status Tablet::lookup_row_key(const Slice& encoded_key, bool with_seq_col,
+Status Tablet::lookup_row_key(const Slice& encoded_key, TabletSchema* latest_schema,
+                              bool with_seq_col,
                               const std::vector<RowsetSharedPtr>& specified_rowsets,
                               RowLocation* row_location, uint32_t version,
                               std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
                               RowsetSharedPtr* rowset) {
     SCOPED_BVAR_LATENCY(g_tablet_lookup_rowkey_latency);
     size_t seq_col_length = 0;
-    if (_schema->has_sequence_col() && with_seq_col) {
-        seq_col_length = _schema->column(_schema->sequence_col_idx()).length() + 1;
+    // use the latest tablet schema to decide if the tablet has sequence column currently
+    const TabletSchema* schema = (latest_schema == nullptr ? _schema.get() : latest_schema);
+    if (schema->has_sequence_col() && with_seq_col) {
+        seq_col_length = schema->column(schema->sequence_col_idx()).length() + 1;
     }
     Slice key_without_seq = Slice(encoded_key.get_data(), encoded_key.get_size() - seq_col_length);
     RowLocation loc;
@@ -3066,7 +3083,7 @@ Status Tablet::lookup_row_key(const Slice& encoded_key, bool with_seq_col,
         DCHECK_EQ(segments.size(), num_segments);
 
         for (auto id : picked_segments) {
-            Status s = segments[id]->lookup_row_key(encoded_key, with_seq_col, &loc);
+            Status s = segments[id]->lookup_row_key(encoded_key, schema, with_seq_col, &loc);
             if (s.is<KEY_NOT_FOUND>()) {
                 continue;
             }
@@ -3077,7 +3094,7 @@ Status Tablet::lookup_row_key(const Slice& encoded_key, bool with_seq_col,
                                   {loc.rowset_id, loc.segment_id, version}, loc.row_id)) {
                 // if has sequence col, we continue to compare the sequence_id of
                 // all rowsets, util we find an existing key.
-                if (_schema->has_sequence_col()) {
+                if (schema->has_sequence_col()) {
                     continue;
                 }
                 // The key is deleted, we don't need to search for it any more.
@@ -3217,8 +3234,8 @@ Status Tablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
             }
 
             RowsetSharedPtr rowset_find;
-            auto st = lookup_row_key(key, true, specified_rowsets, &loc, dummy_version.first - 1,
-                                     segment_caches, &rowset_find);
+            auto st = lookup_row_key(key, rowset_schema.get(), true, specified_rowsets, &loc,
+                                     dummy_version.first - 1, segment_caches, &rowset_find);
             bool expected_st = st.ok() || st.is<KEY_NOT_FOUND>() || st.is<KEY_ALREADY_EXISTS>();
             // It's a defensive DCHECK, we need to exclude some common errors to avoid core-dump
             // while stress test
@@ -3661,7 +3678,9 @@ Status Tablet::update_delete_bitmap(TabletTxnInfo* txn_info, int64_t txn_id) {
     // When the new segment flush fails or the rowset build fails, the deletion marker for the
     // duplicate key of the original segment should not remain in `txn_info->delete_bitmap`,
     // so we need to make a copy of `txn_info->delete_bitmap` and make changes on it.
-    if (txn_info->partial_update_info && txn_info->partial_update_info->is_partial_update) {
+    bool is_partial_update =
+            txn_info->partial_update_info && txn_info->partial_update_info->is_partial_update;
+    if (is_partial_update) {
         delete_bitmap = std::make_shared<DeleteBitmap>(*(txn_info->delete_bitmap));
     }
 
@@ -3694,6 +3713,37 @@ Status Tablet::update_delete_bitmap(TabletTxnInfo* txn_info, int64_t txn_id) {
         specified_rowsets = get_rowset_by_ids(&rowset_ids_to_add);
     }
     auto t3 = watch.get_elapse_time_us();
+
+    // If a rowset is produced by compaction before the commit phase of the partial update load
+    // and is not included in txn_info->rowset_ids, we can skip the alignment process of that rowset
+    // because data remains the same before and after compaction. But we still need to calculate the
+    // the delete bitmap for that rowset.
+    std::vector<RowsetSharedPtr> rowsets_skip_alignment;
+    if (is_partial_update) {
+        int64_t max_version_in_flush_phase =
+                txn_info->partial_update_info->max_version_in_flush_phase;
+        DCHECK(max_version_in_flush_phase != -1);
+        std::vector<RowsetSharedPtr> remained_rowsets;
+        for (const auto& rowset : specified_rowsets) {
+            if (rowset->end_version() <= max_version_in_flush_phase &&
+                rowset->produced_by_compaction()) {
+                rowsets_skip_alignment.emplace_back(rowset);
+            } else {
+                remained_rowsets.emplace_back(rowset);
+            }
+        }
+        if (!rowsets_skip_alignment.empty()) {
+            specified_rowsets = std::move(remained_rowsets);
+        }
+    }
+
+    if (!rowsets_skip_alignment.empty()) {
+        auto token = StorageEngine::instance()->calc_delete_bitmap_executor()->create_token();
+        // set rowset_writer to nullptr to skip the alignment process
+        RETURN_IF_ERROR(calc_delete_bitmap(rowset, segments, rowsets_skip_alignment, delete_bitmap,
+                                           cur_version - 1, token.get(), nullptr));
+        RETURN_IF_ERROR(token->wait());
+    }
 
     auto token = StorageEngine::instance()->calc_delete_bitmap_executor()->create_token();
     RETURN_IF_ERROR(calc_delete_bitmap(rowset, segments, specified_rowsets, delete_bitmap,

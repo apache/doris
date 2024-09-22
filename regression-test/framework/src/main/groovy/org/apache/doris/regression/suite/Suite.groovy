@@ -26,6 +26,7 @@ import groovy.json.JsonSlurper
 import com.google.common.collect.ImmutableList
 import org.apache.doris.regression.Config
 import org.apache.doris.regression.action.BenchmarkAction
+import org.apache.doris.regression.action.WaitForAction
 import org.apache.doris.regression.util.DataUtils
 import org.apache.doris.regression.util.OutputUtils
 import org.apache.doris.regression.action.CreateMVAction
@@ -312,6 +313,17 @@ class Suite implements GroovyInterceptable {
         return result
     }
 
+    List<List<Object>> multi_sql(String sqlStr, boolean isOrder = false) {
+        String[] sqls = sqlStr.split(";")
+        def result = new ArrayList<Object>();
+        for (String query : sqls) {
+            if (!query.trim().isEmpty()) {
+                result.add(sql(query, isOrder));
+            }
+        }
+        return result
+    }
+
     List<List<Object>> insert_into_sql_impl(Connection conn, String sqlStr, int num) {
         logger.info("insert into " + num + " records")
         def (result, meta) = JdbcUtils.executeToList(conn, sqlStr)
@@ -410,6 +422,41 @@ class Suite implements GroovyInterceptable {
         return result;
     }
 
+    long getTableId(String tableName) {
+        return getTableId(getDbName(), tableName)
+    }
+
+    long getTableId(String dbName, String tableName) {
+        def dbInfo = sql "show proc '/dbs'"
+        for(List<Object> row : dbInfo) {
+            if (row[1].replace("default_cluster:", "").equals(dbName)) {
+                def tbInfo = sql "show proc '/dbs/${row[0]}' "
+                for (List<Object> tb : tbInfo) {
+                    if (tb[1].equals(tableName)) {
+                        return tb[0].toLong()
+                    }
+                }
+            }
+        }
+    }
+
+    long getDbId() {
+        return getDbId(getDbName())
+    }
+
+    long getDbId(String dbName) {
+        def dbInfo = sql "show proc '/dbs'"
+        for (List<Object> row : dbInfo) {
+            if (row[1].replace("default_cluster:", "").equals(dbName)) {
+                return row[0].toLong()
+            }
+        }
+    }
+
+    String getDbName() {
+        return context.dbName
+    }
+
     List<List<Object>> order_sql(String sqlStr) {
         return sql(sqlStr,  true)
     }
@@ -479,6 +526,10 @@ class Suite implements GroovyInterceptable {
 
     void benchmark(Closure actionSupplier) {
         runAction(new BenchmarkAction(context), actionSupplier)
+    }
+
+    void waitForSchemaChangeDone(Closure actionSupplier) {
+        runAction(new WaitForAction(context), actionSupplier)
     }
 
     String getBrokerName() {
@@ -663,6 +714,33 @@ class Suite implements GroovyInterceptable {
         String hdfsUser = context.config.otherConfigs.get("hdfsUser")
         Hdfs hdfs = new Hdfs(hdfsFs, hdfsUser, dataDir)
         return hdfs.downLoad(label)
+    }
+
+    void runStreamLoadExample(String tableName, String coordidateBeHostPort = "") {
+        def backends = sql_return_maparray "show backends"
+        sql """
+                CREATE TABLE IF NOT EXISTS ${tableName} (
+                    id int,
+                    name varchar(255)
+                )
+                DISTRIBUTED BY HASH(id) BUCKETS 1
+                PROPERTIES (
+                  "replication_num" = "${backends.size()}"
+                )
+            """
+
+        streamLoad {
+            table tableName
+            set 'column_separator', ','
+            file context.config.dataPath + "/demo_p0/streamload_input.csv"
+            time 10000
+            if (!coordidateBeHostPort.equals("")) {
+                def pos = coordidateBeHostPort.indexOf(':')
+                def host = coordidateBeHostPort.substring(0, pos)
+                def httpPort = coordidateBeHostPort.substring(pos + 1).toInteger()
+                directToBe host, httpPort
+            }
+        }
     }
 
     void streamLoad(Closure actionSupplier) {

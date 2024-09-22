@@ -260,6 +260,11 @@ struct TQueryOptions {
 
   92: optional bool enable_parquet_filter_by_min_max = true
   93: optional bool enable_orc_filter_by_min_max = true
+
+  116: optional bool enable_no_need_read_data_opt = true;
+
+  119: optional bool enable_match_without_inverted_index = true;
+  120: optional bool enable_fallback_on_missing_inverted_index = true;
 }
 
 

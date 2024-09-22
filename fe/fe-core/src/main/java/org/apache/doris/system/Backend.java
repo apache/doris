@@ -172,6 +172,11 @@ public class Backend implements Writable {
         return id;
     }
 
+    // Return ip:heartbeat port
+    public String getAddress() {
+        return host + ":" + heartbeatPort;
+    }
+
     public String getHost() {
         return host;
     }

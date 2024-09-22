@@ -69,6 +69,7 @@ import org.apache.doris.planner.RangePartitionPrunerV2;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.QueryStateException;
+import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTaskExecutor;
@@ -245,7 +246,9 @@ public class DeleteHandler implements Writable {
                 // begin txn here and generate txn id
                 transactionId = Env.getCurrentGlobalTransactionMgr().beginTransaction(db.getId(),
                         Lists.newArrayList(olapTable.getId()), label, null,
-                        new TxnCoordinator(TxnSourceType.FE, FrontendOptions.getLocalHostAddress()),
+                        new TxnCoordinator(TxnSourceType.FE, 0,
+                                FrontendOptions.getLocalHostAddress(),
+                                ExecuteEnv.getInstance().getStartupTime()),
                         TransactionState.LoadJobSourceType.FRONTEND, jobId, Config.stream_load_default_timeout_second);
 
 
@@ -403,6 +406,12 @@ public class DeleteHandler implements Writable {
                         break;
                 }
             } else {
+                if (!countDownLatch.getStatus().ok()) {
+                    // encounter some errors that don't need to retry, abort directly
+                    LOG.warn("delete job failed, errmsg={}", countDownLatch.getStatus().getErrorMsg());
+                    throw new DdlException(String.format("delete job failed, errmsg:%s",
+                            countDownLatch.getStatus().getErrorMsg()));
+                }
                 commitJob(deleteJob, db, olapTable, timeoutMs);
             }
         } finally {

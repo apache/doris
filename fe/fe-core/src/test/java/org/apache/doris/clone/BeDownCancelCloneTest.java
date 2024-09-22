@@ -54,7 +54,7 @@ public class BeDownCancelCloneTest extends TestWithFeService {
         Config.disable_balance = true;
         Config.schedule_batch_size = 1000;
         Config.schedule_slot_num_per_hdd_path = 1000;
-        FeConstants.heartbeat_interval_second = 5;
+        Config.heartbeat_interval_second = 5;
         Config.max_backend_heartbeat_failure_tolerance_count = 1;
         Config.min_clone_task_timeout_sec = 20 * 60 * 1000;
     }
@@ -114,7 +114,7 @@ public class BeDownCancelCloneTest extends TestWithFeService {
         params2.put("deadBeIds", String.valueOf(destBeId));
         DebugPointUtil.addDebugPointWithParams("HeartbeatMgr.BackendHeartbeatHandler", params2);
 
-        Thread.sleep((FeConstants.heartbeat_interval_second
+        Thread.sleep((Config.heartbeat_interval_second
                 * Config.max_backend_heartbeat_failure_tolerance_count + 4) * 1000L);
 
         destBe = Env.getCurrentSystemInfo().getBackend(destBeId);

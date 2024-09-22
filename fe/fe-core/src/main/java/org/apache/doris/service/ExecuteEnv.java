@@ -26,10 +26,12 @@ public class ExecuteEnv {
     private static volatile ExecuteEnv INSTANCE;
     private MultiLoadMgr multiLoadMgr;
     private ConnectScheduler scheduler;
+    private long startupTime;
 
     private ExecuteEnv() {
         multiLoadMgr = new MultiLoadMgr();
         scheduler = new ConnectScheduler(Config.qe_max_connection);
+        startupTime = System.currentTimeMillis();
     }
 
     public static ExecuteEnv getInstance() {
@@ -50,4 +52,9 @@ public class ExecuteEnv {
     public MultiLoadMgr getMultiLoadMgr() {
         return multiLoadMgr;
     }
+
+    public long getStartupTime() {
+        return startupTime;
+    }
+
 }

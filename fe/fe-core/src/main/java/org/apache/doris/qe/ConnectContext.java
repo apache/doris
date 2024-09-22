@@ -194,6 +194,12 @@ public class ConnectContext {
     // it's default thread-safe
     private boolean isProxy = false;
 
+    //internal call like `insert overwrite` need skipAuth
+    // For example, `insert overwrite` only requires load permission,
+    // but the internal implementation will call the logic of `AlterTable`.
+    // In this case, `skipAuth` needs to be set to `true` to skip the permission check of `AlterTable`
+    private boolean skipAuth = false;
+
     public void setUserQueryTimeout(int queryTimeout) {
         if (queryTimeout > 0) {
             sessionVariable.setQueryTimeoutS(queryTimeout);
@@ -937,6 +943,14 @@ public class ConnectContext {
 
     public boolean isProxy() {
         return isProxy;
+    }
+
+    public boolean isSkipAuth() {
+        return skipAuth;
+    }
+
+    public void setSkipAuth(boolean skipAuth) {
+        this.skipAuth = skipAuth;
     }
 }
 

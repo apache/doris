@@ -167,8 +167,7 @@ public class StatisticsUtil {
         }
     }
 
-    public static ColumnStatistic deserializeToColumnStatistics(List<ResultRow> resultBatches)
-            throws Exception {
+    public static ColumnStatistic deserializeToColumnStatistics(List<ResultRow> resultBatches) {
         if (CollectionUtils.isEmpty(resultBatches)) {
             return null;
         }

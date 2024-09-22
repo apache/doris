@@ -648,7 +648,7 @@ public class Analyzer {
         Calendar currentDate = Calendar.getInstance();
         LocalDateTime localDateTime = LocalDateTime.ofInstant(currentDate.toInstant(),
                 currentDate.getTimeZone().toZoneId());
-        String nowStr = localDateTime.format(TimeUtils.DATETIME_NS_FORMAT);
+        String nowStr = localDateTime.format(TimeUtils.getDatetimeNsFormatWithTimeZone());
         queryGlobals.setNowString(nowStr);
         queryGlobals.setNanoSeconds(LocalDateTime.now().getNano());
         return queryGlobals;
@@ -689,7 +689,8 @@ public class Analyzer {
     public TupleDescriptor registerTableRef(TableRef ref) throws AnalysisException {
         String uniqueAlias = ref.getUniqueAlias();
         if (uniqueTableAliasSet.contains(uniqueAlias)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_NONUNIQ_TABLE, uniqueAlias);
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_NONUNIQ_TABLE,
+                    uniqueAlias.substring(uniqueAlias.lastIndexOf('.') + 1));
         }
         uniqueTableAliasSet.add(uniqueAlias);
 

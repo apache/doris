@@ -104,7 +104,7 @@ true	8	8	8	80	8.8	80.8	7298	12/31/10	8	2010-12-31T12:08:13.780	2010	12
 -- !26 --
 
 -- !27 --
-test	DATETIME(6)	Yes	true	\N	
+test	datetime(6)	Yes	true	\N	
 
 -- !28 --
 \N
@@ -114,7 +114,7 @@ test	DATETIME(6)	Yes	true	\N
 2023-04-20T15:51:49
 
 -- !29 --
-test	DATETIME(6)	Yes	true	\N	
+test	datetime(6)	Yes	true	\N	
 
 -- !30 --
 \N
@@ -124,7 +124,7 @@ test	DATETIME(6)	Yes	true	\N
 2023-04-20T15:51:49
 
 -- !31 --
-test	DATETIME(6)	Yes	true	\N	
+test	datetime(6)	Yes	true	\N	
 
 -- !32 --
 \N
@@ -367,7 +367,7 @@ true	8	8	8	80	8.8	80.8	7298	12/31/10	8	2010-12-31T12:08:13.780	2010	12
 -- !26 --
 
 -- !27 --
-test	DATETIME(6)	Yes	true	\N	
+test	datetime(6)	Yes	true	\N	
 
 -- !28 --
 \N
@@ -377,7 +377,7 @@ test	DATETIME(6)	Yes	true	\N
 2023-04-20T15:51:49
 
 -- !29 --
-test	DATETIME(6)	Yes	true	\N	
+test	datetime(6)	Yes	true	\N	
 
 -- !30 --
 \N
@@ -387,7 +387,7 @@ test	DATETIME(6)	Yes	true	\N
 2023-04-20T15:51:49
 
 -- !31 --
-test	DATETIME(6)	Yes	true	\N	
+test	datetime(6)	Yes	true	\N	
 
 -- !32 --
 \N
@@ -524,3 +524,4 @@ true
 123.456
 123.456
 123.456
+

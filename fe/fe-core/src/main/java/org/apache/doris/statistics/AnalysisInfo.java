@@ -38,6 +38,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.StringJoiner;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 
 public class AnalysisInfo implements Writable {
 
@@ -202,6 +204,8 @@ public class AnalysisInfo implements Writable {
 
     public final boolean userInject;
 
+    public final ConcurrentMap<Long, Long> indexesRowCount = new ConcurrentHashMap<>();
+
     public AnalysisInfo(long jobId, long taskId, List<Long> taskIds, long catalogId, long dbId, long tblId,
             Map<String, Set<String>> colToPartitions, Set<String> partitionNames, String colName, Long indexId,
             JobType jobType, AnalysisMode analysisMode, AnalysisMethod analysisMethod, AnalysisType analysisType,
@@ -349,5 +353,9 @@ public class AnalysisInfo implements Writable {
 
     public TableIf getTable() {
         return StatisticsUtil.findTable(catalogId, dbId, tblId);
+    }
+
+    public void addIndexRowCount(long indexId, long rowCount) {
+        indexesRowCount.put(indexId, rowCount);
     }
 }

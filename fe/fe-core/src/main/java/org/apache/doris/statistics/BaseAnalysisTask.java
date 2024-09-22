@@ -21,6 +21,7 @@ import org.apache.doris.analysis.TableSample;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.datasource.CatalogIf;
@@ -333,6 +334,14 @@ public abstract class BaseAnalysisTask {
         try (AutoCloseConnectContext a  = StatisticsUtil.buildConnectContext()) {
             stmtExecutor = new StmtExecutor(a.connectContext, sql);
             ColStatsData colStatsData = new ColStatsData(stmtExecutor.executeInternalQuery().get(0));
+            // Update index row count after analyze.
+            if (this instanceof OlapAnalysisTask) {
+                AnalysisInfo jobInfo = Env.getCurrentEnv().getAnalysisManager().findJobInfo(job.getJobInfo().jobId);
+                // For sync job, get jobInfo from job.jobInfo.
+                jobInfo = jobInfo == null ? job.jobInfo : jobInfo;
+                long indexId = info.indexId == -1 ? ((OlapTable) tbl).getBaseIndexId() : info.indexId;
+                jobInfo.addIndexRowCount(indexId, colStatsData.count);
+            }
             Env.getCurrentEnv().getStatisticsCache().syncColStats(colStatsData);
             queryId = DebugUtil.printId(stmtExecutor.getContext().queryId());
             job.appendBuf(this, Collections.singletonList(colStatsData));

@@ -140,7 +140,7 @@ Status StreamLoadAction::_handle(std::shared_ptr<StreamLoadContext> ctx) {
     if (ctx->body_bytes > 0 && ctx->receive_bytes != ctx->body_bytes) {
         LOG(WARNING) << "recevie body don't equal with body bytes, body_bytes=" << ctx->body_bytes
                      << ", receive_bytes=" << ctx->receive_bytes << ", id=" << ctx->id;
-        return Status::InternalError("receive body don't equal with body bytes");
+        return Status::InternalError<false>("receive body don't equal with body bytes");
     }
     if (!ctx->use_streaming) {
         // if we use non-streaming, we need to close file first,
@@ -218,13 +218,13 @@ Status StreamLoadAction::_on_header(HttpRequest* http_req, std::shared_ptr<Strea
     // auth information
     if (!parse_basic_auth(*http_req, &ctx->auth)) {
         LOG(WARNING) << "parse basic authorization failed." << ctx->brief();
-        return Status::InternalError("no valid Basic authorization");
+        return Status::InternalError<false>("no valid Basic authorization");
     }
 
     // get format of this put
     if (!http_req->header(HTTP_COMPRESS_TYPE).empty() &&
         iequal(http_req->header(HTTP_FORMAT_KEY), "JSON")) {
-        return Status::InternalError("compress data of JSON format is not supported.");
+        return Status::InternalError<false>("compress data of JSON format is not supported.");
     }
     std::string format_str = http_req->header(HTTP_FORMAT_KEY);
     if (iequal(format_str, BeConsts::CSV_WITH_NAMES) ||
@@ -240,8 +240,8 @@ Status StreamLoadAction::_on_header(HttpRequest* http_req, std::shared_ptr<Strea
     LoadUtil::parse_format(format_str, http_req->header(HTTP_COMPRESS_TYPE), &ctx->format,
                            &ctx->compress_type);
     if (ctx->format == TFileFormatType::FORMAT_UNKNOWN) {
-        return Status::InternalError("unknown data format, format={}",
-                                     http_req->header(HTTP_FORMAT_KEY));
+        return Status::InternalError<false>("unknown data format, format={}",
+                                            http_req->header(HTTP_FORMAT_KEY));
     }
 
     // check content length
@@ -259,7 +259,7 @@ Status StreamLoadAction::_on_header(HttpRequest* http_req, std::shared_ptr<Strea
         // json max body size
         if ((ctx->format == TFileFormatType::FORMAT_JSON) &&
             (ctx->body_bytes > json_max_body_bytes) && !read_json_by_line) {
-            return Status::InternalError(
+            return Status::InternalError<false>(
                     "The size of this batch exceed the max size [{}]  of json type data "
                     " data [ {} ]. Split the file, or use 'read_json_by_line'",
                     json_max_body_bytes, ctx->body_bytes);
@@ -267,8 +267,8 @@ Status StreamLoadAction::_on_header(HttpRequest* http_req, std::shared_ptr<Strea
         // csv max body size
         else if (ctx->body_bytes > csv_max_body_bytes) {
             LOG(WARNING) << "body exceed max size." << ctx->brief();
-            return Status::InternalError("body exceed max size: {}, data: {}", csv_max_body_bytes,
-                                         ctx->body_bytes);
+            return Status::InternalError<false>("body exceed max size: {}, data: {}",
+                                                csv_max_body_bytes, ctx->body_bytes);
         }
     } else {
 #ifndef BE_TEST
@@ -653,5 +653,4 @@ void StreamLoadAction::_save_stream_load_record(std::shared_ptr<StreamLoadContex
         LOG(WARNING) << "put stream_load_record rocksdb failed. stream_load_recorder is null.";
     }
 }
-
 } // namespace doris

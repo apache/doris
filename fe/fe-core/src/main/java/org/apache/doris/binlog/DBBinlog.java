@@ -62,6 +62,8 @@ public class DBBinlog {
 
     // The commit seq of the dropped partitions
     private List<Pair<Long, Long>> droppedPartitions;
+    // The commit seq of the dropped tables
+    private List<Pair<Long, Long>> droppedTables;
 
     private List<TBinlog> tableDummyBinlogs;
 
@@ -79,6 +81,7 @@ public class DBBinlog {
         tableBinlogMap = Maps.newHashMap();
         timestamps = Lists.newArrayList();
         droppedPartitions = Lists.newArrayList();
+        droppedTables = Lists.newArrayList();
 
         TBinlog dummy;
         if (binlog.getType() == TBinlogType.DUMMY) {
@@ -120,6 +123,11 @@ public class DBBinlog {
             DropPartitionInfo info = DropPartitionInfo.fromJson(binlog.data);
             if (info != null && info.getPartitionId() > 0) {
                 droppedPartitions.add(Pair.of(info.getPartitionId(), binlog.getCommitSeq()));
+            }
+        } else if (binlog.getType() == TBinlogType.DROP_TABLE) {
+            DropTableRecord record = DropTableRecord.fromJson(binlog.data);
+            if (record != null && record.getTableId() > 0) {
+                droppedTables.add(Pair.of(record.getTableId(), binlog.getCommitSeq()));
             }
         }
 
@@ -174,6 +182,19 @@ public class DBBinlog {
             if (!binlog.isSetType()) {
                 return;
             }
+
+            if (binlog.getType() == TBinlogType.DROP_PARTITION && raw instanceof DropPartitionInfo) {
+                long partitionId = ((DropPartitionInfo) raw).getPartitionId();
+                if (partitionId > 0) {
+                    droppedPartitions.add(Pair.of(partitionId, binlog.getCommitSeq()));
+                }
+            } else if (binlog.getType() == TBinlogType.DROP_TABLE && raw instanceof DropTableRecord) {
+                long tableId = ((DropTableRecord) raw).getTableId();
+                if (tableId > 0) {
+                    droppedTables.add(Pair.of(tableId, binlog.getCommitSeq()));
+                }
+            }
+
             switch (binlog.getType()) {
                 case CREATE_TABLE:
                     return;
@@ -181,13 +202,6 @@ public class DBBinlog {
                     return;
                 default:
                     break;
-            }
-
-            if (binlog.getType() == TBinlogType.DROP_PARTITION && raw instanceof DropPartitionInfo) {
-                long partitionId = ((DropPartitionInfo) raw).getPartitionId();
-                if (partitionId > 0) {
-                    droppedPartitions.add(Pair.of(partitionId, binlog.getCommitSeq()));
-                }
             }
 
             for (long tableId : tableIds) {
@@ -230,6 +244,18 @@ public class DBBinlog {
         lock.readLock().lock();
         try {
             return droppedPartitions.stream()
+                    .map(v -> v.first)
+                    .collect(Collectors.toList());
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    // Get the dropped tables of the db.
+    public List<Long> getDroppedTables() {
+        lock.readLock().lock();
+        try {
+            return droppedTables.stream()
                     .map(v -> v.first)
                     .collect(Collectors.toList());
         } finally {
@@ -354,7 +380,7 @@ public class DBBinlog {
                 }
             }
 
-            gcDroppedPartitions(largestExpiredCommitSeq);
+            gcDroppedPartitionAndTables(largestExpiredCommitSeq);
             if (lastCommitSeq != -1) {
                 dummy.setCommitSeq(lastCommitSeq);
             }
@@ -392,7 +418,7 @@ public class DBBinlog {
                 timeIter.remove();
             }
 
-            gcDroppedPartitions(lastExpiredBinlog.getCommitSeq());
+            gcDroppedPartitionAndTables(lastExpiredBinlog.getCommitSeq());
         }
 
         return lastExpiredBinlog;
@@ -502,8 +528,12 @@ public class DBBinlog {
         }
     }
 
-    private void gcDroppedPartitions(long commitSeq) {
+    private void gcDroppedPartitionAndTables(long commitSeq) {
         Iterator<Pair<Long, Long>> iter = droppedPartitions.iterator();
+        while (iter.hasNext() && iter.next().second < commitSeq) {
+            iter.remove();
+        }
+        iter = droppedTables.iterator();
         while (iter.hasNext() && iter.next().second < commitSeq) {
             iter.remove();
         }

@@ -132,7 +132,7 @@ public class StorageBackend implements ParseNode {
             sb.append(" `").append(storageDesc.getName()).append("`");
         }
         sb.append(" ON LOCATION ").append(location).append(" PROPERTIES(")
-            .append(new PrintableMap<>(storageDesc.getProperties(), " = ", true, false))
+            .append(new PrintableMap<>(storageDesc.getProperties(), " = ", true, false, true))
             .append(")");
         return sb.toString();
     }

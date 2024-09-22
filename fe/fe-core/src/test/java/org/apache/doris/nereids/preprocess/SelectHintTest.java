@@ -47,6 +47,12 @@ public class SelectHintTest {
                 return ctx;
             }
         };
+        new MockUp<Env>() {
+            @Mock
+            public boolean isMaster() {
+                return true;
+            }
+        };
     }
 
     @Test
@@ -61,7 +67,7 @@ public class SelectHintTest {
         sv.setEnableNereidsPlanner(true);
         sv.enableFallbackToOriginalPlanner = false;
         Assertions.assertThrows(AnalysisException.class, () -> new NereidsPlanner(statementContext)
-                .plan(new NereidsParser().parseSingle(sql), PhysicalProperties.ANY));
+                .planWithLock(new NereidsParser().parseSingle(sql), PhysicalProperties.ANY));
 
         // manually recover sv
         sv.setEnableNereidsPlanner(true);

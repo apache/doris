@@ -267,10 +267,15 @@ private:
     void _init_system_properties();
     void _init_file_description();
     template <bool is_filter = false>
-    Status _orc_column_to_doris_column(const std::string& col_name, const ColumnPtr& doris_column,
+    Status _orc_column_to_doris_column(const std::string& col_name, ColumnPtr& doris_column,
                                        const DataTypePtr& data_type,
                                        const orc::Type* orc_column_type,
                                        orc::ColumnVectorBatch* cvb, size_t num_values);
+
+    template <bool is_filter = false>
+    Status _fill_doris_data_column(const std::string& col_name, MutableColumnPtr& data_column,
+                                   const DataTypePtr& data_type, const orc::Type* orc_column_type,
+                                   orc::ColumnVectorBatch* cvb, size_t num_values);
 
     template <typename CppType, typename OrcColumnType>
     Status _decode_flat_column(const std::string& col_name, const MutableColumnPtr& data_column,

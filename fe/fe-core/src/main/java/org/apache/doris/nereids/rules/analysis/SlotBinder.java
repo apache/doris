@@ -90,7 +90,7 @@ public class SlotBinder extends SubExprAnalyzer {
     }
 
     public Expression bind(Expression expression) {
-        return expression.accept(this, null);
+        return expression.accept(this, getCascadesContext());
     }
 
     @Override
@@ -118,6 +118,9 @@ public class SlotBinder extends SubExprAnalyzer {
             } catch (DdlException e) {
                 throw new AnalysisException(e.getMessage());
             }
+        }
+        if (context != null && context.getStatementContext() != null) {
+            context.getStatementContext().hasUnsupportedSqlCacheExpression = true;
         }
         return new Variable(unboundVariable.getName(), unboundVariable.getType(), literal);
     }

@@ -61,9 +61,7 @@ suite("test_backup_restore_exclude", "backup_restore") {
         EXCLUDE (${backupExcludeTable})
     """
 
-    while (!syncer.checkSnapshotFinish(dbName)) {
-        Thread.sleep(3000)
-    }
+    syncer.waitSnapshotFinish(dbName)
 
     def snapshot = syncer.getSnapshotTimestamp(repoName, snapshotName)
     assertTrue(snapshot != null)
@@ -86,9 +84,7 @@ suite("test_backup_restore_exclude", "backup_restore") {
         )
     """
 
-    while (!syncer.checkAllRestoreFinish(dbName)) {
-        Thread.sleep(3000)
-    }
+    syncer.waitAllRestoreFinish(dbName)
 
     qt_select "SELECT * FROM ${dbName}.${backupExcludeTable} ORDER BY id"
     for (def tableName in tables) {

@@ -18,19 +18,15 @@
 #pragma once
 
 #include <cctz/time_zone.h>
-#include <stddef.h>
-#include <stdint.h>
 
+#include <cstddef>
 #include <cstdint>
-#include <map>
 #include <memory>
 #include <string>
 #include <type_traits>
 #include <utility>
 
 #include "common/status.h"
-#include "runtime/exec_env.h"
-#include "runtime/runtime_state.h"
 #include "udf/udf.h"
 #include "util/binary_cast.hpp"
 #include "util/timezone_utils.h"
@@ -53,7 +49,6 @@
 #include "vec/data_types/data_type_string.h"
 #include "vec/data_types/data_type_time_v2.h"
 #include "vec/functions/function.h"
-#include "vec/io/io_helper.h"
 #include "vec/runtime/vdatetime_value.h"
 namespace doris::vectorized {
 
@@ -117,7 +112,6 @@ struct ConvertTZImpl {
             result_column->insert_default();
             return;
         }
-
         if (!TimezoneUtils::find_cctz_time_zone(to_tz_name, to_tz)) {
             result_null_map[index_now] = true;
             result_column->insert_default();
@@ -141,6 +135,12 @@ struct ConvertTZImpl {
             }
 
             ts_value2.from_unixtime(timestamp, to_tz);
+        }
+
+        if (!ts_value2.is_valid_date()) [[unlikely]] {
+            result_null_map[index_now] = true;
+            result_column->insert_default();
+            return;
         }
 
         result_column->insert(binary_cast<ReturnDateType, ReturnNativeType>(ts_value2));

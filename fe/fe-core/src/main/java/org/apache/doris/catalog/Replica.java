@@ -223,12 +223,24 @@ public class Replica implements Writable {
         return dataSize;
     }
 
+    public void setDataSize(long dataSize) {
+        this.dataSize = dataSize;
+    }
+
     public long getRemoteDataSize() {
         return remoteDataSize;
     }
 
+    public void setRemoteDataSize(long remoteDataSize) {
+        this.remoteDataSize = remoteDataSize;
+    }
+
     public long getRowCount() {
         return rowCount;
+    }
+
+    public void setRowCount(long rowCount) {
+        this.rowCount = rowCount;
     }
 
     public long getLastFailedVersion() {
@@ -311,28 +323,13 @@ public class Replica implements Writable {
         this.furtherRepairWatermarkTxnTd = furtherRepairWatermarkTxnTd;
     }
 
-    // for compatibility
-    public synchronized void updateStat(long dataSize, long rowNum) {
-        this.dataSize = dataSize;
-        this.rowCount = rowNum;
+    public synchronized void updateVersion(long newVersion) {
+        updateReplicaVersion(newVersion, this.lastFailedVersion, this.lastSuccessVersion);
     }
 
-    public synchronized void updateStat(long dataSize, long remoteDataSize, long rowNum, long versionCount) {
-        this.dataSize = dataSize;
-        this.remoteDataSize = remoteDataSize;
-        this.rowCount = rowNum;
-        this.versionCount = versionCount;
-    }
-
-    public synchronized void updateVersionInfo(long newVersion, long newDataSize, long newRemoteDataSize,
-                                               long newRowCount) {
-        updateReplicaInfo(newVersion, this.lastFailedVersion, this.lastSuccessVersion, newDataSize, newRemoteDataSize,
-                newRowCount);
-    }
-
-    public synchronized void updateVersionWithFailedInfo(
+    public synchronized void updateVersionWithFailed(
             long newVersion, long lastFailedVersion, long lastSuccessVersion) {
-        updateReplicaInfo(newVersion, lastFailedVersion, lastSuccessVersion, dataSize, remoteDataSize, rowCount);
+        updateReplicaVersion(newVersion, lastFailedVersion, lastSuccessVersion);
     }
 
     public synchronized void adminUpdateVersionInfo(Long version, Long lastFailedVersion, Long lastSuccessVersion,
@@ -395,9 +392,7 @@ public class Replica implements Writable {
      *      the V(hash) equals to LSV(hash), and V equals to LFV, but LFV hash is 0 or some unknown number.
      *      We just reset the LFV(hash) to recovery this replica.
      */
-    private void updateReplicaInfo(long newVersion,
-            long lastFailedVersion, long lastSuccessVersion,
-            long newDataSize, long newRemoteDataSize, long newRowCount) {
+    private void updateReplicaVersion(long newVersion, long lastFailedVersion, long lastSuccessVersion) {
         if (LOG.isDebugEnabled()) {
             LOG.debug("before update: {}", this.toString());
         }
@@ -422,9 +417,6 @@ public class Replica implements Writable {
         long oldLastFailedVersion = this.lastFailedVersion;
 
         this.version = newVersion;
-        this.dataSize = newDataSize;
-        this.remoteDataSize = newRemoteDataSize;
-        this.rowCount = newRowCount;
 
         // just check it
         if (lastSuccessVersion <= this.version) {
@@ -485,7 +477,7 @@ public class Replica implements Writable {
     }
 
     public synchronized void updateLastFailedVersion(long lastFailedVersion) {
-        updateReplicaInfo(this.version, lastFailedVersion, this.lastSuccessVersion, dataSize, remoteDataSize, rowCount);
+        updateReplicaVersion(this.version, lastFailedVersion, this.lastSuccessVersion);
     }
 
     /*

@@ -107,6 +107,21 @@ Status EnginePublishVersionTask::finish() {
             std::this_thread::sleep_for(std::chrono::milliseconds(wait));
         }
     });
+    DBUG_EXECUTE_IF("EnginePublishVersionTask::execute.enable_spin_wait", {
+        auto token = dp->param<std::string>("token", "invalid_token");
+        while (DebugPoints::instance()->is_enable("EnginePublishVersionTask::execute.block")) {
+            auto block_dp = DebugPoints::instance()->get_debug_point(
+                    "EnginePublishVersionTask::execute.block");
+            if (block_dp) {
+                auto pass_token = block_dp->param<std::string>("pass_token", "");
+                if (pass_token == token) {
+                    break;
+                }
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        }
+    });
+
     std::unique_ptr<ThreadPoolToken> token =
             StorageEngine::instance()->tablet_publish_txn_thread_pool()->new_token(
                     ThreadPool::ExecutionMode::CONCURRENT);
@@ -209,16 +224,22 @@ Status EnginePublishVersionTask::finish() {
                         int64_t missed_txn_id =
                                 StorageEngine::instance()->txn_manager()->get_txn_by_tablet_version(
                                         tablet->tablet_id(), missed_version);
-                        auto msg = fmt::format(
-                                "uniq key with merge-on-write version not continuous, "
-                                "missed version={}, it's transaction_id={}, current publish "
-                                "version={}, tablet_id={}, transaction_id={}",
-                                missed_version, missed_txn_id, version.second, tablet->tablet_id(),
-                                _publish_version_req.transaction_id);
-                        if (first_time_update) {
-                            LOG(INFO) << msg;
-                        } else {
-                            LOG_EVERY_SECOND(INFO) << msg;
+                        bool need_log =
+                                (config::publish_version_gap_logging_threshold < 0 ||
+                                 max_version + config::publish_version_gap_logging_threshold >=
+                                         version.second);
+                        if (need_log) {
+                            auto msg = fmt::format(
+                                    "uniq key with merge-on-write version not continuous, "
+                                    "missed version={}, it's transaction_id={}, current publish "
+                                    "version={}, tablet_id={}, transaction_id={}",
+                                    missed_version, missed_txn_id, version.second,
+                                    tablet->tablet_id(), _publish_version_req.transaction_id);
+                            if (first_time_update) {
+                                LOG(INFO) << msg;
+                            } else {
+                                LOG_EVERY_SECOND(INFO) << msg;
+                            }
                         }
                     };
                     // The versions during the schema change period need to be also continuous

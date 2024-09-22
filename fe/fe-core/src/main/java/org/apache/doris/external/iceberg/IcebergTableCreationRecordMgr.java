@@ -132,7 +132,7 @@ public class IcebergTableCreationRecordMgr extends MasterDaemon {
     @Override
     protected void runAfterCatalogReady() {
         PropertySchema.DateProperty prop =
-                new PropertySchema.DateProperty("key", TimeUtils.DATETIME_FORMAT);
+                new PropertySchema.DateProperty("key", TimeUtils.getDatetimeFormatWithTimeZone());
         // list iceberg tables in dbs
         // When listing table is done, remove database from icebergDbs.
         for (Iterator<Map.Entry<Long, Database>> it = icebergDbs.entrySet().iterator(); it.hasNext(); it.remove()) {

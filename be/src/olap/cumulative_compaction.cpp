@@ -82,8 +82,10 @@ Status CumulativeCompaction::execute_compact_impl() {
     _state = CompactionState::SUCCESS;
 
     // 5. set cumulative level
-    _tablet->cumulative_compaction_policy()->update_compaction_level(_tablet.get(), _input_rowsets,
-                                                                     _output_rowset);
+    if (_tablet->tablet_meta()->time_series_compaction_level_threshold() >= 2) {
+        _tablet->cumulative_compaction_policy()->update_compaction_level(
+                _tablet.get(), _input_rowsets, _output_rowset);
+    }
 
     // 6. set cumulative point
     _tablet->cumulative_compaction_policy()->update_cumulative_point(

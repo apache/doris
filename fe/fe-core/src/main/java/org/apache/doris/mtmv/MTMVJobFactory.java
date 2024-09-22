@@ -106,8 +106,9 @@ public class MTMVJobFactory {
         MVRefreshIntervalTriggerInfo info = materializedView.getRefreshInfo().getTriggerInfo().getIntervalTrigger();
         long startTime;
         try {
-            LocalDateTime dateTime = LocalDateTime.parse(info.getStartTime(), TimeUtils.DATETIME_FORMAT);
-            startTime = dateTime.toEpochSecond(TimeUtils.TIME_ZONE.getRules().getOffset(dateTime));
+            LocalDateTime dateTime = LocalDateTime.parse(info.getStartTime(),
+                    TimeUtils.getDatetimeFormatWithTimeZone());
+            startTime = dateTime.toEpochSecond(TimeUtils.getDorisZoneId().getRules().getOffset(dateTime));
         } catch (DateTimeParseException e) {
             throw new RuntimeException(e);
         }

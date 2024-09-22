@@ -25,6 +25,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.VariableMgr;
 
 import com.google.common.collect.Lists;
 import mockit.Expectations;
@@ -47,6 +48,13 @@ public class GrantStmtTest {
 
     @Before
     public void setUp() {
+        new Expectations() {
+            {
+                ctx.getSessionVariable();
+                minTimes = 0;
+                result = VariableMgr.newSessionVariable();
+            }
+        };
         analyzer = AccessTestUtil.fetchAdminAnalyzer(true);
         Auth auth = new Auth();
         AccessControllerManager accessManager = new AccessControllerManager(auth);

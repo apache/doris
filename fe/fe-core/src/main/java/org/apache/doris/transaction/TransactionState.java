@@ -162,15 +162,23 @@ public class TransactionState implements Writable {
     public static class TxnCoordinator {
         @SerializedName(value = "sourceType")
         public TxnSourceType sourceType;
+        // backendId for backend, 0 for frontend
+        @SerializedName(value = "id")
+        public long id = 0;
         @SerializedName(value = "ip")
         public String ip;
+        // frontend/backend start time
+        @SerializedName(value = "st")
+        public long startTime = 0;
 
         public TxnCoordinator() {
         }
 
-        public TxnCoordinator(TxnSourceType sourceType, String ip) {
+        public TxnCoordinator(TxnSourceType sourceType, long id, String ip, long startTime) {
             this.sourceType = sourceType;
+            this.id = id;
             this.ip = ip;
+            this.startTime = startTime;
         }
 
         @Override
@@ -301,7 +309,8 @@ public class TransactionState implements Writable {
         this.transactionId = -1;
         this.label = "";
         this.idToTableCommitInfos = Maps.newHashMap();
-        this.txnCoordinator = new TxnCoordinator(TxnSourceType.FE, "127.0.0.1"); // mocked, to avoid NPE
+        // mocked, to avoid NPE
+        this.txnCoordinator = new TxnCoordinator(TxnSourceType.FE, 0, "127.0.0.1", System.currentTimeMillis());
         this.transactionStatus = TransactionStatus.PREPARE;
         this.sourceType = LoadJobSourceType.FRONTEND;
         this.prepareTime = -1;
@@ -721,7 +730,7 @@ public class TransactionState implements Writable {
             info.readFields(in);
             idToTableCommitInfos.put(info.getTableId(), info);
         }
-        txnCoordinator = new TxnCoordinator(TxnSourceType.valueOf(in.readInt()), Text.readString(in));
+        txnCoordinator = new TxnCoordinator(TxnSourceType.valueOf(in.readInt()), 0, Text.readString(in), 0);
         transactionStatus = TransactionStatus.valueOf(in.readInt());
         sourceType = LoadJobSourceType.valueOf(in.readInt());
         prepareTime = in.readLong();

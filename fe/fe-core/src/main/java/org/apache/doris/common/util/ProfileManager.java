@@ -379,4 +379,8 @@ public class ProfileManager {
             writeLock.unlock();
         }
     }
+
+    public String getLastQueryId() {
+        return queryIdDeque.getLast();
+    }
 }

@@ -77,6 +77,10 @@ namespace doris::vectorized {
     }
 
 static bool ignore_cast(SlotDescriptor* slot, VExpr* expr) {
+    if (slot->type().is_date_type() && expr->type().is_date_type()) {
+        return true;
+    }
+
     if (slot->type().is_string_type() && expr->type().is_string_type()) {
         return true;
     }
@@ -228,12 +232,7 @@ Status VScanNode::get_next(RuntimeState* state, vectorized::Block* block, bool* 
     // remove them when query leave scan node to avoid other nodes use block->columns() to make a wrong decision
     Defer drop_block_temp_column {[&]() {
         std::unique_lock l(_block_lock);
-        auto all_column_names = block->get_names();
-        for (auto& name : all_column_names) {
-            if (name.rfind(BeConsts::BLOCK_TEMP_COLUMN_PREFIX, 0) == 0) {
-                block->erase(name);
-            }
-        }
+        block->erase_tmp_columns();
     }};
 
     if (state->is_cancelled()) {
@@ -824,6 +823,9 @@ Status VScanNode::_normalize_in_and_eq_predicate(VExpr* expr, VExprContext* expr
                         ColumnValueRange<T>::add_fixed_value_range, fn_name));
             }
             range.intersection(temp_range);
+        } else {
+            _eos = true;
+            return Status::OK();
         }
         *pdt = temp_pdt;
     }
@@ -927,6 +929,9 @@ Status VScanNode::_normalize_not_in_and_not_eq_predicate(VExpr* expr, VExprConte
                             ColumnValueRange<T>::add_fixed_value_range, fn_name));
                 }
             }
+        } else {
+            _eos = true;
+            return Status::OK();
         }
     } else {
         return Status::OK();
@@ -1005,6 +1010,9 @@ Status VScanNode::_normalize_noneq_binary_predicate(VExpr* expr, VExprContext* e
                             ColumnValueRange<T>::add_value_range, fn_name, slot_ref_child));
                 }
                 *pdt = temp_pdt;
+            } else {
+                _eos = true;
+                return Status::OK();
             }
         }
     }
@@ -1133,21 +1141,23 @@ Status VScanNode::_normalize_in_and_not_in_compound_predicate(vectorized::VExpr*
         std::string fn_name =
                 expr->op() == TExprOpcode::type::FILTER_IN ? "in_list" : "not_in_list";
 
+        for (const auto& child_expr : expr->children()) {
+            if (child_expr->node_type() == TExprNodeType::NULL_LITERAL) {
+                *pdt = PushDownType::UNACCEPTABLE;
+                return Status::OK();
+            }
+        }
+
         HybridSetBase::IteratorBase* iter = nullptr;
         auto hybrid_set = expr->get_set_func();
 
         if (hybrid_set != nullptr) {
-            if (hybrid_set->size() <= _max_pushdown_conditions_per_column) {
-                iter = hybrid_set->begin();
-            } else {
-                _filter_predicates.in_filters.emplace_back(slot->col_name(), expr->get_set_func());
-                *pdt = PushDownType::ACCEPTABLE;
-                return Status::OK();
-            }
+            *pdt = PushDownType::UNACCEPTABLE;
+            return Status::OK();
         } else {
-            VInPredicate* pred = static_cast<VInPredicate*>(expr);
+            auto* pred = static_cast<vectorized::VInPredicate*>(expr);
 
-            InState* state = reinterpret_cast<InState*>(
+            auto* state = reinterpret_cast<vectorized::InState*>(
                     expr_ctx->fn_context(pred->fn_context_index())
                             ->get_function_state(FunctionContext::FRAGMENT_LOCAL));
 

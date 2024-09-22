@@ -170,6 +170,9 @@ public class AccessControllerManager {
 
     public boolean checkTblPriv(ConnectContext ctx, String qualifiedCtl,
             String qualifiedDb, String tbl, PrivPredicate wanted) {
+        if (ctx.isSkipAuth()) {
+            return true;
+        }
         return checkTblPriv(ctx.getCurrentUserIdentity(), qualifiedCtl, qualifiedDb, tbl, wanted);
     }
 

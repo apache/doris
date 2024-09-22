@@ -452,17 +452,17 @@ public class BackupHandler extends MasterDaemon implements Writable {
                 throw new DdlException("read backup meta failed", e);
             }
             String backupTimestamp = TimeUtils.longToTimeString(
-                    jobInfo.getBackupTime(), TimeUtils.DATETIME_FORMAT_WITH_HYPHEN);
+                    jobInfo.getBackupTime(), TimeUtils.getDatetimeFormatWithHyphenWithTimeZone());
             restoreJob = new RestoreJob(stmt.getLabel(), backupTimestamp,
                     db.getId(), db.getFullName(), jobInfo, stmt.allowLoad(), stmt.getReplicaAlloc(),
                     stmt.getTimeoutMs(), metaVersion, stmt.reserveReplica(),
                     stmt.reserveDynamicPartitionEnable(), stmt.isBeingSynced(),
-                    env, Repository.KEEP_ON_LOCAL_REPO_ID, backupMeta);
+                    stmt.isCleanTables(), stmt.isCleanPartitions(), env, Repository.KEEP_ON_LOCAL_REPO_ID, backupMeta);
         } else {
             restoreJob = new RestoreJob(stmt.getLabel(), stmt.getBackupTimestamp(),
                 db.getId(), db.getFullName(), jobInfo, stmt.allowLoad(), stmt.getReplicaAlloc(),
                 stmt.getTimeoutMs(), stmt.getMetaVersion(), stmt.reserveReplica(), stmt.reserveDynamicPartitionEnable(),
-                stmt.isBeingSynced(), env, repository.getId());
+                stmt.isBeingSynced(), stmt.isCleanTables(), stmt.isCleanPartitions(), env, repository.getId());
         }
 
         env.getEditLog().logRestoreJob(restoreJob);

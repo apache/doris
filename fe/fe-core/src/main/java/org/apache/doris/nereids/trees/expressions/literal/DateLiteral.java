@@ -145,17 +145,6 @@ public class DateLiteral extends Literal {
         return punctuations.contains(c);
     }
 
-    private static void replacePunctuation(String s, StringBuilder sb, char c, int idx) {
-        if (idx >= sb.length()) {
-            return;
-        }
-        if (isPunctuation(sb.charAt(idx))) {
-            sb.setCharAt(idx, c);
-        } else {
-            throw new AnalysisException("date/datetime literal [" + s + "] is invalid");
-        }
-    }
-
     static String normalize(String s) {
         // merge consecutive space
         s = s.replaceAll(" +", " ");
@@ -337,7 +326,7 @@ public class DateLiteral extends Literal {
     }
 
     protected static boolean isDateOutOfRange(LocalDateTime dateTime) {
-        return dateTime.isBefore(START_OF_A_DAY) || dateTime.isAfter(END_OF_A_DAY);
+        return dateTime == null || dateTime.isBefore(START_OF_A_DAY) || dateTime.isAfter(END_OF_A_DAY);
     }
 
     private boolean checkDatetime(TemporalAccessor dateTime) {
