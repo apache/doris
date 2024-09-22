@@ -18,7 +18,7 @@
 suite("test_primary_key_partial_update_parallel", "p0") {
 
     // case 1: concurrent partial update
-    def tableName = "test_primary_key_partial_update"
+    def tableName = "test_primary_key_partial_update_parallel"
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """
             CREATE TABLE ${tableName} (
