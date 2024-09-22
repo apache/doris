@@ -49,9 +49,9 @@ PhysicalCteAnchor ( cteId=CTEId#1 )
 --PhysicalResultSink
 ----PhysicalQuickSort[MERGE_SORT]
 ------PhysicalQuickSort[LOCAL_SORT]
---------hashJoin[INNER_JOIN] hashCondition=((cs1.item_sk = cs2.item_sk) and (cs1.store_name = cs2.store_name) and (cs1.store_zip = cs2.store_zip)) otherCondition=((cs2.cnt <= cs1.cnt))
+--------hashJoin[INNER_JOIN] hashCondition=((cs1.item_sk = cs2.item_sk) and (cs1.store_name = cs2.store_name) and (cs1.store_zip = cs2.store_zip)) otherCondition=((cs2.cnt <= cs1.cnt)) build RFs:RF21 item_sk->[item_sk];RF22 store_name->[store_name];RF23 store_zip->[store_zip]
 ----------filter((cs1.syear = 1999))
-------------PhysicalCteConsumer ( cteId=CTEId#1 )
+------------PhysicalCteConsumer ( cteId=CTEId#1 ) apply RFs: RF21 RF22 RF23
 ----------filter((cs2.syear = 2000))
 ------------PhysicalCteConsumer ( cteId=CTEId#1 )
 
