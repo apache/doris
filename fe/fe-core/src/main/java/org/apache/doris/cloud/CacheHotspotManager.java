@@ -331,7 +331,7 @@ public class CacheHotspotManager extends MasterDaemon {
         return responseList;
     }
 
-    private Long getFileCacheTotalBytes(String clusterName) throws RuntimeException {
+    private Long getFileCacheCapacity(String clusterName) throws RuntimeException {
         List<Backend> backends = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
                                         .getBackendsByClusterName(clusterName);
         Long totalFileCache = 0L;
@@ -386,7 +386,7 @@ public class CacheHotspotManager extends MasterDaemon {
     }
 
     private Map<Long, List<Tablet>> warmUpNewClusterByCluster(String dstClusterName, String srcClusterName) {
-        Long dstTotalFileCache = getFileCacheTotalBytes(dstClusterName);
+        Long dstTotalFileCache = getFileCacheCapacity(dstClusterName);
         List<List<String>> result = getClusterTopNHotPartitions(srcClusterName);
         Long warmUpTabletsSize = 0L;
         List<Tablet> tablets = new ArrayList<>();
@@ -521,7 +521,7 @@ public class CacheHotspotManager extends MasterDaemon {
             List<Triple<String, String, String>> tables,
             boolean isForce) throws RuntimeException {
         Map<Long, List<Tablet>> beToWarmUpTablets = new HashMap<>();
-        Long totalFileCache = getFileCacheTotalBytes(dstClusterName);
+        Long totalFileCache = getFileCacheCapacity(dstClusterName);
         Long warmUpTotalFileCache = 0L;
         for (Triple<String, String, String> tableTriple : tables) {
             if (warmUpTotalFileCache > totalFileCache) {
