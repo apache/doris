@@ -1292,4 +1292,40 @@ class FilterEstimationTest {
         Statistics agrtc = new FilterEstimation().estimate(new GreaterThan(a, c), baseStats);
         Assertions.assertEquals(50, agrtc.getRowCount());
     }
+
+    @Test
+    void testAndWithInfinity() {
+        Double row = 1000.0;
+        SlotReference a = new SlotReference("a", new VarcharType(25));
+        ColumnStatisticBuilder columnStatisticBuilderA = new ColumnStatisticBuilder()
+                .setNdv(10)
+                .setAvgSizeByte(4)
+                .setNumNulls(0)
+                .setCount(row);
+
+        SlotReference b = new SlotReference("b", IntegerType.INSTANCE);
+        ColumnStatisticBuilder columnStatisticBuilderB = new ColumnStatisticBuilder()
+                .setNdv(488)
+                .setAvgSizeByte(25)
+                .setNumNulls(0)
+                .setCount(row);
+        StatisticsBuilder statsBuilder = new StatisticsBuilder();
+        statsBuilder.setRowCount(row);
+        statsBuilder.putColumnStatistics(a, columnStatisticBuilderA.build());
+        statsBuilder.putColumnStatistics(b, columnStatisticBuilderB.build());
+        Expression strGE = new GreaterThanEqual(a,
+                new org.apache.doris.nereids.trees.expressions.literal.StringLiteral("2024-05-14"));
+        Statistics strStats = new FilterEstimation().estimate(strGE, statsBuilder.build());
+        Assertions.assertEquals(500, strStats.getRowCount());
+
+        Expression intGE = new GreaterThan(b, new IntegerLiteral(0));
+        Statistics intStats = new FilterEstimation().estimate(intGE, statsBuilder.build());
+        Assertions.assertEquals(500, intStats.getRowCount());
+
+        Expression predicate = new And(strGE, intGE);
+
+        Statistics stats = new FilterEstimation().estimate(predicate, statsBuilder.build());
+        Assertions.assertEquals(250, stats.getRowCount());
+    }
+
 }
