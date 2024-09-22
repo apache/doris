@@ -359,10 +359,10 @@ suite("test_hdfs_parquet_group5","external,hive,tvf,external_docker") {
 
 
             uri = "${defaultFS}" + "/user/doris/preinstalled_data/test_hdfs_parquet/group5/string_int_list_inconsistent_offset_multiple_batches.parquet"
-            order_qt_test_46 """ select * from HDFS(
+            order_qt_test_46 """ select count(*) from HDFS(
                         "uri" = "${uri}",
                         "hadoop.username" = "${hdfsUserName}",
-                        "format" = "parquet") limit 10; """
+                        "format" = "parquet"); """
 
 
             uri = "${defaultFS}" + "/user/doris/preinstalled_data/test_hdfs_parquet/group5/userdata5.parquet"
