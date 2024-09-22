@@ -117,12 +117,14 @@ suite("test_hdfs_parquet_group5","external,hive,tvf,external_docker") {
                         "format" = "parquet") limit 10; """
 
 
-            // uri = "${defaultFS}" + "/user/doris/preinstalled_data/test_hdfs_parquet/group5/time64_test.parquet"
-            // order_qt_test_13 """ select * from HDFS(
-            //             "uri" = "${uri}",
-            //             "hadoop.username" = "${hdfsUserName}",
-            //             "format" = "parquet") limit 10; """
-            // [INTERNAL_ERROR]The column type of 'timestamp' is not supported: INT64 => TimeV2
+            uri = "${defaultFS}" + "/user/doris/preinstalled_data/test_hdfs_parquet/group5/time64_test.parquet"
+            test {
+                sql """ select * from HDFS(
+                        "uri" = "${uri}",
+                        "hadoop.username" = "${hdfsUserName}",
+                        "format" = "parquet") limit 10; """
+                exception "The column type of 'timestamp' is not supported: INT64 => TimeV2"
+            }
 
 
             uri = "${defaultFS}" + "/user/doris/preinstalled_data/test_hdfs_parquet/group5/non_hadoop_lz4_compressed.parquet"
@@ -217,12 +219,14 @@ suite("test_hdfs_parquet_group5","external,hive,tvf,external_docker") {
                         "format" = "parquet") limit 10; """
 
 
-            // uri = "${defaultFS}" + "/user/doris/preinstalled_data/test_hdfs_parquet/group5/dict-page-offset-zero.parquet"
-            // order_qt_test_27 """ select * from HDFS(
-            //             "uri" = "${uri}",
-            //             "hadoop.username" = "${hdfsUserName}",
-            //             "format" = "parquet") limit 10; """
-            // [IO_ERROR]Failed to deserialize parquet page header. offset: 0, header size: 40, end offset: 40, real header size: 40
+            uri = "${defaultFS}" + "/user/doris/preinstalled_data/test_hdfs_parquet/group5/dict-page-offset-zero.parquet"
+            test {
+                sql """ select * from HDFS(
+                        "uri" = "${uri}",
+                        "hadoop.username" = "${hdfsUserName}",
+                        "format" = "parquet") limit 10; """
+                exception "Failed to deserialize parquet page header. offset: 0, header size: 40, end offset: 40, real header size: 40"
+            }
 
 
             uri = "${defaultFS}" + "/user/doris/preinstalled_data/test_hdfs_parquet/group5/native_parquet_reader.parquet"
@@ -281,12 +285,14 @@ suite("test_hdfs_parquet_group5","external,hive,tvf,external_docker") {
                         "format" = "parquet") limit 10; """
 
 
-            // uri = "${defaultFS}" + "/user/doris/preinstalled_data/test_hdfs_parquet/group5/time32_test.parquet"
-            // order_qt_test_36 """ select * from HDFS(
-            //             "uri" = "${uri}",
-            //             "hadoop.username" = "${hdfsUserName}",
-            //             "format" = "parquet") limit 10; """
-            // [INTERNAL_ERROR]The column type of 'timestamp' is not supported: INT32 => TimeV2
+            uri = "${defaultFS}" + "/user/doris/preinstalled_data/test_hdfs_parquet/group5/time32_test.parquet"
+            test {
+                sql """ select * from HDFS(
+                        "uri" = "${uri}",
+                        "hadoop.username" = "${hdfsUserName}",
+                        "format" = "parquet") limit 10; """
+                exception "The column type of 'timestamp' is not supported: INT32 => TimeV2"
+            }
 
 
             uri = "${defaultFS}" + "/user/doris/preinstalled_data/test_hdfs_parquet/group5/userdata4.parquet"

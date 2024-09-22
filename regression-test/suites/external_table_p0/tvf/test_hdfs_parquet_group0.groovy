@@ -54,12 +54,14 @@ suite("test_hdfs_parquet_group0","external,hive,tvf,external_docker") {
                         "format" = "parquet") limit 10; """
 
 
-            // uri = "${defaultFS}" + "/user/doris/preinstalled_data/test_hdfs_parquet/group0/byte_stream_split_extended.gzip.parquet"
-            // order_qt_test_4 """ select * from HDFS(
-            //             "uri" = "${uri}",
-            //             "hadoop.username" = "${hdfsUserName}",
-            //             "format" = "parquet") limit 10; """
-            // [INTERNAL_ERROR]Unsupported encoding BYTE_STREAM_SPLIT(type=FIXED_LEN_BYTE_ARRAY) in parquet decoder
+            uri = "${defaultFS}" + "/user/doris/preinstalled_data/test_hdfs_parquet/group0/byte_stream_split_extended.gzip.parquet"
+            test {
+                sql """ select * from HDFS(
+                        "uri" = "${uri}",
+                        "hadoop.username" = "${hdfsUserName}",
+                        "format" = "parquet") limit 10; """
+                exception "Unsupported encoding BYTE_STREAM_SPLIT(type=FIXED_LEN_BYTE_ARRAY) in parquet decoder"
+            }
 
 
             uri = "${defaultFS}" + "/user/doris/preinstalled_data/test_hdfs_parquet/group0/nested_maps.snappy.parquet"
@@ -104,12 +106,14 @@ suite("test_hdfs_parquet_group0","external,hive,tvf,external_docker") {
                         "format" = "parquet") limit 10; """
 
 
-            // uri = "${defaultFS}" + "/user/doris/preinstalled_data/test_hdfs_parquet/group0/large_string_map.brotli.parquet"
-            // order_qt_test_11 """ select * from HDFS(
-            //             "uri" = "${uri}",
-            //             "hadoop.username" = "${hdfsUserName}",
-            //             "format" = "parquet") limit 10; """
-            // unknown compression type(4)
+            uri = "${defaultFS}" + "/user/doris/preinstalled_data/test_hdfs_parquet/group0/large_string_map.brotli.parquet"
+            test {
+                sql """ select * from HDFS(
+                        "uri" = "${uri}",
+                        "hadoop.username" = "${hdfsUserName}",
+                        "format" = "parquet") limit 10; """
+                exception "unknown compression type(4)"
+            }
 
 
             uri = "${defaultFS}" + "/user/doris/preinstalled_data/test_hdfs_parquet/group0/non_hadoop_lz4_compressed.parquet"
@@ -218,12 +222,14 @@ suite("test_hdfs_parquet_group0","external,hive,tvf,external_docker") {
                         "format" = "parquet") limit 10; """
 
 
-            // uri = "${defaultFS}" + "/user/doris/preinstalled_data/test_hdfs_parquet/group0/dict-page-offset-zero.parquet"
-            // order_qt_test_27 """ select * from HDFS(
-            //             "uri" = "${uri}",
-            //             "hadoop.username" = "${hdfsUserName}",
-            //             "format" = "parquet") limit 10; """
-            // [IO_ERROR]Failed to deserialize parquet page header. offset: 0, header size: 40, end offset: 40, real header size: 40
+            uri = "${defaultFS}" + "/user/doris/preinstalled_data/test_hdfs_parquet/group0/dict-page-offset-zero.parquet"
+            test {
+                sql """ select * from HDFS(
+                        "uri" = "${uri}",
+                        "hadoop.username" = "${hdfsUserName}",
+                        "format" = "parquet") limit 10; """
+                exception "Failed to deserialize parquet page header. offset: 0, header size: 40, end offset: 40, real header size: 40"
+            }
 
 
             uri = "${defaultFS}" + "/user/doris/preinstalled_data/test_hdfs_parquet/group0/repeated_no_annotation.parquet"
@@ -254,12 +260,14 @@ suite("test_hdfs_parquet_group0","external,hive,tvf,external_docker") {
                         "format" = "parquet") limit 10; """
 
 
-            // uri = "${defaultFS}" + "/user/doris/preinstalled_data/test_hdfs_parquet/group0/byte_stream_split.zstd.parquet"
-            // order_qt_test_32 """ select * from HDFS(
-            //             "uri" = "${uri}",
-            //             "hadoop.username" = "${hdfsUserName}",
-            //             "format" = "parquet") limit 10; """
-            // [INTERNAL_ERROR]Unsupported encoding BYTE_STREAM_SPLIT(type=FLOAT) in parquet decoder
+            uri = "${defaultFS}" + "/user/doris/preinstalled_data/test_hdfs_parquet/group0/byte_stream_split.zstd.parquet"
+            test{
+                sql """ select * from HDFS(
+                        "uri" = "${uri}",
+                        "hadoop.username" = "${hdfsUserName}",
+                        "format" = "parquet") limit 10; """
+                exception "Unsupported encoding BYTE_STREAM_SPLIT(type=FLOAT) in parquet decoder"
+            }
 
 
             uri = "${defaultFS}" + "/user/doris/preinstalled_data/test_hdfs_parquet/group0/rle-dict-snappy-checksum.parquet"
@@ -325,12 +333,14 @@ suite("test_hdfs_parquet_group0","external,hive,tvf,external_docker") {
                         "format" = "parquet") limit 10; """
 
 
-            // uri = "${defaultFS}" + "/user/doris/preinstalled_data/test_hdfs_parquet/group0/fixed_length_byte_array.parquet"
-            // order_qt_test_42 """ select * from HDFS(
-            //             "uri" = "${uri}",
-            //             "hadoop.username" = "${hdfsUserName}",
-            //             "format" = "parquet") limit 10; """
-            // [IO_ERROR]Out-of-bounds access in parquet data decoder
+            uri = "${defaultFS}" + "/user/doris/preinstalled_data/test_hdfs_parquet/group0/fixed_length_byte_array.parquet"
+            test{
+                sql """ select * from HDFS(
+                        "uri" = "${uri}",
+                        "hadoop.username" = "${hdfsUserName}",
+                        "format" = "parquet") limit 10; """
+                exception "Out-of-bounds access in parquet data decoder"
+            }
 
 
             uri = "${defaultFS}" + "/user/doris/preinstalled_data/test_hdfs_parquet/group0/lz4_raw_compressed.parquet"

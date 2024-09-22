@@ -208,12 +208,14 @@ suite("test_hdfs_parquet_group6","external,hive,tvf,external_docker") {
                         "format" = "parquet") limit 10; """
 
 
-            // uri = "${defaultFS}" + "/user/doris/preinstalled_data/test_hdfs_parquet/group6/schema4.parquet"
-            // order_qt_test_26 """ select * from HDFS(
-            //             "uri" = "${uri}",
-            //             "hadoop.username" = "${hdfsUserName}",
-            //             "format" = "parquet") limit 10; """
-            // [INVALID_ARGUMENT]Duplicated field name: col1
+            uri = "${defaultFS}" + "/user/doris/preinstalled_data/test_hdfs_parquet/group6/schema4.parquet"
+            test {
+                sql """ select * from HDFS(
+                        "uri" = "${uri}",
+                        "hadoop.username" = "${hdfsUserName}",
+                        "format" = "parquet") limit 10; """
+                exception "Duplicated field name: col1"
+            }
 
 
             uri = "${defaultFS}" + "/user/doris/preinstalled_data/test_hdfs_parquet/group6/nested_array_test2.parquet"
@@ -419,20 +421,24 @@ suite("test_hdfs_parquet_group6","external,hive,tvf,external_docker") {
                         "format" = "parquet") limit 10; """
 
 
-            // uri = "${defaultFS}" + "/user/doris/preinstalled_data/test_hdfs_parquet/group6/int32.parquet"
-            // order_qt_test_56 """ select * from HDFS(
-            //             "uri" = "${uri}",
-            //             "hadoop.username" = "${hdfsUserName}",
-            //             "format" = "parquet") limit 10; """
-            // [INTERNAL_ERROR]The column type of 'time_millis' is not supported: INT32 => TimeV2
+            uri = "${defaultFS}" + "/user/doris/preinstalled_data/test_hdfs_parquet/group6/int32.parquet"
+            test {
+                sql """ select * from HDFS(
+                        "uri" = "${uri}",
+                        "hadoop.username" = "${hdfsUserName}",
+                        "format" = "parquet") limit 10; """
+                exception "The column type of 'time_millis' is not supported: INT32 => TimeV2"
+            }
 
 
-            // uri = "${defaultFS}" + "/user/doris/preinstalled_data/test_hdfs_parquet/group6/hudi_array_map.parquet"
-            // order_qt_test_57 """ select * from HDFS(
-            //             "uri" = "${uri}",
-            //             "hadoop.username" = "${hdfsUserName}",
-            //             "format" = "parquet") limit 10; """
-            // [INVALID_ARGUMENT]Map element should have only one child(name='map', type='MAP_KEY_VALUE')
+            uri = "${defaultFS}" + "/user/doris/preinstalled_data/test_hdfs_parquet/group6/hudi_array_map.parquet"
+            test {
+                sql """ select * from HDFS(
+                        "uri" = "${uri}",
+                        "hadoop.username" = "${hdfsUserName}",
+                        "format" = "parquet") limit 10; """
+                exception "Map element should have only one child(name='map', type='MAP_KEY_VALUE')"
+            }
 
 
             uri = "${defaultFS}" + "/user/doris/preinstalled_data/test_hdfs_parquet/group6/array_decode.parquet"
@@ -519,12 +525,14 @@ suite("test_hdfs_parquet_group6","external,hive,tvf,external_docker") {
                         "format" = "parquet") limit 10; """
 
 
-            // uri = "${defaultFS}" + "/user/doris/preinstalled_data/test_hdfs_parquet/group6/decimal.parquet"
-            // order_qt_test_70 """ select * from HDFS(
-            //             "uri" = "${uri}",
-            //             "hadoop.username" = "${hdfsUserName}",
-            //             "format" = "parquet") limit 10; """
-            // [IO_ERROR]Out-of-bounds access in parquet data decoder
+            uri = "${defaultFS}" + "/user/doris/preinstalled_data/test_hdfs_parquet/group6/decimal.parquet"
+            test {
+                sql """ select * from HDFS(
+                        "uri" = "${uri}",
+                        "hadoop.username" = "${hdfsUserName}",
+                        "format" = "parquet") limit 10; """
+                exception "Out-of-bounds access in parquet data decoder"
+            }
 
 
             uri = "${defaultFS}" + "/user/doris/preinstalled_data/test_hdfs_parquet/group6/schema3.parquet"
@@ -640,12 +648,14 @@ suite("test_hdfs_parquet_group6","external,hive,tvf,external_docker") {
                         "format" = "parquet") limit 10; """
 
 
-            // uri = "${defaultFS}" + "/user/doris/preinstalled_data/test_hdfs_parquet/group6/test_parquet_time_type.parquet"
-            // order_qt_test_87 """ select * from HDFS(
-            //             "uri" = "${uri}",
-            //             "hadoop.username" = "${hdfsUserName}",
-            //             "format" = "parquet") limit 10; """
-            // [INTERNAL_ERROR]The column type of 'c2' is not supported: INT64 => TimeV2
+            uri = "${defaultFS}" + "/user/doris/preinstalled_data/test_hdfs_parquet/group6/test_parquet_time_type.parquet"
+            test {
+                sql """ select * from HDFS(
+                        "uri" = "${uri}",
+                        "hadoop.username" = "${hdfsUserName}",
+                        "format" = "parquet") limit 10; """
+                exception "The column type of 'c2' is not supported: INT64 => TimeV2"
+            }
 
 
             uri = "${defaultFS}" + "/user/doris/preinstalled_data/test_hdfs_parquet/group6/json.parquet"
@@ -662,12 +672,14 @@ suite("test_hdfs_parquet_group6","external,hive,tvf,external_docker") {
                         "format" = "parquet") limit 10; """
 
 
-            // uri = "${defaultFS}" + "/user/doris/preinstalled_data/test_hdfs_parquet/group6/ARROW-17100.parquet"
-            // order_qt_test_90 """ select * from HDFS(
-            //             "uri" = "${uri}",
-            //             "hadoop.username" = "${hdfsUserName}",
-            //             "format" = "parquet") limit 10; """
-            // [IO_ERROR]Can't read byte array length from plain decoder
+            uri = "${defaultFS}" + "/user/doris/preinstalled_data/test_hdfs_parquet/group6/ARROW-17100.parquet"
+            test {
+                sql """ select * from HDFS(
+                        "uri" = "${uri}",
+                        "hadoop.username" = "${hdfsUserName}",
+                        "format" = "parquet") limit 10; """
+                exception "Can't read byte array length from plain decoder"
+            }
 
 
             uri = "${defaultFS}" + "/user/doris/preinstalled_data/test_hdfs_parquet/group6/parquet_cpp_example.parquet"
@@ -726,12 +738,14 @@ suite("test_hdfs_parquet_group6","external,hive,tvf,external_docker") {
                         "format" = "parquet") limit 10; """
 
 
-            // uri = "${defaultFS}" + "/user/doris/preinstalled_data/test_hdfs_parquet/group6/int64.parquet"
-            // order_qt_test_99 """ select * from HDFS(
-            //             "uri" = "${uri}",
-            //             "hadoop.username" = "${hdfsUserName}",
-            //             "format" = "parquet") limit 10; """
-            // [INTERNAL_ERROR]The column type of 'time_micros' is not supported: INT64 => TimeV2
+            uri = "${defaultFS}" + "/user/doris/preinstalled_data/test_hdfs_parquet/group6/int64.parquet"
+            test {
+                sql """ select * from HDFS(
+                        "uri" = "${uri}",
+                        "hadoop.username" = "${hdfsUserName}",
+                        "format" = "parquet") limit 10; """
+                exception "The column type of 'time_micros' is not supported: INT64 => TimeV2"
+            }
 
 
             uri = "${defaultFS}" + "/user/doris/preinstalled_data/test_hdfs_parquet/group6/lz4_raw.parquet"

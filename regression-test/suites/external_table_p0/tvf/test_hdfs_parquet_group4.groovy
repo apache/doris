@@ -194,12 +194,14 @@ suite("test_hdfs_parquet_group4","external,hive,tvf,external_docker") {
                         "format" = "parquet") limit 10; """
 
 
-            // uri = "${defaultFS}" + "/user/doris/preinstalled_data/test_hdfs_parquet/group4/byte_stream_split_float_and_double.parquet"
-            // order_qt_test_24 """ select * from HDFS(
-            //             "uri" = "${uri}",
-            //             "hadoop.username" = "${hdfsUserName}",
-            //             "format" = "parquet") limit 10; """
-            // [INTERNAL_ERROR]Unsupported encoding BYTE_STREAM_SPLIT(type=FLOAT) in parquet decoder
+            uri = "${defaultFS}" + "/user/doris/preinstalled_data/test_hdfs_parquet/group4/byte_stream_split_float_and_double.parquet"
+            test {
+                sql """ select * from HDFS(
+                        "uri" = "${uri}",
+                        "hadoop.username" = "${hdfsUserName}",
+                        "format" = "parquet") limit 10; """
+                exception "Unsupported encoding BYTE_STREAM_SPLIT(type=FLOAT) in parquet decoder"
+            }
 
 
             uri = "${defaultFS}" + "/user/doris/preinstalled_data/test_hdfs_parquet/group4/part-00000-eebaa9a7-1a21-4e28-806c-24f24f8a0353-c000.snappy.parquet"
@@ -860,12 +862,14 @@ suite("test_hdfs_parquet_group4","external,hive,tvf,external_docker") {
                         "format" = "parquet") limit 10; """
 
 
-            // uri = "${defaultFS}" + "/user/doris/preinstalled_data/test_hdfs_parquet/group4/time-micros.parquet"
-            // order_qt_test_119 """ select * from HDFS(
-            //             "uri" = "${uri}",
-            //             "hadoop.username" = "${hdfsUserName}",
-            //             "format" = "parquet") limit 10; """
-            // [INTERNAL_ERROR]The column type of 'member0' is not supported: INT64 => TimeV2
+            uri = "${defaultFS}" + "/user/doris/preinstalled_data/test_hdfs_parquet/group4/time-micros.parquet"
+            test {
+                sql """ select * from HDFS(
+                        "uri" = "${uri}",
+                        "hadoop.username" = "${hdfsUserName}",
+                        "format" = "parquet") limit 10; """
+                exception "The column type of 'member0' is not supported: INT64 => TimeV2"
+            }
 
 
             uri = "${defaultFS}" + "/user/doris/preinstalled_data/test_hdfs_parquet/group4/part-00013-538d6279-0da7-4ef0-82e6-ae14dfbffc7c-c000.snappy.parquet"
@@ -2037,12 +2041,14 @@ suite("test_hdfs_parquet_group4","external,hive,tvf,external_docker") {
                         "format" = "parquet") limit 10; """
 
 
-            // uri = "${defaultFS}" + "/user/doris/preinstalled_data/test_hdfs_parquet/group4/time_millis_int32.snappy.parquet"
-            // order_qt_test_287 """ select * from HDFS(
-            //             "uri" = "${uri}",
-            //             "hadoop.username" = "${hdfsUserName}",
-            //             "format" = "parquet") limit 10; """
-            // [INTERNAL_ERROR]The column type of 'column1' is not supported: INT32 => TimeV2
+            uri = "${defaultFS}" + "/user/doris/preinstalled_data/test_hdfs_parquet/group4/time_millis_int32.snappy.parquet"
+            test {
+                sql """ select * from HDFS(
+                        "uri" = "${uri}",
+                        "hadoop.username" = "${hdfsUserName}",
+                        "format" = "parquet") limit 10; """
+                exception "The column type of 'column1' is not supported: INT32 => TimeV2"
+            }
 
 
             uri = "${defaultFS}" + "/user/doris/preinstalled_data/test_hdfs_parquet/group4/part-00000-3794c463-cb0c-4beb-8d07-7cc1e3b5920f.c000.snappy.parquet"
