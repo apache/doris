@@ -680,6 +680,8 @@ DataDistribution ExchangeSinkOperatorX::required_data_distribution() const {
             sort_source && sort_source->use_local_merge()) {
             // Sort the data local
             return ExchangeType::LOCAL_MERGE_SORT;
+        } else {
+            return ExchangeType::PASS_TO_ONE_EXCHANGE;
         }
     }
     return DataSinkOperatorX<ExchangeSinkLocalState>::required_data_distribution();

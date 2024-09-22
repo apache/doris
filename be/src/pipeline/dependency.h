@@ -785,6 +785,8 @@ enum class ExchangeType : uint8_t {
     PASS_TO_ONE = 6,
     // merge all data to one channel.
     LOCAL_MERGE_SORT = 7,
+    // Send all data to the first channel.
+    PASS_TO_ONE_EXCHANGE = 8,
 };
 
 inline std::string get_exchange_type_name(ExchangeType idx) {
@@ -805,6 +807,8 @@ inline std::string get_exchange_type_name(ExchangeType idx) {
         return "PASS_TO_ONE";
     case ExchangeType::LOCAL_MERGE_SORT:
         return "LOCAL_MERGE_SORT";
+    case ExchangeType::PASS_TO_ONE_EXCHANGE:
+        return "PASS_TO_ONE_EXCHANGE";
     }
     LOG(FATAL) << "__builtin_unreachable";
     __builtin_unreachable();

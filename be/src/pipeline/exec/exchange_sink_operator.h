@@ -219,6 +219,8 @@ public:
                            int num_receivers = 1);
     DataDistribution required_data_distribution() const override;
 
+    bool is_exchange_sink() const override { return true; };
+
 private:
     friend class ExchangeSinkLocalState;
 
