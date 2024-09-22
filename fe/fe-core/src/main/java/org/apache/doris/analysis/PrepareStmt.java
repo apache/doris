@@ -18,6 +18,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.common.NotSupportPreparedStmtError;
 import org.apache.doris.common.UserException;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TDescriptorTable;
@@ -162,7 +163,7 @@ public class PrepareStmt extends StatementBase {
     public void analyze(Analyzer analyzer) throws UserException {
         // TODO support more Statement
         if (!(inner instanceof SelectStmt) && !(inner instanceof NativeInsertStmt)) {
-            throw new UserException("Only support prepare SelectStmt or NativeInsertStmt");
+            throw new NotSupportPreparedStmtError("Only support prepare SelectStmt or NativeInsertStmt");
         }
         analyzer.setPrepareStmt(this);
         if (inner instanceof SelectStmt) {
@@ -190,12 +191,12 @@ public class PrepareStmt extends StatementBase {
             // use session var to decide whether to use full prepared or let user client handle to do fail over
             if (preparedType != PreparedType.FULL_PREPARED
                     && !ConnectContext.get().getSessionVariable().enableServeSidePreparedStatement) {
-                throw new UserException("Failed to prepare statement");
+                throw new NotSupportPreparedStmtError("Failed to prepare statement, not supported");
             }
         } else if (inner instanceof NativeInsertStmt) {
             LabelName label = ((NativeInsertStmt) inner).getLoadLabel();
             if (label != null && !Strings.isNullOrEmpty(label.getLabelName())) {
-                throw new UserException("Only support prepare InsertStmt without label now");
+                throw new NotSupportPreparedStmtError("Only support prepare InsertStmt without label now");
             }
         }
         preparedType = PreparedType.STATEMENT;
@@ -262,7 +263,7 @@ public class PrepareStmt extends StatementBase {
 
     public void asignValues(List<LiteralExpr> values) throws UserException {
         if (values.size() != inner.getPlaceHolders().size()) {
-            throw new UserException("Invalid arguments size "
+            throw new NotSupportPreparedStmtError("Invalid arguments size "
                                 + values.size() + ", expected " + inner.getPlaceHolders().size());
         }
         for (int i = 0; i < values.size(); ++i) {

@@ -101,11 +101,9 @@ public class JdbcExternalCatalog extends ExternalCatalog {
     }
 
     @Override
-    public void onRefresh(boolean invalidCache) {
-        super.onRefresh(invalidCache);
-        if (jdbcClient != null) {
-            jdbcClient.closeClient();
-        }
+    public void notifyPropertiesUpdated(Map<String, String> updatedProps) {
+        super.notifyPropertiesUpdated(updatedProps);
+        this.onClose();
     }
 
     @Override
@@ -113,6 +111,7 @@ public class JdbcExternalCatalog extends ExternalCatalog {
         super.onClose();
         if (jdbcClient != null) {
             jdbcClient.closeClient();
+            jdbcClient = null;
         }
     }
 
@@ -205,6 +204,9 @@ public class JdbcExternalCatalog extends ExternalCatalog {
 
     @Override
     protected void initLocalObjectsImpl() {
+        if (jdbcClient != null) {
+            return;
+        }
         JdbcClientConfig jdbcClientConfig = new JdbcClientConfig()
                 .setCatalog(this.name)
                 .setUser(getJdbcUser())

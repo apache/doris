@@ -172,7 +172,6 @@ void VPartitionSortNode::_emplace_into_hash_table(const ColumnRawPtrs& key_colum
 Status VPartitionSortNode::sink(RuntimeState* state, vectorized::Block* input_block, bool eos) {
     auto current_rows = input_block->rows();
     if (current_rows > 0) {
-        child_input_rows = child_input_rows + current_rows;
         if (UNLIKELY(_partition_exprs_num == 0)) {
             if (UNLIKELY(_value_places.empty())) {
                 _value_places.push_back(_pool->add(new PartitionBlocks()));
@@ -192,6 +191,7 @@ Status VPartitionSortNode::sink(RuntimeState* state, vectorized::Block* input_bl
                 RETURN_IF_ERROR(
                         state->check_query_state("VPartitionSortNode, while split input block."));
                 input_block->clear_column_data();
+                child_input_rows = child_input_rows + current_rows;
             }
         }
     }

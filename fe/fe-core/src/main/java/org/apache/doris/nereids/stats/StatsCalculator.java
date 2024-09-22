@@ -113,6 +113,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalWindow;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.AnalysisManager;
 import org.apache.doris.statistics.ColumnStatistic;
@@ -669,6 +670,13 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             ColumnStatisticBuilder colStatsBuilder = new ColumnStatisticBuilder(cache);
             if (cache.avgSizeByte <= 0) {
                 colStatsBuilder.setAvgSizeByte(slotReference.getColumn().get().getType().getSlotSize());
+            }
+            if (ConnectContext.get() != null && !ConnectContext.get().getSessionVariable().enableStringMinMaxStats
+                    && slotReference.getDataType() instanceof CharacterType) {
+                colStatsBuilder.setMinValue(Double.NEGATIVE_INFINITY);
+                colStatsBuilder.setMaxValue(Double.POSITIVE_INFINITY);
+                colStatsBuilder.setMinExpr(null);
+                colStatsBuilder.setMaxExpr(null);
             }
             if (!cache.isUnKnown) {
                 rowCount = Math.max(rowCount, cache.count + deltaRowCount);

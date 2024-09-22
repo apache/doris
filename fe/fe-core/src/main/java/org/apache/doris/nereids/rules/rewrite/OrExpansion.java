@@ -166,8 +166,13 @@ public class OrExpansion extends OneExplorationRuleFactory {
         ctx.putCTEIdToConsumer(left);
         ctx.putCTEIdToConsumer(right);
 
-        Map<Slot, Slot> replaced = new HashMap<>(left.getProducerToConsumerOutputMap());
-        replaced.putAll(right.getProducerToConsumerOutputMap());
+        Map<Slot, Slot> replaced = new HashMap<>();
+        for (Map.Entry<Slot, Slot> entry : left.getConsumerToProducerOutputMap().entrySet()) {
+            replaced.put(entry.getValue(), entry.getKey());
+        }
+        for (Map.Entry<Slot, Slot> entry : right.getConsumerToProducerOutputMap().entrySet()) {
+            replaced.put(entry.getValue(), entry.getKey());
+        }
         List<Expression> disjunctions = hashOtherConditions.first;
         List<Expression> otherConditions = hashOtherConditions.second;
         List<Expression> newOtherConditions = otherConditions.stream()
@@ -189,8 +194,13 @@ public class OrExpansion extends OneExplorationRuleFactory {
             LogicalCTEConsumer newRight = new LogicalCTEConsumer(
                     ctx.getStatementContext().getNextRelationId(), rightProducer.getCteId(), "", rightProducer);
             ctx.putCTEIdToConsumer(newRight);
-            Map<Slot, Slot> newReplaced = new HashMap<>(left.getProducerToConsumerOutputMap());
-            newReplaced.putAll(newRight.getProducerToConsumerOutputMap());
+            Map<Slot, Slot> newReplaced = new HashMap<>();
+            for (Map.Entry<Slot, Slot> entry : left.getConsumerToProducerOutputMap().entrySet()) {
+                newReplaced.put(entry.getValue(), entry.getKey());
+            }
+            for (Map.Entry<Slot, Slot> entry : newRight.getConsumerToProducerOutputMap().entrySet()) {
+                newReplaced.put(entry.getValue(), entry.getKey());
+            }
             newOtherConditions = otherConditions.stream()
                     .map(e -> e.rewriteUp(s -> newReplaced.containsKey(s) ? newReplaced.get(s) : s))
                     .collect(Collectors.toList());
@@ -246,8 +256,13 @@ public class OrExpansion extends OneExplorationRuleFactory {
             ctx.putCTEIdToConsumer(right);
 
             //rewrite conjuncts to replace the old slots with CTE slots
-            Map<Slot, Slot> replaced = new HashMap<>(left.getProducerToConsumerOutputMap());
-            replaced.putAll(right.getProducerToConsumerOutputMap());
+            Map<Slot, Slot> replaced = new HashMap<>();
+            for (Map.Entry<Slot, Slot> entry : left.getConsumerToProducerOutputMap().entrySet()) {
+                replaced.put(entry.getValue(), entry.getKey());
+            }
+            for (Map.Entry<Slot, Slot> entry : right.getConsumerToProducerOutputMap().entrySet()) {
+                replaced.put(entry.getValue(), entry.getKey());
+            }
             List<Expression> hashCond = pair.first.stream()
                     .map(e -> e.rewriteUp(s -> replaced.containsKey(s) ? replaced.get(s) : s))
                     .collect(Collectors.toList());

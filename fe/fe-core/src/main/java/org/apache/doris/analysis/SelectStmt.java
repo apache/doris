@@ -26,6 +26,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionSet;
+import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Table;
@@ -512,7 +513,13 @@ public class SelectStmt extends QueryStmt {
                 }
                 OlapTable olapTable = (OlapTable) tbl.getTable();
                 if (olapTable.getIndexIds().size() != 1) {
-                    haveMv = true;
+                    for (MaterializedIndexMeta meta : olapTable.getIndexIdToMeta().values()) {
+                        List<Column> idxColumns = meta.getSchema();
+                        // check the index is a mv index
+                        if (!idxColumns.isEmpty() && null != idxColumns.get(0).getDefineExpr()) {
+                            haveMv = true;
+                        }
+                    }
                 }
             }
 

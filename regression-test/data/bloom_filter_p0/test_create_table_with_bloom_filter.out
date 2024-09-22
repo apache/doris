@@ -11,11 +11,11 @@ char_50_key	char(50)	No	true	\N	BLOOM_FILTER
 character_key	varchar(500)	No	true	\N	BLOOM_FILTER
 char_key	char(1)	No	true	\N	BLOOM_FILTER
 character_most_key	varchar(65533)	No	true	\N	BLOOM_FILTER
-decimal_key	decimal(20, 6)	No	true	\N	BLOOM_FILTER
-decimal_most_key	decimal(27, 9)	No	true	\N	BLOOM_FILTER
-decimal32_key	decimal(5, 1)	No	true	\N	BLOOM_FILTER
-decimal64_key	decimal(14, 1)	No	true	\N	BLOOM_FILTER
-decimal128_key	decimal(38, 1)	No	true	\N	BLOOM_FILTER
+decimal_key	decimal(20,6)	No	true	\N	BLOOM_FILTER
+decimal_most_key	decimal(27,9)	No	true	\N	BLOOM_FILTER
+decimal32_key	decimal(5,1)	No	true	\N	BLOOM_FILTER
+decimal64_key	decimal(14,1)	No	true	\N	BLOOM_FILTER
+decimal128_key	decimal(38,1)	No	true	\N	BLOOM_FILTER
 date_key	date	No	true	\N	BLOOM_FILTER
 datetime_key	datetime	No	true	\N	BLOOM_FILTER
 datev2_key	date	No	true	\N	BLOOM_FILTER
@@ -30,11 +30,11 @@ char_50_value	char(50)	No	false	\N	REPLACE
 character_value	varchar(500)	No	false	\N	REPLACE
 char_value	char(1)	No	false	\N	REPLACE
 character_most_value	varchar(65533)	No	false	\N	REPLACE
-decimal_value	decimal(20, 6)	No	false	\N	SUM
-decimal_most_value	decimal(27, 9)	No	false	\N	SUM
-decimal32_value	decimal(5, 1)	No	false	\N	SUM
-decimal64_value	decimal(14, 1)	No	false	\N	SUM
-decimal128_value	decimal(38, 1)	No	false	\N	SUM
+decimal_value	decimal(20,6)	No	false	\N	SUM
+decimal_most_value	decimal(27,9)	No	false	\N	SUM
+decimal32_value	decimal(5,1)	No	false	\N	SUM
+decimal64_value	decimal(14,1)	No	false	\N	SUM
+decimal128_value	decimal(38,1)	No	false	\N	SUM
 date_value_max	date	No	false	\N	MAX
 date_value_replace	date	No	false	\N	REPLACE
 date_value_min	date	No	false	\N	MIN

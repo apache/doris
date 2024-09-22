@@ -199,7 +199,9 @@ public class SlotRef extends Expr {
     @Override
     public void computeOutputColumn(Analyzer analyzer) {
         outputColumn = desc.getSlotOffset();
-        LOG.debug("SlotRef: " + debugString() + " outputColumn: " + outputColumn);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("SlotRef: " + debugString() + " outputColumn: " + outputColumn);
+        }
     }
 
     @Override
@@ -648,6 +650,11 @@ public class SlotRef extends Expr {
 
     @Override
     public void replaceSlot(TupleDescriptor tuple) {
+        // do not analyze slot after replaceSlot to avoid duplicate columns in desc
         desc = tuple.getColumnSlot(col);
+        type = desc.getType();
+        if (!isAnalyzed) {
+            analysisDone();
+        }
     }
 }

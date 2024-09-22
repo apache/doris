@@ -3041,15 +3041,18 @@ Status Tablet::lookup_row_data(const Slice& encoded_key, const RowLocation& row_
     return Status::OK();
 }
 
-Status Tablet::lookup_row_key(const Slice& encoded_key, bool with_seq_col,
+Status Tablet::lookup_row_key(const Slice& encoded_key, TabletSchema* latest_schema,
+                              bool with_seq_col,
                               const std::vector<RowsetSharedPtr>& specified_rowsets,
                               RowLocation* row_location, uint32_t version,
                               std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
                               RowsetSharedPtr* rowset) {
     SCOPED_BVAR_LATENCY(g_tablet_lookup_rowkey_latency);
     size_t seq_col_length = 0;
-    if (_schema->has_sequence_col() && with_seq_col) {
-        seq_col_length = _schema->column(_schema->sequence_col_idx()).length() + 1;
+    // use the latest tablet schema to decide if the tablet has sequence column currently
+    const TabletSchema* schema = (latest_schema == nullptr ? _schema.get() : latest_schema);
+    if (schema->has_sequence_col() && with_seq_col) {
+        seq_col_length = schema->column(schema->sequence_col_idx()).length() + 1;
     }
     Slice key_without_seq = Slice(encoded_key.get_data(), encoded_key.get_size() - seq_col_length);
     RowLocation loc;
@@ -3080,7 +3083,7 @@ Status Tablet::lookup_row_key(const Slice& encoded_key, bool with_seq_col,
         DCHECK_EQ(segments.size(), num_segments);
 
         for (auto id : picked_segments) {
-            Status s = segments[id]->lookup_row_key(encoded_key, with_seq_col, &loc);
+            Status s = segments[id]->lookup_row_key(encoded_key, schema, with_seq_col, &loc);
             if (s.is<KEY_NOT_FOUND>()) {
                 continue;
             }
@@ -3091,7 +3094,7 @@ Status Tablet::lookup_row_key(const Slice& encoded_key, bool with_seq_col,
                                   {loc.rowset_id, loc.segment_id, version}, loc.row_id)) {
                 // if has sequence col, we continue to compare the sequence_id of
                 // all rowsets, util we find an existing key.
-                if (_schema->has_sequence_col()) {
+                if (schema->has_sequence_col()) {
                     continue;
                 }
                 // The key is deleted, we don't need to search for it any more.
@@ -3231,8 +3234,8 @@ Status Tablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
             }
 
             RowsetSharedPtr rowset_find;
-            auto st = lookup_row_key(key, true, specified_rowsets, &loc, dummy_version.first - 1,
-                                     segment_caches, &rowset_find);
+            auto st = lookup_row_key(key, rowset_schema.get(), true, specified_rowsets, &loc,
+                                     dummy_version.first - 1, segment_caches, &rowset_find);
             bool expected_st = st.ok() || st.is<KEY_NOT_FOUND>() || st.is<KEY_ALREADY_EXISTS>();
             // It's a defensive DCHECK, we need to exclude some common errors to avoid core-dump
             // while stress test

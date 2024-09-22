@@ -757,11 +757,19 @@ Status SegmentIterator::_execute_predicates_except_leafnode_of_andnode(
             _rowid_result_for_index[pred_result_sign].first) {
             auto apply_result = _rowid_result_for_index[pred_result_sign].second;
             _pred_except_leafnode_of_andnode_evaluate_result.push_back(apply_result);
+        } else {
+            return Status::InvalidArgument(
+                    "_execute_predicates_except_leafnode_of_andnode has no result for {}",
+                    pred_result_sign);
         }
     } else if (node_type == TExprNodeType::COMPOUND_PRED) {
         auto function_name = expr->fn().name.function_name;
         // execute logic function
         RETURN_IF_ERROR(_execute_compound_fn(function_name));
+    } else {
+        return Status::InvalidArgument(
+                "_execute_predicates_except_leafnode_of_andnode not supported for TExprNodeType:{}",
+                node_type);
     }
 
     return Status::OK();
@@ -2083,6 +2091,8 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
 }
 
 Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
+    // TEMP column in block is not allowed here, need to erase.
+    block->erase_tmp_columns();
     bool is_mem_reuse = block->mem_reuse();
     DCHECK(is_mem_reuse);
 

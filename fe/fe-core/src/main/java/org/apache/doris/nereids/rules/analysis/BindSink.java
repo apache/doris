@@ -22,6 +22,7 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TableIf;
@@ -76,9 +77,12 @@ public class BindSink implements AnalysisRuleFactory {
                             OlapTable table = pair.second;
 
                             LogicalPlan child = ((LogicalPlan) sink.child());
+                            boolean isPartialUpdate = (sink.isPartialUpdate()
+                                    && table.getKeysType() == KeysType.UNIQUE_KEYS
+                                    && table.getEnableUniqueKeyMergeOnWrite());
 
                             if (sink.getColNames().isEmpty() && sink.isFromNativeInsertStmt()
-                                    && sink.isPartialUpdate()) {
+                                    && isPartialUpdate) {
                                 throw new AnalysisException("You must explicitly specify the columns to be updated "
                                         + "when updating partial columns using the INSERT statement.");
                             }
@@ -91,7 +95,7 @@ public class BindSink implements AnalysisRuleFactory {
                                     child.getOutput().stream()
                                             .map(NamedExpression.class::cast)
                                             .collect(ImmutableList.toImmutableList()),
-                                    sink.isPartialUpdate(),
+                                    isPartialUpdate,
                                     sink.isFromNativeInsertStmt(),
                                     sink.child());
 
@@ -142,7 +146,7 @@ public class BindSink implements AnalysisRuleFactory {
                                         }
                                     }
 
-                                    if (!haveInputSeqCol && !sink.isPartialUpdate()) {
+                                    if (!haveInputSeqCol && !isPartialUpdate) {
                                         if (!seqColInTable.isPresent() || seqColInTable.get().getDefaultValue() == null
                                                 || !seqColInTable.get().getDefaultValue()
                                                 .equals(DefaultValue.CURRENT_TIMESTAMP)) {
@@ -211,7 +215,7 @@ public class BindSink implements AnalysisRuleFactory {
                                                 }
                                                 columnToOutput.put(column.getName(), seqColumn);
                                             }
-                                        } else if (sink.isPartialUpdate()) {
+                                        } else if (isPartialUpdate) {
                                             // If the current load is a partial update, the values of unmentioned
                                             // columns will be filled in SegmentWriter. And the output of sink node
                                             // should not contain these unmentioned columns, so we just skip them.

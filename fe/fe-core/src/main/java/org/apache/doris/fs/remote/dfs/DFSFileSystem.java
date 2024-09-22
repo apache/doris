@@ -26,6 +26,7 @@ import org.apache.doris.common.util.URI;
 import org.apache.doris.fs.operations.HDFSFileOperations;
 import org.apache.doris.fs.operations.HDFSOpParams;
 import org.apache.doris.fs.operations.OpParams;
+import org.apache.doris.fs.remote.RemoteFSPhantomManager;
 import org.apache.doris.fs.remote.RemoteFile;
 import org.apache.doris.fs.remote.RemoteFileSystem;
 
@@ -73,30 +74,41 @@ public class DFSFileSystem extends RemoteFileSystem {
 
     @Override
     protected FileSystem nativeFileSystem(String remotePath) throws UserException {
-        if (dfsFileSystem != null) {
-            return dfsFileSystem;
+        if (closed.get()) {
+            throw new UserException("FileSystem is closed.");
         }
 
-        Configuration conf = new HdfsConfiguration();
-        for (Map.Entry<String, String> propEntry : properties.entrySet()) {
-            conf.set(propEntry.getKey(), propEntry.getValue());
-        }
-
-        UserGroupInformation ugi = login(conf);
-        try {
-            dfsFileSystem = ugi.doAs((PrivilegedAction<FileSystem>) () -> {
-                try {
-                    return FileSystem.get(new Path(remotePath).toUri(), conf);
-                } catch (IOException e) {
-                    throw new RuntimeException(e);
+        if (dfsFileSystem == null) {
+            synchronized (this) {
+                if (closed.get()) {
+                    throw new UserException("FileSystem is closed.");
                 }
-            });
-        } catch (SecurityException e) {
-            throw new UserException(e);
-        }
+                if (dfsFileSystem == null) {
 
-        Preconditions.checkNotNull(dfsFileSystem);
-        operations = new HDFSFileOperations(dfsFileSystem);
+                    Configuration conf = new HdfsConfiguration();
+                    for (Map.Entry<String, String> propEntry : properties.entrySet()) {
+                        conf.set(propEntry.getKey(), propEntry.getValue());
+                    }
+
+                    UserGroupInformation ugi = login(conf);
+                    try {
+                        dfsFileSystem = ugi.doAs((PrivilegedAction<FileSystem>) () -> {
+                            try {
+                                return FileSystem.get(new Path(remotePath).toUri(), conf);
+                            } catch (IOException e) {
+                                throw new RuntimeException(e);
+                            }
+                        });
+                    } catch (SecurityException e) {
+                        throw new UserException(e);
+                    }
+
+                    Preconditions.checkNotNull(dfsFileSystem);
+                    operations = new HDFSFileOperations(dfsFileSystem);
+                    RemoteFSPhantomManager.registerPhantomReference(this);
+                }
+            }
+        }
         return dfsFileSystem;
     }
 

@@ -110,9 +110,7 @@ suite("test_backup_cancelled", "backup_cancelled") {
         )
     """
 
-    while (syncer.checkSnapshotFinish(dbName) == false) {
-        Thread.sleep(3000)
-    }
+    syncer.waitAllRestoreFinish(dbName)
 
     result = sql "SELECT * FROM ${dbName}.${tableName}"
     assertEquals(result.size(), values.size());

@@ -12,14 +12,13 @@ PhysicalResultSink
 ------------------hashJoin[INNER_JOIN](lineorder.lo_orderdate = dates.d_datekey)
 --------------------PhysicalProject
 ----------------------hashJoin[INNER_JOIN](lineorder.lo_partkey = part.p_partkey)
-------------------------PhysicalDistribute
---------------------------hashJoin[INNER_JOIN](lineorder.lo_suppkey = supplier.s_suppkey)
+------------------------hashJoin[INNER_JOIN](lineorder.lo_suppkey = supplier.s_suppkey)
+--------------------------PhysicalProject
+----------------------------PhysicalOlapScan[lineorder]
+--------------------------PhysicalDistribute
 ----------------------------PhysicalProject
-------------------------------PhysicalOlapScan[lineorder]
-----------------------------PhysicalDistribute
-------------------------------PhysicalProject
---------------------------------filter((supplier.s_region = 'ASIA'))
-----------------------------------PhysicalOlapScan[supplier]
+------------------------------filter((supplier.s_region = 'ASIA'))
+--------------------------------PhysicalOlapScan[supplier]
 ------------------------PhysicalDistribute
 --------------------------PhysicalProject
 ----------------------------filter((part.p_brand >= 'MFGR#2221')(part.p_brand <= 'MFGR#2228'))

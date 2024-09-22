@@ -188,6 +188,16 @@ Status DeltaWriter::init() {
         }
     }
 
+    int version_count = _tablet->version_count() + _tablet->stale_version_count();
+    if (_tablet->avg_rs_meta_serialize_size() * version_count >
+        config::tablet_meta_serialize_size_limit) {
+        return Status::Error<TOO_MANY_VERSION>(
+                "failed to init rowset builder. meta serialize size : {}, exceed limit: {}, "
+                "tablet: {}",
+                _tablet->avg_rs_meta_serialize_size() * version_count,
+                config::tablet_meta_serialize_size_limit, _tablet->tablet_id());
+    }
+
     {
         std::shared_lock base_migration_rlock(_tablet->get_migration_lock(), std::defer_lock);
         if (!base_migration_rlock.try_lock_for(

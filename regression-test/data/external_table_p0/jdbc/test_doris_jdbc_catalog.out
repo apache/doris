@@ -80,8 +80,8 @@ bigint_col	bigint	Yes	false	\N	NONE
 largeint_col	largeint	Yes	false	\N	NONE
 float_col	float	Yes	false	\N	NONE
 double_col	double	Yes	false	\N	NONE
-decimal_col	decimal(10, 5)	Yes	false	\N	NONE
-decimal_col2	decimal(30, 10)	Yes	false	\N	NONE
+decimal_col	decimal(10,5)	Yes	false	\N	NONE
+decimal_col2	decimal(30,10)	Yes	false	\N	NONE
 date_col	date	Yes	false	\N	NONE
 datetime_col	datetime(3)	Yes	false	\N	NONE
 char_col	text	Yes	false	\N	NONE

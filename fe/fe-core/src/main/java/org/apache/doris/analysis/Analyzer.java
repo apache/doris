@@ -689,7 +689,8 @@ public class Analyzer {
     public TupleDescriptor registerTableRef(TableRef ref) throws AnalysisException {
         String uniqueAlias = ref.getUniqueAlias();
         if (uniqueTableAliasSet.contains(uniqueAlias)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_NONUNIQ_TABLE, uniqueAlias);
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_NONUNIQ_TABLE,
+                    uniqueAlias.substring(uniqueAlias.lastIndexOf('.') + 1));
         }
         uniqueTableAliasSet.add(uniqueAlias);
 

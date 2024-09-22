@@ -83,8 +83,8 @@ float_value	double	Yes	false	\N	NONE
 floatn_value	float	Yes	false	\N	NONE
 decimal_value	decimal	Yes	false	\N	NONE
 numeric_value	decimal	Yes	false	\N	NONE
-decimal_value2	decimal(38, 10)	Yes	false	\N	NONE
-numeric_value2	decimal(38, 10)	Yes	false	\N	NONE
+decimal_value2	decimal(38,10)	Yes	false	\N	NONE
+numeric_value2	decimal(38,10)	Yes	false	\N	NONE
 char_value	text	Yes	false	\N	NONE
 varchar_value	text	Yes	false	\N	NONE
 varcharmax_value	text	Yes	false	\N	NONE
@@ -99,8 +99,8 @@ smalldatetime_value	datetime	Yes	false	\N	NONE
 datetimeoffset_value	text	Yes	false	\N	NONE
 text_value	text	Yes	false	\N	NONE
 ntext_value	text	Yes	false	\N	NONE
-money_value	decimal(19, 4)	Yes	false	\N	NONE
-smallmoney_value	decimal(10, 4)	Yes	false	\N	NONE
+money_value	decimal(19,4)	Yes	false	\N	NONE
+smallmoney_value	decimal(10,4)	Yes	false	\N	NONE
 bit_value	boolean	Yes	false	\N	NONE
 
 -- !query_ctas --

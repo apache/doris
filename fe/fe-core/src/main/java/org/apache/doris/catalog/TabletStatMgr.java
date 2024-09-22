@@ -144,8 +144,10 @@ public class TabletStatMgr extends MasterDaemon {
                 if (invertedIndex.getTabletMeta(stat.getTabletId()) != null) {
                     Replica replica = invertedIndex.getReplica(stat.getTabletId(), beId);
                     if (replica != null) {
-                        replica.updateStat(stat.getDataSize(), stat.getRemoteDataSize(), stat.getRowNum(),
-                                stat.getVersionCount());
+                        replica.setDataSize(stat.getDataSize());
+                        replica.setRemoteDataSize(stat.getRemoteDataSize());
+                        replica.setRowCount(stat.getRowNum());
+                        replica.setVersionCount(stat.getVersionCount());
                     }
                 }
             }
@@ -161,7 +163,8 @@ public class TabletStatMgr extends MasterDaemon {
                     continue;
                 }
                 // TODO(cmy) no db lock protected. I think it is ok even we get wrong row num
-                replica.updateStat(entry.getValue().getDataSize(), entry.getValue().getRowNum());
+                replica.setDataSize(entry.getValue().getDataSize());
+                replica.setRowCount(entry.getValue().getRowNum());
             }
         }
     }

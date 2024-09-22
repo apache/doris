@@ -1136,8 +1136,10 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
                         "replica does not exist. backend id: " + destBackendId);
             }
 
-            replica.updateVersionInfo(reportedTablet.getVersion(), reportedTablet.getDataSize(),
-                    reportedTablet.getRemoteDataSize(), reportedTablet.getRowCount());
+            replica.updateVersion(reportedTablet.getVersion());
+            replica.setDataSize(reportedTablet.getDataSize());
+            replica.setRemoteDataSize(reportedTablet.getRemoteDataSize());
+            replica.setRowCount(reportedTablet.getRowCount());
             if (replica.getLastFailedVersion() > partition.getCommittedVersion()
                     && reportedTablet.getVersion() >= partition.getCommittedVersion()
                     //&& !(reportedTablet.isSetVersionMiss() && reportedTablet.isVersionMiss()

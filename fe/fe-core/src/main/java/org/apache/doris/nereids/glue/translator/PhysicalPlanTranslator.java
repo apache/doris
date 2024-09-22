@@ -377,10 +377,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         boolean isPartialUpdate = olapTableSink.isPartialUpdate();
         if (isPartialUpdate) {
             OlapTable olapTable = (OlapTable) olapTableSink.getTargetTable();
-            if (!olapTable.getEnableUniqueKeyMergeOnWrite()) {
-                throw new AnalysisException("Partial update is only allowed in"
-                        + "unique table with merge-on-write enabled.");
-            }
             for (Column col : olapTable.getFullSchema()) {
                 boolean exists = false;
                 for (Column insertCol : olapTableSink.getCols()) {
@@ -991,9 +987,10 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
 
         // update expr to slot mapping
         for (Slot producerSlot : cteProducer.getOutput()) {
-            Slot consumerSlot = cteConsumer.getProducerToConsumerSlotMap().get(producerSlot);
-            SlotRef slotRef = context.findSlotRef(producerSlot.getExprId());
-            context.addExprIdSlotRefPair(consumerSlot.getExprId(), slotRef);
+            for (Slot consumerSlot : cteConsumer.getProducerToConsumerSlotMap().get(producerSlot)) {
+                SlotRef slotRef = context.findSlotRef(producerSlot.getExprId());
+                context.addExprIdSlotRefPair(consumerSlot.getExprId(), slotRef);
+            }
         }
         return multiCastFragment;
     }

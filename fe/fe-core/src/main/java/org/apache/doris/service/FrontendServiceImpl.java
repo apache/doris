@@ -3316,8 +3316,12 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (request.isSetShowFullSql()) {
             isShowFullSql = request.isShowFullSql();
         }
+        UserIdentity userIdentity = UserIdentity.ROOT;
+        if (request.isSetCurrentUserIdent()) {
+            userIdentity = UserIdentity.fromThrift(request.getCurrentUserIdent());
+        }
         List<List<String>> processList = ExecuteEnv.getInstance().getScheduler()
-                .listConnectionWithoutAuth(isShowFullSql, true);
+                .listConnectionForRpc(userIdentity, isShowFullSql, true);
         TShowProcessListResult result = new TShowProcessListResult();
         result.setProcessList(processList);
         return result;

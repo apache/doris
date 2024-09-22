@@ -46,22 +46,15 @@ using SegmentIteratorUPtr = std::unique_ptr<SegmentIterator>;
 // with high concurrency, where queries are executed simultaneously.
 class SchemaCache : public LRUCachePolicy {
 public:
-    enum class Type { TABLET_SCHEMA = 0, SCHEMA = 1 };
-
     static SchemaCache* instance() { return _s_instance; }
 
     static void create_global_instance(size_t capacity);
 
-    // get cache schema key, delimiter with SCHEMA_DELIMITER
-    static std::string get_schema_key(int64_t tablet_id, const TabletSchemaSPtr& schema,
-                                      const std::vector<uint32_t>& column_ids, int32_t version,
-                                      Type type);
     static std::string get_schema_key(int64_t tablet_id, const std::vector<TColumn>& columns,
-                                      int32_t version, Type type);
+                                      int32_t version);
 
     // Get a shared cached schema from cache, schema_key is a subset of column unique ids
-    template <typename SchemaType>
-    SchemaType get_schema(const std::string& schema_key) {
+    TabletSchemaSPtr get_schema(const std::string& schema_key) {
         if (!_s_instance || schema_key.empty()) {
             return {};
         }
@@ -71,31 +64,19 @@ public:
             auto value = (CacheValue*)_cache->value(lru_handle);
             value->last_visit_time = UnixMillis();
             VLOG_DEBUG << "use cache schema";
-            if constexpr (std::is_same_v<SchemaType, TabletSchemaSPtr>) {
-                return value->tablet_schema;
-            }
-            if constexpr (std::is_same_v<SchemaType, SchemaSPtr>) {
-                return value->schema;
-            }
+            return value->tablet_schema;
         }
         return {};
     }
 
     // Insert a shared Schema into cache, schema_key is full column unique ids
-    template <typename SchemaType>
-    void insert_schema(const std::string& key, SchemaType schema) {
+    void insert_schema(const std::string& key, TabletSchemaSPtr schema) {
         if (!_s_instance || key.empty()) {
             return;
         }
         CacheValue* value = new CacheValue;
         value->last_visit_time = UnixMillis();
-        if constexpr (std::is_same_v<SchemaType, TabletSchemaSPtr>) {
-            value->type = Type::TABLET_SCHEMA;
-            value->tablet_schema = schema;
-        } else if constexpr (std::is_same_v<SchemaType, SchemaSPtr>) {
-            value->type = Type::SCHEMA;
-            value->schema = schema;
-        }
+        value->tablet_schema = schema;
         auto deleter = [](const doris::CacheKey& key, void* value) {
             CacheValue* cache_value = (CacheValue*)value;
             delete cache_value;
@@ -109,10 +90,7 @@ public:
     Status prune();
 
     struct CacheValue : public LRUCacheValueBase {
-        Type type;
-        // either tablet_schema or schema
         TabletSchemaSPtr tablet_schema = nullptr;
-        SchemaSPtr schema = nullptr;
     };
 
 private:
