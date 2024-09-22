@@ -1184,10 +1184,10 @@ Status PipelineFragmentContext::_create_data_sink(ObjectPool* pool, const TDataS
             // 2. create and set sink operator of data stream sender for new pipeline
 
             DataSinkOperatorPtr sink_op;
-            sink_op.reset(
-                    new ExchangeSinkOperatorX(state, *_row_desc, next_sink_operator_id(),
-                                              thrift_sink.multi_cast_stream_sink.sinks[i],
-                                              thrift_sink.multi_cast_stream_sink.destinations[i]));
+            sink_op.reset(new ExchangeSinkOperatorX(
+                    state, *_row_desc, next_sink_operator_id(),
+                    thrift_sink.multi_cast_stream_sink.sinks[i],
+                    thrift_sink.multi_cast_stream_sink.destinations[i], true));
 
             RETURN_IF_ERROR(new_pipeline->set_sink(sink_op));
             {

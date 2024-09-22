@@ -289,7 +289,8 @@ segment_v2::CompressionTypePB ExchangeSinkLocalState::compression_type() const {
 
 ExchangeSinkOperatorX::ExchangeSinkOperatorX(
         RuntimeState* state, const RowDescriptor& row_desc, int operator_id,
-        const TDataStreamSink& sink, const std::vector<TPlanFragmentDestination>& destinations)
+        const TDataStreamSink& sink, const std::vector<TPlanFragmentDestination>& destinations,
+        bool is_multi_cast)
         : DataSinkOperatorX(operator_id, sink.dest_node_id),
           _texprs(sink.output_partition.partition_exprs),
           _row_desc(row_desc),
@@ -303,7 +304,8 @@ ExchangeSinkOperatorX::ExchangeSinkOperatorX(
           _tablet_sink_tuple_id(sink.tablet_sink_tuple_id),
           _tablet_sink_txn_id(sink.tablet_sink_txn_id),
           _t_tablet_sink_exprs(&sink.tablet_sink_exprs),
-          _enable_local_merge_sort(state->enable_local_merge_sort()) {
+          _enable_local_merge_sort(state->enable_local_merge_sort()),
+          _is_multi_cast(is_multi_cast) {
     DCHECK_GT(destinations.size(), 0);
     DCHECK(sink.output_partition.type == TPartitionType::UNPARTITIONED ||
            sink.output_partition.type == TPartitionType::HASH_PARTITIONED ||
@@ -680,7 +682,7 @@ DataDistribution ExchangeSinkOperatorX::required_data_distribution() const {
             sort_source && sort_source->use_local_merge()) {
             // Sort the data local
             return ExchangeType::LOCAL_MERGE_SORT;
-        } else {
+        } else if (!_is_multi_cast) {
             return ExchangeType::PASS_TO_ONE_EXCHANGE;
         }
     }
