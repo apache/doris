@@ -681,4 +681,20 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
             return false;
         }
     }
+
+    /**
+     * Check whether runtime filter target is remote or local
+     */
+    public static boolean hasRemoteTarget(AbstractPlan join, AbstractPlan scan) {
+        if (scan instanceof PhysicalCTEConsumer) {
+            return true;
+        } else {
+            Preconditions.checkArgument(join.getMutableState(AbstractPlan.FRAGMENT_ID).isPresent(),
+                    "cannot find fragment id for Join node");
+            Preconditions.checkArgument(scan.getMutableState(AbstractPlan.FRAGMENT_ID).isPresent(),
+                    "cannot find fragment id for scan node");
+            return join.getMutableState(AbstractPlan.FRAGMENT_ID).get()
+                    != scan.getMutableState(AbstractPlan.FRAGMENT_ID).get();
+        }
+    }
 }
