@@ -47,6 +47,8 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayIntersec
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayJoin;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayLastIndex;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayMap;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayMatchAll;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayMatchAny;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayMax;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayMin;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayPopBack;
@@ -189,6 +191,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Fmod;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Fpow;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FromBase64;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FromDays;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.FromIso8601Date;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FromUnixtime;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.G;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GetJsonBigInt;
@@ -239,6 +242,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonLength;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonObject;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonQuote;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonReplace;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonSearch;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonSet;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonUnQuote;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbExistsPath;
@@ -266,6 +270,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbValid;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.L1Distance;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.L2Distance;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.LastDay;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.LastQueryId;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Least;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Left;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Length;
@@ -316,6 +321,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.MurmurHash332
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MurmurHash364;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Negative;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NgramSearch;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.NormalCdf;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NotNullOrEmpty;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Now;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NullIf;
@@ -423,15 +429,18 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ToIpv4OrNull;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToIpv6;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToIpv6OrDefault;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToIpv6OrNull;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ToIso8601;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToMonday;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToQuantileState;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Tokenize;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Translate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Trim;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Truncate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Unhex;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UnixTimestamp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Upper;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UrlDecode;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.UrlEncode;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.User;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UtcTimestamp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Uuid;
@@ -659,6 +668,14 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitArrayMap(ArrayMap arraySort, C context) {
         return visitScalarFunction(arraySort, context);
+    }
+
+    default R visitArrayMatchAll(ArrayMatchAll arrayMatchAll, C context) {
+        return visitScalarFunction(arrayMatchAll, context);
+    }
+
+    default R visitArrayMatchAny(ArrayMatchAny arrayMatchAny, C context) {
+        return visitScalarFunction(arrayMatchAny, context);
     }
 
     default R visitArrayRepeat(ArrayRepeat arrayRepeat, C context) {
@@ -1177,6 +1194,10 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(fromDays, context);
     }
 
+    default R visitFromIso8601Date(FromIso8601Date fromIso8601Date, C context) {
+        return visitScalarFunction(fromIso8601Date, context);
+    }
+
     default R visitFromUnixtime(FromUnixtime fromUnixtime, C context) {
         return visitScalarFunction(fromUnixtime, context);
     }
@@ -1343,6 +1364,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitJsonKeys(JsonKeys jsonKeys, C context) {
         return visitScalarFunction(jsonKeys, context);
+    }
+
+    default R visitJsonSearch(JsonSearch jsonSearch, C context) {
+        return visitScalarFunction(jsonSearch, context);
     }
 
     default R visitJsonInsert(JsonInsert jsonInsert, C context) {
@@ -1625,6 +1650,10 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(ngramSearch, context);
     }
 
+    default R visitNormalCdf(NormalCdf normalCdf, C context) {
+        return visitScalarFunction(normalCdf, context);
+    }
+
     default R visitNotNullOrEmpty(NotNullOrEmpty notNullOrEmpty, C context) {
         return visitScalarFunction(notNullOrEmpty, context);
     }
@@ -1655,6 +1684,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitUrlDecode(UrlDecode urlDecode, C context) {
         return visitScalarFunction(urlDecode, context);
+    }
+
+    default R visitUrlEncode(UrlEncode urlEncode, C context) {
+        return visitScalarFunction(urlEncode, context);
     }
 
     default R visitRandomBytes(RandomBytes randomBytes, C context) {
@@ -2045,6 +2078,10 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(toIpv6OrNull, context);
     }
 
+    default R visitToIso8601(ToIso8601 toIso8601, C context) {
+        return visitScalarFunction(toIso8601, context);
+    }
+
     default R visitToMonday(ToMonday toMonday, C context) {
         return visitScalarFunction(toMonday, context);
     }
@@ -2055,6 +2092,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitToQuantileState(ToQuantileState toQuantileState, C context) {
         return visitScalarFunction(toQuantileState, context);
+    }
+
+    default R visitTranslate(Translate translate, C context) {
+        return visitScalarFunction(translate, context);
     }
 
     default R visitTrim(Trim trim, C context) {
@@ -2231,5 +2272,9 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitMultiMatch(MultiMatch multiMatch, C context) {
         return visitScalarFunction(multiMatch, context);
+    }
+
+    default R visitLastQueryId(LastQueryId queryId, C context) {
+        return visitScalarFunction(queryId, context);
     }
 }

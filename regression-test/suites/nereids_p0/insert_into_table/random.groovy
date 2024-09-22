@@ -43,4 +43,15 @@ suite('nereids_insert_random') {
     sql 'set delete_without_partition=true'
     sql '''delete from dup_t_type_cast_rd where id is not null'''
     sql '''delete from dup_t_type_cast_rd where id is null'''
+
+    sql 'set enable_strict_consistency_dml=true'
+    sql 'drop table if exists tbl_1'
+    sql 'drop table if exists tbl_4'
+    sql """CREATE TABLE tbl_1 (k1 INT, k2 INT) DISTRIBUTED BY HASH(k1) BUCKETS 10 PROPERTIES ( "light_schema_change" = "false", "replication_num" = "1");"""
+    sql """INSERT INTO tbl_1 VALUES (1, 11);"""
+    sql 'sync'
+    sql """CREATE TABLE tbl_4 (k1 INT, k2 INT, v INT SUM) AGGREGATE KEY (k1, k2) DISTRIBUTED BY HASH(k1) BUCKETS 10  PROPERTIES ( "replication_num" = "1"); """ 
+    sql """INSERT INTO tbl_4 SELECT k1, k2, k2 FROM tbl_1;"""
+    sql 'sync'
+    qt_sql_select """ select * from tbl_4; """;
 }

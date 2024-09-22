@@ -45,6 +45,7 @@
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_map.h"
 #include "vec/data_types/data_type_object.h"
@@ -58,7 +59,6 @@ namespace vectorized {
 
 class Block;
 class ColumnArray;
-class DataTypeArray;
 class ColumnMap;
 class DataTypeMap;
 template <typename T>
@@ -101,6 +101,7 @@ private:
             const TabletColumn& column);
     static OlapColumnDataConvertorBaseUPtr create_map_convertor(const TabletColumn& column);
     static OlapColumnDataConvertorBaseUPtr create_array_convertor(const TabletColumn& column);
+    static OlapColumnDataConvertorBaseUPtr create_struct_convertor(const TabletColumn& column);
     static OlapColumnDataConvertorBaseUPtr create_agg_state_convertor(const TabletColumn& column);
 
     // accessors for different data types;
@@ -444,8 +445,10 @@ private:
 
     class OlapColumnDataConvertorArray : public OlapColumnDataConvertorBase {
     public:
-        OlapColumnDataConvertorArray(OlapColumnDataConvertorBaseUPtr item_convertor)
-                : _item_convertor(std::move(item_convertor)) {
+        OlapColumnDataConvertorArray(OlapColumnDataConvertorBaseUPtr item_convertor,
+                                     const TabletColumn& column)
+                : _item_convertor(std::move(item_convertor)),
+                  _data_type(DataTypeFactory::instance().create_data_type(column)) {
             _base_offset = 0;
             _results.resize(4); // size + offset + item_data + item_nullmap
         }
@@ -458,15 +461,13 @@ private:
         Status convert_to_olap() override;
 
     private:
-        //        Status convert_to_olap(const UInt8* null_map, const ColumnArray* column_array,
-        //                               const DataTypeArray* data_type_array);
-        Status convert_to_olap(const ColumnArray* column_array,
-                               const DataTypeArray* data_type_array);
+        Status convert_to_olap(const ColumnArray* column_array);
         OlapColumnDataConvertorBaseUPtr _item_convertor;
         UInt64 _base_offset;
         PaddedPODArray<UInt64> _offsets; // array offsets in disk layout
         // size + offsets_data + item_data + item_nullmap
         std::vector<const void*> _results;
+        DataTypeArray _data_type;
     };
 
     class OlapColumnDataConvertorMap : public OlapColumnDataConvertorBase {

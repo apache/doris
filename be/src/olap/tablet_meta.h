@@ -371,6 +371,7 @@ private:
 class DeleteBitmap {
 public:
     mutable std::shared_mutex lock;
+    mutable std::shared_mutex stale_delete_bitmap_lock;
     using SegmentId = uint32_t;
     using Version = uint64_t;
     using BitmapKey = std::tuple<RowsetId, SegmentId, Version>;
@@ -451,6 +452,12 @@ public:
     uint64_t cardinality() const;
 
     /**
+     * return the total size of the Delete Bitmap(after serialized)
+     */
+
+    size_t get_size() const;
+
+    /**
      * Sets the bitmap of specific segment, it's may be insertion or replacement
      *
      * @return 1 if the insertion took place, 0 if the assignment took place
@@ -520,13 +527,19 @@ public:
 
     void remove_sentinel_marks();
 
-    class AggCachePolicy : public LRUCachePolicyTrackingManual {
+    void add_to_remove_queue(const std::string& version_str,
+                             const std::vector<std::tuple<int64_t, DeleteBitmap::BitmapKey,
+                                                          DeleteBitmap::BitmapKey>>& vector);
+    void remove_stale_delete_bitmap_from_queue(const std::vector<std::string>& vector);
+
+    uint64_t get_delete_bitmap_count();
+
+    class AggCachePolicy : public LRUCachePolicy {
     public:
         AggCachePolicy(size_t capacity)
-                : LRUCachePolicyTrackingManual(CachePolicy::CacheType::DELETE_BITMAP_AGG_CACHE,
-                                               capacity, LRUCacheType::SIZE,
-                                               config::delete_bitmap_agg_cache_stale_sweep_time_sec,
-                                               256) {}
+                : LRUCachePolicy(CachePolicy::CacheType::DELETE_BITMAP_AGG_CACHE, capacity,
+                                 LRUCacheType::SIZE,
+                                 config::delete_bitmap_agg_cache_stale_sweep_time_sec, 256) {}
     };
 
     class AggCache {
@@ -554,6 +567,10 @@ public:
 private:
     mutable std::shared_ptr<AggCache> _agg_cache;
     int64_t _tablet_id;
+    // <version, <tablet_id, BitmapKeyStart, BitmapKeyEnd>>
+    std::map<std::string,
+             std::vector<std::tuple<int64_t, DeleteBitmap::BitmapKey, DeleteBitmap::BitmapKey>>>
+            _stale_delete_bitmap;
 };
 
 static const std::string SEQUENCE_COL = "__DORIS_SEQUENCE_COL__";

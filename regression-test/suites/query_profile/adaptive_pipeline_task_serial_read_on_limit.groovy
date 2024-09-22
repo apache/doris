@@ -50,7 +50,7 @@ suite('adaptive_pipeline_task_serial_read_on_limit') {
             `id` INT,
             `name` varchar(32)
         ) ENGINE=OLAP
-        DISTRIBUTED BY HASH(`id`) BUCKETS 10
+        DISTRIBUTED BY HASH(`id`) BUCKETS 5
         PROPERTIES (
             "replication_allocation" = "tag.location.default: 1"
         );
@@ -108,7 +108,7 @@ suite('adaptive_pipeline_task_serial_read_on_limit') {
         set enable_adaptive_pipeline_task_serial_read_on_limit=true;
     """
     sql """
-        set adaptive_pipeline_task_serial_read_on_limit=10;
+        set adaptive_pipeline_task_serial_read_on_limit=20;
     """
     sql """
         select "modify_to_20_${uuidString}", * from adaptive_pipeline_task_serial_read_on_limit limit 15;

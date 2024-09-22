@@ -38,15 +38,18 @@ AggregateFunctionPtr do_create_agg_function_collect(bool distinct, const DataTyp
         }
     }
 
-    if (distinct) {
-        return creator_without_type::create<AggregateFunctionCollect<
-                AggregateFunctionCollectSetData<T, HasLimit>, HasLimit, std::false_type>>(
-                argument_types, result_is_nullable);
-    } else {
-        return creator_without_type::create<AggregateFunctionCollect<
-                AggregateFunctionCollectListData<T, HasLimit>, HasLimit, std::false_type>>(
-                argument_types, result_is_nullable);
+    if constexpr (!std::is_same_v<T, void>) {
+        if (distinct) {
+            return creator_without_type::create<AggregateFunctionCollect<
+                    AggregateFunctionCollectSetData<T, HasLimit>, HasLimit, std::false_type>>(
+                    argument_types, result_is_nullable);
+        } else {
+            return creator_without_type::create<AggregateFunctionCollect<
+                    AggregateFunctionCollectListData<T, HasLimit>, HasLimit, std::false_type>>(
+                    argument_types, result_is_nullable);
+        }
     }
+    return nullptr;
 }
 
 template <typename HasLimit, typename ShowNull>
@@ -69,15 +72,21 @@ AggregateFunctionPtr create_aggregate_function_collect_impl(const std::string& n
     if (which.is_date_or_datetime()) {
         return do_create_agg_function_collect<Int64, HasLimit, ShowNull>(distinct, argument_types,
                                                                          result_is_nullable);
-    } else if (which.is_date_v2()) {
+    } else if (which.is_date_v2() || which.is_ipv4()) {
         return do_create_agg_function_collect<UInt32, HasLimit, ShowNull>(distinct, argument_types,
                                                                           result_is_nullable);
-    } else if (which.is_date_time_v2()) {
+    } else if (which.is_date_time_v2() || which.is_ipv6()) {
         return do_create_agg_function_collect<UInt64, HasLimit, ShowNull>(distinct, argument_types,
                                                                           result_is_nullable);
     } else if (which.is_string()) {
         return do_create_agg_function_collect<StringRef, HasLimit, ShowNull>(
                 distinct, argument_types, result_is_nullable);
+    } else {
+        // generic serialize which will not use specializations, ShowNull::value always means array_agg
+        if constexpr (ShowNull::value) {
+            return do_create_agg_function_collect<void, HasLimit, ShowNull>(
+                    distinct, argument_types, result_is_nullable);
+        }
     }
 
     LOG(WARNING) << fmt::format("unsupported input type {} for aggregate function {}",
@@ -107,6 +116,7 @@ AggregateFunctionPtr create_aggregate_function_collect(const std::string& name,
 }
 
 void register_aggregate_function_collect_list(AggregateFunctionSimpleFactory& factory) {
+    // notice: array_agg only differs from collect_list in that array_agg will show null elements in array
     factory.register_function_both("collect_list", create_aggregate_function_collect);
     factory.register_function_both("collect_set", create_aggregate_function_collect);
     factory.register_function_both("array_agg", create_aggregate_function_collect);

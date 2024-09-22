@@ -342,8 +342,9 @@ suite("test_broker_load_p2", "p2") {
                         break;
                     }
                     if (result[0][2].equals("CANCELLED")) {
+                        logger.info("Load result: " + result[0])
                         assertTrue(result[0][6].contains(task_info[i]))
-                        assertTrue(result[0][7].contains(error_msg[i]))
+                        assertTrue(result[0][7].contains(error_msg[i]), "expected: " + error_msg[i] + ", actual: " + result[0][7] + ", label: $label")
                         break;
                     }
                     Thread.sleep(1000)

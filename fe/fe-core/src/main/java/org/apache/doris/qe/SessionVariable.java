@@ -240,6 +240,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String MAX_JOIN_NUMBER_BUSHY_TREE = "max_join_number_bushy_tree";
     public static final String ENABLE_PARTITION_TOPN = "enable_partition_topn";
+    public static final String PARTITION_TOPN_MAX_PARTITIONS = "partition_topn_max_partitions";
+    public static final String PARTITION_TOPN_PER_PARTITION_ROWS = "partition_topn_pre_partition_rows";
 
     public static final String GLOBAL_PARTITION_TOPN_THRESHOLD = "global_partition_topn_threshold";
 
@@ -295,6 +297,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String BLOCK_ENCRYPTION_MODE = "block_encryption_mode";
 
     public static final String AUTO_BROADCAST_JOIN_THRESHOLD = "auto_broadcast_join_threshold";
+
+    public static final String PARALLEL_PREPARE_THRESHOLD = "parallel_prepare_threshold";
 
     public static final String ENABLE_PROJECTION = "enable_projection";
 
@@ -678,6 +682,9 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = EXPAND_RUNTIME_FILTER_BY_INNER_JION)
     public boolean expandRuntimeFilterByInnerJoin = true;
 
+    @VariableMgr.VarAttr(name = "enable_aggregate_cse", needForward = true)
+    public boolean enableAggregateCse = true;
+
     @VariableMgr.VarAttr(name = JDBC_CLICKHOUSE_QUERY_FINAL, needForward = true,
             description = {"是否在查询 ClickHouse JDBC 外部表时，对查询 SQL 添加 FINAL 关键字。",
                     "Whether to add the FINAL keyword to the query SQL when querying ClickHouse JDBC external tables."})
@@ -1040,7 +1047,7 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = PARALLEL_SCAN_MIN_ROWS_PER_SCANNER, fuzzy = true,
             varType = VariableAnnotation.EXPERIMENTAL, needForward = true)
-    private long parallelScanMinRowsPerScanner = 16384; // 16K
+    private long parallelScanMinRowsPerScanner = 2097152; // 2M
 
     @VariableMgr.VarAttr(name = IGNORE_STORAGE_DATA_DISTRIBUTION, fuzzy = false,
             varType = VariableAnnotation.EXPERIMENTAL, needForward = true)
@@ -1082,6 +1089,9 @@ public class SessionVariable implements Serializable, Writable {
     // Default value is 1Gto
     @VariableMgr.VarAttr(name = AUTO_BROADCAST_JOIN_THRESHOLD)
     public double autoBroadcastJoinThreshold = 0.8;
+
+    @VariableMgr.VarAttr(name = PARALLEL_PREPARE_THRESHOLD, fuzzy = true)
+    public int parallelPrepareThreshold = 32;
 
     @VariableMgr.VarAttr(name = ENABLE_COST_BASED_JOIN_REORDER)
     private boolean enableJoinReorderBasedCost = false;
@@ -1232,6 +1242,22 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_PARTITION_TOPN)
     private boolean enablePartitionTopN = true;
 
+    @VariableMgr.VarAttr(name = PARTITION_TOPN_MAX_PARTITIONS, needForward = true, description = {
+            "这个阈值决定了partition_topn计算时的最大分区数量，超过这个阈值后且输入总行数少于预估总量，剩余的数据将直接透传给下一个算子",
+            "This threshold determines how many partitions will be allocated for window function get topn."
+                    + " if this threshold is exceeded and input rows less than the estimated total rows, the remaining"
+                    + " data will be pass through to other node directly."
+    })
+    private int partitionTopNMaxPartitions = 1024;
+
+    @VariableMgr.VarAttr(name = PARTITION_TOPN_PER_PARTITION_ROWS, needForward = true, description = {
+            "这个数值用于partition_topn预估每个分区的行数，用来计算所有分区的预估数据总量，决定是否能透传下一个算子",
+            "This value is used for partition_topn to estimate the number of rows in each partition, to calculate "
+            + " the estimated total amount of data for all partitions, and to determine whether the next operator "
+            + " can be passed transparently."
+    })
+    private int partitionTopNPerPartitionRows = 1000;
+
     @VariableMgr.VarAttr(name = GLOBAL_PARTITION_TOPN_THRESHOLD)
     private double globalPartitionTopNThreshold = 100;
 
@@ -1299,8 +1325,7 @@ public class SessionVariable implements Serializable, Writable {
      * the new optimizer is fully developed. I hope that day
      * would be coming soon.
      */
-    @VariableMgr.VarAttr(name = ENABLE_NEREIDS_PLANNER, needForward = true,
-            fuzzy = true, varType = VariableAnnotation.EXPERIMENTAL_ONLINE)
+    @VariableMgr.VarAttr(name = ENABLE_NEREIDS_PLANNER, needForward = true, varType = VariableAnnotation.REMOVED)
     private boolean enableNereidsPlanner = true;
 
     @VariableMgr.VarAttr(name = DISABLE_NEREIDS_RULES, needForward = true)
@@ -1440,7 +1465,7 @@ public class SessionVariable implements Serializable, Writable {
     // This variable is used to avoid FE fallback to the original parser. When we execute SQL in regression tests
     // for nereids, fallback will cause the Doris return the correct result although the syntax is unsupported
     // in nereids for some mistaken modification. You should set it on the
-    @VariableMgr.VarAttr(name = ENABLE_FALLBACK_TO_ORIGINAL_PLANNER, needForward = true)
+    @VariableMgr.VarAttr(name = ENABLE_FALLBACK_TO_ORIGINAL_PLANNER, varType = VariableAnnotation.REMOVED)
     public boolean enableFallbackToOriginalPlanner = false;
 
     @VariableMgr.VarAttr(name = ENABLE_NEREIDS_TIMEOUT, needForward = true)
@@ -2187,6 +2212,7 @@ public class SessionVariable implements Serializable, Writable {
         Random random = new SecureRandom();
         this.parallelExecInstanceNum = random.nextInt(8) + 1;
         this.parallelPipelineTaskNum = random.nextInt(8);
+        this.parallelPrepareThreshold = random.nextInt(32) + 1;
         this.enableCommonExprPushdown = random.nextBoolean();
         this.enableLocalExchange = random.nextBoolean();
         // This will cause be dead loop, disable it first
@@ -2238,8 +2264,6 @@ public class SessionVariable implements Serializable, Writable {
         */
         // pull_request_id default value is 0. When it is 0, use default (global) session variable.
         if (Config.pull_request_id > 0) {
-            this.enableNereidsPlanner = true;
-
             switch (Config.pull_request_id % 4) {
                 case 0:
                     this.runtimeFilterType |= TRuntimeFilterType.BITMAP.getValue();
@@ -3312,19 +3336,6 @@ public class SessionVariable implements Serializable, Writable {
         return enablePushDownStringMinMax;
     }
 
-    /**
-     * Nereids only support vectorized engine.
-     *
-     * @return true if both nereids and vectorized engine are enabled
-     */
-    public boolean isEnableNereidsPlanner() {
-        return enableNereidsPlanner;
-    }
-
-    public void setEnableNereidsPlanner(boolean enableNereidsPlanner) {
-        this.enableNereidsPlanner = enableNereidsPlanner;
-    }
-
     /** canUseNereidsDistributePlanner */
     public static boolean canUseNereidsDistributePlanner() {
         // TODO: support cloud mode
@@ -3420,7 +3431,7 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public boolean isEnableNereidsTrace() {
-        return isEnableNereidsPlanner() && enableNereidsTrace;
+        return enableNereidsTrace;
     }
 
     public void setEnableExprTrace(boolean enableExprTrace) {
@@ -3639,6 +3650,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setNumScannerThreads(numScannerThreads);
         tResult.setScannerScaleUpRatio(scannerScaleUpRatio);
         tResult.setMaxColumnReaderNum(maxColumnReaderNum);
+        tResult.setParallelPrepareThreshold(parallelPrepareThreshold);
 
         // TODO chenhao, reservation will be calculated by cost
         tResult.setMinReservation(0);
@@ -3656,16 +3668,19 @@ public class SessionVariable implements Serializable, Writable {
         }
         tResult.setCodegenLevel(codegenLevel);
         tResult.setBeExecVersion(Config.be_exec_version);
-        tResult.setEnableLocalShuffle(enableLocalShuffle && enableNereidsPlanner);
+        tResult.setEnableLocalShuffle(enableLocalShuffle);
         tResult.setParallelInstance(getParallelExecInstanceNum());
         tResult.setReturnObjectDataAsBinary(returnObjectDataAsBinary);
         tResult.setTrimTailingSpacesForExternalTableQuery(trimTailingSpacesForExternalTableQuery);
         tResult.setEnableShareHashTableForBroadcastJoin(enableShareHashTableForBroadcastJoin);
         tResult.setEnableHashJoinEarlyStartProbe(enableHashJoinEarlyStartProbe);
+        tResult.setEnableScanNodeRunSerial(enableScanRunSerial);
 
         tResult.setBatchSize(batchSize);
         tResult.setDisableStreamPreaggregations(disableStreamPreaggregations);
         tResult.setEnableDistinctStreamingAggregation(enableDistinctStreamingAggregation);
+        tResult.setPartitionTopnMaxPartitions(partitionTopNMaxPartitions);
+        tResult.setPartitionTopnPrePartitionRows(partitionTopNPerPartitionRows);
 
         if (maxScanKeyNum > 0) {
             tResult.setMaxScanKeyNum(maxScanKeyNum);
@@ -3692,6 +3707,7 @@ public class SessionVariable implements Serializable, Writable {
             tResult.setResourceLimit(resourceLimit);
         }
 
+        tResult.setWaitFullBlockScheduleTimes(waitFullBlockScheduleTimes);
         tResult.setEnableFunctionPushdown(enableFunctionPushdown);
         tResult.setEnableCommonExprPushdown(enableCommonExprPushdown);
         tResult.setCheckOverflowForDecimal(checkOverflowForDecimal);
@@ -4056,15 +4072,6 @@ public class SessionVariable implements Serializable, Writable {
                 new SetVar(SessionVariable.ENABLE_STRICT_CONSISTENCY_DML, new StringLiteral("false")));
     }
 
-    public void enableFallbackToOriginalPlannerOnce() throws DdlException {
-        if (enableFallbackToOriginalPlanner) {
-            return;
-        }
-        setIsSingleSetVar(true);
-        VariableMgr.setVar(this,
-                new SetVar(SessionVariable.ENABLE_FALLBACK_TO_ORIGINAL_PLANNER, new StringLiteral("true")));
-    }
-
     public void disableConstantFoldingByBEOnce() throws DdlException {
         if (!enableFoldConstantByBe) {
             return;
@@ -4074,18 +4081,7 @@ public class SessionVariable implements Serializable, Writable {
                 new SetVar(SessionVariable.ENABLE_FOLD_CONSTANT_BY_BE, new StringLiteral("false")));
     }
 
-    public void disableNereidsPlannerOnce() throws DdlException {
-        if (!enableNereidsPlanner) {
-            return;
-        }
-        setIsSingleSetVar(true);
-        VariableMgr.setVar(this, new SetVar(SessionVariable.ENABLE_NEREIDS_PLANNER, new StringLiteral("false")));
-    }
-
     public void disableNereidsJoinReorderOnce() throws DdlException {
-        if (!enableNereidsPlanner) {
-            return;
-        }
         setIsSingleSetVar(true);
         VariableMgr.setVar(this, new SetVar(SessionVariable.DISABLE_JOIN_REORDER, new StringLiteral("true")));
     }
@@ -4317,7 +4313,7 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public boolean isIgnoreStorageDataDistribution() {
-        return ignoreStorageDataDistribution && enableLocalShuffle && enableNereidsPlanner;
+        return ignoreStorageDataDistribution && enableLocalShuffle;
     }
 
     public void setIgnoreStorageDataDistribution(boolean ignoreStorageDataDistribution) {
@@ -4355,7 +4351,7 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public boolean isForceToLocalShuffle() {
-        return enableLocalShuffle && enableNereidsPlanner && forceToLocalShuffle;
+        return enableLocalShuffle && forceToLocalShuffle;
     }
 
     public void setForceToLocalShuffle(boolean forceToLocalShuffle) {

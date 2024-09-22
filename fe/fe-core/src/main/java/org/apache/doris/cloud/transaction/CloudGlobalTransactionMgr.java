@@ -794,8 +794,8 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                     LOG.warn("ignore get delete bitmap lock exception, transactionId={}, retryTime={}",
                             transactionId, retryTime, e);
                 }
-                // sleep random millis [20, 200] ms, avoid txn conflict
-                int randomMillis = 20 + (int) (Math.random() * (200 - 20));
+                // sleep random millis [20, 300] ms, avoid txn conflict
+                int randomMillis = 20 + (int) (Math.random() * (300 - 20));
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("randomMillis:{}", randomMillis);
                 }
@@ -867,6 +867,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             // not check return value, because the add will success
             AgentTaskQueue.addTask(task);
             batchTask.addTask(task);
+            LOG.info("send calculate delete bitmap task to be {}, txn_id {}", entry.getKey(), transactionId);
         }
         AgentTaskExecutor.submit(batchTask);
 
@@ -929,7 +930,28 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     public boolean commitAndPublishTransaction(DatabaseIf db, List<Table> tableList, long transactionId,
                                                List<TabletCommitInfo> tabletCommitInfos, long timeoutMillis)
             throws UserException {
-        return commitAndPublishTransaction(db, tableList, transactionId, tabletCommitInfos, timeoutMillis, null);
+        int retryTimes = 0;
+        boolean res = false;
+        while (true) {
+            try {
+                res = commitAndPublishTransaction(db, tableList, transactionId, tabletCommitInfos, timeoutMillis, null);
+                break;
+            } catch (UserException e) {
+                LOG.warn("failed to commit txn, txnId={},retryTimes={},exception={}",
+                        transactionId, retryTimes, e);
+                // only mow table will catch DELETE_BITMAP_LOCK_ERR and need to retry
+                if (e.getErrorCode() == InternalErrorCode.DELETE_BITMAP_LOCK_ERR) {
+                    retryTimes++;
+                    if (retryTimes >= Config.mow_calculate_delete_bitmap_retry_times) {
+                        // should throw exception after running out of retry times
+                        throw e;
+                    }
+                } else {
+                    throw e;
+                }
+            }
+        }
+        return res;
     }
 
     @Override

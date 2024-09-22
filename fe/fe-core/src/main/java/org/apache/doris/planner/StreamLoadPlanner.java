@@ -154,6 +154,15 @@ public class StreamLoadPlanner {
             isPartialUpdate = false;
         }
 
+        if (isPartialUpdate) {
+            boolean hasSyncMaterializedView = destTable.getFullSchema().stream()
+                    .anyMatch(col -> col.isMaterializedViewColumn());
+            if (hasSyncMaterializedView) {
+                throw new DdlException("Can't do partial update on merge-on-write Unique table"
+                        + " with sync materialized view.");
+            }
+        }
+
         HashSet<String> partialUpdateInputColumns = new HashSet<>();
         if (isPartialUpdate) {
             for (Column col : destTable.getFullSchema()) {
@@ -195,7 +204,8 @@ public class StreamLoadPlanner {
                             + " by generated columns, missing: " + col.getName());
                 }
             }
-            if (taskInfo.getMergeType() == LoadTask.MergeType.DELETE) {
+            if (taskInfo.getMergeType() == LoadTask.MergeType.DELETE
+                    || taskInfo.getMergeType() == LoadTask.MergeType.MERGE) {
                 partialUpdateInputColumns.add(Column.DELETE_SIGN);
             }
         }
