@@ -648,11 +648,11 @@ void DeltaWriter::_build_current_tablet_schema(int64_t index_id,
     _tablet_schema->set_table_id(table_schema_param->table_id());
     // set partial update columns info
     _partial_update_info = std::make_shared<PartialUpdateInfo>();
-    _partial_update_info->init(*_tablet_schema, table_schema_param->is_partial_update(),
-                               table_schema_param->partial_update_input_columns(),
-                               table_schema_param->is_strict_mode(),
-                               table_schema_param->timestamp_ms(), table_schema_param->timezone(),
-                               _cur_max_version);
+    _partial_update_info->init(
+            *_tablet_schema, table_schema_param->is_partial_update(),
+            table_schema_param->partial_update_input_columns(),
+            table_schema_param->is_strict_mode(), table_schema_param->timestamp_ms(),
+            table_schema_param->nano_seconds(), table_schema_param->timezone(), _cur_max_version);
 }
 
 void DeltaWriter::_request_slave_tablet_pull_rowset(PNodeInfo node_info) {
