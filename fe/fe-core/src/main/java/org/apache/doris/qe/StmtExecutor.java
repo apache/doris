@@ -1532,7 +1532,7 @@ public class StmtExecutor {
     }
 
     // Because this is called by other thread
-    public void cancel() {
+    public void cancel(Status cancelReason) {
         if (masterOpExecutor != null) {
             try {
                 masterOpExecutor.cancel();
@@ -1548,7 +1548,7 @@ public class StmtExecutor {
         }
         Coordinator coordRef = coord;
         if (coordRef != null) {
-            coordRef.cancel();
+            coordRef.cancel(cancelReason);
         }
         if (mysqlLoadId != null) {
             Env.getCurrentEnv().getLoadManager().getMysqlLoadManager().cancelMySqlLoad(mysqlLoadId);
@@ -1572,20 +1572,6 @@ public class StmtExecutor {
             }
         }
         return Optional.empty();
-    }
-
-    // Because this is called by other thread
-    public void cancel(Status cancelReason) {
-        Coordinator coordRef = coord;
-        if (coordRef != null) {
-            coordRef.cancel(cancelReason);
-        }
-        if (mysqlLoadId != null) {
-            Env.getCurrentEnv().getLoadManager().getMysqlLoadManager().cancelMySqlLoad(mysqlLoadId);
-        }
-        if (parsedStmt instanceof AnalyzeTblStmt || parsedStmt instanceof AnalyzeDBStmt) {
-            Env.getCurrentEnv().getAnalysisManager().cancelSyncTask(context);
-        }
     }
 
     // Handle kill statement.
