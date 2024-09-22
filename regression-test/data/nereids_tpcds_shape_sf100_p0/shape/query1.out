@@ -24,20 +24,21 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----------------PhysicalProject
 ------------------PhysicalOlapScan[customer]
 --------------PhysicalDistribute
-----------------hashJoin[INNER_JOIN](ctr1.ctr_store_sk = ctr2.ctr_store_sk)(cast(ctr_total_return as DOUBLE) > cast((avg(cast(ctr_total_return as DECIMALV3(38, 4))) * 1.2) as DOUBLE))
-------------------PhysicalProject
---------------------hashJoin[INNER_JOIN](store.s_store_sk = ctr1.ctr_store_sk)
-----------------------PhysicalDistribute
-------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
-----------------------PhysicalDistribute
-------------------------PhysicalProject
---------------------------filter((store.s_state = 'SD'))
-----------------------------PhysicalOlapScan[store]
-------------------PhysicalDistribute
---------------------hashAgg[GLOBAL]
-----------------------PhysicalDistribute
-------------------------hashAgg[LOCAL]
---------------------------PhysicalDistribute
-----------------------------PhysicalProject
-------------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
+----------------PhysicalProject
+------------------hashJoin[INNER_JOIN](ctr1.ctr_store_sk = ctr2.ctr_store_sk)(cast(ctr_total_return as DOUBLE) > cast((avg(cast(ctr_total_return as DECIMALV3(38, 4))) * 1.2) as DOUBLE))
+--------------------PhysicalProject
+----------------------hashJoin[INNER_JOIN](store.s_store_sk = ctr1.ctr_store_sk)
+------------------------PhysicalDistribute
+--------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
+------------------------PhysicalDistribute
+--------------------------PhysicalProject
+----------------------------filter((store.s_state = 'SD'))
+------------------------------PhysicalOlapScan[store]
+--------------------PhysicalDistribute
+----------------------hashAgg[GLOBAL]
+------------------------PhysicalDistribute
+--------------------------hashAgg[LOCAL]
+----------------------------PhysicalDistribute
+------------------------------PhysicalProject
+--------------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
 

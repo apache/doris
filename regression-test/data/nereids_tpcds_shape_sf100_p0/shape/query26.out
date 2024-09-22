@@ -10,8 +10,8 @@ PhysicalResultSink
 --------------PhysicalProject
 ----------------hashJoin[INNER_JOIN](catalog_sales.cs_item_sk = item.i_item_sk)
 ------------------PhysicalDistribute
---------------------hashJoin[INNER_JOIN](catalog_sales.cs_promo_sk = promotion.p_promo_sk)
-----------------------PhysicalDistribute
+--------------------PhysicalProject
+----------------------hashJoin[INNER_JOIN](catalog_sales.cs_promo_sk = promotion.p_promo_sk)
 ------------------------PhysicalProject
 --------------------------hashJoin[INNER_JOIN](catalog_sales.cs_sold_date_sk = date_dim.d_date_sk)
 ----------------------------PhysicalProject
@@ -26,10 +26,10 @@ PhysicalResultSink
 ------------------------------PhysicalProject
 --------------------------------filter((date_dim.d_year = 2001))
 ----------------------------------PhysicalOlapScan[date_dim]
-----------------------PhysicalDistribute
-------------------------PhysicalProject
---------------------------filter(((promotion.p_channel_email = 'N') OR (promotion.p_channel_event = 'N')))
-----------------------------PhysicalOlapScan[promotion]
+------------------------PhysicalDistribute
+--------------------------PhysicalProject
+----------------------------filter(((promotion.p_channel_email = 'N') OR (promotion.p_channel_event = 'N')))
+------------------------------PhysicalOlapScan[promotion]
 ------------------PhysicalDistribute
 --------------------PhysicalProject
 ----------------------PhysicalOlapScan[item]
