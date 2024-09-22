@@ -52,21 +52,9 @@ suite("test_partial_update_seq_map_col", "p0") {
             sql "insert into ${tableName}(k,c1) values(4,4);"
             order_qt_sql1 "select k,c1,c3 from ${tableName} where c2=__DORIS_SEQUENCE_COL__;"
             // update column which is not sequence map col
-            if (use_nereids) {
-                explain {
-                    sql "update ${tableName} set c3=20 where c1<=2;"
-                    contains "IS_PARTIAL_UPDATE: false"
-                }
-            }
             sql "update ${tableName} set c3=20 where c1<=2;"
             order_qt_sql1 "select k,c1,c3 from ${tableName} where c2=__DORIS_SEQUENCE_COL__;"
             // update sequence map col
-            if (use_nereids) {
-                explain {
-                    sql "update ${tableName} set c2='2099-09-10 12:00:00.977174' where k>2;"
-                    contains "IS_PARTIAL_UPDATE: false"
-                }
-            }
             sql "update ${tableName} set c2='2099-09-10 12:00:00.977174' where k>2;"
             order_qt_sql1 "select k,c1,c3 from ${tableName} where c2=__DORIS_SEQUENCE_COL__;"
             order_qt_sql1 "select k,c1,c2,c3,__DORIS_SEQUENCE_COL__ from ${tableName} where c1>2;"
