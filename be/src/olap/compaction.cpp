@@ -627,7 +627,8 @@ Status Compaction::do_inverted_index_compaction() {
         auto seg_path = DORIS_TRY(rowset->segment_path(seg_id));
         auto inverted_index_file_reader = std::make_unique<InvertedIndexFileReader>(
                 fs, std::string {InvertedIndexDescriptor::get_index_file_path_prefix(seg_path)},
-                _cur_tablet_schema->get_inverted_index_storage_format());
+                _cur_tablet_schema->get_inverted_index_storage_format(),
+                rowset->rowset_meta()->inverted_index_file_info(seg_id));
         bool open_idx_file_cache = false;
         RETURN_NOT_OK_STATUS_WITH_WARN(
                 inverted_index_file_reader->init(config::inverted_index_read_buffer_size,
@@ -840,56 +841,47 @@ void Compaction::construct_skip_inverted_index(RowsetWriterContext& ctx) {
                     return false;
                 }
 
-                auto inverted_index_file_reader = std::make_unique<InvertedIndexFileReader>(
-                        fs,
-                        std::string {
-                                InvertedIndexDescriptor::get_index_file_path_prefix(*seg_path)},
-                        _cur_tablet_schema->get_inverted_index_storage_format());
-                bool open_idx_file_cache = false;
-                auto st = inverted_index_file_reader->init(config::inverted_index_read_buffer_size,
-                                                           open_idx_file_cache);
-                if (!st.ok()) {
-                    LOG(WARNING) << "init index "
-                                 << inverted_index_file_reader->get_index_file_path(index_meta)
-                                 << " error:" << st;
-                    return false;
-                }
+                std::string index_file_path;
+                try {
+                    auto inverted_index_file_reader = std::make_unique<InvertedIndexFileReader>(
+                            fs,
+                            std::string {
+                                    InvertedIndexDescriptor::get_index_file_path_prefix(*seg_path)},
+                            _cur_tablet_schema->get_inverted_index_storage_format(),
+                            rowset->rowset_meta()->inverted_index_file_info(i));
+                    bool open_idx_file_cache = false;
+                    auto st = inverted_index_file_reader->init(
+                            config::inverted_index_read_buffer_size, open_idx_file_cache);
+                    index_file_path = inverted_index_file_reader->get_index_file_path(index_meta);
+                    if (!st.ok()) {
+                        LOG(WARNING) << "init index " << index_file_path << " error:" << st;
+                        return false;
+                    }
 
-                bool exists = false;
-                if (!inverted_index_file_reader->index_file_exist(index_meta, &exists).ok()) {
-                    LOG(ERROR) << inverted_index_file_reader->get_index_file_path(index_meta)
-                               << " fs->exists error";
-                    return false;
-                }
+                    // check index meta
+                    auto result = inverted_index_file_reader->open(index_meta);
+                    if (!result.has_value()) {
+                        LOG(WARNING)
+                                << "open index " << index_file_path << " error:" << result.error();
+                        return false;
+                    }
+                    auto reader = std::move(result.value());
+                    std::vector<std::string> files;
+                    reader->list(&files);
+                    reader->close();
 
-                if (!exists) {
+                    // why is 3?
+                    // bkd index will write at least 3 files
+                    if (files.size() < 3) {
+                        LOG(WARNING) << "tablet[" << _tablet->tablet_id() << "] column_unique_id["
+                                     << col_unique_id << "]," << index_file_path
+                                     << " is corrupted, will skip index compaction";
+                        return false;
+                    }
+                } catch (CLuceneError& err) {
                     LOG(WARNING) << "tablet[" << _tablet->tablet_id() << "] column_unique_id["
-                                 << col_unique_id << "],"
-                                 << inverted_index_file_reader->get_index_file_path(index_meta)
-                                 << " is not exists, will skip index compaction";
-                    return false;
-                }
-
-                // check index meta
-                auto result = inverted_index_file_reader->open(index_meta);
-                if (!result.has_value()) {
-                    LOG(WARNING) << "open index "
-                                 << inverted_index_file_reader->get_index_file_path(index_meta)
-                                 << " error:" << result.error();
-                    return false;
-                }
-                auto reader = std::move(result.value());
-                std::vector<std::string> files;
-                reader->list(&files);
-                reader->close();
-
-                // why is 3?
-                // bkd index will write at least 3 files
-                if (files.size() < 3) {
-                    LOG(WARNING) << "tablet[" << _tablet->tablet_id() << "] column_unique_id["
-                                 << col_unique_id << "],"
-                                 << inverted_index_file_reader->get_index_file_path(index_meta)
-                                 << " is corrupted, will skip index compaction";
+                                 << col_unique_id << "] open index[" << index_file_path
+                                 << "], will skip index compaction, error:" << err.what();
                     return false;
                 }
             }
