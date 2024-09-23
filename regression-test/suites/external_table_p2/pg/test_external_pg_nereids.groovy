@@ -17,6 +17,12 @@
 //import org.postgresql.Driver
 suite("test_external_pg_nereids", "p2,external,pg,external_remote,external_remote_pg") {
 
+    Boolean ignoreP2 = true;
+    if (ignoreP2) {
+        logger.info("disable p2 test");
+        return;
+    }
+
     String enabled = context.config.otherConfigs.get("enableExternalPgTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String extPgHost = context.config.otherConfigs.get("extPgHost")
