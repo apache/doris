@@ -45,10 +45,10 @@ Status MemFileCacheStorage::append(const FileCacheKey& key, const Slice& value) 
     auto iter = _cache_map.find(map_key);
     if (iter != _cache_map.end()) {
         // despite the name append, it is indeed a put, so the key should not exist
-        DCHECK(false);
         LOG_WARNING("key already exists in in-memory cache map")
                 .tag("hash", key.hash.to_string())
                 .tag("offset", key.offset);
+        DCHECK(false);
         return Status::IOError("key already exists in in-memory cache map");
     }
     // TODO(zhengyu): allocate in mempool

@@ -45,6 +45,8 @@ public:
                                        std::lock_guard<std::mutex>& cache_lock) override;
     Status clear(std::string& msg) override;
 
+    FileCacheStorageType get_type() override { return MEMORY; }
+
 private:
     std::unordered_map<FileWriterMapKey, MemBlock, FileWriterMapKeyHash> _cache_map;
     std::mutex _cache_map_mtx;

@@ -444,8 +444,6 @@ private:
     LRUQueue _disposable_queue;
     LRUQueue _ttl_queue;
 
-    bool _is_in_memory = false;
-
     // metrics
     size_t _num_read_blocks = 0;
     size_t _num_hit_blocks = 0;

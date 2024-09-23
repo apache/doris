@@ -83,6 +83,8 @@ public:
     [[nodiscard]] std::string get_path_in_local_cache(const UInt128Wrapper&,
                                                       uint64_t expiration_time) const;
 
+    FileCacheStorageType get_type() override { return DISK; }
+
 private:
     Status upgrade_cache_dir_if_necessary() const;
 

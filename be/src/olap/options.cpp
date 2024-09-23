@@ -228,7 +228,7 @@ Status parse_conf_cache_paths(const std::string& config_path, std::vector<CacheP
             if (storage == CACHE_STORAGE_MEMORY) {
                 // set path to "memory" for memory storage
                 // so that we can track it by path (use _path_to_cache map)
-                path = "memory";
+                path = CACHE_STORAGE_MEMORY;
             }
         }
         int64_t total_size = 0, query_limit_bytes = 0;

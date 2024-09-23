@@ -26,6 +26,8 @@ class BlockFileCache;
 
 using FileWriterMapKey = std::pair<UInt128Wrapper, size_t>;
 
+enum FileCacheStorageType { DISK = 0, MEMORY = 1 };
+
 struct FileWriterMapKeyHash {
     std::size_t operator()(const FileWriterMapKey& w) const {
         char* v1 = (char*)&w.first.value_;
@@ -60,7 +62,9 @@ public:
     // use when lazy load cache
     virtual void load_blocks_directly_unlocked(BlockFileCache* _mgr, const FileCacheKey& key,
                                                std::lock_guard<std::mutex>& cache_lock) {}
+    // force clear all current data in the cache
     virtual Status clear(std::string& msg) = 0;
+    virtual FileCacheStorageType get_type() = 0;
 };
 
 } // namespace doris::io

@@ -99,7 +99,7 @@ BlockFileCache::BlockFileCache(const std::string& cache_base_path,
         _storage = std::make_unique<FSFileCacheStorage>();
     }
 
-    LOG(INFO) << "file cache path= " << _cache_base_path << cache_settings.to_string();
+    LOG(INFO) << "file cache path= " << _cache_base_path << " " << cache_settings.to_string();
 }
 
 UInt128Wrapper BlockFileCache::hash(const std::string& path) {
@@ -1512,8 +1512,8 @@ std::string BlockFileCache::reset_capacity(size_t new_capacity) {
 }
 
 void BlockFileCache::check_disk_resource_limit() {
-    if (_cache_base_path == "memory") {
-        return; // if storage is memory, skip the check
+    if (_storage->get_type() != FileCacheStorageType::DISK) {
+        return;
     }
     if (_capacity > _cur_cache_size) {
         _disk_resource_limit_mode = false;
