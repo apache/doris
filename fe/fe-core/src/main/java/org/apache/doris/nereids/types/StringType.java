@@ -28,7 +28,7 @@ public class StringType extends CharacterType {
     public static final StringType INSTANCE = new StringType();
 
     private StringType() {
-        super(-1);
+        super(CharacterType.DEFAULT_WIDTH);
     }
 
     @Override
