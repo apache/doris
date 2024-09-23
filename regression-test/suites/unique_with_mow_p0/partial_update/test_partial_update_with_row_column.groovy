@@ -17,7 +17,7 @@
 // under the License.
 
 suite("test_primary_key_partial_update_with_row_column", "p0") {
-    def tableName = "test_primary_key_partial_update_with_row_column"
+    def tableName = "test_primary_key_partial_update_with_row_column_2"
 
     // create table
     sql """ DROP TABLE IF EXISTS ${tableName} """

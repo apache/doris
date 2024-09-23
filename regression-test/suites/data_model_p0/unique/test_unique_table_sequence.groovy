@@ -127,15 +127,11 @@ suite("test_unique_table_sequence") {
 
         sql "INSERT INTO ${tableName} (k1, v1, v2, v3, v4, __DORIS_SEQUENCE_COL__) values(15, 9, 18, 21, 22, 2)"
 
-        sql "SET show_hidden_columns=true"
-
-        sql "sync"
-
         qt_count "SELECT COUNT(*) from ${tableName}"
 
         order_qt_part "SELECT k1, v1, v2 from ${tableName}"
 
-        order_qt_all "SELECT * from ${tableName}"
+        order_qt_all "SELECT k1, v1, v2, v3, v4,__DORIS_DELETE_SIGN__,__DORIS_VERSION_COL__,__DORIS_SEQUENCE_COL__ from ${tableName}"
 
         sql "DROP TABLE ${tableName}"
 
