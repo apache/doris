@@ -1155,6 +1155,7 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionExtractURLParameter>();
     factory.register_function<FunctionStringParseUrl>();
     factory.register_function<FunctionUrlDecode>();
+    factory.register_function<FunctionUrlEncode>();
     factory.register_function<FunctionRandomBytes>();
     factory.register_function<FunctionMoneyFormat<MoneyFormatDoubleImpl>>();
     factory.register_function<FunctionMoneyFormat<MoneyFormatInt64Impl>>();
@@ -1166,6 +1167,7 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionStringDigestSHA2>();
     factory.register_function<FunctionReplace<ReplaceImpl, true>>();
     factory.register_function<FunctionReplace<ReplaceEmptyImpl, false>>();
+    factory.register_function<FunctionTranslate>();
     factory.register_function<FunctionMask>();
     factory.register_function<FunctionMaskPartial<true>>();
     factory.register_function<FunctionMaskPartial<false>>();
