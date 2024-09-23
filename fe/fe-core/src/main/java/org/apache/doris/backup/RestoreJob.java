@@ -796,16 +796,23 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                 if (localTbl != null) {
                     Preconditions.checkState(localTbl.getType() == TableType.VIEW);
                     View localView = (View) localTbl;
-                    if (!localView.getSignature(BackupHandler.SIGNATURE_VERSION)
-                            .equals(remoteView.getSignature(BackupHandler.SIGNATURE_VERSION))) {
-                        status = new Status(ErrCode.COMMON_ERROR, "View "
-                                + jobInfo.getAliasByOriginNameIfSet(backupViewName)
-                                + " already exist but with different schema");
-                        return;
+                    String localViewSignature = localView.getSignature(BackupHandler.SIGNATURE_VERSION);
+                    // keep compatible with old version, compare the signature without reset view def
+                    if (!localViewSignature.equals(remoteView.getSignature(BackupHandler.SIGNATURE_VERSION))) {
+                        // reset view def to dest db name and compare signature again
+                        String srcDbName = jobInfo.dbName;
+                        remoteView.resetViewDefForRestore(srcDbName, db.getName());
+                        if (!localViewSignature.equals(remoteView.getSignature(BackupHandler.SIGNATURE_VERSION))) {
+                            status = new Status(ErrCode.COMMON_ERROR, "View "
+                                    + jobInfo.getAliasByOriginNameIfSet(backupViewName)
+                                    + " already exist but with different schema");
+                            return;
+                        }
                     }
                 } else {
                     String srcDbName = jobInfo.dbName;
-                    remoteView.resetIdsForRestore(env, srcDbName, db.getFullName());
+                    remoteView.resetViewDefForRestore(srcDbName, db.getName());
+                    remoteView.resetIdsForRestore(env);
                     restoredTbls.add(remoteView);
                 }
             }
