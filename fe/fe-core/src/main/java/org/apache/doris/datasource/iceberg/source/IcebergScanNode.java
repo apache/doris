@@ -275,8 +275,7 @@ public class IcebergScanNode extends FileQueryScanNode {
                 } else {
                     pushDownCountSplits = Collections.singletonList(splits.get(0));
                 }
-                List<Split> split = Collections.singletonList(splits.get(0));
-                assignCountToSplits(split, countFromSnapshot);
+                assignCountToSplits(pushDownCountSplits, countFromSnapshot);
                 return pushDownCountSplits;
             }
         }
