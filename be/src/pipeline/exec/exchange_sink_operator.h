@@ -283,6 +283,7 @@ private:
     int _writer_count = 1;
     const bool _enable_local_merge_sort;
     const bool _is_multi_cast;
+    const bool _enable_pass_to_one_exchange;
 
     int _close_sender_number = 1;
 };

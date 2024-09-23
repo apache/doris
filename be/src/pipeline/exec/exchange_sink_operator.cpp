@@ -306,7 +306,8 @@ ExchangeSinkOperatorX::ExchangeSinkOperatorX(
           _tablet_sink_txn_id(sink.tablet_sink_txn_id),
           _t_tablet_sink_exprs(&sink.tablet_sink_exprs),
           _enable_local_merge_sort(state->enable_local_merge_sort()),
-          _is_multi_cast(is_multi_cast) {
+          _is_multi_cast(is_multi_cast),
+          _enable_pass_to_one_exchange(state->enable_pass_to_one_exchange()) {
     DCHECK_GT(destinations.size(), 0);
     DCHECK(sink.output_partition.type == TPartitionType::UNPARTITIONED ||
            sink.output_partition.type == TPartitionType::HASH_PARTITIONED ||
@@ -683,7 +684,7 @@ DataDistribution ExchangeSinkOperatorX::required_data_distribution() const {
             sort_source && sort_source->use_local_merge()) {
             // Sort the data local
             return ExchangeType::LOCAL_MERGE_SORT;
-        } else if (!_is_multi_cast) {
+        } else if (!_is_multi_cast && _enable_pass_to_one_exchange) {
             return ExchangeType::PASS_TO_ONE_EXCHANGE;
         }
     }

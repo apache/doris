@@ -587,6 +587,11 @@ public:
                _query_options.enable_local_merge_sort;
     }
 
+    bool enable_pass_to_one_exchange() const {
+        return _query_options.__isset.enable_pass_to_one_exchange &&
+               _query_options.enable_pass_to_one_exchange;
+    }
+
     int64_t min_revocable_mem() const {
         if (_query_options.__isset.min_revocable_mem) {
             return std::max(_query_options.min_revocable_mem, (int64_t)1);
