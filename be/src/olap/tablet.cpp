@@ -330,6 +330,20 @@ Status Tablet::init() {
 // should save tablet meta to remote meta store
 // if it's a primary replica
 void Tablet::save_meta() {
+    if (config::enable_table_size_correctness_check) {
+        const std::vector<RowsetMetaSharedPtr>& all_rs_metas = _tablet_meta->all_rs_metas();
+        for (const auto& rs_meta : all_rs_metas) {
+            if (rs_meta->data_disk_size() + rs_meta->index_disk_size() !=
+                rs_meta->total_disk_size()) {
+                LOG(FATAL) << "[Local table size check failed]:"
+                           << " tablet id: " << get_tablet_info().tablet_id
+                           << ", rowset id:" << rs_meta->rowset_id()
+                           << ", rowset data disk size:" << rs_meta->data_disk_size()
+                           << ", rowset index disk size:" << rs_meta->index_disk_size()
+                           << ", rowset total disk size:" << rs_meta->total_disk_size() << ".";
+            }
+        }
+    }
     auto res = _tablet_meta->save_meta(_data_dir);
     CHECK_EQ(res, Status::OK()) << "fail to save tablet_meta. res=" << res
                                 << ", root=" << _data_dir->path();

@@ -750,6 +750,16 @@ Status CloudMetaMgr::commit_rowset(const RowsetMeta& rs_meta,
         Status ret_st;
         TEST_INJECTION_POINT_RETURN_WITH_VALUE("CloudMetaMgr::commit_rowset", ret_st);
     }
+    if (config::enable_table_size_correctness_check) {
+        if (rs_meta.data_disk_size() + rs_meta.index_disk_size() != rs_meta.total_disk_size()) {
+            LOG(FATAL) << "[Cloud table size check failed]:"
+                       << " tablet id: " << rs_meta.tablet_id()
+                       << ", rowset id:" << rs_meta.rowset_id()
+                       << ", rowset data disk size:" << rs_meta.data_disk_size()
+                       << ", rowset index disk size:" << rs_meta.index_disk_size()
+                       << ", rowset total disk size:" << rs_meta.total_disk_size() << ".";
+        }
+    }
     CreateRowsetRequest req;
     CreateRowsetResponse resp;
     req.set_cloud_unique_id(config::cloud_unique_id);
