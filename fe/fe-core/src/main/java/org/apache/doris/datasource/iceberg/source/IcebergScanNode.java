@@ -87,6 +87,7 @@ public class IcebergScanNode extends FileQueryScanNode {
     private IcebergSource source;
     private Table icebergTable;
     private List<String> pushdownIcebergPredicates = Lists.newArrayList();
+    private boolean pushDownCount = false;
 
     /**
      * External file scan node for Query iceberg table
@@ -138,6 +139,9 @@ public class IcebergScanNode extends FileQueryScanNode {
         int formatVersion = icebergSplit.getFormatVersion();
         fileDesc.setFormatVersion(formatVersion);
         fileDesc.setOriginalFilePath(icebergSplit.getOriginalPath());
+        if (pushDownCount) {
+            fileDesc.setRowCount(icebergSplit.getRowCount());
+        }
         if (formatVersion < MIN_DELETE_FILE_SUPPORT_VERSION) {
             fileDesc.setContent(FileContent.DATA.id());
         } else {
@@ -262,10 +266,14 @@ public class IcebergScanNode extends FileQueryScanNode {
                 return splits;
             }
             long countFromSnapshot = getCountFromSnapshot();
-            if (countFromSnapshot > 10000) {
-                int parallelNum = ConnectContext.get().getSessionVariable().getParallelExecInstanceNum();
-                return splits.subList(0, Math.min(splits.size(), parallelNum));
-            } else if (countFromSnapshot >= 0) {
+            if (countFromSnapshot >= 0) {
+                pushDownCount = true;
+                if (countFromSnapshot > 10000) {
+                    int parallelNum = ConnectContext.get().getSessionVariable().getParallelExecInstanceNum();
+                    List<Split> pushDownCountSplits = splits.subList(0, Math.min(splits.size(), parallelNum));
+                    assignCountToSplits(pushDownCountSplits, countFromSnapshot);
+                    return pushDownCountSplits;
+                }
                 return Collections.singletonList(splits.get(0));
             }
         }
@@ -384,12 +392,6 @@ public class IcebergScanNode extends FileQueryScanNode {
     @Override
     protected void toThrift(TPlanNode planNode) {
         super.toThrift(planNode);
-        if (getPushDownAggNoGroupingOp().equals(TPushAggOp.COUNT)) {
-            long countFromSnapshot = getCountFromSnapshot();
-            if (countFromSnapshot >= 0) {
-                planNode.setPushDownCount(countFromSnapshot);
-            }
-        }
     }
 
     @Override
@@ -408,5 +410,14 @@ public class IcebergScanNode extends FileQueryScanNode {
         }
         return super.getNodeExplainString(prefix, detailLevel)
                 + String.format("%sicebergPredicatePushdown=\n%s\n", prefix, sb);
+    }
+
+    private void assignCountToSplits(List<Split> splits, long totalCount) {
+        int size = splits.size();
+        long countPerSplit = totalCount / size;
+        for (int i = 0; i < size - 1; i++) {
+            ((IcebergSplit) splits.get(i)).setRowCount(countPerSplit);
+        }
+        ((IcebergSplit) splits.get(size - 1)).setRowCount(countPerSplit + totalCount % size);
     }
 }
