@@ -591,7 +591,7 @@ public class OlapTable extends Table {
                 baseIndexId = newIdxId;
             }
             MaterializedIndexMeta indexMeta = origIdxIdToMeta.get(entry.getKey());
-            indexMeta.resetIndexIdForRestore(newIdxId, srcDbName, db.getFullName());
+            indexMeta.resetIndexIdForRestore(newIdxId, srcDbName, db.getName());
             indexIdToMeta.put(newIdxId, indexMeta);
             indexNameToId.put(entry.getValue(), newIdxId);
         }
