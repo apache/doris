@@ -17,28 +17,17 @@
 
 package org.apache.doris.common.security.authentication;
 
-import org.apache.hadoop.security.UserGroupInformation;
-
 import java.io.IOException;
 import java.security.PrivilegedExceptionAction;
 
-public interface HadoopAuthenticator extends Authenticator {
+public interface Authenticator {
 
-    UserGroupInformation getUGI() throws IOException;
+    <T> T doAs(PrivilegedExceptionAction<T> action) throws IOException;
 
-    default <T> T doAs(PrivilegedExceptionAction<T> action) throws IOException {
-        try {
-            return getUGI().doAs(action);
-        } catch (InterruptedException e) {
-            throw new IOException(e);
-        }
-    }
-
-    static HadoopAuthenticator getHadoopAuthenticator(AuthenticationConfig config) {
-        if (config instanceof KerberosAuthenticationConfig) {
-            return new HadoopKerberosAuthenticator((KerberosAuthenticationConfig) config);
-        } else {
-            return new HadoopSimpleAuthenticator((SimpleAuthenticationConfig) config);
-        }
+    default <T> void doAsNoReturn(Runnable action) throws IOException {
+        doAs(() -> {
+            action.run();
+            return null;
+        });
     }
 }

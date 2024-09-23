@@ -161,7 +161,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         PartitionSpec partitionSpec = IcebergUtils.solveIcebergPartitionSpec(stmt.getPartitionDesc(), schema);
         catalog.createTable(TableIdentifier.of(dbName, tableName), schema, partitionSpec, properties);
         db.setUnInitialized(true);
-        return false;
+        return true;
     }
 
     @Override
