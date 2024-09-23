@@ -114,7 +114,8 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                     .when(agg -> {
                         Set<AggregateFunction> funcs = agg.getAggregateFunctions();
                         return !funcs.isEmpty() && funcs.stream()
-                                .allMatch(f -> f instanceof Count && !f.isDistinct());
+                                .allMatch(f -> f instanceof Count && !f.isDistinct() && (((Count) f).isCountStar()
+                                     || f.child(0) instanceof Slot));
                     })
                     .thenApply(ctx -> {
                         LogicalAggregate<LogicalFilter<LogicalOlapScan>> agg = ctx.root;
@@ -133,7 +134,8 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                     .when(agg -> agg.getGroupByExpressions().isEmpty())
                     .when(agg -> {
                         Set<AggregateFunction> funcs = agg.getAggregateFunctions();
-                        return !funcs.isEmpty() && funcs.stream().allMatch(f -> f instanceof Count && !f.isDistinct());
+                        return !funcs.isEmpty() && funcs.stream().allMatch(f -> f instanceof Count && !f.isDistinct()
+                            && (((Count) f).isCountStar() || f.child(0) instanceof Slot));
                     })
                     .thenApply(ctx -> {
                         LogicalAggregate<LogicalProject<LogicalFilter<LogicalOlapScan>>> agg = ctx.root;
