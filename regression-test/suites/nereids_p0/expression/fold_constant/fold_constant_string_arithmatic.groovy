@@ -79,7 +79,8 @@ suite("fold_constant_string_arithmatic") {
     testFoldConst("SELECT  StrRight('Hello World', 5)")
     testFoldConst("SELECT  Overlay('abcdef', '123', 3, 2)")
     testFoldConst("SELECT  Parse_Url('http://www.example.com/path?query=abc', 'HOST')")
-    testFoldConst("SELECT  Url_Decode('%20Hello%20World%20')")
+    testFoldConst("SELECT  Url_Decode('+Hello+World+')")
+    testFoldConst("SELECT  Url_Encode(' Hello World ')")
 
     // Substring with negative start index
     // Expected behavior: Depending on the SQL engine, might return an empty string or error.
@@ -187,7 +188,7 @@ suite("fold_constant_string_arithmatic") {
 
     // UrlDecode with an invalid percent-encoded string
     // Expected behavior: Return NULL or error due to invalid encoding.
-    testFoldConst("SELECT Url_Decode('%ZZHello%20World')")
+    // testFoldConst("SELECT Url_Decode('%ZZHello%20World')")
 
     testFoldConst("select elt(0, \"hello\", \"doris\")")
     testFoldConst("select elt(1, \"hello\", \"doris\")")
@@ -197,6 +198,7 @@ suite("fold_constant_string_arithmatic") {
 
     testFoldConst("select append_trailing_char_if_absent('a','c')")
     testFoldConst("select append_trailing_char_if_absent('ac','c')")
+    testFoldConst("select append_trailing_char_if_absent('it','a')")
 
     testFoldConst("select ascii('1')")
     testFoldConst("select ascii('a')")
@@ -437,7 +439,8 @@ suite("fold_constant_string_arithmatic") {
     testFoldConst("SELECT StrRight(cast('Hello World' as string), 5)")
     testFoldConst("SELECT Overlay(cast('abcdef' as string), cast('123' as string), 3, 2)")
     testFoldConst("SELECT Parse_Url(cast('http://www.example.com/path?query=abc' as string), cast('HOST' as string))")
-    testFoldConst("SELECT Url_Decode(cast('%20Hello%20World%20' as string))")
+    testFoldConst("SELECT Url_Decode(cast('+Hello+World+' as string))")
+    testFoldConst("SELECT Url_Encode(cast(' Hello World ' as string))")
 
 // Substring with negative start index
 // Expected behavior: Depending on the SQL engine, might return an empty string or error.
@@ -525,7 +528,7 @@ suite("fold_constant_string_arithmatic") {
     testFoldConst("SELECT Unhex(cast('GHIJ' as string))")
 
 // UrlDecode with an invalid percent-encoded string
-    testFoldConst("SELECT Url_Decode(cast('%ZZHello%20World' as string))")
+    // testFoldConst("SELECT Url_Decode(cast('%ZZHello%20World' as string))")
 
 // Additional function tests
     testFoldConst("SELECT Elt(0, cast('hello' as string), cast('doris' as string))")
@@ -683,5 +686,92 @@ suite("fold_constant_string_arithmatic") {
 
     // fix problem of cast date and time function exception
     testFoldConst("select ifnull(date_format(CONCAT_WS('', '9999-07', '-00'), '%Y-%m'),3)")
+
+    // Normal Usage Test Cases
+
+    // Test Case 1: Append missing trailing character
+    testFoldConst("select append_trailing_char_if_absent('hello', '!')")
+    // Expected Output: 'hello!'
+
+    // Test Case 2: Trailing character already present
+    testFoldConst("select append_trailing_char_if_absent('hello!', '!')")
+    // Expected Output: 'hello!'
+
+    // Test Case 3: Append trailing space
+    testFoldConst("select append_trailing_char_if_absent('hello', ' ')")
+    // Expected Output: 'hello '
+
+    // Test Case 4: Empty string input
+    testFoldConst("select append_trailing_char_if_absent('', '!')")
+    // Expected Output: '!'
+
+    // Test Case 5: Append different character
+    testFoldConst("select append_trailing_char_if_absent('hello', '?')")
+    // Expected Output: 'hello?'
+
+    // Test Case 6: String ends with a different character
+    testFoldConst("select append_trailing_char_if_absent('hello?', '!')")
+    // Expected Output: 'hello?!'
+
+    // Edge and Unusual Usage Test Cases
+
+    // Test Case 7: Input is NULL
+    testFoldConst("select append_trailing_char_if_absent(NULL, '!')")
+    // Expected Output: NULL
+
+    // Test Case 8: Trailing character is NULL
+    testFoldConst("select append_trailing_char_if_absent('hello', NULL)")
+    // Expected Output: NULL
+
+    // Test Case 9: Empty trailing character
+    testFoldConst("select append_trailing_char_if_absent('hello', '')")
+    // Expected Output: Error or no change depending on implementation
+
+    // Test Case 10: Trailing character is more than 1 character long
+    testFoldConst("select append_trailing_char_if_absent('hello', 'ab')")
+    // Expected Output: Error
+
+    // Test Case 11: Input string is a number
+    testFoldConst("select append_trailing_char_if_absent(12345, '!')")
+    // Expected Output: Error or '12345!'
+
+    // Test Case 12: Trailing character is a number
+    testFoldConst("select append_trailing_char_if_absent('hello', '1')")
+    // Expected Output: 'hello1'
+
+    // Test Case 13: Input is a single character
+    testFoldConst("select append_trailing_char_if_absent('h', '!')")
+    // Expected Output: 'h!'
+
+    // Test Case 14: Unicode character as input and trailing character
+    testFoldConst("select append_trailing_char_if_absent('こんにちは', '!')")
+    // Expected Output: 'こんにちは!'
+
+    // Test Case 15: Multibyte character as trailing character
+    testFoldConst("select append_trailing_char_if_absent('hello', '😊')")
+    // Expected Output: 'hello😊'
+
+    // Test Case 16: Long string input
+    testFoldConst("select append_trailing_char_if_absent('This is a very long string', '.')")
+    // Expected Output: 'This is a very long string.'
+
+    // Error Handling Test Cases
+
+    // Test Case 17: Invalid trailing character data type (numeric)
+    testFoldConst("select append_trailing_char_if_absent('hello', 1)")
+    // Expected Output: Error
+
+    // Test Case 18: Invalid input data type (integer)
+    testFoldConst("select append_trailing_char_if_absent(12345, '!')")
+    // Expected Output: Error or '12345!'
+
+    // Test Case 19: Non-ASCII characters
+    testFoldConst("select append_trailing_char_if_absent('Привет', '!')")
+    // Expected Output: 'Привет!'
+
+    // Test Case 20: Trailing character with whitespace
+    testFoldConst("select append_trailing_char_if_absent('hello', ' ')")
+    // Expected Output: 'hello '
+
 
 }

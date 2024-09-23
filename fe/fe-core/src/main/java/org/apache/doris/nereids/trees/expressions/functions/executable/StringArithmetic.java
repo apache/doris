@@ -44,6 +44,7 @@ import java.net.MalformedURLException;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.URLDecoder;
+import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -790,10 +791,25 @@ public class StringArithmetic {
     }
 
     /**
+     * Executable arithmetic functions urlencode
+     */
+    @ExecFunction(name = "url_encode")
+    public static Expression urlEncode(StringLikeLiteral first) {
+        try {
+            return castStringLikeLiteral(first, URLEncoder.encode(first.getValue(), StandardCharsets.UTF_8.name()));
+        } catch (UnsupportedEncodingException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    /**
      * Executable arithmetic functions append_trailing_char_if_absent
      */
     @ExecFunction(name = "append_trailing_char_if_absent")
     public static Expression appendTrailingCharIfAbsent(StringLikeLiteral first, StringLikeLiteral second) {
+        if (second.getValue().length() != 1) {
+            return new NullLiteral(first.getDataType());
+        }
         if (first.getValue().endsWith(second.getValue())) {
             return first;
         } else {

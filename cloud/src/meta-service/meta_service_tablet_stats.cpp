@@ -82,9 +82,16 @@ void internal_get_tablet_stats(MetaServiceCode& code, std::string& msg, Transact
 
 int get_detached_tablet_stats(const std::vector<std::pair<std::string, std::string>>& stats_kvs,
                               TabletStats& detached_stats) {
-    if (stats_kvs.size() != 5 && stats_kvs.size() != 1) {
-        LOG(WARNING) << "incorrect tablet stats_kvs, it should be 1 or 5 size=" << stats_kvs.size();
+    bool unexpected_size = false;
+    // clang-format off
+    if (stats_kvs.size() != 5    // aggregated stats and 4 splitted stats: num_rowsets num_segs data_size num_rows
+        && stats_kvs.size() != 2 // aggregated stats and 1 splitted stats: num_rowsets
+        && stats_kvs.size() != 1 // aggregated stats only (nothing has been imported since created)
+        ) {
+        unexpected_size = true;
     }
+    // clang-format on
+    std::stringstream ss;
     for (size_t i = 1; i < stats_kvs.size(); ++i) {
         std::string_view k(stats_kvs[i].first), v(stats_kvs[i].second);
         k.remove_prefix(1);
@@ -111,6 +118,8 @@ int get_detached_tablet_stats(const std::vector<std::pair<std::string, std::stri
             val = bswap_64(val);
         }
 
+        if (unexpected_size) ss << *suffix << " ";
+
         if (*suffix == STATS_KEY_SUFFIX_DATA_SIZE) {
             detached_stats.data_size = val;
         } else if (*suffix == STATS_KEY_SUFFIX_NUM_ROWS) {
@@ -120,8 +129,13 @@ int get_detached_tablet_stats(const std::vector<std::pair<std::string, std::stri
         } else if (*suffix == STATS_KEY_SUFFIX_NUM_SEGS) {
             detached_stats.num_segs = val;
         } else {
-            LOG(WARNING) << "unknown suffix=" << *suffix << " key=" << hex(k);
+            LOG(WARNING) << "unknown tablet stats suffix=" << *suffix << " key=" << hex(k);
         }
+    }
+
+    if (unexpected_size) {
+        LOG_EVERY_N(WARNING, 100) << "unexpected tablet stats_kvs, it should be 1 or 2 or 5, size="
+                                  << stats_kvs.size() << " suffix=" << ss.str();
     }
 
     return 0;

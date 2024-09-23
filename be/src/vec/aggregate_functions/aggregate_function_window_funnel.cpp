@@ -77,8 +77,10 @@ void register_aggregate_function_window_funnel(AggregateFunctionSimpleFactory& f
 }
 void register_aggregate_function_window_funnel_old(AggregateFunctionSimpleFactory& factory) {
     factory.register_alternative_function("window_funnel",
-                                          create_aggregate_function_window_funnel_old, true);
+                                          create_aggregate_function_window_funnel_old, true,
+                                          AGG_FUNCTION_NEW_WINDOW_FUNNEL);
     factory.register_alternative_function("window_funnel",
-                                          create_aggregate_function_window_funnel_old, false);
+                                          create_aggregate_function_window_funnel_old, false,
+                                          AGG_FUNCTION_NEW_WINDOW_FUNNEL);
 }
 } // namespace doris::vectorized

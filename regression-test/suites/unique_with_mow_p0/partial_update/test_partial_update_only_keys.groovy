@@ -26,7 +26,7 @@ suite("test_partial_update_only_keys", "p0") {
 
         connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url = context.config.jdbcUrl) {
             sql "use ${db};"
-            def tableName = "test_primary_key_partial_update"
+            def tableName = "test_partial_update_only_keys"
             sql """ DROP TABLE IF EXISTS ${tableName} force"""
             sql """ CREATE TABLE ${tableName} (
                     `k` BIGINT NOT NULL,

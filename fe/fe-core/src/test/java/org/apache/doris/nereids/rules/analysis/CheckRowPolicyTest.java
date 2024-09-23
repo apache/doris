@@ -196,7 +196,6 @@ public class CheckRowPolicyTest extends TestWithFeService {
         LogicalRelation relation = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), olapTable,
                 Arrays.asList(fullDbName));
         LogicalCheckPolicy<LogicalRelation> checkPolicy = new LogicalCheckPolicy<>(relation);
-        connectContext.getSessionVariable().setEnableNereidsPlanner(true);
         createPolicy("CREATE ROW POLICY "
                 + policyName
                 + " ON "
@@ -226,7 +225,6 @@ public class CheckRowPolicyTest extends TestWithFeService {
                 ImmutableList.of(tableNameRanddomDist)), connectContext, new BindRelation());
 
         LogicalCheckPolicy checkPolicy = new LogicalCheckPolicy(plan);
-        connectContext.getSessionVariable().setEnableNereidsPlanner(true);
         createPolicy("CREATE ROW POLICY "
                 + policyName
                 + " ON "

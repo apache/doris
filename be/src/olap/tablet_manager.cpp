@@ -90,8 +90,7 @@ bvar::Adder<int64_t> g_tablet_meta_schema_columns_count("tablet_meta_schema_colu
 
 TabletManager::TabletManager(StorageEngine& engine, int32_t tablet_map_lock_shard_size)
         : _engine(engine),
-          _tablet_meta_mem_tracker(std::make_shared<MemTracker>(
-                  "TabletMeta(experimental)", ExecEnv::GetInstance()->details_mem_tracker_set())),
+          _tablet_meta_mem_tracker(std::make_shared<MemTracker>("TabletMeta(experimental)")),
           _tablets_shards_size(tablet_map_lock_shard_size),
           _tablets_shards_mask(tablet_map_lock_shard_size - 1) {
     CHECK_GT(_tablets_shards_size, 0);
@@ -973,6 +972,7 @@ Status TabletManager::load_tablet_from_dir(DataDir* store, TTabletId tablet_id,
         if (binlog_meta_filesize > 0) {
             contain_binlog = true;
             RETURN_IF_ERROR(read_pb(binlog_metas_file, &rowset_binlog_metas_pb));
+            VLOG_DEBUG << "load rowset binlog metas from file. file_path=" << binlog_metas_file;
         }
         RETURN_IF_ERROR(io::global_local_filesystem()->delete_file(binlog_metas_file));
     }

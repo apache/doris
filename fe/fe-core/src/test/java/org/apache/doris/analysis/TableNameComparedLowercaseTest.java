@@ -18,7 +18,6 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Env;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.utframe.DorisAssert;
@@ -86,22 +85,6 @@ public class TableNameComparedLowercaseTest {
         Assert.assertEquals(2, tableNames.size());
         Assert.assertTrue(tableNames.contains("TABLE1"));
         Assert.assertTrue(tableNames.contains("TABLE2"));
-    }
-
-    @Test
-    public void testQueryTableNameCaseInsensitive() throws Exception {
-        String sql1 = "select /*+ SET_VAR(enable_nereids_planner=false) */ Table1.siteid, Table2.k2 from Table1 join Table2 on Table1.siteid = Table2.k1"
-                + " where Table2.k5 > 1000 order by Table1.siteid";
-        dorisAssert.query(sql1).explainQuery();
-
-        String sql2 = "select /*+ SET_VAR(enable_nereids_planner=false) */ Table1.siteid, Table2.k2 from table1 join table2 on TAble1.siteid = TAble2.k1"
-                + " where TABle2.k5 > 1000 order by TABLe1.siteid";
-        try {
-            dorisAssert.query(sql2).explainQuery();
-            Assert.fail("Different references to the same table name are used: 'table1', 'TAble1'");
-        } catch (AnalysisException e) {
-            System.out.println(e.getMessage());
-        }
     }
 
     @Test

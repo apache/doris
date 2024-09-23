@@ -25,6 +25,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
@@ -45,6 +46,7 @@ import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.system.Backend;
+import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Strings;
@@ -316,7 +318,7 @@ public class CloudBrokerLoadJob extends BrokerLoadJob {
         for (TUniqueId loadId : loadIds) {
             Coordinator coordinator = QeProcessorImpl.INSTANCE.getCoordinator(loadId);
             if (coordinator != null) {
-                coordinator.cancel();
+                coordinator.cancel(new Status(TStatusCode.CANCELLED, "load job failed"));
             }
         }
 

@@ -17,8 +17,6 @@
 
 suite("test_workload_sched_policy") {
 
-    sql "set experimental_enable_nereids_planner = false;"
-
     sql "drop workload policy if exists test_cancel_policy;"
     sql "drop workload policy if exists set_action_policy;"
     sql "drop workload policy if exists fe_policy;"

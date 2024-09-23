@@ -2612,7 +2612,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         String comment = ctx.STRING_LITERAL() == null ? "" : LogicalPlanBuilderAssistant.escapeBackSlash(
                 ctx.STRING_LITERAL().getText().substring(1, ctx.STRING_LITERAL().getText().length() - 1));
         String querySql = getOriginSql(ctx.query());
-        CreateViewInfo info = new CreateViewInfo(ctx.EXISTS() != null, new TableNameInfo(nameParts),
+        if (ctx.REPLACE() != null && ctx.EXISTS() != null) {
+            throw new AnalysisException("[OR REPLACE] and [IF NOT EXISTS] cannot used at the same time");
+        }
+        CreateViewInfo info = new CreateViewInfo(ctx.EXISTS() != null, ctx.REPLACE() != null,
+                new TableNameInfo(nameParts),
                 comment, querySql,
                 ctx.cols == null ? Lists.newArrayList() : visitSimpleColumnDefs(ctx.cols));
         return new CreateViewCommand(info);
@@ -2789,6 +2793,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 defaultValue = Optional.of(DefaultValue.PI_DEFAULT_VALUE);
             } else if (ctx.E() != null) {
                 defaultValue = Optional.of(DefaultValue.E_NUM_DEFAULT_VALUE);
+            } else if (ctx.BITMAP_EMPTY() != null) {
+                defaultValue = Optional.of(DefaultValue.BITMAP_EMPTY_DEFAULT_VALUE);
             }
         }
         if (ctx.UPDATE() != null) {

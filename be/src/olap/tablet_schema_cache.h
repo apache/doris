@@ -23,14 +23,13 @@
 
 namespace doris {
 
-class TabletSchemaCache : public LRUCachePolicyTrackingManual {
+class TabletSchemaCache : public LRUCachePolicy {
 public:
-    using LRUCachePolicyTrackingManual::insert;
+    using LRUCachePolicy::insert;
 
     TabletSchemaCache(size_t capacity)
-            : LRUCachePolicyTrackingManual(CachePolicy::CacheType::TABLET_SCHEMA_CACHE, capacity,
-                                           LRUCacheType::NUMBER,
-                                           config::tablet_schema_cache_recycle_interval) {}
+            : LRUCachePolicy(CachePolicy::CacheType::TABLET_SCHEMA_CACHE, capacity,
+                             LRUCacheType::NUMBER, config::tablet_schema_cache_recycle_interval) {}
 
     static TabletSchemaCache* create_global_schema_cache(size_t capacity) {
         auto* res = new TabletSchemaCache(capacity);

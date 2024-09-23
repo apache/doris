@@ -83,7 +83,6 @@ import com.google.common.base.Preconditions;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.text.StringSubstitutor;
-import org.apache.iceberg.DataFile;
 import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.TableScan;
@@ -161,7 +160,6 @@ public class StatisticsUtil {
         StmtExecutor stmtExecutor = null;
         AutoCloseConnectContext r = StatisticsUtil.buildConnectContext();
         try {
-            r.connectContext.getSessionVariable().disableNereidsPlannerOnce();
             stmtExecutor = new StmtExecutor(r.connectContext, sql);
             r.connectContext.setExecutor(stmtExecutor);
             stmtExecutor.execute();
@@ -214,7 +212,6 @@ public class StatisticsUtil {
         sessionVariable.enableProfile = Config.enable_profile_when_analyze;
         sessionVariable.parallelExecInstanceNum = Config.statistics_sql_parallel_exec_instance_num;
         sessionVariable.parallelPipelineTaskNum = Config.statistics_sql_parallel_exec_instance_num;
-        sessionVariable.setEnableNereidsPlanner(true);
         sessionVariable.enableScanRunSerial = limitScan;
         sessionVariable.setQueryTimeoutS(StatisticsUtil.getAnalyzeTimeout());
         sessionVariable.insertTimeoutS = StatisticsUtil.getAnalyzeTimeout();
@@ -226,8 +223,8 @@ public class StatisticsUtil {
         sessionVariable.enableMaterializedViewRewrite = false;
         connectContext.setEnv(Env.getCurrentEnv());
         connectContext.setDatabase(FeConstants.INTERNAL_DB_NAME);
-        connectContext.setQualifiedUser(UserIdentity.ROOT.getQualifiedUser());
-        connectContext.setCurrentUserIdentity(UserIdentity.ROOT);
+        connectContext.setQualifiedUser(UserIdentity.ADMIN.getQualifiedUser());
+        connectContext.setCurrentUserIdentity(UserIdentity.ADMIN);
         connectContext.setStartTime();
         if (Config.isCloudMode()) {
             AutoCloseConnectContext ctx = new AutoCloseConnectContext(connectContext);
@@ -658,20 +655,25 @@ public class StatisticsUtil {
      */
     public static Optional<ColumnStatistic> getIcebergColumnStats(String colName, org.apache.iceberg.Table table) {
         TableScan tableScan = table.newScan().includeColumnStats();
-        ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder();
-        columnStatisticBuilder.setCount(0);
-        columnStatisticBuilder.setMaxValue(Double.POSITIVE_INFINITY);
-        columnStatisticBuilder.setMinValue(Double.NEGATIVE_INFINITY);
-        columnStatisticBuilder.setDataSize(0);
-        columnStatisticBuilder.setAvgSizeByte(0);
-        columnStatisticBuilder.setNumNulls(0);
+        double totalDataSize = 0;
+        double totalDataCount = 0;
+        double totalNumNull = 0;
         try (CloseableIterable<FileScanTask> fileScanTasks = tableScan.planFiles()) {
             for (FileScanTask task : fileScanTasks) {
-                processDataFile(task.file(), task.spec(), colName, columnStatisticBuilder);
+                int colId = getColId(task.spec(), colName);
+                totalDataSize += task.file().columnSizes().get(colId);
+                totalDataCount += task.file().recordCount();
+                totalNumNull += task.file().nullValueCounts().get(colId);
             }
         } catch (IOException e) {
             LOG.warn("Error to close FileScanTask.", e);
         }
+        ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder(totalDataCount);
+        columnStatisticBuilder.setMaxValue(Double.POSITIVE_INFINITY);
+        columnStatisticBuilder.setMinValue(Double.NEGATIVE_INFINITY);
+        columnStatisticBuilder.setDataSize(totalDataSize);
+        columnStatisticBuilder.setAvgSizeByte(0);
+        columnStatisticBuilder.setNumNulls(totalNumNull);
         if (columnStatisticBuilder.getCount() > 0) {
             columnStatisticBuilder.setAvgSizeByte(columnStatisticBuilder.getDataSize()
                     / columnStatisticBuilder.getCount());
@@ -679,8 +681,7 @@ public class StatisticsUtil {
         return Optional.of(columnStatisticBuilder.build());
     }
 
-    private static void processDataFile(DataFile dataFile, PartitionSpec partitionSpec,
-            String colName, ColumnStatisticBuilder columnStatisticBuilder) {
+    private static int getColId(PartitionSpec partitionSpec, String colName) {
         int colId = -1;
         for (Types.NestedField column : partitionSpec.schema().columns()) {
             if (column.name().equals(colName)) {
@@ -691,12 +692,7 @@ public class StatisticsUtil {
         if (colId == -1) {
             throw new RuntimeException(String.format("Column %s not exist.", colName));
         }
-        // Update the data size, count and num of nulls in columnStatisticBuilder.
-        // TODO: Get min max value.
-        columnStatisticBuilder.setDataSize(columnStatisticBuilder.getDataSize() + dataFile.columnSizes().get(colId));
-        columnStatisticBuilder.setCount(columnStatisticBuilder.getCount() + dataFile.recordCount());
-        columnStatisticBuilder.setNumNulls(columnStatisticBuilder.getNumNulls()
-                + dataFile.nullValueCounts().get(colId));
+        return colId;
     }
 
     public static boolean isUnsupportedType(Type type) {

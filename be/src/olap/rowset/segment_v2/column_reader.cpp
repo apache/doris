@@ -57,6 +57,7 @@
 #include "olap/types.h" // for TypeInfo
 #include "olap/wrapper_field.h"
 #include "runtime/decimalv2_value.h"
+#include "runtime/define_primitive_type.h"
 #include "util/binary_cast.hpp"
 #include "util/bitmap.h"
 #include "util/block_compression.h"
@@ -120,6 +121,7 @@ Status ColumnReader::create_array(const ColumnReaderOptions& opts, const ColumnM
     if (meta.is_nullable()) {
         array_reader->_sub_readers[2] = std::move(null_reader);
     }
+    array_reader->_meta_type = FieldType::OLAP_FIELD_TYPE_ARRAY;
     *reader = std::move(array_reader);
     return Status::OK();
 }
@@ -160,6 +162,7 @@ Status ColumnReader::create_map(const ColumnReaderOptions& opts, const ColumnMet
     if (meta.is_nullable()) {
         map_reader->_sub_readers[3] = std::move(null_reader);
     }
+    map_reader->_meta_type = FieldType::OLAP_FIELD_TYPE_MAP;
     *reader = std::move(map_reader);
     return Status::OK();
 }
@@ -180,6 +183,7 @@ Status ColumnReader::create_struct(const ColumnReaderOptions& opts, const Column
                                              &sub_reader));
         struct_reader->_sub_readers.push_back(std::move(sub_reader));
     }
+    struct_reader->_meta_type = FieldType::OLAP_FIELD_TYPE_STRUCT;
     *reader = std::move(struct_reader);
     return Status::OK();
 }
@@ -197,7 +201,7 @@ Status ColumnReader::create_agg_state(const ColumnReaderOptions& opts, const Col
 
     auto data_type = vectorized::DataTypeFactory::instance().create_data_type(meta);
     const auto* agg_state_type = assert_cast<const vectorized::DataTypeAggState*>(data_type.get());
-    agg_state_type->check_agg_state_compatibility(opts.be_exec_version);
+    agg_state_type->check_function_compatibility(opts.be_exec_version);
     auto type = agg_state_type->get_serialized_type()->get_type_as_type_descriptor().type;
 
     if (read_as_string(type)) {
@@ -206,9 +210,16 @@ Status ColumnReader::create_agg_state(const ColumnReaderOptions& opts, const Col
         RETURN_IF_ERROR(reader_local->init(&meta));
         *reader = std::move(reader_local);
         return Status::OK();
+    } else if (type == PrimitiveType::TYPE_MAP) {
+        return create_map(opts, meta, file_reader, reader);
+    } else if (type == PrimitiveType::TYPE_ARRAY) {
+        return create_array(opts, meta, file_reader, reader);
+    } else if (type == PrimitiveType::TYPE_STRUCT) {
+        return create_struct(opts, meta, num_rows, file_reader, reader);
     }
 
-    return Status::InternalError("Not supported");
+    return Status::InternalError("Not supported type: {}, serialized type: {}",
+                                 agg_state_type->get_name(), int(type));
 }
 
 Status ColumnReader::create(const ColumnReaderOptions& opts, const ColumnMetaPB& meta,
@@ -591,6 +602,9 @@ Status ColumnReader::get_row_ranges_by_bloom_filter(const AndBlockColumnPredicat
 }
 
 Status ColumnReader::_load_ordinal_index(bool use_page_cache, bool kept_in_memory) {
+    if (!_ordinal_index) {
+        return Status::InternalError("ordinal_index not inited");
+    }
     return _ordinal_index->load(use_page_cache, kept_in_memory);
 }
 

@@ -354,6 +354,10 @@ public class ColumnDef {
         return visible;
     }
 
+    public int getClusterKeyId() {
+        return this.clusterKeyId;
+    }
+
     public void setClusterKeyId(int clusterKeyId) {
         this.clusterKeyId = clusterKeyId;
     }
@@ -423,8 +427,10 @@ public class ColumnDef {
         }
 
         if (type.getPrimitiveType() == PrimitiveType.BITMAP) {
-            if (defaultValue.isSet && defaultValue != DefaultValue.NULL_DEFAULT_VALUE) {
-                throw new AnalysisException("Bitmap type column can not set default value");
+            if (defaultValue.isSet && defaultValue != DefaultValue.NULL_DEFAULT_VALUE
+                    && !defaultValue.value.equals(DefaultValue.BITMAP_EMPTY_DEFAULT_VALUE.value)) {
+                throw new AnalysisException("Bitmap type column default value only support null or "
+                        + DefaultValue.BITMAP_EMPTY_DEFAULT_VALUE.value);
             }
             defaultValue = DefaultValue.BITMAP_EMPTY_DEFAULT_VALUE;
         }

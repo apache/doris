@@ -61,6 +61,7 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.PatternMatcherException;
+import org.apache.doris.common.Status;
 import org.apache.doris.common.ThriftServerContext;
 import org.apache.doris.common.ThriftServerEventProcessor;
 import org.apache.doris.common.UserException;
@@ -1065,7 +1066,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             TUniqueId queryId = params.getQueryId();
             ConnectContext ctx = proxyQueryIdToConnCtx.get(queryId);
             if (ctx != null) {
-                ctx.cancelQuery();
+                ctx.cancelQuery(new Status(TStatusCode.CANCELLED, "cancel query by forward request."));
             }
             final TMasterOpResult result = new TMasterOpResult();
             result.setStatusCode(0);
@@ -2103,7 +2104,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             try {
                 RoutineLoadJob routineLoadJob = Env.getCurrentEnv().getRoutineLoadManager()
                         .getRoutineLoadJobByMultiLoadTaskTxnId(request.getTxnId());
-                routineLoadJob.updateState(JobState.PAUSED, new ErrorReason(InternalErrorCode.CANNOT_RESUME_ERR,
+                routineLoadJob.updateState(JobState.PAUSED, new ErrorReason(InternalErrorCode.INTERNAL_ERR,
                             "failed to get stream load plan, " + exception.getMessage()), false);
             } catch (Throwable e) {
                 LOG.warn("catch update routine load job error.", e);

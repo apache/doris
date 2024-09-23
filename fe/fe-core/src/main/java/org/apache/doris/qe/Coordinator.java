@@ -36,6 +36,8 @@ import org.apache.doris.common.util.ListUtil;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.ExternalScanNode;
 import org.apache.doris.datasource.FileQueryScanNode;
+import org.apache.doris.datasource.hive.HMSTransaction;
+import org.apache.doris.datasource.iceberg.IcebergTransaction;
 import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.MysqlCommand;
@@ -94,8 +96,6 @@ import org.apache.doris.thrift.TExternalScanRange;
 import org.apache.doris.thrift.TFileScanRange;
 import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TFragmentInstanceReport;
-import org.apache.doris.thrift.THivePartitionUpdate;
-import org.apache.doris.thrift.TIcebergCommitData;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPaloScanRange;
 import org.apache.doris.thrift.TPipelineFragmentParams;
@@ -250,12 +250,6 @@ public class Coordinator implements CoordInterface {
 
     private final List<TTabletCommitInfo> commitInfos = Lists.newArrayList();
     private final List<TErrorTabletInfo> errorTabletInfos = Lists.newArrayList();
-
-    // Collect all hivePartitionUpdates obtained from be
-    Consumer<List<THivePartitionUpdate>> hivePartitionUpdateFunc;
-
-    // Collect all icebergCommitData obtained from be
-    Consumer<List<TIcebergCommitData>> icebergCommitDataFunc;
 
     // Input parameter
     private long jobId = -1; // job which this task belongs to
@@ -426,15 +420,12 @@ public class Coordinator implements CoordInterface {
 
     private void initQueryOptions(ConnectContext context) {
         this.queryOptions = context.getSessionVariable().toThrift();
-        this.queryOptions.setBeExecVersion(Config.be_exec_version);
         this.queryOptions.setQueryTimeout(context.getExecTimeout());
         this.queryOptions.setExecutionTimeout(context.getExecTimeout());
         if (this.queryOptions.getExecutionTimeout() < 1) {
             LOG.info("try set timeout less than 1", new RuntimeException(""));
         }
-        this.queryOptions.setEnableScanNodeRunSerial(context.getSessionVariable().isEnableScanRunSerial());
         this.queryOptions.setFeProcessUuid(ExecuteEnv.getInstance().getProcessUUID());
-        this.queryOptions.setWaitFullBlockScheduleTimes(context.getSessionVariable().getWaitFullBlockScheduleTimes());
         this.queryOptions.setMysqlRowBinaryFormat(
                     context.getCommand() == MysqlCommand.COM_STMT_EXECUTE);
     }
@@ -485,6 +476,10 @@ public class Coordinator implements CoordInterface {
 
     public long getTxnId() {
         return txnId;
+    }
+
+    public void setTxnId(long txnId) {
+        this.txnId = txnId;
     }
 
     public String getLabel() {
@@ -1283,18 +1278,11 @@ public class Coordinator implements CoordInterface {
         }
     }
 
-    // Cancel execution of query. This includes the execution of the local plan
-    // fragment,
-    // if any, as well as all plan fragments on remote nodes.
-    public void cancel() {
-        cancel(new Status(TStatusCode.CANCELLED, "query is cancelled by user"));
+    @Override
+    public void cancel(Status cancelReason) {
         if (queueToken != null) {
             queueToken.cancel();
         }
-    }
-
-    @Override
-    public void cancel(Status cancelReason) {
         for (ScanNode scanNode : scanNodes) {
             scanNode.stop();
         }
@@ -2384,14 +2372,6 @@ public class Coordinator implements CoordInterface {
         // TODO: more ranges?
     }
 
-    public void setHivePartitionUpdateFunc(Consumer<List<THivePartitionUpdate>> hivePartitionUpdateFunc) {
-        this.hivePartitionUpdateFunc = hivePartitionUpdateFunc;
-    }
-
-    public void setIcebergCommitDataFunc(Consumer<List<TIcebergCommitData>> icebergCommitDataFunc) {
-        this.icebergCommitDataFunc = icebergCommitDataFunc;
-    }
-
     // update job progress from BE
     public void updateFragmentExecStatus(TReportExecStatusParams params) {
         PipelineExecContext ctx = pipelineExecContexts.get(Pair.of(params.getFragmentId(), params.getBackendId()));
@@ -2444,11 +2424,13 @@ public class Coordinator implements CoordInterface {
         if (params.isSetErrorTabletInfos()) {
             updateErrorTabletInfos(params.getErrorTabletInfos());
         }
-        if (params.isSetHivePartitionUpdates() && hivePartitionUpdateFunc != null) {
-            hivePartitionUpdateFunc.accept(params.getHivePartitionUpdates());
+        if (params.isSetHivePartitionUpdates()) {
+            ((HMSTransaction) Env.getCurrentEnv().getGlobalExternalTransactionInfoMgr().getTxnById(txnId))
+                .updateHivePartitionUpdates(params.getHivePartitionUpdates());
         }
-        if (params.isSetIcebergCommitDatas() && icebergCommitDataFunc != null) {
-            icebergCommitDataFunc.accept(params.getIcebergCommitDatas());
+        if (params.isSetIcebergCommitDatas()) {
+            ((IcebergTransaction) Env.getCurrentEnv().getGlobalExternalTransactionInfoMgr().getTxnById(txnId))
+                .updateIcebergCommitData(params.getIcebergCommitDatas());
         }
 
         if (ctx.done) {
@@ -2591,13 +2573,6 @@ public class Coordinator implements CoordInterface {
 
         // check whether the node fragment is bucket shuffle join fragment
         protected boolean isBucketShuffleJoin(int fragmentId, PlanNode node) {
-            if (ConnectContext.get() != null) {
-                if (!ConnectContext.get().getSessionVariable().isEnableBucketShuffleJoin()
-                        && !ConnectContext.get().getSessionVariable().isEnableNereidsPlanner()) {
-                    return false;
-                }
-            }
-
             // check the node is be the part of the fragment
             if (fragmentId != node.getFragmentId().asInt()) {
                 return false;

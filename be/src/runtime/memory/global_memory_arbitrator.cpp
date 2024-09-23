@@ -23,9 +23,6 @@
 
 namespace doris {
 
-std::mutex GlobalMemoryArbitrator::_reserved_trackers_lock;
-std::unordered_map<std::string, MemTracker::MemCounter> GlobalMemoryArbitrator::_reserved_trackers;
-
 bvar::PassiveStatus<int64_t> g_vm_rss_sub_allocator_cache(
         "meminfo_vm_rss_sub_allocator_cache",
         [](void*) { return GlobalMemoryArbitrator::vm_rss_sub_allocator_cache(); }, nullptr);
@@ -62,28 +59,11 @@ bool GlobalMemoryArbitrator::try_reserve_process_memory(int64_t bytes) {
         }
     } while (!_s_process_reserved_memory.compare_exchange_weak(old_reserved_mem, new_reserved_mem,
                                                                std::memory_order_relaxed));
-    {
-        std::lock_guard<std::mutex> l(_reserved_trackers_lock);
-        _reserved_trackers[doris::thread_context()->thread_mem_tracker()->label()].add(bytes);
-    }
     return true;
 }
 
 void GlobalMemoryArbitrator::release_process_reserved_memory(int64_t bytes) {
     _s_process_reserved_memory.fetch_sub(bytes, std::memory_order_relaxed);
-    {
-        std::lock_guard<std::mutex> l(_reserved_trackers_lock);
-        auto label = doris::thread_context()->thread_mem_tracker()->label();
-        auto it = _reserved_trackers.find(label);
-        if (it == _reserved_trackers.end()) {
-            DCHECK(false) << "release unknown reserved memory " << label << ", bytes: " << bytes;
-            return;
-        }
-        _reserved_trackers[label].sub(bytes);
-        if (_reserved_trackers[label].current_value() == 0) {
-            _reserved_trackers.erase(it);
-        }
-    }
 }
 
 int64_t GlobalMemoryArbitrator::sub_thread_reserve_memory(int64_t bytes) {

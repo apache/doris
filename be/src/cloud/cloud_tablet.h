@@ -176,7 +176,7 @@ public:
                                              const RowsetSharedPtr& output_rowset,
                                              const RowIdConversion& rowid_conversion,
                                              ReaderType compaction_type, int64_t merged_rows,
-                                             int64_t initiator,
+                                             int64_t filtered_rows, int64_t initiator,
                                              DeleteBitmapPtr& output_rowset_delete_bitmap,
                                              bool allow_delete_in_cumu_compaction);
 
