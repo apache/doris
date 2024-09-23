@@ -96,7 +96,7 @@ public:
 
     Status append_block(const vectorized::Block* block, size_t row_pos, size_t num_rows);
     Status probe_key_for_mow(std::string key, std::size_t segment_pos, bool have_input_seq_column,
-                             bool have_delete_sign, PartialUpdateReadPlan& read_plan,
+                             bool have_delete_sign, FixedReadPlan& read_plan,
                              const std::vector<RowsetSharedPtr>& specified_rowsets,
                              std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
                              bool& has_default_or_nullable,

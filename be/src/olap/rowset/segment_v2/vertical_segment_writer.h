@@ -159,13 +159,22 @@ private:
     void _set_max_key(const Slice& key);
     void _serialize_block_to_row_column(vectorized::Block& block);
     Status _probe_key_for_mow(std::string key, std::size_t segment_pos, bool have_input_seq_column,
-                              bool have_delete_sign, PartialUpdateReadPlan& read_plan,
+                              bool have_delete_sign,
                               const std::vector<RowsetSharedPtr>& specified_rowsets,
                               std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
                               bool& has_default_or_nullable,
                               std::vector<bool>& use_default_or_null_flag,
+                              const std::function<void(const RowLocation& loc)>& found_cb,
+                              const std::function<Status()>& not_found_cb,
                               PartialUpdateStats& stats);
     Status _append_block_with_partial_content(RowsInBlock& data, vectorized::Block& full_block);
+    Status _append_block_with_flexible_partial_content(RowsInBlock& data,
+                                                       vectorized::Block& full_block);
+    Status _merge_rows_for_sequence_column(
+            RowsInBlock& data, std::vector<BitmapValue>* skip_bitmaps,
+            const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns,
+            const std::vector<RowsetSharedPtr>& specified_rowsets,
+            std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches);
     Status _append_block_with_variant_subcolumns(RowsInBlock& data);
     Status _generate_key_index(
             RowsInBlock& data, std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns,
