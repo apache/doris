@@ -484,13 +484,9 @@ public:
     inline bool is_full_compaction_running() const { return _is_full_compaction_running; }
     void clear_cache() override;
 
-    int32_t get_compaction_score() const {
-        return _compaction_score;
-    }
+    int32_t get_compaction_score() const { return _compaction_score; }
 
-    void set_compaction_score(int32_t compaction_score) {
-        _compaction_score = compaction_score;
-    }
+    void set_compaction_score(int32_t compaction_score) { _compaction_score = compaction_score; }
 
     void add_compaction_score(int32_t score) {
         if (_compaction_score < 0) {
