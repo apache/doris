@@ -18,6 +18,15 @@
 {"col1":null, "col2":null, "col3":null}
 
 -- !sql --
+{"a":1, "b":2}
+
+-- !sql --
+{"col1":1, "col2":"a", "a":3, "b":4, "col5":5}
+
+-- !sql --
+{"a":1, "col2":"a", "b":3, "col4":4, "col5":5, "c":null}
+
+-- !sql --
 {"f1":1, "f2":2, "f3":3}
 
 -- !sql --
