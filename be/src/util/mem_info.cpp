@@ -196,9 +196,9 @@ void MemInfo::refresh_proc_meminfo() {
                 _s_cgroup_mem_limit = std::numeric_limits<int64_t>::max();
                 // find cgroup limit failed, wait 300s, 1000 * 100ms.
                 _s_cgroup_mem_refresh_wait_times = -3000;
-                LOG(INFO) << "Refresh cgroup memory limit failed, refresh again after 300s, cgroup "
-                             "mem limit: "
-                          << _s_cgroup_mem_limit;
+                LOG(INFO) << "Refresh cgroup memory success, refresh again after 10s, cgroup mem "
+                             "limit: "
+                          << _s_cgroup_mem_limit << ", cgroup mem usage: " << _s_cgroup_mem_usage;
             } else {
                 // wait 10s, 100 * 100ms, avoid too frequently.
                 _s_cgroup_mem_refresh_wait_times = -100;

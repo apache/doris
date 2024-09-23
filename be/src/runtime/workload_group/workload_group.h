@@ -233,12 +233,18 @@ public:
     }
     int64_t get_remote_scan_bytes_per_second();
 
+    int64_t load_buffer_limit() { return _load_buffer_limit; }
+
 private:
     mutable std::shared_mutex _mutex; // lock _name, _version, _cpu_share, _memory_limit
     const uint64_t _id;
     std::string _name;
     int64_t _version;
     int64_t _memory_limit; // bytes
+    // For example, load memtable, write to parquet.
+    // If the wg's memory reached high water mark, then the load buffer
+    // will be restricted to this limit.
+    int64_t _load_buffer_limit;
 
     // memory used by load memtable
     int64_t _active_mem_usage = 0;

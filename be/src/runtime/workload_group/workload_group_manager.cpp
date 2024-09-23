@@ -185,6 +185,8 @@ void WorkloadGroupMgr::refresh_wg_weighted_memory_limit() {
     if (all_workload_groups_mem_usage < process_memory_usage) {
         int64_t public_memory = process_memory_usage - all_workload_groups_mem_usage;
         weighted_memory_limit_ratio = 1 - (double)public_memory / (double)process_memory_limit;
+        // Round the value from 1% to 100%.
+        weighted_memory_limit_ratio = std::floor(weighted_memory_limit_ratio * 100) / 100;
     }
 
     std::string debug_msg = fmt::format(
@@ -204,9 +206,10 @@ void WorkloadGroupMgr::refresh_wg_weighted_memory_limit() {
         bool is_high_wartermark = false;
         wg.second->check_mem_used(&is_low_wartermark, &is_high_wartermark);
         int64_t wg_high_water_mark_limit =
-                wg_mem_limit * wg.second->spill_threshold_high_water_mark() / 100;
+                (int64_t)(wg_mem_limit * wg.second->spill_threshold_high_water_mark() * 1.0 / 100);
         int64_t weighted_high_water_mark_limit =
-                wg_weighted_mem_limit * wg.second->spill_threshold_high_water_mark() / 100;
+                (int64_t)(wg_weighted_mem_limit * wg.second->spill_threshold_high_water_mark() *
+                          1.0 / 100);
         std::string debug_msg;
         if (is_high_wartermark || is_low_wartermark) {
             debug_msg = fmt::format(
@@ -230,7 +233,6 @@ void WorkloadGroupMgr::refresh_wg_weighted_memory_limit() {
                         PrettyPrinter::print(query_mem_tracker->limit(), TUnit::BYTES),
                         PrettyPrinter::print(query_mem_tracker->peak_consumption(), TUnit::BYTES));
             }
-            continue;
         }
 
         // If the wg enable over commit memory, then it is no need to update query memlimit
@@ -263,20 +265,21 @@ void WorkloadGroupMgr::refresh_wg_weighted_memory_limit() {
                             << " enabled hard limit, but the slot count < 1, could not take affect";
                 } else {
                     // If the query enable hard limit, then not use weighted info any more, just use the settings limit.
-                    query_weighted_mem_limit =
-                            (wg_high_water_mark_limit * query_ctx->get_slot_count()) /
-                            total_slot_count;
+                    query_weighted_mem_limit = (int64_t)((wg_high_water_mark_limit *
+                                                          query_ctx->get_slot_count() * 1.0) /
+                                                         total_slot_count);
                 }
             } else {
                 // If low water mark is not reached, then use process memory limit as query memory limit.
                 // It means it will not take effect.
                 if (!is_low_wartermark) {
-                    query_weighted_mem_limit = process_memory_limit;
+                    query_weighted_mem_limit = wg_high_water_mark_limit;
                 } else {
                     query_weighted_mem_limit =
                             total_used_slot_count > 0
-                                    ? (wg_high_water_mark_limit + total_used_slot_count) *
-                                              query_ctx->get_slot_count() / total_used_slot_count
+                                    ? (int64_t)((wg_high_water_mark_limit + total_used_slot_count) *
+                                                query_ctx->get_slot_count() * 1.0 /
+                                                total_used_slot_count)
                                     : wg_high_water_mark_limit;
                 }
             }
@@ -407,8 +410,6 @@ void WorkloadGroupMgr::handle_paused_queries() {
         MemTableMemoryLimiter* memtable_limiter =
                 doris::ExecEnv::GetInstance()->memtable_memory_limiter();
         // Not use memlimit, should use high water mark.
-        int64_t wg_high_water_mark_limit =
-                wg->memory_limit() * wg->spill_threshold_high_water_mark() / 100;
         int64_t memtable_active_bytes = 0;
         int64_t memtable_write_bytes = 0;
         int64_t memtable_flush_bytes = 0;
@@ -418,21 +419,20 @@ void WorkloadGroupMgr::handle_paused_queries() {
         // For example, streamload, it will not reserve many memory, but it will occupy many memtable memory.
         // TODO: 0.2 should be a workload group properties. For example, the group is optimized for load,then the value
         // should be larged, if the group is optimized for query, then the value should be smaller.
-        int64_t max_wg_memtable_bytes =
-                std::max<int64_t>(100 * 1024 * 1024, (int64_t)(wg_high_water_mark_limit * 0.2));
+        int64_t max_wg_memtable_bytes = wg->load_buffer_limit();
         if (memtable_active_bytes + memtable_write_bytes + memtable_flush_bytes >
             max_wg_memtable_bytes) {
             // There are many table in flush queue, just waiting them flush finished.
-            if (memtable_write_bytes + memtable_flush_bytes > max_wg_memtable_bytes / 2) {
+            if (memtable_active_bytes < (int64_t)(max_wg_memtable_bytes * 0.8)) {
                 LOG_EVERY_T(INFO, 60)
                         << wg->name() << " load memtable size is: " << memtable_active_bytes << ", "
                         << memtable_write_bytes << ", " << memtable_flush_bytes
                         << ", wait for flush finished to release more memory";
                 continue;
             } else {
-                // Flush 50% active bytes, it means flush some memtables(currently written) to flush queue.
+                // Flush some memtables(currently written) to flush queue.
                 memtable_limiter->flush_workload_group_memtables(
-                        wg->id(), (int64_t)(memtable_active_bytes * 0.5));
+                        wg->id(), memtable_active_bytes - (int64_t)(max_wg_memtable_bytes * 0.8));
                 LOG_EVERY_T(INFO, 60)
                         << wg->name() << " load memtable size is: " << memtable_active_bytes << ", "
                         << memtable_write_bytes << ", " << memtable_flush_bytes
