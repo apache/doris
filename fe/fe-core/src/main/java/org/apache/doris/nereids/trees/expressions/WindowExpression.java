@@ -66,7 +66,6 @@ public class WindowExpression extends Expression {
                 .add(function)
                 .addAll(partitionKeys)
                 .addAll(orderKeys)
-                .add(windowFrame)
                 .build());
         this.function = function;
         this.partitionKeys = ImmutableList.copyOf(partitionKeys);
