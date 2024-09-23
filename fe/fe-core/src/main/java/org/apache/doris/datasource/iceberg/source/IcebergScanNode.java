@@ -36,6 +36,7 @@ import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.planner.PlanNodeId;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TExplainLevel;
@@ -255,9 +256,18 @@ public class IcebergScanNode extends FileQueryScanNode {
         }
 
         TPushAggOp aggOp = getPushDownAggNoGroupingOp();
-        if (aggOp.equals(TPushAggOp.COUNT) && getCountFromSnapshot() >= 0) {
+        if (aggOp.equals(TPushAggOp.COUNT)) {
             // we can create a special empty split and skip the plan process
-            return splits.isEmpty() ? splits : Collections.singletonList(splits.get(0));
+            if (splits.isEmpty()) {
+                return splits;
+            }
+            long countFromSnapshot = getCountFromSnapshot();
+            if (countFromSnapshot > 10000) {
+                int parallelNum = ConnectContext.get().getSessionVariable().getParallelExecInstanceNum();
+                return splits.subList(0, Math.min(splits.size(), parallelNum));
+            } else if (countFromSnapshot >= 0) {
+                return Collections.singletonList(splits.get(0));
+            }
         }
 
         selectedPartitionNum = partitionPathSet.size();
