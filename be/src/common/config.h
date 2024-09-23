@@ -1438,6 +1438,9 @@ DECLARE_mInt32(check_score_rounds_num);
 // MB
 DECLARE_Int32(query_cache_size);
 
+// Enable validation to check the correctness of table size.
+DECLARE_Bool(enable_table_size_correctness_check);
+
 #ifdef BE_TEST
 // test s3
 DECLARE_String(test_s3_resource);
