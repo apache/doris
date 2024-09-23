@@ -479,15 +479,15 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true, description = {"导入 Publish 阶段的等待时间，单位是秒。超过此时间，"
             + "则只需每个tablet包含一个成功副本，则导入成功。值为 -1 时，表示无限等待。",
             "Waiting time for one transaction changing to \"at least one replica success\", in seconds."
-                    + "If time exceeds this, and for each tablet it has at least one replica publish successful, "
-                    + "then the load task will be successful." })
+            + "If time exceeds this, and for each tablet it has at least one replica publish successful, "
+            + "then the load task will be successful." })
     public static int publish_wait_time_second = 300;
 
     @ConfField(mutable = true, masterOnly = true, description = {"导入 Publish 阶段是否检查正在做 Schema 变更的副本。"
             + "正常情况下，不要关闭此检查。除非在极端情况下出现导入和 Schema 变更出现互相等待死锁时才临时打开。",
             "Check the replicas which are doing schema change when publish transaction. Do not turn off this check "
-                    + " under normal circumstances. It's only temporarily skip check if publish version and schema change have"
-                    + " dead lock" })
+            + " under normal circumstances. It's only temporarily skip check if publish version and schema change have"
+            + " dead lock" })
     public static boolean publish_version_check_alter_replica = true;
 
     @ConfField(mutable = true, masterOnly = true, description = {"单个事务 publish 失败打日志间隔",
@@ -1371,14 +1371,14 @@ public class Config extends ConfigBase {
      * Set the maximum number of rows that can be cached
      */
     @ConfField(mutable = true, masterOnly = false, description = {"SQL/Partition Cache可以缓存的最大行数。",
-            "Maximum number of rows that can be cached in SQL/Partition Cache, is 3000 by default."})
+        "Maximum number of rows that can be cached in SQL/Partition Cache, is 3000 by default."})
     public static int cache_result_max_row_count = 3000;
 
     /**
      * Set the maximum data size that can be cached
      */
     @ConfField(mutable = true, masterOnly = false, description = {"SQL/Partition Cache可以缓存的最大数据大小。",
-            "Maximum data size of rows that can be cached in SQL/Partition Cache, is 3000 by default."})
+        "Maximum data size of rows that can be cached in SQL/Partition Cache, is 3000 by default."})
     public static int cache_result_max_data_size = 31457280; // 30M
 
     /**
@@ -1534,8 +1534,8 @@ public class Config extends ConfigBase {
      * Control the max num of tablets per backup job involved.
      */
     @ConfField(mutable = true, masterOnly = true, description = {
-            "用于控制每次 backup job 允许备份的 tablet 上限，以避免 OOM",
-            "Control the max num of tablets per backup job involved, to avoid OOM"
+        "用于控制每次 backup job 允许备份的 tablet 上限，以避免 OOM",
+        "Control the max num of tablets per backup job involved, to avoid OOM"
     })
     public static int max_backup_tablets_per_job = 300000;
 
@@ -1732,7 +1732,7 @@ public class Config extends ConfigBase {
     public static int job_dispatch_timer_job_queue_size = 1024;
     @ConfField(description = {"一个 Job 的 task 最大的持久化数量，超过这个限制将会丢弃旧的 task 记录, 如果值 < 1, 将不会持久化。",
             "Maximum number of persistence allowed per task in a job,exceeding which old tasks will be discarded，"
-                    + "If the value is less than 1, it will not be persisted." })
+                   + "If the value is less than 1, it will not be persisted." })
     public static int max_persistence_task_count = 100;
     @ConfField(description = {"finished 状态的 job 最长保存时间，超过这个时间将会被删除, 单位：小时",
             "The longest time to save the job in finished status, it will be deleted after this time. Unit: hour"})
@@ -2017,7 +2017,7 @@ public class Config extends ConfigBase {
     public static long max_remote_file_system_cache_num = 100;
 
     @ConfField(mutable = false, masterOnly = false, description = {"外表行数缓存最大数量",
-            "Max cache number of external table row count"})
+        "Max cache number of external table row count"})
     public static long max_external_table_row_count_cache_num = 100000;
 
     /**
@@ -2117,9 +2117,9 @@ public class Config extends ConfigBase {
             varType = VariableAnnotation.EXPERIMENTAL,
             callbackClassString = "org.apache.doris.common.NereidsSqlCacheManager$UpdateConfig",
             description = {
-                    "当前默认设置为 100，用来控制控制NereidsSqlCacheManager管理的sql cache数量。",
-                    "Now default set to 100, this config is used to control the number of "
-                            + "sql cache managed by NereidsSqlCacheManager"
+                "当前默认设置为 100，用来控制控制NereidsSqlCacheManager管理的sql cache数量。",
+                "Now default set to 100, this config is used to control the number of "
+                        + "sql cache managed by NereidsSqlCacheManager"
             }
     )
     public static int sql_cache_manage_num = 100;
@@ -2325,8 +2325,8 @@ public class Config extends ConfigBase {
     public static boolean enable_feature_binlog = false;
 
     @ConfField(mutable = false, masterOnly = false, varType = VariableAnnotation.EXPERIMENTAL, description = {
-            "设置 binlog 消息最字节长度",
-            "Set the maximum byte length of binlog message"})
+        "设置 binlog 消息最字节长度",
+        "Set the maximum byte length of binlog message"})
     public static int max_binlog_messsage_size = 1024 * 1024 * 1024;
 
     @ConfField(mutable = true, masterOnly = true, description = {
@@ -2335,8 +2335,8 @@ public class Config extends ConfigBase {
     public static boolean disallow_create_catalog_with_resource = true;
 
     @ConfField(mutable = true, masterOnly = false, description = {
-            "Hive行数估算分区采样数",
-            "Sample size for hive row count estimation."})
+        "Hive行数估算分区采样数",
+        "Sample size for hive row count estimation."})
     public static int hive_stats_partition_sample_size = 30;
 
     @ConfField(mutable = true, masterOnly = true, description = {
@@ -2469,8 +2469,8 @@ public class Config extends ConfigBase {
     public static int autobucket_min_buckets = 1;
 
     @ConfField(mutable = true, masterOnly = true, description = {
-            "Auto Buckets中最大的buckets数目",
-            "max buckets of auto bucket"
+        "Auto Buckets中最大的buckets数目",
+        "max buckets of auto bucket"
     })
     public static int autobucket_max_buckets = 128;
 
@@ -2479,29 +2479,29 @@ public class Config extends ConfigBase {
             + "因为arrow flight sql是无状态的协议，连接通常不会主动断开，"
             + "bearer token 从 cache 淘汰的同时会 unregister Connection.",
             "The cache limit of all user tokens in Arrow Flight Server. which will be eliminated by"
-                    + "LRU rules after exceeding the limit, the default value is 512, the mandatory limit is "
-                    + "less than qe_max_connection/2 to avoid `Reach limit of connections`, "
-                    + "because arrow flight sql is a stateless protocol, the connection is usually not actively "
-                    + "disconnected, bearer token is evict from the cache will unregister ConnectContext."})
+            + "LRU rules after exceeding the limit, the default value is 512, the mandatory limit is "
+            + "less than qe_max_connection/2 to avoid `Reach limit of connections`, "
+            + "because arrow flight sql is a stateless protocol, the connection is usually not actively "
+            + "disconnected, bearer token is evict from the cache will unregister ConnectContext."})
     public static int arrow_flight_token_cache_size = 512;
 
     @ConfField(description = {"Arrow Flight Server中用户token的存活时间，自上次写入后过期时间，单位分钟，默认值为4320，即3天",
             "The alive time of the user token in Arrow Flight Server, expire after write, unit minutes,"
-                    + "the default value is 4320, which is 3 days"})
+            + "the default value is 4320, which is 3 days"})
     public static int arrow_flight_token_alive_time = 4320;
 
     @ConfField(mutable = true, description = {
             "Doris 为了兼用 mysql 周边工具生态，会内置一个名为 mysql 的数据库，如果该数据库与用户自建数据库冲突，"
-                    + "请修改这个字段，为 doris 内置的 mysql database 更换一个名字",
+            + "请修改这个字段，为 doris 内置的 mysql database 更换一个名字",
             "To ensure compatibility with the MySQL ecosystem, Doris includes a built-in database called mysql. "
-                    + "If this database conflicts with a user's own database, please modify this field to replace "
-                    + "the name of the Doris built-in MySQL database with a different name."})
+            + "If this database conflicts with a user's own database, please modify this field to replace "
+            + "the name of the Doris built-in MySQL database with a different name."})
     public static String mysqldb_replace_name = "mysql";
 
     @ConfField(description = {
-            "设置允许跨域访问的特定域名,默认允许任何域名跨域访问",
-            "Set the specific domain name that allows cross-domain access. "
-                    + "By default, any domain name is allowed cross-domain access"
+        "设置允许跨域访问的特定域名,默认允许任何域名跨域访问",
+        "Set the specific domain name that allows cross-domain access. "
+            + "By default, any domain name is allowed cross-domain access"
     })
     public static String access_control_allowed_origin_domain = "*";
 
@@ -2626,20 +2626,20 @@ public class Config extends ConfigBase {
     public static boolean enable_collect_internal_query_profile = false;
 
     @ConfField(mutable = false, masterOnly = false, description = {
-            "http请求处理/api/query中sql任务的最大线程池。",
-            "The max number work threads of http sql submitter."
+        "http请求处理/api/query中sql任务的最大线程池。",
+        "The max number work threads of http sql submitter."
     })
     public static int http_sql_submitter_max_worker_threads = 2;
 
     @ConfField(mutable = false, masterOnly = false, description = {
-            "http请求处理/api/upload任务的最大线程池。",
-            "The max number work threads of http upload submitter."
+        "http请求处理/api/upload任务的最大线程池。",
+        "The max number work threads of http upload submitter."
     })
     public static int http_load_submitter_max_worker_threads = 2;
 
     @ConfField(mutable = true, masterOnly = true, description = {
             "load label个数阈值，超过该个数后，对于已经完成导入作业或者任务，"
-                    + "其label会被删除，被删除的 label 可以被重用。 值为 -1 时，表示此阈值不生效。",
+            + "其label会被删除，被删除的 label 可以被重用。 值为 -1 时，表示此阈值不生效。",
             "The threshold of load labels' number. After this number is exceeded, "
                     + "the labels of the completed import jobs or tasks will be deleted, "
                     + "and the deleted labels can be reused. "
@@ -2696,9 +2696,9 @@ public class Config extends ConfigBase {
     //                    begin of cloud config
     //==========================================================================
     @ConfField(description = {"是否启用FE 日志文件按照大小删除策略，当日志大小超过指定大小，删除相关的log。默认为按照时间策略删除",
-            "Whether to enable the FE log file deletion policy based on size, "
-                    + "where logs exceeding the specified size are deleted. "
-                    + "It is disabled by default and follows a time-based deletion policy."},
+        "Whether to enable the FE log file deletion policy based on size, "
+            + "where logs exceeding the specified size are deleted. "
+            + "It is disabled by default and follows a time-based deletion policy."},
             options = {"age", "size"})
     public static String log_rollover_strategy = "age";
 
