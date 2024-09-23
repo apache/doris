@@ -208,8 +208,9 @@ void MemInfo::refresh_proc_meminfo() {
             _s_cgroup_mem_usage = cgroup_mem_usage;
             // wait 10s, 100 * 100ms, avoid too frequently.
             _s_cgroup_mem_refresh_wait_times = -100;
-            LOG(INFO) << "Refresh cgroup memory win, refresh again after 10s, cgroup mem limit: "
-                      << _s_cgroup_mem_limit << ", cgroup mem usage: " << _s_cgroup_mem_usage;
+            LOG(INFO)
+                    << "Refresh cgroup memory success, refresh again after 10s, cgroup mem limit: "
+                    << _s_cgroup_mem_limit << ", cgroup mem usage: " << _s_cgroup_mem_usage;
         } else {
             // find cgroup failed, wait 300s, 1000 * 100ms.
             _s_cgroup_mem_refresh_wait_times = -3000;
