@@ -486,8 +486,8 @@ TEST(TextSerde, ComplexTypeSerdeTextTest) {
                          "{\"hello "
                          "world\":0.2222222,\"hello2\":null,null:1111.1,\"NULL\":null,\"null\":"
                          "null,\"null\":0.1}"},
-                        {"{ ,.amory:111.2343, \"\":112, dggs:13.14, NULL:12.2222222, :NULL}",
-                         "{\"\":NULL, NULL:12.44}", "{}", "{}", "NULL", "{}", "NULL",
+                        {"{ ,.amory:111.2343, :112, dggs:13.14, NULL:12.2222222, :NULL}",
+                         "{:NULL, NULL:12.44}", "{}", "{}", "NULL", "{}", "NULL",
                          "{NULL:NULL, null:NULL}",
                          "{hello world:0.2222222, hello2:NULL, NULL:1111.1, NULL:NULL, null:NULL, "
                          "null:0.1}"}),
