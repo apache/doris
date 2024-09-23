@@ -697,7 +697,7 @@ void test_file_cache_memory_storage(io::FileCacheType cache_type) {
         ASSERT_TRUE(mgr.initialize().ok());
 
         for (int i = 0; i < 100; i++) {
-            if (mgr.get_lazy_open_success()) {
+            if (mgr.get_async_open_success()) {
                 break;
             };
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -1036,7 +1036,7 @@ void test_file_cache_memory_storage(io::FileCacheType cache_type) {
         io::BlockFileCache cache2(cache_base_path, settings);
         ASSERT_TRUE(cache2.initialize().ok());
         for (int i = 0; i < 100; i++) {
-            if (cache2.get_lazy_open_success()) {
+            if (cache2.get_async_open_success()) {
                 break;
             };
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -1175,12 +1175,12 @@ TEST_F(BlockFileCacheTest, max_ttl_size_memory_storage) {
     ASSERT_TRUE(cache.initialize());
     int i = 0;
     for (; i < 100; i++) {
-        if (cache.get_lazy_open_success()) {
+        if (cache.get_async_open_success()) {
             break;
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
-    ASSERT_TRUE(cache.get_lazy_open_success());
+    ASSERT_TRUE(cache.get_async_open_success());
     int64_t offset = 0;
     for (; offset < 100000000; offset += 100000) {
         auto holder = cache.get_or_set(key1, offset, 100000, context);
@@ -1520,7 +1520,7 @@ TEST_F(BlockFileCacheTest, change_cache_type_memory_storage) {
     io::BlockFileCache cache(cache_base_path, settings);
     ASSERT_TRUE(cache.initialize());
     for (int i = 0; i < 100; i++) {
-        if (cache.get_lazy_open_success()) {
+        if (cache.get_async_open_success()) {
             break;
         };
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -1539,7 +1539,7 @@ TEST_F(BlockFileCacheTest, change_cache_type_memory_storage) {
         std::string data(size, '0');
         Slice result(data.data(), size);
         ASSERT_TRUE(blocks[0]->append(result).ok());
-        ASSERT_TRUE(blocks[0]->change_cache_type_self(io::FileCacheType::INDEX));
+        ASSERT_TRUE(blocks[0]->change_cache_type_between_normal_and_index(io::FileCacheType::INDEX));
         ASSERT_TRUE(blocks[0]->finalize().ok());
     }
 }
@@ -2253,7 +2253,7 @@ TEST_F(BlockFileCacheTest, ttl_modify_memory_storage) {
     io::BlockFileCache cache(cache_base_path, settings);
     ASSERT_TRUE(cache.initialize());
     for (int i = 0; i < 100; i++) {
-        if (cache.get_lazy_open_success()) {
+        if (cache.get_async_open_success()) {
             break;
         };
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -2385,7 +2385,7 @@ TEST_F(BlockFileCacheTest, ttl_change_to_normal_memory_storage) {
     io::BlockFileCache cache(cache_base_path, settings);
     ASSERT_TRUE(cache.initialize());
     for (int i = 0; i < 100; i++) {
-        if (cache.get_lazy_open_success()) {
+        if (cache.get_async_open_success()) {
             break;
         };
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -2501,7 +2501,7 @@ TEST_F(BlockFileCacheTest, ttl_change_expiration_time_memory_storage) {
     io::BlockFileCache cache(cache_base_path, settings);
     ASSERT_TRUE(cache.initialize());
     for (int i = 0; i < 100; i++) {
-        if (cache.get_lazy_open_success()) {
+        if (cache.get_async_open_success()) {
             break;
         };
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -2605,12 +2605,12 @@ TEST_F(BlockFileCacheTest, ttl_reverse_memory_storage) {
     io::BlockFileCache cache(cache_base_path, settings);
     ASSERT_TRUE(cache.initialize());
     for (int i = 0; i < 100; i++) {
-        if (cache.get_lazy_open_success()) {
+        if (cache.get_async_open_success()) {
             break;
         };
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
-    ASSERT_TRUE(cache.get_lazy_open_success());
+    ASSERT_TRUE(cache.get_async_open_success());
     for (size_t offset = 0; offset < 30; offset += 6) {
         auto holder = cache.get_or_set(key2, offset, 6, context);
         auto blocks = fromHolder(holder);
