@@ -213,6 +213,10 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         return fullQualifiedName;
     }
 
+    public String getName() {
+        return ClusterNamespace.getNameFromFullName(fullQualifiedName);
+    }
+
     public void setNameWithLock(String newName) {
         writeLock();
         try {
