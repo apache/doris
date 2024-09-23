@@ -388,8 +388,10 @@ void Segment::remove_from_segment_cache() const {
 }
 
 Status Segment::load_pk_index_and_bf() {
-    RETURN_IF_ERROR(load_index());
-    RETURN_IF_ERROR(_load_pk_bloom_filter());
+    RETURN_IF_CATCH_EXCEPTION({
+        RETURN_IF_ERROR(load_index());
+        RETURN_IF_ERROR(_load_pk_bloom_filter());
+    });
     return Status::OK();
 }
 
