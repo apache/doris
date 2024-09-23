@@ -1071,7 +1071,7 @@ public class SessionVariable implements Serializable, Writable {
     private boolean enableLocalMergeSort = true;
 
     @VariableMgr.VarAttr(name = ENABLE_PASS_TO_ONE_EXCHANGE)
-    private boolean enablePassToOneExchange = false;
+    private boolean enablePassToOneExchange = true;
 
     @VariableMgr.VarAttr(name = ENABLE_AGG_STATE, fuzzy = false, varType = VariableAnnotation.EXPERIMENTAL,
             needForward = true)
@@ -2220,7 +2220,6 @@ public class SessionVariable implements Serializable, Writable {
         this.parallelPrepareThreshold = random.nextInt(32) + 1;
         this.enableCommonExprPushdown = random.nextBoolean();
         this.enableLocalExchange = random.nextBoolean();
-        this.enablePassToOneExchange = random.nextBoolean();
         // This will cause be dead loop, disable it first
         // this.disableJoinReorder = random.nextBoolean();
         this.enableCommonExpPushDownForInvertedIndex = random.nextBoolean();
