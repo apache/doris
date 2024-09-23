@@ -2177,6 +2177,12 @@ public class RestoreJob extends AbstractJob {
 
             // remove restored tbls
             for (Table restoreTbl : restoredTbls) {
+                if (isAtomicRestore && restoreTbl.getType() == TableType.OLAP
+                        && !restoreTbl.getName().startsWith(ATOMIC_RESTORE_TABLE_PREFIX)) {
+                    // In atomic restore, a table registered to db must have a name with the prefix,
+                    // otherwise, it has not been registered and can be ignored here.
+                    continue;
+                }
                 LOG.info("remove restored table when cancelled: {}", restoreTbl.getName());
                 if (db.writeLockIfExist()) {
                     try {
