@@ -195,4 +195,26 @@ suite("window_function") {
 
     qt_select_lead "SELECT c3,c2,c1,lead(c1, 0, 111) over(partition by c3 order by c2,c1) FROM window_test order by c3;"
     qt_select_lag "SELECT c3,c2,c1,lag(c1, 0, 222) over(partition by c3 order by c2,c1) FROM window_test order by c3;"
+
+    sql "drop table if exists test_normalize_window"
+    sql """CREATE TABLE test_normalize_window (
+            `xwho` varchar(50) NULL COMMENT 'xwho',
+            `xwhen` datetime COMMENT 'xwhen',
+            `xwhat` int NULL COMMENT 'xwhat'
+    )
+    DUPLICATE KEY(xwho)
+    DISTRIBUTED BY HASH(xwho) BUCKETS 3
+    PROPERTIES (
+            "replication_num" = "1"
+    );"""
+
+    sql """INSERT into test_normalize_window (xwho, xwhen, xwhat) values ('1', '2022-03-12 10:41:00', 1),
+    ('1', '2022-03-12 13:28:02', 2),
+    ('1', '2022-03-12 16:15:01', 3),
+    ('1', '2022-03-12 19:05:04', 4);"""
+
+    test {
+        sql "select group_concat(xwho order by xwhat) over(partition by xwhen) from test_normalize_window;"
+        exception "order by is not supported"
+    }
 }
