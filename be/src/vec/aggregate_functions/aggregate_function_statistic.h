@@ -145,8 +145,9 @@ public:
                 dst_column->insert_default();
             } else {
                 dst_column_with_nullable.get_null_map_data().push_back(0);
+                // kurtosis = E(X^4) / E(X^2)^2 - 3
                 dst_column->get_data().push_back(
-                        static_cast<Float64>(moments_4 / pow(var_value, 2)));
+                        static_cast<Float64>(moments_4 / pow(var_value, 2)) - 3);
             }
             break;
         }
