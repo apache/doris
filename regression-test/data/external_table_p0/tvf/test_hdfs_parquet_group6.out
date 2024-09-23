@@ -357,7 +357,7 @@ SINGLE_ITEM
 \N
 
 -- !test_37 --
-5
+5	5
 
 -- !test_38 --
 parquet_data_file.parquet	2

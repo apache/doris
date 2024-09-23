@@ -289,7 +289,7 @@ suite("test_hdfs_parquet_group6","external,hive,tvf,external_docker") {
 
 
             uri = "${defaultFS}" + "/user/doris/preinstalled_data/test_hdfs_parquet/group6/large_page_header.parquet"
-            order_qt_test_37 """ select count(*) from HDFS(
+            order_qt_test_37 """ select count(myString), count(myInteger) from HDFS(
                         "uri" = "${uri}",
                         "hadoop.username" = "${hdfsUserName}",
                         "format" = "parquet"); """
