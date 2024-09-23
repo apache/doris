@@ -1189,6 +1189,7 @@ enum TBinlogType {
   RENAME_TABLE = 14,
   RENAME_COLUMN = 15,
   MODIFY_COMMENT = 16,
+  MODIFY_VIEW_DEF = 17,
 }
 
 struct TBinlog {
