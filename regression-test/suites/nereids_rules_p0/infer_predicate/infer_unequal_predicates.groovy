@@ -60,6 +60,15 @@ suite("infer_unequal_predicates") {
     sql "insert into test_like2 values(1,'d2',3,5);"
     sql "insert into test_like2 values(0,'d2',3,5);"
     sql "insert into test_like2 values(0,'d2',3,7);"
+
+    sql "drop table if exists test_cast_infer9"
+    sql """
+    create table test_cast_infer9(d_int int, d_char100 char(100), d_smallint smallint, d_tinyint tinyint, d_char10 char(10),d_datetimev2 datetimev2, d_datev2 datev2,d_date date, d_datetime datetime) properties('replication_num'='1');
+    """
+    sql """
+    insert into test_cast_infer9 values(1,'01234567890123456789', 3,3,'0123456789','2020-01-09 10:00:00.99','2020-01-09','2022-08-09','2022-08-09 10:00:00'),(14,'01234567890123456789', 33,23,'0123456789','2020-01-11 10:00:00.99','2020-01-11','2022-08-03','2022-08-09 10:00:02');
+    """
+
     // c<a, a<1 -> c<1 should not be inferred
     qt_not_infer_same_table_have_mid_column """
     explain shape plan
