@@ -224,6 +224,10 @@ void QueryContext::set_execution_dependency_ready() {
 
 void QueryContext::set_memory_sufficient(bool sufficient) {
     if (sufficient) {
+        {
+            std::lock_guard l(_paused_mutex);
+            _paused_reason = Status::OK();
+        }
         _memory_sufficient_dependency->set_ready();
     } else {
         _memory_sufficient_dependency->block();
