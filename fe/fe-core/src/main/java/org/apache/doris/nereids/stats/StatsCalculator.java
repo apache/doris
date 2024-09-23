@@ -182,6 +182,11 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
 
     private CascadesContext cascadesContext;
 
+    private StatsCalculator(CascadesContext context) {
+        this.groupExpression = null;
+        this.cascadesContext = context;
+    }
+
     private StatsCalculator(GroupExpression groupExpression, boolean forbidUnknownColStats,
             Map<String, ColumnStatistic> columnStatisticMap, boolean isPlayNereidsDump,
             Map<CTEId, Statistics> cteIdToStats, CascadesContext context) {
@@ -206,6 +211,27 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     }
 
     /**
+     * disable join reorder if any table row count is not available.
+     */
+    public static void disableJoinReorderIfTableRowCountNotAvailable(
+            List<LogicalOlapScan> scans, CascadesContext context) {
+        StatsCalculator calculator = new StatsCalculator(context);
+        for (LogicalOlapScan scan : scans) {
+            double rowCount = calculator.getOlapTableRowCount(scan);
+            if (rowCount == -1 && ConnectContext.get() != null) {
+                try {
+                    ConnectContext.get().getSessionVariable().disableNereidsJoinReorderOnce();
+                    LOG.info("disable join reorder since row count not available: "
+                            + scan.getTable().getNameWithFullQualifiers());
+                } catch (Exception e) {
+                    LOG.info("disableNereidsJoinReorderOnce failed");
+                }
+                return;
+            }
+        }
+    }
+
+    /**
      * estimate stats
      */
     public static StatsCalculator estimate(GroupExpression groupExpression, boolean forbidUnknownColStats,
@@ -215,15 +241,6 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                 groupExpression, forbidUnknownColStats, columnStatisticMap, isPlayNereidsDump, cteIdToStats, context);
         statsCalculator.estimate();
         return statsCalculator;
-    }
-
-    public static StatsCalculator estimate(GroupExpression groupExpression, boolean forbidUnknownColStats,
-            Map<String, ColumnStatistic> columnStatisticMap, boolean isPlayNereidsDump, CascadesContext context) {
-        return StatsCalculator.estimate(groupExpression,
-                forbidUnknownColStats,
-                columnStatisticMap,
-                isPlayNereidsDump,
-                new HashMap<>(), context);
     }
 
     // For unit test only
@@ -364,19 +381,31 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         }
     }
 
-    private Statistics computeOlapScan(OlapScan olapScan) {
+    /**
+     * if the table is not analyzed and BE does not report row count, return -1
+     */
+    private double getOlapTableRowCount(OlapScan olapScan) {
         OlapTable olapTable = olapScan.getTable();
-        double tableRowCount = olapTable.getRowCountForIndex(olapScan.getSelectedIndexId(), true);
-        if (tableRowCount <= 0) {
-            AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
-            TableStatsMeta tableMeta = analysisManager.findTableStatsStatus(olapScan.getTable().getId());
-            if (tableMeta != null) {
-                // create-view after analyzing, we may get -1 for this view row count
-                tableRowCount = Math.max(1, tableMeta.getRowCount(olapScan.getSelectedIndexId()));
-            } else {
-                tableRowCount = 1;
+        AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
+        TableStatsMeta tableMeta = analysisManager.findTableStatsStatus(olapScan.getTable().getId());
+        double rowCount = -1;
+        if (tableMeta != null && tableMeta.userInjected) {
+            rowCount = tableMeta.getRowCount(olapScan.getSelectedIndexId());
+        } else {
+            rowCount = olapTable.getRowCountForIndex(olapScan.getSelectedIndexId(), true);
+            if (rowCount == -1) {
+                if (tableMeta != null) {
+                    rowCount = tableMeta.getRowCount(olapScan.getSelectedIndexId());
+                }
             }
         }
+        return rowCount;
+    }
+
+    private Statistics computeOlapScan(OlapScan olapScan) {
+        OlapTable olapTable = olapScan.getTable();
+        double tableRowCount = getOlapTableRowCount(olapScan);
+        tableRowCount = Math.max(1, tableRowCount);
 
         if (olapScan.getSelectedIndexId() != olapScan.getTable().getBaseIndexId() || olapTable instanceof MTMV) {
             // mv is selected, return its estimated stats
@@ -394,8 +423,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                     for (Slot slot : ((Relation) olapScan).getOutput()) {
                         if (derivedStats.findColumnStatistics(slot) == null) {
                             derivedStats.addColumnStats(slot,
-                                    new ColumnStatisticBuilder(ColumnStatistic.UNKNOWN)
-                                            .setCount(derivedRowCount).build());
+                                    new ColumnStatisticBuilder(ColumnStatistic.UNKNOWN, derivedRowCount).build());
                         }
                     }
                     return derivedStats;
@@ -1023,7 +1051,6 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
      */
     private Statistics computeCatalogRelation(CatalogRelation catalogRelation) {
         StatisticsBuilder builder = new StatisticsBuilder();
-        double tableRowCount = catalogRelation.getTable().getRowCount();
 
         // for FeUt, use ColumnStatistic.UNKNOWN
         if (!FeConstants.enableInternalSchemaDb
@@ -1045,7 +1072,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             }
         }
         Set<SlotReference> slotSet = slotSetBuilder.build();
-
+        double tableRowCount = catalogRelation.getTable().getRowCount();
         if (tableRowCount <= 0) {
             // try to get row count from col stats
             for (SlotReference slot : slotSet) {
