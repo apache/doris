@@ -61,7 +61,6 @@ suite("test_unique_schema_key_change_drop", "p0") {
             "               (4, 'Emily Brown', 92.0, 'San Francisco', 28, 2, 5556667778, true, 40, 4000000000, '2024-06-14', '2024-06-14', '2024-06-14 13:30:00', '2024-06-14 13:30:00')," +
             "               (5, 'David Wilson', 88.9, 'Seattle', 32, 1, 9998887776, false, 50, 5000000000, '2024-06-15', '2024-06-15', '2024-06-15 15:45:00', '2024-06-15 15:45:00');"
 
-    def insertSql = ""
     //TODO Test the unique model by drop a key type from BOOLEAN
     errorMessage = "errCode = 2, detailMessage = Can not drop key column in Unique data model table"
     expectException({
