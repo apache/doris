@@ -568,8 +568,10 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                                         break OUT;
                                     } else if (res == AddResult.ADDED) {
                                         counter.addToSchedulerTabletNum++;
-                                    }  else if (res == AddResult.ALREADY_IN) {
+                                    } else if (res == AddResult.ALREADY_IN) {
                                         counter.tabletInScheduler++;
+                                    } else if (res == AddResult.REPLACE_ADDED || res == AddResult.LIMIT_EXCEED) {
+                                        counter.tabletExceedLimit++;
                                     }
                                 }
                             }
@@ -589,9 +591,10 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
         } // end for groups
 
         long cost = System.currentTimeMillis() - start;
-        LOG.info("finished to check tablets. unhealth/total/added/in_sched/not_ready: {}/{}/{}/{}/{}, cost: {} ms",
+        LOG.info("finished to check tablets. unhealth/total/added/in_sched/not_ready/exceed_limit: {}/{}/{}/{}/{}/{}, "
+                + "cost: {} ms",
                 counter.unhealthyTabletNum, counter.totalTabletNum, counter.addToSchedulerTabletNum,
-                counter.tabletInScheduler, counter.tabletNotReady, cost);
+                counter.tabletInScheduler, counter.tabletNotReady, counter.tabletExceedLimit, cost);
     }
 
     private GlobalColocateStatistic buildGlobalColocateStatistic() {

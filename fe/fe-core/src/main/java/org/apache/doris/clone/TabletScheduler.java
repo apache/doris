@@ -149,6 +149,7 @@ public class TabletScheduler extends MasterDaemon {
         ADDED, // success to add
         ALREADY_IN, // already added, skip
         LIMIT_EXCEED, // number of pending tablets exceed the limit
+        REPLACE_ADDED,  // succ to add, and envit a lowest task
         DISABLED // scheduler has been disabled.
     }
 
@@ -274,15 +275,19 @@ public class TabletScheduler extends MasterDaemon {
             return AddResult.ALREADY_IN;
         }
 
+        AddResult addResult = AddResult.ADDED;
         // if this is not a force add,
         // and number of scheduling tablets exceed the limit,
         // refuse to add.
         if (!force && (pendingTablets.size() >= Config.max_scheduling_tablets
                 || runningTablets.size() >= Config.max_scheduling_tablets)) {
+            // For a sched tablet, if its compare value is bigger, it will be more close to queue's tail position,
+            // and its priority is lower.
             TabletSchedCtx lowestPriorityTablet = pendingTablets.peekLast();
             if (lowestPriorityTablet == null || lowestPriorityTablet.compareTo(tablet) <= 0) {
                 return AddResult.LIMIT_EXCEED;
             }
+            addResult = AddResult.REPLACE_ADDED;
             pendingTablets.pollLast();
             finalizeTabletCtx(lowestPriorityTablet, TabletSchedCtx.State.CANCELLED, Status.UNRECOVERABLE,
                     "envit lower priority sched tablet because pending queue is full");
@@ -297,7 +302,7 @@ public class TabletScheduler extends MasterDaemon {
             LOG.info("Add tablet to pending queue, {}", tablet);
         }
 
-        return AddResult.ADDED;
+        return addResult;
     }
 
 
