@@ -1330,7 +1330,7 @@ class Suite implements GroovyInterceptable {
         }
         Assert.assertEquals("SUCCESS", status)
         logger.info("waitingMTMVTaskFinished analyze mv name is " + result.last().get(5))
-        sql "analyze table ${result.last().get(6)}.${mvName} with sync;"
+        sql "analyze table ${mvName} with sync;"
     }
 
     void waitingMTMVTaskFinishedByMvNameAllowCancel(String mvName) {
@@ -1353,6 +1353,9 @@ class Suite implements GroovyInterceptable {
             logger.info("status is not success")
             assertTrue(result.toString().contains("same table"))
         }
+        // Need to analyze materialized view for cbo to choose the materialized view accurately
+        logger.info("waitingMTMVTaskFinished analyze mv name is " + result.last().get(5))
+        sql "analyze table ${mvName} with sync;"
     }
 
     void waitingPartitionIsExpected(String tableName, String partitionName, boolean expectedStatus) {
