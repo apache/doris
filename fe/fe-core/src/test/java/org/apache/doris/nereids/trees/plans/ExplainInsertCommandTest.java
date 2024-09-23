@@ -100,7 +100,7 @@ public class ExplainInsertCommandTest extends TestWithFeService {
     @Test
     public void testInsertIntoUniqueKeyTable() throws Exception {
         String sql = "explain insert into t2 select * from src";
-        Assertions.assertEquals(6, getOutputFragment(sql).getOutputExprs().size());
+        Assertions.assertEquals(7, getOutputFragment(sql).getOutputExprs().size());
 
     }
 
@@ -115,7 +115,7 @@ public class ExplainInsertCommandTest extends TestWithFeService {
         String sql = "explain insert into t1 values(1, 1, 1, 1), (2, 2, 2, 2), (3, 3, 3, 3)";
         Assertions.assertEquals(4, getOutputFragment(sql).getOutputExprs().size());
         sql = "explain insert into t2 values(1, 1, 1, 1), (2, 2, 2, 2), (3, 3, 3, 3)";
-        Assertions.assertEquals(6, getOutputFragment(sql).getOutputExprs().size());
+        Assertions.assertEquals(7, getOutputFragment(sql).getOutputExprs().size());
         sql = "explain insert into agg_have_dup_base values(-4, -4, -4, 'd')";
         Assertions.assertEquals(8, getOutputFragment(sql).getOutputExprs().size());
     }
