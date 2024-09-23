@@ -103,6 +103,10 @@ suite("test_iot_auto_detect_concurrent") {
     if (!success_status) {
         // Not allowed running Insert Overwrite on same table
         assertTrue(err_msg.contains('same table'))
+    } else {
+        // The execution was fast, resulting in no concurrent execution
+        qt_sql3 " select count(k0) from test_concurrent_write; "
+        qt_sql4 " select count(distinct k0) from test_concurrent_write; "
     }
 
     /// with drop partition concurrently
