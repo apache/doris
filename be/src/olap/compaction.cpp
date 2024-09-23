@@ -1088,20 +1088,6 @@ Status CompactionMixin::modify_rowsets() {
         }
     }
 
-    tablet()->set_cumu_compaction_score(-1);
-    tablet()->set_base_compaction_score(-1);
-    if (tablet()->cumulative_layer_point() <= _output_rowset->start_version()) {
-        int32_t add_score = _output_rowset->rowset_meta()->get_compaction_score();
-        int32_t sub_score = 0;
-        for (auto rs : _input_rowsets) {
-            sub_score += rs->rowset_meta()->get_compaction_score();
-        }
-        tablet()->add_cumu_score(add_score - sub_score);
-    } else {
-        tablet()->set_base_compaction_score(-1);
-        tablet()->set_cumu_compaction_score(-1);
-    }
-
     return Status::OK();
 }
 

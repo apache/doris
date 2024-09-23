@@ -221,9 +221,11 @@ public:
 
     // operation for compaction
     bool can_do_compaction(size_t path_hash, CompactionType compaction_type);
-    uint32_t calc_compaction_score(
+    bool suitable_for_compaction(
             CompactionType compaction_type,
             std::shared_ptr<CumulativeCompactionPolicy> cumulative_compaction_policy);
+
+    uint32_t calc_compaction_score();
 
     // This function to find max continuous version from the beginning.
     // For example: If there are 1, 2, 3, 5, 6, 7 versions belongs tablet, then 3 is target.
@@ -482,30 +484,26 @@ public:
     inline bool is_full_compaction_running() const { return _is_full_compaction_running; }
     void clear_cache() override;
 
-    int32_t get_cumu_compaction_score() const {
-        return _cumu_compaction_score.load(std::memory_order_relaxed);
+    int32_t get_compaction_score() const {
+        return _compaction_score;
     }
 
-    void set_cumu_compaction_score(int32_t compaction_score) {
-        _cumu_compaction_score.store(compaction_score, std::memory_order_relaxed);
+    void set_compaction_score(int32_t compaction_score) {
+        _compaction_score = compaction_score;
     }
 
-    int32_t get_base_compaction_score() const {
-        return _base_compaction_score.load(std::memory_order_relaxed);
+    void add_compaction_score(int32_t score) {
+        if (_compaction_score < 0) {
+            return;
+        }
+        _compaction_score += score;
     }
 
-    void set_base_compaction_score(int32_t compaction_score) {
-        _base_compaction_score.store(compaction_score, std::memory_order_relaxed);
-    }
-
-    void add_cumu_score(int32_t score) {
-        int32_t curr_score = _cumu_compaction_score.load();
-        do {
-            if (curr_score < 0) {
-                break;
-            }
-        } while (!_cumu_compaction_score.compare_exchange_strong(curr_score, curr_score + score,
-                                                                 std::memory_order_relaxed));
+    void minus_compaction_score(int32_t score) {
+        if (_compaction_score < 0) {
+            return;
+        }
+        _compaction_score -= score;
     }
 
 private:
@@ -635,8 +633,7 @@ private:
 
     std::atomic_bool _is_full_compaction_running = false;
 
-    std::atomic_int32_t _base_compaction_score = -1;
-    std::atomic_int32_t _cumu_compaction_score = -1;
+    int32_t _compaction_score = -1;
     int32_t _score_check_cnt = 0;
 };
 

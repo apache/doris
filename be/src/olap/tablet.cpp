@@ -57,7 +57,6 @@
 #include "agent/utils.h"
 #include "common/config.h"
 #include "common/consts.h"
-#include "common/exception.h"
 #include "common/logging.h"
 #include "common/signal_handler.h"
 #include "common/status.h"
@@ -489,6 +488,7 @@ Status Tablet::add_rowset(RowsetSharedPtr rowset) {
     RETURN_IF_ERROR(_tablet_meta->add_rs_meta(rowset->rowset_meta()));
     _rs_version_map[rowset->version()] = rowset;
     _timestamped_version_tracker.add_version(rowset->version());
+    add_compaction_score(rowset->rowset_meta()->get_compaction_score());
 
     std::vector<RowsetSharedPtr> rowsets_to_delete;
     // yiguolei: temp code, should remove the rowset contains by this rowset
@@ -594,6 +594,17 @@ Status Tablet::modify_rowsets(std::vector<RowsetSharedPtr>& to_add,
             }
         }
     }
+
+    int32_t add_score = 0;
+    for (auto rs : to_add) {
+        add_score += rs->rowset_meta()->get_compaction_score();
+    }
+    int32_t sub_score = 0;
+    for (auto rs : to_delete) {
+        sub_score += rs->rowset_meta()->get_compaction_score();
+    }
+    add_compaction_score(add_score - sub_score);
+
     return Status::OK();
 }
 
@@ -668,6 +679,9 @@ Status Tablet::add_inc_rowset(const RowsetSharedPtr& rowset) {
     _timestamped_version_tracker.add_version(rowset->version());
 
     ++_newly_created_rowset_num;
+
+    add_compaction_score(rowset->rowset_meta()->get_compaction_score());
+
     return Status::OK();
 }
 
@@ -856,8 +870,8 @@ Status Tablet::capture_consistent_versions_unlocked(const Version& spec_version,
                              << ", version already has been merged. spec_version: " << spec_version
                              << ", max_version: " << max_version_unlocked();
             }
-            status = Status::Error<VERSION_ALREADY_MERGED, false>(
-                    "versions are already compacted, spec_version "
+            status = Status::Error<VERSION_ALREADY_MERGED>(
+                    "missed_versions is empty, spec_version "
                     "{}, max_version {}, tablet_id {}",
                     spec_version.second, max_version_unlocked(), tablet_id());
         } else {
@@ -983,47 +997,41 @@ bool Tablet::can_do_compaction(size_t path_hash, CompactionType compaction_type)
     return tablet_state() == TABLET_RUNNING || tablet_state() == TABLET_NOTREADY;
 }
 
-uint32_t Tablet::calc_compaction_score(
-        CompactionType compaction_type,
-        std::shared_ptr<CumulativeCompactionPolicy> cumulative_compaction_policy) {
+uint32_t Tablet::calc_compaction_score() {
     if (_score_check_cnt++ % config::check_score_rounds_num != 0) {
-        if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) {
-            if (_cumu_compaction_score.load(std::memory_order_relaxed) > 0) {
-                return _cumu_compaction_score.load(std::memory_order_relaxed);
-            }
-        } else {
-            if (_base_compaction_score.load(std::memory_order_relaxed) > 0) {
-                return _base_compaction_score.load(std::memory_order_relaxed);
-            }
+        std::shared_lock rdlock(_meta_lock);
+        if (_compaction_score > 0) {
+            return _compaction_score;
         }
     }
 
     {
         // Need meta lock, because it will iterator "all_rs_metas" of tablet meta.
         std::shared_lock rdlock(_meta_lock);
-        if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) {
-            int32_t score = _calc_cumulative_compaction_score(cumulative_compaction_policy);
-            int32_t cache_score = _cumu_compaction_score.load(std::memory_order_relaxed);
-            if (cache_score > 0 && cache_score != score) {
-                LOG(WARNING) << "cumu cache score not equal real score, cache score; "
-                             << cache_score << ", real score: " << score
-                             << ", tablet: " << tablet_id();
-            }
-            _cumu_compaction_score.store(score, std::memory_order_relaxed);
-            return score;
-        } else {
-            DCHECK_EQ(compaction_type, CompactionType::BASE_COMPACTION);
-            int32_t score = _calc_base_compaction_score();
-            int32_t cache_score = _base_compaction_score.load(std::memory_order_relaxed);
-            if (cache_score > 0 && cache_score != score) {
-                LOG(WARNING) << "base cache score not equal real score, cache score; "
-                             << cache_score << ", real score: " << score
-                             << ", tablet: " << tablet_id();
-            }
-            _base_compaction_score.store(score, std::memory_order_relaxed);
-            return score;
+        int32_t score = get_real_compaction_score();
+        if (_compaction_score > 0 && _compaction_score != score) {
+            LOG(WARNING) << "cumu cache score not equal real score, cache score; "
+                         << _compaction_score << ", real score: " << score
+                         << ", tablet: " << tablet_id();
         }
+        _compaction_score = score;
+        return score;
     }
+}
+
+bool Tablet::suitable_for_compaction(
+        CompactionType compaction_type,
+        std::shared_ptr<CumulativeCompactionPolicy> cumulative_compaction_policy) {
+    // Need meta lock, because it will iterator "all_rs_metas" of tablet meta.
+    std::shared_lock rdlock(_meta_lock);
+    int32_t score = -1;
+    if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) {
+        score = _calc_cumulative_compaction_score(cumulative_compaction_policy);
+    } else {
+        DCHECK_EQ(compaction_type, CompactionType::BASE_COMPACTION);
+        score = _calc_base_compaction_score();
+    }
+    return score > 0;
 }
 
 uint32_t Tablet::calc_cold_data_compaction_score() const {
@@ -1819,7 +1827,8 @@ void Tablet::execute_compaction(CompactionMixin& compaction) {
     MonotonicStopWatch watch;
     watch.start();
 
-    Status res = [&]() { RETURN_IF_CATCH_EXCEPTION({ return compaction.execute_compact(); }); }();
+    Status res = compaction.execute_compact();
+
     if (!res.ok()) [[unlikely]] {
         set_last_failure_time(this, compaction, UnixMillis());
         LOG(WARNING) << "failed to do " << compaction.compaction_name()
@@ -2538,11 +2547,6 @@ std::string Tablet::get_rowset_binlog_meta(std::string_view binlog_version,
 
 Status Tablet::get_rowset_binlog_metas(const std::vector<int64_t>& binlog_versions,
                                        RowsetBinlogMetasPB* metas_pb) {
-    return RowsetMetaManager::get_rowset_binlog_metas(_data_dir->get_meta(), tablet_uid(),
-                                                      binlog_versions, metas_pb);
-}
-
-Status Tablet::get_rowset_binlog_metas(Version binlog_versions, RowsetBinlogMetasPB* metas_pb) {
     return RowsetMetaManager::get_rowset_binlog_metas(_data_dir->get_meta(), tablet_uid(),
                                                       binlog_versions, metas_pb);
 }

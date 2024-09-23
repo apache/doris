@@ -436,14 +436,6 @@ Status TxnManager::commit_txn(OlapMeta* meta, TPartitionId partition_id,
                     << ", version: " << rowset_ptr->version().first;
     }
 
-    {
-        tablet = _engine.tablet_manager()->get_tablet(tablet_id, tablet_uid);
-        if (tablet) {
-            int64_t score = rowset_ptr->rowset_meta()->get_compaction_score();
-            tablet->add_cumu_score(score);
-        }
-    }
-
     return Status::OK();
 }
 
