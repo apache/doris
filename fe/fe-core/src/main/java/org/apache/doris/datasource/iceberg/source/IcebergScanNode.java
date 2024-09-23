@@ -88,6 +88,7 @@ public class IcebergScanNode extends FileQueryScanNode {
     private Table icebergTable;
     private List<String> pushdownIcebergPredicates = Lists.newArrayList();
     private boolean pushDownCount = false;
+    private static final long COUNT_WITH_PARALLEL_SPLITS = 10000;
 
     /**
      * External file scan node for Query iceberg table
@@ -269,7 +270,7 @@ public class IcebergScanNode extends FileQueryScanNode {
             if (countFromSnapshot >= 0) {
                 pushDownCount = true;
                 List<Split> pushDownCountSplits;
-                if (countFromSnapshot > 10000) {
+                if (countFromSnapshot > COUNT_WITH_PARALLEL_SPLITS) {
                     int parallelNum = ConnectContext.get().getSessionVariable().getParallelExecInstanceNum();
                     pushDownCountSplits = splits.subList(0, Math.min(splits.size(), parallelNum));
                 } else {
