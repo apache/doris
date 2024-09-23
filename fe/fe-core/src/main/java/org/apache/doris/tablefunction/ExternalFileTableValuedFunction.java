@@ -211,6 +211,15 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
             case "wal":
                 this.fileFormatType = TFileFormatType.FORMAT_WAL;
                 break;
+            case "sequence":
+                this.fileFormatType = TFileFormatType.FORMAT_SEQUENCE;
+                break;
+            case "rc_binary":
+                this.fileFormatType = TFileFormatType.FORMAT_RCBINARY;
+                break;
+            case "rc_text":
+                this.fileFormatType = TFileFormatType.FORMAT_RCTEXT;
+                break;
             default:
                 throw new AnalysisException("format:" + formatString + " is not supported.");
         }
@@ -256,6 +265,15 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
                     FileFormatConstants.PROP_CSV_SCHEMA, ""));
             if (LOG.isDebugEnabled()) {
                 LOG.debug("get csv schema: {}", csvSchema);
+            }
+        }
+
+        // When parsing rc_binary/rc_text/sequence files, reuse parseCsvSchema to parse column names and types
+        if (FileFormatUtils.isHiveFormat(formatString)) {
+            FileFormatUtils.parseCsvSchema(csvSchema, getOrDefaultAndRemove(copiedProps,
+                    FileFormatConstants.PROP_HIVE_SCHEMA, ""));
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("get hive schema: {}", csvSchema);
             }
         }
 
