@@ -52,6 +52,7 @@ public:
     RuntimeProfile::Counter* split_block_distribute_by_channel_timer() {
         return _split_block_distribute_by_channel_timer;
     }
+    int close_sender_number() const { return 1; };
 
 private:
     friend class ResultFileSinkOperatorX;

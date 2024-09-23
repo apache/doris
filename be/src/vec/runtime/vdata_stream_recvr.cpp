@@ -249,13 +249,14 @@ void VDataStreamRecvr::SenderQueue::add_block(Block* block, bool use_move) {
     }
 }
 
-void VDataStreamRecvr::SenderQueue::decrement_senders(int be_number) {
+void VDataStreamRecvr::SenderQueue::decrement_senders(int be_number, int close_sender_number) {
     std::lock_guard<std::mutex> l(_lock);
     if (_sender_eos_set.end() != _sender_eos_set.find(be_number)) {
         return;
     }
     _sender_eos_set.insert(be_number);
-    _num_remaining_senders = 0;
+    DCHECK_GE(_num_remaining_senders, close_sender_number);
+    _num_remaining_senders -= close_sender_number;
 
     _record_debug_info();
     VLOG_FILE << "decremented senders: fragment_instance_id="
@@ -426,13 +427,14 @@ Status VDataStreamRecvr::get_next(Block* block, bool* eos) {
     }
 }
 
-void VDataStreamRecvr::remove_sender(int sender_id, int be_number, Status exec_status) {
+void VDataStreamRecvr::remove_sender(int sender_id, int be_number, int close_sender_number,
+                                     Status exec_status) {
     if (!exec_status.ok()) {
         cancel_stream(exec_status);
         return;
     }
     int use_sender_id = _is_merging ? sender_id : 0;
-    _sender_queues[use_sender_id]->decrement_senders(be_number);
+    _sender_queues[use_sender_id]->decrement_senders(be_number, close_sender_number);
 }
 
 void VDataStreamRecvr::cancel_stream(Status exec_status) {

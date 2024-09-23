@@ -933,7 +933,10 @@ Status PipelineFragmentContext::_add_local_exchange_impl(
     _inherit_pipeline_properties(data_distribution, cur_pipe, new_pip);
 
     if (data_distribution.distribution_type == ExchangeType::PASS_TO_ONE_EXCHANGE) {
-        cur_pipe->set_num_tasks(1);
+        if (auto* ex_sink = typeid_cast<ExchangeSinkOperatorX*>(cur_pipe->sink())) {
+            ex_sink->set_close_sender_number(cur_pipe->num_tasks());
+            cur_pipe->set_num_tasks(1);
+        }
     }
 
     return Status::OK();

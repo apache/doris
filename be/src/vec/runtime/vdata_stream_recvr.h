@@ -96,7 +96,7 @@ public:
 
     // Indicate that a particular sender is done. Delegated to the appropriate
     // sender queue. Called from DataStreamMgr.
-    void remove_sender(int sender_id, int be_number, Status exec_status);
+    void remove_sender(int sender_id, int be_number, int close_sender_number, Status exec_status);
 
     void cancel_stream(Status exec_status);
 
@@ -185,7 +185,7 @@ public:
 
     void add_block(Block* block, bool use_move);
 
-    void decrement_senders(int sender_id);
+    void decrement_senders(int be_number, int close_sender_number);
 
     void cancel(Status cancel_status);
 

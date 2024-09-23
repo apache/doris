@@ -387,6 +387,7 @@ void ExchangeSinkBuffer::_construct_request(InstanceLoId id, PUniqueId finst_id)
     _instance_to_request[id]->set_node_id(_dest_node_id);
     _instance_to_request[id]->set_sender_id(_sender_id);
     _instance_to_request[id]->set_be_number(_be_number);
+    _instance_to_request[id]->set_close_sender_number(_parent->close_sender_number());
 }
 
 void ExchangeSinkBuffer::_ended(InstanceLoId id) {
