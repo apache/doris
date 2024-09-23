@@ -20,10 +20,10 @@ package org.apache.doris.lakesoul.arrow;
 import org.apache.doris.common.jni.utils.OffHeap;
 import org.apache.doris.common.jni.utils.TypeNativeBytes;
 
-import org.apache.arrow.memory.ArrowBuf;
-import org.apache.arrow.util.Preconditions;
-import org.apache.arrow.vector.types.pojo.ArrowType;
-import org.apache.arrow.vector.types.pojo.Field;
+import com.lakesoul.shaded.org.apache.arrow.memory.ArrowBuf;
+import com.lakesoul.shaded.org.apache.arrow.util.Preconditions;
+import com.lakesoul.shaded.org.apache.arrow.vector.types.pojo.ArrowType;
+import com.lakesoul.shaded.org.apache.arrow.vector.types.pojo.Field;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -40,7 +40,7 @@ public class ArrowUtils {
             LocalDateTime v = LocalDateTime.ofEpochSecond(epochSec, 0, ZoneOffset.UTC);
             OffHeap.putLong(null, address + offset,
                     TypeNativeBytes.convertToDateTimeV2(v.getYear(), v.getMonthValue(), v.getDayOfMonth(), v.getHour(),
-                            v.getMinute(), v.getSecond(), v.getNano() / 1000));
+                    v.getMinute(), v.getSecond(), v.getNano() / 1000));
             offset += 8;
 
         }
@@ -58,7 +58,7 @@ public class ArrowUtils {
             LocalDateTime v = LocalDateTime.ofEpochSecond(epochSec, (int) nanoSec, ZoneOffset.UTC);
             OffHeap.putLong(null, address + offset,
                     TypeNativeBytes.convertToDateTimeV2(v.getYear(), v.getMonthValue(), v.getDayOfMonth(), v.getHour(),
-                            v.getMinute(), v.getSecond(), v.getNano() / 1000));
+                    v.getMinute(), v.getSecond(), v.getNano() / 1000));
             offset += 8;
 
         }
@@ -76,7 +76,7 @@ public class ArrowUtils {
             LocalDateTime v = LocalDateTime.ofEpochSecond(epochSec, (int) nanoSec, ZoneOffset.UTC);
             OffHeap.putLong(null, address + offset,
                     TypeNativeBytes.convertToDateTimeV2(v.getYear(), v.getMonthValue(), v.getDayOfMonth(), v.getHour(),
-                            v.getMinute(), v.getSecond(), v.getNano() / 1000));
+                    v.getMinute(), v.getSecond(), v.getNano() / 1000));
             offset += 8;
 
         }
@@ -94,7 +94,7 @@ public class ArrowUtils {
             LocalDateTime v = LocalDateTime.ofEpochSecond(epochSec, (int) nanoSec, ZoneOffset.UTC);
             OffHeap.putLong(null, address + offset,
                     TypeNativeBytes.convertToDateTimeV2(v.getYear(), v.getMonthValue(), v.getDayOfMonth(), v.getHour(),
-                            v.getMinute(), v.getSecond(), v.getNano() / 1000));
+                    v.getMinute(), v.getSecond(), v.getNano() / 1000));
             offset += 8;
 
         }
@@ -215,11 +215,9 @@ public class ArrowUtils {
         return hiveType.toString();
     }
 
-    private static class ArrowTypeToHiveTypeConverter
-            implements ArrowType.ArrowTypeVisitor<String> {
+    private static class ArrowTypeToHiveTypeConverter implements ArrowType.ArrowTypeVisitor<String> {
 
-        private static final ArrowTypeToHiveTypeConverter INSTANCE =
-                new ArrowTypeToHiveTypeConverter();
+        private static final ArrowTypeToHiveTypeConverter INSTANCE = new ArrowTypeToHiveTypeConverter();
 
         @Override
         public String visit(ArrowType.Null type) {
@@ -359,6 +357,4 @@ public class ArrowUtils {
             return "unsupported";
         }
     }
-
-
 }
