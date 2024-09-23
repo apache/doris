@@ -57,10 +57,6 @@ public class StructField {
         this(name, type, comment, true);
     }
 
-    public StructField(Type type) {
-        this(DEFAULT_FIELD_NAME, type, null, true);
-    }
-
     public String getComment() {
         return comment;
     }

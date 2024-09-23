@@ -30,6 +30,9 @@ suite("test_complex_type") {
 
     // struct constructor
     sql "select struct(1, 2, 3, 4)"
+    sql "select struct(1 as a, 2 as b)"
+    sql "select struct(1, 'a', 3 as a, 4 as b, 5)"
+    sql "select struct(1 as a, 'a', 3 as b, 4, 5, null as c)"
 
     // named struct constructor
     sql "select named_struct('x', 1, 'y', 2)"

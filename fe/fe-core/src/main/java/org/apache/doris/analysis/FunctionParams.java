@@ -34,6 +34,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.stream.Collectors;
 
 /**
  * Return value of the grammar production that parses function
@@ -47,12 +48,18 @@ public class FunctionParams implements Writable {
     private List<Expr> exprs;
     @SerializedName("isDistinct")
     private boolean isDistinct;
+    private List<String> exprAlias;
 
     // c'tor for non-star params
     public FunctionParams(boolean isDistinct, List<Expr> exprs) {
         isStar = false;
         this.isDistinct = isDistinct;
-        this.exprs = exprs;
+        this.exprs = exprs.stream()
+            .map(e -> e instanceof AliasArgument ? ((AliasArgument) e).getExpr() : e)
+            .collect(Collectors.toList());
+        this.exprAlias = exprs.stream()
+            .map(e -> e instanceof AliasArgument ? ((AliasArgument) e).getAlias() : "")
+            .collect(Collectors.toList());
     }
 
     // c'tor for non-star, non-distinct params
@@ -103,6 +110,10 @@ public class FunctionParams implements Writable {
 
     public List<Expr> exprs() {
         return exprs;
+    }
+
+    public List<String> exprsAlias() {
+        return exprAlias;
     }
 
     public void setIsDistinct(boolean v) {

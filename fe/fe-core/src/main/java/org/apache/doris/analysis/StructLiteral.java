@@ -44,16 +44,16 @@ public class StructLiteral extends LiteralExpr {
     }
 
     public StructLiteral(LiteralExpr... exprs) throws AnalysisException {
-        type = new StructType();
+        ArrayList<StructField> fields = new ArrayList<>();
         children = new ArrayList<>();
         for (int i = 0; i < exprs.length; i++) {
             if (!StructType.STRUCT.supportSubType(exprs[i].getType())) {
                 throw new AnalysisException("Invalid element type in STRUCT: " + exprs[i].getType());
             }
-            ((StructType) type).addField(
-                    new StructField(StructField.DEFAULT_FIELD_NAME + (i + 1), exprs[i].getType()));
+            fields.add(new StructField(StructField.DEFAULT_FIELD_NAME + (i + 1), exprs[i].getType()));
             children.add(exprs[i]);
         }
+        type = new StructType(fields);
     }
 
     /**

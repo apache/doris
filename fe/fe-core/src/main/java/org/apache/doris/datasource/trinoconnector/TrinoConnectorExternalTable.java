@@ -209,12 +209,13 @@ public class TrinoConnectorExternalTable extends ExternalTable {
             return new MapType(keyType, valueType, true, true);
         } else if (type instanceof RowType) {
             ArrayList<StructField> dorisFields = Lists.newArrayList();
-            for (Field field : ((RowType) type).getFields()) {
+            for (int i = 0; i < ((RowType) type).getFields().size(); ++i) {
+                Field field = ((RowType) type).getFields().get(i);
                 Type childType = trinoConnectorTypeToDorisType(field.getType());
                 if (field.getName().isPresent()) {
                     dorisFields.add(new StructField(field.getName().get(), childType));
                 } else {
-                    dorisFields.add(new StructField(childType));
+                    dorisFields.add(new StructField(StructField.DEFAULT_FIELD_NAME + (i + 1), childType));
                 }
             }
             return new StructType(dorisFields);

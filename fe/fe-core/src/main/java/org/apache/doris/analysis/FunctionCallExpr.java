@@ -2104,12 +2104,17 @@ public class FunctionCallExpr extends Expr {
         } else if (fnName.getFunction().equalsIgnoreCase("struct")) {
             ArrayList<StructField> newFields = Lists.newArrayList();
             ArrayList<StructField> originFields = ((StructType) type).getFields();
+            List<String> argAlias = fnParams.exprsAlias();
             for (int i = 0; i < children.size(); i++) {
                 Type fieldType = originFields.get(i).getType();
                 if (originFields.get(i).getType().isDecimalV3() || originFields.get(i).getType().isDatetimeV2()) {
                     fieldType = children.get(i).type;
                 }
-                newFields.add(new StructField(fieldType));
+                if (argAlias.get(i) != null && !argAlias.get(i).isEmpty()) {
+                    newFields.add(new StructField(argAlias.get(i), fieldType));
+                } else {
+                    newFields.add(new StructField(StructField.DEFAULT_FIELD_NAME + (i + 1), fieldType));
+                }
             }
             this.type = new StructType(newFields);
         } else if (fnName.getFunction().equalsIgnoreCase("topn_array")) {
@@ -2151,7 +2156,8 @@ public class FunctionCallExpr extends Expr {
             ArrayList<StructField> fields = new ArrayList<>();
 
             for (int i = 0; i < childTypes.length; i++) {
-                fields.add(new StructField(((ArrayType) childTypes[i]).getItemType()));
+                fields.add(new StructField(StructField.DEFAULT_FIELD_NAME + (i + 1),
+                        ((ArrayType) childTypes[i]).getItemType()));
             }
 
             this.type = new ArrayType(new StructType(fields));
