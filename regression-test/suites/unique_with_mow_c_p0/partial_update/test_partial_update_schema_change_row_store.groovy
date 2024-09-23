@@ -37,7 +37,9 @@ suite("test_partial_update_row_store_schema_change", "p0") {
                 `c7` int NULL,
                 `c8` int NULL,
                 `c9` int NULL)
-                UNIQUE KEY(`c0`) DISTRIBUTED BY HASH(`c0`) BUCKETS 1
+                UNIQUE KEY(`c0`)
+                CLUSTER BY(`c4`, `c1`) 
+                DISTRIBUTED BY HASH(`c0`) BUCKETS 1
                 PROPERTIES(
                     "replication_num" = "1",
                     "light_schema_change" = "true",
@@ -101,10 +103,11 @@ suite("test_partial_update_row_store_schema_change", "p0") {
             }
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
-            assertEquals("success", json.Status.toLowerCase())
-            assertEquals(1, json.NumberTotalRows)
+            assertEquals("fail", json.Status.toLowerCase())
+            assertEquals(0, json.NumberTotalRows)
             assertEquals(0, json.NumberFilteredRows)
             assertEquals(0, json.NumberUnselectedRows)
+            assertTrue(json.Message.contains("Can't do partial update on merge-on-write Unique table with cluster keys"))
         }
     }
 
@@ -130,10 +133,11 @@ suite("test_partial_update_row_store_schema_change", "p0") {
             }
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
-            assertEquals("success", json.Status.toLowerCase())
-            assertEquals(1, json.NumberTotalRows)
+            assertEquals("fail", json.Status.toLowerCase())
+            assertEquals(0, json.NumberTotalRows)
             assertEquals(0, json.NumberFilteredRows)
             assertEquals(0, json.NumberUnselectedRows)
+            assertTrue(json.Message.contains("Can't do partial update on merge-on-write Unique table with cluster keys"))
         }
     }
 
@@ -160,7 +164,9 @@ suite("test_partial_update_row_store_schema_change", "p0") {
                 `c7` int NULL,
                 `c8` int NULL,
                 `c9` int NULL)
-                UNIQUE KEY(`c0`) DISTRIBUTED BY HASH(`c0`) BUCKETS 1
+                UNIQUE KEY(`c0`)
+                CLUSTER BY(`c1`, `c5`) 
+                DISTRIBUTED BY HASH(`c0`) BUCKETS 1
                 PROPERTIES(
                     "replication_num" = "1",
                     "light_schema_change" = "true",
@@ -222,10 +228,11 @@ suite("test_partial_update_row_store_schema_change", "p0") {
             }
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
-            assertEquals("success", json.Status.toLowerCase())
-            assertEquals(1, json.NumberTotalRows)
+            assertEquals("fail", json.Status.toLowerCase())
+            assertEquals(0, json.NumberTotalRows)
             assertEquals(0, json.NumberFilteredRows)
             assertEquals(0, json.NumberUnselectedRows)
+            assertTrue(json.Message.contains("Can't do partial update on merge-on-write Unique table with cluster keys"))
         }
     }
 
@@ -252,10 +259,11 @@ suite("test_partial_update_row_store_schema_change", "p0") {
             // check result, which is fail for loading delete column.
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
-            assertEquals("success", json.Status.toLowerCase())
-            assertEquals(1, json.NumberTotalRows)
+            assertEquals("fail", json.Status.toLowerCase())
+            assertEquals(0, json.NumberTotalRows)
             assertEquals(0, json.NumberFilteredRows)
             assertEquals(0, json.NumberUnselectedRows)
+            assertTrue(json.Message.contains("Can't do partial update on merge-on-write Unique table with cluster keys"))
         }
     }
 
@@ -281,7 +289,9 @@ suite("test_partial_update_row_store_schema_change", "p0") {
                 `c7` int NULL,
                 `c8` int NULL,
                 `c9` int NULL)
-                UNIQUE KEY(`c0`) DISTRIBUTED BY HASH(`c0`) BUCKETS 1
+                UNIQUE KEY(`c0`)
+                CLUSTER BY(`c4`, `c0`) 
+                DISTRIBUTED BY HASH(`c0`) BUCKETS 1
                 PROPERTIES(
                     "replication_num" = "1",
                     "light_schema_change" = "true",
@@ -342,10 +352,11 @@ suite("test_partial_update_row_store_schema_change", "p0") {
             }
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
-            assertEquals("success", json.Status.toLowerCase())
-            assertEquals(1, json.NumberTotalRows)
+            assertEquals("fail", json.Status.toLowerCase())
+            assertEquals(0, json.NumberTotalRows)
             assertEquals(0, json.NumberFilteredRows)
             assertEquals(0, json.NumberUnselectedRows)
+            assertTrue(json.Message.contains("Can't do partial update on merge-on-write Unique table with cluster keys"))
         }
     }
 
@@ -425,6 +436,7 @@ suite("test_partial_update_row_store_schema_change", "p0") {
 
         set 'column_separator', ','
         set 'partial_columns', 'true'
+        set 'strict_mode', 'true'
         set 'columns', 'c0, c1'
 
         file 'schema_change/load_with_key_column.csv'
@@ -438,7 +450,7 @@ suite("test_partial_update_row_store_schema_change", "p0") {
             def json = parseJson(result)
             assertEquals("fail", json.Status.toLowerCase())
             assertEquals(1, json.NumberTotalRows)
-            assertEquals(0, json.NumberFilteredRows)
+            assertEquals(1, json.NumberFilteredRows)
             assertEquals(0, json.NumberUnselectedRows)
         }
     }
@@ -463,7 +475,9 @@ suite("test_partial_update_row_store_schema_change", "p0") {
                 `c7` int NULL,
                 `c8` int NULL,
                 `c9` int NULL)
-                UNIQUE KEY(`c0`) DISTRIBUTED BY HASH(`c0`) BUCKETS 1
+                UNIQUE KEY(`c0`)
+                CLUSTER BY(`c5`, `c4`, `c6`) 
+                DISTRIBUTED BY HASH(`c0`) BUCKETS 1
                 PROPERTIES(
                     "replication_num" = "1",
                     "light_schema_change" = "true",
@@ -525,10 +539,11 @@ suite("test_partial_update_row_store_schema_change", "p0") {
             }
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
-            assertEquals("success", json.Status.toLowerCase())
-            assertEquals(1, json.NumberTotalRows)
+            assertEquals("fail", json.Status.toLowerCase())
+            assertEquals(0, json.NumberTotalRows)
             assertEquals(0, json.NumberFilteredRows)
             assertEquals(0, json.NumberUnselectedRows)
+            assertTrue(json.Message.contains("Can't do partial update on merge-on-write Unique table with cluster keys"))
         }
     }
 
@@ -553,7 +568,9 @@ suite("test_partial_update_row_store_schema_change", "p0") {
                 `c7` int NULL,
                 `c8` int NULL,
                 `c9` int NULL)
-                UNIQUE KEY(`c0`) DISTRIBUTED BY HASH(`c0`) BUCKETS 1
+                UNIQUE KEY(`c0`)
+                CLUSTER BY(`c4`, `c9`, `c8`) 
+                DISTRIBUTED BY HASH(`c0`) BUCKETS 1
                 PROPERTIES(
                     "replication_num" = "1",
                     "light_schema_change" = "true",
@@ -607,10 +624,11 @@ suite("test_partial_update_row_store_schema_change", "p0") {
             }
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
-            assertEquals("success", json.Status.toLowerCase())
-            assertEquals(1, json.NumberTotalRows)
+            assertEquals("fail", json.Status.toLowerCase())
+            assertEquals(0, json.NumberTotalRows)
             assertEquals(0, json.NumberFilteredRows)
             assertEquals(0, json.NumberUnselectedRows)
+            assertTrue(json.Message.contains("Can't do partial update on merge-on-write Unique table with cluster keys"))
         }
     }
 
@@ -637,7 +655,9 @@ suite("test_partial_update_row_store_schema_change", "p0") {
                 `c7` int NULL,
                 `c8` int NULL,
                 `c9` int NULL)
-                UNIQUE KEY(`c0`) DISTRIBUTED BY HASH(`c0`) BUCKETS 1
+                UNIQUE KEY(`c0`)
+                CLUSTER BY(`c5`, `c0`, `c2`) 
+                DISTRIBUTED BY HASH(`c0`) BUCKETS 1
                 PROPERTIES(
                     "replication_num" = "1",
                     "store_row_column" = "true",
@@ -698,10 +718,11 @@ suite("test_partial_update_row_store_schema_change", "p0") {
             }
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
-            assertEquals("success", json.Status.toLowerCase())
-            assertEquals(1, json.NumberTotalRows)
+            assertEquals("fail", json.Status.toLowerCase())
+            assertEquals(0, json.NumberTotalRows)
             assertEquals(0, json.NumberFilteredRows)
             assertEquals(0, json.NumberUnselectedRows)
+            assertTrue(json.Message.contains("Can't do partial update on merge-on-write Unique table with cluster keys"))
         }
     }
 
@@ -727,10 +748,11 @@ suite("test_partial_update_row_store_schema_change", "p0") {
             }
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
-            assertEquals("success", json.Status.toLowerCase())
-            assertEquals(1, json.NumberTotalRows)
+            assertEquals("fail", json.Status.toLowerCase())
+            assertEquals(0, json.NumberTotalRows)
             assertEquals(0, json.NumberFilteredRows)
             assertEquals(0, json.NumberUnselectedRows)
+            assertTrue(json.Message.contains("Can't do partial update on merge-on-write Unique table with cluster keys"))
         }
     }
 
@@ -757,7 +779,9 @@ suite("test_partial_update_row_store_schema_change", "p0") {
                 `c7` int NULL,
                 `c8` int NULL,
                 `c9` int NULL)
-                UNIQUE KEY(`c0`) DISTRIBUTED BY HASH(`c0`) BUCKETS 1
+                UNIQUE KEY(`c0`)
+                CLUSTER BY(`c5`, `c9`) 
+                DISTRIBUTED BY HASH(`c0`) BUCKETS 1
                 PROPERTIES(
                     "replication_num" = "1",
                     "store_row_column" = "true",
@@ -818,10 +842,11 @@ suite("test_partial_update_row_store_schema_change", "p0") {
             }
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
-            assertEquals("success", json.Status.toLowerCase())
-            assertEquals(1, json.NumberTotalRows)
+            assertEquals("fail", json.Status.toLowerCase())
+            assertEquals(0, json.NumberTotalRows)
             assertEquals(0, json.NumberFilteredRows)
             assertEquals(0, json.NumberUnselectedRows)
+            assertTrue(json.Message.contains("Can't do partial update on merge-on-write Unique table with cluster keys"))
         }
     }
 
@@ -873,7 +898,9 @@ suite("test_partial_update_row_store_schema_change", "p0") {
                 `c7` int NULL,
                 `c8` int NULL,
                 `c9` int NULL)
-                UNIQUE KEY(`c0`) DISTRIBUTED BY HASH(`c0`) BUCKETS 1
+                UNIQUE KEY(`c0`)
+                CLUSTER BY(`c8`, `c1`) 
+                DISTRIBUTED BY HASH(`c0`) BUCKETS 1
                 PROPERTIES(
                     "replication_num" = "1",
                     "store_row_column" = "true",
@@ -934,10 +961,11 @@ suite("test_partial_update_row_store_schema_change", "p0") {
             }
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
-            assertEquals("success", json.Status.toLowerCase())
-            assertEquals(1, json.NumberTotalRows)
+            assertEquals("fail", json.Status.toLowerCase())
+            assertEquals(0, json.NumberTotalRows)
             assertEquals(0, json.NumberFilteredRows)
             assertEquals(0, json.NumberUnselectedRows)
+            assertTrue(json.Message.contains("Can't do partial update on merge-on-write Unique table with cluster keys"))
         }
     }
 
@@ -1014,6 +1042,7 @@ suite("test_partial_update_row_store_schema_change", "p0") {
 
         set 'column_separator', ','
         set 'partial_columns', 'true'
+        set 'strict_mode', 'true'
         set 'columns', 'c0, c1'
 
         file 'schema_change/load_with_key_column.csv'
@@ -1027,7 +1056,7 @@ suite("test_partial_update_row_store_schema_change", "p0") {
             def json = parseJson(result)
             assertEquals("fail", json.Status.toLowerCase())
             assertEquals(1, json.NumberTotalRows)
-            assertEquals(0, json.NumberFilteredRows)
+            assertEquals(1, json.NumberFilteredRows)
             assertEquals(0, json.NumberUnselectedRows)
         }
     }
@@ -1050,7 +1079,9 @@ suite("test_partial_update_row_store_schema_change", "p0") {
                 `c7` int NULL,
                 `c8` int NULL,
                 `c9` int NULL)
-                UNIQUE KEY(`c0`) DISTRIBUTED BY HASH(`c0`) BUCKETS 1
+                UNIQUE KEY(`c0`)
+                CLUSTER BY(`c7`, `c6`, `c0`) 
+                DISTRIBUTED BY HASH(`c0`) BUCKETS 1
                 PROPERTIES(
                     "replication_num" = "1",
                     "store_row_column" = "true",
@@ -1110,10 +1141,11 @@ suite("test_partial_update_row_store_schema_change", "p0") {
             }
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
-            assertEquals("success", json.Status.toLowerCase())
-            assertEquals(1, json.NumberTotalRows)
+            assertEquals("fail", json.Status.toLowerCase())
+            assertEquals(0, json.NumberTotalRows)
             assertEquals(0, json.NumberFilteredRows)
             assertEquals(0, json.NumberUnselectedRows)
+            assertTrue(json.Message.contains("Can't do partial update on merge-on-write Unique table with cluster keys"))
         }
     }
 
@@ -1138,7 +1170,9 @@ suite("test_partial_update_row_store_schema_change", "p0") {
                 `c7` int NULL,
                 `c8` int NULL,
                 `c9` int NULL)
-                UNIQUE KEY(`c0`) DISTRIBUTED BY HASH(`c0`) BUCKETS 1
+                UNIQUE KEY(`c0`)
+                CLUSTER BY(`c2`, `c0`, `c7`, `c1`) 
+                DISTRIBUTED BY HASH(`c0`) BUCKETS 1
                 PROPERTIES(
                     "replication_num" = "1",
                     "store_row_column" = "true",
@@ -1191,10 +1225,11 @@ suite("test_partial_update_row_store_schema_change", "p0") {
             }
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
-            assertEquals("success", json.Status.toLowerCase())
-            assertEquals(1, json.NumberTotalRows)
+            assertEquals("fail", json.Status.toLowerCase())
+            assertEquals(0, json.NumberTotalRows)
             assertEquals(0, json.NumberFilteredRows)
             assertEquals(0, json.NumberUnselectedRows)
+            assertTrue(json.Message.contains("Can't do partial update on merge-on-write Unique table with cluster keys"))
         }
     }
 
