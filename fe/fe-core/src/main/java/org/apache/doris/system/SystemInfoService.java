@@ -935,7 +935,7 @@ public class SystemInfoService {
             boolean shouldModify = false;
             Map<String, String> tagMap = alterClause.getTagMap();
             if (!tagMap.isEmpty()) {
-                be.setTagMap(tagMap);
+                be.modifyTag(tagMap);
                 shouldModify = true;
             }
 

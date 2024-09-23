@@ -21,6 +21,7 @@ import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.DiskInfo.DiskState;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cloud.proto.Cloud;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.io.Text;
@@ -888,6 +889,12 @@ public class Backend implements Writable {
         return locationTag;
     }
 
+    // for ut
+    public Tag getWorkloadGroupTag() throws AnalysisException {
+        String tagValue = this.tagMap.get(Tag.WORKLOAD_GROUP);
+        return Tag.create(Tag.WORKLOAD_GROUP, tagValue);
+    }
+
     public Tag getNodeRoleTag() {
         return nodeRoleTag;
     }
@@ -906,6 +913,33 @@ public class Backend implements Writable {
         this.locationTag = Tag.createNotCheck(Tag.TYPE_LOCATION, tagMap.get(Tag.TYPE_LOCATION));
         if (tagMap.containsKey(Tag.TYPE_ROLE) && Tag.validNodeRoleTag(tagMap.get(Tag.TYPE_ROLE))) {
             this.nodeRoleTag = Tag.createNotCheck(Tag.TYPE_ROLE, tagMap.get(Tag.TYPE_ROLE));
+        }
+    }
+
+    public void modifyTag(Map<String, String> tagMap) {
+        for (Map.Entry<String, String> entry : tagMap.entrySet()) {
+            String tagKey = entry.getKey();
+            String tagValue = entry.getValue();
+            boolean isTagValueNull = StringUtils.isEmpty(tagValue);
+            boolean isTagLocation = Tag.TYPE_LOCATION.equals(tagKey);
+            boolean isTagRole = Tag.TYPE_ROLE.equals(tagKey);
+
+            if (isTagValueNull) {
+                // NOTE(wangbo): location and role can not be removed by set null value,
+                // because they are also a field of Backend class.
+                // set null for location and role could throw exception when analyzing,
+                // see PropertyAnalyzer.java.analyzeBackendTagsProperties
+                if (!isTagLocation && !isTagRole) {
+                    this.tagMap.remove(tagKey);
+                }
+            } else {
+                if (isTagLocation) {
+                    this.locationTag = Tag.createNotCheck(Tag.TYPE_LOCATION, tagValue);
+                } else if (isTagRole && Tag.validNodeRoleTag(tagValue)) {
+                    this.nodeRoleTag = Tag.createNotCheck(Tag.TYPE_ROLE, tagValue);
+                }
+                this.tagMap.put(tagKey, tagValue);
+            }
         }
     }
 
