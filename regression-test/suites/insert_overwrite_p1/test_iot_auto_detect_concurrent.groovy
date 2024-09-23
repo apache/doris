@@ -101,7 +101,8 @@ suite("test_iot_auto_detect_concurrent") {
     thread7.join()
     // suppose result: Success to overwrite with a multiple of ten values
     if (!success_status) {
-        assertTrue(e.getMessage().contains('same table'))
+        // Not allowed running Insert Overwrite on same table
+        assertTrue(err_msg.contains('same table'))
     }
 
     /// with drop partition concurrently
