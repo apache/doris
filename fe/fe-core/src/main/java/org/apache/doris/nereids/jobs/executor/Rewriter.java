@@ -295,8 +295,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         // eliminate useless not null or inferred not null
                         // TODO: wait InferPredicates to infer more not null.
                         bottomUp(new EliminateNotNull()),
-                        topDown(new ConvertInnerOrCrossJoin()),
-                        topDown(new ProjectOtherJoinConditionForNestedLoopJoin())
+                        topDown(new ConvertInnerOrCrossJoin())
                 ),
                 topic("Set operation optimization",
                         // Do MergeSetOperation first because we hope to match pattern of Distinct SetOperator.
@@ -326,7 +325,8 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         // after eliminate outer join, we can move some filters to join.otherJoinConjuncts,
                         // this can help to translate plan to backend
                         topDown(new PushFilterInsideJoin()),
-                        topDown(new FindHashConditionForJoin())
+                        topDown(new FindHashConditionForJoin()),
+                        topDown(new ProjectOtherJoinConditionForNestedLoopJoin())
                 ),
                 // this rule should invoke after ColumnPruning
                 custom(RuleType.ELIMINATE_UNNECESSARY_PROJECT, EliminateUnnecessaryProject::new),

@@ -35,6 +35,7 @@ import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.util.PredicateInferUtils;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import java.util.ArrayList;
@@ -43,16 +44,27 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
-/**NonEqualPredicateInfer*/
-public class NonEqualPredicateInfer {
+/**UnEqualPredicateInfer*/
+public class UnequalPredicateInfer {
     private static class InferenceGraph {
         enum Relation {
             GT,
             GTE,
             EQ,
             UNDEFINED
+        }
+
+        private static class PairAndRelation {
+            private Pair<Expression, Expression> pair;
+            private Relation relation;
+
+            private PairAndRelation(Pair<Expression, Expression> p, Relation r) {
+                pair = p;
+                relation = r;
+            }
         }
 
         // Save and infer the relationship between inputExpressions
@@ -65,18 +77,49 @@ public class NonEqualPredicateInfer {
         private final Map<Expression, Integer> inputExprPosition = new HashMap<>();
         // size of inputExprs
         private final int size;
+        // not use input predicates
+        private final List<Expression> otherPredicates = new ArrayList<>();
+        private final List<PairAndRelation> predicatesPairs = new ArrayList<>();
 
         /**Constructor*/
         private InferenceGraph(Set<ComparisonPredicate> inputs) {
             Set<Expression> inputExpressionSet = new HashSet<>();
-            for (ComparisonPredicate input : inputs) {
-                inputExpressionSet.add(input.left());
-                inputExpressionSet.add(input.right());
-                if (input instanceof LessThan || input instanceof LessThanEqual) {
-                    inputPredicates.add((ComparisonPredicate) input.commute().withInferred(input.isInferred()));
-                } else {
-                    inputPredicates.add(input);
+            for (ComparisonPredicate comparison : inputs) {
+                if (comparison.left().equals(comparison.right())) {
+                    otherPredicates.add(comparison);
+                    continue;
                 }
+                Set<Slot> leftSlots = comparison.left().getInputSlots();
+                Set<Slot> rightSlots = comparison.right().getInputSlots();
+                if (leftSlots.isEmpty() && rightSlots.isEmpty()) {
+                    otherPredicates.add(comparison);
+                    continue;
+                }
+                ComparisonPredicate commute;
+                if (comparison instanceof LessThan || comparison instanceof LessThanEqual) {
+                    commute = (ComparisonPredicate) comparison.commute().withInferred(comparison.isInferred());
+                } else if (comparison instanceof GreaterThan || comparison instanceof GreaterThanEqual
+                        || comparison instanceof EqualTo) {
+                    commute = comparison;
+                } else {
+                    otherPredicates.add(comparison);
+                    continue;
+                }
+                Optional<Pair<Expression, Expression>> optionalPair = PredicateInferUtils.getPairFromCast(commute);
+                if (!optionalPair.isPresent()) {
+                    otherPredicates.add(comparison);
+                    continue;
+                }
+                Pair<Expression, Expression> pair = optionalPair.get();
+                if (!PredicateInferUtils.isSlotOrLiteral(pair.first)
+                        || !PredicateInferUtils.isSlotOrLiteral(pair.second)) {
+                    otherPredicates.add(comparison);
+                    continue;
+                }
+                inputExpressionSet.add(pair.first);
+                inputExpressionSet.add(pair.second);
+                inputPredicates.add(comparison);
+                predicatesPairs.add(new PairAndRelation(pair, getType(commute)));
             }
             inputExprs.addAll(inputExpressionSet);
             size = inputExprs.size();
@@ -86,16 +129,10 @@ public class NonEqualPredicateInfer {
             graph = new Relation[size][size];
             initGraph(graph);
             // Add edges to the graph.
-            for (ComparisonPredicate cp : inputPredicates) {
-                int l = inputExprPosition.get(cp.left());
-                int r = inputExprPosition.get(cp.right());
-                if (cp instanceof GreaterThan) {
-                    set(graph, l, r, Relation.GT);
-                } else if (cp instanceof GreaterThanEqual) {
-                    set(graph, l, r, Relation.GTE);
-                } else if (cp instanceof EqualTo) {
-                    set(graph, l, r, Relation.EQ);
-                }
+            for (PairAndRelation predicatesPair : predicatesPairs) {
+                int l = inputExprPosition.get(predicatesPair.pair.first);
+                int r = inputExprPosition.get(predicatesPair.pair.second);
+                set(graph, l, r, predicatesPair.relation);
             }
         }
 
@@ -191,6 +228,12 @@ public class NonEqualPredicateInfer {
             for (Slot slot : inputExprs.get(right).getInputSlots()) {
                 qualifiers.add(String.join(".", slot.getQualifier()));
             }
+            // TODO:
+            // isTableFilter(abs(t1.a)#1 = abs(t1.b)#2) will return true
+            // isTableFilter(abs(t1.a)#1 = abs(t2.b)#2) will also return true, which is wrong.
+            // because expr(e.g. abs(a) #1) qualifiers is empty.
+            // We cannot distinguish whether abs(t1.a)#1 = abs(t2.b)#2 is a TableFilter or not.
+            // current code may lead to some useful predicates be removed
             return qualifiers.size() == 1;
         }
 
@@ -253,7 +296,7 @@ public class NonEqualPredicateInfer {
             return orderToInfer;
         }
 
-        private void getNonEqualPredicates(Relation[][] chosen, Set<Integer> equalWithConstant) {
+        private void getUnequalPredicates(Relation[][] chosen, Set<Integer> equalWithConstant) {
             List<Integer> order = topoSort();
             List<Integer> orderToInfer = removeExprEqualToConstant(order, equalWithConstant);
             //Select predicate:
@@ -263,7 +306,7 @@ public class NonEqualPredicateInfer {
                 for (int j = 0; j < i; ++j) {
                     int left = orderToInfer.get(i);
                     int right = orderToInfer.get(j);
-                    if (graph[left][right] == Relation.EQ) {
+                    if (graph[left][right] == Relation.EQ || graph[left][right] == Relation.UNDEFINED) {
                         continue;
                     }
                     if (!isTableFilter(left, right)) {
@@ -284,10 +327,6 @@ public class NonEqualPredicateInfer {
                     }
                 }
             }
-        }
-
-        private Set<ComparisonPredicate> getInferUsedExpressions() {
-            return new HashSet<>(inputPredicates);
         }
 
         private Set<Expression> generatePredicates(Relation[][] chosen) {
@@ -368,9 +407,9 @@ public class NonEqualPredicateInfer {
             // then the input predicate need not be retained (because it is a useless predicate)
             // And the predicates in inputs that cannot be deduced by chosen should be retained.
             for (int i = 0; i < inputPredicates.size(); ++i) {
-                Relation type = getType(inputPredicates.get(i));
-                int left = inputExprPosition.get(inputPredicates.get(i).left());
-                int right = inputExprPosition.get(inputPredicates.get(i).right());
+                Relation type = predicatesPairs.get(i).relation;
+                int left = inputExprPosition.get(predicatesPairs.get(i).pair.first);
+                int right = inputExprPosition.get(predicatesPairs.get(i).pair.second);
                 if (chosen[left][right] == type) {
                     keep[i] = true;
                     clear(chosen, left, right, type);
@@ -447,9 +486,10 @@ public class NonEqualPredicateInfer {
         inferGraph.deduce(inferGraph.graph);
         Set<Integer> equalWithConstant = new HashSet<>();
         InferenceGraph.Relation[][] chosen = inferGraph.chooseEqualPredicates(equalWithConstant);
-        inferGraph.getNonEqualPredicates(chosen, equalWithConstant);
+        inferGraph.getUnequalPredicates(chosen, equalWithConstant);
         Set<Expression> newPredicates = inferGraph.chooseInputPredicates(chosen);
         newPredicates.addAll(inferGraph.generatePredicates(chosen));
+        newPredicates.addAll(inferGraph.otherPredicates);
         return newPredicates;
     }
 }

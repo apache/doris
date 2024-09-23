@@ -108,12 +108,10 @@ suite("infer_unequal_predicates") {
     SELECT * FROM test_like1 t1 WHERE t1.a<t1.c AND t1.c<t1.d AND t1.d<10
     """
 
-    // t1.c<10可以被删除 目前还没有实现。
     qt_remove_useless_input_predicate_c_less_than_10 """
     explain shape plan
     SELECT * FROM test_like1 t1 WHERE t1.a<t1.c AND t1.c<t1.d AND t1.d<10 and t1.c<10
     """
-    // 这个t1.c>1也没用，这个怎么能不让他产生一下吗？
     qt_remove_useless_predicate """
     explain shape plan
     SELECT * FROM test_like1 t1 INNER JOIN test_like2 t2 ON t1.a>1 AND t1.a=t1.c
@@ -143,4 +141,8 @@ suite("infer_unequal_predicates") {
     SELECT * FROM test_like1 t1 INNER JOIN test_like2 t2 ON t1.a<t2.a AND t2.a<t2.c AND t2.c<t2.d AND t2.d<10
     """
 
+    qt_infer_cast_int """
+    explain shape plan
+    select * from test_cast_infer9 t1 inner join test_cast_infer9 t2 on t1.d_int>t2.d_smallint and t2.d_smallint >1;
+    """
 }

@@ -198,6 +198,7 @@ suite("extend_infer_equal_predicate") {
     select * from test_cast_infer9 t1 inner join test_cast_infer9 t2 on abs(t1.d_int)=t2.d_tinyint where t2.d_tinyint<10 ;"""
     qt_test_cast_and_func2 """explain shape plan
     select * from test_cast_infer9 t1 inner join test_cast_infer9 t2 on cast(abs(t1.d_int) as tinyint)=t2.d_tinyint where t2.d_tinyint<10;"""
+    // this should be inferred but not
     qt_test_cast_and_func3 """explain shape plan
     select * from test_cast_infer9 t1 inner join test_cast_infer9 t2 on cast(t1.d_int as tinyint)=abs(t2.d_tinyint) where abs(t2.d_tinyint)<10;"""
     qt_test_cast_and_func4 """explain shape plan

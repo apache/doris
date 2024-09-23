@@ -20,7 +20,6 @@ package org.apache.doris.nereids.rules.rewrite;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.analyzer.Scope;
 import org.apache.doris.nereids.rules.analysis.ExpressionAnalyzer;
-import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -33,15 +32,8 @@ import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
-import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.nereids.types.DateTimeType;
-import org.apache.doris.nereids.types.DateTimeV2Type;
-import org.apache.doris.nereids.types.DateType;
-import org.apache.doris.nereids.types.DateV2Type;
-import org.apache.doris.nereids.types.coercion.CharacterType;
-import org.apache.doris.nereids.types.coercion.DateLikeType;
-import org.apache.doris.nereids.types.coercion.IntegralType;
 import org.apache.doris.nereids.util.ImmutableEqualSet;
+import org.apache.doris.nereids.util.PredicateInferUtils;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import com.google.common.collect.ImmutableList;
@@ -51,26 +43,11 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
 /**ReplacePredicate*/
 public class ReplacePredicate {
-    private enum InferType {
-        NONE(null),
-        INTEGRAL(IntegralType.class),
-        STRING(CharacterType.class),
-        DATE(DateLikeType.class),
-        OTHER(DataType.class);
-
-        private final Class<? extends DataType> superClazz;
-
-        InferType(Class<? extends DataType> superClazz) {
-            this.superClazz = superClazz;
-        }
-    }
-
     private static Set<Expression> getAllSubExpressions(Expression expr) {
         Set<Expression> subExpressions = new HashSet<>();
         getAllSubExpressions(expr, subExpressions);
@@ -200,7 +177,7 @@ public class ReplacePredicate {
             if (leftInputSlots.isEmpty() || rightInputSlots.isEmpty()) {
                 continue;
             }
-            getEqualPair((ComparisonPredicate) input)
+            PredicateInferUtils.getPairFromCast((ComparisonPredicate) input)
                     .filter(pair -> pair.first instanceof Slot && pair.second instanceof Slot)
                     .ifPresent(pair -> {
                         Slot left = (Slot) pair.first;
@@ -256,71 +233,6 @@ public class ReplacePredicate {
             }
             return expr;
         }
-    }
-
-    private static Optional<Pair<Expression, Expression>> getEqualPair(ComparisonPredicate comparisonPredicate) {
-        DataType leftType = comparisonPredicate.left().getDataType();
-        InferType inferType;
-        if (leftType instanceof CharacterType) {
-            inferType = InferType.STRING;
-        } else if (leftType instanceof IntegralType) {
-            inferType = InferType.INTEGRAL;
-        } else if (leftType instanceof DateLikeType) {
-            inferType = InferType.DATE;
-        } else {
-            inferType = InferType.OTHER;
-        }
-        Optional<Expression> left = validForInfer(comparisonPredicate.left(), inferType);
-        Optional<Expression> right = validForInfer(comparisonPredicate.right(), inferType);
-        if (!left.isPresent() || !right.isPresent()) {
-            return Optional.empty();
-        }
-        return Optional.of(Pair.of(left.get(), right.get()));
-
-    }
-
-    private static Optional<Expression> validForInfer(Expression expression, InferType inferType) {
-        if (!inferType.superClazz.isAssignableFrom(expression.getDataType().getClass())) {
-            return Optional.empty();
-        }
-        if (!(expression instanceof Cast)) {
-            return Optional.of(expression);
-        }
-        Cast cast = (Cast) expression;
-        Expression child = cast.child();
-        DataType dataType = cast.getDataType();
-        DataType childType = child.getDataType();
-        if (inferType == InferType.INTEGRAL) {
-            if (dataType instanceof IntegralType) {
-                IntegralType integralType = (IntegralType) dataType;
-                if (childType instanceof IntegralType && integralType.widerThan((IntegralType) childType)) {
-                    return validForInfer(((Cast) expression).child(), inferType);
-                }
-            }
-        } else if (inferType == InferType.DATE) {
-            // avoid lost precision
-            if (dataType instanceof DateType) {
-                if (childType instanceof DateV2Type || childType instanceof DateType) {
-                    return validForInfer(child, inferType);
-                }
-            } else if (dataType instanceof DateV2Type) {
-                if (childType instanceof DateType || childType instanceof DateV2Type) {
-                    return validForInfer(child, inferType);
-                }
-            } else if (dataType instanceof DateTimeType) {
-                if (!(childType instanceof DateTimeV2Type)) {
-                    return validForInfer(child, inferType);
-                }
-            } else if (dataType instanceof DateTimeV2Type) {
-                return validForInfer(child, inferType);
-            }
-        } else if (inferType == InferType.STRING) {
-            // avoid substring cast such as cast(char(3) as char(2))
-            if (dataType.width() <= 0 || (dataType.width() >= childType.width() && childType.width() >= 0)) {
-                return validForInfer(child, inferType);
-            }
-        }
-        return Optional.empty();
     }
 
     /* This function is used to input a=b b=c to derive a=c, and return a=c.*/
