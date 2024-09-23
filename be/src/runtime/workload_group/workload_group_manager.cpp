@@ -206,9 +206,9 @@ void WorkloadGroupMgr::refresh_wg_weighted_memory_limit() {
         bool is_high_wartermark = false;
         wg.second->check_mem_used(&is_low_wartermark, &is_high_wartermark);
         int64_t wg_high_water_mark_limit =
-                wg_mem_limit * wg.second->spill_threshold_high_water_mark() / 100;
+                wg_mem_limit * wg.second->spill_threshold_high_water_mark() * 1.0 / 100;
         int64_t weighted_high_water_mark_limit =
-                wg_weighted_mem_limit * wg.second->spill_threshold_high_water_mark() / 100;
+                wg_weighted_mem_limit * wg.second->spill_threshold_high_water_mark() * 1.0 / 100;
         std::string debug_msg;
         if (is_high_wartermark || is_low_wartermark) {
             debug_msg = fmt::format(
@@ -232,7 +232,6 @@ void WorkloadGroupMgr::refresh_wg_weighted_memory_limit() {
                         PrettyPrinter::print(query_mem_tracker->limit(), TUnit::BYTES),
                         PrettyPrinter::print(query_mem_tracker->peak_consumption(), TUnit::BYTES));
             }
-            continue;
         }
 
         // If the wg enable over commit memory, then it is no need to update query memlimit
@@ -266,19 +265,20 @@ void WorkloadGroupMgr::refresh_wg_weighted_memory_limit() {
                 } else {
                     // If the query enable hard limit, then not use weighted info any more, just use the settings limit.
                     query_weighted_mem_limit =
-                            (wg_high_water_mark_limit * query_ctx->get_slot_count()) /
+                            (wg_high_water_mark_limit * query_ctx->get_slot_count() * 1.0) /
                             total_slot_count;
                 }
             } else {
                 // If low water mark is not reached, then use process memory limit as query memory limit.
                 // It means it will not take effect.
                 if (!is_low_wartermark) {
-                    query_weighted_mem_limit = process_memory_limit;
+                    query_weighted_mem_limit = wg_high_water_mark_limit;
                 } else {
                     query_weighted_mem_limit =
                             total_used_slot_count > 0
                                     ? (wg_high_water_mark_limit + total_used_slot_count) *
-                                              query_ctx->get_slot_count() / total_used_slot_count
+                                              query_ctx->get_slot_count() * 1.0 /
+                                              total_used_slot_count
                                     : wg_high_water_mark_limit;
                 }
             }
