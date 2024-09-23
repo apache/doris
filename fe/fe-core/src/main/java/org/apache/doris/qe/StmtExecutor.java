@@ -1365,7 +1365,8 @@ public class StmtExecutor {
             }
             ExprRewriter rewriter = analyzer.getExprRewriter();
             rewriter.reset();
-            if (context.getSessionVariable().isEnableFoldConstantByBe()) {
+            if (context.getSessionVariable().isEnableFoldConstantByBe()
+                    && !context.getSessionVariable().isDebugSkipFoldConstant()) {
                 // fold constant expr
                 parsedStmt.foldConstant(rewriter, tQueryOptions);
             }
