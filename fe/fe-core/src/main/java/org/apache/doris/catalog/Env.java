@@ -1953,11 +1953,11 @@ public class Env {
             }
         }
         if (Config.lower_case_table_names != GlobalVariable.lowerCaseTableNames) {
-            LOG.error("The configuration of \'lower_case_table_names\' does not support modification, "
+            LOG.warn("The configuration of \'lower_case_table_names\' does not support modification, "
                             + "the expected value is {}, but the actual value is {}",
                     GlobalVariable.lowerCaseTableNames,
                     Config.lower_case_table_names);
-            System.exit(-1);
+            Config.lower_case_table_names = GlobalVariable.lowerCaseTableNames;
         }
         LOG.info("lower_case_table_names is {}", GlobalVariable.lowerCaseTableNames);
     }
