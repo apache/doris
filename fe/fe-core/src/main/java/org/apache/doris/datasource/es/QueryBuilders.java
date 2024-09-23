@@ -70,14 +70,14 @@ public final class QueryBuilders {
      * Generate dsl from compound expr.
      **/
     private static QueryBuilder toCompoundEsDsl(Expr expr, List<Expr> notPushDownList,
-            Map<String, String> fieldsContext, BuilderOptions builderOptions) {
+            Map<String, String> fieldsContext, BuilderOptions builderOptions, Map<String, String> column2typeMap) {
         CompoundPredicate compoundPredicate = (CompoundPredicate) expr;
         switch (compoundPredicate.getOp()) {
             case AND: {
                 QueryBuilder left = toEsDsl(compoundPredicate.getChild(0), notPushDownList, fieldsContext,
-                        builderOptions);
+                        builderOptions, column2typeMap);
                 QueryBuilder right = toEsDsl(compoundPredicate.getChild(1), notPushDownList, fieldsContext,
-                        builderOptions);
+                        builderOptions, column2typeMap);
                 if (left != null && right != null) {
                     return QueryBuilders.boolQuery().must(left).must(right);
                 }
@@ -86,9 +86,9 @@ public final class QueryBuilders {
             case OR: {
                 int beforeSize = notPushDownList.size();
                 QueryBuilder left = toEsDsl(compoundPredicate.getChild(0), notPushDownList, fieldsContext,
-                        builderOptions);
+                        builderOptions, column2typeMap);
                 QueryBuilder right = toEsDsl(compoundPredicate.getChild(1), notPushDownList, fieldsContext,
-                        builderOptions);
+                        builderOptions, column2typeMap);
                 int afterSize = notPushDownList.size();
                 if (left != null && right != null) {
                     return QueryBuilders.boolQuery().should(left).should(right);
@@ -101,7 +101,7 @@ public final class QueryBuilders {
             }
             case NOT: {
                 QueryBuilder child = toEsDsl(compoundPredicate.getChild(0), notPushDownList, fieldsContext,
-                        builderOptions);
+                        builderOptions, column2typeMap);
                 if (child != null) {
                     return QueryBuilders.boolQuery().mustNot(child);
                 }
@@ -122,10 +122,10 @@ public final class QueryBuilders {
         return expr;
     }
 
-    public static QueryBuilder toEsDsl(Expr expr) {
+    public static QueryBuilder toEsDsl(Expr expr, Map<String, String> column2typeMap) {
         return toEsDsl(expr, new ArrayList<>(), new HashMap<>(),
                 BuilderOptions.builder().likePushDown(Boolean.parseBoolean(EsResource.LIKE_PUSH_DOWN_DEFAULT_VALUE))
-                        .build());
+                        .build(), column2typeMap);
     }
 
     private static TExprOpcode flipOpCode(TExprOpcode opCode) {
@@ -257,18 +257,18 @@ public final class QueryBuilders {
      * Doris expr to es dsl.
      **/
     public static QueryBuilder toEsDsl(Expr expr, List<Expr> notPushDownList, Map<String, String> fieldsContext,
-            BuilderOptions builderOptions) {
+            BuilderOptions builderOptions, Map<String, String> column2typeMap) {
         if (expr == null) {
             return null;
         }
         // esquery functionCallExpr will be rewritten to castExpr in where clause rewriter,
         // so we get the functionCallExpr here.
         if (expr instanceof CastExpr) {
-            return toEsDsl(expr.getChild(0), notPushDownList, fieldsContext, builderOptions);
+            return toEsDsl(expr.getChild(0), notPushDownList, fieldsContext, builderOptions, column2typeMap);
         }
         // CompoundPredicate, `between` also converted to CompoundPredicate.
         if (expr instanceof CompoundPredicate) {
-            return toCompoundEsDsl(expr, notPushDownList, fieldsContext, builderOptions);
+            return toCompoundEsDsl(expr, notPushDownList, fieldsContext, builderOptions, column2typeMap);
         }
         TExprOpcode opCode = expr.getOpcode();
         boolean isFlip = false;
@@ -287,6 +287,7 @@ public final class QueryBuilders {
             return null;
         }
 
+        String type = column2typeMap.get(column);
         // Check whether the date type need compat, it must before keyword replace.
         List<String> needCompatDateFields = builderOptions.getNeedCompatDateFields();
         boolean needDateCompat = needCompatDateFields != null && needCompatDateFields.contains(column);
@@ -313,10 +314,11 @@ public final class QueryBuilders {
             return parseIsNullPredicate(expr, column);
         }
         if (expr instanceof LikePredicate) {
-            if (!builderOptions.isLikePushDown()) {
+            if (!builderOptions.isLikePushDown() || !"keyword".equals(type)) {
                 notPushDownList.add(expr);
                 return null;
             } else {
+                // only keyword can apply wildcard query
                 return parseLikePredicate(expr, column);
             }
         }
