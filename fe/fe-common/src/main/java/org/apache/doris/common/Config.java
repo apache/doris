@@ -3908,4 +3908,8 @@ public class Config extends ConfigBase {
 
     @ConfField (mutable = true, description = {"sql_converter请求超时", "sql_converter read timeout_ms"})
     public static int sql_converter_read_timeout_ms = 3000;
+
+    @ConfField(mutable = true, description = {"是否忽略hive表的transaction属性",
+            "whether to ignore the transaction property of the hive table"})
+    public static boolean ignore_hive_table_transaction = true;
 }

@@ -131,7 +131,7 @@ public class HiveScanNode extends FileQueryScanNode {
     protected void doInitialize() throws UserException {
         super.doInitialize();
 
-        if (hmsTable.isHiveTransactionalTable()) {
+        if (hmsTable.isHiveTransactionalTable() && !Config.ignore_hive_table_transaction) {
             this.hiveTransaction = new HiveTransaction(DebugUtil.printId(ConnectContext.get().queryId()),
                     ConnectContext.get().getQualifiedUser(), hmsTable, hmsTable.isFullAcidTable());
             Env.getCurrentHiveTransactionMgr().register(hiveTransaction);
