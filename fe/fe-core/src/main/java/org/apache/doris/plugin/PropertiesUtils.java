@@ -17,6 +17,7 @@
 
 package org.apache.doris.plugin;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.common.EnvUtils;
 
 import java.io.File;
@@ -28,7 +29,7 @@ import java.util.Map;
 import java.util.Properties;
 
 public class PropertiesUtils {
-    public static final String ACCESS_PROPERTIES_FILE_DIR = "/conf/access.conf";
+    public static final String ACCESS_PROPERTIES_FILE_DIR = Config.authorization_config_file_path;
 
     public static Map<String, String> loadAccessControllerPropertiesOrNull() throws IOException {
         String configFilePath = EnvUtils.getDorisHome() + ACCESS_PROPERTIES_FILE_DIR;

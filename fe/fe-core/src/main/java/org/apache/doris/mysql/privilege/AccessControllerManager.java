@@ -55,21 +55,25 @@ public class AccessControllerManager {
     private static final Logger LOG = LogManager.getLogger(AccessControllerManager.class);
 
     private Auth auth;
+    // Default access controller instance used for handling cases where no specific controller is specified
     private CatalogAccessController defaultAccessController;
+    // Map that stores the mapping between catalogs and their corresponding access controllers
     private Map<String, CatalogAccessController> ctlToCtlAccessController = Maps.newConcurrentMap();
+    // Cache of loaded access controller factories for quick creation of new access controllers
     private ConcurrentHashMap<String, AccessControllerFactory> accessControllerFactoriesCache
             = new ConcurrentHashMap<>();
+    // Mapping between access controller class names and their identifiers for easy lookup of factory identifiers
     private ConcurrentHashMap<String, String> accessControllerClassNameMapping = new ConcurrentHashMap<>();
 
     public AccessControllerManager(Auth auth) {
         this.auth = auth;
         loadAccessControllerPlugins();
         String accessControllerName = Config.access_controller_type;
-        this.defaultAccessController = loadAccessControllerOrDefault(accessControllerName);
+        this.defaultAccessController = loadAccessControllerOrThrow(accessControllerName);
         ctlToCtlAccessController.put(InternalCatalog.INTERNAL_CATALOG_NAME, defaultAccessController);
     }
 
-    private CatalogAccessController loadAccessControllerOrDefault(String accessControllerName) {
+    private CatalogAccessController loadAccessControllerOrThrow(String accessControllerName) {
         if (accessControllerName.equalsIgnoreCase("default")) {
             return new InternalAccessController(auth);
         }
@@ -78,14 +82,13 @@ public class AccessControllerManager {
             try {
                 prop = PropertiesUtils.loadAccessControllerPropertiesOrNull();
             } catch (IOException e) {
-                LOG.warn("Failed to load access controller properties,Using default access controller plugin", e);
-                return new InternalAccessController(auth);
+                throw new RuntimeException("Failed to load authorization properties,"
+                        + "please check the configuration file, authorization name is " + accessControllerName, e);
             }
             return accessControllerFactoriesCache.get(accessControllerName).createAccessController(prop);
         }
-        LOG.info("No Access Controller Plugin Factory found for {},Using Internal Access Contorller plugin",
-                accessControllerName);
-        return new InternalAccessController(auth);
+        throw new RuntimeException("No authorization plugin factory found for " + accessControllerName
+                + "Please confirm that your plugin is placed in the correct location.");
     }
 
     private void loadAccessControllerPlugins() {
