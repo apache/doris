@@ -82,13 +82,13 @@ public class AccessControllerManager {
             try {
                 prop = PropertiesUtils.loadAccessControllerPropertiesOrNull();
             } catch (IOException e) {
-                throw new RuntimeException("Failed to load authorization properties,"
-                        + "please check the configuration file, authorization name is " + accessControllerName, e);
+                throw new RuntimeException("Failed to load authorization properties."
+                        + "Please check the configuration file, authorization name is " + accessControllerName, e);
             }
             return accessControllerFactoriesCache.get(accessControllerName).createAccessController(prop);
         }
         throw new RuntimeException("No authorization plugin factory found for " + accessControllerName
-                + "Please confirm that your plugin is placed in the correct location.");
+                + ". Please confirm that your plugin is placed in the correct location.");
     }
 
     private void loadAccessControllerPlugins() {
@@ -135,7 +135,7 @@ public class AccessControllerManager {
                 .createAccessController(prop);
         if (!isDryRun) {
             ctlToCtlAccessController.put(ctl, accessController);
-            LOG.info("create access controller {} for catalog {}", ctl, acFactoryClassName);
+            LOG.info("create access controller {} for catalog {}", acFactoryClassName, ctl);
         }
     }
 
