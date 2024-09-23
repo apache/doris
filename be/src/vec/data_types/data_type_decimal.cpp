@@ -234,6 +234,76 @@ const char* DataTypeDecimal<T>::deserialize(const char* buf, IColumn* column,
         return buf;
     }
 }
+template <typename T>
+char* DataTypeDecimal<T>::serialize2(const IColumn& column, char* buf, int be_exec_version) const {
+    // const flag
+    bool is_const_column = is_column_const(column);
+    *reinterpret_cast<bool*>(buf) = is_const_column;
+    buf += sizeof(bool);
+
+    // row num
+    const auto row_num = column.size();
+    *reinterpret_cast<uint32_t*>(buf) = row_num;
+    buf += sizeof(uint32_t);
+
+    // mem_size = real_row_num * sizeof(T)
+    auto real_need_copy_num = is_const_column ? 1 : row_num;
+    const uint32_t mem_size = real_need_copy_num * sizeof(T);
+    *reinterpret_cast<uint32_t*>(buf) = mem_size;
+    buf += sizeof(uint32_t);
+
+    const IColumn* data_column = &column;
+    if (is_const_column) {
+        const auto& const_column = assert_cast<const ColumnConst&>(column);
+        data_column = &(const_column.get_data_column());
+    }
+    const auto* origin_data = assert_cast<const ColumnDecimal<T>&>(*data_column).get_data().data();
+
+    // column data
+    if (mem_size <= SERIALIZED_MEM_SIZE_LIMIT) {
+        memcpy(buf, origin_data, mem_size);
+        return buf + mem_size;
+    } else {
+        auto encode_size =
+                streamvbyte_encode(reinterpret_cast<const uint32_t*>(origin_data),
+                                   upper_int32(mem_size), (uint8_t*)(buf + sizeof(size_t)));
+        *reinterpret_cast<size_t*>(buf) = encode_size;
+        buf += sizeof(size_t);
+        return buf + encode_size;
+    }
+}
+template <typename T>
+const char* DataTypeDecimal<T>::deserialize2(const char* buf, MutableColumnPtr* column,
+                                             int be_exec_version) const {
+    //const flag
+    bool is_const_column = *reinterpret_cast<const bool*>(buf);
+    buf += sizeof(bool);
+    //row num
+    uint32_t row_num = *reinterpret_cast<const uint32_t*>(buf);
+    buf += sizeof(uint32_t);
+    // mem_size
+    uint32_t mem_size = *reinterpret_cast<const uint32_t*>(buf);
+    buf += sizeof(uint32_t);
+
+    // column data
+    auto& container = assert_cast<ColumnDecimal<T>*>(column->get())->get_data();
+    container.resize(mem_size / sizeof(T));
+    if (mem_size <= SERIALIZED_MEM_SIZE_LIMIT) {
+        memcpy(container.data(), buf, mem_size);
+        buf = buf + mem_size;
+    } else {
+        size_t encode_size = *reinterpret_cast<const size_t*>(buf);
+        buf += sizeof(size_t);
+        streamvbyte_decode((const uint8_t*)buf, (uint32_t*)(container.data()),
+                           upper_int32(mem_size));
+        buf = buf + encode_size;
+    }
+    if (is_const_column) {
+        auto const_column = ColumnConst::create((*column)->get_ptr(), row_num);
+        *column = const_column->get_ptr();
+    }
+    return buf;
+}
 
 template <typename T>
 void DataTypeDecimal<T>::to_pb_column_meta(PColumnMeta* col_meta) const {

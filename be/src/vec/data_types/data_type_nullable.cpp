@@ -198,6 +198,77 @@ const char* DataTypeNullable::deserialize(const char* buf, IColumn* column,
     }
 }
 
+char* DataTypeNullable::serialize2(const IColumn& column, char* buf, int be_exec_version) const {
+    // const flag
+    bool is_const_column = is_column_const(column);
+    *reinterpret_cast<bool*>(buf) = is_const_column;
+    buf += sizeof(bool);
+    // row num
+    const auto row_num = column.size();
+    *reinterpret_cast<uint32_t*>(buf) = row_num;
+    buf += sizeof(uint32_t);
+
+    // mem_size = real_row_num * sizeof(T)
+    auto real_need_copy_num = is_const_column ? 1 : row_num;
+    const uint32_t mem_size = real_need_copy_num * sizeof(bool);
+    *reinterpret_cast<uint32_t*>(buf) = mem_size;
+    buf += sizeof(uint32_t);
+
+    const IColumn* data_column = &column;
+    if (is_const_column) {
+        const auto& const_column = assert_cast<const ColumnConst&>(column);
+        data_column = &(const_column.get_data_column());
+    }
+    const auto& col = assert_cast<const ColumnNullable&>(*data_column);
+    // null flags
+    if (mem_size <= SERIALIZED_MEM_SIZE_LIMIT) {
+        memcpy(buf, col.get_null_map_data().data(), mem_size);
+        buf += mem_size;
+    } else {
+        auto encode_size = streamvbyte_encode(
+                reinterpret_cast<const uint32_t*>(col.get_null_map_data().data()),
+                upper_int32(mem_size), (uint8_t*)(buf + sizeof(size_t)));
+        *reinterpret_cast<size_t*>(buf) = encode_size;
+        buf += (sizeof(size_t) + encode_size);
+    }
+    // data values
+    return nested_data_type->serialize2(col.get_nested_column(), buf, be_exec_version);
+}
+
+const char* DataTypeNullable::deserialize2(const char* buf, MutableColumnPtr* column,
+                                           int be_exec_version) const {
+    //const flag
+    bool is_const_column = *reinterpret_cast<const bool*>(buf);
+    buf += sizeof(bool);
+    //row num
+    uint32_t row_num = *reinterpret_cast<const uint32_t*>(buf);
+    buf += sizeof(uint32_t);
+    // mem_size
+    uint32_t mem_size = *reinterpret_cast<const uint32_t*>(buf);
+    buf += sizeof(uint32_t);
+
+    auto* col = assert_cast<ColumnNullable*>(column->get());
+    // null flags
+    col->get_null_map_data().resize(mem_size / sizeof(bool));
+    if (mem_size <= SERIALIZED_MEM_SIZE_LIMIT) {
+        memcpy(col->get_null_map_data().data(), buf, mem_size);
+        buf += mem_size;
+    } else {
+        size_t encode_size = *reinterpret_cast<const size_t*>(buf);
+        buf += sizeof(size_t);
+        streamvbyte_decode((const uint8_t*)buf, (uint32_t*)(col->get_null_map_data().data()),
+                           upper_int32(mem_size));
+        buf += encode_size;
+    }
+    // column data values
+    auto nested = col->get_nested_column_ptr();
+    buf = nested_data_type->deserialize2(buf, &nested, be_exec_version);
+    if (is_const_column) {
+        auto const_column = ColumnConst::create((*column)->get_ptr(), row_num);
+        *column = const_column->get_ptr();
+    }
+    return buf;
+}
 void DataTypeNullable::to_pb_column_meta(PColumnMeta* col_meta) const {
     col_meta->set_is_nullable(true);
     get_nested_type()->to_pb_column_meta(col_meta);

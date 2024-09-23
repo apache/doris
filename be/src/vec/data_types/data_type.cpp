@@ -197,5 +197,12 @@ PGenericType_TypeId IDataType::get_pdata_type(const IDataType* data_type) {
         return PGenericType::UNKNOWN;
     }
 }
-
+const char* IDataType::deserialize2(const char* buf, MutableColumnPtr* column, int be_exec_version) const {
+    CHECK(false)<<get_name();
+    return nullptr;
+}
+char* IDataType::serialize2(const IColumn& column, char* buf, int be_exec_version) const {
+    CHECK(false)<<get_name();
+    return nullptr;
+}
 } // namespace doris::vectorized
