@@ -931,6 +931,11 @@ Status PipelineFragmentContext::_add_local_exchange_impl(
 
     // 7. Inherit properties from current pipeline.
     _inherit_pipeline_properties(data_distribution, cur_pipe, new_pip);
+
+    if (data_distribution.distribution_type == ExchangeType::PASS_TO_ONE_EXCHANGE) {
+        cur_pipe->set_num_tasks(1);
+    }
+
     return Status::OK();
 }
 
