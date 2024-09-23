@@ -268,13 +268,16 @@ public class IcebergScanNode extends FileQueryScanNode {
             long countFromSnapshot = getCountFromSnapshot();
             if (countFromSnapshot >= 0) {
                 pushDownCount = true;
+                List<Split> pushDownCountSplits;
                 if (countFromSnapshot > 10000) {
                     int parallelNum = ConnectContext.get().getSessionVariable().getParallelExecInstanceNum();
-                    List<Split> pushDownCountSplits = splits.subList(0, Math.min(splits.size(), parallelNum));
-                    assignCountToSplits(pushDownCountSplits, countFromSnapshot);
-                    return pushDownCountSplits;
+                    pushDownCountSplits = splits.subList(0, Math.min(splits.size(), parallelNum));
+                } else {
+                    pushDownCountSplits = Collections.singletonList(splits.get(0));
                 }
-                return Collections.singletonList(splits.get(0));
+                List<Split> split = Collections.singletonList(splits.get(0));
+                assignCountToSplits(split, countFromSnapshot);
+                return pushDownCountSplits;
             }
         }
 
