@@ -176,14 +176,14 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
             if (newChild != child) {
                 hasNewChildren = true;
             }
-            if (!newChild.getDataType().equals(child.getDataType())) {
-                try {
+            try {
+                if (!newChild.getDataType().equals(child.getDataType())) {
                     newChildren.add(newChild.castTo(child.getDataType()));
-                } catch (Exception e) {
-                    LOG.warn("expression of type {} cast to {} failed. ", newChild.getDataType(), child.getDataType());
+                } else {
                     newChildren.add(newChild);
                 }
-            } else {
+            } catch (Exception e) {
+                LOG.warn("expression {} cast to {} failed. ", newChild.toString(), child.toString());
                 newChildren.add(newChild);
             }
         }
