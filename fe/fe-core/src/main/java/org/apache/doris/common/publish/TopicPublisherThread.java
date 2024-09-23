@@ -35,7 +35,6 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collection;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -76,12 +75,24 @@ public class TopicPublisherThread extends MasterDaemon {
         // because it may means workload group/policy is dropped
 
         // step 2: publish topic info to all be
-        Collection<Backend> nodesToPublish = clusterInfoService.getIdToBackend().values();
+        List<Backend> nodesToPublish = new ArrayList<>();
+        try {
+            for (Backend be : clusterInfoService.getIdToBackend().values()) {
+                if (be.isAlive()) {
+                    nodesToPublish.add(be);
+                }
+            }
+        } catch (Exception e) {
+            LOG.warn("get backends failed", e);
+            return;
+        }
+        if (nodesToPublish.isEmpty()) {
+            LOG.info("no alive backend, skip publish topic");
+            return;
+        }
         AckResponseHandler handler = new AckResponseHandler(nodesToPublish);
         for (Backend be : nodesToPublish) {
-            if (be.isAlive()) {
-                executor.submit(new TopicPublishWorker(request, be, handler));
-            }
+            executor.submit(new TopicPublishWorker(request, be, handler));
         }
         try {
             int timeoutMs = Config.publish_topic_info_interval_ms / 3 * 2;
