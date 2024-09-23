@@ -319,14 +319,10 @@ Status ExchangeSinkOperatorX::init(const TDataSink& tsink) {
     return Status::OK();
 }
 
-Status ExchangeSinkOperatorX::prepare(RuntimeState* state) {
+Status ExchangeSinkOperatorX::open(RuntimeState* state) {
+    RETURN_IF_ERROR(DataSinkOperatorX<ExchangeSinkLocalState>::open(state));
     _state = state;
     _mem_tracker = std::make_unique<MemTracker>("ExchangeSinkOperatorX:");
-    return Status::OK();
-}
-
-Status ExchangeSinkOperatorX::open(RuntimeState* state) {
-    DCHECK(state != nullptr);
     _compression_type = state->fragement_transmission_compression_type();
     return Status::OK();
 }
@@ -652,10 +648,10 @@ Status ExchangeSinkLocalState::close(RuntimeState* state, Status exec_status) {
 }
 
 DataDistribution ExchangeSinkOperatorX::required_data_distribution() const {
-    if (_child_x && _enable_local_merge_sort) {
+    if (_child && _enable_local_merge_sort) {
         // SORT_OPERATOR -> DATA_STREAM_SINK_OPERATOR
         // SORT_OPERATOR -> LOCAL_MERGE_SORT -> DATA_STREAM_SINK_OPERATOR
-        if (auto sort_source = std::dynamic_pointer_cast<SortSourceOperatorX>(_child_x);
+        if (auto sort_source = std::dynamic_pointer_cast<SortSourceOperatorX>(_child);
             sort_source && sort_source->use_local_merge()) {
             // Sort the data local
             return ExchangeType::LOCAL_MERGE_SORT;

@@ -54,7 +54,6 @@ struct RowsetReaderContext {
     // column name -> column predicate
     // adding column_name for predicate to make use of column selectivity
     const std::vector<ColumnPredicate*>* predicates = nullptr;
-    const std::vector<ColumnPredicate*>* predicates_except_leafnode_of_andnode = nullptr;
     // value column predicate in UNIQUE table
     const std::vector<ColumnPredicate*>* value_predicates = nullptr;
     const std::vector<RowCursor>* lower_bound_keys = nullptr;
@@ -81,7 +80,7 @@ struct RowsetReaderContext {
     const std::set<int32_t>* output_columns = nullptr;
     RowsetId rowset_id;
     // slots that cast may be eliminated in storage layer
-    std::map<std::string, PrimitiveType> target_cast_type_for_variants;
+    std::map<std::string, TypeDescriptor> target_cast_type_for_variants;
     int64_t ttl_seconds = 0;
     size_t topn_limit = 0;
 };

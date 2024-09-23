@@ -1125,6 +1125,3 @@ string3
 string3
 string3
 
--- !sql_random_bytes --
-\N
-

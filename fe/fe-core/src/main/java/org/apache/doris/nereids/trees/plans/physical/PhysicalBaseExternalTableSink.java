@@ -71,6 +71,10 @@ public abstract class PhysicalBaseExternalTableSink<CHILD_TYPE extends Plan> ext
         return targetTable;
     }
 
+    public List<Column> getCols() {
+        return cols;
+    }
+
     @Override
     public List<? extends Expression> getExpressions() {
         return ImmutableList.of();

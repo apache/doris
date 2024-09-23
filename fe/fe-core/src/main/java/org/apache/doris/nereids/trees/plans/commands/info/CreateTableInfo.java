@@ -423,10 +423,15 @@ public class CreateTableInfo {
             }
 
             validateKeyColumns();
-            if (!clusterKeysColumnNames.isEmpty() && !isEnableMergeOnWrite) {
-                throw new AnalysisException(
-                        "Cluster keys only support unique keys table which enabled "
-                                + PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE);
+            if (!clusterKeysColumnNames.isEmpty()) {
+                if (Config.isCloudMode()) {
+                    throw new AnalysisException("Cluster key is not supported in cloud mode");
+                }
+                if (!isEnableMergeOnWrite) {
+                    throw new AnalysisException(
+                            "Cluster keys only support unique keys table which enabled "
+                                    + PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE);
+                }
             }
             for (int i = 0; i < keys.size(); ++i) {
                 columns.get(i).setIsKey(true);
@@ -732,6 +737,9 @@ public class CreateTableInfo {
         }
 
         if (!clusterKeysColumnNames.isEmpty()) {
+            if (Config.isCloudMode()) {
+                throw new AnalysisException("Cluster key is not supported in cloud mode");
+            }
             if (keysType != KeysType.UNIQUE_KEYS) {
                 throw new AnalysisException("Cluster keys only support unique keys table.");
             }

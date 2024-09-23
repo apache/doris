@@ -234,6 +234,7 @@ extern bvar::Status<int64_t> g_bvar_fdb_workload_written_bytes_hz;
 extern bvar::Status<int64_t> g_bvar_fdb_workload_transactions_started_hz;
 extern bvar::Status<int64_t> g_bvar_fdb_workload_transactions_committed_hz;
 extern bvar::Status<int64_t> g_bvar_fdb_workload_transactions_rejected_hz;
+extern bvar::Status<int64_t> g_bvar_fdb_client_thread_busyness_percent;
 
 // checker
 extern BvarStatusWithTag<long> g_bvar_checker_num_scanned;

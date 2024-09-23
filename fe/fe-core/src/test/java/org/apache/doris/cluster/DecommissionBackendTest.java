@@ -100,7 +100,7 @@ public class DecommissionBackendTest extends TestWithFeService {
         Assertions.assertNotNull(srcBackend);
         String decommissionStmtStr = "alter system decommission backend \"" + srcBackend.getAddress() + "\"";
         AlterSystemStmt decommissionStmt = (AlterSystemStmt) parseAndAnalyzeStmt(decommissionStmtStr);
-        Env.getCurrentEnv().getAlterInstance().processAlterCluster(decommissionStmt);
+        Env.getCurrentEnv().getAlterInstance().processAlterSystem(decommissionStmt);
 
         Assertions.assertTrue(srcBackend.isDecommissioned());
         long startTimestamp = System.currentTimeMillis();
@@ -153,7 +153,7 @@ public class DecommissionBackendTest extends TestWithFeService {
         // decommission backend by id
         String decommissionByIdStmtStr = "alter system decommission backend \"" + srcBackend.getId() + "\"";
         AlterSystemStmt decommissionByIdStmt = (AlterSystemStmt) parseAndAnalyzeStmt(decommissionByIdStmtStr);
-        Env.getCurrentEnv().getAlterInstance().processAlterCluster(decommissionByIdStmt);
+        Env.getCurrentEnv().getAlterInstance().processAlterSystem(decommissionByIdStmt);
 
         Assertions.assertTrue(srcBackend.isDecommissioned());
         long startTimestamp = System.currentTimeMillis();
@@ -215,7 +215,7 @@ public class DecommissionBackendTest extends TestWithFeService {
         // 6. execute decommission
         String decommissionStmtStr = "alter system decommission backend \"" + srcBackend.getAddress() + "\"";
         AlterSystemStmt decommissionStmt = (AlterSystemStmt) parseAndAnalyzeStmt(decommissionStmtStr);
-        Env.getCurrentEnv().getAlterInstance().processAlterCluster(decommissionStmt);
+        Env.getCurrentEnv().getAlterInstance().processAlterSystem(decommissionStmt);
         Assertions.assertTrue(srcBackend.isDecommissioned());
 
         long startTimestamp = System.currentTimeMillis();
@@ -315,7 +315,7 @@ public class DecommissionBackendTest extends TestWithFeService {
 
         String decommissionStmtStr = "alter system decommission backend \"" + srcBackend.getAddress() + "\"";
         AlterSystemStmt decommissionStmt = (AlterSystemStmt) parseAndAnalyzeStmt(decommissionStmtStr);
-        Env.getCurrentEnv().getAlterInstance().processAlterCluster(decommissionStmt);
+        Env.getCurrentEnv().getAlterInstance().processAlterSystem(decommissionStmt);
 
         Assertions.assertTrue(srcBackend.isDecommissioned());
         long startTimestamp = System.currentTimeMillis();

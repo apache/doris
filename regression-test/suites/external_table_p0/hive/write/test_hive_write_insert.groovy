@@ -880,7 +880,7 @@ INSERT INTO all_types_par_${format_compression}_${catalog_name}_q03
         return;
     }
 
-    for (String hivePrefix : ["hive2", "hive3"]) {
+    for (String hivePrefix : ["hive3"]) {
         setHivePrefix(hivePrefix)
         try {
             String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")

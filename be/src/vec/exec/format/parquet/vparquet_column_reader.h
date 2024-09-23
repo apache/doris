@@ -128,11 +128,6 @@ public:
         return Status::NotSupported("read_dict_values_to_column is not supported");
     }
 
-    virtual Status get_dict_codes(const ColumnString* column_string,
-                                  std::vector<int32_t>* dict_codes) {
-        return Status::NotSupported("get_dict_codes is not supported");
-    }
-
     virtual MutableColumnPtr convert_dict_column_to_string_column(const ColumnInt32* dict_column) {
         LOG(FATAL) << "Method convert_dict_column_to_string_column is not supported";
         __builtin_unreachable();
@@ -180,8 +175,6 @@ public:
                             ColumnSelectVector& select_vector, size_t batch_size, size_t* read_rows,
                             bool* eof, bool is_dict_filter) override;
     Status read_dict_values_to_column(MutableColumnPtr& doris_column, bool* has_dict) override;
-    Status get_dict_codes(const ColumnString* column_string,
-                          std::vector<int32_t>* dict_codes) override;
     MutableColumnPtr convert_dict_column_to_string_column(const ColumnInt32* dict_column) override;
     const std::vector<level_t>& get_rep_level() const override { return _rep_levels; }
     const std::vector<level_t>& get_def_level() const override { return _def_levels; }

@@ -34,7 +34,8 @@ AnalyticLocalState::AnalyticLocalState(RuntimeState* state, OperatorXBase* paren
           _rows_end_offset(0),
           _fn_place_ptr(nullptr),
           _agg_functions_size(0),
-          _agg_functions_created(false) {}
+          _agg_functions_created(false),
+          _agg_arena_pool(std::make_unique<vectorized::Arena>()) {}
 
 //_partition_by_columns,_order_by_columns save in blocks, so if need to calculate the boundary, may find in which blocks firstly
 BlockRowPos AnalyticLocalState::_compare_row_to_find_end(int idx, BlockRowPos start,
@@ -168,7 +169,6 @@ Status AnalyticLocalState::open(RuntimeState* state) {
     RETURN_IF_ERROR(PipelineXLocalState<AnalyticSharedState>::open(state));
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
-    _agg_arena_pool = std::make_unique<vectorized::Arena>();
 
     auto& p = _parent->cast<AnalyticSourceOperatorX>();
     _agg_functions_size = p._agg_functions.size();
@@ -560,15 +560,15 @@ Status AnalyticLocalState::close(RuntimeState* state) {
     return PipelineXLocalState<AnalyticSharedState>::close(state);
 }
 
-Status AnalyticSourceOperatorX::prepare(RuntimeState* state) {
-    RETURN_IF_ERROR(OperatorX<AnalyticLocalState>::prepare(state));
-    DCHECK(_child_x->row_desc().is_prefix_of(_row_descriptor));
+Status AnalyticSourceOperatorX::open(RuntimeState* state) {
+    RETURN_IF_ERROR(OperatorX<AnalyticLocalState>::open(state));
+    DCHECK(_child->row_desc().is_prefix_of(_row_descriptor));
     _intermediate_tuple_desc = state->desc_tbl().get_tuple_descriptor(_intermediate_tuple_id);
     _output_tuple_desc = state->desc_tbl().get_tuple_descriptor(_output_tuple_id);
     for (size_t i = 0; i < _agg_functions.size(); ++i) {
         SlotDescriptor* intermediate_slot_desc = _intermediate_tuple_desc->slots()[i];
         SlotDescriptor* output_slot_desc = _output_tuple_desc->slots()[i];
-        RETURN_IF_ERROR(_agg_functions[i]->prepare(state, _child_x->row_desc(),
+        RETURN_IF_ERROR(_agg_functions[i]->prepare(state, _child->row_desc(),
                                                    intermediate_slot_desc, output_slot_desc));
         _agg_functions[i]->set_version(state->be_exec_version());
         _change_to_nullable_flags.push_back(output_slot_desc->is_nullable() &&
@@ -595,11 +595,6 @@ Status AnalyticSourceOperatorX::prepare(RuntimeState* state) {
                     alignment_of_next_state * alignment_of_next_state;
         }
     }
-    return Status::OK();
-}
-
-Status AnalyticSourceOperatorX::open(RuntimeState* state) {
-    RETURN_IF_ERROR(OperatorX<AnalyticLocalState>::open(state));
     for (auto* agg_function : _agg_functions) {
         RETURN_IF_ERROR(agg_function->open(state));
     }

@@ -17,6 +17,7 @@
 
 package org.apache.doris.httpv2.rest;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.ConfigBase;
 import org.apache.doris.common.ConfigException;
 import org.apache.doris.common.DdlException;
@@ -93,7 +94,7 @@ public class SetConfigAction extends RestBaseController {
             try {
                 if (confValue != null && confValue.length == 1) {
                     try {
-                        ConfigBase.setMutableConfig(confKey, confValue[0]);
+                        Env.getCurrentEnv().setMutableConfigwithCallback(confKey, confValue[0]);
                     } catch (ConfigException e) {
                         throw new DdlException(e.getMessage());
                     }

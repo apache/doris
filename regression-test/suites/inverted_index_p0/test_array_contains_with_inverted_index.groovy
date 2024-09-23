@@ -63,6 +63,7 @@ suite("test_array_contains_with_inverted_index"){
     sql """ INSERT INTO `${indexTblName}`(`apply_date`, `id`, `inventors`) VALUES ('2019-01-01', '0974e7a82e30d1af83205e474fadd0a2', '[\"w\"]'); """
     sql """ INSERT INTO `${indexTblName}`(`apply_date`, `id`, `inventors`) VALUES ('2019-01-01', '26823b3995ee38bd145ddd910b2f6300', '[\"x\"]'); """
     sql """ INSERT INTO `${indexTblName}`(`apply_date`, `id`, `inventors`) VALUES ('2019-01-01', 'ee27ee1da291e46403c408e220bed6e1', '[\"y\"]'); """
+    sql """ set enable_common_expr_pushdown = true """
 
     qt_sql """ select count() from ${indexTblName}"""
     order_qt_sql """ select * from tai where array_contains(inventors, 's') order by id; """

@@ -36,6 +36,7 @@ import org.apache.doris.nereids.exceptions.NotSupportedException;
 
 import com.github.benmanes.caffeine.cache.CacheLoader;
 import com.github.benmanes.caffeine.cache.RemovalListener;
+import com.github.benmanes.caffeine.cache.stats.CacheStats;
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -295,5 +296,16 @@ public class ExternalMetaCacheMgr {
         MetaCache<T> metaCache = new MetaCache<>(name, commonRefreshExecutor, expireAfterWriteSec, refreshAfterWriteSec,
                 maxSize, namesCacheLoader, metaObjCacheLoader, removalListener);
         return metaCache;
+    }
+
+    public static Map<String, String> getCacheStats(CacheStats cacheStats, long estimatedSize) {
+        Map<String, String> stats = Maps.newHashMap();
+        stats.put("hit_ratio", String.valueOf(cacheStats.hitRate()));
+        stats.put("hit_count", String.valueOf(cacheStats.hitCount()));
+        stats.put("read_count", String.valueOf(cacheStats.hitCount() + cacheStats.missCount()));
+        stats.put("eviction_count", String.valueOf(cacheStats.evictionCount()));
+        stats.put("average_load_penalty", String.valueOf(cacheStats.averageLoadPenalty()));
+        stats.put("estimated_size", String.valueOf(estimatedSize));
+        return stats;
     }
 }

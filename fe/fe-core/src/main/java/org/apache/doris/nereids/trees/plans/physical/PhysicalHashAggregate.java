@@ -193,6 +193,7 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
         TopnPushInfo topnPushInfo = (TopnPushInfo) getMutableState(
                 MutableState.KEY_PUSH_TOPN_TO_AGG).orElseGet(() -> null);
         return Utils.toSqlString("PhysicalHashAggregate[" + id.asInt() + "]" + getGroupIdWithPrefix(),
+                "stats", statistics,
                 "aggPhase", aggregateParam.aggPhase,
                 "aggMode", aggregateParam.aggMode,
                 "maybeUseStreaming", maybeUsingStream,
@@ -200,8 +201,7 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
                 "outputExpr", outputExpressions,
                 "partitionExpr", partitionExpressions,
                 "requireProperties", requireProperties,
-                "topnOpt", topnPushInfo != null,
-                "stats", statistics
+                "topnOpt", topnPushInfo != null
         );
     }
 

@@ -78,11 +78,6 @@ public:
         return Status::NotSupported("read_dict_values_to_column is not supported");
     }
 
-    virtual Status get_dict_codes(const ColumnString* column_string,
-                                  std::vector<int32_t>* dict_codes) {
-        return Status::NotSupported("get_dict_codes is not supported");
-    }
-
     virtual MutableColumnPtr convert_dict_column_to_string_column(const ColumnInt32* dict_column) {
         LOG(FATAL) << "Method convert_dict_column_to_string_column is not supported";
         __builtin_unreachable();

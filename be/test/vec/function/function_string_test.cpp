@@ -742,14 +742,6 @@ TEST(function_string_test, function_string_repeat_test) {
 
         check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
     }
-
-    {
-        InputTypeSet input_types = {TypeIndex::String, TypeIndex::Int32};
-        DataSet data_set = {{{std::string("a"), 1073741825},
-                             std::string("aaaaaaaaaa")}}; // ut repeat max num 10
-        Status st = check_function<DataTypeString, true>(func_name, input_types, data_set, true);
-        EXPECT_NE(Status::OK(), st);
-    }
 }
 
 TEST(function_string_test, function_string_reverse_test) {

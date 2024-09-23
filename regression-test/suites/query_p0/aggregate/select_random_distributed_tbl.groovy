@@ -67,31 +67,15 @@ suite("select_random_distributed_tbl") {
             }
             def sql1 = "select * except (v_generic) from ${tableName} ${whereStr} order by k1, k2"
             qt_sql_1 "${sql1}"
-            explain {
-                sql("${sql1}")
-                contains "VAGGREGATE"
-            }
 
             def sql2 = "select k1 ,k2 ,v_sum ,v_max ,v_min ,v_hll ,v_bitmap ,v_quantile_union from ${tableName} ${whereStr} order by k1, k2"
             qt_sql_2 "${sql2}"
-            explain {
-                sql("${sql2}")
-                contains "VAGGREGATE"
-            }
 
             def sql3 = "select k1+1, k2, v_sum from ${tableName} ${whereStr} order by k1, k2"
             qt_sql_3 "${sql3}"
-            explain {
-                sql("${sql3}")
-                contains "VAGGREGATE"
-            }
 
             def sql4 = "select k1, k2, v_sum+1 from ${tableName} ${whereStr} order by k1, k2"
             qt_sql_4 "${sql4}"
-            explain {
-                sql("${sql4}")
-                contains "VAGGREGATE"
-            }
 
             def sql5 =  """ select k1, sum(v_sum), max(v_max), min(v_min), avg_merge(v_generic), 
                 hll_union_agg(v_hll), bitmap_union_count(v_bitmap), quantile_percent(quantile_union(v_quantile_union),0.5) 
@@ -106,17 +90,9 @@ suite("select_random_distributed_tbl") {
 
             def sql8 = "select max(k1) from ${tableName} ${whereStr}"
             qt_sql_8 "${sql8}"
-            explain {
-                sql("${sql8}")
-                contains "VAGGREGATE"
-            }
 
             def sql9 = "select max(v_sum) from ${tableName} ${whereStr}"
             qt_sql_9 "${sql9}"
-            explain {
-                sql("${sql9}")
-                contains "VAGGREGATE"
-            }
 
             def sql10 = "select sum(v_max) from ${tableName} ${whereStr}"
             qt_sql_10 "${sql10}"
@@ -147,7 +123,8 @@ suite("select_random_distributed_tbl") {
     // test all keys are NOT NULL for AGG table
     sql "drop table if exists random_distributed_tbl_test_2;"
     sql """ CREATE TABLE random_distributed_tbl_test_2 (
-        `k1` LARGEINT NOT NULL
+        `k1` LARGEINT NOT NULL,
+        `k2` DECIMAL(18, 2) SUM NOT NULL
     ) ENGINE=OLAP
     AGGREGATE KEY(`k1`)
     COMMENT 'OLAP'
@@ -157,17 +134,19 @@ suite("select_random_distributed_tbl") {
     );
     """
 
-    sql """ insert into random_distributed_tbl_test_2 values(1); """
-    sql """ insert into random_distributed_tbl_test_2 values(1); """
-    sql """ insert into random_distributed_tbl_test_2 values(1); """
+    sql """ insert into random_distributed_tbl_test_2 values(1, 999999999999999.99); """
+    sql """ insert into random_distributed_tbl_test_2 values(1, 999999999999999.99); """
+    sql """ insert into random_distributed_tbl_test_2 values(3, 999999999999999.99); """
 
     sql "set enable_nereids_planner = false;"
-    qt_sql_17 "select k1 from random_distributed_tbl_test_2;"
-    qt_sql_18 "select distinct k1 from random_distributed_tbl_test_2;"
+    qt_sql_17 "select k1 from random_distributed_tbl_test_2 order by k1;"
+    qt_sql_18 "select distinct k1 from random_distributed_tbl_test_2 order by k1;"
+    qt_sql_19 "select k2 from random_distributed_tbl_test_2 order by k2;"
 
     sql "set enable_nereids_planner = true;"
-    qt_sql_19 "select k1 from random_distributed_tbl_test_2;"
-    qt_sql_20 "select distinct k1 from random_distributed_tbl_test_2;"
+    qt_sql_20 "select k1 from random_distributed_tbl_test_2 order by k1;"
+    qt_sql_21 "select distinct k1 from random_distributed_tbl_test_2 order by k1;"
+    qt_sql_22 "select k2 from random_distributed_tbl_test_2 order by k2;"
 
     sql "drop table random_distributed_tbl_test_2;"
 }

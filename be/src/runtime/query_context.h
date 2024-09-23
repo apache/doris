@@ -39,7 +39,6 @@
 #include "util/threadpool.h"
 #include "vec/exec/scan/scanner_scheduler.h"
 #include "vec/runtime/shared_hash_table_controller.h"
-#include "vec/runtime/shared_scanner_controller.h"
 #include "workload_group/workload_group.h"
 
 namespace doris {
@@ -111,12 +110,9 @@ public:
 
     void cancel_all_pipeline_context(const Status& reason, int fragment_id = -1);
     std::string print_all_pipeline_context();
-    Status cancel_pipeline_context(const int fragment_id, const Status& reason);
     void set_pipeline_context(const int fragment_id,
                               std::shared_ptr<pipeline::PipelineFragmentContext> pip_ctx);
     void cancel(Status new_status, int fragment_id = -1);
-
-    void set_exec_status(Status new_status) { _exec_status.update(new_status); }
 
     [[nodiscard]] Status exec_status() { return _exec_status.status(); }
 
@@ -124,26 +120,8 @@ public:
 
     void set_ready_to_execute_only();
 
-    bool is_ready_to_execute() {
-        std::lock_guard<std::mutex> l(_start_lock);
-        return _ready_to_execute;
-    }
-
-    bool wait_for_start() {
-        int wait_time = config::max_fragment_start_wait_time_seconds;
-        std::unique_lock<std::mutex> l(_start_lock);
-        while (!_ready_to_execute.load() && _exec_status.ok() && --wait_time > 0) {
-            _start_cond.wait_for(l, std::chrono::seconds(1));
-        }
-        return _ready_to_execute.load() && _exec_status.ok();
-    }
-
     std::shared_ptr<vectorized::SharedHashTableController> get_shared_hash_table_controller() {
         return _shared_hash_table_controller;
-    }
-
-    std::shared_ptr<vectorized::SharedScannerController> get_shared_scanner_controller() {
-        return _shared_scanner_controller;
     }
 
     bool has_runtime_predicate(int source_node_id) {
@@ -283,16 +261,9 @@ private:
     // If this token is not set, the scanner will be executed in "_scan_thread_pool" in exec env.
     std::unique_ptr<ThreadPoolToken> _thread_token;
 
-    std::mutex _start_lock;
-    std::condition_variable _start_cond;
-    // Only valid when _need_wait_execution_trigger is set to true in PlanFragmentExecutor.
-    // And all fragments of this query will start execution when this is set to true.
-    std::atomic<bool> _ready_to_execute {false};
-
     void _init_query_mem_tracker();
 
     std::shared_ptr<vectorized::SharedHashTableController> _shared_hash_table_controller;
-    std::shared_ptr<vectorized::SharedScannerController> _shared_scanner_controller;
     std::unordered_map<int, vectorized::RuntimePredicate> _runtime_predicates;
 
     WorkloadGroupPtr _workload_group = nullptr;

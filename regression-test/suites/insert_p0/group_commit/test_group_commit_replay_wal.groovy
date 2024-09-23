@@ -58,7 +58,6 @@ suite("test_group_commit_replay_wal", "nonConcurrent") {
         }
         getRowCount(5)
         // check wal count is 0
-        sleep(5000)
     } catch (Exception e) {
         logger.info("failed: " + e.getMessage())
         assertTrue(false)
@@ -79,7 +78,7 @@ suite("test_group_commit_replay_wal", "nonConcurrent") {
             time 10000
         }
         getRowCount(5)
-        sleep(10000) // wal replay but all failed
+        sleep(4000) // wal replay but all failed
         getRowCount(5)
         // check wal count is 1
 

@@ -58,28 +58,24 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
 
     private final List<NamedExpression> projects;
     private final Supplier<Set<NamedExpression>> projectsSet;
-    private final List<NamedExpression> excepts;
-    private final List<NamedExpression> replaces;
     private final boolean isDistinct;
 
     public LogicalProject(List<NamedExpression> projects, CHILD_TYPE child) {
-        this(projects, ImmutableList.of(), ImmutableList.of(), false, ImmutableList.of(child));
+        this(projects, false, ImmutableList.of(child));
     }
 
-    public LogicalProject(List<NamedExpression> projects, List<NamedExpression> excepts, List<NamedExpression> replaces,
-            boolean isDistinct, List<Plan> child) {
-        this(projects, excepts, replaces, isDistinct, Optional.empty(), Optional.empty(), child);
+    public LogicalProject(List<NamedExpression> projects, boolean isDistinct, List<Plan> child) {
+        this(projects, isDistinct, Optional.empty(), Optional.empty(), child);
     }
 
-    public LogicalProject(List<NamedExpression> projects, List<NamedExpression> excepts, List<NamedExpression> replaces,
-            boolean isDistinct, Plan child) {
-        this(projects, excepts, replaces, isDistinct,
+    public LogicalProject(List<NamedExpression> projects, boolean isDistinct, Plan child) {
+        this(projects, isDistinct,
                 Optional.empty(), Optional.empty(), ImmutableList.of(child));
     }
 
-    private LogicalProject(List<NamedExpression> projects, List<NamedExpression> excepts,
-            List<NamedExpression> replaces, boolean isDistinct, Optional<GroupExpression> groupExpression,
-            Optional<LogicalProperties> logicalProperties, List<Plan> child) {
+    private LogicalProject(List<NamedExpression> projects, boolean isDistinct,
+            Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
+            List<Plan> child) {
         super(PlanType.LOGICAL_PROJECT, groupExpression, logicalProperties, child);
         Preconditions.checkArgument(projects != null, "projects can not be null");
         // only ColumnPrune rule may produce empty projects, this happens in rewrite phase
@@ -90,8 +86,6 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
                 ? ImmutableList.of(ExpressionUtils.selectMinimumColumn(child.get(0).getOutput()))
                 : projects;
         this.projectsSet = Suppliers.memoize(() -> ImmutableSet.copyOf(this.projects));
-        this.excepts = Utils.fastToImmutableList(excepts);
-        this.replaces = Utils.fastToImmutableList(replaces);
         this.isDistinct = isDistinct;
     }
 
@@ -103,14 +97,6 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
     @Override
     public List<NamedExpression> getProjects() {
         return projects;
-    }
-
-    public List<NamedExpression> getExcepts() {
-        return excepts;
-    }
-
-    public List<NamedExpression> getReplaces() {
-        return replaces;
     }
 
     @Override
@@ -126,9 +112,7 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
     public String toString() {
         return Utils.toSqlString("LogicalProject[" + id.asInt() + "]",
                 "distinct", isDistinct,
-                "projects", projects,
-                "excepts", excepts,
-                "replaces", replaces
+                "projects", projects
         );
     }
 
@@ -152,8 +136,6 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
         }
         LogicalProject<?> that = (LogicalProject<?>) o;
         boolean equal = projectsSet.get().equals(that.projectsSet.get())
-                && excepts.equals(that.excepts)
-                && replaces.equals(that.replaces)
                 && isDistinct == that.isDistinct;
         // TODO: should add exprId for UnBoundStar and BoundStar for equality comparison
         if (!projects.isEmpty() && (projects.get(0) instanceof UnboundStar || projects.get(0) instanceof BoundStar)) {
@@ -164,18 +146,18 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
 
     @Override
     public int hashCode() {
-        return Objects.hash(projectsSet.get(), excepts, replaces, isDistinct);
+        return Objects.hash(projectsSet.get(), isDistinct);
     }
 
     @Override
     public LogicalProject<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new LogicalProject<>(projects, excepts, replaces, isDistinct, Utils.fastToImmutableList(children));
+        return new LogicalProject<>(projects, isDistinct, Utils.fastToImmutableList(children));
     }
 
     @Override
     public LogicalProject<Plan> withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalProject<>(projects, excepts, replaces, isDistinct,
+        return new LogicalProject<>(projects, isDistinct,
                 groupExpression, Optional.of(getLogicalProperties()), children);
     }
 
@@ -183,20 +165,20 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new LogicalProject<>(projects, excepts, replaces, isDistinct,
+        return new LogicalProject<>(projects, isDistinct,
                 groupExpression, logicalProperties, children);
     }
 
     public LogicalProject<Plan> withProjects(List<NamedExpression> projects) {
-        return new LogicalProject<>(projects, excepts, replaces, isDistinct, children);
+        return new LogicalProject<>(projects, isDistinct, children);
     }
 
     public LogicalProject<Plan> withProjectsAndChild(List<NamedExpression> projects, Plan child) {
-        return new LogicalProject<>(projects, excepts, replaces, isDistinct, ImmutableList.of(child));
+        return new LogicalProject<>(projects, isDistinct, ImmutableList.of(child));
     }
 
     public LogicalProject<Plan> withDistinct(boolean isDistinct) {
-        return new LogicalProject<>(projects, excepts, replaces, isDistinct, children);
+        return new LogicalProject<>(projects, isDistinct, children);
     }
 
     public boolean isDistinct() {
@@ -218,8 +200,6 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
         JSONObject logicalProject = super.toJson();
         JSONObject properties = new JSONObject();
         properties.put("Projects", projects.toString());
-        properties.put("Excepts", excepts.toString());
-        properties.put("Replaces", replaces.toString());
         properties.put("IsDistinct", isDistinct);
         logicalProject.put("Properties", properties);
         return logicalProject;

@@ -95,6 +95,14 @@ public class HeartbeatMgr extends MasterDaemon {
         tMasterInfo.setHttpPort(Config.http_port);
         long flags = heartbeatFlags.getHeartbeatFlags();
         tMasterInfo.setHeartbeatFlags(flags);
+        if (Config.isCloudMode()) {
+            // Set cloud_instance_id and meta_service_endpoint even if there are empty
+            // Be can knowns that fe is working in cloud mode.
+            // Set the cloud instance ID for cloud deployment identification
+            tMasterInfo.setCloudInstanceId(Config.cloud_instance_id);
+            // Set the endpoint for the metadata service in cloud mode
+            tMasterInfo.setMetaServiceEndpoint(Config.meta_service_endpoint);
+        }
         masterInfo.set(tMasterInfo);
     }
 

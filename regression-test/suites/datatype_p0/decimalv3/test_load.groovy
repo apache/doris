@@ -131,7 +131,7 @@ suite("test_load") {
         select * from test_sys_update_basic_test_update_decimal_tb order by 1, 2;
     """
 
-    sql """ set enable_nereids_dml=false; """
+    sql """ set enable_nereids_planner=false; """
     sql """
         drop TABLE if exists test_sys_update_basic_test_update_decimal_tb;
     """

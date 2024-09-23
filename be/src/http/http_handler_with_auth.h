@@ -37,6 +37,7 @@ class HttpHandlerWithAuth : public HttpHandler {
 public:
     HttpHandlerWithAuth(ExecEnv* exec_env, TPrivilegeHier::type hier, TPrivilegeType::type type);
 
+    HttpHandlerWithAuth(ExecEnv* exec_env) : _exec_env(exec_env) {}
     ~HttpHandlerWithAuth() override = default;
 
     // return 0 if auth pass, otherwise -1.
@@ -53,10 +54,8 @@ public:
 
 protected:
     ExecEnv* _exec_env;
-
-private:
-    TPrivilegeHier::type _hier;
-    TPrivilegeType::type _type;
+    TPrivilegeHier::type _hier = TPrivilegeHier::GLOBAL;
+    TPrivilegeType::type _type = TPrivilegeType::ADMIN;
 };
 
 } // namespace doris

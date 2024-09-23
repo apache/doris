@@ -303,9 +303,9 @@ public class CloudClusterChecker extends MasterDaemon {
 
     @Override
     protected void runAfterCatalogReady() {
-        getCloudBackends();
+        checkCloudBackends();
         updateCloudMetrics();
-        getCloudObserverFes();
+        checkCloudFes();
     }
 
     private void checkFeNodesMapValid() {
@@ -348,7 +348,7 @@ public class CloudClusterChecker extends MasterDaemon {
         }
     }
 
-    private void getCloudObserverFes() {
+    private void checkCloudFes() {
         Cloud.GetClusterResponse response = cloudSystemInfoService.getCloudCluster(
                 Config.cloud_sql_server_cluster_name, Config.cloud_sql_server_cluster_id, "");
         if (!response.hasStatus() || !response.getStatus().hasCode()
@@ -371,11 +371,19 @@ public class CloudClusterChecker extends MasterDaemon {
             LOG.debug("get cloud cluster, clusterId={} nodes={}",
                     Config.cloud_sql_server_cluster_id, cpb.getNodesList());
         }
-        List<Frontend> currentFes = Env.getCurrentEnv().getFrontends(FrontendNodeType.OBSERVER);
+        List<Frontend> currentFollowers = Env.getCurrentEnv().getFrontends(FrontendNodeType.FOLLOWER);
+        List<Frontend> currentObservers = Env.getCurrentEnv().getFrontends(FrontendNodeType.OBSERVER);
+        currentFollowers.addAll(currentObservers);
+        List<Frontend> currentFes = new ArrayList<>(currentFollowers.stream().collect(Collectors.toMap(
+                fe -> fe.getHost() + ":" + fe.getEditLogPort(),
+                fe -> fe,
+                (existing, replacement) -> existing
+        )).values());
         List<Frontend> toAdd = new ArrayList<>();
         List<Frontend> toDel = new ArrayList<>();
         List<Cloud.NodeInfoPB> expectedFes = cpb.getNodesList();
         diffNodes(toAdd, toDel, () -> {
+            // memory
             Map<String, Frontend> currentMap = new HashMap<>();
             String selfNode = Env.getCurrentEnv().getSelfNode().getIdent();
             for (Frontend fe : currentFes) {
@@ -383,10 +391,13 @@ public class CloudClusterChecker extends MasterDaemon {
                 if (selfNode.equals(endpoint)) {
                     continue;
                 }
+                // add type to map key, for diff
+                endpoint = endpoint + "_" + fe.getRole();
                 currentMap.put(endpoint, fe);
             }
             return currentMap;
         }, () -> {
+            // meta service
             Map<String, Frontend> nodeMap = new HashMap<>();
             String selfNode = Env.getCurrentEnv().getSelfNode().getIdent();
             for (Cloud.NodeInfoPB node : expectedFes) {
@@ -399,9 +410,18 @@ public class CloudClusterChecker extends MasterDaemon {
                 if (selfNode.equals(endpoint)) {
                     continue;
                 }
-                Frontend fe = new Frontend(FrontendNodeType.OBSERVER,
+                Cloud.NodeInfoPB.NodeType type = node.getNodeType();
+                // ATTN: just allow to add follower or observer
+                if (Cloud.NodeInfoPB.NodeType.FE_MASTER.equals(type)) {
+                    LOG.warn("impossible !!!,  get fe node {} type equel master from ms", node);
+                }
+                FrontendNodeType role = type == Cloud.NodeInfoPB.NodeType.FE_FOLLOWER
+                        ? FrontendNodeType.FOLLOWER :  FrontendNodeType.OBSERVER;
+                Frontend fe = new Frontend(role,
                         CloudEnv.genFeNodeNameFromMeta(host, node.getEditLogPort(),
                         node.getCtime() * 1000), host, node.getEditLogPort());
+                // add type to map key, for diff
+                endpoint = endpoint + "_" + fe.getRole();
                 nodeMap.put(endpoint, fe);
             }
             return nodeMap;
@@ -421,7 +441,7 @@ public class CloudClusterChecker extends MasterDaemon {
         }
     }
 
-    private void getCloudBackends() {
+    private void checkCloudBackends() {
         Map<String, List<Backend>> clusterIdToBackend = cloudSystemInfoService.getCloudClusterIdToBackend();
         //rpc to ms, to get mysql user can use cluster_id
         // NOTE: rpc args all empty, use cluster_unique_id to get a instance's all cluster info.
@@ -474,7 +494,7 @@ public class CloudClusterChecker extends MasterDaemon {
         for (Map.Entry<String, String> entry : clusterNameToId.entrySet()) {
             int aliveNum = 0;
             List<Backend> bes = clusterIdToBackend.get(entry.getValue());
-            if (bes == null || bes.size() == 0) {
+            if (bes == null || bes.isEmpty()) {
                 LOG.info("cant get be nodes by cluster {}, bes {}", entry, bes);
                 continue;
             }

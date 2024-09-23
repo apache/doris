@@ -49,7 +49,9 @@
 #include "runtime/thread_context.h"
 #include "util/key_util.h"
 #include "util/runtime_profile.h"
+#include "util/simd/bits.h"
 #include "util/thrift_util.h"
+#include "vec/columns/columns_number.h"
 #include "vec/data_types/serde/data_type_serde.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
@@ -143,6 +145,9 @@ Status Reusable::init(const TDescriptorTable& t_desc_tbl, const std::vector<TExp
         extract_slot_ref(expr->root(), tuple_desc(), output_slot_descs);
     }
 
+    // get the delete sign idx in block
+    _delete_sign_idx = _col_uid_to_idx[schema.columns()[schema.delete_sign_idx()]->unique_id()];
+
     if (schema.have_column(BeConsts::ROW_STORE_COL)) {
         const auto& column = *DORIS_TRY(schema.column(BeConsts::ROW_STORE_COL));
         _row_store_column_ids = column.unique_id();
@@ -227,6 +232,12 @@ void RowCache::insert(const RowCacheKey& key, const Slice& value) {
 void RowCache::erase(const RowCacheKey& key) {
     const std::string& encoded_key = key.encode();
     LRUCachePolicy::erase(encoded_key);
+}
+
+LookupConnectionCache::CacheValue::~CacheValue() {
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(
+            ExecEnv::GetInstance()->point_query_executor_mem_tracker());
+    item.reset();
 }
 
 PointQueryExecutor::~PointQueryExecutor() {
@@ -383,9 +394,9 @@ Status PointQueryExecutor::_lookup_row_key() {
         }
         // Get rowlocation and rowset, ctx._rowset_ptr will acquire wrap this ptr
         auto rowset_ptr = std::make_unique<RowsetSharedPtr>();
-        st = (_tablet->lookup_row_key(_row_read_ctxs[i]._primary_key, false, specified_rowsets,
-                                      &location, INT32_MAX /*rethink?*/, segment_caches,
-                                      rowset_ptr.get(), false));
+        st = (_tablet->lookup_row_key(_row_read_ctxs[i]._primary_key, nullptr, false,
+                                      specified_rowsets, &location, INT32_MAX /*rethink?*/,
+                                      segment_caches, rowset_ptr.get(), false));
         if (st.is<ErrorCode::KEY_NOT_FOUND>()) {
             continue;
         }
@@ -481,6 +492,19 @@ Status PointQueryExecutor::_lookup_row_data() {
             if (padding_rows > 0) {
                 column->assume_mutable()->insert_many_defaults(padding_rows);
             }
+        }
+    }
+    // filter rows by delete sign
+    if (_row_hits > 0 && _reusable->delete_sign_idx() != -1) {
+        vectorized::ColumnPtr delete_filter_columns =
+                _result_block->get_columns()[_reusable->delete_sign_idx()];
+        const auto& filter =
+                assert_cast<const vectorized::ColumnInt8*>(delete_filter_columns.get())->get_data();
+        size_t count = filter.size() - simd::count_zero_num((int8_t*)filter.data(), filter.size());
+        if (count == filter.size()) {
+            _result_block->clear();
+        } else if (count > 0) {
+            return Status::NotSupported("Not implemented since only single row at present");
         }
     }
     return Status::OK();

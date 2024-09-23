@@ -38,6 +38,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mtmv.MTMVPartitionInfo;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.mtmv.MTMVPartitionUtil;
@@ -60,7 +61,6 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.algebra.OneRowRelation;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.commands.info.BaseViewInfo.AnalyzerForCreateView;
 import org.apache.doris.nereids.trees.plans.commands.info.BaseViewInfo.PlanSlotFinder;
@@ -151,6 +151,9 @@ public class CreateMTMVInfo {
     public void analyze(ConnectContext ctx) throws Exception {
         // analyze table name
         mvName.analyze(ctx);
+        if (!InternalCatalog.INTERNAL_CATALOG_NAME.equals(mvName.getCtl())) {
+            throw new AnalysisException("Only support creating asynchronous materialized views in internal catalog");
+        }
         try {
             FeNameFormat.checkTableName(mvName.getTbl());
         } catch (org.apache.doris.common.AnalysisException e) {
@@ -239,9 +242,6 @@ public class CreateMTMVInfo {
         // must disable constant folding by be, because be constant folding may return wrong type
         ctx.getSessionVariable().disableConstantFoldingByBEOnce();
         Plan plan = planner.planWithLock(logicalSink, PhysicalProperties.ANY, ExplainLevel.ALL_PLAN);
-        if (plan.anyMatch(node -> node instanceof OneRowRelation)) {
-            throw new AnalysisException("at least contain one table");
-        }
         // can not contain VIEW or MTMV
         analyzeBaseTables(planner.getAnalyzedPlan());
         // can not contain Random function
@@ -287,7 +287,7 @@ public class CreateMTMVInfo {
                 if (type.isFloatLikeType() || type.isStringType() || type.isJsonType()
                         || catalogType.isComplexType() || type.isBitmapType() || type.isHllType()
                         || type.isQuantileStateType() || type.isJsonType() || type.isStructType()
-                        || column.getAggType() != null) {
+                        || column.getAggType() != null || type.isVariantType()) {
                     break;
                 }
                 keys.add(column.getName());
@@ -381,7 +381,9 @@ public class CreateMTMVInfo {
         List<Expression> functionCollectResult = MaterializedViewUtils.extractNondeterministicFunction(plan);
         if (!CollectionUtils.isEmpty(functionCollectResult)) {
             throw new AnalysisException(String.format(
-                    "can not contain invalid expression, the expression is %s",
+                    "can not contain nonDeterministic expression, the expression is %s. "
+                            + "Should add 'enable_nondeterministic_function'  = 'true' property "
+                            + "when create materialized view if you know the property real meaning entirely",
                     functionCollectResult.stream().map(Expression::toString).collect(Collectors.joining(","))));
         }
     }

@@ -17,6 +17,6 @@
 
 package org.apache.doris.analysis;
 
-public class TransactionRollbackStmt extends TransactionStmt {
+public class TransactionRollbackStmt extends TransactionStmt implements NotFallbackInParser {
 
 }

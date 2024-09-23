@@ -18,7 +18,7 @@
 import org.apache.doris.regression.suite.ClusterOptions
 import org.apache.http.NoHttpResponseException
 
-suite('test_abort_txn_by_be_local5') {
+suite('test_abort_txn_by_be_local5', 'docker') {
     def options = new ClusterOptions()
     options.cloudMode = false
     options.skipRunWhenPipelineDiff = false

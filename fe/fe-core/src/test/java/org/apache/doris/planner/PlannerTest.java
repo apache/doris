@@ -512,7 +512,6 @@ public class PlannerTest extends TestWithFeService {
         String plan1 = planner1.getExplainString(new ExplainOptions(false, false, false));
         Assertions.assertFalse(plan1.contains("SORT INFO:\n          `k1`\n          `k2`"));
         Assertions.assertFalse(plan1.contains("SORT LIMIT:"));
-        Assertions.assertFalse(plan1.contains("TOPN OPT"));
 
         // Push sort fail limit > topnOptLimitThreshold
         sql1 = "explain select k1 from db1.tbl3 order by k1, k2 limit "
@@ -523,7 +522,6 @@ public class PlannerTest extends TestWithFeService {
         plan1 = planner1.getExplainString(new ExplainOptions(false, false, false));
         Assertions.assertFalse(plan1.contains("SORT INFO:\n          `k1`\n          `k2`"));
         Assertions.assertFalse(plan1.contains("SORT LIMIT:"));
-        Assertions.assertFalse(plan1.contains("TOPN OPT"));
 
         // Push sort success limit = topnOptLimitThreshold
         sql1 = "explain select /*+ SET_VAR(enable_nereids_planner=false) */ k1 from db1.tbl3 order by k1, k2 limit "
@@ -534,7 +532,6 @@ public class PlannerTest extends TestWithFeService {
         plan1 = planner1.getExplainString(new ExplainOptions(false, false, false));
         Assertions.assertTrue(plan1.contains("SORT INFO:\n          `k1`\n          `k2`"));
         Assertions.assertTrue(plan1.contains("SORT LIMIT:"));
-        Assertions.assertTrue(plan1.contains("TOPN OPT"));
 
         // Push sort success limit < topnOptLimitThreshold
         if (connectContext.getSessionVariable().topnOptLimitThreshold > 1) {
@@ -546,7 +543,6 @@ public class PlannerTest extends TestWithFeService {
             plan1 = planner1.getExplainString(new ExplainOptions(false, false, false));
             Assertions.assertTrue(plan1.contains("SORT INFO:\n          `k1`\n          `k2`"));
             Assertions.assertTrue(plan1.contains("SORT LIMIT:"));
-            Assertions.assertTrue(plan1.contains("TOPN OPT"));
         }
 
         // Push sort failed

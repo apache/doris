@@ -62,6 +62,7 @@ suite("insert_group_commit_with_large_data") {
             DUPLICATE KEY(`id`, `name`)
             DISTRIBUTED BY HASH(`id`) BUCKETS 1
             PROPERTIES (
+                "group_commit_interval_ms" = "40",
                 "replication_num" = "1"
             );
             """
@@ -69,11 +70,10 @@ suite("insert_group_commit_with_large_data") {
             connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url = context.config.jdbcUrl) {
                 sql """ set group_commit = async_mode; """
                 if (item == "nereids") {
-                    sql """ set enable_nereids_dml = true; """
                     sql """ set enable_nereids_planner=true; """
                     sql """ set enable_fallback_to_original_planner=false; """
                 } else {
-                    sql """ set enable_nereids_dml = false; """
+                    sql """ set enable_nereids_planner = false; """
                 }
                 sql """ use ${db}; """
 

@@ -126,6 +126,7 @@ suite("check_before_quit", "nonConcurrent,p0") {
 
     def command_metrics = "curl http://${beHost}:${bePort}/metrics"
     def command_vars = "curl http://${beHost}:${beBrpcPort}/vars"
+    def command_load_channels = "curl http://${beHost}:${bePort}/api/load_channels"
     def command_load_streams = "curl http://${beHost}:${bePort}/api/load_streams"
     while ((System.currentTimeMillis() - beginTime) < timeoutMs) {
         clear = true
@@ -213,6 +214,16 @@ suite("check_before_quit", "nonConcurrent,p0") {
         if (clear) {
             break
         }
+
+        logger.info("executing command: ${command_load_channels}")
+        def process_load_channels = command_load_channels.execute()
+        def outputStream_load_channels = new StringBuffer()
+        def errorStream_load_channels = new StringBuffer()
+        process_load_channels.consumeProcessOutput(outputStream_load_channels, errorStream_load_channels)
+        def code_load_channels = process_load_channels.waitFor()
+        def load_channels = outputStream_load_channels.toString()
+        logger.info("Request BE load_channels: code=" + code_load_channels + ", err=" + errorStream_load_channels.toString())
+        logger.info("load_channels: " + load_channels);
 
         logger.info("executing command: ${command_load_streams}")
         def process_load_streams = command_load_streams.execute()

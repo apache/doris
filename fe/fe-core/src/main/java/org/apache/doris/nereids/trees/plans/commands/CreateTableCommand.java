@@ -83,14 +83,6 @@ public class CreateTableCommand extends Command implements ForwardWithSync {
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        if (!ctx.getSessionVariable().isEnableNereidsDML()) {
-            try {
-                ctx.getSessionVariable().enableFallbackToOriginalPlannerOnce();
-            } catch (Exception e) {
-                throw new AnalysisException("failed to set fallback to original planner to true", e);
-            }
-            throw new AnalysisException("Nereids DML is disabled, will try to fall back to the original planner");
-        }
         if (!ctasQuery.isPresent()) {
             createTableInfo.validate(ctx);
             CreateTableStmt createTableStmt = createTableInfo.translateToLegacyStmt();
@@ -121,6 +113,8 @@ public class CreateTableCommand extends Command implements ForwardWithSync {
             Slot s = slots.get(i);
             DataType dataType = s.getDataType().conversion();
             if (i == 0 && dataType.isStringType()) {
+                // first column of olap table can not be string type.
+                // So change it to varchar type.
                 dataType = VarcharType.createVarcharType(ScalarType.MAX_VARCHAR_LENGTH);
             } else {
                 dataType = TypeCoercionUtils.replaceSpecifiedType(dataType,
@@ -133,13 +127,21 @@ public class CreateTableCommand extends Command implements ForwardWithSync {
                         if (createTableInfo.getPartitionTableInfo().inIdentifierPartitions(s.getName())
                                 || (createTableInfo.getDistribution() != null
                                 && createTableInfo.getDistribution().inDistributionColumns(s.getName()))) {
-                            // String type can not be used in partition/distributed column
+                            // String type can not be used in partition/distributed column,
                             // so we replace it to varchar
                             dataType = TypeCoercionUtils.replaceSpecifiedType(dataType,
                                     CharacterType.class, VarcharType.MAX_VARCHAR_TYPE);
                         } else {
-                            dataType = TypeCoercionUtils.replaceSpecifiedType(dataType,
-                                    CharacterType.class, StringType.INSTANCE);
+                            if (i == 0) {
+                                // first column of olap table can not be string type.
+                                // So change it to varchar type.
+                                dataType = TypeCoercionUtils.replaceSpecifiedType(dataType,
+                                        CharacterType.class, VarcharType.MAX_VARCHAR_TYPE);
+                            } else {
+                                // change varchar/char column from external table to string type
+                                dataType = TypeCoercionUtils.replaceSpecifiedType(dataType,
+                                        CharacterType.class, StringType.INSTANCE);
+                            }
                         }
                     }
                 } else {
@@ -215,3 +217,4 @@ public class CreateTableCommand extends Command implements ForwardWithSync {
         return StmtType.CREATE;
     }
 }
+

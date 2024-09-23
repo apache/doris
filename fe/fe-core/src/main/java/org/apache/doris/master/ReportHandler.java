@@ -178,11 +178,13 @@ public class ReportHandler extends Daemon {
             tablets = request.getTablets();
             reportVersion = request.getReportVersion();
             reportType = ReportType.TABLET;
+            Env.getCurrentSystemInfo().updateBackendReportVersion(beId, reportVersion, -1L, -1L, false);
         } else if (request.isSetTabletList()) {
             // the 'tablets' member will be deprecated in future.
             tablets = buildTabletMap(request.getTabletList());
             reportVersion = request.getReportVersion();
             reportType = ReportType.TABLET;
+            Env.getCurrentSystemInfo().updateBackendReportVersion(beId, reportVersion, -1L, -1L, false);
         }
 
         if (request.isSetPartitionsVersion()) {
@@ -960,7 +962,8 @@ public class ReportHandler extends Daemon {
                                             binlogConfig,
                                             olapTable.getRowStoreColumnsUniqueIds(rowStoreColumns),
                                             objectPool,
-                                            olapTable.rowStorePageSize());
+                                            olapTable.rowStorePageSize(),
+                                            olapTable.variantEnableFlattenNested());
 
                                     createReplicaTask.setIsRecoverTask(true);
                                     createReplicaTask.setInvertedIndexFileStorageFormat(olapTable

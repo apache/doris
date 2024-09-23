@@ -72,6 +72,7 @@ private:
                                       const std::vector<RowsetSharedPtr>& consistent_rowsets);
 
     Status _create_snapshot_files(const TabletSharedPtr& ref_tablet,
+                                  const TabletSharedPtr& target_tablet,
                                   const TSnapshotRequest& request, std::string* snapshot_path,
                                   bool* allow_incremental_clone);
 

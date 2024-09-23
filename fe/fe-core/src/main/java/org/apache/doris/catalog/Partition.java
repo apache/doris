@@ -450,4 +450,23 @@ public class Partition extends MetaObject {
     public boolean isRollupIndex(long id) {
         return idToVisibleRollupIndex.containsKey(id);
     }
+
+
+    public long getRowCount() {
+        return getBaseIndex().getRowCount();
+    }
+
+    public long getAvgRowLength() {
+        long rowCount = getBaseIndex().getRowCount();
+        long dataSize = getBaseIndex().getDataSize(false);
+        if (rowCount > 0) {
+            return dataSize / rowCount;
+        } else {
+            return 0;
+        }
+    }
+
+    public long getDataLength() {
+        return getBaseIndex().getDataSize(false);
+    }
 }

@@ -105,6 +105,10 @@ public:
 
     virtual size_t tablet_footprint() = 0;
 
+    // this method just return the compaction sum on each rowset
+    // note(tsy): we should unify the compaction score calculation finally
+    uint32_t get_real_compaction_score() const;
+
     // MUST hold shared meta lock
     Status capture_rs_readers_unlocked(const Versions& version_path,
                                        std::vector<RowSetSplits>* rs_splits) const;
@@ -145,7 +149,7 @@ public:
     // Lookup the row location of `encoded_key`, the function sets `row_location` on success.
     // NOTE: the method only works in unique key model with primary key index, you will got a
     //       not supported error in other data model.
-    Status lookup_row_key(const Slice& encoded_key, bool with_seq_col,
+    Status lookup_row_key(const Slice& encoded_key, TabletSchema* latest_schema, bool with_seq_col,
                           const std::vector<RowsetSharedPtr>& specified_rowsets,
                           RowLocation* row_location, uint32_t version,
                           std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,

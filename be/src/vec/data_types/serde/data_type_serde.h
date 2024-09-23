@@ -266,14 +266,10 @@ public:
             const FormatOptions& options, int hive_text_complex_type_delimiter_level = 1) const {
         return deserialize_column_from_json_vector(column, slices, num_deserialized, options);
     };
-    virtual void serialize_one_cell_to_hive_text(
+    virtual Status serialize_one_cell_to_hive_text(
             const IColumn& column, int row_num, BufferWritable& bw, FormatOptions& options,
             int hive_text_complex_type_delimiter_level = 1) const {
-        Status st = serialize_one_cell_to_json(column, row_num, bw, options);
-        if (!st.ok()) {
-            throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
-                                   "serialize_one_cell_to_json error: {}", st.to_string());
-        }
+        return serialize_one_cell_to_json(column, row_num, bw, options);
     }
 
     // Protobuf serializer and deserializer
@@ -335,6 +331,9 @@ protected:
                                            rapidjson::Document::AllocatorType& allocator);
     static void convert_array_to_rapidjson(const vectorized::Array& array, rapidjson::Value& target,
                                            rapidjson::Document::AllocatorType& allocator);
+    static void convert_variant_map_to_rapidjson(const vectorized::VariantMap& array,
+                                                 rapidjson::Value& target,
+                                                 rapidjson::Document::AllocatorType& allocator);
 };
 
 /// Invert values since Arrow interprets 1 as a non-null value, while doris as a null

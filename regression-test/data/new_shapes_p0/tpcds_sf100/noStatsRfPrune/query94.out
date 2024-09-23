@@ -7,28 +7,28 @@ PhysicalResultSink
 --------hashAgg[DISTINCT_LOCAL]
 ----------hashAgg[GLOBAL]
 ------------hashAgg[LOCAL]
---------------hashJoin[LEFT_ANTI_JOIN bucketShuffle] hashCondition=((ws1.ws_order_number = wr1.wr_order_number)) otherCondition=()
-----------------PhysicalProject
-------------------hashJoin[LEFT_SEMI_JOIN shuffle] hashCondition=((ws1.ws_order_number = ws2.ws_order_number)) otherCondition=(( not (ws_warehouse_sk = ws_warehouse_sk)))
---------------------PhysicalProject
-----------------------hashJoin[INNER_JOIN broadcast] hashCondition=((ws1.ws_web_site_sk = web_site.web_site_sk)) otherCondition=() build RFs:RF2 web_site_sk->[ws_web_site_sk]
-------------------------PhysicalProject
---------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((ws1.ws_ship_addr_sk = customer_address.ca_address_sk)) otherCondition=() build RFs:RF1 ca_address_sk->[ws_ship_addr_sk]
+--------------PhysicalProject
+----------------hashJoin[INNER_JOIN broadcast] hashCondition=((ws1.ws_web_site_sk = web_site.web_site_sk)) otherCondition=() build RFs:RF3 web_site_sk->[ws_web_site_sk]
+------------------PhysicalProject
+--------------------hashJoin[INNER_JOIN broadcast] hashCondition=((ws1.ws_ship_addr_sk = customer_address.ca_address_sk)) otherCondition=() build RFs:RF2 ca_address_sk->[ws_ship_addr_sk]
+----------------------PhysicalProject
+------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((ws1.ws_ship_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF1 d_date_sk->[ws_ship_date_sk]
+--------------------------hashJoin[LEFT_ANTI_JOIN bucketShuffle] hashCondition=((ws1.ws_order_number = wr1.wr_order_number)) otherCondition=()
 ----------------------------PhysicalProject
-------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((ws1.ws_ship_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF0 d_date_sk->[ws_ship_date_sk]
+------------------------------hashJoin[RIGHT_SEMI_JOIN shuffle] hashCondition=((ws1.ws_order_number = ws2.ws_order_number)) otherCondition=(( not (ws_warehouse_sk = ws_warehouse_sk))) build RFs:RF0 ws_order_number->[ws_order_number]
 --------------------------------PhysicalProject
-----------------------------------PhysicalOlapScan[web_sales] apply RFs: RF0 RF1 RF2
+----------------------------------PhysicalOlapScan[web_sales] apply RFs: RF0
 --------------------------------PhysicalProject
-----------------------------------filter((date_dim.d_date <= '2000-04-01') and (date_dim.d_date >= '2000-02-01'))
-------------------------------------PhysicalOlapScan[date_dim]
+----------------------------------PhysicalOlapScan[web_sales] apply RFs: RF1 RF2 RF3
 ----------------------------PhysicalProject
-------------------------------filter((customer_address.ca_state = 'OK'))
---------------------------------PhysicalOlapScan[customer_address]
-------------------------PhysicalProject
---------------------------filter((web_site.web_company_name = 'pri'))
-----------------------------PhysicalOlapScan[web_site]
---------------------PhysicalProject
-----------------------PhysicalOlapScan[web_sales]
-----------------PhysicalProject
-------------------PhysicalOlapScan[web_returns]
+------------------------------PhysicalOlapScan[web_returns]
+--------------------------PhysicalProject
+----------------------------filter((date_dim.d_date <= '2000-04-01') and (date_dim.d_date >= '2000-02-01'))
+------------------------------PhysicalOlapScan[date_dim]
+----------------------PhysicalProject
+------------------------filter((customer_address.ca_state = 'OK'))
+--------------------------PhysicalOlapScan[customer_address]
+------------------PhysicalProject
+--------------------filter((web_site.web_company_name = 'pri'))
+----------------------PhysicalOlapScan[web_site]
 

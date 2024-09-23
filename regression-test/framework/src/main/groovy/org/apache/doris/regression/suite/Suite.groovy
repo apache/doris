@@ -29,6 +29,7 @@ import groovy.json.JsonSlurper
 import com.google.common.collect.ImmutableList
 import org.apache.commons.lang3.ObjectUtils
 import org.apache.doris.regression.Config
+import org.apache.doris.regression.RegressionTest
 import org.apache.doris.regression.action.BenchmarkAction
 import org.apache.doris.regression.action.ProfileAction
 import org.apache.doris.regression.action.WaitForAction
@@ -276,6 +277,11 @@ class Suite implements GroovyInterceptable {
             return
         }
 
+        if (RegressionTest.getGroupExecType(group) != RegressionTest.GroupExecType.DOCKER) {
+            throw new Exception("Need to add 'docker' to docker suite's belong groups, "
+                    + "see example demo_p0/docker_action.groovy")
+        }
+
         boolean pipelineIsCloud = isCloudMode()
         boolean dockerIsCloud = false
         if (options.cloudMode == null) {
@@ -303,6 +309,7 @@ class Suite implements GroovyInterceptable {
                 Thread.sleep(1000)
             }
 
+            logger.info("get fe {}", fe)
             assertNotNull(fe)
             if (!dockerIsCloud) {
                 for (def be : cluster.getAllBackends()) {
@@ -319,8 +326,8 @@ class Suite implements GroovyInterceptable {
             def sql = "CREATE DATABASE IF NOT EXISTS " + context.dbName
             logger.info("try create database if not exists {}", context.dbName)
             JdbcUtils.executeToList(conn, sql)
-            url = Config.buildUrlWithDb(url, context.dbName)
 
+            url = Config.buildUrlWithDb(url, context.dbName)
             logger.info("connect to docker cluster: suite={}, url={}", name, url)
             connect(user, password, url, actionSupplier)
         } finally {
@@ -816,7 +823,7 @@ class Suite implements GroovyInterceptable {
 
     String getS3Url() {
         String s3BucketName = context.config.otherConfigs.get("s3BucketName");
-        if (context.config.otherConfigs.get("s3Provider") == "AZURE") {
+        if (context.config.otherConfigs.get("s3Provider").toUpperCase() == "AZURE") {
             String accountName = context.config.otherConfigs.get("ak");
             String s3Url = "http://${accountName}.blob.core.windows.net/${s3BucketName}"
             return s3Url
@@ -1378,6 +1385,20 @@ class Suite implements GroovyInterceptable {
         Assert.assertEquals("FINISHED", result)
     }
 
+    void testFoldConst(String foldSql) {
+        String openFoldConstant = "set debug_skip_fold_constant=false";
+        sql(openFoldConstant)
+        logger.info(foldSql)
+        List<List<Object>> resultByFoldConstant = sql(foldSql)
+        logger.info("result by fold constant: " + resultByFoldConstant.toString())
+        String closeFoldConstant = "set debug_skip_fold_constant=true";
+        sql(closeFoldConstant)
+        logger.info(foldSql)
+        List<List<Object>> resultExpected = sql(foldSql)
+        logger.info("result expected: " + resultExpected.toString())
+        Assert.assertEquals(resultExpected, resultByFoldConstant)
+    }
+
     String getJobName(String dbName, String mtmvName) {
         String showMTMV = "select JobName from mv_infos('database'='${dbName}') where Name = '${mtmvName}'";
 	    logger.info(showMTMV)
@@ -1394,11 +1415,11 @@ class Suite implements GroovyInterceptable {
     }
 
     boolean enableStoragevault() {
+        boolean ret = false;
         if (context.config.metaServiceHttpAddress == null || context.config.metaServiceHttpAddress.isEmpty() ||
-                context.config.metaServiceHttpAddress == null || context.config.metaServiceHttpAddress.isEmpty() ||
-                    context.config.instanceId == null || context.config.instanceId.isEmpty() ||
-                        context.config.metaServiceToken == null || context.config.metaServiceToken.isEmpty()) {
-            return false;
+                context.config.instanceId == null || context.config.instanceId.isEmpty() ||
+                context.config.metaServiceToken == null || context.config.metaServiceToken.isEmpty()) {
+            return ret;
         }
         def getInstanceInfo = { check_func ->
             httpTest {
@@ -1408,7 +1429,6 @@ class Suite implements GroovyInterceptable {
                 check check_func
             }
         }
-        boolean enableStorageVault = false;
         getInstanceInfo.call() {
             respCode, body ->
                 String respCodeValue = "${respCode}".toString();
@@ -1417,10 +1437,10 @@ class Suite implements GroovyInterceptable {
                 }
                 def json = parseJson(body)
                 if (json.result.containsKey("enable_storage_vault") && json.result.enable_storage_vault) {
-                    enableStorageVault = true;
+                    ret = true;
                 }
         }
-        return enableStorageVault;
+        return ret;
     }
 
     boolean isGroupCommitMode() {
@@ -1500,6 +1520,30 @@ class Suite implements GroovyInterceptable {
         }
 
         return result.values().toList()
+    }
+
+    def create_async_mv = { db, mv_name, mv_sql ->
+
+        sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name}"""
+        sql"""
+        CREATE MATERIALIZED VIEW ${mv_name} 
+        BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL
+        DISTRIBUTED BY RANDOM BUCKETS 2
+        PROPERTIES ('replication_num' = '1') 
+        AS ${mv_sql}
+        """
+        def job_name = getJobName(db, mv_name);
+        waitingMTMVTaskFinished(job_name)
+        sql "analyze table ${mv_name} with sync;"
+    }
+
+    def mv_not_part_in = { query_sql, mv_name ->
+        explain {
+            sql(" memo plan ${query_sql}")
+            notContains("${mv_name} chose")
+            notContains("${mv_name} not chose")
+            notContains("${mv_name} fail")
+        }
     }
 
     def mv_rewrite_success = { query_sql, mv_name ->
@@ -1763,6 +1807,86 @@ class Suite implements GroovyInterceptable {
                 log.info("add node resp: ${body} ${respCode}".toString())
                 def json = parseJson(body)
                 assertTrue(json.code.equalsIgnoreCase("OK") || json.code.equalsIgnoreCase("ALREADY_EXISTED"))
+        }
+    }
+
+    def get_instance = { MetaService ms=null ->
+        def jsonOutput = new JsonOutput()
+
+        def get_instance_api = { check_func ->
+            httpTest {
+                op "get"
+                if (ms) {
+                    endpoint ms.host+':'+ms.httpPort
+                } else {
+                    endpoint context.config.metaServiceHttpAddress
+                }
+                uri "/MetaService/http/get_instance?token=${token}&instance_id=${instance_id}"
+                check check_func
+            }
+        }
+
+        def json
+        get_instance_api.call() {
+            respCode, body ->
+                log.info("get instance resp: ${body} ${respCode}".toString())
+                json = parseJson(body)
+                assertTrue(json.code.equalsIgnoreCase("OK"))
+        }
+        json.result
+    }
+
+
+    def drop_node = { unique_id, ip, bePort=0, fePort=0, nodeType,
+                        cluster_name, cluster_id, MetaService ms=null ->
+        def jsonOutput = new JsonOutput()
+        def type
+        if (fePort != 0) {
+            type = "SQL"
+        } else if (bePort != 0) {
+            type = "COMPUTE"
+        }
+        def clusterInfo = [
+                     type: type,
+                     cluster_name : cluster_name,
+                     cluster_id : cluster_id,
+                     nodes: [
+                         [
+                             cloud_unique_id: unique_id,
+                             ip: ip,
+                             node_type: nodeType
+                         ],
+                     ]
+                ]
+        if (bePort != 0) {
+            // drop be
+            clusterInfo['nodes'][0]['heartbeat_port'] = bePort
+        } else if (fePort != 0) {
+            // drop fe
+            clusterInfo['nodes'][0]['edit_log_port'] = fePort
+        }
+        def map = [instance_id: "${instance_id}", cluster: clusterInfo]
+        def js = jsonOutput.toJson(map)
+        log.info("drop node req: ${js} ".toString())
+
+        def drop_node_api = { request_body, check_func ->
+            httpTest {
+                if (ms) {
+                    endpoint ms.host+':'+ms.httpPort
+                } else {
+                    endpoint context.config.metaServiceHttpAddress
+                }
+                uri "/MetaService/http/drop_node?token=${token}"
+                body request_body
+                check check_func
+            }
+        }
+
+        drop_node_api.call(js) {
+            respCode, body ->
+                log.info("drop node resp: ${body} ${respCode}".toString())
+                def json = parseJson(body)
+                assertTrue(json.code.equalsIgnoreCase("OK"))
         }
     }
 

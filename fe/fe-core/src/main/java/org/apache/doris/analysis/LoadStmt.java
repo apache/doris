@@ -85,7 +85,7 @@ import java.util.Map.Entry;
 //      resource_desc:
 //          WITH RESOURCE name
 //          (key3=value3, ...)
-public class LoadStmt extends DdlStmt {
+public class LoadStmt extends DdlStmt implements NotFallbackInParser {
     private static final Logger LOG = LogManager.getLogger(LoadStmt.class);
 
     public static final String TIMEOUT_PROPERTY = "timeout";
@@ -527,7 +527,8 @@ public class LoadStmt extends DdlStmt {
         Map<String, String> properties = brokerDesc.getProperties();
         for (Map.Entry<String, String> entry : properties.entrySet()) {
             if (entry.getKey().equalsIgnoreCase(S3Properties.PROVIDER)) {
-                return entry.getValue();
+                // S3 Provider properties should be case insensitive.
+                return entry.getValue().toUpperCase();
             }
         }
         return S3Properties.S3_PROVIDER;

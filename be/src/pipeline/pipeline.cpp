@@ -30,40 +30,38 @@ void Pipeline::_init_profile() {
     _pipeline_profile = std::make_unique<RuntimeProfile>(std::move(s));
 }
 
-Status Pipeline::add_operator(OperatorXPtr& op) {
+Status Pipeline::add_operator(OperatorPtr& op) {
     op->set_parallel_tasks(num_tasks());
-    operatorXs.emplace_back(op);
+    _operators.emplace_back(op);
     if (op->is_source()) {
-        std::reverse(operatorXs.begin(), operatorXs.end());
+        std::reverse(_operators.begin(), _operators.end());
     }
     return Status::OK();
 }
 
 Status Pipeline::prepare(RuntimeState* state) {
-    RETURN_IF_ERROR(operatorXs.back()->prepare(state));
-    RETURN_IF_ERROR(operatorXs.back()->open(state));
-    RETURN_IF_ERROR(_sink_x->prepare(state));
-    RETURN_IF_ERROR(_sink_x->open(state));
+    RETURN_IF_ERROR(_operators.back()->open(state));
+    RETURN_IF_ERROR(_sink->open(state));
     _name.append(std::to_string(id()));
     _name.push_back('-');
-    for (auto& op : operatorXs) {
+    for (auto& op : _operators) {
         _name.append(std::to_string(op->node_id()));
         _name.append(op->get_name());
     }
     _name.push_back('-');
-    _name.append(std::to_string(_sink_x->node_id()));
-    _name.append(_sink_x->get_name());
+    _name.append(std::to_string(_sink->node_id()));
+    _name.append(_sink->get_name());
     return Status::OK();
 }
 
-Status Pipeline::set_sink(DataSinkOperatorXPtr& sink) {
-    if (_sink_x) {
+Status Pipeline::set_sink(DataSinkOperatorPtr& sink) {
+    if (_sink) {
         return Status::InternalError("set sink twice");
     }
     if (!sink->is_sink()) {
         return Status::InternalError("should set a sink operator but {}", typeid(sink).name());
     }
-    _sink_x = sink;
+    _sink = sink;
     return Status::OK();
 }
 

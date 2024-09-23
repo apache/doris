@@ -65,7 +65,8 @@ public:
     Status finalize(const FileCacheKey& key) override;
     Status read(const FileCacheKey& key, size_t value_offset, Slice buffer) override;
     Status remove(const FileCacheKey& key) override;
-    Status change_key_meta(const FileCacheKey& key, const KeyMeta& new_meta) override;
+    Status change_key_meta_type(const FileCacheKey& key, const FileCacheType type) override;
+    Status change_key_meta_expiration(const FileCacheKey& key, const uint64_t expiration) override;
     void load_blocks_directly_unlocked(BlockFileCache* _mgr, const FileCacheKey& key,
                                        std::lock_guard<std::mutex>& cache_lock) override;
 
@@ -73,13 +74,23 @@ public:
                                                              FileCacheType type,
                                                              bool is_tmp = false);
 
+    [[nodiscard]] static std::string get_path_in_local_cache_old_ttl_format(const std::string& dir,
+                                                                            size_t offset,
+                                                                            FileCacheType type,
+                                                                            bool is_tmp = false);
+
     [[nodiscard]] std::string get_path_in_local_cache(const UInt128Wrapper&,
                                                       uint64_t expiration_time) const;
 
 private:
-    Status rebuild_data_structure() const;
+    Status upgrade_cache_dir_if_necessary() const;
 
     Status read_file_cache_version(std::string* buffer) const;
+
+    Status parse_filename_suffix_to_cache_type(const std::shared_ptr<LocalFileSystem>& fs,
+                                               const Path& file_path, long expiration_time,
+                                               size_t size, size_t* offset, bool* is_tmp,
+                                               FileCacheType* cache_type) const;
 
     Status write_file_cache_version() const;
 

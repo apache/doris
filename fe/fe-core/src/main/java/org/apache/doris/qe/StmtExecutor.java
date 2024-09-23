@@ -149,12 +149,14 @@ import org.apache.doris.nereids.minidump.MinidumpUtils;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.rules.exploration.mv.InitMaterializationContextHook;
 import org.apache.doris.nereids.trees.plans.commands.Command;
+import org.apache.doris.nereids.trees.plans.commands.CreatePolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.DeleteFromCommand;
 import org.apache.doris.nereids.trees.plans.commands.DeleteFromUsingCommand;
 import org.apache.doris.nereids.trees.plans.commands.Forward;
 import org.apache.doris.nereids.trees.plans.commands.NotAllowFallback;
 import org.apache.doris.nereids.trees.plans.commands.PrepareCommand;
+import org.apache.doris.nereids.trees.plans.commands.UnsupportedCommand;
 import org.apache.doris.nereids.trees.plans.commands.UpdateCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.BatchInsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
@@ -616,8 +618,7 @@ public class StmtExecutor {
                         throw new AnalysisException(e.getMessage());
                     }
                     if (e instanceof NereidsException
-                            && !(((NereidsException) e).getException() instanceof MustFallbackException)
-                            && !context.getSessionVariable().enableFallbackToOriginalPlanner) {
+                            && !(((NereidsException) e).getException() instanceof MustFallbackException)) {
                         LOG.warn("Analyze failed. {}", context.getQueryIdentifier(), e);
                         context.getState().setError(e.getMessage());
                         return;
@@ -700,6 +701,9 @@ public class StmtExecutor {
             if (isForwardToMaster()) {
                 throw new UserException("Forward master command is not supported for prepare statement");
             }
+            if (logicalPlan instanceof UnsupportedCommand || logicalPlan instanceof CreatePolicyCommand) {
+                throw new MustFallbackException("cannot prepare command " + logicalPlan.getClass().getSimpleName());
+            }
             logicalPlan = new PrepareCommand(String.valueOf(context.getStmtId()),
                     logicalPlan, statementContext.getPlaceholders(), originStmt);
 
@@ -708,7 +712,7 @@ public class StmtExecutor {
         if (context.isTxnModel()) {
             if (!(logicalPlan instanceof BatchInsertIntoTableCommand || logicalPlan instanceof InsertIntoTableCommand
                     || logicalPlan instanceof UpdateCommand || logicalPlan instanceof DeleteFromUsingCommand
-                    || logicalPlan instanceof DeleteFromCommand)) {
+                    || logicalPlan instanceof DeleteFromCommand || logicalPlan instanceof UnsupportedCommand)) {
                 String errMsg = "This is in a transaction, only insert, update, delete, "
                         + "commit, rollback is acceptable.";
                 throw new NereidsException(errMsg, new AnalysisException(errMsg));
@@ -783,6 +787,27 @@ public class StmtExecutor {
             }
         } else {
             context.getState().setIsQuery(true);
+            if (isForwardToMaster()) {
+                // some times the follower's meta data is out of date.
+                // so we need forward the query to master until the meta data is sync with master
+                if (context.getCommand() == MysqlCommand.COM_STMT_PREPARE) {
+                    throw new UserException("Forward master command is not supported for prepare statement");
+                }
+                if (isProxy) {
+                    // This is already a stmt forwarded from other FE.
+                    // If we goes here, means we can't find a valid Master FE(some error happens).
+                    // To avoid endless forward, throw exception here.
+                    throw new NereidsException(new UserException("The statement has been forwarded to master FE("
+                            + Env.getCurrentEnv().getSelfNode().getHost() + ") and failed to execute"
+                            + " because Master FE is not ready. You may need to check FE's status"));
+                }
+                redirectStatus = RedirectStatus.NO_FORWARD;
+                forwardToMaster();
+                if (masterOpExecutor != null && masterOpExecutor.getQueryId() != null) {
+                    context.setQueryId(masterOpExecutor.getQueryId());
+                }
+                return;
+            }
             // create plan
             // Query following createting table would throw table not exist error.
             // For example.
@@ -954,7 +979,8 @@ public class StmtExecutor {
             parseByLegacy();
             if (context.isTxnModel() && !(parsedStmt instanceof InsertStmt)
                     && !(parsedStmt instanceof TransactionStmt)) {
-                throw new TException("This is in a transaction, only insert, commit, rollback is acceptable.");
+                throw new TException("This is in a transaction, only insert, update, delete, "
+                        + "commit, rollback is acceptable.");
             }
             // support select hint e.g. select /*+ SET_VAR(query_timeout=1) */ sleep(3);
             analyzeVariablesInStmt();
@@ -1205,6 +1231,10 @@ public class StmtExecutor {
         // failed, the insert stmt should be success
         try {
             profile.updateSummary(getSummaryInfo(isFinished), isFinished, this.planner);
+            if (planner instanceof NereidsPlanner) {
+                NereidsPlanner nereidsPlanner = ((NereidsPlanner) planner);
+                profile.setPhysicalPlan(nereidsPlanner.getPhysicalPlan());
+            }
         } catch (Throwable t) {
             LOG.warn("failed to update profile, ignore this error", t);
         }
@@ -1777,6 +1807,11 @@ public class StmtExecutor {
                 sendResultSet(resultSet.get(), ((Queriable) parsedStmt).getFieldInfos());
                 isHandleQueryInFe = true;
                 LOG.info("Query {} finished", DebugUtil.printId(context.queryId));
+                if (context.getSessionVariable().enableProfile()) {
+                    if (profile != null) {
+                        this.profile.getSummaryProfile().setExecutedByFrontend(true);
+                    }
+                }
                 return;
             }
         }
@@ -2055,6 +2090,7 @@ public class StmtExecutor {
                     .setTxnConf(new TTxnParams().setNeedTxn(true).setThriftRpcTimeoutMs(5000).setTxnId(-1).setDb("")
                             .setTbl("").setMaxFilterRatio(context.getSessionVariable().getEnableInsertStrict() ? 0
                                     : context.getSessionVariable().getInsertMaxFilterRatio()));
+            context.getTxnEntry().setFirstTxnInsert(true);
             StringBuilder sb = new StringBuilder();
             sb.append("{'label':'").append(context.getTxnEntry().getLabel()).append("', 'status':'")
                     .append(TransactionStatus.PREPARE.name());
@@ -3428,8 +3464,16 @@ public class StmtExecutor {
             httpStreamParams.setLabel(insertExecutor.getLabelName());
 
             PlanNode planRoot = planner.getFragments().get(0).getPlanRoot();
-            Preconditions.checkState(planRoot instanceof TVFScanNode || planRoot instanceof GroupCommitScanNode,
-                    "Nereids' planNode cannot be converted to " + planRoot.getClass().getName());
+            boolean isValidPlan = !planner.getScanNodes().isEmpty();
+            for (ScanNode scanNode : planner.getScanNodes()) {
+                if (!(scanNode instanceof TVFScanNode || planRoot instanceof GroupCommitScanNode)) {
+                    isValidPlan = false;
+                    break;
+                }
+            }
+            if (!isValidPlan) {
+                throw new AnalysisException("plan is invalid: " + planRoot.getExplainString());
+            }
         } catch (QueryStateException e) {
             LOG.debug("Command(" + originStmt.originStmt + ") process failed.", e);
             context.setState(e.getQueryState());
@@ -3500,11 +3544,8 @@ public class StmtExecutor {
                         LOG.warn("Analyze failed. {}", context.getQueryIdentifier(), e);
                         throw ((NereidsException) e).getException();
                     }
-                    boolean isInsertIntoCommand = parsedStmt != null && parsedStmt instanceof LogicalPlanAdapter
-                            && ((LogicalPlanAdapter) parsedStmt).getLogicalPlan() instanceof InsertIntoTableCommand;
                     if (e instanceof NereidsException
-                                && !context.getSessionVariable().enableFallbackToOriginalPlanner
-                                && !isInsertIntoCommand) {
+                            && !(((NereidsException) e).getException() instanceof MustFallbackException)) {
                         LOG.warn("Analyze failed. {}", context.getQueryIdentifier(), e);
                         throw ((NereidsException) e).getException();
                     }

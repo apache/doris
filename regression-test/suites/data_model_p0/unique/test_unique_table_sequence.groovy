@@ -34,7 +34,6 @@ suite("test_unique_table_sequence") {
             "replication_allocation" = "tag.location.default: 1"
             );
         """
-        sql """ set enable_nereids_dml = ${enable_nereids_planner}; """
         sql """ set enable_nereids_planner=${enable_nereids_planner}; """
         sql "set enable_fallback_to_original_planner=false; "
         // test streamload with seq col
@@ -173,7 +172,6 @@ suite("test_unique_table_sequence") {
         }
         sql "commit;"
 
-        sql """set enable_nereids_dml = true; """
         sql """set enable_nereids_planner=true"""
 
         sql "begin;"
