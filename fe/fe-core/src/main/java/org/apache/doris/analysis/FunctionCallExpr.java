@@ -2110,7 +2110,7 @@ public class FunctionCallExpr extends Expr {
                 if (originFields.get(i).getType().isDecimalV3() || originFields.get(i).getType().isDatetimeV2()) {
                     fieldType = children.get(i).type;
                 }
-                if (argAlias.get(i) != null && !argAlias.get(i).isEmpty()) {
+                if (argAlias != null && !argAlias.get(i).isEmpty()) {
                     newFields.add(new StructField(argAlias.get(i), fieldType));
                 } else {
                     newFields.add(new StructField(StructField.DEFAULT_FIELD_NAME + (i + 1), fieldType));

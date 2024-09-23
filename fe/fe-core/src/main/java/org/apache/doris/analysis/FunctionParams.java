@@ -54,12 +54,16 @@ public class FunctionParams implements Writable {
     public FunctionParams(boolean isDistinct, List<Expr> exprs) {
         isStar = false;
         this.isDistinct = isDistinct;
-        this.exprs = exprs.stream()
-            .map(e -> e instanceof AliasArgument ? ((AliasArgument) e).getExpr() : e)
-            .collect(Collectors.toList());
-        this.exprAlias = exprs.stream()
-            .map(e -> e instanceof AliasArgument ? ((AliasArgument) e).getAlias() : "")
-            .collect(Collectors.toList());
+        if (exprs != null && exprs.stream().anyMatch(e -> e instanceof AliasArgument)) {
+            this.exprs = exprs.stream()
+                .map(e -> e instanceof AliasArgument ? ((AliasArgument) e).getExpr() : e)
+                .collect(Collectors.toList());
+            this.exprAlias = exprs.stream()
+                .map(e -> e instanceof AliasArgument ? ((AliasArgument) e).getAlias() : "")
+                .collect(Collectors.toList());
+        } else {
+            this.exprs = exprs;
+        }
     }
 
     // c'tor for non-star, non-distinct params
