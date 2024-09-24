@@ -1539,7 +1539,8 @@ TEST_F(BlockFileCacheTest, change_cache_type_memory_storage) {
         std::string data(size, '0');
         Slice result(data.data(), size);
         ASSERT_TRUE(blocks[0]->append(result).ok());
-        ASSERT_TRUE(blocks[0]->change_cache_type_between_normal_and_index(io::FileCacheType::INDEX));
+        ASSERT_TRUE(
+                blocks[0]->change_cache_type_between_normal_and_index(io::FileCacheType::INDEX));
         ASSERT_TRUE(blocks[0]->finalize().ok());
     }
 }
