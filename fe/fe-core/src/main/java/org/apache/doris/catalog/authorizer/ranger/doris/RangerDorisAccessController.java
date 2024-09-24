@@ -130,7 +130,7 @@ public class RangerDorisAccessController extends RangerAccessController {
         return checkGlobalPrivInternal(currentUser, wanted, checkedPrivs);
     }
 
-    public boolean checkGlobalPrivInternal(UserIdentity currentUser, PrivPredicate wanted, PrivBitSet checkedPrivs) {
+    private boolean checkGlobalPrivInternal(UserIdentity currentUser, PrivPredicate wanted, PrivBitSet checkedPrivs) {
         RangerDorisResource resource = new RangerDorisResource(DorisObjectType.GLOBAL, GLOBAL_PRIV_FIXED_NAME);
         return checkPrivilege(currentUser, wanted, resource, checkedPrivs);
     }
@@ -148,7 +148,7 @@ public class RangerDorisAccessController extends RangerAccessController {
         return false;
     }
 
-    public boolean checkCtlPrivInternal(UserIdentity currentUser, String ctl, PrivPredicate wanted,
+    private boolean checkCtlPrivInternal(UserIdentity currentUser, String ctl, PrivPredicate wanted,
             PrivBitSet checkedPrivs) {
         RangerDorisResource resource = new RangerDorisResource(DorisObjectType.CATALOG, ctl);
         return checkPrivilege(currentUser, wanted, resource, checkedPrivs);
@@ -173,7 +173,7 @@ public class RangerDorisAccessController extends RangerAccessController {
         return false;
     }
 
-    public boolean checkDbPrivInternal(UserIdentity currentUser, String ctl, String db, PrivPredicate wanted,
+    private boolean checkDbPrivInternal(UserIdentity currentUser, String ctl, String db, PrivPredicate wanted,
             PrivBitSet checkedPrivs) {
         RangerDorisResource resource = new RangerDorisResource(DorisObjectType.DATABASE, ctl,
                 ClusterNamespace.getNameFromFullName(db));
@@ -201,7 +201,7 @@ public class RangerDorisAccessController extends RangerAccessController {
         return false;
     }
 
-    public boolean checkTblPrivInternal(UserIdentity currentUser, String ctl, String db, String tbl,
+    private boolean checkTblPrivInternal(UserIdentity currentUser, String ctl, String db, String tbl,
             PrivPredicate wanted, PrivBitSet checkedPrivs) {
         RangerDorisResource resource = new RangerDorisResource(DorisObjectType.TABLE,
                 ctl, ClusterNamespace.getNameFromFullName(db), tbl);
