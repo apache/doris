@@ -46,7 +46,6 @@ class Config {
     public String jdbcUser
     public String jdbcPassword
 
-    // deprecate defaultDb, no create it, don't use this db anymore.
     public String defaultDb
 
     public String ccrDownstreamUrl
@@ -516,12 +515,18 @@ class Config {
         Properties props = cmd.getOptionProperties("conf")
         config.otherConfigs.putAll(props)
 
-        config.jdbcUrl = buildUrlWithDb(config.jdbcUrl, null)
-        log.info("Reset jdbcUrl to ${config.jdbcUrl}".toString())
+        String dbName = null
+        try {
+            config.tryCreateDbIfNotExist(config.defaultDb)
+            dbName = config.defaultDb
+        } catch (Exception e) {
+            // Infact, mainly auth_xxx cases use defaultDb, and they just use jdbcUrl in connect function.
+            // And they can avoid using defaultDb too. But modify all these cases take a lot work.
+            // We better delete all the usage of defaultDb in suites later, and all suites should use their own db, not the defaultDb.
+        }
 
-        // don't create defaultDb because docker suites no need external doris
-        // config.tryCreateDbIfNotExist(defaultDb)
-        // config.buildUrlWithDefaultDb()
+        config.jdbcUrl = buildUrlWithDb(config.jdbcUrl, dbName)
+        log.info("Reset jdbcUrl to ${config.jdbcUrl}".toString())
 
         return config
     }
@@ -992,10 +997,14 @@ class Config {
     }
 
     Connection getConnectionByDbName(String dbName) {
-        String dbUrl = buildUrlWithDb(jdbcUrl, dbName)
+        String dbUrl = getConnectionUrlByDbName(dbName)
         tryCreateDbIfNotExist(dbName)
         log.info("connect to ${dbUrl}".toString())
         return DriverManager.getConnection(dbUrl, jdbcUser, jdbcPassword)
+    }
+
+    String getConnectionUrlByDbName(String dbName) {
+        return buildUrlWithDb(jdbcUrl, dbName)
     }
 
     Connection getConnectionByArrowFlightSql(String dbName) {
@@ -1072,11 +1081,6 @@ class Config {
             }
             return true
         }
-    }
-
-    public void buildUrlWithDefaultDb() {
-        this.jdbcUrl = buildUrlWithDb(jdbcUrl, defaultDb)
-        log.info("Reset jdbcUrl to ${jdbcUrl}".toString())
     }
 
     public static String buildUrlWithDbImpl(String jdbcUrl, String dbName) {
