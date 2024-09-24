@@ -235,6 +235,10 @@ public:
 
     int64_t load_buffer_limit() { return _load_buffer_limit; }
 
+    void update_memory_sufficent(bool is_sufficient) { _is_sufficient = is_sufficient; }
+
+    bool memory_sufficent() const { return _is_sufficient; }
+
 private:
     mutable std::shared_mutex _mutex; // lock _name, _version, _cpu_share, _memory_limit
     const uint64_t _id;
@@ -245,6 +249,7 @@ private:
     // If the wg's memory reached high water mark, then the load buffer
     // will be restricted to this limit.
     int64_t _load_buffer_limit;
+    std::atomic<bool> _is_sufficient = true;
 
     // memory used by load memtable
     int64_t _active_mem_usage = 0;

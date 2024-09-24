@@ -321,6 +321,27 @@ public:
 
     bool low_memory_mode() { return _low_memory_mode; }
 
+    void update_paused_reason(const Status& st) {
+        std::lock_guard l(_paused_mutex);
+        if (_paused_reason.is<ErrorCode::QUERY_MEMORY_EXCEED>()) {
+            return;
+        } else if (_paused_reason.is<ErrorCode::WORKLOAD_GROUP_MEMORY_EXCEED>()) {
+            if (st.is<ErrorCode::QUERY_MEMORY_EXCEED>()) {
+                _paused_reason = st;
+                return;
+            } else {
+                return;
+            }
+        } else {
+            _paused_reason = st;
+        }
+    }
+
+    Status paused_reason() {
+        std::lock_guard l(_paused_mutex);
+        return _paused_reason;
+    }
+
 private:
     int _timeout_second;
     TUniqueId _query_id;
@@ -376,6 +397,9 @@ private:
     // Distinguish the query source, for query that comes from fe, we will have some memory structure on FE to
     // help us manage the query.
     QuerySource _query_source;
+
+    Status _paused_reason;
+    std::mutex _paused_mutex;
 
     // when fragment of pipeline is closed, it will register its profile to this map by using add_fragment_profile
     // flatten profile of one fragment:
