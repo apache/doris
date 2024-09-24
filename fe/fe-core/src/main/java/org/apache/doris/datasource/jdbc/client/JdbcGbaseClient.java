@@ -127,15 +127,14 @@ public class JdbcGbaseClient extends JdbcClient {
                 return Type.DOUBLE;
             case Types.NUMERIC:
             case Types.DECIMAL: {
-                int precision = fieldSchema.getColumnSize()
-                        .orElseThrow(() -> new IllegalArgumentException("Precision not present"));
-                int scale = fieldSchema.getDecimalDigits()
-                        .orElseThrow(() -> new JdbcClientException("Scale not present"));
+                int precision = fieldSchema.requiredColumnSize();
+                int scale = fieldSchema.requiredDecimalDigits();
                 return createDecimalOrStringType(precision, scale);
             }
             case Types.DATE:
                 return Type.DATEV2;
             case Types.TIMESTAMP: {
+                // requiredDecimalDigits cannot be used here because it may be empty
                 int scale = fieldSchema.getDecimalDigits().orElse(0);
                 if (scale > 6) {
                     scale = 6;
@@ -145,8 +144,7 @@ public class JdbcGbaseClient extends JdbcClient {
             case Types.TIME:
             case Types.CHAR:
                 ScalarType charType = ScalarType.createType(PrimitiveType.CHAR);
-                charType.setLength(fieldSchema.getColumnSize()
-                        .orElseThrow(() -> new IllegalArgumentException("Length not present")));
+                charType.setLength(fieldSchema.requiredColumnSize());
                 return charType;
             case Types.VARCHAR:
             case Types.LONGVARCHAR:

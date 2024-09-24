@@ -47,7 +47,8 @@ public class JdbcPostgreSQLClient extends JdbcClient {
             case "bigserial":
                 return Type.BIGINT;
             case "numeric": {
-                int precision = fieldSchema.getColumnSize().orElse(0);
+                int precision = fieldSchema.requiredColumnSize();
+                // requiredDecimalDigits cannot be used here because it may be empty
                 int scale = fieldSchema.getDecimalDigits().orElse(0);
                 return createDecimalOrStringType(precision, scale);
             }
@@ -57,12 +58,12 @@ public class JdbcPostgreSQLClient extends JdbcClient {
                 return Type.DOUBLE;
             case "bpchar":
                 ScalarType charType = ScalarType.createType(PrimitiveType.CHAR);
-                charType.setLength(fieldSchema.getColumnSize().orElse(0));
+                charType.setLength(fieldSchema.requiredColumnSize());
                 return charType;
             case "timestamp":
             case "timestamptz": {
                 // postgres can support microsecond
-                int scale = fieldSchema.getDecimalDigits().orElse(0);
+                int scale = fieldSchema.requiredDecimalDigits();
                 if (scale > 6) {
                     scale = 6;
                 }

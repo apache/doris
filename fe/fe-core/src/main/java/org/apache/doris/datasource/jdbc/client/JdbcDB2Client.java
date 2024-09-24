@@ -74,8 +74,8 @@ public class JdbcDB2Client extends JdbcClient {
                 return Type.BIGINT;
             case "DECFLOAT":
             case "DECIMAL": {
-                int precision = fieldSchema.getColumnSize().orElse(0);
-                int scale = fieldSchema.getDecimalDigits().orElse(0);
+                int precision = fieldSchema.requiredColumnSize();
+                int scale = fieldSchema.requiredDecimalDigits();
                 return createDecimalOrStringType(precision, scale);
             }
             case "DOUBLE":
@@ -84,12 +84,12 @@ public class JdbcDB2Client extends JdbcClient {
                 return Type.FLOAT;
             case "CHAR":
                 ScalarType charType = ScalarType.createType(PrimitiveType.CHAR);
-                charType.setLength(fieldSchema.getColumnSize().orElse(0));
+                charType.setLength(fieldSchema.requiredColumnSize());
                 return charType;
             case "VARCHAR":
             case "LONG VARCHAR":
                 ScalarType varcharType = ScalarType.createType(PrimitiveType.VARCHAR);
-                varcharType.setLength(fieldSchema.getColumnSize().orElse(0));
+                varcharType.setLength(fieldSchema.requiredColumnSize());
                 return varcharType;
             case "DATE":
                 return ScalarType.createDateV2Type();

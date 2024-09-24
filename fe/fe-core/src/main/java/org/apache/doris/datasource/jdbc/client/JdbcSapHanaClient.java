@@ -54,8 +54,8 @@ public class JdbcSapHanaClient extends JdbcClient {
                 if (!fieldSchema.getDecimalDigits().isPresent()) {
                     return Type.DOUBLE;
                 } else  {
-                    int precision = fieldSchema.getColumnSize().orElse(0);
-                    int scale = fieldSchema.getDecimalDigits().orElse(0);
+                    int precision = fieldSchema.requiredColumnSize();
+                    int scale = fieldSchema.requiredDecimalDigits();
                     return createDecimalOrStringType(precision, scale);
                 }
             }
@@ -65,7 +65,7 @@ public class JdbcSapHanaClient extends JdbcClient {
                 return Type.DOUBLE;
             case "TIMESTAMP": {
                 // postgres can support microsecond
-                int scale = fieldSchema.getDecimalDigits().orElse(0);
+                int scale = fieldSchema.requiredDecimalDigits();
                 if (scale > 6) {
                     scale = 6;
                 }

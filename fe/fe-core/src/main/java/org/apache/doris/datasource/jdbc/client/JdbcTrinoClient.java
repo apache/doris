@@ -71,7 +71,7 @@ public class JdbcTrinoClient extends JdbcClient {
         }
 
         if (trinoType.startsWith("timestamp")) {
-            int scale = fieldSchema.getDecimalDigits().orElse(0);
+            int scale = fieldSchema.requiredDecimalDigits();
             if (scale > 6) {
                 scale = 6;
             }

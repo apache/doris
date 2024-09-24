@@ -53,8 +53,8 @@ public class JdbcSQLServerClient extends JdbcClient {
                 return ScalarType.createDecimalV3Type(10, 4);
             case "decimal":
             case "numeric": {
-                int precision = fieldSchema.getColumnSize().orElse(0);
-                int scale = fieldSchema.getDecimalDigits().orElse(0);
+                int precision = fieldSchema.requiredColumnSize();
+                int scale = fieldSchema.requiredDecimalDigits();
                 return ScalarType.createDecimalV3Type(precision, scale);
             }
             case "date":

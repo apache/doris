@@ -120,7 +120,7 @@ public class JdbcOracleClient extends JdbcClient {
                 return Type.UNSUPPORTED;
             }
             // oracle can support nanosecond, will lose precision
-            int scale = fieldSchema.getDecimalDigits().orElse(0);
+            int scale = fieldSchema.requiredDecimalDigits();
             if (scale > 6) {
                 scale = 6;
             }
@@ -146,7 +146,8 @@ public class JdbcOracleClient extends JdbcClient {
              *    In this case, doris can not determine p and s, so doris can not determine data type.
              */
             case "NUMBER":
-                int precision = fieldSchema.getColumnSize().orElse(0);
+                int precision = fieldSchema.requiredColumnSize();
+                // requiredDecimalDigits cannot be used here because it may be empty
                 int scale = fieldSchema.getDecimalDigits().orElse(0);
                 if (scale <= 0) {
                     precision -= scale;
