@@ -70,7 +70,7 @@ if [[ ! -d "/mnt/scripts/tvf_data" ]]; then
     echo "/mnt/scripts/tvf_data does not exist"
     cd /mnt/scripts/
     curl -O https://doris-regression-hk.oss-cn-hongkong.aliyuncs.com/regression/datalake/pipeline_data/tvf_data.tar.gz
-    tar -zxf tvf_data.tar.gz
+    tar -xf tvf_data.tar.gz
     rm -rf tvf_data.tar.gz
     cd -
 else
