@@ -151,11 +151,13 @@ public abstract class ConnectProcessor {
         if (catalogName != null) {
             CatalogIf catalogIf = ctx.getEnv().getCatalogMgr().getCatalog(catalogName);
             if (catalogIf == null) {
-                ctx.getState().setError(ErrorCode.ERR_BAD_DB_ERROR, "No match catalog in doris: " + fullDbName);
+                ctx.getState().setError(ErrorCode.ERR_BAD_DB_ERROR,
+                        ErrorCode.ERR_BAD_DB_ERROR.formatErrorMsg(catalogName + "." + dbName));
                 return;
             }
             if (catalogIf.getDbNullable(dbName) == null) {
-                ctx.getState().setError(ErrorCode.ERR_BAD_DB_ERROR, "No match database in doris: " + fullDbName);
+                ctx.getState().setError(ErrorCode.ERR_BAD_DB_ERROR,
+                        ErrorCode.ERR_BAD_DB_ERROR.formatErrorMsg(catalogName + "." + dbName));
                 return;
             }
         }
