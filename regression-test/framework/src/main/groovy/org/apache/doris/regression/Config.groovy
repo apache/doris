@@ -514,8 +514,12 @@ class Config {
         Properties props = cmd.getOptionProperties("conf")
         config.otherConfigs.putAll(props)
 
-        // config.tryCreateDbIfNotExist()
-        config.buildUrlWithDefaultDb()
+        config.jdbcUrl = buildUrlWithDb(config.jdbcUrl, null)
+        log.info("Reset jdbcUrl to ${config.jdbcUrl}".toString())
+
+        // don't create defaultDb because docker suites no need external doris
+        // config.tryCreateDbIfNotExist(defaultDb)
+        // config.buildUrlWithDefaultDb()
 
         return config
     }
@@ -936,7 +940,7 @@ class Config {
         return null
     }
 
-    void tryCreateDbIfNotExist(String dbName = defaultDb) {
+    void tryCreateDbIfNotExist(String dbName) {
         // connect without specify default db
         try {
             String sql = "CREATE DATABASE IF NOT EXISTS ${dbName}"
@@ -1074,6 +1078,10 @@ class Config {
     }
 
     public static String buildUrlWithDbImpl(String jdbcUrl, String dbName) {
+        if (!dbName?.trim()) {
+            return jdbcUrl
+        }
+
         String urlWithDb = jdbcUrl
         String urlWithoutSchema = jdbcUrl.substring(jdbcUrl.indexOf("://") + 3)
         if (urlWithoutSchema.indexOf("/") >= 0) {
