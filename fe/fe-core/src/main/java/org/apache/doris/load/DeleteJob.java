@@ -437,7 +437,7 @@ public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJ
                         LOG.warn("could not find tablet id for replica {}, the tablet maybe dropped", replica);
                         return;
                     }
-                    tabletCommitInfos.add(new TabletCommitInfo(tabletId, replica.getBackendId()));
+                    tabletCommitInfos.add(new TabletCommitInfo(tabletId, replica.getBackendIdWithoutException()));
                 }));
         return tabletCommitInfos;
     }
