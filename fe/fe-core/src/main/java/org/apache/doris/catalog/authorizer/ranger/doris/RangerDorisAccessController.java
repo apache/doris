@@ -30,6 +30,7 @@ import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
 import com.google.common.annotations.VisibleForTesting;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.apache.ranger.plugin.policyengine.RangerAccessRequest.ResourceMatchingScope;
 import org.apache.ranger.plugin.policyengine.RangerAccessRequestImpl;
 import org.apache.ranger.plugin.policyengine.RangerAccessResult;
 import org.apache.ranger.plugin.policyengine.RangerAccessResultProcessor;
@@ -126,14 +127,30 @@ public class RangerDorisAccessController extends RangerAccessController {
     @Override
     public boolean checkCtlPriv(UserIdentity currentUser, String ctl, PrivPredicate wanted) {
         PrivBitSet checkedPrivs = PrivBitSet.of();
-        return checkGlobalPrivInternal(currentUser, wanted, checkedPrivs)
-                || checkCtlPrivInternal(currentUser, ctl, wanted, checkedPrivs);
+        if (checkGlobalPrivInternal(currentUser, wanted, checkedPrivs)
+                || checkCtlPrivInternal(currentUser, ctl, wanted, checkedPrivs)) {
+            return true;
+        }
+        // if user has any privs of table in this db, and the wanted priv is SHOW, return true
+        if (wanted == PrivPredicate.SHOW && checkAnyPrivWithinCtl(currentUser, ctl)) {
+            return true;
+        }
+        return false;
     }
 
     public boolean checkCtlPrivInternal(UserIdentity currentUser, String ctl, PrivPredicate wanted,
             PrivBitSet checkedPrivs) {
         RangerDorisResource resource = new RangerDorisResource(DorisObjectType.CATALOG, ctl);
         return checkPrivilege(currentUser, wanted, resource, checkedPrivs);
+    }
+
+    private boolean checkAnyPrivWithinCtl(UserIdentity currentUser, String ctl) {
+        RangerDorisResource resource = new RangerDorisResource(DorisObjectType.CATALOG, ctl);
+        RangerAccessRequestImpl request = createRequest(currentUser);
+        request.setResource(resource);
+        request.setResourceMatchingScope(ResourceMatchingScope.SELF_OR_DESCENDANTS);
+        RangerAccessResult result = dorisPlugin.isAccessAllowed(request);
+        return checkRequestResult(request, result, null);
     }
 
     @Override
