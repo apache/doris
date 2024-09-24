@@ -236,7 +236,11 @@ public:
                             bool* has_running_task) const;
     size_t get_revocable_size() const;
 
-    void set_mem_limit(int64_t new_mem_limit) { query_mem_tracker->set_limit(new_mem_limit); }
+    // This method is called by workload group manager to set query's memlimit using slot
+    // If user set query limit explicitly, then should use less one
+    void set_mem_limit(int64_t new_mem_limit) {
+        query_mem_tracker->set_limit(std::min<int64_t>(new_mem_limit, _user_set_mem_limit));
+    }
 
     std::shared_ptr<MemTrackerLimiter>& get_mem_tracker() { return query_mem_tracker; }
 
@@ -323,10 +327,10 @@ public:
 
     void update_paused_reason(const Status& st) {
         std::lock_guard l(_paused_mutex);
-        if (_paused_reason.is<ErrorCode::QUERY_MEMORY_EXCEED>()) {
+        if (_paused_reason.is<ErrorCode::QUERY_MEMORY_EXCEEDED>()) {
             return;
-        } else if (_paused_reason.is<ErrorCode::WORKLOAD_GROUP_MEMORY_EXCEED>()) {
-            if (st.is<ErrorCode::QUERY_MEMORY_EXCEED>()) {
+        } else if (_paused_reason.is<ErrorCode::WORKLOAD_GROUP_MEMORY_EXCEEDED>()) {
+            if (st.is<ErrorCode::QUERY_MEMORY_EXCEEDED>()) {
                 _paused_reason = st;
                 return;
             } else {
@@ -389,8 +393,8 @@ private:
     std::map<int, std::weak_ptr<pipeline::PipelineFragmentContext>> _fragment_id_to_pipeline_ctx;
     std::mutex _pipeline_map_write_lock;
 
-    std::atomic<int64_t> _spill_threshold {0};
     std::atomic<bool> _low_memory_mode = false;
+    int64_t _user_set_mem_limit = 0;
 
     std::mutex _profile_mutex;
     timespec _query_arrival_timestamp;
