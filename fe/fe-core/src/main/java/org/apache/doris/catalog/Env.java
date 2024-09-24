@@ -78,6 +78,7 @@ import org.apache.doris.analysis.TableRenameClause;
 import org.apache.doris.analysis.TruncateTableStmt;
 import org.apache.doris.analysis.UninstallPluginStmt;
 import org.apache.doris.backup.BackupHandler;
+import org.apache.doris.backup.RestoreJob;
 import org.apache.doris.binlog.BinlogGcer;
 import org.apache.doris.binlog.BinlogManager;
 import org.apache.doris.blockrule.SqlBlockRuleMgr;
@@ -3308,6 +3309,10 @@ public class Env {
             sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_LIGHT_DELETE).append("\" = \"");
             sb.append(olapTable.getEnableMowLightDelete()).append("\"");
 
+            if (olapTable.isInAtomicRestore()) {
+                sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_IN_ATOMIC_RESTORE).append("\" = \"true\"");
+            }
+
             sb.append("\n)");
         } else if (table.getType() == TableType.MYSQL) {
             MysqlTable mysqlTable = (MysqlTable) table;
@@ -4131,6 +4136,9 @@ public class Env {
                 // check if name is already used
                 if (db.getTable(newTableName).isPresent()) {
                     throw new DdlException("Table name[" + newTableName + "] is already used");
+                }
+                if (db.getTable(RestoreJob.tableAliasWithAtomicRestore(newTableName)).isPresent()) {
+                    throw new DdlException("Table name[" + newTableName + "] is already used (in restoring)");
                 }
 
                 if (table.getType() == TableType.OLAP) {
