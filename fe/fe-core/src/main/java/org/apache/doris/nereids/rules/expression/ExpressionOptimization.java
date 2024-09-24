@@ -25,6 +25,8 @@ import org.apache.doris.nereids.rules.expression.rules.ExtractCommonFactorRule;
 import org.apache.doris.nereids.rules.expression.rules.LikeToEqualRewrite;
 import org.apache.doris.nereids.rules.expression.rules.NullSafeEqualToEqual;
 import org.apache.doris.nereids.rules.expression.rules.OrToIn;
+import org.apache.doris.nereids.rules.expression.rules.RegrAvgXToAvg;
+import org.apache.doris.nereids.rules.expression.rules.RegrAvgYToAvg;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyComparisonPredicate;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyDecimalV3Comparison;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyInPredicate;
@@ -41,19 +43,21 @@ import java.util.List;
 public class ExpressionOptimization extends ExpressionRewrite {
     public static final List<ExpressionRewriteRule> OPTIMIZE_REWRITE_RULES = ImmutableList.of(
             bottomUp(
-                ExtractCommonFactorRule.INSTANCE,
-                DistinctPredicatesRule.INSTANCE,
-                SimplifyComparisonPredicate.INSTANCE,
-                SimplifyInPredicate.INSTANCE,
-                SimplifyDecimalV3Comparison.INSTANCE,
-                OrToIn.INSTANCE,
-                SimplifyRange.INSTANCE,
-                DateFunctionRewrite.INSTANCE,
-                ArrayContainToArrayOverlap.INSTANCE,
-                CaseWhenToIf.INSTANCE,
-                TopnToMax.INSTANCE,
-                NullSafeEqualToEqual.INSTANCE,
-                LikeToEqualRewrite.INSTANCE
+                    ExtractCommonFactorRule.INSTANCE,
+                    DistinctPredicatesRule.INSTANCE,
+                    SimplifyComparisonPredicate.INSTANCE,
+                    SimplifyInPredicate.INSTANCE,
+                    SimplifyDecimalV3Comparison.INSTANCE,
+                    OrToIn.INSTANCE,
+                    SimplifyRange.INSTANCE,
+                    DateFunctionRewrite.INSTANCE,
+                    ArrayContainToArrayOverlap.INSTANCE,
+                    CaseWhenToIf.INSTANCE,
+                    TopnToMax.INSTANCE,
+                    NullSafeEqualToEqual.INSTANCE,
+                    LikeToEqualRewrite.INSTANCE,
+                    RegrAvgXToAvg.INSTANCE,
+                    RegrAvgYToAvg.INSTANCE
             )
     );
     private static final ExpressionRuleExecutor EXECUTOR = new ExpressionRuleExecutor(OPTIMIZE_REWRITE_RULES);
