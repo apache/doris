@@ -21,6 +21,8 @@ suite("test_hive_partition_values_tvf", "p0,external,hive,external_docker,extern
         logger.info("disable Hive test.")
         return;
     }
+    sql """set enable_nereids_planner=true"""
+    sql """set enable_fallback_to_original_planner=false"""
     for (String hivePrefix : ["hive3"]) {
         String extHiveHmsHost = context.config.otherConfigs.get("externalEnvIp")
         String extHiveHmsPort = context.config.otherConfigs.get(hivePrefix + "HmsPort")
