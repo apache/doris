@@ -21,7 +21,7 @@
 
 #include "olap/rowset/segment_v2/inverted_index/query_v2/operator.h"
 
-namespace doris::segment_v2::idx_query_v2 {
+namespace doris::segment_v2::inverted_index {
 
 class DisjunctionOp : public Operator {
 public:
@@ -56,4 +56,4 @@ private:
 
 using DisjunctionOpPtr = std::shared_ptr<DisjunctionOp>;
 
-} // namespace doris::segment_v2::idx_query_v2
+} // namespace doris::segment_v2::inverted_index

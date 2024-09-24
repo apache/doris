@@ -420,6 +420,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_INVERTED_INDEX_QUERY = "enable_inverted_index_query";
 
+    public static final String ENABLE_INVERTED_INDEX_QUERY_V2 = "enable_inverted_index_query_v2";
+
     public static final String ENABLE_COMMON_EXPR_PUSHDOWN_FOR_INVERTED_INDEX
             = "enable_common_expr_pushdown_for_inverted_index";
 
@@ -1563,6 +1565,11 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_INVERTED_INDEX_QUERY, needForward = true, description = {
             "是否启用inverted index query。", "Set whether to use inverted index query."})
     public boolean enableInvertedIndexQuery = true;
+
+    // Whether enable query v2 with inverted index.
+    @VariableMgr.VarAttr(name = ENABLE_INVERTED_INDEX_QUERY_V2, needForward = true, description = {
+            "是否启用inverted index query v2。", "Set whether to use inverted index query v2."})
+    public boolean enableInvertedIndexQueryV2 = false;
 
     // Whether enable query expr with inverted index.
     @VariableMgr.VarAttr(name = ENABLE_COMMON_EXPR_PUSHDOWN_FOR_INVERTED_INDEX, fuzzy = true, needForward = true,
@@ -3561,6 +3568,13 @@ public class SessionVariable implements Serializable, Writable {
         this.enableInvertedIndexQuery = enableInvertedIndexQuery;
     }
 
+    public boolean isEnableInvertedIndexQueryV2() {
+        return enableInvertedIndexQueryV2;
+    }
+
+    public void setEnableInvertedIndexQueryV2(boolean enableInvertedIndexQueryV2) {
+        this.enableInvertedIndexQueryV2 = enableInvertedIndexQueryV2;
+    }
 
     public boolean isEnableCommonExprPushdownForInvertedIndex() {
         return enableCommonExpPushDownForInvertedIndex;
@@ -3736,6 +3750,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setFileCacheBasePath(fileCacheBasePath);
 
         tResult.setEnableInvertedIndexQuery(enableInvertedIndexQuery);
+        tResult.setEnableInvertedIndexQueryV2(enableInvertedIndexQueryV2);
         tResult.setEnableCommonExprPushdownForInvertedIndex(enableCommonExpPushDownForInvertedIndex);
         tResult.setEnableNoNeedReadDataOpt(enableNoNeedReadDataOpt);
 

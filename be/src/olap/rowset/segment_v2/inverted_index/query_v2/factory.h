@@ -19,7 +19,7 @@
 
 #include "olap/rowset/segment_v2/inverted_index/query_v2/node.h"
 
-namespace doris::segment_v2::idx_query_v2 {
+namespace doris::segment_v2::inverted_index {
 
 enum class QueryType;
 enum class OperatorType;
@@ -38,4 +38,4 @@ public:
     static Result<Node> create(OperatorType query_type);
 };
 
-} // namespace doris::segment_v2::idx_query_v2
+} // namespace doris::segment_v2::inverted_index

@@ -24,7 +24,7 @@
 
 #include "common/status.h"
 
-namespace doris::segment_v2::idx_query_v2 {
+namespace doris::segment_v2::inverted_index {
 
 class ConjunctionOp;
 class DisjunctionOp;
@@ -125,4 +125,4 @@ struct Cost {
     }
 };
 
-} // namespace doris::segment_v2::idx_query_v2
+} // namespace doris::segment_v2::inverted_index

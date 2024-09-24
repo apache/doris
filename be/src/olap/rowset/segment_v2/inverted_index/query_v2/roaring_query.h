@@ -22,7 +22,7 @@
 #include "gutil/integral_types.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/query.h"
 
-namespace doris::segment_v2::idx_query_v2 {
+namespace doris::segment_v2::inverted_index {
 
 class RoaringQuery : public Query {
 public:
@@ -60,4 +60,4 @@ private:
     roaring::Roaring::const_iterator _end;
 };
 
-} // namespace doris::segment_v2::idx_query_v2
+} // namespace doris::segment_v2::inverted_index

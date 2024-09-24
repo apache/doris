@@ -17,9 +17,9 @@
 
 #include "olap/rowset/segment_v2/inverted_index/query_v2/roaring_query.h"
 
-namespace doris::segment_v2::idx_query_v2 {
+namespace doris::segment_v2::inverted_index {
 
 RoaringQuery::RoaringQuery(const std::shared_ptr<roaring::Roaring>& roaring)
         : _roaring(roaring), _iter(_roaring->end()), _end(_roaring->end()) {}
 
-} // namespace doris::segment_v2::idx_query_v2
+} // namespace doris::segment_v2::inverted_index

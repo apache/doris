@@ -19,7 +19,7 @@
 
 #include "olap/rowset/segment_v2/inverted_index/query_v2/query.h"
 
-namespace doris::segment_v2::idx_query_v2 {
+namespace doris::segment_v2::inverted_index {
 
 class PhraseQuery : public Query {
 public:
@@ -35,4 +35,4 @@ public:
     int64_t cost() const { return -1; }
 };
 
-} // namespace doris::segment_v2::idx_query_v2
+} // namespace doris::segment_v2::inverted_index

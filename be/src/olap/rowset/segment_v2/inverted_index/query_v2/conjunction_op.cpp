@@ -22,7 +22,7 @@
 #include "olap/rowset/segment_v2/inverted_index/query_v2/roaring_query.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/term_query.h"
 
-namespace doris::segment_v2::idx_query_v2 {
+namespace doris::segment_v2::inverted_index {
 
 Status ConjunctionOp::init() {
     if (_childrens.size() < 2) {
@@ -91,4 +91,4 @@ int64_t ConjunctionOp::cost() const {
     return visit_node(*_lead1, Cost {});
 }
 
-} // namespace doris::segment_v2::idx_query_v2
+} // namespace doris::segment_v2::inverted_index

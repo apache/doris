@@ -23,7 +23,7 @@
 #include "olap/rowset/segment_v2/inverted_index/query_v2/roaring_query.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/term_query.h"
 
-namespace doris::segment_v2::idx_query_v2 {
+namespace doris::segment_v2::inverted_index {
 
 DisjunctionOp::~DisjunctionOp() {
     while (!_pq.empty()) {
@@ -83,4 +83,4 @@ int64_t DisjunctionOp::cost() const {
     return _cost;
 }
 
-} // namespace doris::segment_v2::idx_query_v2
+} // namespace doris::segment_v2::inverted_index

@@ -599,8 +599,9 @@ lucene::store::IndexOutput* DorisFSDirectory::createOutput(const char* name) {
     } catch (CLuceneError& err) {
         ret->close();
         _CLDELETE(ret)
-        LOG(WARNING) << "FSIndexOutput init error: " << err.what();
-        _CLTHROWA(CL_ERR_IO, "FSIndexOutput init error");
+        auto err_msg = fmt::format("FSIndexOutput init error: {}", err.what());
+        LOG(WARNING) << err_msg;
+        _CLTHROWA(CL_ERR_IO, err_msg.c_str());
     }
     return ret;
 }

@@ -20,7 +20,7 @@
 #include "olap/rowset/segment_v2/inverted_index/query_v2/node.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/query.h"
 
-namespace doris::segment_v2::idx_query_v2 {
+namespace doris::segment_v2::inverted_index {
 
 enum class OperatorType;
 class BooleanQuery : public Query {
@@ -53,4 +53,4 @@ private:
     Node _op;
 };
 
-} // namespace doris::segment_v2::idx_query_v2
+} // namespace doris::segment_v2::inverted_index

@@ -36,6 +36,7 @@
 #include "olap/field.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/column_reader.h" // ColumnReader
+#include "olap/rowset/segment_v2/inverted_index/reader/reader.h"
 #include "olap/rowset/segment_v2/page_handle.h"
 #include "olap/rowset/segment_v2/stream_reader.h"
 #include "olap/schema.h"
@@ -202,6 +203,8 @@ public:
     }
 
     const TabletSchemaSPtr& tablet_schema() { return _tablet_schema; }
+    Result<inverted_index::InvertedIndexReaderPtr> get_inverted_index_reader(
+            int32_t column_unique_id);
 
 private:
     DISALLOW_COPY_AND_ASSIGN(Segment);
@@ -224,6 +227,7 @@ private:
     Status _open_inverted_index();
 
     Status _create_column_readers_once();
+    Status _load_inverted_index_index_reader_once();
 
 private:
     friend class SegmentIterator;
@@ -284,6 +288,7 @@ private:
     // inverted index file reader
     std::shared_ptr<InvertedIndexFileReader> _inverted_index_file_reader;
     DorisCallOnce<Status> _inverted_index_file_reader_open;
+    std::map<int32_t, std::shared_ptr<inverted_index::InvertedIndexReader>> _inverted_index_readers;
 
     InvertedIndexFileInfo _idx_file_info;
 

@@ -815,6 +815,45 @@ Status Segment::new_bitmap_index_iterator(const TabletColumn& tablet_column,
     return Status::OK();
 }
 
+Status Segment::_load_inverted_index_index_reader_once() {
+    return _inverted_index_file_reader_open.call([&] {
+        RETURN_IF_ERROR(_open_inverted_index());
+        // Not check type valid, since we need to get inverted index for related variant type when reading the segment.
+        // If check type valid, we can not get inverted index for variant type, and result nullptr.The result for calling
+        // get_inverted_index with variant suffix should return corresponding inverted index meta.
+        bool check_inverted_index_by_type = false;
+        for (auto&& column : _tablet_schema->columns()) {
+            if (_tablet_schema->has_inverted_index(*column)) {
+                const auto* index_meta =
+                        _tablet_schema->get_inverted_index(*column, check_inverted_index_by_type);
+                auto inverted_index_reader = inverted_index::InvertedIndexReader::create_shared(
+                        index_meta, _inverted_index_file_reader);
+                _inverted_index_readers[column->unique_id()] = std::move(inverted_index_reader);
+            }
+        }
+        return Status::OK();
+    });
+}
+
+Result<inverted_index::InvertedIndexReaderPtr> Segment::get_inverted_index_reader(
+        int32_t column_unique_id) {
+    if (_inverted_index_file_reader == nullptr) {
+        auto st = _load_inverted_index_index_reader_once();
+        if (!st.ok()) {
+            return ResultError(st);
+        }
+    }
+    if (_inverted_index_readers.contains(column_unique_id)) {
+        auto inverted_index_reader = _inverted_index_readers[column_unique_id];
+        auto st = inverted_index_reader->init_index_reader();
+        if (!st.ok()) {
+            return ResultError(st);
+        }
+        return std::move(inverted_index_reader);
+    }
+    return nullptr;
+}
+
 Status Segment::new_inverted_index_iterator(const TabletColumn& tablet_column,
                                             const TabletIndex* index_meta,
                                             const StorageReadOptions& read_options,

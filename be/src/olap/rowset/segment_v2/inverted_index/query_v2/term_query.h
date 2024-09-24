@@ -21,11 +21,11 @@
 
 #include "olap/rowset/segment_v2/inverted_index/query_v2/query.h"
 
-namespace doris::segment_v2::idx_query_v2 {
+namespace doris::segment_v2::inverted_index {
 
 class TermQuery : public Query {
 public:
-    TermQuery(const std::shared_ptr<lucene::search::IndexSearcher>& searcher,
+    TermQuery(const std::shared_ptr<lucene::index::IndexReader>& reader,
               const TQueryOptions& query_options, QueryInfo query_info);
     ~TermQuery() override;
 
@@ -41,4 +41,4 @@ private:
     TermIterator _iter;
 };
 
-} // namespace doris::segment_v2::idx_query_v2
+} // namespace doris::segment_v2::inverted_index
