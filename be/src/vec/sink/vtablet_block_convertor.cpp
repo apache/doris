@@ -29,6 +29,7 @@
 #include <utility>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/consts.h"
 #include "common/status.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
@@ -573,9 +574,14 @@ Status OlapTableBlockConvertor::_partial_update_fill_auto_inc_cols(vectorized::B
     for (size_t i = 0; i < rows; i++) {
         dst_values.emplace_back(_auto_inc_id_allocator.next_id());
     }
+    // in VRowDistribution we reuse _batching_block, so the input block may already include PARTIAL_UPDATE_AUTO_INC_COL,
+    // here to avoid duplicate PARTIAL_UPDATE_AUTO_INC_COL, we erase it at first
+    if (block->has(BeConsts::PARTIAL_UPDATE_AUTO_INC_COL)) {
+        block->erase(BeConsts::PARTIAL_UPDATE_AUTO_INC_COL);
+    }
     block->insert(vectorized::ColumnWithTypeAndName(std::move(dst_column),
                                                     std::make_shared<DataTypeNumber<Int64>>(),
-                                                    "__PARTIAL_UPDATE_AUTO_INC_COLUMN__"));
+                                                    BeConsts::PARTIAL_UPDATE_AUTO_INC_COL));
     return Status::OK();
 }
 
