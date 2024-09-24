@@ -601,7 +601,8 @@ public class MaterializedViewHandler extends AlterHandler {
             }
         }
 
-        if (newMVColumns.size() == olapTable.getBaseSchema().size() && !addMVClause.isReplay()) {
+        if (newMVColumns.size() == olapTable.getBaseSchema().size() && !addMVClause.isReplay()
+                && addMVClause.getMVKeysType() == olapTable.getKeysType()) {
             boolean allKeysMatch = true;
             for (int i = 0; i < newMVColumns.size(); i++) {
                 if (!CreateMaterializedViewStmt.mvColumnBreaker(newMVColumns.get(i).getName())
