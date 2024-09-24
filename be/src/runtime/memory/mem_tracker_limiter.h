@@ -150,23 +150,6 @@ public:
 
     void release(int64_t bytes) { _mem_counter.sub(bytes); }
 
-    bool try_consume(int64_t bytes) {
-        if (UNLIKELY(bytes == 0)) {
-            return true;
-        }
-        bool rt = true;
-        if (is_overcommit_tracker() && !config::enable_query_memory_overcommit) {
-            rt = _mem_counter.try_add(bytes, _limit);
-        } else {
-            _mem_counter.add(bytes);
-        }
-        if (rt && _query_statistics) {
-            _query_statistics->set_max_peak_memory_bytes(peak_consumption());
-            _query_statistics->set_current_used_memory_bytes(consumption());
-        }
-        return rt;
-    }
-
     void set_consumption(int64_t bytes) { _mem_counter.set(bytes); }
 
     // Transfer 'bytes' of consumption from this tracker to 'dst'.
@@ -189,7 +172,14 @@ public:
     int64_t reserved_peak_consumption() const { return _reserved_counter.peak_value(); }
 
     bool try_reserve(int64_t bytes) {
-        bool rt = try_consume(bytes);
+        if (UNLIKELY(bytes == 0)) {
+            return true;
+        }
+        bool rt = _mem_counter.try_add(bytes, _limit);
+        if (rt && _query_statistics) {
+            _query_statistics->set_max_peak_memory_bytes(peak_consumption());
+            _query_statistics->set_current_used_memory_bytes(consumption());
+        }
         if (rt) {
             _reserved_counter.add(bytes);
         }

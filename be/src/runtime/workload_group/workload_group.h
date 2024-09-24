@@ -121,6 +121,7 @@ public:
             return true;
         }
     }
+
     void sub_wg_refresh_interval_memory_growth(int64_t size) {
         _wg_refresh_interval_memory_growth.fetch_sub(size);
     }

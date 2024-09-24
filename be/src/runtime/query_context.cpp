@@ -119,11 +119,11 @@ QueryContext::QueryContext(TUniqueId query_id, ExecEnv* exec_env,
 void QueryContext::_init_query_mem_tracker() {
     bool has_query_mem_limit = _query_options.__isset.mem_limit && (_query_options.mem_limit > 0);
     int64_t bytes_limit = has_query_mem_limit ? _query_options.mem_limit : -1;
-    if (bytes_limit > MemInfo::mem_limit()) {
+    if (bytes_limit > MemInfo::mem_limit() || bytes_limit == -1) {
         VLOG_NOTICE << "Query memory limit " << PrettyPrinter::print(bytes_limit, TUnit::BYTES)
                     << " exceeds process memory limit of "
                     << PrettyPrinter::print(MemInfo::mem_limit(), TUnit::BYTES)
-                    << ". Using process memory limit instead";
+                    << " OR is -1. Using process memory limit instead.";
         bytes_limit = MemInfo::mem_limit();
     }
     if (_query_options.query_type == TQueryType::SELECT) {
@@ -142,6 +142,7 @@ void QueryContext::_init_query_mem_tracker() {
     if (_query_options.__isset.is_report_success && _query_options.is_report_success) {
         query_mem_tracker->enable_print_log_usage();
     }
+    _user_set_mem_limit = bytes_limit;
 }
 
 QueryContext::~QueryContext() {
