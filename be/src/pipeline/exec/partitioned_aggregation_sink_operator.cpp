@@ -105,7 +105,7 @@ void PartitionedAggSinkLocalState::_init_counters() {
     COUNTER_SET(_max_row_size_counter, (int64_t)0);
 
     _spill_serialize_hash_table_timer =
-            ADD_CHILD_TIMER_WITH_LEVEL(Base::profile(), "SpillSerializeHashTableTime", "Spill", 1);
+            ADD_TIMER_WITH_LEVEL(Base::profile(), "SpillSerializeHashTableTime", 1);
 }
 #define UPDATE_PROFILE(counter, name)                           \
     do {                                                        \

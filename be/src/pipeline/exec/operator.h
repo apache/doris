@@ -291,25 +291,21 @@ public:
 
     Status init(RuntimeState* state, LocalStateInfo& info) override {
         RETURN_IF_ERROR(PipelineXLocalState<SharedStateArg>::init(state, info));
-        _spill_counters = ADD_LABEL_COUNTER_WITH_LEVEL(Base::profile(), "Spill", 1);
-        _spill_recover_time =
-                ADD_CHILD_TIMER_WITH_LEVEL(Base::profile(), "SpillRecoverTime", "Spill", 1);
-        _spill_read_data_time =
-                ADD_CHILD_TIMER_WITH_LEVEL(Base::profile(), "SpillReadDataTime", "Spill", 1);
-        _spill_deserialize_time =
-                ADD_CHILD_TIMER_WITH_LEVEL(Base::profile(), "SpillDeserializeTime", "Spill", 1);
-        _spill_read_bytes = ADD_CHILD_COUNTER_WITH_LEVEL(Base::profile(), "SpillReadDataSize",
-                                                         TUnit::BYTES, "Spill", 1);
+        _spill_timer = ADD_TIMER_WITH_LEVEL(Base::profile(), "SpillTime", 1);
+        _spill_recover_time = ADD_TIMER_WITH_LEVEL(Base::profile(), "SpillRecoverTime", 1);
+        _spill_read_data_time = ADD_TIMER_WITH_LEVEL(Base::profile(), "SpillReadDataTime", 1);
+        _spill_deserialize_time = ADD_TIMER_WITH_LEVEL(Base::profile(), "SpillDeserializeTime", 1);
+        _spill_read_bytes =
+                ADD_COUNTER_WITH_LEVEL(Base::profile(), "SpillReadDataSize", TUnit::BYTES, 1);
         _spill_wait_in_queue_timer =
-                ADD_CHILD_TIMER_WITH_LEVEL(Base::profile(), "SpillWaitInQueueTime", "Spill", 1);
+                ADD_TIMER_WITH_LEVEL(Base::profile(), "SpillWaitInQueueTime", 1);
         _spill_write_wait_io_timer =
-                ADD_CHILD_TIMER_WITH_LEVEL(Base::profile(), "SpillWriteWaitIOTime", "Spill", 1);
-        _spill_read_wait_io_timer =
-                ADD_CHILD_TIMER_WITH_LEVEL(Base::profile(), "SpillReadWaitIOTime", "Spill", 1);
+                ADD_TIMER_WITH_LEVEL(Base::profile(), "SpillWriteWaitIOTime", 1);
+        _spill_read_wait_io_timer = ADD_TIMER_WITH_LEVEL(Base::profile(), "SpillReadWaitIOTime", 1);
         return Status::OK();
     }
 
-    RuntimeProfile::Counter* _spill_counters = nullptr;
+    RuntimeProfile::Counter* _spill_timer = nullptr;
     RuntimeProfile::Counter* _spill_recover_time;
     RuntimeProfile::Counter* _spill_read_data_time;
     RuntimeProfile::Counter* _spill_deserialize_time;
@@ -594,22 +590,19 @@ public:
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override {
         RETURN_IF_ERROR(Base::init(state, info));
 
-        _spill_counters = ADD_LABEL_COUNTER_WITH_LEVEL(Base::profile(), "Spill", 1);
-        _spill_timer = ADD_CHILD_TIMER_WITH_LEVEL(Base::profile(), "SpillTime", "Spill", 1);
+        _spill_timer = ADD_TIMER_WITH_LEVEL(Base::profile(), "SpillTime", 1);
         _spill_serialize_block_timer =
-                ADD_CHILD_TIMER_WITH_LEVEL(Base::profile(), "SpillSerializeBlockTime", "Spill", 1);
-        _spill_write_disk_timer =
-                ADD_CHILD_TIMER_WITH_LEVEL(Base::profile(), "SpillWriteDiskTime", "Spill", 1);
-        _spill_data_size = ADD_CHILD_COUNTER_WITH_LEVEL(Base::profile(), "SpillWriteDataSize",
-                                                        TUnit::BYTES, "Spill", 1);
-        _spill_block_count = ADD_CHILD_COUNTER_WITH_LEVEL(Base::profile(), "SpillWriteBlockCount",
-                                                          TUnit::UNIT, "Spill", 1);
+                ADD_TIMER_WITH_LEVEL(Base::profile(), "SpillSerializeBlockTime", 1);
+        _spill_write_disk_timer = ADD_TIMER_WITH_LEVEL(Base::profile(), "SpillWriteDiskTime", 1);
+        _spill_data_size =
+                ADD_COUNTER_WITH_LEVEL(Base::profile(), "SpillWriteDataSize", TUnit::BYTES, 1);
+        _spill_block_count =
+                ADD_COUNTER_WITH_LEVEL(Base::profile(), "SpillWriteBlockCount", TUnit::UNIT, 1);
         _spill_wait_in_queue_timer =
-                ADD_CHILD_TIMER_WITH_LEVEL(Base::profile(), "SpillWaitInQueueTime", "Spill", 1);
+                ADD_TIMER_WITH_LEVEL(Base::profile(), "SpillWaitInQueueTime", 1);
         _spill_write_wait_io_timer =
-                ADD_CHILD_TIMER_WITH_LEVEL(Base::profile(), "SpillWriteWaitIOTime", "Spill", 1);
-        _spill_read_wait_io_timer =
-                ADD_CHILD_TIMER_WITH_LEVEL(Base::profile(), "SpillReadWaitIOTime", "Spill", 1);
+                ADD_TIMER_WITH_LEVEL(Base::profile(), "SpillWriteWaitIOTime", 1);
+        _spill_read_wait_io_timer = ADD_TIMER_WITH_LEVEL(Base::profile(), "SpillReadWaitIOTime", 1);
         return Status::OK();
     }
 
@@ -618,7 +611,6 @@ public:
         return dependencies;
     }
 
-    RuntimeProfile::Counter* _spill_counters = nullptr;
     RuntimeProfile::Counter* _spill_timer = nullptr;
     RuntimeProfile::Counter* _spill_serialize_block_timer = nullptr;
     RuntimeProfile::Counter* _spill_write_disk_timer = nullptr;

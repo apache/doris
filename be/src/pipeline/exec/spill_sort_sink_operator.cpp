@@ -55,14 +55,11 @@ void SpillSortSinkLocalState::_init_counters() {
 
     _partial_sort_timer = ADD_TIMER(_profile, "PartialSortTime");
     _merge_block_timer = ADD_TIMER(_profile, "MergeBlockTime");
-    _sort_blocks_memory_usage =
-            ADD_CHILD_COUNTER_WITH_LEVEL(_profile, "SortBlocks", TUnit::BYTES, "MemoryUsage", 1);
+    _sort_blocks_memory_usage = ADD_COUNTER_WITH_LEVEL(_profile, "SortBlocks", TUnit::BYTES, 1);
 
-    _spill_merge_sort_timer =
-            ADD_CHILD_TIMER_WITH_LEVEL(_profile, "SpillMergeSortTime", "Spill", 1);
+    _spill_merge_sort_timer = ADD_TIMER_WITH_LEVEL(_profile, "SpillMergeSortTime", 1);
 
-    _spill_wait_in_queue_timer =
-            ADD_CHILD_TIMER_WITH_LEVEL(profile(), "SpillWaitInQueueTime", "Spill", 1);
+    _spill_wait_in_queue_timer = ADD_TIMER_WITH_LEVEL(profile(), "SpillWaitInQueueTime", 1);
 }
 #define UPDATE_PROFILE(counter, name)                           \
     do {                                                        \
