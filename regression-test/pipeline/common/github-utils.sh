@@ -308,6 +308,7 @@ file_changed_cloud_p0() {
             [[ "${af}" == 'build.sh' ]] ||
             [[ "${af}" == 'env.sh' ]] ||
             [[ "${af}" == 'run-regression-test.sh' ]] ||
+            [[ "${af}" == 'cloud/CMakeLists.txt' ]] ||
             [[ "${af}" == 'cloud/src/'* ]] ||
             [[ "${af}" == 'cloud/cmake/'* ]] ||
             [[ "${af}" == 'cloud/test/'* ]]; then

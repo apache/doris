@@ -8,6 +8,7 @@ UNIQUE KEY(`N_NATIONKEY`)
 COMMENT "OLAP"
 DISTRIBUTED BY HASH(`N_NATIONKEY`) BUCKETS 1
 PROPERTIES (
+    "enable_mow_light_delete" = "true",
     "function_column.sequence_type" = 'int',
     "replication_num" = "3"
 );

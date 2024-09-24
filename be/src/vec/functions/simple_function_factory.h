@@ -151,14 +151,6 @@ public:
         function_alias[alias] = name;
     }
 
-    /// @TEMPORARY: for be_exec_version=4
-    template <class Function>
-    void register_alternative_function() {
-        static std::string suffix {"_old_for_version_before_5_0"};
-        function_to_replace[Function::name] = Function::name + suffix;
-        register_function(Function::name + suffix, &createDefaultFunction<Function>);
-    }
-
     FunctionBasePtr get_function(const std::string& name, const ColumnsWithTypeAndName& arguments,
                                  const DataTypePtr& return_type,
                                  int be_version = BeExecVersionManager::get_newest_version()) {

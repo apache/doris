@@ -29,6 +29,7 @@ import org.apache.doris.nereids.rules.RulePromise;
 import org.apache.doris.nereids.rules.analysis.BindRelation.CustomTableResolver;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanRewriter;
@@ -53,6 +54,12 @@ class BindRelationTest extends TestWithFeService implements GeneratedPlanPattern
                 + " \tb VARCHAR\n"
                 + ")ENGINE=OLAP\n"
                 + "DISTRIBUTED BY HASH(`a`) BUCKETS 3\n"
+                + "PROPERTIES (\"replication_num\"= \"1\");");
+        createTable("CREATE TABLE db1.tagg ( \n"
+                + " \ta INT,\n"
+                + " \tb INT SUM\n"
+                + ")ENGINE=OLAP AGGREGATE KEY(a)\n "
+                + "DISTRIBUTED BY random BUCKETS 3\n"
                 + "PROPERTIES (\"replication_num\"= \"1\");");
         connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
     }
@@ -123,6 +130,22 @@ class BindRelationTest extends TestWithFeService implements GeneratedPlanPattern
                                 logicalOlapScan().when(r -> r.getTable().getName().equals("t"))
                         )
                 );
+    }
+
+    @Test
+    void bindRandomAggTable() {
+        connectContext.setDatabase(DEFAULT_CLUSTER_PREFIX + DB1);
+        connectContext.getState().setIsQuery(true);
+        Plan plan = PlanRewriter.bottomUpRewrite(new UnboundRelation(StatementScopeIdGenerator.newRelationId(), ImmutableList.of("tagg")),
+                connectContext, new BindRelation());
+
+        Assertions.assertTrue(plan instanceof LogicalAggregate);
+        Assertions.assertEquals(
+                ImmutableList.of("internal", DEFAULT_CLUSTER_PREFIX + DB1, "tagg"),
+                plan.getOutput().get(0).getQualifier());
+        Assertions.assertEquals(
+                ImmutableList.of("internal", DEFAULT_CLUSTER_PREFIX + DB1, "tagg"),
+                plan.getOutput().get(1).getQualifier());
     }
 
     @Override

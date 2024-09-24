@@ -96,6 +96,8 @@ public:
     int32_t auto_increment_column_unique_id() const { return _auto_increment_column_unique_id; }
     void set_timestamp_ms(int64_t timestamp_ms) { _timestamp_ms = timestamp_ms; }
     int64_t timestamp_ms() const { return _timestamp_ms; }
+    void set_nano_seconds(int32_t nano_seconds) { _nano_seconds = nano_seconds; }
+    int32_t nano_seconds() const { return _nano_seconds; }
     void set_timezone(std::string timezone) { _timezone = timezone; }
     std::string timezone() const { return _timezone; }
     bool is_strict_mode() const { return _is_strict_mode; }
@@ -116,6 +118,7 @@ private:
     std::string _auto_increment_column;
     int32_t _auto_increment_column_unique_id;
     int64_t _timestamp_ms = 0;
+    int32_t _nano_seconds {0};
     std::string _timezone;
 };
 

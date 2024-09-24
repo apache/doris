@@ -40,12 +40,12 @@ PhysicalResultSink
 ----PhysicalDistribute[DistributionSpecGather]
 ------hashAgg[LOCAL]
 --------hashJoin[INNER_JOIN broadcast] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
-----------PhysicalOlapScan[t2]
 ----------PhysicalOlapScan[t1]
+----------PhysicalOlapScan[t2]
 
 Hint log:
-Used: leading(t2 broadcast t1 ) 
-UnUsed:
+Used:
+UnUsed: leading(t2 broadcast t1)
 SyntaxError:
 
 -- !select1_6 --
@@ -54,12 +54,12 @@ PhysicalResultSink
 ----PhysicalDistribute[DistributionSpecGather]
 ------hashAgg[LOCAL]
 --------hashJoin[INNER_JOIN broadcast] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
-----------PhysicalOlapScan[t2]
 ----------PhysicalOlapScan[t1]
+----------PhysicalOlapScan[t2]
 
 Hint log:
-Used: leading(t2 broadcast t1 ) 
-UnUsed:
+Used:
+UnUsed: leading(t2 broadcast t1)
 SyntaxError:
 
 -- !select1_7 --

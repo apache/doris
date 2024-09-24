@@ -323,7 +323,7 @@ public class Config extends ConfigBase {
                     + "The connection is abandoned if the clock skew is larger than this value."})
     public static long max_bdbje_clock_delta_ms = 5000; // 5s
 
-    @ConfField(description = {"是否启用所有 http 接口的认证",
+    @ConfField(mutable = true, description = {"是否启用所有 http 接口的认证",
             "Whether to enable all http interface authentication"}, varType = VariableAnnotation.EXPERIMENTAL)
     public static boolean enable_all_http_auth = false;
 
@@ -495,6 +495,10 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true, description = {"单个事务 publish 失败打日志间隔",
             "print log interval for publish transaction failed interval"})
     public static long publish_fail_log_interval_second = 5 * 60;
+
+    @ConfField(mutable = true, masterOnly = true, description = {"一个 PUBLISH_VERSION 任务打印失败日志的次数上限",
+            "the upper limit of failure logs of PUBLISH_VERSION task"})
+    public static long publish_version_task_failed_log_threshold = 80;
 
     @ConfField(mutable = true, masterOnly = true, description = {"提交事务的最大超时时间，单位是秒。"
             + "该参数仅用于事务型 insert 操作中。",
@@ -1208,6 +1212,12 @@ public class Config extends ConfigBase {
     public static int max_routine_load_task_num_per_be = 1024;
 
     /**
+     * routine load timeout is equal to maxBatchIntervalS * routine_load_task_timeout_multiplier.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int routine_load_task_timeout_multiplier = 10;
+
+    /**
      * the max timeout of get kafka meta.
      */
     @ConfField(mutable = true, masterOnly = true)
@@ -1831,7 +1841,7 @@ public class Config extends ConfigBase {
     public static boolean enable_date_conversion = true;
 
     @ConfField(mutable = false, masterOnly = true)
-    public static boolean enable_multi_tags = false;
+    public static boolean enable_multi_tags = true;
 
     /**
      * If set to TRUE, FE will convert DecimalV2 to DecimalV3 automatically.
@@ -2726,6 +2736,12 @@ public class Config extends ConfigBase {
     })
     public static int profile_async_collect_expire_time_secs = 5;
 
+    @ConfField(description = {
+            "用于控制 ProfileManager 进行 Profile 垃圾回收的间隔时间，垃圾回收期间 ProfileManager 会把多余的以及过期的 profile "
+                    + "从内存和磁盘中清理掉，节省内存。",
+            "Used to control the interval time of ProfileManager for profile garbage collection. "
+    })
+    public static int profile_manager_gc_interval_seconds = 1;
     // Used to check compatibility when upgrading.
     @ConfField
     public static boolean enable_check_compatibility_mode = false;
@@ -2800,14 +2816,19 @@ public class Config extends ConfigBase {
     @ConfField public static int audit_sys_accumulated_file_size = 4;
 
     @ConfField
+    public static String deploy_mode = "";
+
+    // compatibily with elder version.
+    // cloud_unique_id has higher priority than cluster_id.
+    @ConfField
     public static String cloud_unique_id = "";
 
     public static boolean isCloudMode() {
-        return !cloud_unique_id.isEmpty();
+        return deploy_mode.equals("cloud") || !cloud_unique_id.isEmpty();
     }
 
     public static boolean isNotCloudMode() {
-        return cloud_unique_id.isEmpty();
+        return !isCloudMode();
     }
 
     /**
@@ -2878,6 +2899,8 @@ public class Config extends ConfigBase {
     @ConfField
     public static boolean enable_cloud_snapshot_version = true;
 
+    // Interval in seconds for checking the status of compute groups (cloud clusters).
+    // Compute groups and cloud clusters refer to the same concept.
     @ConfField
     public static int cloud_cluster_check_interval_second = 10;
 
@@ -2961,7 +2984,7 @@ public class Config extends ConfigBase {
     public static String security_checker_class_name = "";
 
     @ConfField(mutable = true)
-    public static int mow_insert_into_commit_retry_times = 10;
+    public static int mow_calculate_delete_bitmap_retry_times = 10;
 
     @ConfField(mutable = true, description = {"指定S3 Load endpoint白名单, 举例: s3_load_endpoint_white_list=a,b,c",
             "the white list for the s3 load endpoint, if it is empty, no white list will be set,"
@@ -2995,7 +3018,7 @@ public class Config extends ConfigBase {
     // to control the max num of values inserted into cache hotspot internal table
     // insert into cache table when the size of batch values reaches this limit
     @ConfField(mutable = true)
-    public static long batch_insert_cluster_cache_hotspot_num = 50;
+    public static long batch_insert_cluster_cache_hotspot_num = 1000;
 
     /**
      * intervals between be status checks for CloudUpgradeMgr
@@ -3033,6 +3056,15 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, description = {"存算分离模式下，当tablet分布的be异常，是否立即映射tablet到新的be上，默认true"})
     public static boolean enable_immediate_be_assign = true;
 
+    @ConfField(mutable = true, description = {"存算分离模式下是否启用自动启停功能，默认true",
+        "Whether to enable the automatic start-stop feature in cloud model, default is true."})
+    public static boolean enable_auto_start_for_cloud_cluster = true;
+
+    @ConfField(mutable = true, description = {"存算分离模式下自动启停等待cluster唤醒退避重试次数，默认300次大约5分钟",
+        "The automatic start-stop wait time for cluster wake-up backoff retry count in the cloud "
+            + "model is set to 300 times, which is approximately 5 minutes by default."})
+    public static int auto_start_wait_to_resume_times = 300;
+
     // ATTN: DONOT add any config not related to cloud mode here
     // ATTN: DONOT add any config not related to cloud mode here
     // ATTN: DONOT add any config not related to cloud mode here
@@ -3056,4 +3088,8 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, description = {"元数据同步是否开启安全模式",
         "Is metadata synchronization enabled in safe mode"})
     public static boolean meta_helper_security_mode = false;
+
+    @ConfField(description = {"检查资源就绪的周期，单位秒",
+            "Interval checking if resource is ready"})
+    public static long resource_not_ready_sleep_seconds = 5;
 }

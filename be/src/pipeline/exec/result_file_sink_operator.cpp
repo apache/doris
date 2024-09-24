@@ -123,7 +123,7 @@ Status ResultFileSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& i
         shuffle(_channels.begin(), _channels.end(), g);
 
         for (auto& _channel : _channels) {
-            RETURN_IF_ERROR(_channel->init_stub(state));
+            RETURN_IF_ERROR(_channel->init(state));
         }
     }
     _writer->set_header_info(p._header_type, p._header);

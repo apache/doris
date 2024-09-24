@@ -44,6 +44,7 @@
 #include "util/debug_points.h"
 #include "util/defer_op.h"
 #include "util/doris_metrics.h"
+#include "util/runtime_profile.h"
 #include "util/uid_util.h"
 #include "vec/core/block.h"
 #include "vec/sink/delta_writer_v2_pool.h"
@@ -150,6 +151,7 @@ Status VTabletWriterV2::_init(RuntimeState* state, RuntimeProfile* profile) {
     _schema.reset(new OlapTableSchemaParam());
     RETURN_IF_ERROR(_schema->init(table_sink.schema));
     _schema->set_timestamp_ms(state->timestamp_ms());
+    _schema->set_nano_seconds(state->nano_seconds());
     _schema->set_timezone(state->timezone());
     _location = _pool->add(new OlapTableLocationParam(table_sink.location));
     _nodes_info = _pool->add(new DorisNodesInfo(table_sink.nodes_info));
@@ -226,11 +228,14 @@ Status VTabletWriterV2::_init(RuntimeState* state, RuntimeProfile* profile) {
     _input_rows_counter = ADD_COUNTER(_profile, "RowsRead", TUnit::UNIT);
     _output_rows_counter = ADD_COUNTER(_profile, "RowsProduced", TUnit::UNIT);
     _filtered_rows_counter = ADD_COUNTER(_profile, "RowsFiltered", TUnit::UNIT);
-    _send_data_timer = ADD_TIMER(_profile, "SendDataTime");
-    _wait_mem_limit_timer = ADD_CHILD_TIMER(_profile, "WaitMemLimitTime", "SendDataTime");
-    _row_distribution_timer = ADD_CHILD_TIMER(_profile, "RowDistributionTime", "SendDataTime");
-    _write_memtable_timer = ADD_CHILD_TIMER(_profile, "WriteMemTableTime", "SendDataTime");
-    _validate_data_timer = ADD_TIMER(_profile, "ValidateDataTime");
+    _send_data_timer = ADD_TIMER_WITH_LEVEL(_profile, "SendDataTime", 1);
+    _wait_mem_limit_timer =
+            ADD_CHILD_TIMER_WITH_LEVEL(_profile, "WaitMemLimitTime", "SendDataTime", 1);
+    _row_distribution_timer =
+            ADD_CHILD_TIMER_WITH_LEVEL(_profile, "RowDistributionTime", "SendDataTime", 1);
+    _write_memtable_timer =
+            ADD_CHILD_TIMER_WITH_LEVEL(_profile, "WriteMemTableTime", "SendDataTime", 1);
+    _validate_data_timer = ADD_TIMER_WITH_LEVEL(_profile, "ValidateDataTime", 1);
     _open_timer = ADD_TIMER(_profile, "OpenTime");
     _close_timer = ADD_TIMER(_profile, "CloseWaitTime");
     _close_writer_timer = ADD_CHILD_TIMER(_profile, "CloseWriterTime", "CloseWaitTime");

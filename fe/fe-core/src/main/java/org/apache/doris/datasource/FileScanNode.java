@@ -82,7 +82,7 @@ public abstract class FileScanNode extends ExternalScanNode {
         initFileSplitSize();
     }
 
-    private void initFileSplitSize() {
+    protected void initFileSplitSize() {
         this.fileSplitSize = ConnectContext.get().getSessionVariable().getFileSplitSize();
         this.isSplitSizeSetBySession = this.fileSplitSize > 0;
         if (this.fileSplitSize <= 0) {
@@ -126,6 +126,7 @@ public abstract class FileScanNode extends ExternalScanNode {
         output.append(prefix);
         if (isBatchMode()) {
             output.append("(approximate)");
+            splitAssignment.stop();
         }
         output.append("inputSplitNum=").append(selectedSplitNum).append(", totalFileSize=")
             .append(totalFileSize).append(", scanRanges=").append(scanRangeLocations.size()).append("\n");

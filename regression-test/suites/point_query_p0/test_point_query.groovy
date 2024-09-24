@@ -302,7 +302,6 @@ suite("test_point_query", "nonConcurrent") {
     } finally {
         set_be_config.call("disable_storage_row_cache", "true")
         sql """set global enable_nereids_planner=true"""
-        sql "set global enable_fallback_to_original_planner = true"
     }
 
     // test partial update/delete

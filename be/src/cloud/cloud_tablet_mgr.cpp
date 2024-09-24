@@ -136,7 +136,7 @@ private:
 CloudTabletMgr::CloudTabletMgr(CloudStorageEngine& engine)
         : _engine(engine),
           _tablet_map(std::make_unique<TabletMap>()),
-          _cache(std::make_unique<LRUCachePolicyTrackingManual>(
+          _cache(std::make_unique<LRUCachePolicy>(
                   CachePolicy::CacheType::CLOUD_TABLET_CACHE, config::tablet_cache_capacity,
                   LRUCacheType::NUMBER, 0, config::tablet_cache_shards)) {}
 

@@ -20,6 +20,7 @@ import os.path
 import pymysql
 import time
 import utils
+import uuid
 
 LOG = utils.get_logger()
 
@@ -27,19 +28,20 @@ LOG = utils.get_logger()
 class FEState(object):
 
     def __init__(self, id, query_port, is_master, alive, last_heartbeat,
-                 err_msg):
+                 err_msg, edit_log_port):
         self.id = id
         self.query_port = query_port
         self.is_master = is_master
         self.alive = alive
         self.last_heartbeat = last_heartbeat
         self.err_msg = err_msg
+        self.edit_log_port = edit_log_port
 
 
 class BEState(object):
 
     def __init__(self, id, backend_id, decommissioned, alive, tablet_num,
-                 last_heartbeat, err_msg):
+                 last_heartbeat, err_msg, heartbeat_port):
         self.id = id
         self.backend_id = backend_id
         self.decommissioned = decommissioned
@@ -47,6 +49,7 @@ class BEState(object):
         self.tablet_num = tablet_num
         self.last_heartbeat = last_heartbeat
         self.err_msg = err_msg
+        self.heartbeat_port = heartbeat_port
 
 
 class DBManager(object):
@@ -70,6 +73,15 @@ class DBManager(object):
         self._load_fe_states(query_ports)
         self._load_be_states()
 
+    def add_fe(self, fe_endpoint):
+        try:
+            sql = f"ALTER SYSTEM ADD FOLLOWER '{fe_endpoint}'"
+            self._exec_query(sql)
+            LOG.info(f"Added FE {fe_endpoint} via SQL successfully.")
+        except Exception as e:
+            LOG.error(f"Failed to add FE {fe_endpoint} via SQL: {str(e)}")
+            raise
+
     def drop_fe(self, fe_endpoint):
         id = CLUSTER.Node.get_id_from_ip(fe_endpoint[:fe_endpoint.find(":")])
         try:
@@ -84,6 +96,15 @@ class DBManager(object):
                     .format(fe_endpoint, id))
                 return
             raise e
+
+    def add_be(self, be_endpoint):
+        try:
+            sql = f"ALTER SYSTEM ADD BACKEND '{be_endpoint}'"
+            self._exec_query(sql)
+            LOG.info(f"Added BE {be_endpoint} via SQL successfully.")
+        except Exception as e:
+            LOG.error(f"Failed to add BE {be_endpoint} via SQL: {str(e)}")
+            raise
 
     def drop_be(self, be_endpoint):
         id = CLUSTER.Node.get_id_from_ip(be_endpoint[:be_endpoint.find(":")])
@@ -140,23 +161,55 @@ class DBManager(object):
 
             time.sleep(5)
 
+    def create_default_storage_vault(self, cloud_store_config):
+        try:
+            # Create storage vault
+            create_vault_sql = f"""
+            CREATE STORAGE VAULT IF NOT EXISTS default_vault
+            PROPERTIES (
+                "type" = "S3",
+                "s3.access_key" = "{cloud_store_config['DORIS_CLOUD_AK']}",
+                "s3.secret_key" = "{cloud_store_config['DORIS_CLOUD_SK']}",
+                "s3.endpoint" = "{cloud_store_config['DORIS_CLOUD_ENDPOINT']}",
+                "s3.bucket" = "{cloud_store_config['DORIS_CLOUD_BUCKET']}",
+                "s3.region" = "{cloud_store_config['DORIS_CLOUD_REGION']}",
+                "s3.root.path" = "{str(uuid.uuid4())}",
+                "provider" = "{cloud_store_config['DORIS_CLOUD_PROVIDER']}"
+            );
+            """
+            self._exec_query(create_vault_sql)
+            LOG.info("Created storage vault 'default_vault'")
+
+            # Set as default storage vault
+            set_default_vault_sql = "SET default_vault as DEFAULT STORAGE VAULT;"
+            self._exec_query(set_default_vault_sql)
+            LOG.info("Set 'default_vault' as the default storage vault")
+
+        except Exception as e:
+            LOG.error(f"Failed to create default storage vault: {str(e)}")
+            raise
+
     def _load_fe_states(self, query_ports):
         fe_states = {}
         alive_master_fe_port = None
         for record in self._exec_query('''
-            select Host, IsMaster, Alive, LastHeartbeat, ErrMsg
-            from frontends()'''):
-            ip, is_master, alive, last_heartbeat, err_msg = record
+            show frontends '''):
+            # Unpack the record into individual columns
+            name, ip, edit_log_port, _, query_port, _, _, role, is_master, cluster_id, _, alive, _, _, last_heartbeat, _, err_msg, _, _ = record
             is_master = utils.is_true(is_master)
             alive = utils.is_true(alive)
             id = CLUSTER.Node.get_id_from_ip(ip)
             query_port = query_ports.get(id, "")
             last_heartbeat = utils.escape_null(last_heartbeat)
             fe = FEState(id, query_port, is_master, alive, last_heartbeat,
-                         err_msg)
+                         err_msg, edit_log_port)
             fe_states[id] = fe
             if is_master and alive and query_port:
                 alive_master_fe_port = query_port
+            LOG.info(
+                "record of show frontends, name {}, ip {}, alive {}, is_master {}, role {}"
+                .format(name, ip, alive, is_master, role))
+
         self.fe_states = fe_states
         if alive_master_fe_port and alive_master_fe_port != self.query_port:
             self.query_port = alive_master_fe_port
@@ -165,17 +218,18 @@ class DBManager(object):
     def _load_be_states(self):
         be_states = {}
         for record in self._exec_query('''
-            select BackendId, Host, LastHeartbeat, Alive, SystemDecommissioned, TabletNum, ErrMsg
+            select BackendId, Host, LastHeartbeat, Alive, SystemDecommissioned, TabletNum, ErrMsg, HeartbeatPort
             from backends()'''):
-            backend_id, ip, last_heartbeat, alive, decommissioned, tablet_num, err_msg = record
+            backend_id, ip, last_heartbeat, alive, decommissioned, tablet_num, err_msg, heartbeat_port = record
             backend_id = int(backend_id)
             alive = utils.is_true(alive)
             decommissioned = utils.is_true(decommissioned)
             tablet_num = int(tablet_num)
             id = CLUSTER.Node.get_id_from_ip(ip)
             last_heartbeat = utils.escape_null(last_heartbeat)
+            heartbeat_port = utils.escape_null(heartbeat_port)
             be = BEState(id, backend_id, decommissioned, alive, tablet_num,
-                         last_heartbeat, err_msg)
+                         last_heartbeat, err_msg, heartbeat_port)
             be_states[id] = be
         self.be_states = be_states
 
