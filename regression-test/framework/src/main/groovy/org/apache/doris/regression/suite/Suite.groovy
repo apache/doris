@@ -264,6 +264,12 @@ class Suite implements GroovyInterceptable {
         return context.connect(user, password, url, actionSupplier)
     }
 
+    public <T> T connectInDocker(String user = context.config.jdbcUser, String password = context.config.jdbcPassword,
+                        Closure<T> actionSupplier) {
+        def connInfo = context.threadLocalConn.get()
+        return context.connect(user, password, connInfo.conn.getMetaData().getURL(), actionSupplier)
+    }
+
     public void dockerAwaitUntil(int atMostSeconds, int intervalSecond = 1, Closure actionSupplier) {
         def connInfo = context.threadLocalConn.get()
         Awaitility.await().atMost(atMostSeconds, SECONDS).pollInterval(intervalSecond, SECONDS).until(

@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Status;
@@ -90,10 +91,16 @@ public class CloudBrokerLoadJob extends BrokerLoadJob {
     private void setCloudClusterId() throws MetaNotFoundException {
         ConnectContext context = ConnectContext.get();
         if (context != null) {
-            String clusterName = context.getCloudCluster();
+            String clusterName = "";
+            try {
+                clusterName = context.getCloudCluster();
+            } catch (ComputeGroupException e) {
+                LOG.warn("failed to get compute group name", e);
+                throw new MetaNotFoundException("failed to get compute group name " + e);
+            }
             if (Strings.isNullOrEmpty(clusterName)) {
-                LOG.warn("cluster name is empty");
-                throw new MetaNotFoundException("cluster name is empty");
+                LOG.warn("compute group name is empty");
+                throw new MetaNotFoundException("compute group name is empty");
             }
 
             this.cloudClusterId = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
