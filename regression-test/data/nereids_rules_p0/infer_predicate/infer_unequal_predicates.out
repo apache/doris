@@ -69,7 +69,7 @@ PhysicalResultSink
 -- !remove_useless_predicate --
 PhysicalResultSink
 --NestedLoopJoin[CROSS_JOIN]
-----filter((t1.a = t1.c) and (t1.a > 1))
+----filter((t1.a = t1.c) and (t1.a > 1) and (t1.c > 1))
 ------PhysicalOlapScan[test_like1]
 ----PhysicalOlapScan[test_like2]
 

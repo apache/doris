@@ -187,10 +187,6 @@ public class ImmutableEqualSet<T> {
         return root.get(l) == root.get(r);
     }
 
-    public Set<Map.Entry<T, T>> getAllPairs() {
-        return root.entrySet();
-    }
-
     @Override
     public String toString() {
         return root.toString();

@@ -121,6 +121,7 @@ suite("infer_unequal_predicates") {
     explain shape plan
     SELECT * FROM test_like1 t1 WHERE t1.a<t1.c AND t1.c<t1.d AND t1.d<10 and t1.c<10
     """
+    // t1.c>1 should not infer(TODO)
     qt_remove_useless_predicate """
     explain shape plan
     SELECT * FROM test_like1 t1 INNER JOIN test_like2 t2 ON t1.a>1 AND t1.a=t1.c

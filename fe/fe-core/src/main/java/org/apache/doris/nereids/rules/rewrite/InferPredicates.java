@@ -21,6 +21,7 @@ import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
@@ -38,10 +39,10 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
 
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * infer additional predicates for `LogicalFilter` and `LogicalJoin`.
@@ -162,13 +163,18 @@ public class InferPredicates extends DefaultPlanRewriter<JobContext> implements 
     }
 
     private Set<Expression> pullUpPredicates(Plan plan) {
-        return Sets.newHashSet(plan.accept(pollUpPredicates, null));
+        return Sets.newLinkedHashSet(plan.accept(pollUpPredicates, null));
     }
 
     private Plan inferNewPredicate(Plan plan, Set<Expression> expressions) {
-        Set<Expression> predicates = expressions.stream()
-                .filter(c -> !c.getInputSlots().isEmpty() && plan.getOutputSet().containsAll(c.getInputSlots()))
-                .collect(Collectors.toSet());
+        Set<Expression> predicates = new LinkedHashSet<>();
+        Set<Slot> planOutputs = plan.getOutputSet();
+        for (Expression expr : expressions) {
+            Set<Slot> slots = expr.getInputSlots();
+            if (!slots.isEmpty() && planOutputs.containsAll(slots)) {
+                predicates.add(expr);
+            }
+        }
         predicates.removeAll(plan.accept(pollUpPredicates, null));
         return PlanUtils.filterOrSelf(predicates, plan);
     }

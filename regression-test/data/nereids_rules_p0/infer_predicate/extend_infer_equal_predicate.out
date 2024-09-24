@@ -159,8 +159,7 @@ PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((expr_(a + c) = expr_(a + c))) otherCondition=()
 ----filter(((t1.a + t1.c) < 10))
 ------PhysicalOlapScan[test_like1]
-----filter(((t2.a + t2.c) < 10))
-------PhysicalOlapScan[test_like2]
+----PhysicalOlapScan[test_like2]
 
 -- !test_multi_slot_in_predicate2 --
 PhysicalResultSink

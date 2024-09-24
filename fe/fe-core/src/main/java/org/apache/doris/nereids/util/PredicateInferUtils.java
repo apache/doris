@@ -39,7 +39,7 @@ import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.nereids.types.coercion.DateLikeType;
 import org.apache.doris.nereids.types.coercion.IntegralType;
 
-import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.Optional;
 import java.util.Set;
 
@@ -87,9 +87,9 @@ public class PredicateInferUtils {
         if (predicates.size() < 2) {
             return predicates;
         }
-        Set<Expression> inferPredicates = new HashSet<>();
-        Set<Expression> complexPredicates = new HashSet<>();
-        Set<ComparisonPredicate> simplePredicates = new HashSet<>();
+        Set<Expression> inferPredicates = new LinkedHashSet<>();
+        Set<Expression> complexPredicates = new LinkedHashSet<>();
+        Set<ComparisonPredicate> simplePredicates = new LinkedHashSet<>();
         Set<Expression> inferAndOriginPredicates = ReplacePredicate.infer(predicates);
         inferAndOriginPredicates.addAll(predicates);
         PredicateInferUtils.getComplexAndSimplePredicates(inferAndOriginPredicates, complexPredicates,

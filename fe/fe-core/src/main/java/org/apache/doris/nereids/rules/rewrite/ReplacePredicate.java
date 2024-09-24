@@ -38,9 +38,11 @@ import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import com.google.common.collect.ImmutableList;
 
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -48,13 +50,13 @@ import java.util.stream.Collectors;
 
 /**ReplacePredicate*/
 public class ReplacePredicate {
-    private static Set<Expression> getAllSubExpressions(Expression expr) {
-        Set<Expression> subExpressions = new HashSet<>();
+    private static List<Expression> getAllSubExpressions(Expression expr) {
+        List<Expression> subExpressions = new ArrayList<>();
         getAllSubExpressions(expr, subExpressions);
         return subExpressions;
     }
 
-    private static void getAllSubExpressions(Expression expr, Set<Expression> res) {
+    private static void getAllSubExpressions(Expression expr, List<Expression> res) {
         res.add(expr);
         if (expr.children().size() != 1) {
             Set<Slot> slots = expr.getInputSlots();
@@ -86,7 +88,7 @@ public class ReplacePredicate {
                 return null;
             }
             for (Expression expr : getAllSubExpressions(inPredicate.getCompareExpr())) {
-                context.computeIfAbsent(expr, k -> new HashSet<>()).add(inPredicate);
+                context.computeIfAbsent(expr, k -> new LinkedHashSet<>()).add(inPredicate);
             }
             return null;
         }
@@ -99,7 +101,7 @@ public class ReplacePredicate {
             }
             // It is believed that 1<a has been rewritten as a>1
             for (Expression expr : getAllSubExpressions(comparisonPredicate.child(0))) {
-                context.computeIfAbsent(expr, k -> new HashSet<>()).add(comparisonPredicate);
+                context.computeIfAbsent(expr, k -> new LinkedHashSet<>()).add(comparisonPredicate);
             }
             return null;
         }
@@ -110,7 +112,7 @@ public class ReplacePredicate {
                     || not.child(0) instanceof ComparisonPredicate
                     && validComparisonPredicate((ComparisonPredicate) not.child(0))) {
                 for (Expression expr : getAllSubExpressions(not.child(0).child(0))) {
-                    context.computeIfAbsent(expr, k -> new HashSet<>()).add(not);
+                    context.computeIfAbsent(expr, k -> new LinkedHashSet<>()).add(not);
                 }
             }
             return null;
@@ -122,7 +124,7 @@ public class ReplacePredicate {
                 return null;
             }
             for (Expression expr : getAllSubExpressions(like.child(0))) {
-                context.computeIfAbsent(expr, k -> new HashSet<>()).add(like);
+                context.computeIfAbsent(expr, k -> new LinkedHashSet<>()).add(like);
             }
             return null;
         }
@@ -143,7 +145,7 @@ public class ReplacePredicate {
     private static <T extends Expression> Set<Expression> getEqualSetAndDoReplace(T replaceToThis, Set<T> equalSet,
             Map<? extends Expression, Set<Expression>> exprPredicates) {
         ExpressionAnalyzer analyzer = new ExpressionAnalyzer(null, new Scope(ImmutableList.of()), null, false, false);
-        Set<Expression> res = new HashSet<>();
+        Set<Expression> res = new LinkedHashSet<>();
         for (T equals : equalSet) {
             Map<Expression, Expression> replaceMap = new HashMap<>();
             replaceMap.put(equals, replaceToThis);
@@ -197,7 +199,7 @@ public class ReplacePredicate {
         ImmutableEqualSet<Slot> hasCastEqualSet = findEqual(inputs, equalPairs);
         Set<Slot> targetExprs = hasCastEqualSet.getAllItemSet();
         if (targetExprs.isEmpty()) {
-            return new HashSet<>();
+            return new LinkedHashSet<>();
         }
         Map<Expression, Set<Expression>> exprPredicates = new HashMap<>();
         for (Expression input : inputs) {
@@ -207,7 +209,7 @@ public class ReplacePredicate {
             }
             input.accept(PredicatesCollector.INSTANCE, exprPredicates);
         }
-        Set<Expression> inferPredicates = new HashSet<>();
+        Set<Expression> inferPredicates = new LinkedHashSet<>();
         if (!exprPredicates.isEmpty()) {
             for (Slot expr : targetExprs) {
                 inferPredicates.addAll(getEqualSetAndDoReplace(expr, hasCastEqualSet.calEqualSet(expr),
@@ -239,7 +241,7 @@ public class ReplacePredicate {
     private static Set<Expression> deduceTransitiveEquality(ImmutableEqualSet<Slot> equalSet,
             Set<Pair<Slot, Slot>> equalPairs) {
         List<Set<Slot>> equalSetList = equalSet.calEqualSetList();
-        Set<Expression> derivedEqualities = new HashSet<>();
+        Set<Expression> derivedEqualities = new LinkedHashSet<>();
         for (Set<Slot> es : equalSetList) {
             List<Slot> el = es.stream().sorted(Comparator.comparingInt(s -> s.getExprId().asInt()))
                     .collect(Collectors.toList());

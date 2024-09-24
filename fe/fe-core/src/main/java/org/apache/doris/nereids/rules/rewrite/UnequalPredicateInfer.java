@@ -42,6 +42,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -83,7 +84,7 @@ public class UnequalPredicateInfer {
 
         /**Constructor*/
         private InferenceGraph(Set<ComparisonPredicate> inputs) {
-            Set<Expression> inputExpressionSet = new HashSet<>();
+            Set<Expression> inputExpressionSet = new LinkedHashSet<>();
             for (ComparisonPredicate comparison : inputs) {
                 if (comparison.left().equals(comparison.right())) {
                     otherPredicates.add(comparison);
@@ -330,7 +331,7 @@ public class UnequalPredicateInfer {
         }
 
         private Set<Expression> generatePredicates(Relation[][] chosen) {
-            Set<Expression> newPredicates = new HashSet<>();
+            Set<Expression> newPredicates = new LinkedHashSet<>();
             for (int i = 0; i < size; ++i) {
                 for (int j = 0; j < size; ++j) {
                     if (chosen[i][j] == Relation.GT) {
@@ -422,7 +423,7 @@ public class UnequalPredicateInfer {
                     }
                 }
             }
-            Set<Expression> chooseInputs = new HashSet<>();
+            Set<Expression> chooseInputs = new LinkedHashSet<>();
             for (int i = 0; i < inputPredicates.size(); ++i) {
                 if (!keep[i]) {
                     continue;

@@ -41,14 +41,13 @@ import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.PredicateInferUtils;
 
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.ImmutableSet.Builder;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.IdentityHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -72,19 +71,21 @@ public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void
 
     @Override
     public ImmutableSet<Expression> visitLogicalOneRowRelation(LogicalOneRowRelation r, Void context) {
-        ImmutableSet.Builder<Expression> predicates = ImmutableSet.builder();
-        for (NamedExpression expr : r.getProjects()) {
-            if (expr instanceof Alias && expr.child(0) instanceof Literal) {
-                predicates.add(new EqualTo(expr.toSlot(), expr.child(0)));
+        return cacheOrElse(r, () -> {
+            Set<Expression> predicates = new LinkedHashSet<>();
+            for (NamedExpression expr : r.getProjects()) {
+                if (expr instanceof Alias && expr.child(0) instanceof Literal) {
+                    predicates.add(new EqualTo(expr.toSlot(), expr.child(0)));
+                }
             }
-        }
-        return predicates.build();
+            return ImmutableSet.copyOf(predicates);
+        });
     }
 
     @Override
     public ImmutableSet<Expression> visitLogicalIntersect(LogicalIntersect intersect, Void context) {
         return cacheOrElse(intersect, () -> {
-            ImmutableSet.Builder<Expression> builder = ImmutableSet.builder();
+            Set<Expression> predicates = new LinkedHashSet<>();
             for (int i = 0; i < intersect.children().size(); ++i) {
                 Plan child = intersect.child(i);
                 Set<Expression> childFilters = child.accept(this, context);
@@ -96,9 +97,9 @@ public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void
                     NamedExpression output = intersect.getOutput().get(j);
                     replaceMap.put(intersect.getRegularChildOutput(i).get(j), output);
                 }
-                builder.addAll(ExpressionUtils.replace(childFilters, replaceMap));
+                predicates.addAll(ExpressionUtils.replace(childFilters, replaceMap));
             }
-            return getAvailableExpressions(builder.build(), intersect);
+            return getAvailableExpressions(ImmutableSet.copyOf(predicates), intersect);
         });
     }
 
@@ -129,7 +130,7 @@ public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void
             } else if (union.getConstantExprsList().isEmpty() && union.arity() != 0) {
                 return getFiltersFromUnionChild(union, context);
             } else if (!union.getConstantExprsList().isEmpty() && union.arity() != 0) {
-                HashSet<Expression> fromChildFilters = new HashSet<>(getFiltersFromUnionChild(union, context));
+                Set<Expression> fromChildFilters = new LinkedHashSet<>(getFiltersFromUnionChild(union, context));
                 if (fromChildFilters.isEmpty()) {
                     return ImmutableSet.of();
                 }
@@ -228,7 +229,7 @@ public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void
             return ImmutableSet.of();
         }
         Set<Expression> inferPredicates = PredicateInferUtils.inferPredicate(predicates);
-        Builder<Expression> newPredicates = ImmutableSet.builderWithExpectedSize(predicates.size() + 10);
+        Set<Expression> newPredicates = new LinkedHashSet<>(inferPredicates.size());
         Set<Slot> outputSet = plan.getOutputSet();
 
         for (Expression inferPredicate : inferPredicates) {
@@ -236,7 +237,7 @@ public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void
                 newPredicates.add(inferPredicate);
             }
         }
-        return newPredicates.build();
+        return ImmutableSet.copyOf(newPredicates);
     }
 
     private boolean hasAgg(Expression expression) {
@@ -244,7 +245,7 @@ public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void
     }
 
     private ImmutableSet<Expression> getFiltersFromUnionChild(LogicalUnion union, Void context) {
-        Set<Expression> filters = new HashSet<>();
+        Set<Expression> filters = new LinkedHashSet<>();
         for (int i = 0; i < union.getArity(); ++i) {
             Plan child = union.child(i);
             Set<Expression> childFilters = child.accept(this, context);
@@ -271,10 +272,10 @@ public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void
 
     private ImmutableSet<Expression> getFiltersFromUnionConstExprs(LogicalUnion union) {
         List<List<NamedExpression>> constExprs = union.getConstantExprsList();
-        ImmutableSet.Builder<Expression> filtersFromConstExprs = ImmutableSet.builder();
+        Set<Expression> filtersFromConstExprs = new LinkedHashSet<>();
         for (int col = 0; col < union.getOutput().size(); ++col) {
             Expression compareExpr = union.getOutput().get(col);
-            Set<Expression> options = new HashSet<>();
+            Set<Expression> options = new LinkedHashSet<>();
             for (List<NamedExpression> constExpr : constExprs) {
                 if (constExpr.get(col) instanceof Alias
                         && ((Alias) constExpr.get(col)).child() instanceof Literal) {
@@ -291,6 +292,6 @@ public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void
                 filtersFromConstExprs.add(new EqualTo(compareExpr, options.iterator().next()));
             }
         }
-        return filtersFromConstExprs.build();
+        return ImmutableSet.copyOf(filtersFromConstExprs);
     }
 }
