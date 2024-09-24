@@ -93,12 +93,12 @@ public class CloudBrokerLoadJob extends BrokerLoadJob {
             try {
                 clusterName = context.getCloudCluster();
             } catch (ComputeGroupException e) {
-                LOG.warn("failed to get cluster name", e);
-                throw new MetaNotFoundException("failed to get cluster name " + e);
+                LOG.warn("failed to get compute group name", e);
+                throw new MetaNotFoundException("failed to get compute group name " + e);
             }
             if (Strings.isNullOrEmpty(clusterName)) {
-                LOG.warn("cluster name is empty");
-                throw new MetaNotFoundException("cluster name is empty");
+                LOG.warn("compute group name is empty");
+                throw new MetaNotFoundException("compute group name is empty");
             }
 
             this.cloudClusterId = ((CloudSystemInfoService) Env.getCurrentSystemInfo())

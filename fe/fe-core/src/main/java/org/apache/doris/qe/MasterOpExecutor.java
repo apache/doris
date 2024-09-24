@@ -215,8 +215,8 @@ public class MasterOpExecutor {
         try {
             cluster = ctx.getCloudCluster(false);
         } catch (Exception e) {
-            LOG.warn("failed to get cloud cluster", e);
-            throw new AnalysisException("failed to get cloud cluster", e);
+            LOG.warn("failed to get cloud compute group", e);
+            throw new AnalysisException("failed to get cloud compute group", e);
         }
         if (!Strings.isNullOrEmpty(cluster)) {
             params.setCloudCluster(cluster);

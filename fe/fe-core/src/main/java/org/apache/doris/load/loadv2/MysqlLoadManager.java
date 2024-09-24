@@ -437,11 +437,11 @@ public class MysqlLoadManager {
             try {
                 clusterName = ConnectContext.get().getCloudCluster();
             } catch (Exception e) {
-                LOG.warn("failed to get cloud cluster: " + e.getMessage());
-                throw new LoadException("failed to get cloud cluster: " + e.getMessage());
+                LOG.warn("failed to get compute group: " + e.getMessage());
+                throw new LoadException("failed to get compute group: " + e.getMessage());
             }
             if (Strings.isNullOrEmpty(clusterName)) {
-                throw new LoadException("cloud cluster is empty");
+                throw new LoadException("cloud compute group is empty");
             }
             httpPut.addHeader(LoadStmt.KEY_CLOUD_CLUSTER, clusterName);
         }

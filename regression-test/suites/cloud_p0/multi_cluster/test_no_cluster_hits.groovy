@@ -57,13 +57,14 @@ suite('test_no_cluster_hits', 'multi_cluster, docker') {
         sql """GRANT SELECT_PRIV ON *.*.* TO ${user}"""
         try {
             connectInDocker(user = user, password = '') {
-                // errCode = 2, detailMessage = the user is not granted permission to the cluster, ClusterException: CURRENT_USER_NO_AUTH_TO_USE_COMPUTE_GROUP
+                // errCode = 2, detailMessage = the user is not granted permission to the compute group, 
+                // ComputeGroupException: CURRENT_USER_NO_AUTH_TO_USE_ANY_COMPUTE_GROUP, you can contact the system administrator and request that they grant you the appropriate compute group permissions, use SQL `GRANT USAGE_PRIV ON COMPUTE GROUP {compute_group_name} TO {user}
                 sql """select * from information_schema.columns"""
             }
         } catch (Exception e) {
             logger.info("exception: {}", e.getMessage())
-            assertTrue(e.getMessage().contains("ClusterException: CURRENT_USER_NO_AUTH_TO_USE_ANY_COMPUTE_GROUP"))
-            assertTrue(e.getMessage().contains("the user is not granted permission to the cluster"))
+            assertTrue(e.getMessage().contains("ComputeGroupException: CURRENT_USER_NO_AUTH_TO_USE_ANY_COMPUTE_GROUP"))
+            assertTrue(e.getMessage().contains("the user is not granted permission to the compute group"))
         } 
         def result = sql_return_maparray """show clusters"""
         logger.info("show cluster1 : {}", result)
@@ -85,24 +86,24 @@ suite('test_no_cluster_hits', 'multi_cluster, docker') {
         // cluster all be abnormal
         cluster.stopBackends(1, 2, 3)
         try {
-            // errCode = 2, detailMessage = All the Backend nodes in the current cluster compute_cluster are in an abnormal state, ClusterException: COMPUTE_GROUPS_NO_ALIVE_BE
+            // All the Backend nodes in the current compute group compute_cluster are in an abnormal state, ComputeGroupException: COMPUTE_GROUPS_NO_ALIVE_BE, you can wait a moment and try again, or execute another query
             sql """
                 insert into $table values (2, 2)
             """
         } catch (Exception e) {
             logger.info("exception: {}", e.getMessage())
-            assertTrue(e.getMessage().contains("ClusterException: COMPUTE_GROUPS_NO_ALIVE_BE"))
+            assertTrue(e.getMessage().contains("ComputeGroupException: COMPUTE_GROUPS_NO_ALIVE_BE"))
             assertTrue(e.getMessage().contains("are in an abnormal state"))
         }
         
         try {
-            // errCode = 2, detailMessage = tablet 10901 err: All the Backend nodes in the current cluster compute_cluster are in an abnormal state, ClusterException: COMPUTE_GROUPS_NO_ALIVE_BE
+            // errCode = 2, detailMessage = tablet 10901 err: All the Backend nodes in the current cluster compute_cluster are in an abnormal state, ComputeGroupException: COMPUTE_GROUPS_NO_ALIVE_BE
             sql """
                 select * from $table
             """
         } catch (Exception e) {
             logger.info("exception: {}", e.getMessage())
-            assertTrue(e.getMessage().contains("ClusterException: COMPUTE_GROUPS_NO_ALIVE_BE"))
+            assertTrue(e.getMessage().contains("ComputeGroupException: COMPUTE_GROUPS_NO_ALIVE_BE"))
             assertTrue(e.getMessage().contains("are in an abnormal state"))
         }
 
@@ -117,12 +118,12 @@ suite('test_no_cluster_hits', 'multi_cluster, docker') {
         try {
             connectInDocker(user = user, password = '') {
                 sql """SET PROPERTY FOR '${user}' 'default_cloud_cluster' = '${currentCluster.cluster}'"""
-                // errCode = 2, detailMessage = tablet 10901 err: default cluster compute_cluster check auth failed, ClusterException: CURRENT_USER_NO_AUTH_TO_USE_DEFAULT_COMPUTE_GROUP
+                // errCode = 2, detailMessage = tablet 10901 err: default cluster compute_cluster check auth failed, ComputeGroupException: CURRENT_USER_NO_AUTH_TO_USE_DEFAULT_COMPUTE_GROUP
                 sql """select * from $table"""
             }
         } catch (Exception e) {
             logger.info("exception: {}", e.getMessage())
-            assertTrue(e.getMessage().contains("ClusterException: CURRENT_USER_NO_AUTH_TO_USE_DEFAULT_COMPUTE_GROUP"))
+            assertTrue(e.getMessage().contains("ComputeGroupException: CURRENT_USER_NO_AUTH_TO_USE_DEFAULT_COMPUTE_GROUP"))
             assertTrue(e.getMessage().contains("check auth failed"))
         } 
 
@@ -145,14 +146,14 @@ suite('test_no_cluster_hits', 'multi_cluster, docker') {
         }
 
         try {
-            // errCode = 2, detailMessage = tablet 10901 err: The current cluster compute_cluster is not registered in the system, ClusterException: CURRENT_COMPUTE_GROUP_NOT_EXIST
+            // errCode = 2, detailMessage = tablet 10916 err: The current compute group compute_cluster is not registered in the system, ComputeGroupException: CURRENT_COMPUTE_GROUP_NOT_EXIST, you can contact the administrator to confirm if the current compute group has been dropped
             sql """
                 select * from $table
             """
         } catch (Exception e) {
             logger.info("exception: {}", e.getMessage())
-            assertTrue(e.getMessage().contains("ClusterException: CURRENT_COMPUTE_GROUP_NOT_EXIST"))
-            assertTrue(e.getMessage().contains("The current cluster compute_cluster is not registered in the system"))
+            assertTrue(e.getMessage().contains("ComputeGroupException: CURRENT_COMPUTE_GROUP_NOT_EXIST"))
+            assertTrue(e.getMessage().contains("is not registered in the system"))
         } 
     }
 }

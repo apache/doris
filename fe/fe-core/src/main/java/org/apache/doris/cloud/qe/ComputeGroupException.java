@@ -89,13 +89,13 @@ public class ComputeGroupException extends UserException {
     }
 
     public String toString() {
-        return msg +  ", ClusterException: " + failedType + ", you can" + helpMsg();
+        return msg +  ", ComputeGroupException: " + failedType + ", you can" + helpMsg();
     }
 
     @Override
     public String getMessage() {
         String message = errorCode + ", detailMessage = " + super.getMessage()
-                +  ", ClusterException: " + failedType + ", you can" + helpMsg();
+                +  ", ComputeGroupException: " + failedType + ", you can" + helpMsg();
         return deleteUselessMsg(message);
     }
 }

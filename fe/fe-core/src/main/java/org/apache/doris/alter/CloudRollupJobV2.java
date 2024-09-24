@@ -95,7 +95,7 @@ public class CloudRollupJobV2 extends RollupJobV2 {
             try {
                 clusterName = context.getCloudCluster();
             } catch (ComputeGroupException e) {
-                LOG.warn("failed to get cluster name", e);
+                LOG.warn("failed to get compute group name", e);
             }
             LOG.debug("rollup job add cloud cluster, context not null, cluster: {}", clusterName);
             if (!Strings.isNullOrEmpty(clusterName)) {

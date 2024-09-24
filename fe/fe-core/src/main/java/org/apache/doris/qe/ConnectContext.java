@@ -1240,7 +1240,7 @@ public class ConnectContext {
         if (!Strings.isNullOrEmpty(this.cloudCluster)) {
             cluster = this.cloudCluster;
             choseWay = "use context cluster";
-            LOG.debug("finally set context cluster name {} for user {} with chose way '{}'",
+            LOG.debug("finally set context compute group name {} for user {} with chose way '{}'",
                     cloudCluster, getCurrentUserIdentity(), choseWay);
             return cluster;
         }
@@ -1248,10 +1248,10 @@ public class ConnectContext {
         String defaultCluster = getDefaultCloudCluster();
         if (!Strings.isNullOrEmpty(defaultCluster)) {
             cluster = defaultCluster;
-            choseWay = "default cluster";
+            choseWay = "default compute group";
             if (!Env.getCurrentEnv().getAuth().checkCloudPriv(getCurrentUserIdentity(),
                     cluster, PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER)) {
-                throw new ComputeGroupException(String.format("default cluster %s check auth failed", cluster),
+                throw new ComputeGroupException(String.format("default compute group %s check auth failed", cluster),
                     ComputeGroupException.FailedTypeEnum.CURRENT_USER_NO_AUTH_TO_USE_DEFAULT_COMPUTE_GROUP);
             }
         } else {
@@ -1263,9 +1263,9 @@ public class ConnectContext {
         }
 
         if (Strings.isNullOrEmpty(cluster)) {
-            LOG.warn("cant get a valid cluster for user {} to use", getCurrentUserIdentity());
+            LOG.warn("cant get a valid compute group for user {} to use", getCurrentUserIdentity());
             ComputeGroupException exception = new ComputeGroupException(
-                    "the user is not granted permission to the cluster",
+                    "the user is not granted permission to the compute group",
                     ComputeGroupException.FailedTypeEnum.CURRENT_USER_NO_AUTH_TO_USE_ANY_COMPUTE_GROUP);
             if (updateErr) {
                 getState().setError(ErrorCode.ERR_CLOUD_CLUSTER_ERROR, exception.getMessage());
@@ -1273,7 +1273,7 @@ public class ConnectContext {
             throw exception;
         } else {
             this.cloudCluster = cluster;
-            LOG.info("finally set context cluster name {} for user {} with chose way '{}'",
+            LOG.info("finally set context compute group name {} for user {} with chose way '{}'",
                     cloudCluster, getCurrentUserIdentity(), choseWay);
         }
 
