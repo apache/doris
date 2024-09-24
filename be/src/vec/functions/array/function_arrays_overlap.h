@@ -153,7 +153,10 @@ public:
                     "array_overlap");
         }
         // in arrays_overlap param is array Field and const Field
-        if (!is_column_const(*arguments[0].column)) {
+        ColumnPtr arg_column = arguments[0].column;
+        DataTypePtr arg_type = arguments[0].type;
+        if ((is_column_nullable(*arg_column) && !is_column_const(*remove_nullable(arg_column))) ||
+            !is_column_const(*arg_column)) {
             // if not we should skip inverted index and evaluate in expression
             return Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED>(
                     "Inverted index evaluate skipped, array_overlap only support const value");
@@ -161,7 +164,7 @@ public:
 
         Field param_value;
         arguments[0].column->get(0, param_value);
-        DCHECK(is_array(arguments[0].type));
+        DCHECK(is_array(remove_nullable(arguments[0].type)));
         auto nested_param_type =
                 check_and_get_data_type<DataTypeArray>(remove_nullable(arguments[0].type).get())
                         ->get_nested_type()
@@ -193,6 +196,7 @@ public:
                 // if analyzed param with no term, we do not filter any rows
                 // return all rows with OK status
                 roaring->addRange(0, num_rows);
+                break;
             } else if (st != Status::OK()) {
                 return st;
             }
