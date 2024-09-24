@@ -112,8 +112,7 @@ public class ChildFirstClassLoader extends URLClassLoader {
                     }
                 }
             } catch (IOException | URISyntaxException e) {
-                // Log and continue to the next JAR file
-                e.printStackTrace();  // Replace with proper logging if needed
+                throw new RuntimeException(e);
             }
         }
         // If the class was not found in any JAR file, throw ClassNotFoundException

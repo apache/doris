@@ -19,6 +19,7 @@ package org.apache.doris.common.util;
 
 import org.apache.doris.common.EnvUtils;
 import org.apache.doris.mysql.authenticate.AuthenticatorFactory;
+import org.apache.doris.mysql.privilege.AccessControllerFactory;
 
 import org.apache.commons.collections.map.HashedMap;
 
@@ -31,22 +32,55 @@ import java.util.List;
 import java.util.Map;
 import java.util.ServiceLoader;
 
+/**
+ * Utility class for loading service implementations from external JAR files in specific plugin directories.
+ * <p>
+ * This class provides a mechanism to dynamically load service implementations from JAR files located in
+ * plugin directories, which are mapped by the service type's simple name. It uses a child-first class loading
+ * strategy to ensure that plugins in the JAR files are prioritized over classes loaded by the parent class loader.
+ * <p>
+ * It is particularly useful in scenarios where the system needs to support modular or pluggable architectures,
+ * such as dynamically loading authenticators, access controllers, or other pluggable services from external
+ * directories without requiring the services to be bundled with the core application.
+ * <p>
+ * Plugin directory mappings are maintained in a static map where the key is the simple name of the service class,
+ * and the value is the relative path to the directory containing the plugin JARs.
+ * <p>
+ * Example usage:
+ * <pre>
+ * {@code
+ * List<AuthenticatorFactory> authenticators = ClassLoaderUtils.loadServicesFromDirectory(AuthenticatorFactory.class);
+ * }
+ * </pre>
+ *
+ * @see ServiceLoader
+ * @see ChildFirstClassLoader
+ */
 public class ClassLoaderUtils {
-
+    // A mapping of service class simple names to their respective plugin directories.
     private static final Map<String, String> pluginDirMapping = new HashedMap();
 
     static {
-        pluginDirMapping.put(AuthenticatorFactory.class.getSimpleName(), "auth-lib");
+        pluginDirMapping.put(AuthenticatorFactory.class.getSimpleName(), "plugins/authentication");
+        pluginDirMapping.put(AccessControllerFactory.class.getSimpleName(), "plugins/authorization");
     }
 
     /**
      * Loads service implementations from JAR files in the specified plugin directory.
+     * <p>
+     * The method first looks up the directory for the given service class type from the {@code pluginDirMapping}.
+     * If a directory exists and contains JAR files, it will load the service implementations from those JAR files
+     * using a child-first class loader to prioritize the plugin classes.
+     * <p>
+     * If no directory is found for the service type, or the directory is invalid, an exception is thrown. If the
+     * directory does not contain any JAR files, an empty list is returned.
      *
-     * @param serviceClass The class type of the service to load.
+     * @param serviceClass The class type of the service to load. This should be the interface or
+     *                     base class of the service.
      * @param <T>          The type of the service.
-     * @return A list of service instances loaded from JAR files.
-     * @throws IOException      If there is an error reading the JAR files or directory.
-     * @throws RuntimeException If there is a problem with the directory mapping or URL creation.
+     * @return A list of service instances loaded from JAR files. If no services are found, an empty list is returned.
+     * @throws IOException      If there is an error reading the JAR files or the directory is invalid.
+     * @throws RuntimeException If there is a problem with the directory mapping or JAR file URL creation.
      */
     public static <T> List<T> loadServicesFromDirectory(Class<T> serviceClass) throws IOException {
         String pluginDirKey = serviceClass.getSimpleName();
@@ -57,7 +91,10 @@ public class ClassLoaderUtils {
 
         String jarDirPath = EnvUtils.getDorisHome() + File.separator + pluginDir;
         File jarDir = new File(jarDirPath);
-
+        // If the directory does not exist, return an empty list.
+        if (!jarDir.exists()) {
+            return new ArrayList<>();
+        }
         if (!jarDir.isDirectory()) {
             throw new IOException("The specified path is not a directory: " + jarDirPath);
         }
