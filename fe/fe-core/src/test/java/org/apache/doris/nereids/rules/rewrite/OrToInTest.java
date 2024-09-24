@@ -19,7 +19,6 @@ package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteTestHelper;
 import org.apache.doris.nereids.rules.expression.rules.OrToIn;
-import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -39,22 +38,8 @@ class OrToInTest extends ExpressionRewriteTestHelper {
         String expr = "col1 = 1 or col1 = 2 or col1 = 3 and (col2 = 4)";
         Expression expression = PARSER.parseExpression(expr);
         Expression rewritten = OrToIn.INSTANCE.rewriteTree(expression, context);
-        Set<InPredicate> inPredicates = rewritten.collect(e -> e instanceof InPredicate);
-        Assertions.assertEquals(1, inPredicates.size());
-        InPredicate inPredicate = inPredicates.iterator().next();
-        NamedExpression namedExpression = (NamedExpression) inPredicate.getCompareExpr();
-        Assertions.assertEquals("col1", namedExpression.getName());
-        List<Expression> options = inPredicate.getOptions();
-        Assertions.assertEquals(2, options.size());
-        Set<Integer> opVals = ImmutableSet.of(1, 2);
-        for (Expression op : options) {
-            Literal literal = (Literal) op;
-            Assertions.assertTrue(opVals.contains(((Byte) literal.getValue()).intValue()));
-        }
-        Set<And> ands = rewritten.collect(e -> e instanceof And);
-        Assertions.assertEquals(1, ands.size());
-        And and = ands.iterator().next();
-        Assertions.assertEquals("((col1 = 3) AND (col2 = 4))", and.toSql());
+        Assertions.assertEquals("(col1 IN (1, 2, 3) AND (col1 IN (1, 2) OR ((col1 = 3) AND (col2 = 4))))",
+                rewritten.toSql());
     }
 
     @Test
@@ -62,7 +47,7 @@ class OrToInTest extends ExpressionRewriteTestHelper {
         String expr = "col1 = 1 and col1 = 3 and col2 = 3 or col2 = 4";
         Expression expression = PARSER.parseExpression(expr);
         Expression rewritten = OrToIn.INSTANCE.rewriteTree(expression, context);
-        Assertions.assertEquals("((((col1 = 1) AND (col1 = 3)) AND (col2 = 3)) OR (col2 = 4))",
+        Assertions.assertEquals("(col2 = 4)",
                 rewritten.toSql());
     }
 
@@ -104,7 +89,7 @@ class OrToInTest extends ExpressionRewriteTestHelper {
         String expr = "col = 1 or (col = 2 and (col = 3 or col = 4 or col = 5))";
         Expression expression = PARSER.parseExpression(expr);
         Expression rewritten = OrToIn.INSTANCE.rewriteTree(expression, context);
-        Assertions.assertEquals("((col = 1) OR ((col = 2) AND col IN (3, 4, 5)))",
+        Assertions.assertEquals("(col = 1)",
                 rewritten.toSql());
     }
 
@@ -121,7 +106,7 @@ class OrToInTest extends ExpressionRewriteTestHelper {
         String expr = "A = 1 or A = 2 or abs(A)=5 or A in (1, 2, 3) or B = 1 or B = 2 or B in (1, 2, 3) or B+1 in (4, 5, 7)";
         Expression expression = PARSER.parseExpression(expr);
         Expression rewritten = OrToIn.INSTANCE.rewriteTree(expression, context);
-        Assertions.assertEquals("(((A IN (1, 2, 3) OR B IN (1, 2, 3)) OR (abs(A) = 5)) OR (B + 1) IN (4, 5, 7))", rewritten.toSql());
+        Assertions.assertEquals("(((A IN (1, 2, 3) OR (abs(A) = 5)) OR B IN (1, 2, 3)) OR (B + 1) IN (4, 5, 7))", rewritten.toSql());
     }
 
     @Test
@@ -142,4 +127,42 @@ class OrToInTest extends ExpressionRewriteTestHelper {
         Assertions.assertEquals("(col1 IN (1, 2) OR col2 IN (1, 2))",
                 rewritten.toSql());
     }
+
+    @Test
+    void test9() {
+        String expr = "col1=1 and (col2=1 or col2=2)";
+        Expression expression = PARSER.parseExpression(expr);
+        Expression rewritten = OrToIn.INSTANCE.rewriteTree(expression, context);
+        Assertions.assertEquals("((col1 = 1) AND col2 IN (1, 2))",
+                rewritten.toSql());
+    }
+
+    @Test
+    void test10() {
+        String expr = "col1=1 or (col2 = 2 and (col3=4 or col3=5))";
+        Expression expression = PARSER.parseExpression(expr);
+        Expression rewritten = OrToIn.INSTANCE.rewriteTree(expression, context);
+        Assertions.assertEquals("((col1 = 1) OR ((col2 = 2) AND col3 IN (4, 5)))",
+                rewritten.toSql());
+    }
+
+    @Test
+    void test11() {
+        String expr = "(a=1 and b=2 and c=3) or (a=2 and b=2 and c=4)";
+        Expression expression = PARSER.parseExpression(expr);
+        Expression rewritten = OrToIn.INSTANCE.rewriteTree(expression, context);
+        Assertions.assertEquals("((a IN (1, 2) AND (b = 2)) AND c IN (3, 4))",
+                rewritten.toSql());
+    }
+    // recursive
+    // col1=1 and (col2=1 or col2=2) => col1=1 and col2 in (1, 2)
+    // col1=1 or (col2 = 2 and (col3=4 or col3=5)) =>
+    // col1=1 or (col1=2 and col2=3) => X col1 in (1, 2) and (col1=1 or col2=3)
+    // (a=1 and b=2 and c=3) or (a=2 and b=2 and c=4)
+    // a in (1, 2) and a in (3, 4)
+    // a in (1, 2) or (b=3 and (a=4 or a=5))
+    // (a =1 and a in (3, 4)) or (a =5)
+    // a like 'xyz%' or a=1 or a=2: no extract
+    // (a=1 and f(a)=2) or a=3: no extract
+    // x=1 or (a=1 and b=2) or (a=2 and c=3) no extract
 }
