@@ -58,7 +58,7 @@ public class RegrSlope extends NullableAggregateFunction
      * Constructor with 2 arguments.
      */
     public RegrSlope(Expression arg1, Expression arg2) {
-        this(false, arg1, arg2);
+        this(false, false, arg1, arg2);
     }
 
     /**
@@ -68,19 +68,8 @@ public class RegrSlope extends NullableAggregateFunction
         this(distinct, false, arg1, arg2);
     }
 
-    private RegrSlope(boolean distinct, boolean alwaysNullable, Expression arg1, Expression arg2) {
+    public RegrSlope(boolean distinct, boolean alwaysNullable, Expression arg1, Expression arg2) {
         super("regr_slope", distinct, alwaysNullable, arg1, arg2);
-    }
-
-    @Override
-    public RegrSlope withDistinctAndChildren(boolean distinct, List<Expression> children) {
-        Preconditions.checkArgument(children.size() == 2);
-        return new RegrSlope(distinct, alwaysNullable, children.get(0), children.get(1));
-    }
-
-    @Override
-    public NullableAggregateFunction withAlwaysNullable(boolean alwaysNullable) {
-        return new RegrSlope(distinct, alwaysNullable, child(0), child(1));
     }
 
     @Override
@@ -94,6 +83,17 @@ public class RegrSlope extends NullableAggregateFunction
                 || arg1Type.isOnlyMetricType()) {
             throw new AnalysisException("regr_slope requires numeric for second parameter: " + toSql());
         }
+    }
+
+    @Override
+    public RegrSlope withDistinctAndChildren(boolean distinct, List<Expression> children) {
+        Preconditions.checkArgument(children.size() == 2);
+        return new RegrSlope(distinct, alwaysNullable, children.get(0), children.get(1));
+    }
+
+    @Override
+    public NullableAggregateFunction withAlwaysNullable(boolean alwaysNullable) {
+        return new RegrSlope(distinct, alwaysNullable, children().get(0), children().get(1));
     }
 
     @Override

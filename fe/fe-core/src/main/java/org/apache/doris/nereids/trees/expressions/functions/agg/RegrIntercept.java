@@ -57,7 +57,7 @@ public class RegrIntercept extends NullableAggregateFunction
      * Constructor with 2 arguments.
      */
     public RegrIntercept(Expression arg1, Expression arg2) {
-        this(false, arg1, arg2);
+        this(false, false, arg1, arg2);
     }
 
     /**
@@ -72,27 +72,6 @@ public class RegrIntercept extends NullableAggregateFunction
     }
 
     @Override
-    public RegrIntercept withDistinctAndChildren(boolean distinct, List<Expression> children) {
-        Preconditions.checkArgument(children.size() == 2);
-        return new RegrIntercept(distinct, alwaysNullable, children.get(0), children.get(1));
-    }
-
-    @Override
-    public NullableAggregateFunction withAlwaysNullable(boolean alwaysNullable) {
-        return new RegrIntercept(distinct, alwaysNullable, child(0), child(1));
-    }
-
-    @Override
-    public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
-        return visitor.visitNullableAggregateFunction(this, context);
-    }
-
-    @Override
-    public List<FunctionSignature> getSignatures() {
-        return SIGNATURES;
-    }
-
-    @Override
     public void checkLegalityBeforeTypeCoercion() throws AnalysisException {
         DataType arg0Type = left().getDataType();
         DataType arg1Type = right().getDataType();
@@ -103,5 +82,26 @@ public class RegrIntercept extends NullableAggregateFunction
                 || arg1Type.isOnlyMetricType()) {
             throw new AnalysisException("regr_intercept requires numeric for second parameter: " + toSql());
         }
+    }
+
+    @Override
+    public RegrIntercept withDistinctAndChildren(boolean distinct, List<Expression> children) {
+        Preconditions.checkArgument(children.size() == 2);
+        return new RegrIntercept(distinct, alwaysNullable, children.get(0), children.get(1));
+    }
+
+    @Override
+    public NullableAggregateFunction withAlwaysNullable(boolean alwaysNullable) {
+        return new RegrIntercept(distinct, alwaysNullable, children().get(0), children().get(1));
+    }
+
+    @Override
+    public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
+        return visitor.visitNullableAggregateFunction(this, context);
+    }
+
+    @Override
+    public List<FunctionSignature> getSignatures() {
+        return SIGNATURES;
     }
 }

@@ -14,24 +14,44 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-
-#include "vec/aggregate_functions/aggregate_function_regr_intercept.h"
+#include <fmt/format.h>
 
 #include <string>
 
+#include "common/logging.h"
+#include "vec/aggregate_functions/aggregate_function_regr_intercept.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
+#include "vec/aggregate_functions/helpers.h"
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_nullable.h"
 
 namespace doris::vectorized {
+template <template <typename> class NameData, template <typename, typename> class Data,
+          template <typename> class AggregateFunctionRegrData>
+AggregateFunctionPtr create_function_regr(const String& name, const DataTypes& argument_types,
+                                          const bool result_is_nullable) {
+    WhichDataType which(remove_nullable(argument_types[0]));
+#define DISPATCH(TYPE)                                                                        \
+    if (which.idx == TypeIndex::TYPE)                                                         \
+        return creator_without_type::create<AggregateFunctionRegrFunc<                        \
+                TYPE, NameData<Data<TYPE, AggregateFunctionRegrData<TYPE>>>>>(argument_types, \
+                                                                              result_is_nullable);
+    FOR_NUMERIC_TYPES(DISPATCH)
+#undef DISPATCH
+
+    LOG(WARNING) << fmt::format("function {} with unknowed type {}", name,
+                                argument_types[0]->get_name());
+    return nullptr;
+}
 
 AggregateFunctionPtr create_aggregate_function_regr_intercept(const std::string& name,
-                                                              const DataTypes& argument_types,
-                                                              const bool result_is_nullable) {
-    return std::make_shared<AggregateFunctionRegrIntercept>(argument_types);
+                                                        const DataTypes& argument_types,
+                                                        const bool result_is_nullable) {
+    return create_function_regr<RegrInterceptName, RegrInterceptData, AggregateFunctionRegrInterceptData>(
+            name, argument_types, result_is_nullable);
 }
 
 void register_aggregate_function_regr_intercept(AggregateFunctionSimpleFactory& factory) {
-    factory.register_function("regr_intercept", create_aggregate_function_regr_intercept, false);
+    factory.register_function_both("regr_intercept", create_aggregate_function_regr_intercept);
 }
-
 } // namespace doris::vectorized

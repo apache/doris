@@ -33,151 +33,135 @@
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/io/io_helper.h"
+namespace doris {
+namespace vectorized {
+class Arena;
+class BufferReadable;
+class BufferWritable;
+template <typename T>
+class ColumnDecimal;
+template <typename>
+class ColumnVector;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 
+template <typename T>
 struct AggregateFunctionRegrSlopeData {
     UInt64 count = 0;
-    double sum_x = 0.0;
-    double sum_y = 0.0;
-    double sum_xx = 0.0;
-    double sum_xy = 0.0;
-};
+    double sum_x {};
+    double sum_y {};
+    double sum_of_x_mul_y {};
+    double sum_of_x_squared {};
 
-class AggregateFunctionRegrSlope final
-        : public IAggregateFunctionDataHelper<AggregateFunctionRegrSlopeData, AggregateFunctionRegrSlope> {
-public:
-    AggregateFunctionRegrSlope(const DataTypes& argument_types_)
-            : IAggregateFunctionDataHelper<AggregateFunctionRegrSlopeData, AggregateFunctionRegrSlope>(argument_types_) {
+    void write(BufferWritable& buf) const {
+        write_binary(sum_x, buf);
+        write_binary(sum_y, buf);
+        write_binary(sum_of_x_mul_y, buf);
+        write_binary(sum_of_x_squared, buf);
+        write_binary(count, buf);
     }
 
-    String get_name() const override { return "regr_slope"; }
+    void read(BufferReadable& buf) {
+        read_binary(sum_x, buf);
+        read_binary(sum_y, buf);
+        read_binary(sum_of_x_mul_y, buf);
+        read_binary(sum_of_x_squared, buf);
+        read_binary(count, buf);
+    }
 
-    DataTypePtr get_return_type() const override { return std::make_shared<DataTypeFloat64>(); }
+    void reset() {
+        sum_x = {};
+        sum_y = {};
+        sum_of_x_mul_y = {};
+        sum_of_x_squared = {};
+        count = 0;
+    }
+
+    double get_slope_result() const {
+        double denominator = count * sum_of_x_squared - sum_x * sum_x;
+        if (count == 0 || denominator == 0.0) {
+            return std::numeric_limits<double>::quiet_NaN();
+        }
+        return (count * sum_of_x_mul_y - sum_x * sum_y) / denominator;
+    }
+    
+
+    void merge(const AggregateFunctionRegrSlopeData& rhs) {
+        if (rhs.count == 0) {
+            return;
+        }
+        sum_x += rhs.sum_x;
+        sum_y += rhs.sum_y;
+        sum_of_x_mul_y += rhs.sum_of_x_mul_y;
+        sum_of_x_squared += rhs.sum_of_x_squared;
+        count += rhs.count;
+    }
+
+    void add(const IColumn* column_y, const IColumn* column_x, size_t row_num) {
+        const auto& sources_x = assert_cast<const ColumnVector<T>&, TypeCheckOnRelease::DISABLE>(*column_x);
+        const auto& sources_y = assert_cast<const ColumnVector<T>&, TypeCheckOnRelease::DISABLE>(*column_y);
+        const auto& value_x = sources_x.get_data()[row_num];
+        const auto& value_y = sources_y.get_data()[row_num];
+        sum_x += value_x;
+        sum_y += value_y;
+        sum_of_x_mul_y += value_x * value_y;
+        sum_of_x_squared += value_x * value_x;
+        count += 1;
+    }
+};
+
+template <typename T, typename Data>
+struct RegrSlopeData : AggregateFunctionRegrSlopeData<T> {
+    void insert_result_into(IColumn& to) const {
+        auto& col = assert_cast<ColumnFloat64&, TypeCheckOnRelease::DISABLE>(to);
+        col.get_data().push_back(this->get_slope_result());
+    }
+};
+
+template <typename Data>
+struct RegrSlopeName : Data {
+    static const char* name() { return "regr_slope"; }
+};
+
+template <typename T, typename Data>
+class AggregateFunctionRegrFunc
+        : public IAggregateFunctionDataHelper<Data, AggregateFunctionRegrFunc<T, Data>> {
+public:
+    AggregateFunctionRegrFunc(const DataTypes& argument_types_)
+            : IAggregateFunctionDataHelper<Data, AggregateFunctionRegrFunc<T, Data>>(argument_types_) {}
+
+    String get_name() const override { return Data::name(); }
+
+    DataTypePtr get_return_type() const override {
+        return std::make_shared<DataTypeNumber<Float64>>();
+    }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena*) const override {
-        bool y_valid = true;
-        bool x_valid = true;
-        const IColumn* y_column = columns[0];
-        const IColumn* x_column = columns[1];
-
-        if (y_column->is_nullable()) {
-            const auto& nullable_col = assert_cast<const ColumnNullable&>(*y_column);
-            y_valid = !nullable_col.is_null_at(row_num);
-            y_column = &nullable_col.get_nested_column();
-        }
-
-        if (x_column->is_nullable()) {
-            const auto& nullable_col = assert_cast<const ColumnNullable&>(*x_column);
-            x_valid = !nullable_col.is_null_at(row_num);
-            x_column = &nullable_col.get_nested_column();
-        }
-
-        if (y_valid && x_valid) {
-            double y_value = 0.0;
-            double x_value = 0.0;
-
-            // Handle different numeric types for y
-            if (const auto* float64_col = check_and_get_column<ColumnFloat64>(y_column)) {
-                y_value = float64_col->get_data()[row_num];
-            } else if (const auto* float32_col = check_and_get_column<ColumnFloat32>(y_column)) {
-                y_value = static_cast<double>(float32_col->get_data()[row_num]);
-            } else if (const auto* int64_col = check_and_get_column<ColumnInt64>(y_column)) {
-                y_value = static_cast<double>(int64_col->get_data()[row_num]);
-            } else if (const auto* int32_col = check_and_get_column<ColumnInt32>(y_column)) {
-                y_value = static_cast<double>(int32_col->get_data()[row_num]);
-            } else {
-                throw Exception(ErrorCode::INVALID_ARGUMENT,
-                                "Unexpected column type for y in regr_slope");
-            }
-
-            // Handle different numeric types for x
-            if (const auto* float64_col = check_and_get_column<ColumnFloat64>(x_column)) {
-                x_value = float64_col->get_data()[row_num];
-            } else if (const auto* float32_col = check_and_get_column<ColumnFloat32>(x_column)) {
-                x_value = static_cast<double>(float32_col->get_data()[row_num]);
-            } else if (const auto* int64_col = check_and_get_column<ColumnInt64>(x_column)) {
-                x_value = static_cast<double>(int64_col->get_data()[row_num]);
-            } else if (const auto* int32_col = check_and_get_column<ColumnInt32>(x_column)) {
-                x_value = static_cast<double>(int32_col->get_data()[row_num]);
-            } else {
-                throw Exception(ErrorCode::INVALID_ARGUMENT,
-                                "Unexpected column type for x in regr_slope");
-            }
-
-            data(place).count += 1;
-            data(place).sum_x += x_value;
-            data(place).sum_y += y_value;
-            data(place).sum_xx += x_value * x_value;
-            data(place).sum_xy += x_value * y_value;
-        }
+        this->data(place).add(columns[0], columns[1], row_num);
     }
 
-    void reset(AggregateDataPtr __restrict place) const override {
-        data(place).count = 0;
-        data(place).sum_x = 0.0;
-        data(place).sum_y = 0.0;
-        data(place).sum_xx = 0.0;
-        data(place).sum_xy = 0.0;
-    }
+    void reset(AggregateDataPtr __restrict place) const override { this->data(place).reset(); }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
                Arena*) const override {
-        data(place).count += data(rhs).count;
-        data(place).sum_x += data(rhs).sum_x;
-        data(place).sum_y += data(rhs).sum_y;
-        data(place).sum_xx += data(rhs).sum_xx;
-        data(place).sum_xy += data(rhs).sum_xy;
+        this->data(place).merge(this->data(rhs));
     }
 
     void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
-        write_var_uint(data(place).count, buf);
-        write_float_binary(data(place).sum_x, buf);
-        write_float_binary(data(place).sum_y, buf);
-        write_float_binary(data(place).sum_xx, buf);
-        write_float_binary(data(place).sum_xy, buf);
+        this->data(place).write(buf);
     }
 
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
                      Arena*) const override {
-        read_var_uint(data(place).count, buf);
-        read_float_binary(data(place).sum_x, buf);
-        read_float_binary(data(place).sum_y, buf);
-        read_float_binary(data(place).sum_xx, buf);
-        read_float_binary(data(place).sum_xy, buf);
+        this->data(place).read(buf);
     }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
-        UInt64 n = data(place).count;
-        double sum_x = data(place).sum_x;
-        double sum_y = data(place).sum_y;
-        double sum_xx = data(place).sum_xx;
-        double sum_xy = data(place).sum_xy;
-
-        double denominator = n * sum_xx - sum_x * sum_x;
-        bool result_is_null = (n == 0 || denominator == 0.0);
-
-        double slope = 0.0;
-        if (!result_is_null) {
-            slope = (n * sum_xy - sum_x * sum_y) / denominator;
-        }
-
-        if (to.is_nullable()) {
-            auto& null_column = assert_cast<ColumnNullable&>(to);
-            null_column.get_null_map_data().push_back(result_is_null);
-            auto& nested_column = assert_cast<ColumnFloat64&>(null_column.get_nested_column());
-            nested_column.get_data().push_back(slope);
-        } else {
-            if (result_is_null) {
-                assert_cast<ColumnFloat64&>(to).get_data().push_back(
-                    std::numeric_limits<double>::quiet_NaN());
-            } else {
-                assert_cast<ColumnFloat64&>(to).get_data().push_back(slope);
-            }
-        }
+        this->data(place).insert_result_into(to);
     }
-
 };
 
 } // namespace doris::vectorized
