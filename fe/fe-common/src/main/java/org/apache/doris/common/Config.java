@@ -2484,6 +2484,12 @@ public class Config extends ConfigBase {
     @ConfField
     public static long ranger_cache_size = 10000;
 
+    @ConfField(description = {
+            "鉴权插件配置文件路径，需在 DORIS_HOME 下，默认为 conf/authorization.conf",
+            "Authorization plugin configuration file path, need to be in DORIS_HOME,"
+                    + "default is conf/authorization.conf"})
+    public static String authorization_config_file_path = "conf/authorization.conf";
+
     /**
      * This configuration is used to enable the statistics of query information, which will record
      * the access status of databases, tables, and columns, and can be used to guide the
