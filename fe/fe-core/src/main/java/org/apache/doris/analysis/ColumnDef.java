@@ -175,8 +175,6 @@ public class ColumnDef {
                 }
                 return LocalDateTime.now(TimeUtils.getTimeZone().toZoneId())
                         .format(DateTimeFormatter.ofPattern(format));
-            } else if (value == null) {
-                return "NULL";
             }
             return value;
         }
