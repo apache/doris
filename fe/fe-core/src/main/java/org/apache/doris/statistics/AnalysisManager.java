@@ -91,6 +91,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.NavigableMap;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.StringJoiner;
@@ -905,7 +906,7 @@ public class AnalysisManager implements Writable {
     public List<AnalysisInfo> findTasksByTaskIds(long jobId) {
         AnalysisInfo jobInfo = analysisJobInfoMap.get(jobId);
         if (jobInfo != null && jobInfo.taskIds != null) {
-            return jobInfo.taskIds.stream().map(analysisTaskInfoMap::get).filter(i -> i != null)
+            return jobInfo.taskIds.stream().map(analysisTaskInfoMap::get).filter(Objects::nonNull)
                     .collect(Collectors.toList());
         }
         return null;
@@ -922,7 +923,7 @@ public class AnalysisManager implements Writable {
     public void dropAnalyzeJob(DropAnalyzeJobStmt analyzeJobStmt) throws DdlException {
         AnalysisInfo jobInfo = analysisJobInfoMap.get(analyzeJobStmt.getJobId());
         if (jobInfo == null) {
-            throw new DdlException(String.format("Analyze job [%d] not exists", jobInfo.jobId));
+            throw new DdlException(String.format("Analyze job [%d] not exists", analyzeJobStmt.getJobId()));
         }
         checkPriv(jobInfo);
         long jobId = analyzeJobStmt.getJobId();
@@ -962,15 +963,12 @@ public class AnalysisManager implements Writable {
         if (analysisInfo == null) {
             return true;
         }
-        if (analysisInfo.scheduleType == null || analysisInfo.scheduleType == null || analysisInfo.jobType == null) {
+        if (analysisInfo.scheduleType == null || analysisInfo.jobType == null) {
             return true;
         }
-        if ((AnalysisState.PENDING.equals(analysisInfo.state) || AnalysisState.RUNNING.equals(analysisInfo.state))
+        return (AnalysisState.PENDING.equals(analysisInfo.state) || AnalysisState.RUNNING.equals(analysisInfo.state))
                 && ScheduleType.ONCE.equals(analysisInfo.scheduleType)
-                && JobType.MANUAL.equals(analysisInfo.jobType)) {
-            return true;
-        }
-        return false;
+                && JobType.MANUAL.equals(analysisInfo.jobType);
     }
 
     private static void readIdToTblStats(DataInput in, Map<Long, TableStatsMeta> map) throws IOException {
@@ -1140,17 +1138,14 @@ public class AnalysisManager implements Writable {
 
     /**
      * Only OlapTable and Hive HMSExternalTable can sample for now.
-     * @param table
+     * @param table Table to check
      * @return Return true if the given table can do sample analyze. False otherwise.
      */
     public boolean canSample(TableIf table) {
         if (table instanceof OlapTable) {
             return true;
         }
-        if (table instanceof HMSExternalTable
-                && ((HMSExternalTable) table).getDlaType().equals(HMSExternalTable.DLAType.HIVE)) {
-            return true;
-        }
-        return false;
+        return table instanceof HMSExternalTable
+                && ((HMSExternalTable) table).getDlaType().equals(HMSExternalTable.DLAType.HIVE);
     }
 }
