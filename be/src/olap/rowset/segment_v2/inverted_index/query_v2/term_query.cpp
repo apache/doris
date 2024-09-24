@@ -28,9 +28,10 @@ TermQuery::~TermQuery() {
 }
 
 TermQuery::TermQuery(const std::shared_ptr<lucene::index::IndexReader>& reader,
-                     const TQueryOptions& query_options, QueryInfo query_info) {
-    std::wstring ws_term = StringUtil::string_to_wstring(query_info.terms[0]);
-    auto* t = _CLNEW Term(query_info.field_name.c_str(), ws_term.c_str());
+                     const std::string& field_name, const std::string& term) {
+    auto ws_term = StringUtil::string_to_wstring(term);
+    auto field_name_ws = StringUtil::string_to_wstring(field_name);
+    auto* t = _CLNEW Term(field_name_ws.c_str(), ws_term.c_str());
     _term_docs = reader->termDocs(t);
     _iter = TermIterator(_term_docs);
     _CLDECDELETE(t);

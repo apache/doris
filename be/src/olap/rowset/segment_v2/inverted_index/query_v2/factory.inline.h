@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "factory.h"
+#include "olap/rowset/segment_v2/inverted_index/query_v2/factory.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/roaring_query.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/term_query.h"
 

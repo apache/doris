@@ -20,6 +20,9 @@
 #include <hs/hs.h>
 
 #include "olap/rowset/segment_v2/inverted_index/analyzer/analyzer.h"
+#include "olap/rowset/segment_v2/inverted_index/query_v2/boolean_query.h"
+#include "olap/rowset/segment_v2/inverted_index/query_v2/factory.inline.h"
+#include "olap/rowset/segment_v2/inverted_index/query_v2/operator.h"
 #include "runtime/query_context.h"
 #include "runtime/runtime_state.h"
 #include "util/debug_points.h"
@@ -246,6 +249,66 @@ Status FunctionMatchBase::check(FunctionContext* context, const std::string& fun
     });
 
     return Status::OK();
+}
+
+Result<segment_v2::inverted_index::Node> FunctionMatchAny::build_inverted_index_query(
+        const ColumnsWithTypeAndName& arguments,
+        const std::vector<vectorized::IndexFieldNameAndTypePair>& data_type_with_names,
+        std::vector<segment_v2::inverted_index::InvertedIndexReaderPtr>& readers) const {
+    DCHECK(arguments.size() == 1);
+    DCHECK(data_type_with_names.size() == 1);
+    DCHECK(readers.size() == 1);
+    auto inverted_index_reader = readers[0];
+    auto data_type_with_name = data_type_with_names[0];
+    if (inverted_index_reader == nullptr) {
+        return ResultError(Status::OK());
+    }
+
+    const auto& properties = inverted_index_reader->get_index_properties();
+    std::shared_ptr<roaring::Roaring> roaring = std::make_shared<roaring::Roaring>();
+
+    auto column_ptr = arguments[0].column;
+    auto type_ptr = arguments[0].type;
+    auto param_type = type_ptr->get_type_as_type_descriptor().type;
+
+    auto match_query_str = type_ptr->to_string(*column_ptr, 0);
+    std::string column_name = data_type_with_name.first;
+    if (is_string_type(param_type)) {
+        auto inverted_index_ctx = std::make_unique<InvertedIndexCtx>(
+                get_inverted_index_parser_type_from_string(
+                        get_parser_string_from_properties(properties)),
+                get_parser_mode_string_from_properties(properties),
+                get_parser_char_filter_map_from_properties(properties),
+                get_parser_lowercase_from_properties(properties),
+                get_parser_stopwords_from_properties(properties));
+        auto analyzer =
+                inverted_index::InvertedIndexAnalyzer::create_analyzer(inverted_index_ctx.get());
+        inverted_index_ctx->analyzer = analyzer.get();
+        auto terms =
+                analyse_query_str_token(inverted_index_ctx.get(), match_query_str, column_name);
+        auto reader = inverted_index_reader->get_index_reader();
+        if (terms.size() == 1) {
+            return inverted_index::QueryFactory::create(inverted_index::QueryType::TERM_QUERY,
+                                                        reader, column_name, terms[0]);
+        } else {
+            inverted_index::BooleanQuery::Builder query_builder;
+            RETURN_IF_ERROR_RESULT(query_builder.set_op(inverted_index::OperatorType::OP_OR));
+            for (auto term : terms) {
+                auto result = inverted_index::QueryFactory::create(
+                        inverted_index::QueryType::TERM_QUERY, reader, column_name, term);
+                if (!result.has_value()) {
+                    return result;
+                }
+                auto clause = result.value();
+                RETURN_IF_ERROR_RESULT(query_builder.add(clause));
+            }
+            return query_builder.build();
+        }
+    } else {
+        return ResultError(Status::Error<ErrorCode::INVERTED_INDEX_INVALID_PARAMETERS>(
+                "invalid params type for FunctionMatchAny::build_inverted_index_query {}",
+                param_type));
+    }
 }
 
 Status FunctionMatchAny::execute_match(FunctionContext* context, const std::string& column_name,

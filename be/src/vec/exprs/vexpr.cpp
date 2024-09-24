@@ -220,6 +220,7 @@ Status VExpr::prepare(RuntimeState* state, const RowDescriptor& row_desc, VExprC
     }
     --context->_depth_num;
     _enable_inverted_index_query = state->query_options().enable_inverted_index_query;
+    _enable_inverted_index_query_v2 = state->query_options().enable_inverted_index_query_v2;
     return Status::OK();
 }
 
@@ -609,6 +610,115 @@ Status VExpr::get_result_from_const(vectorized::Block* block, const std::string&
     auto column = ColumnConst::create(_constant_col->column_ptr, block->rows());
     block->insert({std::move(column), _data_type, expr_name});
     return Status::OK();
+}
+
+Result<segment_v2::inverted_index::Node> VExpr::_build_inverted_index_query(
+        VExprContext* context, const FunctionBasePtr& function) const {
+    // Pre-allocate vectors based on an estimated or known size
+    std::vector<segment_v2::inverted_index::InvertedIndexReaderPtr> readers;
+    std::vector<vectorized::IndexFieldNameAndTypePair> data_type_with_names;
+    std::vector<int> column_ids;
+    vectorized::ColumnsWithTypeAndName arguments;
+    VExprSPtrs children_exprs;
+
+    // Reserve space to avoid multiple reallocations
+    const size_t estimated_size = children().size();
+    readers.reserve(estimated_size);
+    data_type_with_names.reserve(estimated_size);
+    column_ids.reserve(estimated_size);
+    children_exprs.reserve(estimated_size);
+
+    auto index_context = context->get_inverted_index_context();
+
+    // if child is cast expr, we need to ensure target data type is the same with storage data type.
+    // or they are all string type
+    // and if data type is array, we need to get the nested data type to ensure that.
+    for (const auto& child : children()) {
+        if (child->node_type() == TExprNodeType::CAST_EXPR) {
+            auto* cast_expr = assert_cast<VCastExpr*>(child.get());
+            DCHECK_EQ(cast_expr->children().size(), 1);
+            if (cast_expr->get_child(0)->is_slot_ref()) {
+                auto* column_slot_ref = assert_cast<VSlotRef*>(cast_expr->get_child(0).get());
+                auto column_id = column_slot_ref->column_id();
+                const auto* storage_name_type =
+                        context->get_inverted_index_context()
+                                ->get_storage_name_and_type_by_column_id(column_id);
+                auto storage_type = remove_nullable(storage_name_type->second);
+                auto target_type = cast_expr->get_target_type();
+                auto origin_primitive_type = storage_type->get_type_as_type_descriptor().type;
+                auto target_primitive_type = target_type->get_type_as_type_descriptor().type;
+                if (is_complex_type(storage_type)) {
+                    if (is_array(storage_type) && is_array(target_type)) {
+                        auto nested_storage_type =
+                                (assert_cast<const DataTypeArray*>(storage_type.get()))
+                                        ->get_nested_type();
+                        origin_primitive_type =
+                                nested_storage_type->get_type_as_type_descriptor().type;
+                        auto nested_target_type =
+                                (assert_cast<const DataTypeArray*>(target_type.get()))
+                                        ->get_nested_type();
+                        target_primitive_type =
+                                nested_target_type->get_type_as_type_descriptor().type;
+                    } else {
+                        continue;
+                    }
+                }
+                if (origin_primitive_type != TYPE_VARIANT &&
+                    (origin_primitive_type == target_primitive_type ||
+                     (is_string_type(target_primitive_type) &&
+                      is_string_type(origin_primitive_type)))) {
+                    children_exprs.emplace_back(expr_without_cast(child));
+                }
+            }
+        } else {
+            children_exprs.emplace_back(child);
+        }
+    }
+
+    if (children_exprs.empty()) {
+        return ResultError(Status::OK()); // Early exit if no children to process
+    }
+
+    for (const auto& child : children_exprs) {
+        if (child->is_slot_ref()) {
+            auto* column_slot_ref = assert_cast<VSlotRef*>(child.get());
+            auto column_id = column_slot_ref->column_id();
+            auto inverted_index_reader =
+                    context->get_inverted_index_context()->get_inverted_index_reader_by_column_id(
+                            column_id);
+            //column does not have inverted index
+            if (inverted_index_reader == nullptr) {
+                continue;
+            }
+            const auto* storage_name_type =
+                    context->get_inverted_index_context()->get_storage_name_and_type_by_column_id(
+                            column_id);
+            if (storage_name_type == nullptr) {
+                auto err_msg = fmt::format(
+                        "storage_name_type cannot be found for column {} while in {} "
+                        "evaluate_inverted_index",
+                        column_id, expr_name());
+                LOG(ERROR) << err_msg;
+                return ResultError(Status::InternalError(err_msg));
+            }
+            auto st = inverted_index_reader->init_index_reader();
+            if (!st.ok()) {
+                return ResultError(st);
+            }
+            readers.emplace_back(inverted_index_reader);
+            data_type_with_names.emplace_back(*storage_name_type);
+            column_ids.emplace_back(column_id);
+        } else if (child->is_literal()) {
+            auto* column_literal = assert_cast<VLiteral*>(child.get());
+            arguments.emplace_back(column_literal->get_column_ptr(),
+                                   column_literal->get_data_type(), column_literal->expr_name());
+        }
+    }
+
+    if (readers.empty() || arguments.empty()) {
+        return ResultError(Status::OK()); // Nothing to evaluate or no literals to compare against
+    }
+    return function->build_inverted_index_query(arguments, data_type_with_names, readers);
 }
 
 Status VExpr::_evaluate_inverted_index(VExprContext* context, const FunctionBasePtr& function,

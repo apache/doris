@@ -28,13 +28,20 @@ Status InvertedIndexReader::init_index_reader() {
     auto close_directory = true;
     lucene::index::IndexReader* reader = nullptr;
     try {
+        bool open_idx_file_cache = true;
+        auto st = _inverted_index_file_reader->init(config::inverted_index_read_buffer_size,
+                                                    open_idx_file_cache);
+        if (!st.ok()) {
+            LOG(WARNING) << st;
+            return st;
+        }
         auto result = DORIS_TRY(_inverted_index_file_reader->open(&_index_meta));
-        auto directory = result.release();
+        auto* directory = result.release();
         reader = lucene::index::IndexReader::open(
                 directory, config::inverted_index_read_buffer_size, close_directory);
         _CLDECDELETE(directory)
     } catch (const CLuceneError& e) {
-        std::string msg = "FulltextIndexSearcherBuilder build error: " + std::string(e.what());
+        std::string msg = "InvertedIndexReader init_index_reader error: " + std::string(e.what());
         if (e.number() == CL_ERR_EmptyIndexSegment) {
             return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>(msg);
         }

@@ -25,6 +25,7 @@
 
 #include "common/factory_creator.h"
 #include "common/status.h"
+#include "olap/rowset/segment_v2/inverted_index/reader/reader.h"
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
 #include "runtime/types.h"
 #include "udf/udf.h"
@@ -46,9 +47,11 @@ public:
                     inverted_index_iterators,
             const std::vector<vectorized::IndexFieldNameAndTypePair>& storage_name_and_type_vec,
             std::unordered_map<ColumnId, std::unordered_map<const vectorized::VExpr*, bool>>&
-                    common_expr_inverted_index_status)
+                    common_expr_inverted_index_status,
+            const vector<segment_v2::inverted_index::InvertedIndexReaderPtr>& invertedIndexReaders)
             : _col_ids(col_ids),
               _inverted_index_iterators(inverted_index_iterators),
+              _inverted_index_readers(invertedIndexReaders),
               _storage_name_and_type(storage_name_and_type_vec),
               _expr_inverted_index_status(common_expr_inverted_index_status) {}
 
@@ -65,6 +68,21 @@ public:
             return nullptr;
         }
         return _inverted_index_iterators[column_id].get();
+    }
+
+    segment_v2::inverted_index::InvertedIndexReaderPtr get_inverted_index_reader_by_column_id(
+            int column_index) const {
+        if (column_index < 0 || column_index >= _col_ids.size()) {
+            return nullptr;
+        }
+        const auto& column_id = _col_ids[column_index];
+        if (column_id >= _inverted_index_readers.size()) {
+            return nullptr;
+        }
+        if (!_inverted_index_readers[column_id]) {
+            return nullptr;
+        }
+        return _inverted_index_readers[column_id];
     }
 
     const vectorized::IndexFieldNameAndTypePair* get_storage_name_and_type_by_column_id(
@@ -130,6 +148,9 @@ private:
     // A reference to a vector of unique pointers to inverted index iterators.
     const std::vector<std::unique_ptr<segment_v2::InvertedIndexIterator>>&
             _inverted_index_iterators;
+
+    // A reference to a vector of shared pointers to inverted index readers.
+    const vector<segment_v2::inverted_index::InvertedIndexReaderPtr>& _inverted_index_readers;
 
     // A reference to a vector of storage name and type pairs related to schema.
     const std::vector<vectorized::IndexFieldNameAndTypePair>& _storage_name_and_type;

@@ -108,21 +108,15 @@ static Status boolean_query_search(const std::string& name,
         BooleanQuery::Builder builder1;
         RETURN_IF_ERROR(builder1.set_op(OperatorType::OP_OR));
         {
-            TQueryOptions options;
-            QueryInfo query_info;
-            query_info.field_name = StringUtil::string_to_wstring(name);
-            query_info.terms.emplace_back("hm");
-            auto clause = DORIS_TRY(
-                    QueryFactory::create(QueryType::TERM_QUERY, reader, options, query_info));
+            std::string term = "hm";
+            auto clause =
+                    DORIS_TRY(QueryFactory::create(QueryType::TERM_QUERY, reader, name, term));
             RETURN_IF_ERROR(builder1.add(clause));
         }
         {
-            TQueryOptions options;
-            QueryInfo query_info;
-            query_info.field_name = StringUtil::string_to_wstring(name);
-            query_info.terms.emplace_back("ac");
-            auto clause = DORIS_TRY(
-                    QueryFactory::create(QueryType::TERM_QUERY, reader, options, query_info));
+            std::string term = "ac";
+            auto clause =
+                    DORIS_TRY(QueryFactory::create(QueryType::TERM_QUERY, reader, name, term));
             RETURN_IF_ERROR(builder1.add(clause));
         }
         auto boolean_query = DORIS_TRY(builder1.build());

@@ -35,6 +35,9 @@
 
 #include "common/status.h"
 #include "olap/rowset/segment_v2/inverted_index/analyzer/analyzer.h"
+#include "olap/rowset/segment_v2/inverted_index/query_v2/boolean_query.h"
+#include "olap/rowset/segment_v2/inverted_index/query_v2/roaring_query.h"
+#include "olap/rowset/segment_v2/inverted_index/query_v2/term_query.h"
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
@@ -130,7 +133,24 @@ void VMatchPredicate::close(VExprContext* context, FunctionContext::FunctionStat
 
 Status VMatchPredicate::evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) {
     DCHECK_EQ(get_num_children(), 2);
-    return _evaluate_inverted_index(context, _function, segment_num_rows);
+    if (_enable_inverted_index_query_v2) {
+        auto inverted_index_query = DORIS_TRY(_build_inverted_index_query(context, _function));
+        inverted_index::BooleanQuery::Builder builder;
+        auto result = std::make_shared<roaring::Roaring>();
+
+        visit_node(inverted_index_query, inverted_index::QueryExecute {}, result);
+        std::shared_ptr<roaring::Roaring> null_bitmap = std::make_shared<roaring::Roaring>();
+        segment_v2::InvertedIndexResultBitmap result_bitmap(result, null_bitmap);
+        context->get_inverted_index_context()->set_inverted_index_result_for_expr(this,
+                                                                                  result_bitmap);
+        _can_fast_execute = true;
+        //TODO:read null bitmap from reader and mask out
+        //TODO:set status for column id
+        return Status::OK();
+    } else if (_enable_inverted_index_query) {
+        return _evaluate_inverted_index(context, _function, segment_num_rows);
+    }
+    return Status::OK();
 }
 
 Status VMatchPredicate::execute(VExprContext* context, Block* block, int* result_column_id) {

@@ -845,10 +845,6 @@ Result<inverted_index::InvertedIndexReaderPtr> Segment::get_inverted_index_reade
     }
     if (_inverted_index_readers.contains(column_unique_id)) {
         auto inverted_index_reader = _inverted_index_readers[column_unique_id];
-        auto st = inverted_index_reader->init_index_reader();
-        if (!st.ok()) {
-            return ResultError(st);
-        }
         return std::move(inverted_index_reader);
     }
     return nullptr;

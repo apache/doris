@@ -31,6 +31,8 @@
 
 #include "common/exception.h"
 #include "common/status.h"
+#include "olap/rowset/segment_v2/inverted_index/query_v2/node.h"
+#include "olap/rowset/segment_v2/inverted_index/reader/reader.h"
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
 #include "udf/udf.h"
 #include "vec/core/block.h"
@@ -197,6 +199,14 @@ public:
             segment_v2::InvertedIndexResultBitmap& bitmap_result) const {
         return Status::NotSupported("evaluate_inverted_index is not supported in function: ",
                                     get_name());
+    }
+
+    virtual Result<segment_v2::inverted_index::Node> build_inverted_index_query(
+            const ColumnsWithTypeAndName& arguments,
+            const std::vector<vectorized::IndexFieldNameAndTypePair>& data_type_with_names,
+            std::vector<segment_v2::inverted_index::InvertedIndexReaderPtr>& readers) const {
+        return ResultError(Status::NotSupported(
+                "evaluate_inverted_index is not supported in function: ", get_name()));
     }
 
     /// Do cleaning work when function is finished, i.e., release state variables in the
@@ -467,6 +477,13 @@ protected:
                                                  num_rows, bitmap_result);
     }
 
+    virtual Result<segment_v2::inverted_index::Node> build_inverted_index_query(
+            const ColumnsWithTypeAndName& arguments,
+            const std::vector<vectorized::IndexFieldNameAndTypePair>& data_type_with_names,
+            std::vector<segment_v2::inverted_index::InvertedIndexReaderPtr>& readers) const {
+        return function->build_inverted_index_query(arguments, data_type_with_names, readers);
+    }
+
     Status execute_impl_dry_run(FunctionContext* context, Block& block,
                                 const ColumnNumbers& arguments, size_t result,
                                 size_t input_rows_count) const final {
@@ -531,6 +548,14 @@ public:
             segment_v2::InvertedIndexResultBitmap& bitmap_result) const override {
         return function->evaluate_inverted_index(args, data_type_with_names, iterators, num_rows,
                                                  bitmap_result);
+    }
+
+    Result<segment_v2::inverted_index::Node> build_inverted_index_query(
+            const ColumnsWithTypeAndName& args,
+            const std::vector<vectorized::IndexFieldNameAndTypePair>& data_type_with_names,
+            std::vector<segment_v2::inverted_index::InvertedIndexReaderPtr>& readers)
+            const override {
+        return function->build_inverted_index_query(args, data_type_with_names, readers);
     }
 
     IFunctionBase::Monotonicity get_monotonicity_for_range(const IDataType& type, const Field& left,

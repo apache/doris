@@ -17,8 +17,6 @@
 
 #pragma once
 
-#include <stddef.h>
-
 #include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
 #include <memory>
@@ -31,6 +29,8 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "olap/inverted_index_parser.h"
+#include "olap/rowset/segment_v2/inverted_index/query_v2/query.h"
+#include "olap/rowset/segment_v2/inverted_index/reader/reader.h"
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
@@ -44,6 +44,7 @@
 #include "vec/functions/function.h"
 #include "vec/functions/simple_function_factory.h"
 
+using namespace doris::segment_v2;
 namespace doris {
 class FunctionContext;
 } // namespace doris
@@ -113,6 +114,12 @@ public:
                          const ColumnString* string_col, InvertedIndexCtx* inverted_index_ctx,
                          const ColumnArray::Offsets64* array_offsets,
                          ColumnUInt8::Container& result) const override;
+
+    Result<segment_v2::inverted_index::Node> build_inverted_index_query(
+            const ColumnsWithTypeAndName& arguments,
+            const std::vector<vectorized::IndexFieldNameAndTypePair>& data_type_with_names,
+            std::vector<segment_v2::inverted_index::InvertedIndexReaderPtr>& readers)
+            const override;
 };
 
 class FunctionMatchAll : public FunctionMatchBase {

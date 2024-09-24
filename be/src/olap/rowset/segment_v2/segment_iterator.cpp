@@ -371,8 +371,7 @@ Status SegmentIterator::init_iterators() {
     if (_opts.runtime_state &&
         _opts.runtime_state->query_options().enable_inverted_index_query_v2) {
         RETURN_IF_ERROR(_init_inverted_index_readers());
-    } else if (_opts.runtime_state &&
-               _opts.runtime_state->query_options().enable_inverted_index_query) {
+    } else {
         RETURN_IF_ERROR(_init_inverted_index_iterators());
     }
     return Status::OK();
@@ -512,7 +511,8 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
     RETURN_IF_ERROR(_apply_bitmap_index());
     {
         if (_opts.runtime_state &&
-            _opts.runtime_state->query_options().enable_inverted_index_query) {
+            (_opts.runtime_state->query_options().enable_inverted_index_query ||
+             _opts.runtime_state->query_options().enable_inverted_index_query_v2)) {
             SCOPED_RAW_TIMER(&_opts.stats->inverted_index_filter_timer);
             size_t input_rows = _row_bitmap.cardinality();
             RETURN_IF_ERROR(_apply_inverted_index());
@@ -2410,7 +2410,7 @@ Status SegmentIterator::current_block_row_locations(std::vector<RowLocation>* bl
 Status SegmentIterator::_construct_compound_expr_context() {
     auto inverted_index_context = std::make_shared<vectorized::InvertedIndexContext>(
             _schema->column_ids(), _inverted_index_iterators, _storage_name_and_type,
-            _common_expr_inverted_index_status);
+            _common_expr_inverted_index_status, _inverted_index_readers);
     for (const auto& expr_ctx : _opts.common_expr_ctxs_push_down) {
         vectorized::VExprContextSPtr context;
         RETURN_IF_ERROR(expr_ctx->clone(_opts.runtime_state, context));

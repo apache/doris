@@ -123,9 +123,6 @@ public:
         return Status::NotSupported("Not supported execute_with_inverted_index");
     }
 
-    Status _evaluate_inverted_index(VExprContext* context, const FunctionBasePtr& function,
-                                    uint32_t segment_num_rows);
-
     // Only the 4th parameter is used in the runtime filter. In and MinMax need overwrite the
     // interface
     virtual Status execute_runtime_fitler(VExprContext* context, Block* block,
@@ -294,6 +291,12 @@ protected:
     void close_function_context(VExprContext* context, FunctionContext::FunctionStateScope scope,
                                 const FunctionBasePtr& function) const;
 
+    Status _evaluate_inverted_index(VExprContext* context, const FunctionBasePtr& function,
+                                    uint32_t segment_num_rows);
+
+    Result<segment_v2::inverted_index::Node> _build_inverted_index_query(
+            VExprContext* context, const FunctionBasePtr& function) const;
+
     TExprNodeType::type _node_type;
     // Used to check what opcode
     TExprOpcode::type _opcode;
@@ -321,6 +324,7 @@ protected:
     uint32_t _index_unique_id = 0;
     bool _can_fast_execute = false;
     bool _enable_inverted_index_query = true;
+    bool _enable_inverted_index_query_v2 = false;
 };
 
 } // namespace vectorized
