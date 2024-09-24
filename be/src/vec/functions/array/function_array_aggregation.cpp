@@ -146,9 +146,9 @@ struct ArrayAggregateImpl {
         using Function = AggregateFunction<AggregateFunctionImpl<operation>>;
         const DataTypeArray* data_type_array =
                 static_cast<const DataTypeArray*>(remove_nullable(arguments[0]).get());
-        if constexpr (operation == AggregateOperation::AVERAGE ||
-                      operation == AggregateOperation::SUM ||
-                      operation == AggregateOperation::PRODUCT) {
+        if constexpr (operation != AggregateOperation::MIN &&
+                      operation != AggregateOperation::MAX) {
+            // only array_min and array_max support decimal256 type
             if (is_decimal(remove_nullable(data_type_array->get_nested_type()))) {
                 const auto decimal_type = remove_nullable(data_type_array->get_nested_type());
                 if (check_decimal<Decimal256>(*decimal_type)) {

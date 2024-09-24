@@ -15269,7 +15269,7 @@ false
 \N
 \N
 \N
-=======
+
 -- !sql_array_match_any_1 --
 ["a", "b", "c"]	true
 ["a", null, "c"]	true
