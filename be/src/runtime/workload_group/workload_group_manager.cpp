@@ -355,8 +355,8 @@ void WorkloadGroupMgr::handle_paused_queries() {
         if (queries_list.empty()) {
             LOG(INFO) << "wg: " << wg->debug_string()
                       << " has no paused query, update it to memory sufficent";
-            it = _paused_queries_list.erase(it);
             wg->update_memory_sufficent(true);
+            it = _paused_queries_list.erase(it);
             continue;
         }
 

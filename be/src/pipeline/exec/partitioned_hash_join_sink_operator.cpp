@@ -47,12 +47,10 @@ Status PartitionedHashJoinSinkLocalState::init(doris::RuntimeState* state,
 
     _internal_runtime_profile.reset(new RuntimeProfile("internal_profile"));
 
-    _partition_timer = ADD_CHILD_TIMER_WITH_LEVEL(profile(), "PartitionTime", "Spill", 1);
-    _partition_shuffle_timer =
-            ADD_CHILD_TIMER_WITH_LEVEL(profile(), "PartitionShuffleTime", "Spill", 1);
-    _spill_build_timer = ADD_CHILD_TIMER_WITH_LEVEL(profile(), "SpillBuildTime", "Spill", 1);
-    _in_mem_rows_counter =
-            ADD_CHILD_COUNTER_WITH_LEVEL(profile(), "InMemRow", TUnit::UNIT, "Spill", 1);
+    _partition_timer = ADD_TIMER_WITH_LEVEL(profile(), "SpillPartitionTime", 1);
+    _partition_shuffle_timer = ADD_TIMER_WITH_LEVEL(profile(), "SpillPartitionShuffleTime", 1);
+    _spill_build_timer = ADD_TIMER_WITH_LEVEL(profile(), "SpillBuildTime", 1);
+    _in_mem_rows_counter = ADD_COUNTER_WITH_LEVEL(profile(), "SpillInMemRow", TUnit::UNIT, 1);
 
     return Status::OK();
 }
@@ -246,6 +244,7 @@ Status PartitionedHashJoinSinkLocalState::_revoke_unpartitioned_block(RuntimeSta
     };
 
     auto exception_catch_func = [spill_func, this]() mutable {
+        SCOPED_TIMER(_spill_timer);
         auto status = [&]() {
             RETURN_IF_CATCH_EXCEPTION(spill_func());
             return Status::OK();
@@ -319,6 +318,7 @@ Status PartitionedHashJoinSinkLocalState::revoke_memory(RuntimeState* state) {
         auto spill_runnable = std::make_shared<SpillRunnable>(
                 state, _shared_state->shared_from_this(),
                 [this, state, query_id, spilling_stream, i, submit_timer] {
+                    SCOPED_TIMER(_spill_timer);
                     DBUG_EXECUTE_IF(
                             "fault_inject::partitioned_hash_join_sink::revoke_memory_cancel", {
                                 ExecEnv::GetInstance()->fragment_mgr()->cancel_query(

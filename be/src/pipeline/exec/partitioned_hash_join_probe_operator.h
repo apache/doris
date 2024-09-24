@@ -92,7 +92,6 @@ private:
 
     std::shared_ptr<Dependency> _spill_dependency;
 
-    RuntimeProfile::Counter* _spill_and_partition_label = nullptr;
     RuntimeProfile::Counter* _partition_timer = nullptr;
     RuntimeProfile::Counter* _partition_shuffle_timer = nullptr;
     RuntimeProfile::Counter* _spill_build_rows = nullptr;
