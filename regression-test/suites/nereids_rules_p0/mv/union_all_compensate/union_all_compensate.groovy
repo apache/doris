@@ -21,6 +21,7 @@ suite("union_all_compensate") {
     sql "use ${db}"
     sql "set runtime_filter_mode=OFF";
     sql "SET ignore_shape_nodes='PhysicalDistribute,PhysicalProject'"
+    sql "set disable_nereids_rules='infer_predicates'"
 
     sql """
     drop table if exists test_table1
@@ -317,6 +318,8 @@ suite("union_all_compensate") {
     sql """set enable_materialized_view_rewrite = false;"""
     order_qt_query6_0_before "${query6_0}"
     sql """set enable_materialized_view_rewrite = true;"""
+    def var_result = sql "show variables"
+    logger.info("show variales result: " + var_result )
     mv_rewrite_success(query6_0, "test_join_mv")
     order_qt_query6_0_after "${query6_0}"
 

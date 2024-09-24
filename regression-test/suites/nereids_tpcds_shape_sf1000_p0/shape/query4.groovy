@@ -37,6 +37,9 @@ suite("query4") {
     sql 'set dump_nereids_memo=false'
     sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
 
+    def var_result = sql "show variables"
+    logger.info("show variales result: " + var_result )
+
     def ds = """with year_total as (
  select c_customer_id customer_id
        ,c_first_name customer_first_name
