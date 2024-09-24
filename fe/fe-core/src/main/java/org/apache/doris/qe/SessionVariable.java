@@ -409,7 +409,7 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_TWO_PHASE_READ_OPT = "enable_two_phase_read_opt";
     public static final String TOPN_OPT_LIMIT_THRESHOLD = "topn_opt_limit_threshold";
-    public static final String TOPN_FILTER_LIMIT_THRESHOLD = "topn_filter_limit_threshold";
+    public static final String TOPN_FILTER_RATIO = "topn_filter_ratio";
     public static final String ENABLE_SNAPSHOT_POINT_QUERY = "enable_snapshot_point_query";
 
     public static final String ENABLE_FILE_CACHE = "enable_file_cache";
@@ -1520,8 +1520,8 @@ public class SessionVariable implements Serializable, Writable {
     public boolean enableTwoPhaseReadOpt = true;
     @VariableMgr.VarAttr(name = TOPN_OPT_LIMIT_THRESHOLD)
     public long topnOptLimitThreshold = 1024;
-    @VariableMgr.VarAttr(name = TOPN_FILTER_LIMIT_THRESHOLD)
-    public long topnFilterLimitThreshold = 10240000;
+    @VariableMgr.VarAttr(name = TOPN_FILTER_RATIO)
+    public double topnFilterRatio = 0.5;
     @VariableMgr.VarAttr(name = ENABLE_SNAPSHOT_POINT_QUERY)
     public boolean enableSnapshotPointQuery = true;
 
