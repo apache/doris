@@ -96,6 +96,17 @@ public class RangerDorisAccessController extends RangerAccessController {
         return checkRequestResult(request, result, accessType.name());
     }
 
+    private boolean checkShowPrivilegeByPlugin(UserIdentity currentUser, RangerDorisResource resource) {
+        RangerAccessRequestImpl request = createRequest(currentUser);
+        request.setResource(resource);
+        request.setResourceMatchingScope(ResourceMatchingScope.SELF_OR_DESCENDANTS);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("ranger request: {}", request);
+        }
+        RangerAccessResult result = dorisPlugin.isAccessAllowed(request);
+        return checkRequestResult(request, result, DorisAccessType.NONE.name());
+    }
+
     private boolean checkPrivilege(UserIdentity currentUser, PrivPredicate wanted,
             RangerDorisResource resource, PrivBitSet checkedPrivs) {
         PrivBitSet copy = wanted.getPrivs().copy();
@@ -131,7 +142,6 @@ public class RangerDorisAccessController extends RangerAccessController {
                 || checkCtlPrivInternal(currentUser, ctl, wanted, checkedPrivs)) {
             return true;
         }
-        // if user has any privs of table in this db, and the wanted priv is SHOW, return true
         if (wanted == PrivPredicate.SHOW && checkAnyPrivWithinCtl(currentUser, ctl)) {
             return true;
         }
@@ -146,19 +156,21 @@ public class RangerDorisAccessController extends RangerAccessController {
 
     private boolean checkAnyPrivWithinCtl(UserIdentity currentUser, String ctl) {
         RangerDorisResource resource = new RangerDorisResource(DorisObjectType.CATALOG, ctl);
-        RangerAccessRequestImpl request = createRequest(currentUser);
-        request.setResource(resource);
-        request.setResourceMatchingScope(ResourceMatchingScope.SELF_OR_DESCENDANTS);
-        RangerAccessResult result = dorisPlugin.isAccessAllowed(request);
-        return checkRequestResult(request, result, null);
+        return checkShowPrivilegeByPlugin(currentUser, resource);
     }
 
     @Override
     public boolean checkDbPriv(UserIdentity currentUser, String ctl, String db, PrivPredicate wanted) {
         PrivBitSet checkedPrivs = PrivBitSet.of();
-        return checkGlobalPrivInternal(currentUser, wanted, checkedPrivs)
+        if (checkGlobalPrivInternal(currentUser, wanted, checkedPrivs)
                 || checkCtlPrivInternal(currentUser, ctl, wanted, checkedPrivs)
-                || checkDbPrivInternal(currentUser, ctl, db, wanted, checkedPrivs);
+                || checkDbPrivInternal(currentUser, ctl, db, wanted, checkedPrivs)) {
+            return true;
+        }
+        if (wanted == PrivPredicate.SHOW && checkAnyPrivWithinDb(currentUser, ctl, db)) {
+            return true;
+        }
+        return false;
     }
 
     public boolean checkDbPrivInternal(UserIdentity currentUser, String ctl, String db, PrivPredicate wanted,
@@ -168,13 +180,25 @@ public class RangerDorisAccessController extends RangerAccessController {
         return checkPrivilege(currentUser, wanted, resource, checkedPrivs);
     }
 
+    private boolean checkAnyPrivWithinDb(UserIdentity currentUser, String ctl, String db) {
+        RangerDorisResource resource = new RangerDorisResource(DorisObjectType.DATABASE, ctl,
+                ClusterNamespace.getNameFromFullName(db));
+        return checkShowPrivilegeByPlugin(currentUser, resource);
+    }
+
     @Override
     public boolean checkTblPriv(UserIdentity currentUser, String ctl, String db, String tbl, PrivPredicate wanted) {
         PrivBitSet checkedPrivs = PrivBitSet.of();
-        return checkGlobalPrivInternal(currentUser, wanted, checkedPrivs)
+        if (checkGlobalPrivInternal(currentUser, wanted, checkedPrivs)
                 || checkCtlPrivInternal(currentUser, ctl, wanted, checkedPrivs)
                 || checkDbPrivInternal(currentUser, ctl, db, wanted, checkedPrivs)
-                || checkTblPrivInternal(currentUser, ctl, db, tbl, wanted, checkedPrivs);
+                || checkTblPrivInternal(currentUser, ctl, db, tbl, wanted, checkedPrivs)) {
+            return true;
+        }
+        if (wanted == PrivPredicate.SHOW && checkAnyPrivWithinTbl(currentUser, ctl, db, tbl)) {
+            return true;
+        }
+        return false;
     }
 
     public boolean checkTblPrivInternal(UserIdentity currentUser, String ctl, String db, String tbl,
@@ -182,6 +206,12 @@ public class RangerDorisAccessController extends RangerAccessController {
         RangerDorisResource resource = new RangerDorisResource(DorisObjectType.TABLE,
                 ctl, ClusterNamespace.getNameFromFullName(db), tbl);
         return checkPrivilege(currentUser, wanted, resource, checkedPrivs);
+    }
+
+    private boolean checkAnyPrivWithinTbl(UserIdentity currentUser, String ctl, String db, String tbl) {
+        RangerDorisResource resource = new RangerDorisResource(DorisObjectType.TABLE,
+                ctl, ClusterNamespace.getNameFromFullName(db), tbl);
+        return checkShowPrivilegeByPlugin(currentUser, resource);
     }
 
     @Override
