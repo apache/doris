@@ -85,6 +85,6 @@ suite("test_covar_samp") {
     (4, 4, 4)
     """
     qt_sql "select covar_samp(x,y) from test_covar_samp"
-    
+    qt_notnull3 "select covar_samp(non_nullable(x), y) from test_covar_samp"
     sql """ DROP TABLE IF EXISTS test_covar_samp """
 }

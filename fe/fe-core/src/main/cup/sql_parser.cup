@@ -319,6 +319,7 @@ terminal String
     KW_COMPACT,
     KW_COMPLETE,
     KW_COMPRESS_TYPE,
+    KW_COMPUTE,
     KW_CONFIG,
     KW_CONNECTION,
     KW_CONNECTION_ID,
@@ -691,7 +692,8 @@ terminal String
     KW_LINES,
     KW_IGNORE,
     KW_CONVERT_LSC,
-    KW_VAULT;
+    KW_VAULT,
+    KW_VAULTS;
 
 terminal COMMA, COLON, DOT, DOTDOTDOT, AT, STAR, LPAREN, RPAREN, SEMICOLON, LBRACKET, RBRACKET, LBRACE, RBRACE, DIVIDE, MOD, ADD, SUBTRACT, PLACEHOLDER, ARROW;
 terminal BITAND, BITOR, BITXOR, BITNOT;
@@ -973,6 +975,7 @@ nonterminal List<Map<String, String>> opt_with_analysis_properties;
 
 nonterminal String opt_db, procedure_or_function, opt_comment, opt_comment_null, opt_engine;
 nonterminal ColumnDef.DefaultValue opt_default_value;
+nonterminal Boolean opt_or_replace;
 nonterminal Boolean opt_if_exists, opt_if_not_exists;
 nonterminal Boolean opt_external;
 nonterminal Boolean opt_force;
@@ -1481,6 +1484,14 @@ warm_up_stmt ::=
     {:
         RESULT = new WarmUpClusterStmt(dstClusterName, list, force);
     :}
+    | KW_WARM KW_UP KW_COMPUTE KW_GROUP ident:dstClusterName KW_WITH KW_COMPUTE KW_GROUP ident:srcClusterName opt_force:force
+    {:
+        RESULT = new WarmUpClusterStmt(dstClusterName, srcClusterName, force);
+    :}
+    | KW_WARM KW_UP KW_COMPUTE KW_GROUP ident:dstClusterName KW_WITH warm_up_list:list opt_force:force
+    {:
+        RESULT = new WarmUpClusterStmt(dstClusterName, list, force);
+    :}
     ;
 
 warm_up_item ::=
@@ -1968,10 +1979,10 @@ create_stmt ::=
     {:
         RESULT = new CreateUserStmt(ifNotExists, user, userRole, passwdOptions, comment);
     :}
-    | KW_CREATE KW_VIEW opt_if_not_exists:ifNotExists table_name:viewName
+    | KW_CREATE opt_or_replace:orReplace KW_VIEW opt_if_not_exists:ifNotExists table_name:viewName
         opt_col_with_comment_list:columns opt_comment:comment KW_AS query_stmt:view_def
     {:
-        RESULT = new CreateViewStmt(ifNotExists, viewName, columns, comment, view_def);
+        RESULT = new CreateViewStmt(ifNotExists, orReplace, viewName, columns, comment, view_def);
     :}
     | KW_CREATE opt_read_only:isReadOnly KW_REPOSITORY ident:repoName KW_WITH storage_backend:storage
     {:
@@ -3050,6 +3061,14 @@ grant_stmt ::=
     {:
         RESULT = new GrantStmt(null, role, resourcePattern, privs, ResourceTypeEnum.CLUSTER);
     :}
+    | KW_GRANT privilege_list:privs KW_ON KW_COMPUTE KW_GROUP resource_pattern:resourcePattern KW_TO user_identity:userId
+    {:
+        RESULT = new GrantStmt(userId, null, resourcePattern, privs, ResourceTypeEnum.CLUSTER);
+    :}
+    | KW_GRANT privilege_list:privs KW_ON KW_COMPUTE KW_GROUP resource_pattern:resourcePattern KW_TO KW_ROLE STRING_LITERAL:role
+    {:
+        RESULT = new GrantStmt(null, role, resourcePattern, privs, ResourceTypeEnum.CLUSTER);
+    :}
     | KW_GRANT privilege_list:privs KW_ON KW_STAGE resource_pattern:resourcePattern KW_TO user_identity:userId
     {:
         RESULT = new GrantStmt(userId, null, resourcePattern, privs, ResourceTypeEnum.STAGE);
@@ -3151,6 +3170,14 @@ revoke_stmt ::=
         RESULT = new RevokeStmt(userId, null, resourcePattern, privs, ResourceTypeEnum.CLUSTER);
     :}
     | KW_REVOKE privilege_list:privs KW_ON KW_CLUSTER resource_pattern:resourcePattern KW_FROM KW_ROLE STRING_LITERAL:role
+    {:
+        RESULT = new RevokeStmt(null, role, resourcePattern, privs, ResourceTypeEnum.CLUSTER);
+    :}
+    | KW_REVOKE privilege_list:privs KW_ON KW_COMPUTE KW_GROUP resource_pattern:resourcePattern KW_FROM user_identity:userId
+    {:
+        RESULT = new RevokeStmt(userId, null, resourcePattern, privs, ResourceTypeEnum.CLUSTER);
+    :}
+    | KW_REVOKE privilege_list:privs KW_ON KW_COMPUTE KW_GROUP resource_pattern:resourcePattern KW_FROM KW_ROLE STRING_LITERAL:role
     {:
         RESULT = new RevokeStmt(null, role, resourcePattern, privs, ResourceTypeEnum.CLUSTER);
     :}
@@ -4090,6 +4117,16 @@ opt_index_type ::=
     :}
     ;
 
+opt_or_replace ::=
+    {:
+        RESULT = false;
+    :}
+    | KW_OR KW_REPLACE
+    {:
+        RESULT = true;
+    :}
+    ;
+
 opt_if_exists ::=
     {:
         RESULT = false;
@@ -4187,6 +4224,10 @@ show_stmt ::=
         RESULT = new ShowStageStmt();
     :}
     | KW_SHOW KW_STORAGE KW_VAULT
+    {:
+        RESULT = new ShowStorageVaultStmt();
+    :}
+    | KW_SHOW KW_STORAGE KW_VAULTS
     {:
         RESULT = new ShowStorageVaultStmt();
     :}
@@ -4693,7 +4734,12 @@ show_param ::=
     /* Cloud Cluster */
     | KW_CLUSTERS
     {:
-        RESULT = new ShowClusterStmt();
+        RESULT = new ShowClusterStmt(false);
+    :}
+    /* Compute Group */
+    | KW_COMPUTE KW_GROUPS
+    {:
+        RESULT = new ShowClusterStmt(true);
     :}
     | KW_CONVERT_LSC opt_db:db
     {:
@@ -8422,6 +8468,8 @@ keyword ::=
     {: RESULT = id; :}
     | KW_CLUSTERS:id
     {: RESULT = id; :}
+    | KW_COMPUTE:id
+    {: RESULT = id; :}
     | KW_LINK:id
     {: RESULT = id; :}
     | KW_MIGRATE:id
@@ -8517,6 +8565,8 @@ keyword ::=
     | KW_STAGE:id
     {: RESULT = id; :}
     | KW_VAULT:id
+    {: RESULT = id; :}
+    | KW_VAULTS:id
     {: RESULT = id; :}
     | KW_VARIANT:id
     {: RESULT = id; :}

@@ -116,6 +116,8 @@ public class Profile {
     public Map<String, Long> rowsProducedMap = new HashMap<>();
     private List<PhysicalRelation> physicalRelations = new ArrayList<>();
 
+    private String changedSessionVarCache = "";
+
     // Need default constructor for read from storage
     public Profile() {}
 
@@ -318,8 +320,9 @@ public class Profile {
         StringBuilder builder = new StringBuilder();
         // add summary to builder
         summaryProfile.prettyPrint(builder);
-        // read execution profile from storage or generate it from memory (during query execution)
+        getChangedSessionVars(builder);
         getExecutionProfileContent(builder);
+        getOnStorageProfile(builder);
 
         return builder.toString();
     }
@@ -363,49 +366,13 @@ public class Profile {
         return gson.toJson(rootProfile.toBrief());
     }
 
-    // Read file if profile has been stored to storage.
+    // Return if profile has been stored to storage
     public void getExecutionProfileContent(StringBuilder builder) {
         if (builder == null) {
             builder = new StringBuilder();
         }
 
         if (profileHasBeenStored()) {
-            LOG.info("Profile {} has been stored to storage, reading it from storage", id);
-
-            FileInputStream fileInputStream = null;
-
-            try {
-                fileInputStream = createPorfileFileInputStream(profileStoragePath);
-                if (fileInputStream == null) {
-                    builder.append("Failed to read execution profile from " + profileStoragePath);
-                    return;
-                }
-
-                DataInputStream dataInput = new DataInputStream(fileInputStream);
-                // skip summary profile
-                Text.readString(dataInput);
-                // read compressed execution profile
-                int binarySize = dataInput.readInt();
-                byte[] binaryExecutionProfile = new byte[binarySize];
-                dataInput.readFully(binaryExecutionProfile, 0, binarySize);
-                // decompress binary execution profile
-                String textExecutionProfile = decompressExecutionProfile(binaryExecutionProfile);
-                builder.append(textExecutionProfile);
-                return;
-            } catch (Exception e) {
-                LOG.error("An error occurred while reading execution profile from storage, profile storage path: {}",
-                        profileStoragePath, e);
-                builder.append("Failed to read execution profile from " + profileStoragePath);
-            } finally {
-                if (fileInputStream != null) {
-                    try {
-                        fileInputStream.close();
-                    } catch (Exception e) {
-                        LOG.warn("Close profile {} failed", profileStoragePath, e);
-                    }
-                }
-            }
-
             return;
         }
 
@@ -473,8 +440,9 @@ public class Profile {
         this.summaryProfile = summaryProfile;
     }
 
-    public void releaseExecutionProfile() {
+    public void releaseMemory() {
         this.executionProfiles.clear();
+        this.changedSessionVarCache = "";
     }
 
     public boolean shouldStoreToStorage() {
@@ -490,7 +458,9 @@ public class Profile {
         boolean hasReportingProfile = false;
 
         if (this.executionProfiles.isEmpty()) {
-            LOG.warn("Profile {} has no execution profile, it is abnormal", id);
+            // Query finished, but no execution profile.
+            // 1. Query is executed on FE.
+            // 2. Not a SELECT query, just a DDL.
             return false;
         }
 
@@ -603,6 +573,7 @@ public class Profile {
 
             // store execution profiles as string
             StringBuilder build = new StringBuilder();
+            getChangedSessionVars(build);
             getExecutionProfileContent(build);
             byte[] buf = compressExecutionProfile(build.toString());
             dataOutputStream.writeInt(buf.length);
@@ -691,5 +662,66 @@ public class Profile {
         for (Plan child : plan.children()) {
             updateActualRowCountOnPhysicalPlan(child);
         }
+    }
+
+    public void setChangedSessionVar(String changedSessionVar) {
+        this.changedSessionVarCache = changedSessionVar;
+    }
+
+    private void getChangedSessionVars(StringBuilder builder) {
+        if (builder == null) {
+            builder = new StringBuilder();
+        }
+        if (profileHasBeenStored()) {
+            return;
+        }
+
+        builder.append("\nChanged Session Variables:\n");
+        builder.append(changedSessionVarCache);
+        builder.append("\n");
+    }
+
+    private void getOnStorageProfile(StringBuilder builder) {
+        if (!profileHasBeenStored()) {
+            return;
+        }
+
+        LOG.info("Profile {} has been stored to storage, reading it from storage", id);
+
+        FileInputStream fileInputStream = null;
+
+        try {
+            fileInputStream = createPorfileFileInputStream(profileStoragePath);
+            if (fileInputStream == null) {
+                builder.append("Failed to read execution profile from " + profileStoragePath);
+                return;
+            }
+
+            DataInputStream dataInput = new DataInputStream(fileInputStream);
+            // skip summary profile
+            Text.readString(dataInput);
+            // read compressed execution profile
+            int binarySize = dataInput.readInt();
+            byte[] binaryExecutionProfile = new byte[binarySize];
+            dataInput.readFully(binaryExecutionProfile, 0, binarySize);
+            // decompress binary execution profile
+            String textExecutionProfile = decompressExecutionProfile(binaryExecutionProfile);
+            builder.append(textExecutionProfile);
+            return;
+        } catch (Exception e) {
+            LOG.error("An error occurred while reading execution profile from storage, profile storage path: {}",
+                    profileStoragePath, e);
+            builder.append("Failed to read execution profile from " + profileStoragePath);
+        } finally {
+            if (fileInputStream != null) {
+                try {
+                    fileInputStream.close();
+                } catch (Exception e) {
+                    LOG.warn("Close profile {} failed", profileStoragePath, e);
+                }
+            }
+        }
+
+        return;
     }
 }

@@ -211,7 +211,7 @@ Status OlapTableBlockConvertor::_internal_validate_column(
     auto string_column_checker = [&](const ColumnString* column_string) {
         size_t limit = config::string_type_length_soft_limit_bytes;
         // when type.len is negative, std::min will return overflow value, so we need to check it
-        if (type.len > 0) {
+        if (type.len >= 0) {
             limit = std::min(config::string_type_length_soft_limit_bytes, type.len);
         }
 

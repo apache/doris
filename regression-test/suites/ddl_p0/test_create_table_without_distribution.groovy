@@ -29,7 +29,6 @@ suite("test_create_table_without_distribution") {
     def res1 = sql "show create table test_create_table_without_distribution;"
     mustContain(res1[0][1], "DISTRIBUTED BY RANDOM BUCKETS AUTO")
 
-    sql "SET enable_nereids_planner=false;"
     multi_sql """
     drop table if exists test_create_table_without_distribution;
     create table test_create_table_without_distribution(a int, b int) properties ("replication_num"="1")   

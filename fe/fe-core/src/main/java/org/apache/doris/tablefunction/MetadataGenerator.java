@@ -1089,40 +1089,45 @@ public class MetadataGenerator {
                 continue;
             }
             OlapTable olapTable = (OlapTable) table;
-            TRow trow = new TRow();
-            trow.addToColumnValue(new TCell().setStringVal(catalog.getName())); // TABLE_CATALOG
-            trow.addToColumnValue(new TCell().setStringVal(database.getFullName())); // TABLE_SCHEMA
-            trow.addToColumnValue(new TCell().setStringVal(table.getName())); // TABLE_NAME
-            trow.addToColumnValue(
-                    new TCell().setStringVal(olapTable.getKeysType().toMetadata())); // TABLE_MODEL
-            trow.addToColumnValue(
-                    new TCell().setStringVal(olapTable.getKeyColAsString())); // key columTypes
+            olapTable.readLock();
+            try {
+                TRow trow = new TRow();
+                trow.addToColumnValue(new TCell().setStringVal(catalog.getName())); // TABLE_CATALOG
+                trow.addToColumnValue(new TCell().setStringVal(database.getFullName())); // TABLE_SCHEMA
+                trow.addToColumnValue(new TCell().setStringVal(table.getName())); // TABLE_NAME
+                trow.addToColumnValue(
+                        new TCell().setStringVal(olapTable.getKeysType().toMetadata())); // TABLE_MODEL
+                trow.addToColumnValue(
+                        new TCell().setStringVal(olapTable.getKeyColAsString())); // key columTypes
 
-            DistributionInfo distributionInfo = olapTable.getDefaultDistributionInfo();
-            if (distributionInfo.getType() == DistributionInfoType.HASH) {
-                HashDistributionInfo hashDistributionInfo = (HashDistributionInfo) distributionInfo;
-                List<Column> distributionColumns = hashDistributionInfo.getDistributionColumns();
-                StringBuilder distributeKey = new StringBuilder();
-                for (Column c : distributionColumns) {
-                    if (distributeKey.length() != 0) {
-                        distributeKey.append(",");
+                DistributionInfo distributionInfo = olapTable.getDefaultDistributionInfo();
+                if (distributionInfo.getType() == DistributionInfoType.HASH) {
+                    HashDistributionInfo hashDistributionInfo = (HashDistributionInfo) distributionInfo;
+                    List<Column> distributionColumns = hashDistributionInfo.getDistributionColumns();
+                    StringBuilder distributeKey = new StringBuilder();
+                    for (Column c : distributionColumns) {
+                        if (distributeKey.length() != 0) {
+                            distributeKey.append(",");
+                        }
+                        distributeKey.append(c.getName());
                     }
-                    distributeKey.append(c.getName());
-                }
-                if (distributeKey.length() == 0) {
-                    trow.addToColumnValue(new TCell().setStringVal(""));
+                    if (distributeKey.length() == 0) {
+                        trow.addToColumnValue(new TCell().setStringVal(""));
+                    } else {
+                        trow.addToColumnValue(
+                                new TCell().setStringVal(distributeKey.toString()));
+                    }
+                    trow.addToColumnValue(new TCell().setStringVal("HASH")); // DISTRIBUTE_TYPE
                 } else {
-                    trow.addToColumnValue(
-                            new TCell().setStringVal(distributeKey.toString()));
+                    trow.addToColumnValue(new TCell().setStringVal("RANDOM")); // DISTRIBUTE_KEY
+                    trow.addToColumnValue(new TCell().setStringVal("RANDOM")); // DISTRIBUTE_TYPE
                 }
-                trow.addToColumnValue(new TCell().setStringVal("HASH")); // DISTRIBUTE_TYPE
-            } else {
-                trow.addToColumnValue(new TCell().setStringVal("RANDOM")); // DISTRIBUTE_KEY
-                trow.addToColumnValue(new TCell().setStringVal("RANDOM")); // DISTRIBUTE_TYPE
+                trow.addToColumnValue(new TCell().setIntVal(distributionInfo.getBucketNum())); // BUCKETS_NUM
+                trow.addToColumnValue(new TCell().setIntVal(olapTable.getPartitionNum())); // PARTITION_NUM
+                dataBatch.add(trow);
+            } finally {
+                olapTable.readUnlock();
             }
-            trow.addToColumnValue(new TCell().setIntVal(distributionInfo.getBucketNum())); // BUCKETS_NUM
-            trow.addToColumnValue(new TCell().setIntVal(olapTable.getPartitionNum())); // PARTITION_NUM
-            dataBatch.add(trow);
         }
     }
 
@@ -1206,29 +1211,34 @@ public class MetadataGenerator {
                 continue;
             }
             OlapTable olapTable = (OlapTable) table;
-            TableProperty property = olapTable.getTableProperty();
-            if (property == null) {
-                // if there is no properties, then write empty properties and check next table.
-                TRow trow = new TRow();
-                trow.addToColumnValue(new TCell().setStringVal(catalog.getName())); // TABLE_CATALOG
-                trow.addToColumnValue(new TCell().setStringVal(database.getFullName())); // TABLE_SCHEMA
-                trow.addToColumnValue(new TCell().setStringVal(table.getName())); // TABLE_NAME
-                trow.addToColumnValue(new TCell().setStringVal("")); // PROPERTIES_NAME
-                trow.addToColumnValue(new TCell().setStringVal("")); // PROPERTIES_VALUE
-                dataBatch.add(trow);
-                continue;
-            }
+            olapTable.readLock();
+            try {
+                TableProperty property = olapTable.getTableProperty();
+                if (property == null) {
+                    // if there is no properties, then write empty properties and check next table.
+                    TRow trow = new TRow();
+                    trow.addToColumnValue(new TCell().setStringVal(catalog.getName())); // TABLE_CATALOG
+                    trow.addToColumnValue(new TCell().setStringVal(database.getFullName())); // TABLE_SCHEMA
+                    trow.addToColumnValue(new TCell().setStringVal(table.getName())); // TABLE_NAME
+                    trow.addToColumnValue(new TCell().setStringVal("")); // PROPERTIES_NAME
+                    trow.addToColumnValue(new TCell().setStringVal("")); // PROPERTIES_VALUE
+                    dataBatch.add(trow);
+                    continue;
+                }
 
-            Map<String, String>  propertiesMap = property.getProperties();
-            propertiesMap.forEach((key, value) -> {
-                TRow trow = new TRow();
-                trow.addToColumnValue(new TCell().setStringVal(catalog.getName())); // TABLE_CATALOG
-                trow.addToColumnValue(new TCell().setStringVal(database.getFullName())); // TABLE_SCHEMA
-                trow.addToColumnValue(new TCell().setStringVal(table.getName())); // TABLE_NAME
-                trow.addToColumnValue(new TCell().setStringVal(key)); // PROPERTIES_NAME
-                trow.addToColumnValue(new TCell().setStringVal(value)); // PROPERTIES_VALUE
-                dataBatch.add(trow);
-            });
+                Map<String, String>  propertiesMap = property.getProperties();
+                propertiesMap.forEach((key, value) -> {
+                    TRow trow = new TRow();
+                    trow.addToColumnValue(new TCell().setStringVal(catalog.getName())); // TABLE_CATALOG
+                    trow.addToColumnValue(new TCell().setStringVal(database.getFullName())); // TABLE_SCHEMA
+                    trow.addToColumnValue(new TCell().setStringVal(table.getName())); // TABLE_NAME
+                    trow.addToColumnValue(new TCell().setStringVal(key)); // PROPERTIES_NAME
+                    trow.addToColumnValue(new TCell().setStringVal(value)); // PROPERTIES_VALUE
+                    dataBatch.add(trow);
+                });
+            } finally {
+                olapTable.readUnlock();
+            }
         } // for table
     }
 
@@ -1336,49 +1346,56 @@ public class MetadataGenerator {
             }
 
             OlapTable olapTable = (OlapTable) table;
-            Collection<Partition> allPartitions = olapTable.getAllPartitions();
+            olapTable.readLock();
+            try {
+                Collection<Partition> allPartitions = olapTable.getAllPartitions();
 
-            for (Partition partition : allPartitions) {
-                TRow trow = new TRow();
-                trow.addToColumnValue(new TCell().setStringVal(catalog.getName())); // TABLE_CATALOG
-                trow.addToColumnValue(new TCell().setStringVal(database.getFullName())); // TABLE_SCHEMA
-                trow.addToColumnValue(new TCell().setStringVal(table.getName())); // TABLE_NAME
-                trow.addToColumnValue(new TCell().setStringVal(partition.getName())); // PARTITION_NAME
-                trow.addToColumnValue(new TCell().setStringVal("NULL")); // SUBPARTITION_NAME (always null)
+                for (Partition partition : allPartitions) {
+                    TRow trow = new TRow();
+                    trow.addToColumnValue(new TCell().setStringVal(catalog.getName())); // TABLE_CATALOG
+                    trow.addToColumnValue(new TCell().setStringVal(database.getFullName())); // TABLE_SCHEMA
+                    trow.addToColumnValue(new TCell().setStringVal(table.getName())); // TABLE_NAME
+                    trow.addToColumnValue(new TCell().setStringVal(partition.getName())); // PARTITION_NAME
+                    trow.addToColumnValue(new TCell().setStringVal("NULL")); // SUBPARTITION_NAME (always null)
 
-                trow.addToColumnValue(new TCell().setIntVal(0)); //PARTITION_ORDINAL_POSITION (not available)
-                trow.addToColumnValue(new TCell().setIntVal(0)); //SUBPARTITION_ORDINAL_POSITION (not available)
-                trow.addToColumnValue(new TCell().setStringVal(
-                        olapTable.getPartitionInfo().getType().toString())); // PARTITION_METHOD
-                trow.addToColumnValue(new TCell().setStringVal("NULL")); // SUBPARTITION_METHOD(always null)
-                PartitionItem item = olapTable.getPartitionInfo().getItem(partition.getId());
-                if ((olapTable.getPartitionInfo().getType() == PartitionType.UNPARTITIONED) || (item == null)) {
-                    trow.addToColumnValue(new TCell().setStringVal("NULL")); // if unpartitioned, its null
-                    trow.addToColumnValue(new TCell().setStringVal("NULL")); // SUBPARTITION_EXPRESSION (always null)
-                    trow.addToColumnValue(new TCell().setStringVal("NULL")); // PARITION DESC, its null
-                } else {
+                    trow.addToColumnValue(new TCell().setIntVal(0)); //PARTITION_ORDINAL_POSITION (not available)
+                    trow.addToColumnValue(new TCell().setIntVal(0)); //SUBPARTITION_ORDINAL_POSITION (not available)
                     trow.addToColumnValue(new TCell().setStringVal(
-                            olapTable.getPartitionInfo()
-                                .getDisplayPartitionColumns().toString())); // PARTITION_EXPRESSION
-                    trow.addToColumnValue(new TCell().setStringVal("NULL")); // SUBPARTITION_EXPRESSION (always null)
+                            olapTable.getPartitionInfo().getType().toString())); // PARTITION_METHOD
+                    trow.addToColumnValue(new TCell().setStringVal("NULL")); // SUBPARTITION_METHOD(always null)
+                    PartitionItem item = olapTable.getPartitionInfo().getItem(partition.getId());
+                    if ((olapTable.getPartitionInfo().getType() == PartitionType.UNPARTITIONED) || (item == null)) {
+                        trow.addToColumnValue(new TCell().setStringVal("NULL")); // if unpartitioned, its null
+                        trow.addToColumnValue(
+                                new TCell().setStringVal("NULL")); // SUBPARTITION_EXPRESSION (always null)
+                        trow.addToColumnValue(new TCell().setStringVal("NULL")); // PARITION DESC, its null
+                    } else {
+                        trow.addToColumnValue(new TCell().setStringVal(
+                                olapTable.getPartitionInfo()
+                                    .getDisplayPartitionColumns().toString())); // PARTITION_EXPRESSION
+                        trow.addToColumnValue(
+                                new TCell().setStringVal("NULL")); // SUBPARTITION_EXPRESSION (always null)
+                        trow.addToColumnValue(new TCell().setStringVal(
+                                item.getItemsSql())); // PARITION DESC
+                    }
+                    trow.addToColumnValue(new TCell().setLongVal(partition.getRowCount())); //TABLE_ROWS (PARTITION row)
+                    trow.addToColumnValue(new TCell().setLongVal(partition.getAvgRowLength())); //AVG_ROW_LENGTH
+                    trow.addToColumnValue(new TCell().setLongVal(partition.getDataLength())); //DATA_LENGTH
+                    trow.addToColumnValue(new TCell().setIntVal(0)); //MAX_DATA_LENGTH (not available)
+                    trow.addToColumnValue(new TCell().setIntVal(0)); //INDEX_LENGTH (not available)
+                    trow.addToColumnValue(new TCell().setIntVal(0)); //DATA_FREE (not available)
+                    trow.addToColumnValue(new TCell().setStringVal("NULL")); //CREATE_TIME (not available)
                     trow.addToColumnValue(new TCell().setStringVal(
-                            item.getItemsSql())); // PARITION DESC
+                            TimeUtils.longToTimeString(partition.getVisibleVersionTime()))); //UPDATE_TIME
+                    trow.addToColumnValue(new TCell().setStringVal("NULL")); // CHECK_TIME (not available)
+                    trow.addToColumnValue(new TCell().setIntVal(0)); //CHECKSUM (not available)
+                    trow.addToColumnValue(new TCell().setStringVal("")); // PARTITION_COMMENT (not available)
+                    trow.addToColumnValue(new TCell().setStringVal("")); // NODEGROUP (not available)
+                    trow.addToColumnValue(new TCell().setStringVal("")); // TABLESPACE_NAME (not available)
+                    dataBatch.add(trow);
                 }
-                trow.addToColumnValue(new TCell().setLongVal(partition.getRowCount())); //TABLE_ROWS (PARTITION row)
-                trow.addToColumnValue(new TCell().setLongVal(partition.getAvgRowLength())); //AVG_ROW_LENGTH
-                trow.addToColumnValue(new TCell().setLongVal(partition.getDataLength())); //DATA_LENGTH
-                trow.addToColumnValue(new TCell().setIntVal(0)); //MAX_DATA_LENGTH (not available)
-                trow.addToColumnValue(new TCell().setIntVal(0)); //INDEX_LENGTH (not available)
-                trow.addToColumnValue(new TCell().setIntVal(0)); //DATA_FREE (not available)
-                trow.addToColumnValue(new TCell().setStringVal("NULL")); //CREATE_TIME (not available)
-                trow.addToColumnValue(new TCell().setStringVal(
-                        TimeUtils.longToTimeString(partition.getVisibleVersionTime()))); //UPDATE_TIME
-                trow.addToColumnValue(new TCell().setStringVal("NULL")); // CHECK_TIME (not available)
-                trow.addToColumnValue(new TCell().setIntVal(0)); //CHECKSUM (not available)
-                trow.addToColumnValue(new TCell().setStringVal("")); // PARTITION_COMMENT (not available)
-                trow.addToColumnValue(new TCell().setStringVal("")); // NODEGROUP (not available)
-                trow.addToColumnValue(new TCell().setStringVal("")); // TABLESPACE_NAME (not available)
-                dataBatch.add(trow);
+            } finally {
+                olapTable.readUnlock();
             }
         } // for table
     }

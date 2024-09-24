@@ -44,31 +44,9 @@ suite("test_coalesce_new") {
             insert into test_cls values (1,'Alice','2023-06-01 12:00:00'),(2,'Bob','2023-06-02 12:00:00'),(3,'Carl','2023-05-01 14:00:00')
     """
 
-    sql """
-        SET enable_nereids_planner=false
-        """
-    def result1 = try_sql """
-        select dt from test_cls where coalesce (dt, str_to_date(concat('202306', '01'), '%Y%m%d')) >= '2023-06-01'
-    """
-    assertEquals(result1.size(), 2);
-    def result11 = try_sql """
-        select dt from test_cls where coalesce (dt, dt, str_to_date(concat('202306', '01'), '%Y%m%d')) >= '2023-06-01'
-    """
-    assertEquals(result11.size(), 2);
-    def result12 = try_sql """
-        select dt from test_cls where coalesce (dt, str_to_date(concat('202306', '01'), '%Y%m%d'), str_to_date(concat('202306', '01'), '%Y%m%d')) >= '2023-06-01'
-    """
-    assertEquals(result12.size(), 2);
-
     //test enable_date_conversion=true and enable_nereids
     sql """
         admin set frontend config ("enable_date_conversion"="true")
-        """
-    sql """
-        SET enable_nereids_planner=true
-        """
-    sql """
-        SET enable_fallback_to_original_planner=false
         """
     def result13 = try_sql """
         select dt from test_cls where coalesce (dt, str_to_date(concat('202306', '01'), '%Y%m%d')) >= '2023-06-01'
@@ -123,29 +101,6 @@ suite("test_coalesce_new") {
             insert into test_cls_dtv2 values (1,'Alice','2023-06-01 12:00:00'),(2,'Bob','2023-06-02 12:00:00'),(3,'Carl','2023-05-01 14:00:00')
     """
 
-    sql """
-        SET enable_nereids_planner=false
-        """
-    def result2 = try_sql """
-        select dt from test_cls_dtv2 where coalesce (dt, str_to_date(concat('202306', '01'), '%Y%m%d')) >= '2023-06-01'
-    """
-    assertEquals(result2.size(), 2);
-    def result21 = try_sql """
-        select dt from test_cls_dtv2 where coalesce (dt, dt, str_to_date(concat('202306', '01'), '%Y%m%d')) >= '2023-06-01'
-    """
-    assertEquals(result21.size(), 2);
-    def result22 = try_sql """
-        select dt from test_cls_dtv2 where coalesce (dt, str_to_date(concat('202306', '01'), '%Y%m%d'), str_to_date(concat('202306', '01'), '%Y%m%d')) >= '2023-06-01'
-    """
-    assertEquals(result22.size(), 2);
-
-    //test enable_date_conversion=true and enable_nereids
-    sql """
-        SET enable_nereids_planner=true
-        """
-    sql """
-        SET enable_fallback_to_original_planner=false
-        """
     def result23 = try_sql """
         select dt from test_cls_dtv2 where coalesce (dt, str_to_date(concat('202306', '01'), '%Y%m%d')) >= '2023-06-01'
     """

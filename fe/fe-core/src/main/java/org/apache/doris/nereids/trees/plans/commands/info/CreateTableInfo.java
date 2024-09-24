@@ -770,9 +770,6 @@ public class CreateTableInfo {
 
         if (!clusterKeysColumnNames.isEmpty()) {
             // the same code as KeysDesc#analyzeClusterKeys
-            if (Config.isCloudMode()) {
-                throw new AnalysisException("Cluster key is not supported in cloud mode");
-            }
             if (keysType != KeysType.UNIQUE_KEYS) {
                 throw new AnalysisException("Cluster keys only support unique keys table");
             }

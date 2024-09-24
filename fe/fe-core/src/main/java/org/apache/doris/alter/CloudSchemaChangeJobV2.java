@@ -236,6 +236,10 @@ public class CloudSchemaChangeJobV2 extends SchemaChangeJobV2 {
 
                 short shadowShortKeyColumnCount = indexShortKeyMap.get(shadowIdxId);
                 List<Column> shadowSchema = indexSchemaMap.get(shadowIdxId);
+                List<Integer> clusterKeyIndexes = null;
+                if (shadowIdxId == tbl.getBaseIndexId() || isShadowIndexOfBase(shadowIdxId, tbl)) {
+                    clusterKeyIndexes = OlapTable.getClusterKeyIndexes(shadowSchema);
+                }
                 int shadowSchemaHash = indexSchemaVersionAndHashMap.get(shadowIdxId).schemaHash;
                 int shadowSchemaVersion = indexSchemaVersionAndHashMap.get(shadowIdxId).schemaVersion;
                 long originIndexId = indexIdMap.get(shadowIdxId);
@@ -267,7 +271,7 @@ public class CloudSchemaChangeJobV2 extends SchemaChangeJobV2 {
                                             tbl.getEnableMowLightDelete(),
                                             tbl.getInvertedIndexFileStorageFormat(),
                                             tbl.rowStorePageSize(),
-                                            tbl.variantEnableFlattenNested());
+                                            tbl.variantEnableFlattenNested(), clusterKeyIndexes);
                     requestBuilder.addTabletMetas(builder);
                 } // end for rollupTablets
                 requestBuilder.setDbId(dbId);

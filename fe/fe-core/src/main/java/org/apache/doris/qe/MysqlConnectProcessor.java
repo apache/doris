@@ -182,7 +182,7 @@ public class MysqlConnectProcessor extends ConnectProcessor {
     }
 
     // Process COM_QUERY statement,
-    private void handleQuery(MysqlCommand mysqlCommand) throws ConnectionException {
+    private void handleQuery() throws ConnectionException {
         // convert statement to Java string
         byte[] bytes = packetBuf.array();
         int ending = packetBuf.limit() - 1;
@@ -191,7 +191,7 @@ public class MysqlConnectProcessor extends ConnectProcessor {
         }
         String originStmt = new String(bytes, 1, ending, StandardCharsets.UTF_8);
 
-        handleQuery(mysqlCommand, originStmt);
+        handleQuery(originStmt);
     }
 
     private void dispatch() throws IOException {
@@ -200,7 +200,7 @@ public class MysqlConnectProcessor extends ConnectProcessor {
         if (command == null) {
             ErrorReport.report(ErrorCode.ERR_UNKNOWN_COM_ERROR);
             ctx.getState().setError(ErrorCode.ERR_UNKNOWN_COM_ERROR, "Unknown command(" + code + ")");
-            LOG.warn("Unknown command(" + code + ")");
+            LOG.warn("Unknown command({})", code);
             return;
         }
         if (LOG.isDebugEnabled()) {
@@ -219,7 +219,7 @@ public class MysqlConnectProcessor extends ConnectProcessor {
                 break;
             case COM_QUERY:
             case COM_STMT_PREPARE:
-                handleQuery(command);
+                handleQuery();
                 break;
             case COM_STMT_EXECUTE:
                 handleExecute();
@@ -283,6 +283,8 @@ public class MysqlConnectProcessor extends ConnectProcessor {
         finalizeCommand();
 
         ctx.setCommand(MysqlCommand.COM_SLEEP);
+        ctx.clear();
+        executor = null;
     }
 
     public void loop() {

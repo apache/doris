@@ -24,7 +24,6 @@ suite("test_tvf_view_count", "p0,external,tvf,external_docker,hive") {
         sql """drop database if exists test_tvf_view_count_p2"""
         sql """create database test_tvf_view_count_p2"""
         sql """use test_tvf_view_count_p2"""
-        sql """set enable_nereids_planner=false"""
         sql """create view tvf_view_count as select * from hdfs (
             "uri"="hdfs://${nameNodeHost}:${hdfsPort}/user/doris/tpch1.db/tpch1_parquet/part/part-00000-cb9099f7-a053-4f9a-80af-c659cfa947cc-c000.snappy.parquet",
             "hadoop.username" = "hadoop",
