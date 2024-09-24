@@ -85,6 +85,7 @@ suite("test_retry_e-230") {
             add_cluster.call(beUniqueIdList[0], ipList[0], hbPortList[0],
                         "regression_cluster_name0", "regression_cluster_id0");
             wait_cluster_change()
+            sql """use @regression_cluster_name0"""
         }
 
         sql """
