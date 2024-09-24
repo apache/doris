@@ -240,6 +240,7 @@ class DBManager(object):
         self.conn = pymysql.connect(user="root",
                                     host=self.master_fe_ip,
                                     read_timeout=10,
+                                    connect_timeout=3,
                                     port=CLUSTER.FE_QUERY_PORT)
 
 

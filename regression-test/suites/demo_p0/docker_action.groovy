@@ -35,6 +35,11 @@ import org.apache.doris.regression.suite.ClusterOptions
 // if ClusterOptions.cloudMode = true or false, if cloudMode == pipeline's cloudMode or pipeline's cloudMode is unknown,
 //      then run docker suite, otherwise don't run docker suite.
 
+// NOTICE:
+// 1. No need to use code ` if (isCloudMode()) { return } `  in docker suites,
+// instead should use `ClusterOptions.cloudMode = true/false` is enough.
+// the later code can enable run a docker suite without an external doris cluster.
+
 // need add 'docker' to suite's group, and don't add 'nonConcurrent' to it
 suite('docker_action', 'docker') {
     // run a new docker

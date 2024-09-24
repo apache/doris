@@ -45,6 +45,8 @@ class Config {
     public String jdbcUrl
     public String jdbcUser
     public String jdbcPassword
+
+    // deprecate defaultDb, no create it, don't use this db anymore.
     public String defaultDb
 
     public String ccrDownstreamUrl
