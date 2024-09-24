@@ -278,14 +278,14 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
                 ctx->update_peak_memory_usage(free_block->allocated_bytes());
                 ctx->update_peak_memory_usage(-free_block->allocated_bytes());
                 status = scanner->get_block_after_projects(state, free_block.get(), &eos);
-                // Projection will truncate useless columns, makes block size change.
-                auto free_block_bytes = free_block->allocated_bytes();
-                ctx->update_peak_memory_usage(free_block_bytes);
                 first_read = false;
                 if (!status.ok()) {
                     LOG(WARNING) << "Scan thread read VScanner failed: " << status.to_string();
                     break;
                 }
+                // Projection will truncate useless columns, makes block size change.
+                auto free_block_bytes = free_block->allocated_bytes();
+                ctx->update_peak_memory_usage(free_block_bytes);
                 raw_bytes_read += free_block_bytes;
                 if (!scan_task->cached_blocks.empty() &&
                     scan_task->cached_blocks.back().first->rows() + free_block->rows() <=

@@ -293,7 +293,7 @@ Status TabletStream::close() {
     }
 
     DBUG_EXECUTE_IF("TabletStream.close.segment_num_mismatch", { _num_segments++; });
-    if (_next_segid.load() != _num_segments) {
+    if (_check_num_segments && (_next_segid.load() != _num_segments)) {
         _status = Status::Corruption(
                 "segment num mismatch in tablet {}, expected: {}, actual: {}, load_id: {}", _id,
                 _num_segments, _next_segid.load(), print_id(_load_id));
@@ -380,9 +380,14 @@ void IndexStream::close(const std::vector<PTabletID>& tablets_to_commit,
         auto it = _tablet_streams_map.find(tablet.tablet_id());
         if (it == _tablet_streams_map.end()) {
             _init_tablet_stream(tablet_stream, tablet.tablet_id(), tablet.partition_id());
+        } else {
+            tablet_stream = it->second;
+        }
+        if (tablet.has_num_segments()) {
             tablet_stream->add_num_segments(tablet.num_segments());
         } else {
-            it->second->add_num_segments(tablet.num_segments());
+            // for compatibility reasons (sink from old version BE)
+            tablet_stream->disable_num_segments_check();
         }
     }
 

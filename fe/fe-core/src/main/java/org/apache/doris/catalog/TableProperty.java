@@ -68,6 +68,7 @@ public class TableProperty implements Writable, GsonPostProcessable {
     private boolean isInMemory = false;
     private short minLoadReplicaNum = -1;
     private long ttlSeconds = 0L;
+    private boolean isInAtomicRestore = false;
 
     private String storagePolicy = "";
     private Boolean isBeingSynced = null;
@@ -215,6 +216,26 @@ public class TableProperty implements Writable, GsonPostProcessable {
 
     public TableProperty buildInMemory() {
         isInMemory = Boolean.parseBoolean(properties.getOrDefault(PropertyAnalyzer.PROPERTIES_INMEMORY, "false"));
+        return this;
+    }
+
+    public TableProperty buildInAtomicRestore() {
+        isInAtomicRestore = Boolean.parseBoolean(properties.getOrDefault(
+                PropertyAnalyzer.PROPERTIES_IN_ATOMIC_RESTORE, "false"));
+        return this;
+    }
+
+    public boolean isInAtomicRestore() {
+        return isInAtomicRestore;
+    }
+
+    public TableProperty setInAtomicRestore() {
+        properties.put(PropertyAnalyzer.PROPERTIES_IN_ATOMIC_RESTORE, "true");
+        return this;
+    }
+
+    public TableProperty clearInAtomicRestore() {
+        properties.remove(PropertyAnalyzer.PROPERTIES_IN_ATOMIC_RESTORE);
         return this;
     }
 
@@ -705,6 +726,7 @@ public class TableProperty implements Writable, GsonPostProcessable {
         buildTimeSeriesCompactionLevelThreshold();
         buildTTLSeconds();
         buildVariantEnableFlattenNested();
+        buildInAtomicRestore();
 
         if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_105) {
             // get replica num from property map and create replica allocation

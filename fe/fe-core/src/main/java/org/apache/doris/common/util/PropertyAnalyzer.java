@@ -35,7 +35,6 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.datasource.CatalogIf;
-import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.policy.Policy;
 import org.apache.doris.policy.StoragePolicy;
@@ -83,6 +82,7 @@ public class PropertyAnalyzer {
     public static final String PROPERTIES_SCHEMA_VERSION = "schema_version";
     public static final String PROPERTIES_PARTITION_ID = "partition_id";
     public static final String PROPERTIES_VISIBLE_VERSION = "visible_version";
+    public static final String PROPERTIES_IN_ATOMIC_RESTORE = "in_atomic_restore";
 
     public static final String PROPERTIES_BF_COLUMNS = "bloom_filter_columns";
     public static final String PROPERTIES_BF_FPP = "bloom_filter_fpp";
@@ -1559,16 +1559,6 @@ public class PropertyAnalyzer {
         // "access_controller.properties.prop2" = "yyy",
         // )
         // 1. get access controller class
-        String acClass = properties.getOrDefault(CatalogMgr.ACCESS_CONTROLLER_CLASS_PROP, "");
-        if (!Strings.isNullOrEmpty(acClass)) {
-            // 2. check if class exists
-            try {
-                Class.forName(acClass);
-            } catch (ClassNotFoundException e) {
-                throw new AnalysisException("failed to find class " + acClass, e);
-            }
-        }
-
         if (isAlter) {
             // The 'use_meta_cache' property can not be modified
             if (properties.containsKey(ExternalCatalog.USE_META_CACHE)) {

@@ -246,34 +246,41 @@ Status HeartbeatServer::_heartbeat(const TMasterInfo& master_info) {
     }
 
     if (master_info.__isset.meta_service_endpoint != config::is_cloud_mode()) {
-        return Status::InvalidArgument(
+        LOG(WARNING) << "Detected mismatch in cloud mode configuration between FE and BE. "
+                     << "FE cloud mode: "
+                     << (master_info.__isset.meta_service_endpoint ? "true" : "false")
+                     << ", BE cloud mode: " << (config::is_cloud_mode() ? "true" : "false");
+        return Status::InvalidArgument<false>(
                 "fe and be do not work in same mode, fe cloud mode: {},"
                 " be cloud mode: {}",
                 master_info.__isset.meta_service_endpoint, config::is_cloud_mode());
     }
 
-    if (master_info.__isset.meta_service_endpoint && config::meta_service_endpoint.empty() &&
-        !master_info.meta_service_endpoint.empty()) {
-        auto st = config::set_config("meta_service_endpoint", master_info.meta_service_endpoint,
-                                     true);
-        LOG(INFO) << "set config meta_service_endpoing " << master_info.meta_service_endpoint << " "
-                  << st;
+    if (master_info.__isset.meta_service_endpoint) {
+        if (config::meta_service_endpoint.empty() && !master_info.meta_service_endpoint.empty()) {
+            auto st = config::set_config("meta_service_endpoint", master_info.meta_service_endpoint,
+                                         true);
+            LOG(INFO) << "set config meta_service_endpoing " << master_info.meta_service_endpoint
+                      << " " << st;
+        }
+
+        if (master_info.meta_service_endpoint != config::meta_service_endpoint) {
+            LOG(WARNING) << "Detected mismatch in meta_service_endpoint configuration between FE "
+                            "and BE. "
+                         << "FE meta_service_endpoint: " << master_info.meta_service_endpoint
+                         << ", BE meta_service_endpoint: " << config::meta_service_endpoint;
+            return Status::InvalidArgument<false>(
+                    "fe and be do not work in same mode, fe meta_service_endpoint: {},"
+                    " be meta_service_endpoint: {}",
+                    master_info.meta_service_endpoint, config::meta_service_endpoint);
+        }
     }
 
-    if (master_info.__isset.cloud_instance_id) {
-        if (!config::cloud_instance_id.empty() &&
-            config::cloud_instance_id != master_info.cloud_instance_id) {
-            return Status::InvalidArgument(
-                    "cloud_instance_id in fe.conf and be.conf are not same, fe: {}, be: {}",
-                    master_info.cloud_instance_id, config::cloud_instance_id);
-        }
-
-        if (config::cloud_instance_id.empty() && !master_info.cloud_instance_id.empty()) {
-            auto st = config::set_config("cloud_instance_id", master_info.cloud_instance_id, true);
-            config::set_cloud_unique_id(master_info.cloud_instance_id);
-            LOG(INFO) << "set config cloud_instance_id " << master_info.cloud_instance_id << " "
-                      << st;
-        }
+    if (master_info.__isset.cloud_unique_id &&
+        config::cloud_unique_id != master_info.cloud_unique_id &&
+        config::enable_use_cloud_unique_id_from_fe) {
+        auto st = config::set_config("cloud_unique_id", master_info.cloud_unique_id, true);
+        LOG(INFO) << "set config cloud_unique_id " << master_info.cloud_unique_id << " " << st;
     }
 
     return Status::OK();

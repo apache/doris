@@ -48,7 +48,6 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.MysqlChannel;
-import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.mysql.MysqlPacket;
 import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.mysql.MysqlServerStatusFlag;
@@ -56,7 +55,6 @@ import org.apache.doris.nereids.SqlCacheContext;
 import org.apache.doris.nereids.SqlCacheContext.CacheKeyType;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
-import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.minidump.MinidumpUtils;
 import org.apache.doris.nereids.parser.Dialect;
@@ -218,7 +216,7 @@ public abstract class ConnectProcessor {
     }
 
     // only throw an exception when there is a problem interacting with the requesting client
-    protected void handleQuery(MysqlCommand mysqlCommand, String originStmt) throws ConnectionException {
+    protected void handleQuery(String originStmt) throws ConnectionException {
         if (Config.isCloudMode()) {
             if (!ctx.getCurrentUserIdentity().isRootUser()
                     && ((CloudSystemInfoService) Env.getCurrentSystemInfo()).getInstanceStatus()
@@ -233,7 +231,7 @@ public abstract class ConnectProcessor {
             }
         }
         try {
-            executeQuery(mysqlCommand, originStmt);
+            executeQuery(originStmt);
         } catch (ConnectionException exception) {
             throw exception;
         } catch (Exception ignored) {
@@ -241,7 +239,7 @@ public abstract class ConnectProcessor {
         }
     }
 
-    public void executeQuery(MysqlCommand mysqlCommand, String originStmt) throws Exception {
+    public void executeQuery(String originStmt) throws Exception {
         if (MetricRepo.isInit) {
             MetricRepo.COUNTER_REQUEST_ALL.increase(1L);
             MetricRepo.increaseClusterRequestAll(ctx.getCloudCluster(false));
@@ -252,89 +250,37 @@ public abstract class ConnectProcessor {
         ctx.setSqlHash(sqlHash);
 
         SessionVariable sessionVariable = ctx.getSessionVariable();
-        boolean wantToParseSqlFromSqlCache = sessionVariable.isEnableNereidsPlanner()
-                && CacheAnalyzer.canUseSqlCache(sessionVariable);
+        boolean wantToParseSqlFromSqlCache = CacheAnalyzer.canUseSqlCache(sessionVariable);
         List<StatementBase> stmts = null;
-        Exception nereidsParseException = null;
-        Exception nereidsSyntaxException = null;
         long parseSqlStartTime = System.currentTimeMillis();
         List<StatementBase> cachedStmts = null;
         CacheKeyType cacheKeyType = null;
-        if (sessionVariable.isEnableNereidsPlanner()) {
-            if (wantToParseSqlFromSqlCache) {
-                cachedStmts = parseFromSqlCache(originStmt);
-                Optional<SqlCacheContext> sqlCacheContext = ConnectContext.get()
-                        .getStatementContext().getSqlCacheContext();
-                if (sqlCacheContext.isPresent()) {
-                    cacheKeyType = sqlCacheContext.get().getCacheKeyType();
-                }
-                if (cachedStmts != null) {
-                    stmts = cachedStmts;
-                }
+        if (wantToParseSqlFromSqlCache) {
+            cachedStmts = parseFromSqlCache(originStmt);
+            Optional<SqlCacheContext> sqlCacheContext = ConnectContext.get()
+                    .getStatementContext().getSqlCacheContext();
+            if (sqlCacheContext.isPresent()) {
+                cacheKeyType = sqlCacheContext.get().getCacheKeyType();
             }
-
-            if (cachedStmts == null) {
-                try {
-                    stmts = new NereidsParser().parseSQL(convertedStmt, sessionVariable);
-                } catch (NotSupportedException e) {
-                    // Parse sql failed, audit it and return
-                    handleQueryException(e, convertedStmt, null, null);
-                    return;
-                } catch (ParseException e) {
-                    if (LOG.isDebugEnabled()) {
-                        LOG.debug("Nereids parse sql failed. Reason: {}. Statement: \"{}\".",
-                                e.getMessage(), convertedStmt);
-                    }
-                    // ATTN: Do not set nereidsParseException in this case.
-                    // Because ParseException means the sql is not supported by Nereids.
-                    // It should be parsed by old parser, so not setting nereidsParseException to avoid
-                    // suppressing the exception thrown by old parser.
-                    nereidsParseException = e;
-                } catch (Exception e) {
-                    // TODO: We should catch all exception here until we support all query syntax.
-                    if (LOG.isDebugEnabled()) {
-                        LOG.debug("Nereids parse sql failed with other exception. Reason: {}. Statement: \"{}\".",
-                                e.getMessage(), convertedStmt);
-                    }
-                    nereidsSyntaxException = e;
-                }
-            }
-
-            if (stmts == null) {
-                String errMsg;
-                Throwable exception = null;
-                if (nereidsParseException != null) {
-                    errMsg = nereidsParseException.getMessage();
-                    exception = nereidsParseException;
-                } else if (nereidsSyntaxException != null) {
-                    errMsg = nereidsSyntaxException.getMessage();
-                    exception = nereidsSyntaxException;
-                } else {
-                    errMsg = "Nereids parse statements failed. " + originStmt;
-                }
-                if (exception == null) {
-                    exception = new AnalysisException(errMsg);
-                } else {
-                    exception = new AnalysisException(errMsg, exception);
-                }
-                handleQueryException(exception, originStmt, null, null);
-                return;
+            if (cachedStmts != null) {
+                stmts = cachedStmts;
             }
         }
 
-        // stmts == null when Nereids cannot planner this query or Nereids is disabled.
         if (stmts == null) {
-            if (mysqlCommand == MysqlCommand.COM_STMT_PREPARE) {
-                // avoid fall back to legacy planner
-                ctx.getState().setError(ErrorCode.ERR_UNSUPPORTED_PS, "Not supported such prepared statement");
-                ctx.getState().setErrType(QueryState.ErrType.OTHER_ERR);
-                return;
-            }
             try {
-                stmts = parse(convertedStmt);
-            } catch (Throwable throwable) {
+                stmts = new NereidsParser().parseSQL(convertedStmt, sessionVariable);
+            } catch (NotSupportedException e) {
                 // Parse sql failed, audit it and return
-                handleQueryException(throwable, convertedStmt, null, null);
+                handleQueryException(e, convertedStmt, null, null);
+                return;
+            } catch (Exception e) {
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("Nereids parse sql failed. Reason: {}. Statement: \"{}\".",
+                            e.getMessage(), convertedStmt, e);
+                }
+                Throwable exception = new AnalysisException(e.getMessage(), e);
+                handleQueryException(exception, originStmt, null, null);
                 return;
             }
         }

@@ -20,7 +20,7 @@
 #include <stdint.h>
 
 #include "common/status.h"
-#include "runtime/memory/mem_tracker_limiter.h"
+#include "runtime/memory/mem_tracker.h"
 #include "util/countdown_latch.h"
 #include "util/stopwatch.hpp"
 
@@ -45,31 +45,28 @@ public:
 
     void refresh_mem_tracker();
 
-    MemTrackerLimiter* memtable_tracker_set() { return _memtable_tracker_set.get(); }
     MemTracker* mem_tracker() { return _mem_tracker.get(); }
 
     int64_t mem_usage() const { return _mem_usage; }
 
 private:
-    static inline bool _sys_avail_mem_less_than_warning_water_mark();
-    static inline bool _process_used_mem_more_than_soft_mem_limit();
+    static inline int64_t _sys_avail_mem_less_than_warning_water_mark();
+    static inline int64_t _process_used_mem_more_than_soft_mem_limit();
 
     bool _soft_limit_reached();
     bool _hard_limit_reached();
     bool _load_usage_low();
+    int64_t _need_flush();
     void _flush_active_memtables(int64_t need_flush);
-    int64_t _flush_memtable(std::weak_ptr<MemTableWriter> writer_to_flush, int64_t threshold);
     void _refresh_mem_tracker();
 
     std::mutex _lock;
     std::condition_variable _hard_limit_end_cond;
     int64_t _mem_usage = 0;
     int64_t _flush_mem_usage = 0;
-    int64_t _write_mem_usage = 0;
+    int64_t _queue_mem_usage = 0;
     int64_t _active_mem_usage = 0;
 
-    // mem tracker collection of all mem tables.
-    std::shared_ptr<MemTrackerLimiter> _memtable_tracker_set;
     // sum of all mem table memory.
     std::unique_ptr<MemTracker> _mem_tracker;
     int64_t _load_hard_mem_limit = -1;

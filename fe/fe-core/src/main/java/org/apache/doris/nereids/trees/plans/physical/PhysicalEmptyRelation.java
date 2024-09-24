@@ -116,11 +116,9 @@ public class PhysicalEmptyRelation extends PhysicalRelation implements EmptyRela
 
     @Override
     public Optional<ResultSet> computeResultInFe(CascadesContext cascadesContext,
-            Optional<SqlCacheContext> sqlCacheContext) {
+            Optional<SqlCacheContext> sqlCacheContext, List<Slot> outputSlots) {
         List<Column> columns = Lists.newArrayList();
-        List<Slot> outputSlots = getOutput();
-        for (int i = 0; i < outputSlots.size(); i++) {
-            NamedExpression output = outputSlots.get(i);
+        for (NamedExpression output : outputSlots) {
             columns.add(new Column(output.getName(), output.getDataType().toCatalogDataType()));
         }
 

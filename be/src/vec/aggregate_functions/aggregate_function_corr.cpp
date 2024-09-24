@@ -76,6 +76,15 @@ struct CorrMoment {
     }
 
     static String name() { return "corr"; }
+
+    void reset() {
+        m0 = {};
+        x1 = {};
+        y1 = {};
+        xy = {};
+        x2 = {};
+        y2 = {};
+    }
 };
 
 AggregateFunctionPtr create_aggregate_corr_function(const std::string& name,

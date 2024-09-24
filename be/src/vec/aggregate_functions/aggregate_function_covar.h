@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <glog/logging.h>
+
 #include "agent/be_exec_version_manager.h"
 #define POP true
 #define NOTPOP false
@@ -138,13 +140,22 @@ struct PopData : Data {
 template <typename T, typename Data>
 struct SampData_OLDER : Data {
     void insert_result_into(IColumn& to) const {
-        ColumnNullable& nullable_column = assert_cast<ColumnNullable&>(to);
-        if (this->count == 1 || this->count == 0) {
-            nullable_column.insert_default();
+        if (to.is_nullable()) {
+            ColumnNullable& nullable_column = assert_cast<ColumnNullable&>(to);
+            if (this->count == 1 || this->count == 0) {
+                nullable_column.insert_default();
+            } else {
+                auto& col = assert_cast<ColumnFloat64&>(nullable_column.get_nested_column());
+                col.get_data().push_back(this->get_samp_result());
+                nullable_column.get_null_map_data().push_back(0);
+            }
         } else {
-            auto& col = assert_cast<ColumnFloat64&>(nullable_column.get_nested_column());
-            col.get_data().push_back(this->get_samp_result());
-            nullable_column.get_null_map_data().push_back(0);
+            auto& col = assert_cast<ColumnFloat64&>(to);
+            if (this->count == 1 || this->count == 0) {
+                col.insert_default();
+            } else {
+                col.get_data().push_back(this->get_samp_result());
+            }
         }
     }
     static DataTypePtr get_return_type() {
@@ -195,12 +206,30 @@ public:
             this->data(place).add(columns[0], columns[1], row_num);
         } else {
             if constexpr (is_nullable) { //this if check could remove with old function
+                // nullable means at least one child is null.
+                // so here, maybe JUST ONE OF ups is null. so nullptr perhaps in ..._x or ..._y!
                 const auto* nullable_column_x = check_and_get_column<ColumnNullable>(columns[0]);
                 const auto* nullable_column_y = check_and_get_column<ColumnNullable>(columns[1]);
-                if (!nullable_column_x->is_null_at(row_num) &&
-                    !nullable_column_y->is_null_at(row_num)) {
-                    this->data(place).add(&nullable_column_x->get_nested_column(),
-                                          &nullable_column_y->get_nested_column(), row_num);
+
+                if (nullable_column_x && nullable_column_y) { // both nullable
+                    if (!nullable_column_x->is_null_at(row_num) &&
+                        !nullable_column_y->is_null_at(row_num)) {
+                        this->data(place).add(&nullable_column_x->get_nested_column(),
+                                              &nullable_column_y->get_nested_column(), row_num);
+                    }
+                } else if (nullable_column_x) { // x nullable
+                    if (!nullable_column_x->is_null_at(row_num)) {
+                        this->data(place).add(&nullable_column_x->get_nested_column(), columns[1],
+                                              row_num);
+                    }
+                } else if (nullable_column_y) { // y nullable
+                    if (!nullable_column_y->is_null_at(row_num)) {
+                        this->data(place).add(columns[0], &nullable_column_y->get_nested_column(),
+                                              row_num);
+                    }
+                } else {
+                    throw Exception(ErrorCode::INTERNAL_ERROR,
+                                    "Nullable function {} get non-nullable columns!", get_name());
                 }
             } else {
                 this->data(place).add(columns[0], columns[1], row_num);

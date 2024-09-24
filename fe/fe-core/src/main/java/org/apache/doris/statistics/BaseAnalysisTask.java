@@ -26,6 +26,7 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.Status;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.qe.AuditLogHelper;
@@ -36,6 +37,7 @@ import org.apache.doris.statistics.AnalysisInfo.AnalysisMethod;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisType;
 import org.apache.doris.statistics.util.DBObjects;
 import org.apache.doris.statistics.util.StatisticsUtil;
+import org.apache.doris.thrift.TStatusCode;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
@@ -267,7 +269,7 @@ public abstract class BaseAnalysisTask {
     public void cancel() {
         killed = true;
         if (stmtExecutor != null) {
-            stmtExecutor.cancel();
+            stmtExecutor.cancel(new Status(TStatusCode.CANCELLED, "analysis task cancelled"));
         }
         Env.getCurrentEnv().getAnalysisManager()
                 .updateTaskStatus(info, AnalysisState.FAILED,

@@ -151,9 +151,9 @@ QueryContext::~QueryContext() {
         mem_tracker_msg = fmt::format(
                 ", deregister query/load memory tracker, queryId={}, Limit={}, CurrUsed={}, "
                 "PeakUsed={}",
-                print_id(_query_id), MemTracker::print_bytes(query_mem_tracker->limit()),
-                MemTracker::print_bytes(query_mem_tracker->consumption()),
-                MemTracker::print_bytes(query_mem_tracker->peak_consumption()));
+                print_id(_query_id), MemCounter::print_bytes(query_mem_tracker->limit()),
+                MemCounter::print_bytes(query_mem_tracker->consumption()),
+                MemCounter::print_bytes(query_mem_tracker->peak_consumption()));
     }
     uint64_t group_id = 0;
     if (_workload_group) {
@@ -368,9 +368,6 @@ void QueryContext::add_fragment_profile(
 
 void QueryContext::_report_query_profile() {
     std::lock_guard<std::mutex> lg(_profile_mutex);
-    LOG_INFO(
-            "Pipeline x query context, register query profile, query {}, fragment profile count {}",
-            print_id(_query_id), _profile_map.size());
 
     for (auto& [fragment_id, fragment_profile] : _profile_map) {
         std::shared_ptr<TRuntimeProfileTree> load_channel_profile = nullptr;

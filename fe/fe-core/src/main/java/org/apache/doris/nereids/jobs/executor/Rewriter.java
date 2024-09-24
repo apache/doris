@@ -188,7 +188,12 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         // after doing NormalizeAggregate in analysis job
                         // we need run the following 2 rules to make AGG_SCALAR_SUBQUERY_TO_WINDOW_FUNCTION work
                         bottomUp(new PullUpProjectUnderApply()),
-                        topDown(new PushDownFilterThroughProject()),
+                        topDown(
+                                new PushDownFilterThroughProject(),
+                                // the subquery may have where and having clause
+                                // so there may be two filters we need to merge them
+                                new MergeFilters()
+                        ),
                         custom(RuleType.AGG_SCALAR_SUBQUERY_TO_WINDOW_FUNCTION,
                                 AggScalarSubQueryToWindowFunction::new),
                         bottomUp(

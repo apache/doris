@@ -182,6 +182,11 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
 
     private CascadesContext cascadesContext;
 
+    private StatsCalculator(CascadesContext context) {
+        this.groupExpression = null;
+        this.cascadesContext = context;
+    }
+
     private StatsCalculator(GroupExpression groupExpression, boolean forbidUnknownColStats,
             Map<String, ColumnStatistic> columnStatisticMap, boolean isPlayNereidsDump,
             Map<CTEId, Statistics> cteIdToStats, CascadesContext context) {
@@ -206,6 +211,27 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     }
 
     /**
+     * disable join reorder if any table row count is not available.
+     */
+    public static void disableJoinReorderIfTableRowCountNotAvailable(
+            List<LogicalOlapScan> scans, CascadesContext context) {
+        StatsCalculator calculator = new StatsCalculator(context);
+        for (LogicalOlapScan scan : scans) {
+            double rowCount = calculator.getOlapTableRowCount(scan);
+            if (rowCount == -1 && ConnectContext.get() != null) {
+                try {
+                    ConnectContext.get().getSessionVariable().disableNereidsJoinReorderOnce();
+                    LOG.info("disable join reorder since row count not available: "
+                            + scan.getTable().getNameWithFullQualifiers());
+                } catch (Exception e) {
+                    LOG.info("disableNereidsJoinReorderOnce failed");
+                }
+                return;
+            }
+        }
+    }
+
+    /**
      * estimate stats
      */
     public static StatsCalculator estimate(GroupExpression groupExpression, boolean forbidUnknownColStats,
@@ -215,15 +241,6 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                 groupExpression, forbidUnknownColStats, columnStatisticMap, isPlayNereidsDump, cteIdToStats, context);
         statsCalculator.estimate();
         return statsCalculator;
-    }
-
-    public static StatsCalculator estimate(GroupExpression groupExpression, boolean forbidUnknownColStats,
-            Map<String, ColumnStatistic> columnStatisticMap, boolean isPlayNereidsDump, CascadesContext context) {
-        return StatsCalculator.estimate(groupExpression,
-                forbidUnknownColStats,
-                columnStatisticMap,
-                isPlayNereidsDump,
-                new HashMap<>(), context);
     }
 
     // For unit test only
@@ -364,6 +381,9 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         }
     }
 
+    /**
+     * if the table is not analyzed and BE does not report row count, return -1
+     */
     private double getOlapTableRowCount(OlapScan olapScan) {
         OlapTable olapTable = olapScan.getTable();
         AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
@@ -403,8 +423,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                     for (Slot slot : ((Relation) olapScan).getOutput()) {
                         if (derivedStats.findColumnStatistics(slot) == null) {
                             derivedStats.addColumnStats(slot,
-                                    new ColumnStatisticBuilder(ColumnStatistic.UNKNOWN)
-                                            .setCount(derivedRowCount).build());
+                                    new ColumnStatisticBuilder(ColumnStatistic.UNKNOWN, derivedRowCount).build());
                         }
                     }
                     return derivedStats;
@@ -431,7 +450,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             // get row count from any visible slotReference's colStats
             for (Slot slot : ((Plan) olapScan).getOutput()) {
                 builder.putColumnStatistics(slot,
-                        new ColumnStatisticBuilder(ColumnStatistic.UNKNOWN).setCount(tableRowCount).build());
+                        new ColumnStatisticBuilder(ColumnStatistic.UNKNOWN, tableRowCount).build());
             }
             setHasUnknownColStatsInStatementContext();
             return builder.setRowCount(tableRowCount).build();
@@ -463,8 +482,8 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                 });
                 for (SlotReference slot : visibleOutputSlots) {
                     ColumnStatistic cache = getColumnStatsFromPartitionCache(olapScan, slot, selectedPartitionNames);
-                    ColumnStatisticBuilder colStatsBuilder = new ColumnStatisticBuilder(cache);
-                    colStatsBuilder.setCount(selectedPartitionsRowCount);
+                    ColumnStatisticBuilder colStatsBuilder = new ColumnStatisticBuilder(cache,
+                            selectedPartitionsRowCount);
                     colStatsBuilder.normalizeAvgSizeByte(slot);
                     builder.putColumnStatistics(slot, colStatsBuilder.build());
                 }
@@ -478,8 +497,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             // get table level stats
             for (SlotReference slot : visibleOutputSlots) {
                 ColumnStatistic cache = getColumnStatsFromTableCache((CatalogRelation) olapScan, slot);
-                ColumnStatisticBuilder colStatsBuilder = new ColumnStatisticBuilder(cache);
-                colStatsBuilder.setCount(tableRowCount);
+                ColumnStatisticBuilder colStatsBuilder = new ColumnStatisticBuilder(cache, tableRowCount);
                 colStatsBuilder.normalizeAvgSizeByte(slot);
                 builder.putColumnStatistics(slot, colStatsBuilder.build());
             }
@@ -1062,8 +1080,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             } else {
                 cache = getColumnStatsFromTableCache(catalogRelation, slot);
             }
-            ColumnStatisticBuilder colStatsBuilder = new ColumnStatisticBuilder(cache);
-            colStatsBuilder.setCount(tableRowCount);
+            ColumnStatisticBuilder colStatsBuilder = new ColumnStatisticBuilder(cache, tableRowCount);
             builder.putColumnStatistics(slot, colStatsBuilder.build());
         }
         checkIfUnknownStatsUsedAsKey(builder);
@@ -1187,7 +1204,6 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                     ColumnStatistic stats = kv.getValue();
                     ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder(stats);
                     columnStatisticBuilder
-                            .setCount(stats.count < 0 ? stats.count : stats.count * groupingSetNum)
                             .setNumNulls(stats.numNulls < 0 ? stats.numNulls : stats.numNulls * groupingSetNum)
                             .setDataSize(stats.dataSize < 0 ? stats.dataSize : stats.dataSize * groupingSetNum);
                     return Pair.of(kv.getKey(), columnStatisticBuilder.build());
@@ -1322,12 +1338,11 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         double count = stats.getRowCount() * generate.getGeneratorOutput().size() * statsFactor;
         Map<Expression, ColumnStatistic> columnStatsMap = Maps.newHashMap();
         for (Map.Entry<Expression, ColumnStatistic> entry : stats.columnStatistics().entrySet()) {
-            ColumnStatistic columnStatistic = new ColumnStatisticBuilder(entry.getValue()).setCount(count).build();
+            ColumnStatistic columnStatistic = new ColumnStatisticBuilder(entry.getValue()).build();
             columnStatsMap.put(entry.getKey(), columnStatistic);
         }
         for (Slot output : generate.getGeneratorOutput()) {
             ColumnStatistic columnStatistic = new ColumnStatisticBuilder()
-                    .setCount(count)
                     .setMinValue(Double.NEGATIVE_INFINITY)
                     .setMaxValue(Double.POSITIVE_INFINITY)
                     .setNdv(count)
@@ -1349,8 +1364,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                             "need WindowExpression, but we meet " + expr);
                     WindowExpression windExpr = (WindowExpression) expr.child(0);
                     ColumnStatisticBuilder colStatsBuilder = new ColumnStatisticBuilder();
-                    colStatsBuilder.setCount(childStats.getRowCount())
-                            .setOriginal(null);
+                    colStatsBuilder.setOriginal(null);
 
                     Double partitionCount = windExpr.getPartitionKeys().stream().map(key -> {
                         ColumnStatistic keyStats = childStats.findColumnStatistics(key);
@@ -1365,8 +1379,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
 
                     if (partitionCount == -1.0) {
                         // partition key stats are all unknown
-                        colStatsBuilder.setCount(childStats.getRowCount())
-                                .setNdv(1)
+                        colStatsBuilder.setNdv(1)
                                 .setMinValue(Double.NEGATIVE_INFINITY)
                                 .setMaxValue(Double.POSITIVE_INFINITY);
                     } else {
@@ -1411,7 +1424,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     private ColumnStatistic unionColumn(ColumnStatistic leftStats, double leftRowCount, ColumnStatistic rightStats,
             double rightRowCount, DataType dataType) {
         if (leftStats.isUnKnown() || rightStats.isUnKnown()) {
-            return new ColumnStatisticBuilder(leftStats).setCount(leftRowCount + rightRowCount).build();
+            return new ColumnStatisticBuilder(leftStats).build();
         }
         ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder();
         columnStatisticBuilder.setMaxValue(Math.max(leftStats.maxValue, rightStats.maxValue));
