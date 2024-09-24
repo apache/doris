@@ -21,7 +21,6 @@ suite("union_all_compensate") {
     sql "use ${db}"
     sql "set runtime_filter_mode=OFF";
     sql "SET ignore_shape_nodes='PhysicalDistribute,PhysicalProject'"
-    sql "set disable_nereids_rules='infer_predicates'"
 
     sql """
     drop table if exists test_table1
