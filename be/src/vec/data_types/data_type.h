@@ -213,6 +213,7 @@ public:
     virtual char* serialize(const IColumn& column, char* buf, int be_exec_version) const = 0;
     virtual const char* deserialize(const char* buf, MutableColumnPtr* column,
                                     int be_exec_version) const = 0;
+
     virtual void to_pb_column_meta(PColumnMeta* col_meta) const;
 
     static PGenericType_TypeId get_pdata_type(const IDataType* data_type);

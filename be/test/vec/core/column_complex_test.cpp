@@ -130,27 +130,27 @@ TEST_F(ColumnBitmapTest, ColumnBitmapReadWrite) {
     // empty column
     check_serialize_and_deserialize(column);
 
-    // // bitmap with lots of rows
-    // const size_t row_size = 20000;
-    // auto& data = assert_cast<ColumnBitmap&>(*column.get()).get_data();
-    // data.resize(row_size);
-    // check_serialize_and_deserialize(column);
+    // bitmap with lots of rows
+    const size_t row_size = 20000;
+    auto& data = assert_cast<ColumnBitmap&>(*column.get()).get_data();
+    data.resize(row_size);
+    check_serialize_and_deserialize(column);
 
-    // // bitmap with values case 1
-    // data[0].add(10);
-    // data[0].add(1000000);
-    // check_serialize_and_deserialize(column);
+    // bitmap with values case 1
+    data[0].add(10);
+    data[0].add(1000000);
+    check_serialize_and_deserialize(column);
 
-    // // bitmap with values case 2
-    // data[row_size - 1].add(33333);
-    // data[row_size - 1].add(0);
-    // check_serialize_and_deserialize(column);
+    // bitmap with values case 2
+    data[row_size - 1].add(33333);
+    data[row_size - 1].add(0);
+    check_serialize_and_deserialize(column);
 
-    // Field field;
-    // column->get(0, field);
-    // auto bitmap = field.get<BitmapValue>();
-    // EXPECT_TRUE(bitmap.contains(10));
-    // EXPECT_TRUE(bitmap.contains(1000000));
+    Field field;
+    column->get(0, field);
+    auto bitmap = field.get<BitmapValue>();
+    EXPECT_TRUE(bitmap.contains(10));
+    EXPECT_TRUE(bitmap.contains(1000000));
 }
 
 TEST_F(ColumnQuantileStateTest, ColumnQuantileStateReadWrite) {

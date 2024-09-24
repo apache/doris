@@ -287,7 +287,7 @@ bool DataTypeMap::equals(const IDataType& rhs) const {
 int64_t DataTypeMap::get_uncompressed_serialized_bytes(const IColumn& column,
                                                        int data_version) const {
     if (data_version >= USE_CONST_SERDE) {
-        auto size = sizeof(bool) + sizeof(uint32_t);
+        auto size = sizeof(bool);
         bool is_const_column = is_column_const(column);
         auto real_need_copy_num = is_const_column ? 1 : column.size();
 
@@ -337,7 +337,7 @@ char* DataTypeMap::serialize(const IColumn& column, char* buf, int be_exec_versi
         // offsets
         memcpy(buf, map_column.get_offsets().data(),
                real_need_copy_num * sizeof(ColumnArray::Offset64));
-        buf += column.size() * sizeof(ColumnArray::Offset64);
+        buf += real_need_copy_num * sizeof(ColumnArray::Offset64);
         // key value
         buf = get_key_type()->serialize(map_column.get_keys(), buf, be_exec_version);
         return get_value_type()->serialize(map_column.get_values(), buf, be_exec_version);

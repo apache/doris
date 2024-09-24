@@ -197,4 +197,5 @@ PGenericType_TypeId IDataType::get_pdata_type(const IDataType* data_type) {
         return PGenericType::UNKNOWN;
     }
 }
+
 } // namespace doris::vectorized

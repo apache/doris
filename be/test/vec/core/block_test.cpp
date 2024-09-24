@@ -64,6 +64,8 @@ void block_to_pb(
     Status st = block.serialize(BeExecVersionManager::get_newest_version(), pblock,
                                 &uncompressed_bytes, &compressed_bytes, compression_type);
     EXPECT_TRUE(st.ok());
+    // const column maybe uncompressed_bytes<compressed_bytes
+    // as the serialize_bytes add some additional byets: STREAMVBYTE_PADDING=16;
     // EXPECT_TRUE(uncompressed_bytes >= compressed_bytes);
     EXPECT_EQ(compressed_bytes, pblock->column_values().size());
 
@@ -305,23 +307,19 @@ void serialize_and_deserialize_test_one() {
         data.push_back(111);
         auto const_column = vectorized::ColumnConst::create(vec->get_ptr(), 1);
         vectorized::DataTypePtr data_type(std::make_shared<vectorized::DataTypeInt32>());
-        vectorized::ColumnWithTypeAndName type_and_name(const_column->get_ptr(), data_type, "test_int");
+        vectorized::ColumnWithTypeAndName type_and_name(const_column->get_ptr(), data_type,
+                                                        "test_int");
         vectorized::Block block({type_and_name});
-        std::cout<<"dump : "<<block.dump_structure()<<std::endl;
-        std::cout<<block.dump_data();
         PBlock pblock;
         block_to_pb(block, &pblock, segment_v2::CompressionTypePB::LZ4);
         std::string s1 = pblock.DebugString();
-        
+
         vectorized::Block block2;
         static_cast<void>(block2.deserialize(pblock));
         PBlock pblock2;
         block_to_pb(block2, &pblock2, segment_v2::CompressionTypePB::LZ4);
         std::string s2 = pblock2.DebugString();
-        std::cout<<"dump : "<<block2.dump_structure()<<std::endl;
-        std::cout<<block2.dump_data();
         EXPECT_EQ(block.dump_data(), block2.dump_data());
-        std::cout<<"####################################################"<<std::endl;
         EXPECT_EQ(s1, s2);
     }
 }
@@ -334,23 +332,19 @@ void serialize_and_deserialize_test_int() {
         data.push_back(111);
         auto const_column = vectorized::ColumnConst::create(vec->get_ptr(), 10);
         vectorized::DataTypePtr data_type(std::make_shared<vectorized::DataTypeInt32>());
-        vectorized::ColumnWithTypeAndName type_and_name(const_column->get_ptr(), data_type, "test_int");
+        vectorized::ColumnWithTypeAndName type_and_name(const_column->get_ptr(), data_type,
+                                                        "test_int");
         vectorized::Block block({type_and_name});
-        std::cout<<"dump : "<<block.dump_structure()<<std::endl;
-        std::cout<<block.dump_data();
         PBlock pblock;
         block_to_pb(block, &pblock, segment_v2::CompressionTypePB::LZ4);
         std::string s1 = pblock.DebugString();
-        
+
         vectorized::Block block2;
         static_cast<void>(block2.deserialize(pblock));
         PBlock pblock2;
         block_to_pb(block2, &pblock2, segment_v2::CompressionTypePB::LZ4);
         std::string s2 = pblock2.DebugString();
-        std::cout<<"dump : "<<block2.dump_structure()<<std::endl;
-        std::cout<<block2.dump_data();
         EXPECT_EQ(block.dump_data(), block2.dump_data());
-        std::cout<<"####################################################"<<std::endl;
         EXPECT_EQ(s1, s2);
     }
 
@@ -385,23 +379,19 @@ void serialize_and_deserialize_test_long() {
         data.push_back(111);
         auto const_column = vectorized::ColumnConst::create(vec->get_ptr(), 10);
         vectorized::DataTypePtr data_type(std::make_shared<vectorized::DataTypeInt64>());
-        vectorized::ColumnWithTypeAndName type_and_name(const_column->get_ptr(), data_type, "test_int");
+        vectorized::ColumnWithTypeAndName type_and_name(const_column->get_ptr(), data_type,
+                                                        "test_int");
         vectorized::Block block({type_and_name});
-        std::cout<<"dump : "<<block.dump_structure()<<std::endl;
-        std::cout<<block.dump_data();
         PBlock pblock;
         block_to_pb(block, &pblock, segment_v2::CompressionTypePB::LZ4);
         std::string s1 = pblock.DebugString();
-        
+
         vectorized::Block block2;
         static_cast<void>(block2.deserialize(pblock));
         PBlock pblock2;
         block_to_pb(block2, &pblock2, segment_v2::CompressionTypePB::LZ4);
         std::string s2 = pblock2.DebugString();
-        std::cout<<"dump : "<<block2.dump_structure()<<std::endl;
-        std::cout<<block2.dump_data();
         EXPECT_EQ(block.dump_data(), block2.dump_data());
-        std::cout<<"####################################################"<<std::endl;
         EXPECT_EQ(s1, s2);
     }
 
@@ -439,16 +429,12 @@ void serialize_and_deserialize_test_string() {
         vectorized::ColumnWithTypeAndName type_and_name(const_column->get_ptr(), data_type,
                                                         "test_string");
         vectorized::Block block({type_and_name});
-        std::cout<<"dump : "<<block.dump_structure()<<std::endl;
-        std::cout<<block.dump_data();
         PBlock pblock;
         block_to_pb(block, &pblock, segment_v2::CompressionTypePB::SNAPPY);
         std::string s1 = pblock.DebugString();
 
         vectorized::Block block2;
         static_cast<void>(block2.deserialize(pblock));
-        std::cout<<"dump : "<<block2.dump_structure()<<std::endl;
-        std::cout<<block2.dump_data();
         PBlock pblock2;
         block_to_pb(block2, &pblock2, segment_v2::CompressionTypePB::SNAPPY);
         std::string s2 = pblock2.DebugString();
@@ -467,16 +453,12 @@ void serialize_and_deserialize_test_string() {
         vectorized::ColumnWithTypeAndName type_and_name(strcol->get_ptr(), data_type,
                                                         "test_string");
         vectorized::Block block({type_and_name});
-        std::cout<<"dump : "<<block.dump_structure()<<std::endl;
-        std::cout<<block.dump_data();
         PBlock pblock;
         block_to_pb(block, &pblock, segment_v2::CompressionTypePB::SNAPPY);
         std::string s1 = pblock.DebugString();
 
         vectorized::Block block2;
         static_cast<void>(block2.deserialize(pblock));
-        std::cout<<"dump : "<<block2.dump_structure()<<std::endl;
-        std::cout<<block2.dump_data();
         PBlock pblock2;
         block_to_pb(block2, &pblock2, segment_v2::CompressionTypePB::SNAPPY);
         std::string s2 = pblock2.DebugString();
@@ -495,21 +477,18 @@ void serialize_and_deserialize_test_nullable() {
         auto const_column = vectorized::ColumnConst::create(nullable_column, 10);
         vectorized::DataTypePtr data_type(std::make_shared<vectorized::DataTypeInt32>());
         auto nullable_data_type = vectorized::make_nullable(data_type);
-        vectorized::ColumnWithTypeAndName type_and_name(const_column->get_ptr(), nullable_data_type, "test_int");
+        vectorized::ColumnWithTypeAndName type_and_name(const_column->get_ptr(), nullable_data_type,
+                                                        "test_int");
         vectorized::Block block({type_and_name});
-        std::cout<<"dump : "<<block.dump_structure()<<std::endl;
-        std::cout<<block.dump_data(0,100,true);
         PBlock pblock;
         block_to_pb(block, &pblock, segment_v2::CompressionTypePB::LZ4);
         std::string s1 = pblock.DebugString();
-        
+
         vectorized::Block block2;
         static_cast<void>(block2.deserialize(pblock));
         PBlock pblock2;
         block_to_pb(block2, &pblock2, segment_v2::CompressionTypePB::LZ4);
         std::string s2 = pblock2.DebugString();
-        std::cout<<"dump : "<<block2.dump_structure()<<std::endl;
-        std::cout<<block2.dump_data();
         EXPECT_EQ(block.dump_data(), block2.dump_data());
         EXPECT_EQ(s1, s2);
     }
@@ -522,7 +501,8 @@ void serialize_and_deserialize_test_nullable() {
             data.push_back(i);
         }
         vectorized::DataTypePtr data_type(std::make_shared<vectorized::DataTypeInt32>());
-        vectorized::ColumnWithTypeAndName type_and_name(make_nullable(vec->get_ptr()), make_nullable(data_type), "test_int");
+        vectorized::ColumnWithTypeAndName type_and_name(make_nullable(vec->get_ptr()),
+                                                        make_nullable(data_type), "test_int");
         vectorized::Block block({type_and_name});
         PBlock pblock;
         block_to_pb(block, &pblock, segment_v2::CompressionTypePB::LZ4);
@@ -530,8 +510,6 @@ void serialize_and_deserialize_test_nullable() {
 
         vectorized::Block block2;
         static_cast<void>(block2.deserialize(pblock));
-        std::cout<<"dump2 : "<<block2.dump_structure()<<std::endl;
-        std::cout<<block2.dump_data();
         PBlock pblock2;
         block_to_pb(block2, &pblock2, segment_v2::CompressionTypePB::LZ4);
         std::string s2 = pblock2.DebugString();
@@ -546,19 +524,15 @@ void serialize_and_deserialize_test_nullable() {
         strcol->insert_data(val.c_str(), val.size());
         auto const_column = vectorized::ColumnConst::create(strcol->get_ptr(), 10);
         vectorized::DataTypePtr data_type(std::make_shared<vectorized::DataTypeString>());
-        vectorized::ColumnWithTypeAndName type_and_name(make_nullable(const_column->get_ptr()), make_nullable(data_type),
-                                                        "test_string");
+        vectorized::ColumnWithTypeAndName type_and_name(make_nullable(const_column->get_ptr()),
+                                                        make_nullable(data_type), "test_string");
         vectorized::Block block({type_and_name});
-        std::cout<<"dump : "<<block.dump_structure()<<std::endl;
-        std::cout<<block.dump_data();
         PBlock pblock;
         block_to_pb(block, &pblock, segment_v2::CompressionTypePB::SNAPPY);
         std::string s1 = pblock.DebugString();
 
         vectorized::Block block2;
         static_cast<void>(block2.deserialize(pblock));
-        std::cout<<"dump : "<<block2.dump_structure()<<std::endl;
-        std::cout<<block2.dump_data();
         PBlock pblock2;
         block_to_pb(block2, &pblock2, segment_v2::CompressionTypePB::SNAPPY);
         std::string s2 = pblock2.DebugString();
@@ -572,19 +546,15 @@ void serialize_and_deserialize_test_nullable() {
             strcol->insert_data(is.c_str(), is.size());
         }
         vectorized::DataTypePtr data_type(std::make_shared<vectorized::DataTypeString>());
-        vectorized::ColumnWithTypeAndName type_and_name(make_nullable(strcol->get_ptr()), make_nullable(data_type),
-                                                        "test_string");
+        vectorized::ColumnWithTypeAndName type_and_name(make_nullable(strcol->get_ptr()),
+                                                        make_nullable(data_type), "test_string");
         vectorized::Block block({type_and_name});
-        std::cout<<"dump : "<<block.dump_structure()<<std::endl;
-        std::cout<<block.dump_data();
         PBlock pblock;
         block_to_pb(block, &pblock, segment_v2::CompressionTypePB::SNAPPY);
         std::string s1 = pblock.DebugString();
 
         vectorized::Block block2;
         static_cast<void>(block2.deserialize(pblock));
-        std::cout<<"dump : "<<block2.dump_structure()<<std::endl;
-        std::cout<<block2.dump_data();
         PBlock pblock2;
         block_to_pb(block2, &pblock2, segment_v2::CompressionTypePB::SNAPPY);
         std::string s2 = pblock2.DebugString();
@@ -600,34 +570,33 @@ void serialize_and_deserialize_test_decimal() {
         vectorized::Decimal<int> value = 111234;
         vec->insert_value(value);
         auto const_column = vectorized::ColumnConst::create(vec->get_ptr(), 10);
-        vectorized::DataTypePtr data_type(std::make_shared<vectorized::DataTypeDecimal<vectorized::Decimal32>>(6,3));
-        vectorized::ColumnWithTypeAndName type_and_name(const_column->get_ptr(), data_type, "test_int");
+        vectorized::DataTypePtr data_type(
+                std::make_shared<vectorized::DataTypeDecimal<vectorized::Decimal32>>(6, 3));
+        vectorized::ColumnWithTypeAndName type_and_name(const_column->get_ptr(), data_type,
+                                                        "test_int");
         vectorized::Block block({type_and_name});
-        std::cout<<"dump : "<<block.dump_structure()<<std::endl;
-        std::cout<<block.dump_data();
         PBlock pblock;
         block_to_pb(block, &pblock, segment_v2::CompressionTypePB::LZ4);
         std::string s1 = pblock.DebugString();
-        
+
         vectorized::Block block2;
         static_cast<void>(block2.deserialize(pblock));
         PBlock pblock2;
         block_to_pb(block2, &pblock2, segment_v2::CompressionTypePB::LZ4);
         std::string s2 = pblock2.DebugString();
-        std::cout<<"dump : "<<block2.dump_structure()<<std::endl;
-        std::cout<<block2.dump_data();
         EXPECT_EQ(block.dump_data(), block2.dump_data());
         EXPECT_EQ(s1, s2);
     }
 
     // decimal
     {
-        auto vec = vectorized::ColumnDecimal32::create(0,3);
+        auto vec = vectorized::ColumnDecimal32::create(0, 3);
         for (int i = 0; i < 1024; ++i) {
             vectorized::Decimal<int> value = 111000 + i;
             vec->insert_value(value);
         }
-        vectorized::DataTypePtr data_type(std::make_shared<vectorized::DataTypeDecimal<vectorized::Decimal32>>(6,3));
+        vectorized::DataTypePtr data_type(
+                std::make_shared<vectorized::DataTypeDecimal<vectorized::Decimal32>>(6, 3));
         vectorized::ColumnWithTypeAndName type_and_name(vec->get_ptr(), data_type, "test_int");
         vectorized::Block block({type_and_name});
         PBlock pblock;
@@ -636,14 +605,11 @@ void serialize_and_deserialize_test_decimal() {
 
         vectorized::Block block2;
         static_cast<void>(block2.deserialize(pblock));
-        std::cout<<"dump : "<<block2.dump_structure()<<std::endl;
-        std::cout<<block2.dump_data();
         PBlock pblock2;
         block_to_pb(block2, &pblock2, segment_v2::CompressionTypePB::LZ4);
         std::string s2 = pblock2.DebugString();
         EXPECT_EQ(block.dump_data(), block2.dump_data());
         EXPECT_EQ(s1, s2);
-
     }
 }
 
@@ -664,17 +630,13 @@ void serialize_and_deserialize_test_bitmap() {
         vectorized::ColumnWithTypeAndName type_and_name(const_column->get_ptr(), bitmap_data_type,
                                                         "test_bitmap");
         vectorized::Block block({type_and_name});
-        std::cout<<block.dump_structure()<<std::endl;
-        std::cout<<block.dump_data()<<std::endl;
         PBlock pblock;
         block_to_pb(block, &pblock, segment_v2::CompressionTypePB::LZ4);
         std::string s1 = pblock.DebugString();
-        std::string bb1 = block.dump_data(0,1024);
+        std::string bb1 = block.dump_data(0, 1024);
         vectorized::Block block2;
         static_cast<void>(block2.deserialize(pblock));
-        std::cout<<block2.dump_structure()<<std::endl;
-        std::cout<<block2.dump_data()<<std::endl;
-        std::string bb2 = block2.dump_data(0,1024);
+        std::string bb2 = block2.dump_data(0, 1024);
         EXPECT_EQ(bb1, bb2);
         PBlock pblock2;
         block_to_pb(block2, &pblock2, segment_v2::CompressionTypePB::LZ4);
@@ -698,17 +660,13 @@ void serialize_and_deserialize_test_bitmap() {
         vectorized::ColumnWithTypeAndName type_and_name(bitmap_column->get_ptr(), bitmap_data_type,
                                                         "test_bitmap");
         vectorized::Block block({type_and_name});
-        std::cout<<block.dump_structure()<<std::endl;
-        std::cout<<block.dump_data()<<std::endl;
         PBlock pblock;
         block_to_pb(block, &pblock, segment_v2::CompressionTypePB::LZ4);
         std::string s1 = pblock.DebugString();
-        std::string bb1 = block.dump_data(0,1024);
+        std::string bb1 = block.dump_data(0, 1024);
         vectorized::Block block2;
         static_cast<void>(block2.deserialize(pblock));
-        std::cout<<block2.dump_structure()<<std::endl;
-        std::cout<<block2.dump_data()<<std::endl;
-        std::string bb2 = block2.dump_data(0,1024);
+        std::string bb2 = block2.dump_data(0, 1024);
         EXPECT_EQ(bb1, bb2);
         PBlock pblock2;
         block_to_pb(block2, &pblock2, segment_v2::CompressionTypePB::LZ4);
@@ -722,18 +680,12 @@ void serialize_and_deserialize_test_array() {
     {
         vectorized::Block block;
         fill_block_with_array_int(block);
-        // fill_block_with_array_string(block);
-        std::cout<<block.dump_structure()<<std::endl;
-        std::cout<<block.dump_data()<<std::endl;
+        fill_block_with_array_string(block);
         PBlock pblock;
         block_to_pb(block, &pblock, segment_v2::CompressionTypePB::SNAPPY);
         std::string s1 = pblock.DebugString();
-        std::cout<<block.dump_structure()<<std::endl;
-        std::cout<<block.dump_data()<<std::endl;
         vectorized::Block block2;
         static_cast<void>(block2.deserialize(pblock));
-        std::cout<<block2.dump_structure()<<std::endl;
-        std::cout<<block2.dump_data()<<std::endl;
         PBlock pblock2;
         block_to_pb(block2, &pblock2, segment_v2::CompressionTypePB::SNAPPY);
         std::string s2 = pblock2.DebugString();

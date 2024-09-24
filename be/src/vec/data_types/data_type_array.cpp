@@ -78,7 +78,7 @@ size_t DataTypeArray::get_number_of_dimensions() const {
 int64_t DataTypeArray::get_uncompressed_serialized_bytes(const IColumn& column,
                                                          int be_exec_version) const {
     if (be_exec_version >= USE_CONST_SERDE) {
-        auto size = sizeof(bool) + sizeof(uint32_t);
+        auto size = sizeof(bool);
         bool is_const_column = is_column_const(column);
         auto real_need_copy_num = is_const_column ? 1 : column.size();
         const IColumn* array_column = &column;
