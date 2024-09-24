@@ -556,4 +556,8 @@ public interface TableIf {
     default Set<String> getDistributionColumnNames() {
         return Sets.newHashSet();
     }
+
+    default boolean isPartitionedTable() {
+        return false;
+    }
 }
