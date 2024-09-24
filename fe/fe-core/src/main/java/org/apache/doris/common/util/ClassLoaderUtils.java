@@ -17,7 +17,7 @@
 
 package org.apache.doris.common.util;
 
-import org.apache.doris.common.EnvUtils;
+import org.apache.doris.common.Config;
 import org.apache.doris.mysql.authenticate.AuthenticatorFactory;
 import org.apache.doris.mysql.privilege.AccessControllerFactory;
 
@@ -61,8 +61,8 @@ public class ClassLoaderUtils {
     private static final Map<String, String> pluginDirMapping = new HashedMap();
 
     static {
-        pluginDirMapping.put(AuthenticatorFactory.class.getSimpleName(), "plugins/authentication");
-        pluginDirMapping.put(AccessControllerFactory.class.getSimpleName(), "plugins/authorization");
+        pluginDirMapping.put(AuthenticatorFactory.class.getSimpleName(), Config.authentication_plugins_dir);
+        pluginDirMapping.put(AccessControllerFactory.class.getSimpleName(), Config.authorization_plugins_dir);
     }
 
     /**
@@ -88,20 +88,18 @@ public class ClassLoaderUtils {
         if (pluginDir == null) {
             throw new RuntimeException("No mapping found for plugin directory key: " + pluginDirKey);
         }
-
-        String jarDirPath = EnvUtils.getDorisHome() + File.separator + pluginDir;
-        File jarDir = new File(jarDirPath);
+        File jarDir = new File(pluginDir);
         // If the directory does not exist, return an empty list.
         if (!jarDir.exists()) {
             return new ArrayList<>();
         }
         if (!jarDir.isDirectory()) {
-            throw new IOException("The specified path is not a directory: " + jarDirPath);
+            throw new IOException("The specified path is not a directory: " + pluginDir);
         }
 
         File[] jarFiles = jarDir.listFiles((dir, name) -> name.endsWith(".jar"));
         if (jarFiles == null || jarFiles.length == 0) {
-            throw new IOException("No JAR files found in the specified directory: " + jarDirPath);
+            throw new IOException("No JAR files found in the specified directory: " + pluginDir);
         }
 
         List<T> services = new ArrayList<>();

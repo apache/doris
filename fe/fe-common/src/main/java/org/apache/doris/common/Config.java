@@ -3098,4 +3098,12 @@ public class Config extends ConfigBase {
     @ConfField(description = {"检查资源就绪的周期，单位秒",
             "Interval checking if resource is ready"})
     public static long resource_not_ready_sleep_seconds = 5;
+
+    @ConfField(description = {"认证插件目录",
+            "Authentication plugin directory"})
+    public static String authentication_plugins_dir = EnvUtils.getDorisHome() + "/plugins/authentication";
+
+    @ConfField(description = {"鉴权插件目录",
+            "Authorization plugin directory"})
+    public static String authorization_plugins_dir = EnvUtils.getDorisHome() + "/plugins/authorization";
 }
