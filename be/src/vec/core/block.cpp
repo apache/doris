@@ -974,7 +974,6 @@ Status Block::serialize(int be_exec_version, PBlock* pblock,
         return Status::InternalError("The block is large than 2GB({}), can not send by Protobuf.",
                                      *compressed_bytes);
     }
-    // LOG(INFO)<<"Block::serialize:"<<dump_structure();
     return Status::OK();
 }
 
