@@ -191,7 +191,7 @@ public:
         return res;
     }
 
-    /// used in set_num_rows
+    /// cut or expand inplace. `this` would be moved, only the return value is avaliable.
     virtual Ptr shrink(size_t length) const final {
         // NOLINTBEGIN(performance-move-const-arg)
         MutablePtr res = std::move(*this).mutate();
