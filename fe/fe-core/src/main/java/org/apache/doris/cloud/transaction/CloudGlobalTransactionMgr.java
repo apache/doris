@@ -142,6 +142,7 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
 public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
@@ -150,6 +151,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
 
     private TxnStateCallbackFactory callbackFactory;
     private final Map<Long, Long> subTxnIdToTxnId = new ConcurrentHashMap<>();
+    private Map<Long, AtomicInteger> waitToCommitTxnCountMap = new ConcurrentHashMap<>();
 
     public CloudGlobalTransactionMgr() {
         this.callbackFactory = new TxnStateCallbackFactory();
@@ -327,6 +329,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         }
     }
 
+    @Deprecated
     @Override
     public void commitTransaction(long dbId, List<Table> tableList,
             long transactionId, List<TabletCommitInfo> tabletCommitInfos)
@@ -993,7 +996,19 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     public boolean commitAndPublishTransaction(DatabaseIf db, List<Table> tableList, long transactionId,
                                                List<TabletCommitInfo> tabletCommitInfos, long timeoutMillis,
                                                TxnCommitAttachment txnCommitAttachment) throws UserException {
+        for (int i = 0; i < tableList.size(); i++) {
+            long tableId = tableList.get(i).getId();
+            LOG.info("start commit txn=" + transactionId + ",table=" + tableId);
+        }
+        for (Map.Entry<Long, AtomicInteger> entry : waitToCommitTxnCountMap.entrySet()) {
+            if (entry.getValue().get() > 5) {
+                LOG.info("now table {} commitAndPublishTransaction queue is {}", entry.getKey(),
+                        entry.getValue().get());
+            }
+        }
+        increaseWaitingLockCount(tableList);
         if (!MetaLockUtils.tryCommitLockTables(tableList, timeoutMillis, TimeUnit.MILLISECONDS)) {
+            decreaseWaitingLockCount(tableList);
             // DELETE_BITMAP_LOCK_ERR will be retried on be
             throw new UserException(InternalErrorCode.DELETE_BITMAP_LOCK_ERR,
                     "get table cloud commit lock timeout, tableList=("
@@ -1002,6 +1017,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         try {
             commitTransaction(db.getId(), tableList, transactionId, tabletCommitInfos, txnCommitAttachment);
         } finally {
+            decreaseWaitingLockCount(tableList);
             MetaLockUtils.commitUnlockTables(tableList);
         }
         return true;
@@ -1760,5 +1776,24 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             throw new UserException(response.getStatus().getMsg());
         }
         return TxnUtil.transactionStateFromPb(response.getTxnInfo());
+    }
+
+    private void increaseWaitingLockCount(List<Table> tableList) {
+        for (int i = 0; i < tableList.size(); i++) {
+            long tableId = tableList.get(i).getId();
+            if (waitToCommitTxnCountMap.containsKey(tableId)) {
+                waitToCommitTxnCountMap.get(tableId).addAndGet(1);
+            } else {
+                waitToCommitTxnCountMap.put(tableId, new AtomicInteger());
+                waitToCommitTxnCountMap.get(tableId).addAndGet(1);
+            }
+        }
+    }
+
+    private void decreaseWaitingLockCount(List<Table> tableList) {
+        for (int i = 0; i < tableList.size(); i++) {
+            long tableId = tableList.get(i).getId();
+            waitToCommitTxnCountMap.get(tableId).decrementAndGet();
+        }
     }
 }
