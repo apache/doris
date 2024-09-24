@@ -66,8 +66,6 @@ public interface TableIf {
     default void readUnlock() {
     }
 
-    ;
-
     default void writeLock() {
     }
 
