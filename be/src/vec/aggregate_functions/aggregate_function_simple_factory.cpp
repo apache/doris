@@ -56,6 +56,8 @@ void register_aggregate_function_percentile(AggregateFunctionSimpleFactory& fact
 void register_aggregate_function_percentile_old(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_window_funnel(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_window_funnel_old(AggregateFunctionSimpleFactory& factory);
+void register_aggregate_function_regr_intercept(AggregateFunctionSimpleFactory& factory);
+void register_aggregate_function_regr_slope(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_retention(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_percentile_approx(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_orthogonal_bitmap(AggregateFunctionSimpleFactory& factory);
@@ -89,8 +91,7 @@ AggregateFunctionSimpleFactory& AggregateFunctionSimpleFactory::instance() {
         register_aggregate_function_group_concat(instance);
         register_aggregate_function_quantile_state(instance);
         register_aggregate_function_combinator_distinct(instance);
-        register_aggregate_function_reader_load(
-                instance); // register aggregate function for agg reader
+        register_aggregate_function_reader_load(instance); // register aggregate function for agg reader
         register_aggregate_function_window_rank(instance);
         register_aggregate_function_stddev_variance_pop(instance);
         register_aggregate_function_topn(instance);
@@ -100,6 +101,8 @@ AggregateFunctionSimpleFactory& AggregateFunctionSimpleFactory::instance() {
         register_aggregate_function_percentile_approx(instance);
         register_aggregate_function_window_funnel(instance);
         register_aggregate_function_window_funnel_old(instance);
+        register_aggregate_function_regr_intercept(instance);
+        register_aggregate_function_regr_slope(instance);
         register_aggregate_function_retention(instance);
         register_aggregate_function_orthogonal_bitmap(instance);
         register_aggregate_function_collect_list(instance);

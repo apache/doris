@@ -631,6 +631,10 @@ public class FunctionSet<T> {
 
     public static final String RETENTION = "retention";
 
+    public static final String REGR_INTERCEPT = "regr_intercept";
+
+    public static final String REGR_SLOPE = "regr_slope";
+
     public static final String SEQUENCE_MATCH = "sequence_match";
 
     public static final String SEQUENCE_COUNT = "sequence_count";
@@ -657,6 +661,25 @@ public class FunctionSet<T> {
         // vectorized
         addBuiltin(AggregateFunction.createBuiltin(FunctionSet.COUNT,
                 new ArrayList<Type>(), Type.BIGINT, Type.BIGINT,
+                "",
+                "",
+                "",
+                null, null,
+                "",
+                null, false, true, true, true));
+
+        // regr_intercept
+        addBuiltin(AggregateFunction.createBuiltin(FunctionSet.REGR_INTERCEPT,
+                Lists.newArrayList(Type.DOUBLE, Type.DOUBLE), Type.DOUBLE, Type.DOUBLE,
+                "",
+                "",
+                "",
+                null, null,
+                "",
+                null, false, true, true, true));
+        // regr_slope
+        addBuiltin(AggregateFunction.createBuiltin(FunctionSet.REGR_SLOPE,
+                Lists.newArrayList(Type.DOUBLE, Type.DOUBLE), Type.DOUBLE, Type.DOUBLE,
                 "",
                 "",
                 "",
