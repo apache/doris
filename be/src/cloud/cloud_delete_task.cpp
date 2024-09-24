@@ -54,7 +54,7 @@ Status CloudDeleteTask::execute(CloudStorageEngine& engine, const TPushReq& requ
                 .tag("tablet_id", tablet->tablet_id());
         return Status::Error<TOO_MANY_VERSION>(
                 "too many versions, versions={} tablet={}. Please reduce the frequency of loading "
-                "data.",
+                "data or adjust the max_tablet_version_num in be.conf to a larger value.",
                 config::max_tablet_version_num, tablet->tablet_id());
     }
 
