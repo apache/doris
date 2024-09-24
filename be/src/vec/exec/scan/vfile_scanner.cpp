@@ -451,6 +451,7 @@ Status VFileScanner::_fill_columns_from_path(size_t rows) {
         auto _text_serde = slot_desc->get_data_type_ptr()->get_serde();
         Slice slice(value.data(), value.size());
         int num_deserialized = 0;
+        LOG(INFO) << "OPT[fill_partition_columns] rows = " << rows << " value = " << value;
         if (_text_serde->deserialize_column_from_fixed_json(*col_ptr, slice, rows,
                                                             &num_deserialized,
                                                             _text_formatOptions) != Status::OK()) {
