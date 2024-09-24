@@ -76,7 +76,8 @@ public:
 
     IcebergTableReader(std::unique_ptr<GenericReader> file_format_reader, RuntimeProfile* profile,
                        RuntimeState* state, const TFileScanRangeParams& params,
-                       const TFileRangeDesc& range, ShardedKVCache* kv_cache, io::IOContext* io_ctx);
+                       const TFileRangeDesc& range, ShardedKVCache* kv_cache,
+                       io::IOContext* io_ctx);
     ~IcebergTableReader() override = default;
 
     Status init_row_filters(const TFileRangeDesc& range, io::IOContext* io_ctx) final;
