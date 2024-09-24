@@ -124,6 +124,7 @@ TEST_F(CompactionScoreTest, TestCompactionScore) {
     }
     EXPECT_EQ(tablet->get_compaction_score(), -1);
     EXPECT_EQ(tablet->calc_compaction_score(), 8);
+    EXPECT_EQ(tablet->get_real_compaction_score(), 8);
 
     for (int i = 10; i < 30; ++i) {
         RowsetSharedPtr rs = create_rowset({i, i}, 1, false, 102400);
@@ -131,6 +132,27 @@ TEST_F(CompactionScoreTest, TestCompactionScore) {
         EXPECT_TRUE(st.OK());
     }
     EXPECT_EQ(tablet->get_compaction_score(), 28);
+    EXPECT_EQ(tablet->calc_compaction_score(), 28);
+    EXPECT_EQ(tablet->get_real_compaction_score(), 28);
+
+    std::vector<RowsetSharedPtr> input_rowsets = tablet->get_snapshot_rowset();
+    for (auto it = input_rowsets.begin(); it != input_rowsets.end();) {
+        if ((*it)->start_version() < 10) {
+            it = input_rowsets.erase(it);
+        } else {
+            it++;
+        }
+    }
+
+    RowsetSharedPtr rs = create_rowset({10, 29}, 1, false, 102400);
+    std::vector<RowsetSharedPtr> output_rowsets;
+    output_rowsets.push_back(rs);
+    st = tablet->modify_rowsets(output_rowsets, input_rowsets, true);
+    EXPECT_TRUE(st.OK());
+
+    EXPECT_EQ(tablet->get_compaction_score(), 9);
+    EXPECT_EQ(tablet->calc_compaction_score(), 9);
+    EXPECT_EQ(tablet->get_real_compaction_score(), 9);
 }
 
 } // namespace doris
