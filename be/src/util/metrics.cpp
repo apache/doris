@@ -23,6 +23,7 @@
 #include <rapidjson/writer.h>
 
 #include <initializer_list>
+#include <string>
 
 #include "common/config.h"
 
@@ -95,29 +96,32 @@ std::string labels_to_string(std::initializer_list<const Labels*> multi_labels) 
         return std::string();
     }
 
-    std::stringstream ss;
-    ss << "{";
+    // concat of std::string is faster then using std::stringstream.
+    // https://quick-bench.com/q/iR8hY3MmHXCSXe5vvY28C-6mQfY
+    std::string ss = "{";
     int i = 0;
     for (auto labels : multi_labels) {
         for (const auto& label : *labels) {
             if (i++ > 0) {
-                ss << ",";
+                ss.append(",");
             }
-            ss << label.first << "=\"" << label.second << "\"";
+            ss.append(label.first).append("=\"").append(label.second).append("\"");
         }
     }
-    ss << "}";
+    ss.append("}");
 
-    return ss.str();
+    return ss;
 }
 
 std::string Metric::to_prometheus(const std::string& display_name, const Labels& entity_labels,
                                   const Labels& metric_labels) const {
-    std::stringstream ss;
-    ss << display_name                                       // metric name
-       << labels_to_string({&entity_labels, &metric_labels}) // metric labels
-       << " " << to_string() << "\n";                        // metric value
-    return ss.str();
+    // concat of std::string is faster then using std::stringstream.
+    // https://quick-bench.com/q/iR8hY3MmHXCSXe5vvY28C-6mQfY
+    std::string ss;
+    ss += display_name;                                       // metric name
+    ss += labels_to_string({&entity_labels, &metric_labels}); // metric labels
+    ss += " " + to_string() + "\n";                           // metric value
+    return ss;
 }
 
 std::map<std::string, double> HistogramMetric::_s_output_percentiles = {
@@ -169,29 +173,31 @@ std::string HistogramMetric::to_string() const {
 std::string HistogramMetric::to_prometheus(const std::string& display_name,
                                            const Labels& entity_labels,
                                            const Labels& metric_labels) const {
-    std::stringstream ss;
+    // concat of std::string is faster then using std::stringstream.
+    // https://quick-bench.com/q/iR8hY3MmHXCSXe5vvY28C-6mQfY
+    std::string ss;
     for (const auto& percentile : _s_output_percentiles) {
         auto quantile_lable = Labels({{"quantile", percentile.first}});
-        ss << display_name << labels_to_string({&entity_labels, &metric_labels, &quantile_lable})
-           << " " << _stats.percentile(percentile.second) << "\n";
+        ss += display_name + labels_to_string({&entity_labels, &metric_labels, &quantile_lable}) +
+              " " + std::to_string(_stats.percentile(percentile.second)) + "\n";
     }
-    ss << display_name << "_sum" << labels_to_string({&entity_labels, &metric_labels}) << " "
-       << _stats.sum() << "\n";
-    ss << display_name << "_count" << labels_to_string({&entity_labels, &metric_labels}) << " "
-       << _stats.num() << "\n";
-    ss << display_name << "_max" << labels_to_string({&entity_labels, &metric_labels}) << " "
-       << _stats.max() << "\n";
-    ss << display_name << "_min" << labels_to_string({&entity_labels, &metric_labels}) << " "
-       << _stats.min() << "\n";
-    ss << display_name << "_average" << labels_to_string({&entity_labels, &metric_labels}) << " "
-       << _stats.average() << "\n";
-    ss << display_name << "_median" << labels_to_string({&entity_labels, &metric_labels}) << " "
-       << _stats.median() << "\n";
-    ss << display_name << "_standard_deviation"
-       << labels_to_string({&entity_labels, &metric_labels}) << " " << _stats.standard_deviation()
-       << "\n";
+    ss += display_name + "_sum" + labels_to_string({&entity_labels, &metric_labels}) + " " +
+          std::to_string(_stats.sum()) + "\n";
+    ss += display_name + "_count" + labels_to_string({&entity_labels, &metric_labels}) + " " +
+          std::to_string(_stats.num()) + "\n";
+    ss += display_name + "_max" + labels_to_string({&entity_labels, &metric_labels}) + " " +
+          std::to_string(_stats.max()) + "\n";
+    ss += display_name + "_min" + labels_to_string({&entity_labels, &metric_labels}) + " " +
+          std::to_string(_stats.min()) + "\n";
+    ss += display_name + "_average" + labels_to_string({&entity_labels, &metric_labels}) + " " +
+          std::to_string(_stats.average()) = "\n";
+    ss += display_name + "_median" + labels_to_string({&entity_labels, &metric_labels}) + " " +
+          std::to_string(_stats.median()) + "\n";
+    ss += display_name + "_standard_deviation" +
+          labels_to_string({&entity_labels, &metric_labels}) + " " +
+          std::to_string(_stats.standard_deviation()) + "\n";
 
-    return ss.str();
+    return ss;
 }
 
 rj::Value HistogramMetric::to_json_value(rj::Document::AllocatorType& allocator) const {
