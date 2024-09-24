@@ -21,6 +21,7 @@
 
 #include <utility>
 
+#include "agent/be_exec_version_manager.h"
 #include "util/slice.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_complex.h"
@@ -112,6 +113,7 @@ char* DataTypeHLL::serialize2(const IColumn& column, char* buf, int be_exec_vers
     memcpy(buf_start, hll_size_array.data(), allocate_len_size);
     return buf;
 }
+
 const char* DataTypeHLL::deserialize2(const char* buf, MutableColumnPtr* column,
                                       int be_exec_version) const {
     //const flag
@@ -140,19 +142,41 @@ const char* DataTypeHLL::deserialize2(const char* buf, MutableColumnPtr* column,
     return buf;
 }
 
+// binary: const flag| row num | size array | data array
+// <size array>: hll1 size | hll1 size | ...
+// <data array>: hll1 | hll1 | ...
 int64_t DataTypeHLL::get_uncompressed_serialized_bytes(const IColumn& column,
                                                        int be_exec_version) const {
-    auto ptr = column.convert_to_full_column_if_const();
-    auto& data_column = assert_cast<const ColumnHLL&>(*ptr);
+    if (be_exec_version >= USE_CONST_SERDE) {
+        auto size = sizeof(bool) + sizeof(uint32_t);
+        bool is_const_column = is_column_const(column);
+        auto real_need_copy_num = is_const_column ? 1 : column.size();
+        const IColumn* hll_column = &column;
+        if (is_const_column) {
+            const auto& const_column = assert_cast<const ColumnConst&>(column);
+            hll_column = &(const_column.get_data_column());
+        }
+        const auto& data_column = assert_cast<const ColumnHLL&>(*hll_column);
+        auto allocate_len_size = sizeof(size_t) * (real_need_copy_num + 1);
+        size_t allocate_content_size = 0;
+        for (size_t i = 0; i < real_need_copy_num; ++i) {
+            auto& hll = const_cast<HyperLogLog&>(data_column.get_element(i));
+            allocate_content_size += hll.max_serialized_size();
+        }
+        return size + allocate_len_size + allocate_content_size;
+    } else {
+        auto ptr = column.convert_to_full_column_if_const();
+        const auto& data_column = assert_cast<const ColumnHLL&>(*ptr);
 
-    auto allocate_len_size = sizeof(size_t) * (column.size() + 1);
-    size_t allocate_content_size = 0;
-    for (size_t i = 0; i < column.size(); ++i) {
-        auto& hll = const_cast<HyperLogLog&>(data_column.get_element(i));
-        allocate_content_size += hll.max_serialized_size();
+        auto allocate_len_size = sizeof(size_t) * (column.size() + 1);
+        size_t allocate_content_size = 0;
+        for (size_t i = 0; i < column.size(); ++i) {
+            auto& hll = const_cast<HyperLogLog&>(data_column.get_element(i));
+            allocate_content_size += hll.max_serialized_size();
+        }
+
+        return allocate_len_size + allocate_content_size;
     }
-
-    return allocate_len_size + allocate_content_size;
 }
 
 MutableColumnPtr DataTypeHLL::create_column() const {

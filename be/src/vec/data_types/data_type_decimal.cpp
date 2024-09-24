@@ -149,11 +149,22 @@ Status DataTypeDecimal<T>::from_string(ReadBuffer& rb, IColumn* column) const {
                                    DataTypeDecimalSerDe<T>::get_primitive_type());
 }
 
-// binary: row_num | value1 | value2 | ...
+// binary: const flag | row num | mem_size| data
+// data  : {val1 | val2| ...} or {encode_size | val1 | val2| ...}
 template <typename T>
 int64_t DataTypeDecimal<T>::get_uncompressed_serialized_bytes(const IColumn& column,
                                                               int be_exec_version) const {
-    if (be_exec_version >= USE_NEW_SERDE) {
+    if (be_exec_version >= USE_CONST_SERDE) {
+        auto size = sizeof(bool) + sizeof(uint32_t) + sizeof(uint32_t);
+        auto real_need_copy_num = is_column_const(column) ? 1 : column.size();
+        auto mem_size = sizeof(T) * real_need_copy_num;
+        if (mem_size <= SERIALIZED_MEM_SIZE_LIMIT) {
+            return size + mem_size;
+        } else {
+            return size + sizeof(size_t) +
+                   std::max(mem_size, streamvbyte_max_compressedbytes(upper_int32(mem_size)));
+        }
+    } else {
         auto size = sizeof(T) * column.size();
         if (size <= SERIALIZED_MEM_SIZE_LIMIT) {
             return sizeof(uint32_t) + size;
@@ -161,8 +172,6 @@ int64_t DataTypeDecimal<T>::get_uncompressed_serialized_bytes(const IColumn& col
             return sizeof(uint32_t) + sizeof(size_t) +
                    std::max(size, streamvbyte_max_compressedbytes(upper_int32(size)));
         }
-    } else {
-        return sizeof(uint32_t) + column.size() * sizeof(FieldType);
     }
 }
 

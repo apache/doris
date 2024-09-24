@@ -19,6 +19,7 @@
 
 #include <utility>
 
+#include "agent/be_exec_version_manager.h"
 #include "util/bitmap_value.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_complex.h"
@@ -30,22 +31,43 @@
 
 namespace doris::vectorized {
 
-// binary: <size array> | <bitmap array>
-//  <size array>: row num | bitmap1 size | bitmap2 size | ...
-//  <bitmap array>: bitmap1 | bitmap2 | ...
+// binary: const flag| row num | size array | bitmap array
+// <size array>:   bitmap1 size | bitmap2 size | ...
+// <bitmap array>: bitmap1 | bitmap2 | ...
 int64_t DataTypeBitMap::get_uncompressed_serialized_bytes(const IColumn& column,
                                                           int be_exec_version) const {
-    auto ptr = column.convert_to_full_column_if_const();
-    auto& data_column = assert_cast<const ColumnBitmap&>(*ptr);
+    if (be_exec_version >= USE_CONST_SERDE) {
+        auto size = sizeof(bool) + sizeof(uint32_t);
+        bool is_const_column = is_column_const(column);
+        auto real_need_copy_num = is_const_column ? 1 : column.size();
 
-    auto allocate_len_size = sizeof(size_t) * (column.size() + 1);
-    size_t allocate_content_size = 0;
-    for (size_t i = 0; i < column.size(); ++i) {
-        auto& bitmap = const_cast<BitmapValue&>(data_column.get_element(i));
-        allocate_content_size += bitmap.getSizeInBytes();
+        const IColumn* bitmap_column = &column;
+        if (is_const_column) {
+            const auto& const_column = assert_cast<const ColumnConst&>(column);
+            bitmap_column = &(const_column.get_data_column());
+        }
+        const auto& data_column = assert_cast<const ColumnBitmap&>(*bitmap_column);
+        auto allocate_len_size = sizeof(size_t) * (real_need_copy_num + 1);
+        size_t allocate_content_size = 0;
+        for (size_t i = 0; i < real_need_copy_num; ++i) {
+            auto& bitmap = const_cast<BitmapValue&>(data_column.get_element(i));
+            allocate_content_size += bitmap.getSizeInBytes();
+        }
+
+        return size + allocate_len_size + allocate_content_size;
+    } else {
+        auto ptr = column.convert_to_full_column_if_const();
+        const auto& data_column = assert_cast<const ColumnBitmap&>(*ptr);
+
+        auto allocate_len_size = sizeof(size_t) * (column.size() + 1);
+        size_t allocate_content_size = 0;
+        for (size_t i = 0; i < column.size(); ++i) {
+            auto& bitmap = const_cast<BitmapValue&>(data_column.get_element(i));
+            allocate_content_size += bitmap.getSizeInBytes();
+        }
+
+        return allocate_len_size + allocate_content_size;
     }
-
-    return allocate_len_size + allocate_content_size;
 }
 
 char* DataTypeBitMap::serialize(const IColumn& column, char* buf, int be_exec_version) const {
@@ -96,7 +118,6 @@ char* DataTypeBitMap::serialize2(const IColumn& column, char* buf, int be_exec_v
     *reinterpret_cast<bool*>(buf) = is_const_column;
     buf += sizeof(bool);
 
-
     const IColumn* bitmap_column = &column;
     if (is_const_column) {
         const auto& const_column = assert_cast<const ColumnConst&>(column);
@@ -124,8 +145,6 @@ char* DataTypeBitMap::serialize2(const IColumn& column, char* buf, int be_exec_v
     }
 
     return data_ptr;
-
-
 
     // // row num
     // const auto row_num = column.size();

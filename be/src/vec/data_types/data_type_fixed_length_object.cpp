@@ -22,6 +22,7 @@
 
 #include <ostream>
 
+#include "agent/be_exec_version_manager.h"
 #include "vec/columns/column.h"
 #include "vec/common/assert_cast.h"
 
@@ -66,6 +67,26 @@ const char* DataTypeFixedLengthObject::deserialize(const char* buf, IColumn* col
     buf += row_num * item_size;
 
     return buf;
+}
+
+// binary: const flag | row num | item size| data
+// data  : item data1 | item data2...
+int64_t DataTypeFixedLengthObject::get_uncompressed_serialized_bytes(const IColumn& column,
+                                                                     int be_exec_version) const {
+    if (be_exec_version >= USE_CONST_SERDE) {
+        auto size = sizeof(bool) + sizeof(uint32_t) + sizeof(size_t);
+        const IColumn* data_column = &column;
+        if (is_column_const(column)) {
+            const auto& const_column = assert_cast<const ColumnConst&>(column);
+            data_column = &(const_column.get_data_column());
+        }
+        const auto& src_col = assert_cast<const ColumnType&>(*data_column);
+        return static_cast<const ColumnType&>(src_col).byte_size() + size;
+
+    } else {
+        return static_cast<const ColumnType&>(column).byte_size() + sizeof(uint32_t) +
+               sizeof(size_t);
+    }
 }
 
 char* DataTypeFixedLengthObject::serialize2(const IColumn& column, char* buf,

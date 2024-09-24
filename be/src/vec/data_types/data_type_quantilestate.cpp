@@ -17,6 +17,7 @@
 
 #include "vec/data_types/data_type_quantilestate.h"
 
+#include "agent/be_exec_version_manager.h"
 #include "util/slice.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_complex.h"
@@ -26,22 +27,41 @@
 #include "vec/io/io_helper.h"
 
 namespace doris::vectorized {
-// binary: <size array> | <quantilestate array>
-//  <size array>: row num | quantilestate1 size | quantilestate2 size | ...
-//  <quantilestate array>: quantilestate1 | quantilestate2 | ...
+// binary: const flag | row num | <size array> | <quantilestate array>
+// <size array>:  quantilestate1 size | quantilestate2 size | ...
+// <quantilestate array>: quantilestate1 | quantilestate2 | ...
 int64_t DataTypeQuantileState::get_uncompressed_serialized_bytes(const IColumn& column,
                                                                  int be_exec_version) const {
-    auto ptr = column.convert_to_full_column_if_const();
-    auto& data_column = assert_cast<const ColumnQuantileState&>(*ptr);
+    if (be_exec_version >= USE_CONST_SERDE) {
+        auto size = sizeof(bool) + sizeof(uint32_t);
+        bool is_const_column = is_column_const(column);
+        auto real_need_copy_num = is_const_column ? 1 : column.size();
+        const IColumn* quantile_column = &column;
+        if (is_const_column) {
+            const auto& const_column = assert_cast<const ColumnConst&>(column);
+            quantile_column = &(const_column.get_data_column());
+        }
+        const auto& data_column = assert_cast<const ColumnQuantileState&>(*quantile_column);
+        auto allocate_len_size = sizeof(size_t) * (real_need_copy_num + 1);
+        size_t allocate_content_size = 0;
+        for (size_t i = 0; i < real_need_copy_num; ++i) {
+            auto& quantile_state = const_cast<QuantileState&>(data_column.get_element(i));
+            allocate_content_size += quantile_state.get_serialized_size();
+        }
+        return size + allocate_len_size + allocate_content_size;
+    } else {
+        auto ptr = column.convert_to_full_column_if_const();
+        const auto& data_column = assert_cast<const ColumnQuantileState&>(*ptr);
 
-    auto allocate_len_size = sizeof(size_t) * (column.size() + 1);
-    size_t allocate_content_size = 0;
-    for (size_t i = 0; i < column.size(); ++i) {
-        auto& quantile_state = const_cast<QuantileState&>(data_column.get_element(i));
-        allocate_content_size += quantile_state.get_serialized_size();
+        auto allocate_len_size = sizeof(size_t) * (column.size() + 1);
+        size_t allocate_content_size = 0;
+        for (size_t i = 0; i < column.size(); ++i) {
+            auto& quantile_state = const_cast<QuantileState&>(data_column.get_element(i));
+            allocate_content_size += quantile_state.get_serialized_size();
+        }
+
+        return allocate_len_size + allocate_content_size;
     }
-
-    return allocate_len_size + allocate_content_size;
 }
 
 char* DataTypeQuantileState::serialize(const IColumn& column, char* buf,
@@ -85,6 +105,70 @@ const char* DataTypeQuantileState::deserialize(const char* buf, IColumn* column,
         data_ptr += meta_ptr[i + 1];
     }
 
+    return data_ptr;
+}
+
+char* DataTypeQuantileState::serialize2(const IColumn& column, char* buf,
+                                        int be_exec_version) const {
+    // const flag
+    bool is_const_column = is_column_const(column);
+    *reinterpret_cast<bool*>(buf) = is_const_column;
+    buf += sizeof(bool);
+
+    const IColumn* quantile_column = &column;
+    if (is_const_column) {
+        const auto& const_column = assert_cast<const ColumnConst&>(column);
+        quantile_column = &(const_column.get_data_column());
+    }
+    const auto& data_column = assert_cast<const ColumnQuantileState&>(*quantile_column);
+
+    // serialize the quantile_state size array, row num saves at index 0
+    auto* meta_ptr = (size_t*)buf;
+    const auto row_num = column.size();
+    meta_ptr[0] = row_num;
+    auto real_need_copy_num = is_const_column ? 1 : row_num;
+    for (size_t i = 0; i < real_need_copy_num; ++i) {
+        auto& quantile_state = const_cast<QuantileState&>(data_column.get_element(i));
+        meta_ptr[i + 1] = quantile_state.get_serialized_size();
+    }
+
+    // serialize each quantile_state
+    char* data_ptr = buf + sizeof(size_t) * (real_need_copy_num + 1);
+    for (size_t i = 0; i < real_need_copy_num; ++i) {
+        auto& quantile_state = const_cast<QuantileState&>(data_column.get_element(i));
+        quantile_state.serialize((uint8_t*)data_ptr);
+        data_ptr += meta_ptr[i + 1];
+    }
+
+    return data_ptr;
+}
+
+const char* DataTypeQuantileState::deserialize2(const char* buf, MutableColumnPtr* column,
+                                                int be_exec_version) const {
+    //const flag
+    bool is_const_column = *reinterpret_cast<const bool*>(buf);
+    buf += sizeof(bool);
+
+    // deserialize the quantile_state size array
+    const size_t* meta_ptr = reinterpret_cast<const size_t*>(buf);
+    auto row_num = meta_ptr[0];
+    auto real_copy_num = is_const_column ? 1 : row_num;
+
+    auto& data_column = assert_cast<ColumnQuantileState&>(*(column->get()));
+    auto& data = data_column.get_data();
+
+    // deserialize each quantile_state
+    data.resize(real_copy_num);
+    const char* data_ptr = buf + sizeof(size_t) * (real_copy_num + 1);
+    for (size_t i = 0; i < real_copy_num; ++i) {
+        Slice slice(data_ptr, meta_ptr[i + 1]);
+        data[i].deserialize(slice);
+        data_ptr += meta_ptr[i + 1];
+    }
+    if (is_const_column) {
+        auto const_column = ColumnConst::create((*column)->get_ptr(), row_num);
+        *column = const_column->get_ptr();
+    }
     return data_ptr;
 }
 

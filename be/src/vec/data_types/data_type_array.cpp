@@ -28,6 +28,7 @@
 #include <typeinfo>
 #include <utility>
 
+#include "agent/be_exec_version_manager.h"
 #include "runtime/decimalv2_value.h"
 #include "util/types.h"
 #include "vec/columns/column.h"
@@ -71,14 +72,31 @@ size_t DataTypeArray::get_number_of_dimensions() const {
            nested_array
                    ->get_number_of_dimensions(); /// Every modern C++ compiler optimizes tail recursion.
 }
-
+// binary : const flag | row num | offsets | data
+// offsets: data_off1 | data_off2 | ...
+// data   : data1 | data2 | ...
 int64_t DataTypeArray::get_uncompressed_serialized_bytes(const IColumn& column,
                                                          int be_exec_version) const {
-    auto ptr = column.convert_to_full_column_if_const();
-    const auto& data_column = assert_cast<const ColumnArray&>(*ptr.get());
-    return sizeof(ColumnArray::Offset64) * (column.size() + 1) +
-           get_nested_type()->get_uncompressed_serialized_bytes(data_column.get_data(),
-                                                                be_exec_version);
+    if (be_exec_version >= USE_CONST_SERDE) {
+        auto size = sizeof(bool) + sizeof(uint32_t);
+        bool is_const_column = is_column_const(column);
+        auto real_need_copy_num = is_const_column ? 1 : column.size();
+        const IColumn* array_column = &column;
+        if (is_const_column) {
+            const auto& const_column = assert_cast<const ColumnConst&>(column);
+            array_column = &(const_column.get_data_column());
+        }
+        const auto& data_column = assert_cast<const ColumnArray&>(*array_column);
+        size = size + sizeof(ColumnArray::Offset64) * (real_need_copy_num + 1);
+        return size + get_nested_type()->get_uncompressed_serialized_bytes(data_column.get_data(),
+                                                                           be_exec_version);
+    } else {
+        auto ptr = column.convert_to_full_column_if_const();
+        const auto& data_column = assert_cast<const ColumnArray&>(*ptr.get());
+        return sizeof(ColumnArray::Offset64) * (column.size() + 1) +
+               get_nested_type()->get_uncompressed_serialized_bytes(data_column.get_data(),
+                                                                    be_exec_version);
+    }
 }
 
 char* DataTypeArray::serialize(const IColumn& column, char* buf, int be_exec_version) const {

@@ -74,12 +74,39 @@ bool DataTypeString::equals(const IDataType& rhs) const {
     return typeid(rhs) == typeid(*this);
 }
 
-// binary: <size array> | total length | <value array>
-//  <size array> : row num | offset1 |offset2 | ...
-//  <value array> : <value1> | <value2 | ...
+// binary: const flag | row num | mem size | offset | chars
+// offset: {offset1 | offset2 ...} or {encode_size | offset1 |offset2 ...}
+// chars : {value_length | <value1> | <value2 ...} or {value_length | encode_size | <value1> | <value2 ...}
 int64_t DataTypeString::get_uncompressed_serialized_bytes(const IColumn& column,
                                                           int be_exec_version) const {
-    if (be_exec_version >= USE_NEW_SERDE) {
+    if (be_exec_version >= USE_CONST_SERDE) {
+        bool is_const_column = is_column_const(column);
+        const IColumn* string_column = &column;
+        if (is_const_column) {
+            const auto& const_column = assert_cast<const ColumnConst&>(column);
+            string_column = &(const_column.get_data_column());
+        }
+        const auto& data_column = assert_cast<const ColumnString&>(*string_column);
+
+        auto size = sizeof(bool) + sizeof(uint32_t) + sizeof(uint32_t);
+        auto real_need_copy_num = is_const_column ? 1 : data_column.size();
+        auto offsets_size = real_need_copy_num * sizeof(IColumn::Offset);
+        std::cout<<"size1: "<<size<<" "<<real_need_copy_num<<" "<<offsets_size<<std::endl;
+        if (offsets_size <= SERIALIZED_MEM_SIZE_LIMIT) {
+            size += offsets_size;
+        } else {
+            size += sizeof(size_t) + std::max(offsets_size, streamvbyte_max_compressedbytes(
+                                                                    upper_int32(offsets_size)));
+        }
+        size += sizeof(uint64_t);
+        if (auto bytes = data_column.get_chars().size(); bytes <= SERIALIZED_MEM_SIZE_LIMIT) {
+            size += bytes;
+        } else {
+            size += sizeof(size_t) + std::max(bytes, (size_t)LZ4_compressBound(bytes));
+        }
+        std::cout<<"size: "<<size<<" "<<sizeof(uint64_t)<<" "<<data_column.get_chars().size()<<std::endl;
+        return size;
+    } else {
         auto ptr = column.convert_to_full_column_if_const();
         const auto& data_column = assert_cast<const ColumnString&>(*ptr.get());
         int64_t size = sizeof(uint32_t) + sizeof(uint64_t);
@@ -97,12 +124,6 @@ int64_t DataTypeString::get_uncompressed_serialized_bytes(const IColumn& column,
             size += sizeof(size_t) + std::max(bytes, (size_t)LZ4_compressBound(bytes));
         }
         return size;
-    } else {
-        auto ptr = column.convert_to_full_column_if_const();
-        const auto& data_column = assert_cast<const ColumnString&>(*ptr.get());
-
-        return sizeof(IColumn::Offset) * (column.size() + 1) + sizeof(uint64_t) +
-               data_column.get_chars().size();
     }
 }
 

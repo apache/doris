@@ -25,6 +25,7 @@
 #include <string>
 #include <typeinfo>
 
+#include "agent/be_exec_version_manager.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_const.h"
@@ -279,14 +280,38 @@ bool DataTypeMap::equals(const IDataType& rhs) const {
     return true;
 }
 
+// binary : const flag| row num | offset | key_col | val_col
+// offset : off1 | off2 ...
+// key_col: key1 | key1 ...
+// val_col: val1 | val2 ...
 int64_t DataTypeMap::get_uncompressed_serialized_bytes(const IColumn& column,
                                                        int data_version) const {
-    auto ptr = column.convert_to_full_column_if_const();
-    const auto& data_column = assert_cast<const ColumnMap&>(*ptr.get());
-    return sizeof(ColumnArray::Offset64) * (column.size() + 1) +
-           get_key_type()->get_uncompressed_serialized_bytes(data_column.get_keys(), data_version) +
-           get_value_type()->get_uncompressed_serialized_bytes(data_column.get_values(),
-                                                               data_version);
+    if (data_version >= USE_CONST_SERDE) {
+        auto size = sizeof(bool) + sizeof(uint32_t);
+        bool is_const_column = is_column_const(column);
+        auto real_need_copy_num = is_const_column ? 1 : column.size();
+
+        const IColumn* data_column = &column;
+        if (is_const_column) {
+            const auto& const_column = assert_cast<const ColumnConst&>(column);
+            data_column = &(const_column.get_data_column());
+        }
+        const auto& map_column = assert_cast<const ColumnMap&>(*data_column);
+        size = size + sizeof(ColumnArray::Offset64) * (real_need_copy_num + 1);
+        size = size + get_key_type()->get_uncompressed_serialized_bytes(map_column.get_keys(),
+                                                                        data_version);
+        size = size + get_value_type()->get_uncompressed_serialized_bytes(map_column.get_values(),
+                                                                          data_version);
+        return size;
+    } else {
+        auto ptr = column.convert_to_full_column_if_const();
+        const auto& data_column = assert_cast<const ColumnMap&>(*ptr.get());
+        return sizeof(ColumnArray::Offset64) * (column.size() + 1) +
+               get_key_type()->get_uncompressed_serialized_bytes(data_column.get_keys(),
+                                                                 data_version) +
+               get_value_type()->get_uncompressed_serialized_bytes(data_column.get_values(),
+                                                                   data_version);
+    }
 }
 
 // serialize to binary

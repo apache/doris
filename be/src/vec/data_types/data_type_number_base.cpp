@@ -184,11 +184,22 @@ std::string DataTypeNumberBase<T>::to_string(const IColumn& column, size_t row_n
     }
 }
 
-// binary: row num | value1 | value2 | ...
+// binary: const flag| row num | mem_size| data
+// data  : {value1 | value2 ...} or {encode_size | value1 | value2 ...}
 template <typename T>
 int64_t DataTypeNumberBase<T>::get_uncompressed_serialized_bytes(const IColumn& column,
                                                                  int be_exec_version) const {
-    if (be_exec_version >= USE_NEW_SERDE) {
+    if (be_exec_version >= USE_CONST_SERDE) {
+        auto size = sizeof(bool) + sizeof(uint32_t) + sizeof(uint32_t);
+        auto real_need_copy_num = is_column_const(column) ? 1 : column.size();
+        auto mem_size = sizeof(T) * real_need_copy_num;
+        if (mem_size <= SERIALIZED_MEM_SIZE_LIMIT) {
+            return size + mem_size;
+        } else {
+            return size + sizeof(size_t) +
+                   std::max(mem_size, streamvbyte_max_compressedbytes(upper_int32(mem_size)));
+        }
+    } else {
         auto size = sizeof(T) * column.size();
         if (size <= SERIALIZED_MEM_SIZE_LIMIT) {
             return sizeof(uint32_t) + size;
@@ -196,8 +207,6 @@ int64_t DataTypeNumberBase<T>::get_uncompressed_serialized_bytes(const IColumn& 
             return sizeof(uint32_t) + sizeof(size_t) +
                    std::max(size, streamvbyte_max_compressedbytes(upper_int32(size)));
         }
-    } else {
-        return sizeof(uint32_t) + column.size() * sizeof(FieldType);
     }
 }
 
@@ -278,7 +287,6 @@ char* DataTypeNumberBase<T>::serialize2(const IColumn& column, char* buf,
     bool is_const_column = is_column_const(column);
     *reinterpret_cast<bool*>(buf) = is_const_column;
     buf += sizeof(bool);
-
     // row num
     const auto row_num = column.size();
     *reinterpret_cast<uint32_t*>(buf) = row_num;
