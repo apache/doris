@@ -612,7 +612,7 @@ public class StringArithmetic {
                     return castStringLikeLiteral(first, "");
                 }
             }
-            return new NullLiteral();
+            return new NullLiteral(first.getDataType());
         } else if (number.getValue() < 0) {
             StringBuilder result = new StringBuilder(parts[Math.abs(number.getValue()) - 1]);
             return castStringLikeLiteral(first, result.reverse().toString());

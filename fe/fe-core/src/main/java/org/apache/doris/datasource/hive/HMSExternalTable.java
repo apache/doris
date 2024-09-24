@@ -922,6 +922,6 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     @Override
     public boolean isPartitionedTable() {
         makeSureInitialized();
-        return remoteTable.getPartitionKeysSize() > 0;
+        return !isView() && remoteTable.getPartitionKeysSize() > 0;
     }
 }

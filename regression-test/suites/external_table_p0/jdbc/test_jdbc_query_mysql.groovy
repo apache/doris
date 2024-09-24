@@ -887,7 +887,7 @@ suite("test_jdbc_query_mysql", "p0,external,mysql,external_docker,external_docke
         order_qt_sql84 """ SELECT NULL, NULL INTERSECT SELECT NULL, NULL FROM $jdbcMysql57Table1 """
         order_qt_sql85 """ SELECT COUNT(*) FROM $jdbcMysql57Table1 INTERSECT SELECT COUNT(k8) FROM $jdbcMysql57Table1 HAVING SUM(k7) IS NOT NULL """
         order_qt_sql86 """ SELECT k8 FROM $jdbcMysql57Table1 WHERE k8 < 7 EXCEPT SELECT k8 FROM $jdbcMysql57Table1 WHERE k8 > 21 """
-        order_qt_sql87 """ SELECT row_number() OVER (PARTITION BY k7) rn, k8 FROM $jdbcMysql57Table1 LIMIT 3 """
+        order_qt_sql87 """ SELECT row_number() OVER (PARTITION BY k7 ORDER BY k8) rn, k8 FROM $jdbcMysql57Table1 LIMIT 3 """
         order_qt_sql88 """ SELECT row_number() OVER (PARTITION BY k7 ORDER BY k8) rn FROM $jdbcMysql57Table1 LIMIT 3 """
         order_qt_sql89 """ SELECT row_number() OVER (ORDER BY k8) rn FROM $jdbcMysql57Table1 LIMIT 3 """
         order_qt_sql90 """ SELECT row_number() OVER () FROM $jdbcMysql57Table1 as a JOIN ${exMysqlTable} as b ON a.k8 = b.id WHERE a.k8 > 111 LIMIT 2 """

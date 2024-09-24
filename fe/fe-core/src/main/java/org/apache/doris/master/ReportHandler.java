@@ -899,7 +899,8 @@ public class ReportHandler extends Daemon {
                                 && !backendHealthPathHashs.contains(0L);
 
                         boolean existsOtherHealthReplica = tablet.getReplicas().stream()
-                                .anyMatch(r -> r.getBackendId() != replica.getBackendId()
+                                .anyMatch(r -> r.getBackendIdWithoutException()
+                                    != replica.getBackendIdWithoutException()
                                         && r.getVersion() >= replica.getVersion()
                                         && r.getLastFailedVersion() == -1L
                                         && !r.isBad());
@@ -1383,7 +1384,7 @@ public class ReportHandler extends Daemon {
             boolean canAddForceRedundant = status == TabletStatus.FORCE_REDUNDANT
                     && infoService.checkBackendScheduleAvailable(backendId)
                     && tablet.getReplicas().stream().anyMatch(
-                            r -> !infoService.checkBackendScheduleAvailable(r.getBackendId()));
+                            r -> !infoService.checkBackendScheduleAvailable(r.getBackendIdWithoutException()));
 
             if (isColocateBackend
                     || canAddForceRedundant
@@ -1472,7 +1473,7 @@ public class ReportHandler extends Daemon {
                 // replica is enough. check if this tablet is already in meta
                 // (status changed between 'tabletReport()' and 'addReplica()')
                 for (Replica replica : tablet.getReplicas()) {
-                    if (replica.getBackendId() == backendId) {
+                    if (replica.getBackendIdWithoutException() == backendId) {
                         // tablet is already in meta. return true
                         return true;
                     }

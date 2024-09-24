@@ -63,32 +63,45 @@ size_t FileCacheFactory::try_release(const std::string& base_path) {
 
 Status FileCacheFactory::create_file_cache(const std::string& cache_base_path,
                                            FileCacheSettings file_cache_settings) {
-    const auto& fs = global_local_filesystem();
-    bool exists = false;
-    RETURN_IF_ERROR(fs->exists(cache_base_path, &exists));
-    if (!exists) {
-        auto st = fs->create_directory(cache_base_path);
-        LOG(INFO) << "path " << cache_base_path << " does not exist, create " << st.msg();
-        RETURN_IF_ERROR(st);
-    } else if (config::clear_file_cache) {
-        RETURN_IF_ERROR(fs->delete_directory(cache_base_path));
-        RETURN_IF_ERROR(fs->create_directory(cache_base_path));
-    }
+    if (file_cache_settings.storage == "memory") {
+        if (cache_base_path != "memory") {
+            LOG(WARNING) << "memory storage must use memory path";
+            return Status::InvalidArgument("memory storage must use memory path");
+        }
+    } else {
+        const auto& fs = global_local_filesystem();
+        bool exists = false;
+        RETURN_IF_ERROR(fs->exists(cache_base_path, &exists));
+        if (!exists) {
+            auto st = fs->create_directory(cache_base_path);
+            LOG(INFO) << "path " << cache_base_path << " does not exist, create " << st.msg();
+            RETURN_IF_ERROR(st);
+        } else if (config::clear_file_cache) {
+            RETURN_IF_ERROR(fs->delete_directory(cache_base_path));
+            RETURN_IF_ERROR(fs->create_directory(cache_base_path));
+        }
 
-    struct statfs stat;
-    if (statfs(cache_base_path.c_str(), &stat) < 0) {
-        LOG_ERROR("").tag("file cache path", cache_base_path).tag("error", strerror(errno));
-        return Status::IOError("{} statfs error {}", cache_base_path, strerror(errno));
-    }
-    size_t disk_capacity = static_cast<size_t>(
-            static_cast<size_t>(stat.f_blocks) * static_cast<size_t>(stat.f_bsize) *
-            (static_cast<double>(config::file_cache_enter_disk_resource_limit_mode_percent) / 100));
-    if (file_cache_settings.capacity == 0 || disk_capacity < file_cache_settings.capacity) {
-        LOG_INFO("The cache {} config size {} is larger than {}% disk size {} or zero, recalc it.",
-                 cache_base_path, file_cache_settings.capacity,
-                 config::file_cache_enter_disk_resource_limit_mode_percent, disk_capacity);
-        file_cache_settings =
-                get_file_cache_settings(disk_capacity, file_cache_settings.max_query_cache_size);
+        struct statfs stat;
+        if (statfs(cache_base_path.c_str(), &stat) < 0) {
+            LOG_ERROR("").tag("file cache path", cache_base_path).tag("error", strerror(errno));
+            return Status::IOError("{} statfs error {}", cache_base_path, strerror(errno));
+        }
+        size_t disk_capacity = static_cast<size_t>(
+                static_cast<size_t>(stat.f_blocks) * static_cast<size_t>(stat.f_bsize) *
+                (static_cast<double>(config::file_cache_enter_disk_resource_limit_mode_percent) /
+                 100));
+        if (file_cache_settings.capacity == 0 || disk_capacity < file_cache_settings.capacity) {
+            LOG_INFO(
+                    "The cache {} config size {} is larger than {}% disk size {} or zero, recalc "
+                    "it.",
+                    cache_base_path, file_cache_settings.capacity,
+                    config::file_cache_enter_disk_resource_limit_mode_percent, disk_capacity);
+            file_cache_settings = get_file_cache_settings(disk_capacity,
+                                                          file_cache_settings.max_query_cache_size);
+        }
+        LOG(INFO) << "[FileCache] path: " << cache_base_path
+                  << " total_size: " << file_cache_settings.capacity
+                  << " disk_total_size: " << disk_capacity;
     }
     auto cache = std::make_unique<BlockFileCache>(cache_base_path, file_cache_settings);
     RETURN_IF_ERROR(cache->initialize());
@@ -98,9 +111,7 @@ Status FileCacheFactory::create_file_cache(const std::string& cache_base_path,
         _caches.push_back(std::move(cache));
         _capacity += file_cache_settings.capacity;
     }
-    LOG(INFO) << "[FileCache] path: " << cache_base_path
-              << " total_size: " << file_cache_settings.capacity
-              << " disk_total_size: " << disk_capacity;
+
     return Status::OK();
 }
 

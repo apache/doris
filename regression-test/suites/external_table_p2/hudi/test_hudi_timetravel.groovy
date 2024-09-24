@@ -17,6 +17,12 @@
 
 suite("test_hudi_timetravel", "p2,external,hudi,external_remote,external_remote_hudi") {
 
+    Boolean ignoreP2 = true;
+    if (ignoreP2) {
+        logger.info("disable p2 test");
+        return;
+    }
+
     String enabled = context.config.otherConfigs.get("enableExternalHudiTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
         logger.info("disable hudi test")

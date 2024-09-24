@@ -211,7 +211,13 @@ public class MasterOpExecutor {
         params.setStmtId(ctx.getStmtId());
         params.setCurrentUserIdent(ctx.getCurrentUserIdentity().toThrift());
 
-        String cluster = ctx.getCloudCluster(false);
+        String cluster = "";
+        try {
+            cluster = ctx.getCloudCluster(false);
+        } catch (Exception e) {
+            LOG.warn("failed to get cloud compute group", e);
+            throw new AnalysisException("failed to get cloud compute group", e);
+        }
         if (!Strings.isNullOrEmpty(cluster)) {
             params.setCloudCluster(cluster);
         }

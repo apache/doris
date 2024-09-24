@@ -98,9 +98,9 @@ public class TabletTest {
         Assert.assertEquals(replica3, tablet.getReplicaById(replica3.getId()));
 
         Assert.assertEquals(3, tablet.getReplicas().size());
-        Assert.assertEquals(replica1, tablet.getReplicaByBackendId(replica1.getBackendId()));
-        Assert.assertEquals(replica2, tablet.getReplicaByBackendId(replica2.getBackendId()));
-        Assert.assertEquals(replica3, tablet.getReplicaByBackendId(replica3.getBackendId()));
+        Assert.assertEquals(replica1, tablet.getReplicaByBackendId(replica1.getBackendIdWithoutException()));
+        Assert.assertEquals(replica2, tablet.getReplicaByBackendId(replica2.getBackendIdWithoutException()));
+        Assert.assertEquals(replica3, tablet.getReplicaByBackendId(replica3.getBackendIdWithoutException()));
 
 
         long newTabletId = 20000;
@@ -111,11 +111,11 @@ public class TabletTest {
     @Test
     public void deleteReplicaTest() {
         // delete replica1
-        Assert.assertTrue(tablet.deleteReplicaByBackendId(replica1.getBackendId()));
+        Assert.assertTrue(tablet.deleteReplicaByBackendId(replica1.getBackendIdWithoutException()));
         Assert.assertNull(tablet.getReplicaById(replica1.getId()));
 
         // err: re-delete replica1
-        Assert.assertFalse(tablet.deleteReplicaByBackendId(replica1.getBackendId()));
+        Assert.assertFalse(tablet.deleteReplicaByBackendId(replica1.getBackendIdWithoutException()));
         Assert.assertFalse(tablet.deleteReplica(replica1));
         Assert.assertNull(tablet.getReplicaById(replica1.getId()));
 

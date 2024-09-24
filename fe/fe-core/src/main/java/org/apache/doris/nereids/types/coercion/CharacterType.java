@@ -26,8 +26,8 @@ import org.apache.doris.nereids.types.StringType;
  */
 public abstract class CharacterType extends PrimitiveType {
 
-    public static final int DEFAULT_SLOT_SIZE = 20;
     private static final int WIDTH = 16;
+    public static final int DEFAULT_WIDTH = WIDTH;
 
     protected final int len;
 

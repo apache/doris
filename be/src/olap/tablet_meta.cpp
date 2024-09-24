@@ -1092,9 +1092,9 @@ uint64_t DeleteBitmap::cardinality() const {
     return res;
 }
 
-size_t DeleteBitmap::get_size() const {
+uint64_t DeleteBitmap::get_size() const {
     std::shared_lock l(lock);
-    size_t charge = 0;
+    uint64_t charge = 0;
     for (auto& [k, v] : delete_bitmap) {
         charge += v.getSizeInBytes();
     }

@@ -89,8 +89,8 @@ suite("test_warmup_show_stmt_2") {
             org.junit.Assert.assertTrue(getLineNumber() + "cannot find expected cache hotspot ${hotTableName}", result.size() > i + 1)
             continue
         }
-        assertEquals(result[i].get("cluster_id"), "regression_cluster_id0")
-        assertEquals(result[i].get("cluster_name"), "regression_cluster_name0")
+        assertEquals(result[i].get("compute_group_id"), "regression_cluster_id0")
+        assertEquals(result[i].get("compute_group_name"), "regression_cluster_name0")
         assertEquals(result[i].get("hot_table_name"), "regression_test_cloud_p0_cache_multi_cluster_warm_up_hotspot.customer")
     }
 
@@ -116,8 +116,8 @@ suite("test_warmup_show_stmt_2") {
             org.junit.Assert.assertTrue("cannot find expected cache hotspot ${hotTableName}", result.size() > i + 1)
             continue
         }
-        assertEquals(result[i].get("cluster_id"), "regression_cluster_id0")
-        assertEquals(result[i].get("cluster_name"), "regression_cluster_name0")
+        assertEquals(result[i].get("compute_group_id"), "regression_cluster_id0")
+        assertEquals(result[i].get("compute_group_name"), "regression_cluster_name0")
         assertEquals(result[i].get("hot_table_name"), "regression_test_cloud_p0_cache_multi_cluster_warm_up_hotspot.customer")
         break
     }

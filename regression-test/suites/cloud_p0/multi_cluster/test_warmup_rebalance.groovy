@@ -21,7 +21,7 @@ import org.awaitility.Awaitility;
 import static java.util.concurrent.TimeUnit.SECONDS;
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
-suite('test_warmup_rebalance_in_cloud', 'multi_cluster') {
+suite('test_warmup_rebalance_in_cloud', 'multi_cluster, docker') {
     if (!isCloudMode()) {
         return;
     }

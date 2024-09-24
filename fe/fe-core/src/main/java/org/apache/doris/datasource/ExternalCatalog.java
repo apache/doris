@@ -33,6 +33,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.Version;
@@ -251,7 +252,7 @@ public abstract class ExternalCatalog
                             Config.max_meta_object_cache_num,
                             ignored -> getFilteredDatabaseNames(),
                             dbName -> Optional.ofNullable(
-                                    buildDbForInit(dbName, Util.genIdByName(name, dbName), logType)),
+                                    buildDbForInit(dbName, Util.genIdByName(name, dbName), logType, true)),
                             (key, value, cause) -> value.ifPresent(v -> v.setUnInitialized(invalidCacheInInit)));
                 }
                 setLastUpdateTime(System.currentTimeMillis());
@@ -371,7 +372,7 @@ public abstract class ExternalCatalog
             } else {
                 dbId = Env.getCurrentEnv().getNextId();
                 tmpDbNameToId.put(dbName, dbId);
-                ExternalDatabase<? extends ExternalTable> db = buildDbForInit(dbName, dbId, logType);
+                ExternalDatabase<? extends ExternalTable> db = buildDbForInit(dbName, dbId, logType, false);
                 tmpIdToDb.put(dbId, db);
                 initCatalogLog.addCreateDb(dbId, dbName);
             }
@@ -637,7 +638,7 @@ public abstract class ExternalCatalog
         }
         for (int i = 0; i < log.getCreateCount(); i++) {
             ExternalDatabase<? extends ExternalTable> db =
-                    buildDbForInit(log.getCreateDbNames().get(i), log.getCreateDbIds().get(i), log.getType());
+                    buildDbForInit(log.getCreateDbNames().get(i), log.getCreateDbIds().get(i), log.getType(), false);
             if (db != null) {
                 tmpDbNameToId.put(db.getFullName(), db.getId());
                 tmpIdToDb.put(db.getId(), db);
@@ -660,8 +661,37 @@ public abstract class ExternalCatalog
         }
     }
 
+    /**
+     * Build a database instance.
+     * If checkExists is true, it will check if the database exists in the remote system.
+     *
+     * @param dbName
+     * @param dbId
+     * @param logType
+     * @param checkExists
+     * @return
+     */
     protected ExternalDatabase<? extends ExternalTable> buildDbForInit(String dbName, long dbId,
-            InitCatalogLog.Type logType) {
+            InitCatalogLog.Type logType, boolean checkExists) {
+        // When running ut, disable this check to make ut pass.
+        // Because in ut, the database is not created in remote system.
+        if (checkExists && !FeConstants.runningUnitTest) {
+            try {
+                List<String> dbNames = getDbNames();
+                if (!dbNames.contains(dbName)) {
+                    dbNames = listDatabaseNames();
+                    if (!dbNames.contains(dbName)) {
+                        return null;
+                    }
+                }
+            } catch (Throwable t) {
+                // If connection failed, it will throw exception.
+                // ignore it and treat it as not exist.
+                LOG.warn("Failed to check db {} exist in remote system, ignore it.", dbName, t);
+                return null;
+            }
+        }
+
         if (dbName.equals(InfoSchemaDb.DATABASE_NAME)) {
             return new ExternalInfoSchemaDatabase(this, dbId);
         }

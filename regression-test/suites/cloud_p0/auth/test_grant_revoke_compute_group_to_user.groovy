@@ -114,7 +114,7 @@ suite("test_grant_revoke_compute_group_to_user", "cloud_auth") {
     connect(user = "${user3}", password = 'Cloud12345', url = context.config.jdbcUrl) {
         test {
             sql """select * from ${db}.${tbl}"""
-            exception "or you may not have permission to access the current compute group"
+            exception "the user is not granted permission to the compute group"
         }
     }
 

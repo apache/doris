@@ -421,7 +421,7 @@ public class MaterializedViewHandler extends AlterHandler {
                 int healthyReplicaNum = 0;
                 for (Replica baseReplica : baseReplicas) {
                     long mvReplicaId = idGeneratorBuffer.getNextId();
-                    long backendId = baseReplica.getBackendId();
+                    long backendId = baseReplica.getBackendIdWithoutException();
                     if (baseReplica.getState() == ReplicaState.CLONE
                             || baseReplica.getState() == ReplicaState.DECOMMISSION
                             || baseReplica.getState() == ReplicaState.COMPACTION_TOO_SLOW
@@ -601,7 +601,8 @@ public class MaterializedViewHandler extends AlterHandler {
             }
         }
 
-        if (newMVColumns.size() == olapTable.getBaseSchema().size() && !addMVClause.isReplay()) {
+        if (newMVColumns.size() == olapTable.getBaseSchema().size() && !addMVClause.isReplay()
+                && addMVClause.getMVKeysType() == olapTable.getKeysType()) {
             boolean allKeysMatch = true;
             for (int i = 0; i < newMVColumns.size(); i++) {
                 if (!CreateMaterializedViewStmt.mvColumnBreaker(newMVColumns.get(i).getName())

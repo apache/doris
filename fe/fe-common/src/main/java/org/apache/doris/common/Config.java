@@ -1478,7 +1478,7 @@ public class Config extends ConfigBase {
      * Whether to allow the outfile function to export the results to the local disk.
      */
     @ConfField
-    public static boolean enable_outfile_to_local = false;
+    public static boolean enable_outfile_to_local = true;
 
     /**
      * Used to set the initial flow window size of the GRPC client channel, and also used to max message size.
@@ -2322,6 +2322,12 @@ public class Config extends ConfigBase {
      */
     @ConfField
     public static long ranger_cache_size = 10000;
+
+    @ConfField(description = {
+            "鉴权插件配置文件路径，需在 DORIS_HOME 下，默认为 conf/authorization.conf",
+            "Authorization plugin configuration file path, need to be in DORIS_HOME,"
+                    + "default is conf/authorization.conf"})
+    public static String authorization_config_file_path = "conf/authorization.conf";
 
     /**
      * This configuration is used to enable the statistics of query information, which will record

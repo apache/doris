@@ -151,7 +151,7 @@ public class Statistics {
             for (Slot slot : slots) {
                 ColumnStatistic s = expressionToColumnStats.get(slot);
                 if (s != null) {
-                    tempSize += Math.max(1, Math.min(CharacterType.DEFAULT_SLOT_SIZE, s.avgSizeByte));
+                    tempSize += Math.max(1, Math.min(CharacterType.DEFAULT_WIDTH, s.avgSizeByte));
                 }
             }
             tupleSize = Math.max(1, tempSize);

@@ -32,6 +32,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cloud.proto.Cloud;
+import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -154,11 +155,13 @@ public abstract class ConnectProcessor {
         if (catalogName != null) {
             CatalogIf catalogIf = ctx.getEnv().getCatalogMgr().getCatalog(catalogName);
             if (catalogIf == null) {
-                ctx.getState().setError(ErrorCode.ERR_BAD_DB_ERROR, "No match catalog in doris: " + fullDbName);
+                ctx.getState().setError(ErrorCode.ERR_BAD_DB_ERROR,
+                        ErrorCode.ERR_BAD_DB_ERROR.formatErrorMsg(catalogName + "." + dbName));
                 return;
             }
             if (catalogIf.getDbNullable(dbName) == null) {
-                ctx.getState().setError(ErrorCode.ERR_BAD_DB_ERROR, "No match database in doris: " + fullDbName);
+                ctx.getState().setError(ErrorCode.ERR_BAD_DB_ERROR,
+                        ErrorCode.ERR_BAD_DB_ERROR.formatErrorMsg(catalogName + "." + dbName));
                 return;
             }
         }
@@ -234,6 +237,8 @@ public abstract class ConnectProcessor {
             executeQuery(originStmt);
         } catch (ConnectionException exception) {
             throw exception;
+        } catch (UserException exception) {
+            LOG.warn("execute query exception", exception);
         } catch (Exception ignored) {
             // saved use handleQueryException
         }
@@ -242,7 +247,13 @@ public abstract class ConnectProcessor {
     public void executeQuery(String originStmt) throws Exception {
         if (MetricRepo.isInit) {
             MetricRepo.COUNTER_REQUEST_ALL.increase(1L);
-            MetricRepo.increaseClusterRequestAll(ctx.getCloudCluster(false));
+            if (Config.isCloudMode()) {
+                try {
+                    MetricRepo.increaseClusterRequestAll(ctx.getCloudCluster(false));
+                } catch (ComputeGroupException e) {
+                    LOG.warn("metrics get cluster exception", e);
+                }
+            }
         }
 
         String convertedStmt = convertOriginStmt(originStmt);

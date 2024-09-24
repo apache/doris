@@ -109,7 +109,7 @@ suite("test_hive_ddl", "p0,external,hive,external_docker,external_docker_hive") 
                           'file_format'='${file_format}'
                         )
                     """
-                exception "java.sql.SQLException: errCode = 2, detailMessage = errCode = 2, detailMessage = failed to create table from hms client. reason: java.lang.UnsupportedOperationException: Table with default values is not supported if the hive version is less than 3.0. Can set 'hive.version' to 3.0 in properties."
+                exception "failed to create table from hms client. reason: java.lang.UnsupportedOperationException: Table with default values is not supported if the hive version is less than 3.0. Can set 'hive.version' to 3.0 in properties."
             }
             sql """DROP DATABASE `test_hive_default_val`"""
 
@@ -122,7 +122,7 @@ suite("test_hive_ddl", "p0,external,hive,external_docker,external_docker_hive") 
                   'file_format'='${file_format}'
                 )
                 """
-                exception "errCode = 2, detailMessage = errCode = 2, detailMessage = Invalid BOOLEAN literal: -1"
+                exception "Invalid BOOLEAN literal: -1"
             }
 
             test {
@@ -134,7 +134,7 @@ suite("test_hive_ddl", "p0,external,hive,external_docker,external_docker_hive") 
                   'file_format'='${file_format}'
                 )
                 """
-                exception "errCode = 2, detailMessage = errCode = 2, detailMessage = Default value will loose precision: 1.1234"
+                exception "Default value will loose precision: 1.1234"
             }
 
             test {
@@ -146,7 +146,7 @@ suite("test_hive_ddl", "p0,external,hive,external_docker,external_docker_hive") 
                   'file_format'='${file_format}'
                 )
                 """
-                exception "errCode = 2, detailMessage = errCode = 2, detailMessage = Invalid floating-point literal: abc"
+                exception "Invalid floating-point literal: abc"
             }
 
             test {
@@ -158,7 +158,7 @@ suite("test_hive_ddl", "p0,external,hive,external_docker,external_docker_hive") 
                   'file_format'='${file_format}'
                 )
                 """
-                exception "errCode = 2, detailMessage = errCode = 2, detailMessage = Invalid number format: abcd"
+                exception "Invalid number format: abcd"
             }
 
             test {
@@ -170,7 +170,7 @@ suite("test_hive_ddl", "p0,external,hive,external_docker,external_docker_hive") 
                   'file_format'='${file_format}'
                 )
                 """
-                exception "errCode = 2, detailMessage = errCode = 2, detailMessage = date literal [123] is invalid: null"
+                exception "date literal [123] is invalid: null"
             }
 
             test {
@@ -182,7 +182,7 @@ suite("test_hive_ddl", "p0,external,hive,external_docker,external_docker_hive") 
                   'file_format'='${file_format}'
                 )
                 """
-                exception "errCode = 2, detailMessage = errCode = 2, detailMessage = date literal [1512561000000] is invalid: errCode = 2, detailMessage = Invalid date value: 1512561000000"
+                exception "date literal [1512561000000] is invalid: errCode = 2, detailMessage = Invalid date value: 1512561000000"
             }
 
             test {
@@ -194,7 +194,7 @@ suite("test_hive_ddl", "p0,external,hive,external_docker,external_docker_hive") 
                   'file_format'='${file_format}'
                 )
                 """
-                exception "errCode = 2, detailMessage = errCode = 2, detailMessage = date literal [2020-09-20 02:60] is invalid: Text '2020-09-20 02:60' could not be parsed: Invalid value for MinuteOfHour (valid values 0 - 59): 60"
+                exception "date literal [2020-09-20 02:60] is invalid: Text '2020-09-20 02:60' could not be parsed: Invalid value for MinuteOfHour (valid values 0 - 59): 60"
             }
 
             // test 'hive.version' = '3.0'
@@ -355,7 +355,7 @@ suite("test_hive_ddl", "p0,external,hive,external_docker,external_docker_hive") 
                             'file_format'='${file_format}'
                         )
                     """
-                exception "errCode = 2, detailMessage = hive catalog doesn't support column with 'NOT NULL'."
+                exception "hive catalog doesn't support column with 'NOT NULL'."
             }
 
             test {
@@ -438,7 +438,7 @@ suite("test_hive_ddl", "p0,external,hive,external_docker,external_docker_hive") 
                             'replication_num' = '1'
                         );
                     """
-                exception "errCode = 2, detailMessage = errCode = 2, detailMessage = errCode = 2, detailMessage = Create hive bucket table need set enable_create_hive_bucket_table to true"
+                exception "Create hive bucket table need set enable_create_hive_bucket_table to true"
             }
 
             sql """ SWITCH internal """
@@ -451,7 +451,7 @@ suite("test_hive_ddl", "p0,external,hive,external_docker,external_docker_hive") 
                           `col` STRING COMMENT 'col'
                         )  ENGINE=hive 
                     """
-                exception "errCode = 2, detailMessage = errCode = 2, detailMessage = Cannot create hive table in internal catalog, should switch to hive catalog."
+                exception "Cannot create hive table in internal catalog, should switch to hive catalog."
             }
 
             sql """ DROP DATABASE IF EXISTS test_olap_cross_catalog """
@@ -619,7 +619,7 @@ suite("test_hive_ddl", "p0,external,hive,external_docker,external_docker_hive") 
                       'file_format'='${file_format}'
                     ) 
                     """
-                exception "errCode = 2, detailMessage = errCode = 2, detailMessage = errCode = 2, detailMessage = Partition values expressions is not supported in hive catalog."
+                exception "Partition values expressions is not supported in hive catalog."
             }
 
             test {
@@ -634,7 +634,7 @@ suite("test_hive_ddl", "p0,external,hive,external_docker,external_docker_hive") 
                       'file_format'='${file_format}'
                     ) 
                     """
-                exception "errCode = 2, detailMessage = partition key pt000 is not exists"
+                exception "partition key pt000 is not exists"
             }
 
             test {
@@ -648,7 +648,7 @@ suite("test_hive_ddl", "p0,external,hive,external_docker,external_docker_hive") 
                       'file_format'='${file_format}'
                     )
                     """
-                exception "errCode = 2, detailMessage = errCode = 2, detailMessage = failed to create table from hms client. reason: org.apache.doris.datasource.hive.HMSClientException: Unsupported primitive type conversion of largeint"
+                exception "failed to create table from hms client. reason: org.apache.doris.datasource.hive.HMSClientException: Unsupported primitive type conversion of largeint"
             }
 
             test {
@@ -662,7 +662,7 @@ suite("test_hive_ddl", "p0,external,hive,external_docker,external_docker_hive") 
                       'file_format'='${file_format}'
                     )
                     """
-                exception "errCode = 2, detailMessage = Floating point type column can not be partition column"
+                exception "Floating point type column can not be partition column"
             }
 
             test {
@@ -676,7 +676,7 @@ suite("test_hive_ddl", "p0,external,hive,external_docker,external_docker_hive") 
                       'file_format'='${file_format}'
                     )
                     """
-                exception "errCode = 2, detailMessage = Floating point type column can not be partition column"
+                exception "Floating point type column can not be partition column"
             }
 
             sql """ drop database if exists `test_hive_db_tbl` """;
@@ -689,12 +689,12 @@ suite("test_hive_ddl", "p0,external,hive,external_docker,external_docker_hive") 
 
             test {
                 sql """ create table err_tb (id int) engine = iceberg """
-                exception "java.sql.SQLException: errCode = 2, detailMessage = Hms type catalog can only use `hive` engine."
+                exception "Hms type catalog can only use `hive` engine."
             }
 
             test {
                 sql """ create table err_tb (id int) engine = jdbc """
-                exception "java.sql.SQLException: errCode = 2, detailMessage = Hms type catalog can only use `hive` engine."
+                exception "Hms type catalog can only use `hive` engine."
             }
 
             sql """ drop database test_hive_db_error_tbl """

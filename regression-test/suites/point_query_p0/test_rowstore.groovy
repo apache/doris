@@ -306,6 +306,7 @@ suite("test_rowstore", "p0,nonConcurrent") {
         insert into rs_query values (1, 'abc', 1111919.12345678919), (2, 'abc', 1111919.12345678919);
         analyze table rs_query with sync;
         """
+    sql """ set topn_filter_ratio = 1 """
     explain {
         sql("select * from rs_query order by k1 limit 1")
         contains "TOPN OPT"
