@@ -37,6 +37,7 @@ import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HiveMetaStoreCache;
 import org.apache.doris.datasource.hive.HiveMetaStoreCache.FileCacheValue;
 import org.apache.doris.datasource.hive.HiveMetaStoreClientHelper;
+import org.apache.doris.datasource.hive.HiveMetaStoreClientHelper.HiveFileFormat;
 import org.apache.doris.datasource.hive.HivePartition;
 import org.apache.doris.datasource.hive.HiveTransaction;
 import org.apache.doris.datasource.hive.source.HiveSplit.HiveSplitCreator;
@@ -410,17 +411,27 @@ public class HiveScanNode extends FileQueryScanNode {
 
     @Override
     public TFileFormatType getFileFormatType() throws UserException {
-        TFileFormatType type = null;
         String inputFormatName = hmsTable.getRemoteTable().getSd().getInputFormat();
-        String hiveFormat = HiveMetaStoreClientHelper.HiveFileFormat.getFormat(inputFormatName);
-        if (hiveFormat.equals(HiveMetaStoreClientHelper.HiveFileFormat.PARQUET.getDesc())) {
-            type = TFileFormatType.FORMAT_PARQUET;
-        } else if (hiveFormat.equals(HiveMetaStoreClientHelper.HiveFileFormat.ORC.getDesc())) {
-            type = TFileFormatType.FORMAT_ORC;
-        } else if (hiveFormat.equals(HiveMetaStoreClientHelper.HiveFileFormat.TEXT_FILE.getDesc())) {
-            type = TFileFormatType.FORMAT_CSV_PLAIN;
+        String hiveFormat = HiveFileFormat.getFormat(inputFormatName);
+        if (hiveFormat.equals(HiveFileFormat.PARQUET.getDesc())) {
+            return TFileFormatType.FORMAT_PARQUET;
+        } else if (hiveFormat.equals(HiveFileFormat.ORC.getDesc())) {
+            return TFileFormatType.FORMAT_ORC;
+        } else if (hiveFormat.equals(HiveFileFormat.TEXT_FILE.getDesc())) {
+            return TFileFormatType.FORMAT_CSV_PLAIN;
+        } else if (hiveFormat.equals(HiveFileFormat.SEQUENCE_FILE.getDesc())) {
+            return TFileFormatType.FORMAT_SEQUENCE;
+        } else if (hiveFormat.equals(HiveFileFormat.RCFILE.getDesc())) {
+            String serdeLib = hmsTable.getRemoteTable().getSd().getSerdeInfo().getSerializationLib();
+            if (serdeLib.equals("org.apache.hadoop.hive.serde2.columnar.ColumnarSerDe")) {
+                return TFileFormatType.FORMAT_RCTEXT;
+            } else if (serdeLib.equals("org.apache.hadoop.hive.serde2.columnar.LazyBinaryColumnarSerDe")) {
+                return TFileFormatType.FORMAT_RCBINARY;
+            } else {
+                throw new UserException("not support RCFile serdeLib: " + serdeLib);
+            }
         }
-        return type;
+        throw new UserException("unsupported hive file format: " + hiveFormat);
     }
 
     @Override

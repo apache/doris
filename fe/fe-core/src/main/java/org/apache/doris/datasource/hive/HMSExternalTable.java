@@ -120,6 +120,8 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         // So add to SUPPORTED_HIVE_FILE_FORMATS and treat is as a hive table.
         // Then Doris will just list the files from location and read parquet files directly.
         SUPPORTED_HIVE_FILE_FORMATS.add("org.apache.hudi.hadoop.HoodieParquetInputFormatBase");
+        SUPPORTED_HIVE_FILE_FORMATS.add("org.apache.hadoop.hive.ql.io.RCFileInputFormat");
+        SUPPORTED_HIVE_FILE_FORMATS.add("org.apache.hadoop.mapred.SequenceFileInputFormat");
 
         SUPPORTED_HIVE_TRANSACTIONAL_FILE_FORMATS = Sets.newHashSet();
         SUPPORTED_HIVE_TRANSACTIONAL_FILE_FORMATS.add("org.apache.hadoop.hive.ql.io.orc.OrcInputFormat");

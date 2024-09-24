@@ -98,7 +98,9 @@ public class HiveMetaStoreClientHelper {
     public enum HiveFileFormat {
         TEXT_FILE(0, "text"),
         PARQUET(1, "parquet"),
-        ORC(2, "orc");
+        ORC(2, "orc"),
+        RCFILE(3, "rcfile"),
+        SEQUENCE_FILE(4, "sequencefile");
 
         private int index;
         private String desc;
