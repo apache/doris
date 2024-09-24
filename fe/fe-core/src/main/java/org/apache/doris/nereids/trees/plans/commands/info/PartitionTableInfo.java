@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.parser;
+package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.analysis.AllPartitionDesc;
 import org.apache.doris.analysis.Expr;
@@ -34,13 +34,6 @@ import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
-import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
-import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
-import org.apache.doris.nereids.trees.plans.commands.info.FixedRangePartition;
-import org.apache.doris.nereids.trees.plans.commands.info.InPartition;
-import org.apache.doris.nereids.trees.plans.commands.info.LessThanPartition;
-import org.apache.doris.nereids.trees.plans.commands.info.PartitionDefinition;
-import org.apache.doris.nereids.trees.plans.commands.info.StepPartition;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Maps;
