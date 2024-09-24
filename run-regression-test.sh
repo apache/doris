@@ -46,8 +46,8 @@ Usage: $0 <shell_options> <framework_options>
      -dockerSuiteParallel              run docker tests using specified threads
      -randomOrder                      run tests in a random order
      -noKillDocker                     don't kill container when finish docker suites
-     -runMode                          if only run docker suites, no need to setup external doris clusters.
-                                       but need specified run mode: cloud/not_cloud
+     -runMode                          if run docker suites, no need to setup external doris clusters.
+                                       user may specify run mode: cloud or not_cloud.
      -times                            rum tests {times} times
 
   Eg.
