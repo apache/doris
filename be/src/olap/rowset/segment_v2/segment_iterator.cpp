@@ -262,6 +262,7 @@ SegmentIterator::SegmentIterator(std::shared_ptr<Segment> segment, SchemaSPtr sc
           _column_iterators(_schema->num_columns()),
           _bitmap_index_iterators(_schema->num_columns()),
           _inverted_index_iterators(_schema->num_columns()),
+          _inverted_index_readers(_schema->num_columns()),
           _cur_rowid(0),
           _lazy_materialization_read(false),
           _lazy_inited(false),
@@ -367,7 +368,13 @@ void SegmentIterator::_initialize_predicate_results() {
 Status SegmentIterator::init_iterators() {
     RETURN_IF_ERROR(_init_return_column_iterators());
     RETURN_IF_ERROR(_init_bitmap_index_iterators());
-    RETURN_IF_ERROR(_init_inverted_index_iterators());
+    if (_opts.runtime_state &&
+        _opts.runtime_state->query_options().enable_inverted_index_query_v2) {
+        RETURN_IF_ERROR(_init_inverted_index_readers());
+    } else if (_opts.runtime_state &&
+               _opts.runtime_state->query_options().enable_inverted_index_query) {
+        RETURN_IF_ERROR(_init_inverted_index_iterators());
+    }
     return Status::OK();
 }
 
@@ -1046,6 +1053,19 @@ Status SegmentIterator::_init_bitmap_index_iterators() {
         if (_bitmap_index_iterators[cid] == nullptr) {
             RETURN_IF_ERROR(_segment->new_bitmap_index_iterator(_opts.tablet_schema->column(cid),
                                                                 &_bitmap_index_iterators[cid]));
+        }
+    }
+    return Status::OK();
+}
+
+Status SegmentIterator::_init_inverted_index_readers() {
+    if (_cur_rowid >= num_rows()) {
+        return Status::OK();
+    }
+    for (auto cid : _schema->column_ids()) {
+        if (_inverted_index_readers[cid] == nullptr) {
+            _inverted_index_readers[cid] = DORIS_TRY(_segment->get_inverted_index_reader(
+                    _opts.tablet_schema->column(cid).unique_id()));
         }
     }
     return Status::OK();

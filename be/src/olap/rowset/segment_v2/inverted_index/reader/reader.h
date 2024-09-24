@@ -36,13 +36,19 @@ public:
 
     ~InvertedIndexReader() = default;
 
-    Status init_index_reader();
+    [[nodiscard]] Status init_index_reader();
     std::shared_ptr<lucene::index::IndexReader> get_index_reader() { return _index_reader; }
+    [[nodiscard]] uint64_t get_index_id() const { return _index_meta.index_id(); }
+
+    [[nodiscard]] const std::map<string, string>& get_index_properties() const {
+        return _index_meta.properties();
+    }
 
 private:
     std::shared_ptr<InvertedIndexFileReader> _inverted_index_file_reader = nullptr;
     std::shared_ptr<lucene::index::IndexReader> _index_reader = nullptr;
     TabletIndex _index_meta;
+    bool _inited = false;
 };
 using InvertedIndexReaderPtr = std::shared_ptr<InvertedIndexReader>;
 } // namespace doris::segment_v2::inverted_index

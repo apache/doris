@@ -22,6 +22,9 @@
 namespace doris::segment_v2::inverted_index {
 
 Status InvertedIndexReader::init_index_reader() {
+    if (_inited) {
+        return Status::OK();
+    }
     auto close_directory = true;
     lucene::index::IndexReader* reader = nullptr;
     try {
@@ -38,6 +41,7 @@ Status InvertedIndexReader::init_index_reader() {
         return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(msg);
     }
     _index_reader = std::shared_ptr<lucene::index::IndexReader>(reader);
+    _inited = true;
     return Status::OK();
 }
 
