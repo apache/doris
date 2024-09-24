@@ -444,10 +444,18 @@ public class PropertyConverter {
             if (Strings.isNullOrEmpty(uid)) {
                 throw new IllegalArgumentException("Required dlf property: " + DLFProperties.UID);
             }
-            String endpoint = props.get(DLFProperties.ENDPOINT);
-            props.put(DataLakeConfig.CATALOG_ENDPOINT, endpoint);
-            props.put(DataLakeConfig.CATALOG_REGION_ID, props.getOrDefault(DLFProperties.REGION,
-                    S3Properties.getRegionOfEndpoint(endpoint)));
+
+            // region
+            String region = props.get(DLFProperties.REGION);
+            if (Strings.isNullOrEmpty(region)) {
+                throw new IllegalArgumentException("Required dlf property: " + DLFProperties.REGION);
+            }
+            props.put(DataLakeConfig.CATALOG_REGION_ID, region);
+
+            // endpoint
+            props.put(DataLakeConfig.CATALOG_ENDPOINT,
+                    props.getOrDefault(DLFProperties.ENDPOINT, getDlfEndpointByRegion(region));
+
             props.put(DataLakeConfig.CATALOG_PROXY_MODE, props.getOrDefault(DLFProperties.PROXY_MODE, "DLF_ONLY"));
             props.put(DataLakeConfig.CATALOG_ACCESS_KEY_ID, credential.getAccessKey());
             props.put(DataLakeConfig.CATALOG_ACCESS_KEY_SECRET, credential.getSecretKey());
@@ -506,6 +514,10 @@ public class PropertyConverter {
             suffix = "-internal" + suffix;
         }
         return prefix + region + suffix;
+    }
+
+    private static String getDlfEndpointByRegion(String region) {
+        return "dlf." + region + ".aliyuncs.com";
     }
 
     private static Map<String, String> convertToGlueProperties(Map<String, String> props, CloudCredential credential) {

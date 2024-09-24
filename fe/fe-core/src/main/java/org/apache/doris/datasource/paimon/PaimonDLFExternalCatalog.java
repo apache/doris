@@ -17,7 +17,6 @@
 
 package org.apache.doris.datasource.paimon;
 
-import org.apache.doris.common.DdlException;
 import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.datasource.property.constants.HMSProperties;
 import org.apache.doris.datasource.property.constants.PaimonProperties;
@@ -50,18 +49,8 @@ public class PaimonDLFExternalCatalog extends PaimonExternalCatalog {
 
     @Override
     protected void setPaimonCatalogOptions(Map<String, String> properties, Map<String, String> options) {
-        options.put(PaimonProperties.PAIMON_CATALOG_TYPE, getPaimonCatalogType(catalogType));
+        options.put(PaimonProperties.PAIMON_CATALOG_TYPE, PaimonProperties.PAIMON_HMS_CATALOG);
         options.put(PaimonProperties.PAIMON_METASTORE_CLIENT, ProxyMetaStoreClient.class.getName());
         options.putAll(PropertyConverter.convertToMetaProperties(properties));
-    }
-
-    @Override
-    public void checkProperties() throws DdlException {
-        super.checkProperties();
-        for (String requiredProperty : REQUIRED_PROPERTIES) {
-            if (!catalogProperty.getProperties().containsKey(requiredProperty)) {
-                throw new DdlException("Required property '" + requiredProperty + "' is missing");
-            }
-        }
     }
 }
