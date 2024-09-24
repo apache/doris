@@ -481,6 +481,17 @@ Status TabletReader::_init_orderby_keys_param(const ReaderParams& read_params) {
                     read_params.read_orderby_key_num_prefix_columns, _orderby_key_columns.size());
         }
     }
+    if (_tablet_schema->keys_type() == UNIQUE_KEYS && _tablet->enable_unique_key_merge_on_write() &&
+        !_tablet_schema->cluster_key_idxes().empty() &&
+        (read_params.reader_type == ReaderType::READER_CUMULATIVE_COMPACTION ||
+         read_params.reader_type == ReaderType::READER_BASE_COMPACTION ||
+         read_params.reader_type == ReaderType::READER_FULL_COMPACTION ||
+         read_params.reader_type == ReaderType::READER_COLD_DATA_COMPACTION)) {
+        // segment compaction is not supported
+        for (const auto& cid : _tablet_schema->cluster_key_idxes()) {
+            _orderby_key_columns.push_back(_tablet_schema->field_index(cid));
+        }
+    }
 
     return Status::OK();
 }

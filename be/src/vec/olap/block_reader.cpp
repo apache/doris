@@ -248,9 +248,13 @@ Status BlockReader::init(const ReaderParams& read_params) {
             _reader_context.enable_unique_key_merge_on_write) {
             _next_block_func = &BlockReader::_direct_next_block;
         } else {
-            _next_block_func = &BlockReader::_unique_key_next_block;
-            if (_filter_delete) {
-                _delete_filter_column = ColumnUInt8::create();
+            if (tablet()->tablet_meta()->tablet_schema()->cluster_key_idxes().empty()) {
+                _next_block_func = &BlockReader::_unique_key_next_block;
+                if (_filter_delete) {
+                    _delete_filter_column = ColumnUInt8::create();
+                }
+            } else {
+                _next_block_func = &BlockReader::_direct_next_block;
             }
         }
         break;
