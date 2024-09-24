@@ -88,6 +88,7 @@ public class PropertyConverter {
             }
             metaProperties = convertToGlueProperties(props, credential);
         } else if (props.containsKey(DLFProperties.ENDPOINT)
+                || props.containsKey(DLFProperties.REGION)
                 || props.containsKey(DataLakeConfig.CATALOG_ENDPOINT)) {
             metaProperties = convertToDLFProperties(props, DLFProperties.getCredential(props));
         } else if (props.containsKey(S3Properties.Env.ENDPOINT)) {
@@ -454,7 +455,7 @@ public class PropertyConverter {
 
             // endpoint
             props.put(DataLakeConfig.CATALOG_ENDPOINT,
-                    props.getOrDefault(DLFProperties.ENDPOINT, getDlfEndpointByRegion(region));
+                    props.getOrDefault(DLFProperties.ENDPOINT, getDlfEndpointByRegion(region)));
 
             props.put(DataLakeConfig.CATALOG_PROXY_MODE, props.getOrDefault(DLFProperties.PROXY_MODE, "DLF_ONLY"));
             props.put(DataLakeConfig.CATALOG_ACCESS_KEY_ID, credential.getAccessKey());
