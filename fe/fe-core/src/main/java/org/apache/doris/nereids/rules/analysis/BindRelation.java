@@ -65,6 +65,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.agg.QuantileUnion;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
+import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PreAggStatus;
@@ -81,6 +82,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSchemaScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
+import org.apache.doris.nereids.trees.plans.logical.LogicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTestScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalView;
 import org.apache.doris.nereids.util.RelationUtil;
@@ -366,14 +368,32 @@ public class BindRelation extends OneAnalysisRuleFactory {
         return scan;
     }
 
+    private Optional<LogicalPlan> handleMetaTable(TableIf table, UnboundRelation unboundRelation,
+            List<String> qualifiedTableName) {
+        Optional<TableValuedFunction> tvf = table.getDatabase().getCatalog().getMetaTableFunction(
+                qualifiedTableName.get(1), qualifiedTableName.get(2));
+        if (tvf.isPresent()) {
+            return Optional.of(new LogicalTVFRelation(unboundRelation.getRelationId(), tvf.get()));
+        }
+        return Optional.empty();
+    }
+
     private LogicalPlan getLogicalPlan(TableIf table, UnboundRelation unboundRelation,
-                                               List<String> qualifiedTableName, CascadesContext cascadesContext) {
-        // for create view stmt replace tablNname to ctl.db.tableName
+                                       List<String> qualifiedTableName, CascadesContext cascadesContext) {
+        // for create view stmt replace tableName to ctl.db.tableName
         unboundRelation.getIndexInSqlString().ifPresent(pair -> {
             StatementContext statementContext = cascadesContext.getStatementContext();
             statementContext.addIndexInSqlToString(pair,
                     Utils.qualifiedNameWithBackquote(qualifiedTableName));
         });
+
+        // Handle meta table like "table_name$partitions"
+        // qualifiedTableName should be like "ctl.db.tbl$partitions"
+        Optional<LogicalPlan> logicalPlan = handleMetaTable(table, unboundRelation, qualifiedTableName);
+        if (logicalPlan.isPresent()) {
+            return logicalPlan.get();
+        }
+
         List<String> qualifierWithoutTableName = Lists.newArrayList();
         qualifierWithoutTableName.addAll(qualifiedTableName.subList(0, qualifiedTableName.size() - 1));
         boolean isView = false;
