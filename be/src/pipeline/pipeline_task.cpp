@@ -386,12 +386,14 @@ Status PipelineTask::execute(bool* eos) {
             if (workload_group && reserve_size > 0) {
                 auto st = thread_context()->try_reserve_memory(reserve_size);
                 if (!st.ok()) {
-                    VLOG_DEBUG << "query: " << print_id(query_id)
-                               << ", try to reserve: " << reserve_size << "(sink reserve size:("
-                               << sink_reserve_size << " )"
-                               << ", sink name: " << _sink->get_name()
-                               << ", node id: " << _sink->node_id() << " failed: " << st.to_string()
-                               << ", debug info: " << GlobalMemoryArbitrator::process_mem_log_str();
+                    LOG(INFO) << "query: " << print_id(query_id)
+                              << ", try to reserve: " << reserve_size << "(sink reserve size:("
+                              << sink_reserve_size << " )"
+                              << ", sink name: " << _sink->get_name()
+                              << ", node id: " << _sink->node_id() << " failed: " << st.to_string()
+                              << ", debug info: " << GlobalMemoryArbitrator::process_mem_log_str();
+
+                    _state->get_query_ctx()->update_paused_reason(st);
                     _state->get_query_ctx()->set_low_memory_mode();
                     bool is_high_wartermark = false;
                     bool is_low_wartermark = false;
@@ -401,7 +403,7 @@ Status PipelineTask::execute(bool* eos) {
                     /// If the available memory for revoking is large enough, here trigger revoking proactively.
                     bool need_to_pause = false;
                     const auto revocable_mem_size = _sink->revocable_mem_size(_state);
-                    if (revocable_mem_size > 1024L * 1024 * 1024) {
+                    if (revocable_mem_size > 100L * 1024 * 1024) {
                         LOG(INFO) << "query: " << print_id(query_id)
                                   << ", task id: " << _state->task_id()
                                   << " has big memory to revoke: " << revocable_mem_size;
@@ -410,7 +412,6 @@ Status PipelineTask::execute(bool* eos) {
                     } else {
                         need_to_pause = is_low_wartermark || is_high_wartermark;
                     }
-
                     if (need_to_pause) {
                         _memory_sufficient_dependency->block();
                         ExecEnv::GetInstance()->workload_group_mgr()->add_paused_query(

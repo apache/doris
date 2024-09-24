@@ -290,7 +290,7 @@ inline doris::Status ThreadMemTrackerMgr::try_reserve(int64_t size) {
                 "reserve memory failed, size: {}, because memory tracker consumption: {}, limit: "
                 "{}",
                 size, _limiter_tracker->consumption(), _limiter_tracker->limit());
-        return doris::Status::MemoryLimitExceeded(err_msg);
+        return doris::Status::Error<ErrorCode::QUERY_MEMORY_EXCEED>(err_msg);
     }
     auto wg_ptr = _wg_wptr.lock();
     if (wg_ptr) {
@@ -299,7 +299,7 @@ inline doris::Status ThreadMemTrackerMgr::try_reserve(int64_t size) {
                                        wg_ptr->memory_debug_string());
             _limiter_tracker->release(size);          // rollback
             _limiter_tracker->release_reserved(size); // rollback
-            return doris::Status::MemoryLimitExceeded(err_msg);
+            return doris::Status::Error<ErrorCode::WORKLOAD_GROUP_MEMORY_EXCEED>(err_msg);
         }
     }
     if (!doris::GlobalMemoryArbitrator::try_reserve_process_memory(size)) {
@@ -310,7 +310,7 @@ inline doris::Status ThreadMemTrackerMgr::try_reserve(int64_t size) {
         if (wg_ptr) {
             wg_ptr->sub_wg_refresh_interval_memory_growth(size); // rollback
         }
-        return doris::Status::MemoryLimitExceeded(err_msg);
+        return doris::Status::Error<ErrorCode::PROCESS_MEMORY_EXCEED>(err_msg);
     }
     _reserved_mem += size;
     return doris::Status::OK();

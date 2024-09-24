@@ -44,8 +44,9 @@ public:
     std::weak_ptr<QueryContext> query_ctx_;
     std::chrono::system_clock::time_point enqueue_at;
     size_t last_mem_usage {0};
+    double cache_ratio_ {0.0};
 
-    PausedQuery(std::shared_ptr<QueryContext> query_ctx);
+    PausedQuery(std::shared_ptr<QueryContext> query_ctx, double cache_ratio);
 
     int64_t elapsed_time() const {
         auto now = std::chrono::system_clock::now();
@@ -100,6 +101,9 @@ public:
     void handle_paused_queries();
 
     void update_load_memtable_usage(const std::map<uint64_t, MemtableUsage>& wg_memtable_usages);
+
+private:
+    bool spill_or_cancel_query(std::shared_ptr<QueryContext> query_ctx, Status paused_reason);
 
 private:
     std::shared_mutex _group_mutex;
