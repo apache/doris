@@ -1578,7 +1578,7 @@ public class EditLog {
     public void logModifyViewDef(AlterViewInfo alterViewInfo) {
         long logId = logEdit(OperationType.OP_MODIFY_VIEW_DEF, alterViewInfo);
         LOG.info("log modify view, logId : {}, infos: {}", logId, alterViewInfo);
-        Env.getCurrentEnv().getBinlogManager().;
+        Env.getCurrentEnv().getBinlogManager().addModifyViewDef(alterViewInfo, logId);
     }
 
     public void logRollupRename(TableInfo tableInfo) {
