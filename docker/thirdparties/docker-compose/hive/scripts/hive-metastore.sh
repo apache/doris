@@ -65,6 +65,21 @@ cd -
 ## put paimon1
 hadoop fs -put /mnt/scripts/paimon1 /user/doris/
 
+# download tvf_data
+if [[ ! -d "/mnt/scripts/tvf_data" ]]; then
+    echo "/mnt/scripts/tvf_data does not exist"
+    cd /mnt/scripts/
+    curl -O https://doris-regression-hk.oss-cn-hongkong.aliyuncs.com/regression/datalake/pipeline_data/tvf_data.tar.gz
+    tar -zxf tvf_data.tar.gz
+    rm -rf tvf_data.tar.gz
+    cd -
+else
+    echo "/mnt/scripts/tvf_data exist, continue !"
+fi
+
+## put tvf_data
+hadoop fs -put /mnt/scripts/tvf_data/ /user/doris/
+
 ## put other preinstalled data
 hadoop fs -put /mnt/scripts/preinstalled_data /user/doris/
 
