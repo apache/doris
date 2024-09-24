@@ -42,6 +42,7 @@
 #include "util/cpu_info.h"
 #include "util/defer_op.h"
 #include "util/doris_metrics.h"
+#include "util/metrics.h"
 #include "util/runtime_profile.h"
 #include "util/thread.h"
 #include "util/threadpool.h"
@@ -141,6 +142,11 @@ Status ScannerScheduler::submit(std::shared_ptr<ScannerContext> ctx,
 
         scanner_delegate->_scanner->start_wait_worker_timer();
         auto s = ctx->thread_token->submit_func([scanner_ref = scan_task, ctx]() {
+            DorisMetrics::instance()->scanner_task_queued_dev->increment(-1);
+            DorisMetrics::instance()->scanner_task_running_dev->increment(1);
+            Defer metrics_defer(
+                    [&] { DorisMetrics::instance()->scanner_task_running_dev->increment(-1); });
+
             auto status = [&] {
                 RETURN_IF_CATCH_EXCEPTION(_scanner_scan(ctx, scanner_ref));
                 return Status::OK();
@@ -172,6 +178,11 @@ Status ScannerScheduler::submit(std::shared_ptr<ScannerContext> ctx,
                         is_local ? _local_scan_thread_pool.get() : _remote_scan_thread_pool.get();
             }
             auto work_func = [scanner_ref = scan_task, ctx]() {
+                DorisMetrics::instance()->scanner_task_queued_dev->increment(-1);
+                DorisMetrics::instance()->scanner_task_running_dev->increment(1);
+                Defer metrics_defer(
+                        [&] { DorisMetrics::instance()->scanner_task_running_dev->increment(-1); });
+
                 auto status = [&] {
                     RETURN_IF_CATCH_EXCEPTION(_scanner_scan(ctx, scanner_ref));
                     return Status::OK();

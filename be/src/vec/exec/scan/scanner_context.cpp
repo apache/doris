@@ -29,6 +29,7 @@
 #include "common/status.h"
 #include "pipeline/exec/scan_operator.h"
 #include "runtime/descriptors.h"
+#include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 #include "util/uid_util.h"
 #include "vec/core/block.h"
@@ -120,6 +121,8 @@ ScannerContext::ScannerContext(
     _query_thread_context = {_query_id, _state->query_mem_tracker(),
                              _state->get_query_ctx()->workload_group()};
     _dependency = dependency;
+
+    DorisMetrics::instance()->scanner_ctx_cnt_dev->increment(1);
 }
 
 // After init function call, should not access _parent
