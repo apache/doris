@@ -25,6 +25,7 @@
 #include <vector>
 
 #include "cloud/cloud_compaction_action.h"
+#include "cloud/cloud_delete_bitmap_action.h"
 #include "cloud/config.h"
 #include "cloud/injection_point_action.h"
 #include "common/config.h"
@@ -411,6 +412,11 @@ void HttpService::register_cloud_handler(CloudStorageEngine& engine) {
                                       TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/compaction/run_status",
                                       run_status_compaction_action);
+    CloudDeleteBitmapAction* count_delete_bitmap_action =
+            _pool.add(new CloudDeleteBitmapAction(DeleteBitmapActionType::COUNT_INFO, _env, engine,
+                                                  TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN));
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/delete_bitmap/count",
+                                      count_delete_bitmap_action);
 #ifdef ENABLE_INJECTION_POINT
     InjectionPointAction* injection_point_action = _pool.add(new InjectionPointAction);
     _ev_http_server->register_handler(HttpMethod::GET, "/api/injection_point/{op}",

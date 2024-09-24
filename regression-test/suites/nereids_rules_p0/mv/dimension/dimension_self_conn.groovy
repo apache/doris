@@ -533,7 +533,7 @@ suite("partition_mv_rewrite_dimension_self_conn") {
 
     // predicate compensate
     def predicate_mv_stmt_1 = """
-        select t1.l_shipdatE, t2.l_shipdate, t1.l_partkey 
+        select t1.l_shipdatE, t2.l_shipdate as l_shipdate_t2, t1.l_partkey 
         from lineitem_self_conn as t1 
         inner join lineitem_self_conn as t2  
         on t1.l_orderkey = t2.l_orderkey

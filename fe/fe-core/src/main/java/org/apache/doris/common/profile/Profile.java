@@ -490,7 +490,9 @@ public class Profile {
         boolean hasReportingProfile = false;
 
         if (this.executionProfiles.isEmpty()) {
-            LOG.warn("Profile {} has no execution profile, it is abnormal", id);
+            // Query finished, but no execution profile.
+            // 1. Query is executed on FE.
+            // 2. Not a SELECT query, just a DDL.
             return false;
         }
 

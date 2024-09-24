@@ -17,8 +17,6 @@
 
 suite("test_insert_default_value") {
 
-    sql """ SET enable_fallback_to_original_planner=false """
-
     sql """ DROP TABLE IF EXISTS test_insert_dft_tbl"""
 
     sql """
@@ -67,10 +65,7 @@ suite("test_insert_default_value") {
         );
     """
 
-    sql """ set enable_nereids_planner=true """
     sql """ insert into test_insert_dft_tbl values() """
-
-    sql """ set enable_nereids_planner=false """
     sql """ insert into test_insert_dft_tbl values() """
     qt_select2 """ select k1, k2, k3, k4, k5, k6, k7, k8, k9, k10, k11 from test_insert_dft_tbl """
 

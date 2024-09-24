@@ -230,16 +230,22 @@ Status EnginePublishVersionTask::execute() {
                         int64_t missed_version = max_version + 1;
                         int64_t missed_txn_id = _engine.txn_manager()->get_txn_by_tablet_version(
                                 tablet->tablet_id(), missed_version);
-                        auto msg = fmt::format(
-                                "uniq key with merge-on-write version not continuous, "
-                                "missed version={}, it's transaction_id={}, current publish "
-                                "version={}, tablet_id={}, transaction_id={}",
-                                missed_version, missed_txn_id, version.second, tablet->tablet_id(),
-                                _publish_version_req.transaction_id);
-                        if (first_time_update) {
-                            LOG(INFO) << msg;
-                        } else {
-                            LOG_EVERY_SECOND(INFO) << msg;
+                        bool need_log =
+                                (config::publish_version_gap_logging_threshold < 0 ||
+                                 max_version + config::publish_version_gap_logging_threshold >=
+                                         version.second);
+                        if (need_log) {
+                            auto msg = fmt::format(
+                                    "uniq key with merge-on-write version not continuous, "
+                                    "missed version={}, it's transaction_id={}, current publish "
+                                    "version={}, tablet_id={}, transaction_id={}",
+                                    missed_version, missed_txn_id, version.second,
+                                    tablet->tablet_id(), _publish_version_req.transaction_id);
+                            if (first_time_update) {
+                                LOG(INFO) << msg;
+                            } else {
+                                LOG_EVERY_SECOND(INFO) << msg;
+                            }
                         }
                     };
                     // The versions during the schema change period need to be also continuous

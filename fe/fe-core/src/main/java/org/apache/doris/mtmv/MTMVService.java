@@ -24,6 +24,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.event.DropPartitionEvent;
 import org.apache.doris.event.Event;
 import org.apache.doris.event.EventException;
 import org.apache.doris.event.EventListener;
@@ -175,6 +176,9 @@ public class MTMVService implements EventListener {
     public void processEvent(Event event) throws EventException {
         Objects.requireNonNull(event);
         if (!(event instanceof TableEvent)) {
+            return;
+        }
+        if (event instanceof DropPartitionEvent && ((DropPartitionEvent) event).isTempPartition()) {
             return;
         }
         TableEvent tableEvent = (TableEvent) event;

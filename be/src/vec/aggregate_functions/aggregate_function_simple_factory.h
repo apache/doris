@@ -59,11 +59,6 @@ private:
     AggregateFunctions aggregate_functions;
     AggregateFunctions nullable_aggregate_functions;
     std::unordered_map<std::string, std::string> function_alias;
-    /// @TEMPORARY: for be_exec_version=4
-    /// in order to solve agg of sum/count is not compatibility during the upgrade process
-    constexpr static int AGG_FUNCTION_NEW = 7;
-    /// @TEMPORARY: for be_exec_version < AGG_FUNCTION_NEW. replace function to old version.
-    std::unordered_map<std::string, std::string> function_to_replace;
 
 public:
     void register_nullable_function_combinator(const Creator& creator) {
@@ -177,21 +172,19 @@ public:
         }
     }
 
-    /// @TEMPORARY: for be_exec_version < AGG_FUNCTION_NEW
     void register_alternative_function(const std::string& name, const Creator& creator,
-                                       bool nullable = false) {
-        static std::string suffix {"_old_for_version_before_2_0"};
-        register_function(name + suffix, creator, nullable);
-        function_to_replace[name] = name + suffix;
+                                       bool nullable, int old_be_exec_version) {
+        auto new_name = name + BeExecVersionManager::get_function_suffix(old_be_exec_version);
+        register_function(new_name, creator, nullable);
+        BeExecVersionManager::registe_old_function_compatibility(old_be_exec_version, name);
     }
 
-    /// @TEMPORARY: for be_exec_version < AGG_FUNCTION_NEW
     void temporary_function_update(int fe_version_now, std::string& name) {
-        // replace if fe is old version.
-        if (fe_version_now < AGG_FUNCTION_NEW &&
-            function_to_replace.find(name) != function_to_replace.end()) {
-            name = function_to_replace[name];
+        int old_version = BeExecVersionManager::get_function_compatibility(fe_version_now, name);
+        if (!old_version) {
+            return;
         }
+        name = name + BeExecVersionManager::get_function_suffix(old_version);
     }
 
     static AggregateFunctionSimpleFactory& instance();

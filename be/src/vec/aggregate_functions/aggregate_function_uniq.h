@@ -76,6 +76,8 @@ struct AggregateFunctionUniqExactData {
     Set set;
 
     static String get_name() { return "multi_distinct"; }
+
+    void reset() { set.clear(); }
 };
 
 namespace detail {
@@ -114,6 +116,8 @@ public:
     String get_name() const override { return Data::get_name(); }
 
     DataTypePtr get_return_type() const override { return std::make_shared<DataTypeInt64>(); }
+
+    void reset(AggregateDataPtr __restrict place) const override { this->data(place).reset(); }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena*) const override {

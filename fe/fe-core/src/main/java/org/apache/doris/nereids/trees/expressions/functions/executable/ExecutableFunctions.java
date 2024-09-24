@@ -108,7 +108,7 @@ public class ExecutableFunctions {
         return new DoubleLiteral(Math.E);
     }
 
-    @ExecFunction(name = "p1")
+    @ExecFunction(name = "pi")
     public static Expression pi() {
         return new DoubleLiteral(Math.PI);
     }

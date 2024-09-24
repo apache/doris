@@ -2014,7 +2014,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         // it does not affect the logic of deleting the partition
         try {
             Env.getCurrentEnv().getEventProcessor().processEvent(
-                    new DropPartitionEvent(db.getCatalog().getId(), db.getId(), olapTable.getId()));
+                    new DropPartitionEvent(db.getCatalog().getId(), db.getId(), olapTable.getId(), isTempPartition));
         } catch (Throwable t) {
             // According to normal logic, no exceptions will be thrown,
             // but in order to avoid bugs affecting the original logic, all exceptions are caught
@@ -2526,6 +2526,16 @@ public class InternalCatalog implements CatalogIf<Database> {
         // use light schema change optimization
         olapTable.setEnableLightSchemaChange(enableLightSchemaChange);
 
+        // check if light schema change is disabled, variant type rely on light schema change
+        if (!enableLightSchemaChange) {
+            for (Column column : baseSchema) {
+                if (column.getType().isVariantType()) {
+                    throw new DdlException("Variant type rely on light schema change, "
+                            + " please use light_schema_change = true.");
+                }
+            }
+        }
+
         boolean disableAutoCompaction = false;
         try {
             disableAutoCompaction = PropertyAnalyzer.analyzeDisableAutoCompaction(properties);
@@ -2981,7 +2991,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                     throw new DdlException("Sequence type only support integer types and date types");
                 }
                 olapTable.setSequenceMapCol(col.getName());
-                olapTable.setSequenceInfo(col.getType());
+                olapTable.setSequenceInfo(col.getType(), col);
             }
         } catch (Exception e) {
             throw new DdlException(e.getMessage());
@@ -2995,7 +3005,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                 throw new DdlException("The sequence_col and sequence_type cannot be set at the same time");
             }
             if (sequenceColType != null) {
-                olapTable.setSequenceInfo(sequenceColType);
+                olapTable.setSequenceInfo(sequenceColType, null);
             }
         } catch (Exception e) {
             throw new DdlException(e.getMessage());

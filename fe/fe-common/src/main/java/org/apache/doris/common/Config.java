@@ -496,6 +496,10 @@ public class Config extends ConfigBase {
             "print log interval for publish transaction failed interval"})
     public static long publish_fail_log_interval_second = 5 * 60;
 
+    @ConfField(mutable = true, masterOnly = true, description = {"一个 PUBLISH_VERSION 任务打印失败日志的次数上限",
+            "the upper limit of failure logs of PUBLISH_VERSION task"})
+    public static long publish_version_task_failed_log_threshold = 80;
+
     @ConfField(mutable = true, masterOnly = true, description = {"提交事务的最大超时时间，单位是秒。"
             + "该参数仅用于事务型 insert 操作中。",
             "Maximal waiting time for all data inserted before one transaction to be committed, in seconds. "
@@ -1206,6 +1210,12 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static int max_routine_load_task_num_per_be = 1024;
+
+    /**
+     * routine load timeout is equal to maxBatchIntervalS * routine_load_task_timeout_multiplier.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int routine_load_task_timeout_multiplier = 10;
 
     /**
      * the max timeout of get kafka meta.
@@ -2809,16 +2819,12 @@ public class Config extends ConfigBase {
     public static String deploy_mode = "";
 
     // compatibily with elder version.
-    // cloud_unique_id is introduced before cloud_instance_id, so it has higher priority.
+    // cloud_unique_id has higher priority than cluster_id.
     @ConfField
     public static String cloud_unique_id = "";
 
-    // If cloud_unique_id is empty, cloud_instance_id works, otherwise cloud_unique_id works.
-    @ConfField
-    public static String cloud_instance_id = "";
-
     public static boolean isCloudMode() {
-        return deploy_mode.equals("cloud") || !cloud_unique_id.isEmpty() || !cloud_instance_id.isEmpty();
+        return deploy_mode.equals("cloud") || !cloud_unique_id.isEmpty();
     }
 
     public static boolean isNotCloudMode() {
@@ -2893,6 +2899,8 @@ public class Config extends ConfigBase {
     @ConfField
     public static boolean enable_cloud_snapshot_version = true;
 
+    // Interval in seconds for checking the status of compute groups (cloud clusters).
+    // Compute groups and cloud clusters refer to the same concept.
     @ConfField
     public static int cloud_cluster_check_interval_second = 10;
 
@@ -2976,7 +2984,7 @@ public class Config extends ConfigBase {
     public static String security_checker_class_name = "";
 
     @ConfField(mutable = true)
-    public static int mow_insert_into_commit_retry_times = 10;
+    public static int mow_calculate_delete_bitmap_retry_times = 10;
 
     @ConfField(mutable = true, description = {"指定S3 Load endpoint白名单, 举例: s3_load_endpoint_white_list=a,b,c",
             "the white list for the s3 load endpoint, if it is empty, no white list will be set,"
@@ -3010,7 +3018,7 @@ public class Config extends ConfigBase {
     // to control the max num of values inserted into cache hotspot internal table
     // insert into cache table when the size of batch values reaches this limit
     @ConfField(mutable = true)
-    public static long batch_insert_cluster_cache_hotspot_num = 50;
+    public static long batch_insert_cluster_cache_hotspot_num = 1000;
 
     /**
      * intervals between be status checks for CloudUpgradeMgr

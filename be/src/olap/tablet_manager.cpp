@@ -972,6 +972,7 @@ Status TabletManager::load_tablet_from_dir(DataDir* store, TTabletId tablet_id,
         if (binlog_meta_filesize > 0) {
             contain_binlog = true;
             RETURN_IF_ERROR(read_pb(binlog_metas_file, &rowset_binlog_metas_pb));
+            VLOG_DEBUG << "load rowset binlog metas from file. file_path=" << binlog_metas_file;
         }
         RETURN_IF_ERROR(io::global_local_filesystem()->delete_file(binlog_metas_file));
     }
