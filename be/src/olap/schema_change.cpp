@@ -1134,6 +1134,8 @@ Status SchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParams& sc
             changer, sc_sorting, sc_directly,
             _local_storage_engine.memory_limitation_bytes_per_thread_for_schema_change());
 
+    DBUG_EXECUTE_IF("SchemaChangeJob::_convert_historical_rowsets.block", DBUG_BLOCK);
+
     // c.Convert historical data
     bool have_failure_rowset = false;
     for (const auto& rs_reader : sc_params.ref_rowset_readers) {
