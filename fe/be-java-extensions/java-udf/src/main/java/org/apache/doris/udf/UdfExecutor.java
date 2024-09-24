@@ -31,6 +31,7 @@ import org.apache.doris.thrift.TJavaUdfExecutorCtorParams;
 
 import com.esotericsoftware.reflectasm.MethodAccess;
 import com.google.common.base.Joiner;
+import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import org.apache.log4j.Logger;
 
@@ -151,9 +152,17 @@ public class UdfExecutor extends BaseExecutor {
             cache = ScannerLoader.getUdfClassLoader(signature);
         }
         if (cache == null) {
-            ClassLoader parent = getClass().getClassLoader();
-            classLoader = UdfUtils.getClassLoader(jarPath, parent);
-            ClassLoader loader = classLoader;
+            ClassLoader loader;
+            if (Strings.isNullOrEmpty(jarPath)) {
+                // if jarPath is empty, which means the UDF jar is located in custom_lib
+                // and already be loaded when BE start.
+                // so here we use system class loader to load UDF class.
+                loader = ClassLoader.getSystemClassLoader();
+            } else {
+                ClassLoader parent = getClass().getClassLoader();
+                classLoader = UdfUtils.getClassLoader(jarPath, parent);
+                loader = classLoader;
+            }
             cache = new UdfClassCache();
             cache.udfClass = Class.forName(className, true, loader);
             cache.methodAccess = MethodAccess.get(cache.udfClass);
@@ -276,4 +285,5 @@ public class UdfExecutor extends BaseExecutor {
         }
     }
 }
+
 
