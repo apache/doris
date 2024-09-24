@@ -152,6 +152,9 @@ public class WindowExpression extends Expression {
         if (index < children.size()) {
             return new WindowExpression(func, partitionKeys, orderKeys, (WindowFrame) children.get(index));
         }
+        if (windowFrame.isPresent()) {
+            return new WindowExpression(func, partitionKeys, orderKeys, windowFrame.get());
+        }
         return new WindowExpression(func, partitionKeys, orderKeys);
     }
 
