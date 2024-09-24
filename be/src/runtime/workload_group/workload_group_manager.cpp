@@ -381,7 +381,7 @@ void WorkloadGroupMgr::handle_paused_queries() {
                 query_it = queries_list.erase(query_it);
                 continue;
             }
-            if (query_ctx->paused_reason().is<ErrorCode::QUERY_MEMORY_EXCEED>()) {
+            if (query_ctx->paused_reason().is<ErrorCode::QUERY_MEMORY_EXCEEDED>()) {
                 bool spill_res = spill_or_cancel_query(query_ctx, query_ctx->paused_reason());
                 if (!spill_res) {
                     ++query_it;
@@ -390,7 +390,7 @@ void WorkloadGroupMgr::handle_paused_queries() {
                     query_it = queries_list.erase(query_it);
                     continue;
                 }
-            } else if (query_ctx->paused_reason().is<ErrorCode::WORKLOAD_GROUP_MEMORY_EXCEED>()) {
+            } else if (query_ctx->paused_reason().is<ErrorCode::WORKLOAD_GROUP_MEMORY_EXCEEDED>()) {
                 if (wg->memory_sufficent()) {
                     wg->update_memory_sufficent(false);
                     LOG(INFO) << "query: " << print_id(query_ctx->query_id())
@@ -459,13 +459,13 @@ bool WorkloadGroupMgr::spill_or_cancel_query(std::shared_ptr<QueryContext> query
     query_ctx->get_revocable_info(&revocable_size, &memory_usage, &has_running_task);
     if (has_running_task) {
         LOG(INFO) << "query: " << print_id(query_ctx->query_id())
-                  << "is paused, but still has running task, skip it.";
+                  << " is paused, but still has running task, skip it.";
         return false;
     }
 
     auto revocable_tasks = query_ctx->get_revocable_tasks();
     if (revocable_tasks.empty()) {
-        if (paused_reason.is<ErrorCode::QUERY_MEMORY_EXCEED>()) {
+        if (paused_reason.is<ErrorCode::QUERY_MEMORY_EXCEEDED>()) {
             // Use MEM_LIMIT_EXCEEDED so that FE could parse the error code and do try logic
             query_ctx->cancel(doris::Status::Error<ErrorCode::MEM_LIMIT_EXCEEDED>(
                     "query reserve memory failed, but could not find  memory that "

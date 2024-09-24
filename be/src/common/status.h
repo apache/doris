@@ -130,9 +130,9 @@ namespace ErrorCode {
     E(BAD_CAST, -254, true);                                 \
     E(ARITHMETIC_OVERFLOW_ERRROR, -255, false);              \
     E(PERMISSION_DENIED, -256, false);                       \
-    E(QUERY_MEMORY_EXCEED, -257, false);                     \
-    E(WORKLOAD_GROUP_MEMORY_EXCEED, -257, false);            \
-    E(PROCESS_MEMORY_EXCEED, -257, false);                   \
+    E(QUERY_MEMORY_EXCEEDED, -257, false);                   \
+    E(WORKLOAD_GROUP_MEMORY_EXCEEDED, -258, false);          \
+    E(PROCESS_MEMORY_EXCEEDED, -259, false);                 \
     E(CE_CMD_PARAMS_ERROR, -300, true);                      \
     E(CE_BUFFER_TOO_SMALL, -301, true);                      \
     E(CE_CMD_NOT_VALID, -302, true);                         \

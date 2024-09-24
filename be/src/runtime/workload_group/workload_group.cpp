@@ -84,6 +84,8 @@ WorkloadGroup::WorkloadGroup(const WorkloadGroupInfo& tg_info)
     _total_local_scan_io_per_second = std::make_unique<bvar::PerSecond<bvar::Adder<size_t>>>(
             _name, "total_local_read_bytes_per_second", _total_local_scan_io_adder.get(), 1);
     _load_buffer_limit = (int64_t)(_memory_limit * 0.2);
+    // Its initial value should equal to memory limit, or it will be 0 and all reserve memory request will failed.
+    _weighted_memory_limit = _memory_limit;
 }
 
 std::string WorkloadGroup::debug_string() const {
@@ -114,9 +116,9 @@ std::string WorkloadGroup::debug_string() const {
 
 std::string WorkloadGroup::memory_debug_string() const {
     auto realtime_total_mem_used = _total_mem_used + _wg_refresh_interval_memory_growth.load();
-    auto mem_used_ratio = realtime_total_mem_used / (double)_weighted_memory_limit;
+    auto mem_used_ratio = realtime_total_mem_used / ((double)_weighted_memory_limit + 1);
     return fmt::format(
-            "TG[id = {}, name = {}, memory_limit = {}, enable_memory_overcommit = "
+            "WorkloadGroup[id = {}, name = {}, memory_limit = {}, enable_memory_overcommit = "
             "{}, weighted_memory_limit = {}, total_mem_used = {},"
             "wg_refresh_interval_memory_growth = {},  mem_used_ratio = {}, spill_low_watermark = "
             "{}, "
