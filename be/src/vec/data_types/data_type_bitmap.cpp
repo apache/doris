@@ -37,7 +37,7 @@ namespace doris::vectorized {
 int64_t DataTypeBitMap::get_uncompressed_serialized_bytes(const IColumn& column,
                                                           int be_exec_version) const {
     if (be_exec_version >= USE_CONST_SERDE) {
-        auto size = sizeof(bool) + sizeof(uint32_t);
+        auto size = sizeof(bool);
         bool is_const_column = is_column_const(column);
         auto real_need_copy_num = is_const_column ? 1 : column.size();
 
@@ -53,7 +53,6 @@ int64_t DataTypeBitMap::get_uncompressed_serialized_bytes(const IColumn& column,
             auto& bitmap = const_cast<BitmapValue&>(data_column.get_element(i));
             allocate_content_size += bitmap.getSizeInBytes();
         }
-
         return size + allocate_len_size + allocate_content_size;
     } else {
         auto ptr = column.convert_to_full_column_if_const();
@@ -71,134 +70,104 @@ int64_t DataTypeBitMap::get_uncompressed_serialized_bytes(const IColumn& column,
 }
 
 char* DataTypeBitMap::serialize(const IColumn& column, char* buf, int be_exec_version) const {
-    auto ptr = column.convert_to_full_column_if_const();
-    auto& data_column = assert_cast<const ColumnBitmap&>(*ptr);
+    if (be_exec_version >= USE_CONST_SERDE) {
+        // const flag
+        bool is_const_column = is_column_const(column);
+        *reinterpret_cast<bool*>(buf) = is_const_column;
+        buf += sizeof(bool);
 
-    // serialize the bitmap size array, row num saves at index 0
-    size_t* meta_ptr = (size_t*)buf;
-    meta_ptr[0] = column.size();
-    for (size_t i = 0; i < meta_ptr[0]; ++i) {
-        auto& bitmap = const_cast<BitmapValue&>(data_column.get_element(i));
-        meta_ptr[i + 1] = bitmap.getSizeInBytes();
+        const IColumn* bitmap_column = &column;
+        if (is_const_column) {
+            const auto& const_column = assert_cast<const ColumnConst&>(column);
+            bitmap_column = &(const_column.get_data_column());
+        }
+        const auto& data_column = assert_cast<const ColumnBitmap&>(*bitmap_column);
+
+        // serialize the bitmap size array, row num saves at index 0
+        size_t* meta_ptr = (size_t*)buf;
+        // row num
+        const auto row_num = column.size();
+        meta_ptr[0] = row_num;
+        auto real_need_copy_num = is_const_column ? 1 : row_num;
+        for (size_t i = 0; i < real_need_copy_num; ++i) {
+            auto& bitmap = const_cast<BitmapValue&>(data_column.get_element(i));
+            meta_ptr[i + 1] = bitmap.getSizeInBytes();
+        }
+
+        // serialize each bitmap
+        char* data_ptr = buf + sizeof(size_t) * (real_need_copy_num + 1);
+        for (size_t i = 0; i < real_need_copy_num; ++i) {
+            auto& bitmap = const_cast<BitmapValue&>(data_column.get_element(i));
+            bitmap.write_to(data_ptr);
+            data_ptr += meta_ptr[i + 1];
+        }
+        return data_ptr;
+    } else {
+        auto ptr = column.convert_to_full_column_if_const();
+        const auto& data_column = assert_cast<const ColumnBitmap&>(*ptr);
+
+        // serialize the bitmap size array, row num saves at index 0
+        size_t* meta_ptr = (size_t*)buf;
+        meta_ptr[0] = column.size();
+        for (size_t i = 0; i < meta_ptr[0]; ++i) {
+            auto& bitmap = const_cast<BitmapValue&>(data_column.get_element(i));
+            meta_ptr[i + 1] = bitmap.getSizeInBytes();
+        }
+
+        // serialize each bitmap
+        char* data_ptr = buf + sizeof(size_t) * (meta_ptr[0] + 1);
+        for (size_t i = 0; i < meta_ptr[0]; ++i) {
+            auto& bitmap = const_cast<BitmapValue&>(data_column.get_element(i));
+            bitmap.write_to(data_ptr);
+            data_ptr += meta_ptr[i + 1];
+        }
+        return data_ptr;
     }
-
-    // serialize each bitmap
-    char* data_ptr = buf + sizeof(size_t) * (meta_ptr[0] + 1);
-    for (size_t i = 0; i < meta_ptr[0]; ++i) {
-        auto& bitmap = const_cast<BitmapValue&>(data_column.get_element(i));
-        bitmap.write_to(data_ptr);
-        data_ptr += meta_ptr[i + 1];
-    }
-
-    return data_ptr;
 }
 
-const char* DataTypeBitMap::deserialize(const char* buf, IColumn* column,
+const char* DataTypeBitMap::deserialize(const char* buf, MutableColumnPtr* column,
                                         int be_exec_version) const {
-    auto& data_column = assert_cast<ColumnBitmap&>(*column);
-    auto& data = data_column.get_data();
+    if (be_exec_version >= USE_CONST_SERDE) {
+        //const flag
+        bool is_const_column = *reinterpret_cast<const bool*>(buf);
+        buf += sizeof(bool);
 
-    // deserialize the bitmap size array
-    const size_t* meta_ptr = reinterpret_cast<const size_t*>(buf);
+        // deserialize the bitmap size array
+        const size_t* meta_ptr = reinterpret_cast<const size_t*>(buf);
+        auto row_num = meta_ptr[0];
+        auto real_copy_num = is_const_column ? 1 : row_num;
+        auto& data_column = assert_cast<ColumnBitmap&>(*(column->get()));
+        auto& data = data_column.get_data();
+        // deserialize each bitmap
+        data.resize(real_copy_num);
+        const char* data_ptr = buf + sizeof(size_t) * (real_copy_num + 1);
+        for (size_t i = 0; i < real_copy_num; ++i) {
+            data[i].deserialize(data_ptr);
+            data_ptr += meta_ptr[i + 1];
+        }
 
-    // deserialize each bitmap
-    data.resize(meta_ptr[0]);
-    const char* data_ptr = buf + sizeof(size_t) * (meta_ptr[0] + 1);
-    for (size_t i = 0; i < meta_ptr[0]; ++i) {
-        data[i].deserialize(data_ptr);
-        data_ptr += meta_ptr[i + 1];
+        if (is_const_column) {
+            auto const_column = ColumnConst::create((*column)->get_ptr(), row_num);
+            *column = const_column->get_ptr();
+        }
+        return data_ptr;
+    } else {
+        auto& data_column = assert_cast<ColumnBitmap&>(*(column->get()));
+        auto& data = data_column.get_data();
+
+        // deserialize the bitmap size array
+        const size_t* meta_ptr = reinterpret_cast<const size_t*>(buf);
+
+        // deserialize each bitmap
+        data.resize(meta_ptr[0]);
+        const char* data_ptr = buf + sizeof(size_t) * (meta_ptr[0] + 1);
+        for (size_t i = 0; i < meta_ptr[0]; ++i) {
+            data[i].deserialize(data_ptr);
+            data_ptr += meta_ptr[i + 1];
+        }
+
+        return data_ptr;
     }
-
-    return data_ptr;
-}
-
-char* DataTypeBitMap::serialize2(const IColumn& column, char* buf, int be_exec_version) const {
-    // const flag
-    bool is_const_column = is_column_const(column);
-    *reinterpret_cast<bool*>(buf) = is_const_column;
-    buf += sizeof(bool);
-
-    const IColumn* bitmap_column = &column;
-    if (is_const_column) {
-        const auto& const_column = assert_cast<const ColumnConst&>(column);
-        bitmap_column = &(const_column.get_data_column());
-    }
-    const auto& data_column = assert_cast<const ColumnBitmap&>(*bitmap_column);
-
-    // serialize the bitmap size array, row num saves at index 0
-    size_t* meta_ptr = (size_t*)buf;
-    // row num
-    const auto row_num = column.size();
-    meta_ptr[0] = row_num;
-    auto real_need_copy_num = is_const_column ? 1 : row_num;
-    for (size_t i = 0; i < real_need_copy_num; ++i) {
-        auto& bitmap = const_cast<BitmapValue&>(data_column.get_element(i));
-        meta_ptr[i + 1] = bitmap.getSizeInBytes();
-    }
-
-    // serialize each bitmap
-    char* data_ptr = buf + sizeof(size_t) * (real_need_copy_num + 1);
-    for (size_t i = 0; i < real_need_copy_num; ++i) {
-        auto& bitmap = const_cast<BitmapValue&>(data_column.get_element(i));
-        bitmap.write_to(data_ptr);
-        data_ptr += meta_ptr[i + 1];
-    }
-
-    return data_ptr;
-
-    // // row num
-    // const auto row_num = column.size();
-    // *reinterpret_cast<uint32_t*>(buf) = row_num;
-    // buf += sizeof(uint32_t);
-    // auto real_need_copy_num = is_const_column ? 1 : row_num;
-
-    // const IColumn* bitmap_column = &column;
-    // if (is_const_column) {
-    //     const auto& const_column = assert_cast<const ColumnConst&>(column);
-    //     bitmap_column = &(const_column.get_data_column());
-    // }
-    // const auto& data_column = assert_cast<const ColumnBitmap&>(*bitmap_column);
-
-    // size_t* meta_ptr = (size_t*)buf;
-    // for (size_t i = 0; i < real_need_copy_num; ++i) {
-    //     auto& bitmap = const_cast<BitmapValue&>(data_column.get_element(i));
-    //     meta_ptr[i] = bitmap.getSizeInBytes();
-    // }
-    // // serialize each bitmap
-    // char* data_ptr = buf + sizeof(size_t) * real_need_copy_num;
-    // for (size_t i = 0; i < real_need_copy_num; ++i) {
-    //     auto& bitmap = const_cast<BitmapValue&>(data_column.get_element(i));
-    //     bitmap.write_to(data_ptr);
-    //     data_ptr += meta_ptr[i];
-    // }
-
-    // return data_ptr;
-}
-const char* DataTypeBitMap::deserialize2(const char* buf, MutableColumnPtr* column,
-                                         int be_exec_version) const {
-    //const flag
-    bool is_const_column = *reinterpret_cast<const bool*>(buf);
-    buf += sizeof(bool);
-
-    // deserialize the bitmap size array
-    const size_t* meta_ptr = reinterpret_cast<const size_t*>(buf);
-    auto row_num = meta_ptr[0];
-    auto real_copy_num = is_const_column ? 1 : row_num;
-    auto& data_column = assert_cast<ColumnBitmap&>(*(column->get()));
-    auto& data = data_column.get_data();
-    // deserialize each bitmap
-    data.resize(real_copy_num);
-    const char* data_ptr = buf + sizeof(size_t) * (real_copy_num + 1);
-    for (size_t i = 0; i < real_copy_num; ++i) {
-        data[i].deserialize(data_ptr);
-        data_ptr += meta_ptr[i + 1];
-    }
-
-    if (is_const_column) {
-        auto const_column = ColumnConst::create((*column)->get_ptr(), row_num);
-        *column = const_column->get_ptr();
-    }
-    return data_ptr;
 }
 
 MutableColumnPtr DataTypeBitMap::create_column() const {

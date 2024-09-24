@@ -297,6 +297,34 @@ void serialize_and_deserialize_test(segment_v2::CompressionTypePB compression_ty
     }
 }
 
+void serialize_and_deserialize_test_one() {
+    // const int
+    {
+        auto vec = vectorized::ColumnVector<Int32>::create();
+        auto& data = vec->get_data();
+        data.push_back(111);
+        auto const_column = vectorized::ColumnConst::create(vec->get_ptr(), 1);
+        vectorized::DataTypePtr data_type(std::make_shared<vectorized::DataTypeInt32>());
+        vectorized::ColumnWithTypeAndName type_and_name(const_column->get_ptr(), data_type, "test_int");
+        vectorized::Block block({type_and_name});
+        std::cout<<"dump : "<<block.dump_structure()<<std::endl;
+        std::cout<<block.dump_data();
+        PBlock pblock;
+        block_to_pb(block, &pblock, segment_v2::CompressionTypePB::LZ4);
+        std::string s1 = pblock.DebugString();
+        
+        vectorized::Block block2;
+        static_cast<void>(block2.deserialize(pblock));
+        PBlock pblock2;
+        block_to_pb(block2, &pblock2, segment_v2::CompressionTypePB::LZ4);
+        std::string s2 = pblock2.DebugString();
+        std::cout<<"dump : "<<block2.dump_structure()<<std::endl;
+        std::cout<<block2.dump_data();
+        EXPECT_EQ(block.dump_data(), block2.dump_data());
+        std::cout<<"####################################################"<<std::endl;
+        EXPECT_EQ(s1, s2);
+    }
+}
 
 void serialize_and_deserialize_test_int() {
     // const int
@@ -349,7 +377,57 @@ void serialize_and_deserialize_test_int() {
         EXPECT_EQ(s1, s2);
     }
 }
+void serialize_and_deserialize_test_long() {
+    // const long
+    {
+        auto vec = vectorized::ColumnVector<int64>::create();
+        auto& data = vec->get_data();
+        data.push_back(111);
+        auto const_column = vectorized::ColumnConst::create(vec->get_ptr(), 10);
+        vectorized::DataTypePtr data_type(std::make_shared<vectorized::DataTypeInt64>());
+        vectorized::ColumnWithTypeAndName type_and_name(const_column->get_ptr(), data_type, "test_int");
+        vectorized::Block block({type_and_name});
+        std::cout<<"dump : "<<block.dump_structure()<<std::endl;
+        std::cout<<block.dump_data();
+        PBlock pblock;
+        block_to_pb(block, &pblock, segment_v2::CompressionTypePB::LZ4);
+        std::string s1 = pblock.DebugString();
+        
+        vectorized::Block block2;
+        static_cast<void>(block2.deserialize(pblock));
+        PBlock pblock2;
+        block_to_pb(block2, &pblock2, segment_v2::CompressionTypePB::LZ4);
+        std::string s2 = pblock2.DebugString();
+        std::cout<<"dump : "<<block2.dump_structure()<<std::endl;
+        std::cout<<block2.dump_data();
+        EXPECT_EQ(block.dump_data(), block2.dump_data());
+        std::cout<<"####################################################"<<std::endl;
+        EXPECT_EQ(s1, s2);
+    }
 
+    // long
+    {
+        auto vec = vectorized::ColumnVector<int64>::create();
+        auto& data = vec->get_data();
+        for (int i = 0; i < 1024; ++i) {
+            data.push_back(i);
+        }
+        vectorized::DataTypePtr data_type(std::make_shared<vectorized::DataTypeInt64>());
+        vectorized::ColumnWithTypeAndName type_and_name(vec->get_ptr(), data_type, "test_int");
+        vectorized::Block block({type_and_name});
+        PBlock pblock;
+        block_to_pb(block, &pblock, segment_v2::CompressionTypePB::LZ4);
+        std::string s1 = pblock.DebugString();
+
+        vectorized::Block block2;
+        static_cast<void>(block2.deserialize(pblock));
+        PBlock pblock2;
+        block_to_pb(block2, &pblock2, segment_v2::CompressionTypePB::LZ4);
+        std::string s2 = pblock2.DebugString();
+        EXPECT_EQ(block.dump_data(), block2.dump_data());
+        EXPECT_EQ(s1, s2);
+    }
+}
 void serialize_and_deserialize_test_string() {
     // const_string
     {
@@ -672,6 +750,8 @@ TEST(BlockTest, SerializeAndDeserializeBlock) {
     serialize_and_deserialize_test_decimal();
     serialize_and_deserialize_test_bitmap();
     serialize_and_deserialize_test_array();
+    serialize_and_deserialize_test_long();
+    serialize_and_deserialize_test_one();
 }
 
 TEST(BlockTest, dump_data) {

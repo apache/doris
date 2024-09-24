@@ -197,14 +197,4 @@ PGenericType_TypeId IDataType::get_pdata_type(const IDataType* data_type) {
         return PGenericType::UNKNOWN;
     }
 }
-const char* IDataType::deserialize2(const char* buf, MutableColumnPtr* column, int be_exec_version) const {
-    throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                           "Data type {} deserialize2 not implement.", get_name());
-    return nullptr;
-}
-char* IDataType::serialize2(const IColumn& column, char* buf, int be_exec_version) const {
-    throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                           "Data type {} serialize2 not implement.", get_name());
-    return nullptr;
-}
 } // namespace doris::vectorized

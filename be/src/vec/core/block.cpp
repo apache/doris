@@ -125,8 +125,7 @@ Status Block::deserialize(const PBlock& pblock) {
         MutableColumnPtr data_column = type->create_column();
         // Here will try to allocate large memory, should return error if failed.
         RETURN_IF_CATCH_EXCEPTION(
-                buf = type->deserialize2(buf, &data_column, pblock.be_exec_version()));
-                // buf = type->deserialize(buf, data_column.get(), pblock.be_exec_version()));
+                buf = type->deserialize(buf, &data_column, pblock.be_exec_version()));
         data.emplace_back(data_column->get_ptr(), type, pcol_meta.name());
     }
     initialize_index_by_name();
@@ -517,7 +516,7 @@ std::string Block::dump_data(size_t begin, size_t row_limit, bool allow_null_mis
                 //                 ->get_nested_type()
                 //                 ->to_string(*data[i].column, row_num);
                 // } else {
-                    s = data[i].to_string(row_num);
+                s = data[i].to_string(row_num);
                 // }
             }
             if (s.length() > headers_size[i]) {
@@ -935,8 +934,7 @@ Status Block::serialize(int be_exec_version, PBlock* pblock,
     char* buf = column_values.data();
 
     for (const auto& c : *this) {
-        // buf = c.type->serialize(*(c.column), buf, pblock->be_exec_version());
-        buf = c.type->serialize2(*(c.column), buf, pblock->be_exec_version());
+        buf = c.type->serialize(*(c.column), buf, pblock->be_exec_version());
     }
     *uncompressed_bytes = content_uncompressed_size;
     const size_t serialize_bytes = buf - column_values.data() + STREAMVBYTE_PADDING;

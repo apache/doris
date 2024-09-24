@@ -354,70 +354,70 @@ int64_t DataTypeStruct::get_uncompressed_serialized_bytes(const IColumn& column,
 }
 
 char* DataTypeStruct::serialize(const IColumn& column, char* buf, int be_exec_version) const {
-    auto ptr = column.convert_to_full_column_if_const();
-    const auto& struct_column = assert_cast<const ColumnStruct&>(*ptr.get());
-    DCHECK(elems.size() == struct_column.tuple_size());
+    if (be_exec_version >= USE_CONST_SERDE) {
+        // const flag
+        bool is_const_column = is_column_const(column);
+        *reinterpret_cast<bool*>(buf) = is_const_column;
+        buf += sizeof(bool);
 
-    for (size_t i = 0; i < elems.size(); ++i) {
-        buf = elems[i]->serialize(struct_column.get_column(i), buf, be_exec_version);
+        // row num
+        const auto row_num = column.size();
+        *reinterpret_cast<uint32_t*>(buf) = row_num;
+        buf += sizeof(uint32_t);
+
+        const IColumn* data_column = &column;
+        if (is_const_column) {
+            const auto& const_column = assert_cast<const ColumnConst&>(column);
+            data_column = &(const_column.get_data_column());
+        }
+        const auto& struct_column = assert_cast<const ColumnStruct&>(*data_column);
+        DCHECK(elems.size() == struct_column.tuple_size());
+        for (size_t i = 0; i < elems.size(); ++i) {
+            buf = elems[i]->serialize(struct_column.get_column(i), buf, be_exec_version);
+        }
+        return buf;
+    } else {
+        auto ptr = column.convert_to_full_column_if_const();
+        const auto& struct_column = assert_cast<const ColumnStruct&>(*ptr.get());
+        DCHECK(elems.size() == struct_column.tuple_size());
+
+        for (size_t i = 0; i < elems.size(); ++i) {
+            buf = elems[i]->serialize(struct_column.get_column(i), buf, be_exec_version);
+        }
+        return buf;
     }
-    return buf;
 }
-
-const char* DataTypeStruct::deserialize(const char* buf, IColumn* column,
+const char* DataTypeStruct::deserialize(const char* buf, MutableColumnPtr* column,
                                         int be_exec_version) const {
-    auto* struct_column = assert_cast<ColumnStruct*>(column);
-    DCHECK(elems.size() == struct_column->tuple_size());
+    if (be_exec_version >= USE_CONST_SERDE) {
+        //const flag
+        bool is_const_column = *reinterpret_cast<const bool*>(buf);
+        buf += sizeof(bool);
+        //row num
+        uint32_t row_num = *reinterpret_cast<const uint32_t*>(buf);
+        buf += sizeof(uint32_t);
 
-    for (size_t i = 0; i < elems.size(); ++i) {
-        buf = elems[i]->deserialize(buf, &struct_column->get_column(i), be_exec_version);
-    }
-    return buf;
-}
+        auto* struct_column = assert_cast<ColumnStruct*>(column->get());
+        DCHECK(elems.size() == struct_column->tuple_size());
+        for (size_t i = 0; i < elems.size(); ++i) {
+            auto child_column = struct_column->get_column_ptr(i)->assume_mutable();
+            buf = elems[i]->deserialize(buf, &child_column, be_exec_version);
+        }
+        if (is_const_column) {
+            auto const_column = ColumnConst::create((*column)->get_ptr(), row_num);
+            *column = const_column->get_ptr();
+        }
+        return buf;
+    } else {
+        auto* struct_column = assert_cast<ColumnStruct*>(column->get());
+        DCHECK(elems.size() == struct_column->tuple_size());
 
-char* DataTypeStruct::serialize2(const IColumn& column, char* buf, int be_exec_version) const {
-    // const flag
-    bool is_const_column = is_column_const(column);
-    *reinterpret_cast<bool*>(buf) = is_const_column;
-    buf += sizeof(bool);
-
-    // row num
-    const auto row_num = column.size();
-    *reinterpret_cast<uint32_t*>(buf) = row_num;
-    buf += sizeof(uint32_t);
-
-    const IColumn* data_column = &column;
-    if (is_const_column) {
-        const auto& const_column = assert_cast<const ColumnConst&>(column);
-        data_column = &(const_column.get_data_column());
+        for (size_t i = 0; i < elems.size(); ++i) {
+            auto child_column = struct_column->get_column_ptr(i)->assume_mutable();
+            buf = elems[i]->deserialize(buf, &child_column, be_exec_version);
+        }
+        return buf;
     }
-    const auto& struct_column = assert_cast<const ColumnStruct&>(*data_column);
-    DCHECK(elems.size() == struct_column.tuple_size());
-    for (size_t i = 0; i < elems.size(); ++i) {
-        buf = elems[i]->serialize2(struct_column.get_column(i), buf, be_exec_version);
-    }
-    return buf;
-}
-const char* DataTypeStruct::deserialize2(const char* buf, MutableColumnPtr* column,
-                                         int be_exec_version) const {
-    //const flag
-    bool is_const_column = *reinterpret_cast<const bool*>(buf);
-    buf += sizeof(bool);
-    //row num
-    uint32_t row_num = *reinterpret_cast<const uint32_t*>(buf);
-    buf += sizeof(uint32_t);
-
-    auto* struct_column = assert_cast<ColumnStruct*>(column->get());
-    DCHECK(elems.size() == struct_column->tuple_size());
-    for (size_t i = 0; i < elems.size(); ++i) {
-        auto child_column = struct_column->get_column_ptr(i)->assume_mutable();
-        buf = elems[i]->deserialize2(buf, &child_column, be_exec_version);
-    }
-    if (is_const_column) {
-        auto const_column = ColumnConst::create((*column)->get_ptr(), row_num);
-        *column = const_column->get_ptr();
-    }
-    return buf;
 }
 
 void DataTypeStruct::to_pb_column_meta(PColumnMeta* col_meta) const {

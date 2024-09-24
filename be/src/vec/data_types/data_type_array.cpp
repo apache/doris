@@ -100,86 +100,88 @@ int64_t DataTypeArray::get_uncompressed_serialized_bytes(const IColumn& column,
 }
 
 char* DataTypeArray::serialize(const IColumn& column, char* buf, int be_exec_version) const {
-    auto ptr = column.convert_to_full_column_if_const();
-    const auto& data_column = assert_cast<const ColumnArray&>(*ptr.get());
+    if (be_exec_version >= USE_CONST_SERDE) {
+        // const flag
+        bool is_const_column = is_column_const(column);
+        *reinterpret_cast<bool*>(buf) = is_const_column;
+        buf += sizeof(bool);
 
-    // row num
-    *reinterpret_cast<ColumnArray::Offset64*>(buf) = column.size();
-    buf += sizeof(ColumnArray::Offset64);
-    // offsets
-    memcpy(buf, data_column.get_offsets().data(), column.size() * sizeof(ColumnArray::Offset64));
-    buf += column.size() * sizeof(ColumnArray::Offset64);
-    // children
-    return get_nested_type()->serialize(data_column.get_data(), buf, be_exec_version);
+        // row num
+        const auto row_num = column.size();
+        *reinterpret_cast<ColumnArray::Offset64*>(buf) = row_num;
+        buf += sizeof(ColumnArray::Offset64);
+        auto real_need_copy_num = is_const_column ? 1 : row_num;
+
+        const IColumn* array_column = &column;
+        if (is_const_column) {
+            const auto& const_column = assert_cast<const ColumnConst&>(column);
+            array_column = &(const_column.get_data_column());
+        }
+        const auto& data_column = assert_cast<const ColumnArray&>(*array_column);
+
+        // offsets
+        memcpy(buf, data_column.get_offsets().data(),
+               real_need_copy_num * sizeof(ColumnArray::Offset64));
+        buf += real_need_copy_num * sizeof(ColumnArray::Offset64);
+        // children
+        return get_nested_type()->serialize(data_column.get_data(), buf, be_exec_version);
+    } else {
+        auto ptr = column.convert_to_full_column_if_const();
+        const auto& data_column = assert_cast<const ColumnArray&>(*ptr.get());
+
+        // row num
+        *reinterpret_cast<ColumnArray::Offset64*>(buf) = column.size();
+        buf += sizeof(ColumnArray::Offset64);
+        // offsets
+        memcpy(buf, data_column.get_offsets().data(),
+               column.size() * sizeof(ColumnArray::Offset64));
+        buf += column.size() * sizeof(ColumnArray::Offset64);
+        // children
+        return get_nested_type()->serialize(data_column.get_data(), buf, be_exec_version);
+    }
 }
 
-const char* DataTypeArray::deserialize(const char* buf, IColumn* column,
+const char* DataTypeArray::deserialize(const char* buf, MutableColumnPtr* column,
                                        int be_exec_version) const {
-    auto* data_column = assert_cast<ColumnArray*>(column);
-    auto& offsets = data_column->get_offsets();
+    if (be_exec_version >= USE_CONST_SERDE) {
+        //const flag
+        bool is_const_column = *reinterpret_cast<const bool*>(buf);
+        buf += sizeof(bool);
+        //row num
+        ColumnArray::Offset64 row_num = *reinterpret_cast<const ColumnArray::Offset64*>(buf);
+        buf += sizeof(ColumnArray::Offset64);
 
-    // row num
-    ColumnArray::Offset64 row_num = *reinterpret_cast<const ColumnArray::Offset64*>(buf);
-    buf += sizeof(ColumnArray::Offset64);
-    // offsets
-    offsets.resize(row_num);
-    memcpy(offsets.data(), buf, sizeof(ColumnArray::Offset64) * row_num);
-    buf += sizeof(ColumnArray::Offset64) * row_num;
-    // children
-    return get_nested_type()->deserialize(buf, data_column->get_data_ptr()->assume_mutable(),
-                                          be_exec_version);
-}
-char* DataTypeArray::serialize2(const IColumn& column, char* buf, int be_exec_version) const {
-    // const flag
-    bool is_const_column = is_column_const(column);
-    *reinterpret_cast<bool*>(buf) = is_const_column;
-    buf += sizeof(bool);
+        auto* data_column = assert_cast<ColumnArray*>(column->get());
+        auto& offsets = data_column->get_offsets();
 
-    // row num
-    const auto row_num = column.size();
-    *reinterpret_cast<ColumnArray::Offset64*>(buf) = row_num;
-    buf += sizeof(ColumnArray::Offset64);
-    auto real_need_copy_num = is_const_column ? 1 : row_num;
+        auto real_copy_num = is_const_column ? 1 : row_num;
+        // offsets
+        offsets.resize(real_copy_num);
+        memcpy(offsets.data(), buf, sizeof(ColumnArray::Offset64) * real_copy_num);
+        buf += sizeof(ColumnArray::Offset64) * real_copy_num;
+        // children
+        auto nested_column = data_column->get_data_ptr()->assume_mutable();
+        buf = get_nested_type()->deserialize(buf, &nested_column, be_exec_version);
+        if (is_const_column) {
+            auto const_column = ColumnConst::create((*column)->get_ptr(), row_num);
+            *column = const_column->get_ptr();
+        }
+        return buf;
+    } else {
+        auto* data_column = assert_cast<ColumnArray*>(column->get());
+        auto& offsets = data_column->get_offsets();
 
-    const IColumn* array_column = &column;
-    if (is_const_column) {
-        const auto& const_column = assert_cast<const ColumnConst&>(column);
-        array_column = &(const_column.get_data_column());
+        // row num
+        ColumnArray::Offset64 row_num = *reinterpret_cast<const ColumnArray::Offset64*>(buf);
+        buf += sizeof(ColumnArray::Offset64);
+        // offsets
+        offsets.resize(row_num);
+        memcpy(offsets.data(), buf, sizeof(ColumnArray::Offset64) * row_num);
+        buf += sizeof(ColumnArray::Offset64) * row_num;
+        // children
+        auto nested_column = data_column->get_data_ptr()->assume_mutable();
+        return get_nested_type()->deserialize(buf, &nested_column, be_exec_version);
     }
-    const auto& data_column = assert_cast<const ColumnArray&>(*array_column);
-
-    // offsets
-    memcpy(buf, data_column.get_offsets().data(),
-           real_need_copy_num * sizeof(ColumnArray::Offset64));
-    buf += real_need_copy_num * sizeof(ColumnArray::Offset64);
-    // children
-    return get_nested_type()->serialize2(data_column.get_data(), buf, be_exec_version);
-}
-const char* DataTypeArray::deserialize2(const char* buf, MutableColumnPtr* column,
-                                        int be_exec_version) const {
-    //const flag
-    bool is_const_column = *reinterpret_cast<const bool*>(buf);
-    buf += sizeof(bool);
-    //row num
-    ColumnArray::Offset64 row_num = *reinterpret_cast<const ColumnArray::Offset64*>(buf);
-    buf += sizeof(ColumnArray::Offset64);
-
-    auto* data_column = assert_cast<ColumnArray*>(column->get());
-    auto& offsets = data_column->get_offsets();
-
-    auto real_copy_num = is_const_column ? 1 : row_num;
-    // offsets
-    offsets.resize(real_copy_num);
-    memcpy(offsets.data(), buf, sizeof(ColumnArray::Offset64) * real_copy_num);
-    buf += sizeof(ColumnArray::Offset64) * real_copy_num;
-    // children
-    auto nested_column = data_column->get_data_ptr()->assume_mutable();
-    buf = get_nested_type()->deserialize2(buf, &nested_column, be_exec_version);
-    if (is_const_column) {
-        auto const_column = ColumnConst::create((*column)->get_ptr(), row_num);
-        *column = const_column->get_ptr();
-    }
-    return buf;
 }
 
 void DataTypeArray::to_pb_column_meta(PColumnMeta* col_meta) const {
