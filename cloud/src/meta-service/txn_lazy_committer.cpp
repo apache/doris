@@ -445,7 +445,7 @@ std::pair<MetaServiceCode, std::string> TxnLazyCommitTask::wait() {
                            [this]() { return this->finished_ == true; })) {
             break;
         }
-        LOG(INFO) << "txn_id=" << txn_id_ << "wait_for 5s timeout round=" << ++round;
+        LOG(INFO) << "txn_id=" << txn_id_ << " wait_for 5s timeout round=" << ++round;
     }
 
     txn_lazy_committer_->remove(txn_id_);
