@@ -358,6 +358,10 @@ public:
         return *this;
     }
 
+    // disable copy constructor and copy assignment
+    OwnedSlice(const OwnedSlice&) = delete;
+    void operator=(const OwnedSlice&) = delete;
+
     ~OwnedSlice() {
         if (_slice.data != nullptr) {
             DCHECK(_capacity != 0);
