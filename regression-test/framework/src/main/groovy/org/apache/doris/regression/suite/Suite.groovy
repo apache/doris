@@ -1478,8 +1478,7 @@ class Suite implements GroovyInterceptable {
     }
 
     boolean isCloudMode() {
-        context.config.fetchCloudMode()
-        return context.config.runMode == RunMode.CLOUD
+        return context.config.isCloudMode()
     }
 
     boolean enableStoragevault() {

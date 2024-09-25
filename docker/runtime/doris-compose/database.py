@@ -240,7 +240,7 @@ class DBManager(object):
         self.conn = pymysql.connect(user="root",
                                     host=self.master_fe_ip,
                                     read_timeout=10,
-                                    connect_timeout=2,
+                                    connect_timeout=3,
                                     port=CLUSTER.FE_QUERY_PORT)
 
 
@@ -255,6 +255,18 @@ def get_db_mgr(cluster_name, required_load_succ=True):
             master_fe_ip = f.read().strip()
 
     if not master_fe_ip:
+        return db_mgr
+
+    has_alive_fe = False
+    containers = utils.get_doris_containers(cluster_name).get(cluster_name, [])
+    for container in containers:
+        if utils.is_container_running(container):
+            _, node_type, _ = utils.parse_service_name(container.name)
+            if node_type == CLUSTER.Node.TYPE_FE:
+                has_alive_fe = True
+                break
+
+    if not has_alive_fe:
         return db_mgr
 
     db_mgr.master_fe_ip = master_fe_ip
