@@ -791,7 +791,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
                 baseIndexId = newIdxId;
             }
             MaterializedIndexMeta indexMeta = origIdxIdToMeta.get(entry.getKey());
-            indexMeta.resetIndexIdForRestore(newIdxId, srcDbName, db.getFullName());
+            indexMeta.resetIndexIdForRestore(newIdxId, srcDbName, db.getName());
             indexIdToMeta.put(newIdxId, indexMeta);
             indexNameToId.put(entry.getValue(), newIdxId);
         }
@@ -1571,6 +1571,9 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         return getRowCountForIndex(baseIndexId, false);
     }
 
+    /**
+     * @return -1 if there are some tablets whose row count is not reported to FE
+     */
     public long getRowCountForIndex(long indexId, boolean strict) {
         long rowCount = 0;
         for (Map.Entry<Long, Partition> entry : idToPartition.entrySet()) {

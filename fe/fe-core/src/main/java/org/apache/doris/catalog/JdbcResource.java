@@ -77,6 +77,7 @@ public class JdbcResource extends Resource {
     public static final String JDBC_PRESTO = "jdbc:presto";
     public static final String JDBC_OCEANBASE = "jdbc:oceanbase";
     public static final String JDBC_DB2 = "jdbc:db2";
+    public static final String JDBC_GBASE = "jdbc:gbase";
 
     public static final String MYSQL = "MYSQL";
     public static final String POSTGRESQL = "POSTGRESQL";
@@ -89,6 +90,7 @@ public class JdbcResource extends Resource {
     public static final String OCEANBASE = "OCEANBASE";
     public static final String OCEANBASE_ORACLE = "OCEANBASE_ORACLE";
     public static final String DB2 = "DB2";
+    public static final String GBASE = "GBASE";
 
     public static final String JDBC_PROPERTIES_PREFIX = "jdbc.";
     public static final String JDBC_URL = "jdbc_url";
@@ -331,6 +333,8 @@ public class JdbcResource extends Resource {
             return OCEANBASE;
         } else if (url.startsWith(JDBC_DB2)) {
             return DB2;
+        } else if (url.startsWith(JDBC_GBASE)) {
+            return GBASE;
         }
         throw new DdlException("Unsupported jdbc database type, please check jdbcUrl: " + url);
     }

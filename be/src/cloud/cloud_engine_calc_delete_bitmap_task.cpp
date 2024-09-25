@@ -87,6 +87,7 @@ Status CloudEngineCalcDeleteBitmapTask::execute() {
                     LOG(WARNING) << "handle calc delete bitmap fail, st=" << st.to_string();
                 }
             });
+            VLOG_DEBUG << "submit TabletCalcDeleteBitmapTask for tablet=" << tablet_id;
             if (!submit_st.ok()) {
                 _res = submit_st;
                 break;
@@ -126,6 +127,7 @@ void CloudTabletCalcDeleteBitmapTask::set_compaction_stats(int64_t ms_base_compa
 }
 
 Status CloudTabletCalcDeleteBitmapTask::handle() const {
+    VLOG_DEBUG << "start calculate delete bitmap on tablet " << _tablet_id;
     SCOPED_ATTACH_TASK(_mem_tracker);
     int64_t t1 = MonotonicMicros();
     auto base_tablet = DORIS_TRY(_engine.get_tablet(_tablet_id));

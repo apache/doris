@@ -185,7 +185,7 @@ unsupportedOtherStatement
     | UNLOCK TABLES                                                                 #unlockTables
     | WARM UP (CLUSTER | COMPUTE GROUP) destination=identifier WITH
         ((CLUSTER | COMPUTE GROUP) source=identifier |
-        (warmUpItem (COMMA warmUpItem)*)) FORCE?                                    #warmUpCluster
+            (warmUpItem (AND warmUpItem)*)) FORCE?                                  #warmUpCluster
     | BACKUP SNAPSHOT label=multipartIdentifier TO repo=identifier
         ((ON | EXCLUDE) LEFT_PAREN baseTableRef (COMMA baseTableRef)* RIGHT_PAREN)?
         properties=propertyClause?                                                  #backup
@@ -848,14 +848,15 @@ unsupportedUseStatement
 
 unsupportedDmlStatement
     : TRUNCATE TABLE multipartIdentifier specifiedPartition?                        #truncateTable
-    | COPY INTO selectHint? name=multipartIdentifier columns=identifierList FROM
+    | COPY INTO selectHint? name=multipartIdentifier columns=identifierList? FROM
         (stageAndPattern | (LEFT_PAREN SELECT selectColumnClause
             FROM stageAndPattern whereClause RIGHT_PAREN))
         properties=propertyClause?                                                  #copyInto
     ;
 
 stageAndPattern
-    : AT (stage=identifier | TILDE) (pattern=STRING_LITERAL)?
+    : ATSIGN (stage=identifier | TILDE)
+        (LEFT_PAREN pattern=STRING_LITERAL RIGHT_PAREN)?
     ;
 
 unsupportedKillStatement
@@ -1268,12 +1269,12 @@ optScanParams
 
 relationPrimary
     : multipartIdentifier optScanParams? materializedViewName? tableSnapshot? specifiedPartition?
-       tabletList? tableAlias sample? relationHint? lateralView*           #tableName
-    | LEFT_PAREN query RIGHT_PAREN tableAlias lateralView*                 #aliasedQuery
+       tabletList? tableAlias sample? relationHint? lateralView*                           #tableName
+    | LEFT_PAREN query RIGHT_PAREN tableAlias lateralView*                                 #aliasedQuery
     | tvfName=identifier LEFT_PAREN
       (properties=propertyItemList)?
-      RIGHT_PAREN tableAlias                                               #tableValuedFunction
-    | LEFT_PAREN relations RIGHT_PAREN                                     #relationList
+      RIGHT_PAREN tableAlias                                                               #tableValuedFunction
+    | LEFT_PAREN relations RIGHT_PAREN                                                     #relationList
     ;
 
 materializedViewName
@@ -1863,6 +1864,7 @@ nonReserved
     | DEFERRED
     | DEMAND
     | DIAGNOSE
+    | DIAGNOSIS
     | DISTINCTPC
     | DISTINCTPCSA
     | DO

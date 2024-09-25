@@ -30,6 +30,7 @@ suite("test_schema_change_ck") {
     }
 
     sql """ DROP TABLE IF EXISTS ${tableName} """
+    if (!isCloudMode()) {
     test {
         sql """
             CREATE TABLE IF NOT EXISTS ${tableName} (
@@ -46,6 +47,7 @@ suite("test_schema_change_ck") {
             );
         """
         exception "Unique merge-on-write table with cluster keys must enable light schema change"
+    }
     }
     sql """
         CREATE TABLE IF NOT EXISTS ${tableName} (
@@ -171,7 +173,7 @@ suite("test_schema_change_ck") {
         assertEquals(partitions.size(), 2)
     }
     sql """ INSERT INTO ${tableName}(c1, c2, c3, k2) VALUES (10011, 21, 38, 200), (10010, 20, 39, 200) """
-    qt_select_add_partition """select * from ${tableName}"""
+    qt_select_add_partition """select * from ${tableName} partition (p_20000)"""
 
     /****** one sql contain multi column changes ******/
 

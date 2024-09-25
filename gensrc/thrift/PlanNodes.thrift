@@ -538,6 +538,12 @@ struct TPartitionsMetadataParams {
   3: optional string table
 }
 
+struct TPartitionValuesMetadataParams {
+  1: optional string catalog
+  2: optional string database
+  3: optional string table
+}
+
 struct TJobsMetadataParams {
   1: optional string type
   2: optional Types.TUserIdentity current_user_ident
@@ -555,6 +561,7 @@ struct TQueriesMetadataParams {
   4: optional TJobsMetadataParams jobs_params
   5: optional TTasksMetadataParams tasks_params
   6: optional TPartitionsMetadataParams partitions_params
+  7: optional TPartitionValuesMetadataParams partition_values_params
 }
 
 struct TMetaCacheStatsParams {
@@ -571,6 +578,7 @@ struct TMetaScanRange {
   8: optional TTasksMetadataParams tasks_params
   9: optional TPartitionsMetadataParams partitions_params
   10: optional TMetaCacheStatsParams meta_cache_stats_params
+  11: optional TPartitionValuesMetadataParams partition_values_params
 }
 
 // Specification of an individual data range which is held in its entirety
