@@ -15,6 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import org.apache.doris.regression.util.DebugPoint
+import org.apache.doris.regression.util.NodeType
+
 suite("test_cloud_mow_compaction_get_delete_bitmap_from_cache_fail", "nonConcurrent") {
     if (!isCloudMode()) {
         return
@@ -71,10 +74,21 @@ suite("test_cloud_mow_compaction_get_delete_bitmap_from_cache_fail", "nonConcurr
         DebugPoint.enableDebugPoint(injectBe.Host, injectBe.HttpPort.toInteger(), NodeType.BE, inject_cache_miss)
         DebugPoint.disableDebugPoint(injectBe.Host, injectBe.HttpPort.toInteger(), NodeType.BE, inject_spin_block)
 
+         do {
+             Thread.sleep(100)
+             (code, out, err) = be_get_compaction_status(injectBe.Host, injectBe.HttpPort, tabletId)
+             logger.info("Get compaction status: code=" + code + ", out=" + out + ", err=" + err)
+             assertEquals(code, 0)
+             def compactionStatus = parseJson(out.trim())
+             assertEquals("success", compactionStatus.status.toLowerCase())
+             running = compactionStatus.run_status
+         } while (running)
+
+        Thread.sleep(200)
         order_qt_sql "set use_fix_replica=0; select * from ${tableName};"
     } catch (Exception e) {
         logger.info(e.getMessage())
-        AssertTrue(false)
+        assertTrue(false)
     } finally {
         GetDebugPoint().clearDebugPointsForAllFEs()
         GetDebugPoint().clearDebugPointsForAllBEs()
