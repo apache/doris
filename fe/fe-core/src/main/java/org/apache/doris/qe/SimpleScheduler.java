@@ -19,7 +19,6 @@ package org.apache.doris.qe;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.Pair;
 import org.apache.doris.common.Reference;
 import org.apache.doris.common.UserException;
 import org.apache.doris.system.Backend;
@@ -27,6 +26,7 @@ import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TScanRangeLocation;
 
+import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -38,9 +38,112 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Collectors;
 
 public class SimpleScheduler {
+    public static class BlackListInfo {
+        public BlackListInfo() {}
+
+        public void tryAddBlackList(String reason) {
+            lock.lock();
+            try {
+                recordAddBlackList(reason);
+                if (shuoldBeBlackListed()) {
+                    doAddBlackList();
+                }
+            } finally {
+                lock.unlock();
+            }   
+        }
+
+        private void recordAddBlackList(String reason) {
+            lastRecordBlackTimestampMs = System.currentTimeMillis();
+            recordBlackListCount++;
+            if (Strings.isNullOrEmpty(reasonForBlackList) && !Strings.isNullOrEmpty(reason)) {
+                reasonForBlackList = reason;
+            }
+        }
+
+        private boolean shuoldBeBlackListed() {
+            if (lastRecordBlackTimestampMs <= 0) {
+                return false;
+            }
+
+            Long currentTimeStamp = System.currentTimeMillis();
+            if (recordBlackListCount >= 10 && currentTimeStamp - lastRecordBlackTimestampMs > 60 * 1000) {
+                return true;
+            }
+
+            return false;
+        }
+
+        private void doAddBlackList() {
+            lastBlackTimestampMs = System.currentTimeMillis();
+            LOG.warn("Add backend {} to black list. reason: {}", backendID, reasonForBlackList, new Exception());
+        }
+
+        public boolean shuoldBeRemoved() {
+            lock.lock();
+            try {
+                Long currentTimeStamp = System.currentTimeMillis();
+                // If this backend has not been recorded as black for more than 1 minutes, then regard it as normal
+                if (currentTimeStamp - lastRecordBlackTimestampMs > 60 * 1000) {
+                    lastRecordBlackTimestampMs = 0L;
+                    lastBlackTimestampMs = 0L;
+                    recordBlackListCount = 0L;
+                    reasonForBlackList = "";
+                    return true;
+                } else {
+                    return false;
+                }
+            } finally {
+                lock.unlock();
+            }
+        }
+
+        public boolean isBlacked() {
+            lock.lock();
+            try {
+                return lastBlackTimestampMs > 0;
+            } finally {
+                lock.unlock();
+            }
+        }
+
+        public String getReasonForBlackList() {
+            lock.lock();
+            try {
+                return reasonForBlackList;
+            } finally {
+                lock.unlock();
+            }
+        }
+
+        public String getDebugInfo() {
+            StringBuilder sb = new StringBuilder();
+            lock.lock();
+            try {
+                sb.append("backendID: ").append(backendID).append("\n");
+                sb.append("reasonForBlackList: ").append(reasonForBlackList).append("\n");
+                sb.append("lastRecordBlackTimestampMs: ").append(lastRecordBlackTimestampMs).append("\n");
+                sb.append("lastBlackTimestampMs: ").append(lastBlackTimestampMs).append("\n");
+                sb.append("recordBlackListCount: ").append(recordBlackListCount).append("\n");
+                return sb.toString();
+            } finally {
+                lock.unlock();
+            }
+        }
+
+        private Lock lock = new ReentrantLock();
+        private String reasonForBlackList = "";
+        private Long lastRecordBlackTimestampMs = 0L;
+        private Long lastBlackTimestampMs = 0L;
+        private Long recordBlackListCount = 0L;
+        private Long backendID = 0L;
+
+    };
     private static final Logger LOG = LogManager.getLogger(SimpleScheduler.class);
 
     private static AtomicLong nextId = new AtomicLong(0);
@@ -49,7 +152,7 @@ public class SimpleScheduler {
     // There will be multi threads to read and modify this map.
     // But only one thread (UpdateBlacklistThread) will modify the `Pair`.
     // So using concurrent map is enough
-    private static Map<Long, Pair<Integer, String>> blacklistBackends = Maps.newConcurrentMap();
+    private static Map<Long, BlackListInfo> blacklistBackends = Maps.newConcurrentMap();
     private static UpdateBlacklistThread updateBlacklistThread;
 
     public static void init() {
@@ -68,6 +171,7 @@ public class SimpleScheduler {
         if (LOG.isDebugEnabled()) {
             LOG.debug("getHost backendID={}, backendSize={}", backendId, backends.size());
         }
+
         Backend backend = backends.get(backendId);
 
         if (isAvailable(backend)) {
@@ -154,13 +258,13 @@ public class SimpleScheduler {
         for (int i = 0; i < backendIds.size() && i < limit; i++) {
             long beId = backendIds.get(i);
             Backend be = backends.get(beId);
+            BlackListInfo blackListInfo = blacklistBackends.get(beId);
             if (be == null) {
                 res.add(beId + ": not exist");
             } else if (!be.isAlive()) {
                 res.add(beId + ": not alive");
-            } else if (blacklistBackends.containsKey(beId)) {
-                Pair<Integer, String> pair = blacklistBackends.get(beId);
-                res.add(beId + ": in black list(" + (pair == null ? "unknown" : pair.second) + ")");
+            } else if (blackListInfo != null && blackListInfo.isBlacked()) {
+                res.add(beId + ": in black list(" + blackListInfo.getReasonForBlackList() + ")");
             } else if (!be.isQueryAvailable()) {
                 res.add(beId + ": disable query");
             } else {
@@ -177,12 +281,26 @@ public class SimpleScheduler {
             return;
         }
 
-        blacklistBackends.put(backendID, Pair.of(Config.blacklist_duration_second + 1, reason));
-        LOG.warn("add backend {} to black list. reason: {}", backendID, reason);
+        BlackListInfo blackListInfo = blacklistBackends.putIfAbsent(backendID, new BlackListInfo());
+        if (blackListInfo == null) {
+            blackListInfo = blacklistBackends.get(backendID);
+        }
+
+        blackListInfo.tryAddBlackList(reason);
     }
 
     public static boolean isAvailable(Backend backend) {
-        return (backend != null && backend.isQueryAvailable() && !blacklistBackends.containsKey(backend.getId()));
+        if (backend == null) {
+            return false;
+        }
+        if (!backend.isQueryAvailable()) {
+            return false;
+        }
+        BlackListInfo blackListInfo = blacklistBackends.get(backend.getId());
+        if (blackListInfo != null && blackListInfo.isBlacked()) {
+            return false;
+        }
+        return true;
     }
 
     private static class UpdateBlacklistThread implements Runnable {
@@ -208,25 +326,26 @@ public class SimpleScheduler {
                     Thread.sleep(1000L);
                     SystemInfoService clusterInfoService = Env.getCurrentSystemInfo();
 
-                    Iterator<Map.Entry<Long, Pair<Integer, String>>> iterator = blacklistBackends.entrySet().iterator();
-                    while (iterator.hasNext()) {
-                        Map.Entry<Long, Pair<Integer, String>> entry = iterator.next();
-                        Long backendId = entry.getKey();
+                    Iterator<Map.Entry<Long, SimpleScheduler.BlackListInfo>>
+                            iterator = blacklistBackends.entrySet().iterator();
 
+                    while (iterator.hasNext()) {
+                        Map.Entry<Long, SimpleScheduler.BlackListInfo> entry = iterator.next();
+                        Long backendId = entry.getKey();
+                        Backend backend = clusterInfoService.getBackend(backendId);
                         // remove from blacklist if backend does not exist anymore
-                        if (clusterInfoService.getBackend(backendId) == null) {
+                        if (backend == null) {
                             iterator.remove();
                             LOG.info("remove backend {} from black list because it does not exist", backendId);
                         } else {
-                            // 3. max try time is reach
-                            entry.getValue().first = entry.getValue().first - 1;
-                            if (entry.getValue().first <= 0) {
+                            BlackListInfo blackListInfo = entry.getValue();
+                            if (backend.isAlive() || blackListInfo.shuoldBeRemoved()) {
                                 iterator.remove();
-                                LOG.warn("remove backend {} from black list. reach max try time", backendId);
+                                LOG.info("remove backend {} from black list. backend is alive: {}",
+                                        backendId, backend.isAlive());
                             } else {
                                 if (LOG.isDebugEnabled()) {
-                                    LOG.debug("blacklistBackends backendID={} retryTimes={}",
-                                            backendId, entry.getValue().first);
+                                    LOG.debug("blacklistBackends {}", blackListInfo.getDebugInfo());
                                 }
                             }
                         }
