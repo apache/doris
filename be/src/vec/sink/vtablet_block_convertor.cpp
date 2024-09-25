@@ -29,6 +29,7 @@
 #include <utility>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/consts.h"
 #include "common/status.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
@@ -556,6 +557,10 @@ Status OlapTableBlockConvertor::_fill_auto_inc_cols(vectorized::Block* block, si
 
 Status OlapTableBlockConvertor::_partial_update_fill_auto_inc_cols(vectorized::Block* block,
                                                                    size_t rows) {
+    // avoid duplicate PARTIAL_UPDATE_AUTO_INC_COL
+    if (block->has(BeConsts::PARTIAL_UPDATE_AUTO_INC_COL)) {
+        return Status::OK();
+    }
     auto dst_column = vectorized::ColumnInt64::create();
     vectorized::ColumnInt64::Container& dst_values = dst_column->get_data();
     size_t null_value_count = rows;
@@ -570,7 +575,7 @@ Status OlapTableBlockConvertor::_partial_update_fill_auto_inc_cols(vectorized::B
     }
     block->insert(vectorized::ColumnWithTypeAndName(std::move(dst_column),
                                                     std::make_shared<DataTypeNumber<Int64>>(),
-                                                    "__PARTIAL_UPDATE_AUTO_INC_COLUMN__"));
+                                                    BeConsts::PARTIAL_UPDATE_AUTO_INC_COL));
     return Status::OK();
 }
 
