@@ -29,7 +29,8 @@ suite("test_cloud_mow_compaction_get_delete_bitmap_from_cache_fail", "nonConcurr
             BUCKETS 1  PROPERTIES(
                 "replication_num" = "1",
                 "enable_unique_key_merge_on_write"="true",
-                "disable_auto_compaction" = "true"); """
+                "disable_auto_compaction" = "true");
+        """
 
     sql "insert into ${tableName} values(1,1,1);"
     sql "insert into ${tableName} values(2,2,2);"
