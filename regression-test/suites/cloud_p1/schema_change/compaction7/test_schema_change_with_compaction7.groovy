@@ -26,7 +26,7 @@ import org.apache.doris.regression.util.DebugPoint
 
 import org.apache.doris.regression.util.NodeType
 
-suite('test_schema_change_with_compaction1', 'nonConcurrent') {
+suite('test_schema_change_with_compaction7', 'p1,nonConcurrent') {
     def getJobState = { tableName ->
         def jobStateResult = sql """ SHOW ALTER TABLE COLUMN WHERE IndexName='${tableName}' ORDER BY createtime DESC LIMIT 1 """
         return jobStateResult[0][9]
@@ -67,7 +67,7 @@ suite('test_schema_change_with_compaction1', 'nonConcurrent') {
         }
     }
 
-    sql new File("""${context.file.parent}/../ddl/date_create.sql""").text
+    sql new File("""${context.file.parent}/../ddl/date_unique_create.sql""").text
     def injectName = 'CloudSchemaChangeJob.process_alter_tablet.sleep'
     def injectBe = null
     def backends = sql_return_maparray('show backends')
@@ -108,13 +108,12 @@ suite('test_schema_change_with_compaction1', 'nonConcurrent') {
 
         DebugPoint.enableDebugPoint(injectBe.Host, injectBe.HttpPort.toInteger(), NodeType.BE, injectName)
         sql "ALTER TABLE date MODIFY COLUMN d_holidayfl bigint(11)"
-        sleep(5000) 
+        sleep(15000) 
         array = sql_return_maparray("SHOW TABLETS FROM date")
 
         for (int i = 0; i < 5; i++) {
             load_date_once("date");
         }
-
         // base compaction
         logger.info("run compaction:" + originTabletId)
         (code, out, err) = be_run_base_compaction(injectBe.Host, injectBe.HttpPort, originTabletId)
@@ -179,7 +178,7 @@ suite('test_schema_change_with_compaction1', 'nonConcurrent') {
         }
         assertEquals(result, "FINISHED");
         def count = sql """ select count(*) from date; """
-        assertEquals(count[0][0], 23004);
+        assertEquals(count[0][0], 2556);
         // check rowsets
         logger.info("run show:" + originTabletId)
         (code, out, err) = be_show_tablet_status(injectBe.Host, injectBe.HttpPort, originTabletId)

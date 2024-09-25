@@ -18,6 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.common.Config;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.system.Backend;
@@ -241,7 +242,16 @@ public class Replica {
         return this.id;
     }
 
-    public long getBackendId() {
+    public long getBackendIdWithoutException() {
+        try {
+            return getBackendId();
+        } catch (UserException e) {
+            LOG.warn("getBackendIdWithoutException: ", e);
+            return -1;
+        }
+    }
+
+    public long getBackendId() throws UserException {
         return this.backendId;
     }
 

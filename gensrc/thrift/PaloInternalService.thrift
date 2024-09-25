@@ -345,6 +345,9 @@ struct TQueryOptions {
   132: optional i32 parallel_prepare_threshold = 0;
   133: optional i32 partition_topn_max_partitions = 1024;
   134: optional i32 partition_topn_pre_partition_rows = 1000;
+
+  135: optional bool enable_parallel_outfile = false;
+
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.
   // In read path, read from file cache or remote storage when execute query.

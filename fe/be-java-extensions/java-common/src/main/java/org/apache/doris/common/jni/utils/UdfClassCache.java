@@ -15,12 +15,27 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.parser;
+package org.apache.doris.common.jni.utils;
+
+import com.esotericsoftware.reflectasm.MethodAccess;
+
+import java.lang.reflect.Method;
 
 /**
- * Complex complex function transformer
+ * This class is used for caching the class of UDF.
  */
-public abstract class ComplexFnCallTransformer extends AbstractFnCallTransformer {
-
-    protected abstract String getSourceFnName();
+public class UdfClassCache {
+    public Class<?> udfClass;
+    // the index of evaluate() method in the class
+    public MethodAccess methodAccess;
+    public int evaluateIndex;
+    // the method of evaluate() in udf
+    public Method method;
+    // the method of prepare() in udf
+    public Method prepareMethod;
+    // the argument and return's JavaUdfDataType of evaluate() method.
+    public JavaUdfDataType[] argTypes;
+    public JavaUdfDataType retType;
+    // the class type of the arguments in evaluate() method
+    public Class[] argClass;
 }

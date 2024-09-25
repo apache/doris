@@ -1414,7 +1414,8 @@ public class DatabaseTransactionMgr {
                     tabletWriteFailedReplicas.clear();
                     tabletVersionFailedReplicas.clear();
                     for (Replica replica : tablet.getReplicas()) {
-                        List<PublishVersionTask> publishVersionTasks = publishTasks.get(replica.getBackendId());
+                        List<PublishVersionTask> publishVersionTasks
+                                = publishTasks.get(replica.getBackendIdWithoutException());
                         Preconditions.checkState(publishVersionTasks == null || publishVersionTasks.size() == 1,
                                 "publish tasks: " + publishVersionTasks);
                         PublishVersionTask publishVersionTask = null;
@@ -2297,10 +2298,10 @@ public class DatabaseTransactionMgr {
                             if (newVersion == Partition.PARTITION_INIT_VERSION + 1) {
                                 index.setRowCountReported(false);
                             }
-                            Set<Long> partitionIds = backendPartitions.get(replica.getBackendId());
+                            Set<Long> partitionIds = backendPartitions.get(replica.getBackendIdWithoutException());
                             if (partitionIds == null) {
                                 partitionIds = Sets.newHashSet();
-                                backendPartitions.put(replica.getBackendId(), partitionIds);
+                                backendPartitions.put(replica.getBackendIdWithoutException(), partitionIds);
                             }
                             partitionIds.add(partitionId);
                         }
@@ -2741,7 +2742,8 @@ public class DatabaseTransactionMgr {
                     List<Replica> tabletWriteFailedReplicas = Lists.newArrayList();
                     List<Replica> tabletVersionFailedReplicas = Lists.newArrayList();
                     for (Replica replica : tablet.getReplicas()) {
-                        List<PublishVersionTask> publishVersionTasks = publishTasks.get(replica.getBackendId());
+                        List<PublishVersionTask> publishVersionTasks
+                                = publishTasks.get(replica.getBackendIdWithoutException());
                         List<PublishVersionTask> replicaTasks = new ArrayList<>();
                         for (Long subTransactionId : subTxnIds) {
                             PublishVersionTask publishVersionTask = null;

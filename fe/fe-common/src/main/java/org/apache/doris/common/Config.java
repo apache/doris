@@ -1478,7 +1478,7 @@ public class Config extends ConfigBase {
      * Whether to allow the outfile function to export the results to the local disk.
      */
     @ConfField
-    public static boolean enable_outfile_to_local = false;
+    public static boolean enable_outfile_to_local = true;
 
     /**
      * Used to set the initial flow window size of the GRPC client channel, and also used to max message size.
@@ -2776,6 +2776,9 @@ public class Config extends ConfigBase {
     @ConfField
     public static String spilled_profile_storage_path = System.getenv("LOG_DIR") + File.separator + "profile";
 
+    @ConfField
+    public static String spilled_minidump_storage_path = System.getenv("LOG_DIR") + File.separator + "minidump";
+
     // The max number of profiles that can be stored to storage.
     @ConfField
     public static int max_spilled_profile_num = 500;
@@ -3092,6 +3095,10 @@ public class Config extends ConfigBase {
     @ConfField(description = {"检查资源就绪的周期，单位秒",
             "Interval checking if resource is ready"})
     public static long resource_not_ready_sleep_seconds = 5;
+
+    @ConfField(mutable = true, description = {
+            "设置为 true，如果查询无法选择到健康副本时，会打印出该tablet所有副本的详细信息，"})
+    public static boolean sql_block_rule_ignore_admin = false;
 
     @ConfField(description = {"认证插件目录",
             "Authentication plugin directory"})

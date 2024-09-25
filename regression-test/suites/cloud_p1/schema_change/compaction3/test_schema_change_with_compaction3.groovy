@@ -26,7 +26,7 @@ import org.apache.doris.regression.util.DebugPoint
 
 import org.apache.doris.regression.util.NodeType
 
-suite('test_schema_change_with_compaction3', 'nonConcurrent') {
+suite('test_schema_change_with_compaction3', 'p1,nonConcurrent') {
     def getJobState = { tableName ->
         def jobStateResult = sql """ SHOW ALTER TABLE COLUMN WHERE IndexName='${tableName}' ORDER BY createtime DESC LIMIT 1 """
         return jobStateResult[0][9]

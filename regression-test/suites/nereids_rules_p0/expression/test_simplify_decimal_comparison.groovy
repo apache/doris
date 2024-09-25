@@ -15,8 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.analyzer;
+suite("test_simplify_decimal_comparison") {
+    test {
+        sql """SELECT 1 FROM DUAL WHERE CAST(2.2222 AS DECIMAL(26, 2)) = 2.22"""
+        result ([[1]])
+    }
 
-/** ComplexDataType */
-public interface ComplexDataType {
+    test {
+        sql """ SELECT 1 FROM DUAL WHERE CAST(2.2222 AS DECIMAL(26, 2)) != 2.22 """
+        result ([])
+    }
 }
