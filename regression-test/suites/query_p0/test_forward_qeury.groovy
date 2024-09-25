@@ -39,10 +39,13 @@ suite("test_forward_query", 'docker') {
             );
         """
 
+        cluster.injectDebugPoints(NodeType.FE, ['StmtExecutor.forward_all_queries' : [forwardAllQueries:true, execute:1]])
+
         sql """ INSERT INTO ${tbl} VALUES(1);"""
 
-        cluster.injectDebugPoints(NodeType.FE, ['StmtExecutor.forward_all_queries' : [forwardAllQueries:true]])
+        cluster.injectDebugPoints(NodeType.FE, ['StmtExecutor.forward_all_queries' : [forwardAllQueries:true, execute:1]])
 
-        sql """ SELECT * FROM ${tbl} """
+        def ret = sql """ SELECT * FROM ${tbl} """
+        assertEquals(ret[0][0], 1)
     }
 }
