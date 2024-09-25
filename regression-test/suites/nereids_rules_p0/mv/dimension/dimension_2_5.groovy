@@ -298,10 +298,7 @@ suite("partition_mv_rewrite_dimension_2_5") {
             o_orderdate,
             o_shippriority,
             o_comment """
-    explain {
-        sql("${sql_stmt_5}")
-        notContains "${mv_name_5}(${mv_name_5})"
-    }
+    mv_rewrite_fail(sql_stmt_5, mv_name_5)
     compare_res(sql_stmt_5 + " order by 1,2,3")
 
     def sql_stmt_5_2 = """select o_orderdate, o_shippriority, o_comment
@@ -312,10 +309,7 @@ suite("partition_mv_rewrite_dimension_2_5") {
             o_orderdate,
             o_shippriority,
             o_comment """
-    explain {
-        sql("${sql_stmt_5_2}")
-        notContains "${mv_name_5}(${mv_name_5})"
-    }
+    mv_rewrite_fail(sql_stmt_5_2, mv_name_5)
     compare_res(sql_stmt_5_2 + " order by 1,2,3")
     sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name_5};"""
 

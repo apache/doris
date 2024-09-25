@@ -138,13 +138,8 @@ suite("dml_into_outfile", "p0") {
     // enable dml rewrite by mv
     sql "set enable_dml_materialized_view_rewrite=true";
 
-    explain {
-        sql """${into_outfile_async_query}"""
-        check {result ->
-            def splitResult = result.split("MaterializedViewRewriteFail")
-            splitResult.length == 2 ? splitResult[0].contains(into_outfile_async_mv_name) : false
-        }
-    }
+    mv_rewrite_success_without_check_chosen (
+            """${into_outfile_async_query}""", into_outfile_async_mv_name)
 
     def outfile_url = outfile_to_S3(into_outfile_async_query)
     order_qt_query_into_outfile_async_mv_after """ SELECT * FROM S3 (
@@ -206,13 +201,7 @@ suite("dml_into_outfile", "p0") {
     // enable dml rewrite by mv
     sql "set enable_dml_materialized_view_rewrite=true";
 
-    explain {
-        sql """${into_outfile_sync_query}"""
-        check {result ->
-            def splitResult = result.split("MaterializedViewRewriteFail")
-            splitResult.length == 2 ? splitResult[0].contains(into_outfile_sync_mv_name) : false
-        }
-    }
+    mv_rewrite_success_without_check_chosen ("""${into_outfile_sync_query}""", into_outfile_sync_mv_name)
 
     def sync_outfile_url = outfile_to_S3(into_outfile_sync_query)
     order_qt_query_into_outfile_sync_mv_after """ SELECT * FROM S3 (

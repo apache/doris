@@ -203,10 +203,7 @@ suite("nested_mtmv") {
         FROM lineitem_1 INNER JOIN orders_1
         ON l_orderkey = o_orderkey
         GROUP BY l_orderkey"""
-    explain {
-        sql("${query_stmt_1}")
-        contains "${mv_name_3}(${mv_name_3})"
-    }
+    mv_rewrite_success(query_stmt_1, mv_name_3)
     compare_res(query_stmt_1 + " order by 1,2,3")
 
     // user
@@ -276,14 +273,8 @@ suite("nested_mtmv") {
                 ) as t1 
             ) as t2 on t1.l_orderkey = t2.l_orderkey
         """
-    explain {
-        sql("${query_stmt_2}")
-        check {result ->
-            // both mv_level4_name and mv_level3_name can be rewritten successfully
-            result.contains("${mv_level4_name}(${mv_level4_name})")
-                    || result.contains("${mv_level3_name}(${mv_level3_name})")
-        }
-    }
+    mv_rewrite_any_success(query_stmt_2, [mv_level4_name, mv_level3_name])
+
     compare_res(query_stmt_2 + " order by 1,2,3,4,5,6,7")
 
     // five level

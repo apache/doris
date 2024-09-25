@@ -224,15 +224,9 @@ suite("left_join_infer_and_derive") {
             for (int i = 0; i < query_list.size(); i++) {
                 logger.info("i: " + i)
                 if (i in [1, 3, 4, 6, 8, 11]) {
-                    explain {
-                        sql("${query_list[i]}")
-                        notContains "${mv_name_1}(${mv_name_1})"
-                    }
+                    mv_rewrite_fail(query_list[i], mv_name_1)
                 } else {
-                    explain {
-                        sql("${query_list[i]}")
-                        contains "${mv_name_1}(${mv_name_1})"
-                    }
+                    mv_rewrite_success(query_list[i], mv_name_1)
                     compare_res(query_list[i] + order_stmt)
                 }
             }

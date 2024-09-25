@@ -189,10 +189,7 @@ suite("negative_partition_mv_rewrite") {
         left join orders_1 
         on lineitem_1.l_orderkey = orders_1.o_orderkey
         """
-    explain {
-        sql("${query_sql}")
-        notContains "${mv_name}(${mv_name})"
-    }
+    mv_rewrite_fail(query_sql, mv_name)
 
     // Swap tables on either side of the left join
     query_sql = """
@@ -201,10 +198,7 @@ suite("negative_partition_mv_rewrite") {
         left join lineitem_1 
         on orders_1.o_orderkey = lineitem_1.l_orderkey
         """
-    explain {
-        sql("${query_sql}")
-        notContains "${mv_name}(${mv_name})"
-    }
+    mv_rewrite_fail(query_sql, mv_name)
 
     // The filter condition of the query is not in the filter range of mtmv
     mtmv_sql = """
@@ -222,10 +216,7 @@ suite("negative_partition_mv_rewrite") {
         left join orders_1 
         on t1.l_orderkey = orders_1.o_orderkey
         """
-    explain {
-        sql("${query_sql}")
-        notContains "${mv_name}(${mv_name})"
-    }
+    mv_rewrite_fail(query_sql, mv_name)
 
     // The filter range of the query is larger than that of the mtmv
     mtmv_sql = """
@@ -245,10 +236,7 @@ suite("negative_partition_mv_rewrite") {
         on lineitem_1.l_orderkey = orders_1.o_orderkey 
         where  orders_1.o_orderkey > 1
         """
-    explain {
-        sql("${query_sql}")
-        notContains "${mv_name}(${mv_name})"
-    }
+    mv_rewrite_fail(query_sql, mv_name)
 
     query_sql = """
         select l_shipdate, o_orderdate, l_partkey, l_suppkey, o_orderkey 
@@ -257,10 +245,7 @@ suite("negative_partition_mv_rewrite") {
         on lineitem_1.l_orderkey = orders_1.o_orderkey 
         where  orders_1.o_orderkey > 2 or orders_1.o_orderkey < 0
         """
-    explain {
-        sql("${query_sql}")
-        notContains "${mv_name}(${mv_name})"
-    }
+    mv_rewrite_fail(query_sql, mv_name)
 
     // filter in
     mtmv_sql = """
@@ -280,10 +265,7 @@ suite("negative_partition_mv_rewrite") {
         on lineitem_1.l_orderkey = orders_1.o_orderkey 
         where  orders_1.o_orderkey in (1, 2, 3, 4)
         """
-    explain {
-        sql("${query_sql}")
-        notContains "${mv_name}(${mv_name})"
-    }
+    mv_rewrite_fail(query_sql, mv_name)
 
     // agg not roll up
     mtmv_sql = """
@@ -302,10 +284,7 @@ suite("negative_partition_mv_rewrite") {
         select o_orderdate 
             from orders_1
         """
-    explain {
-        sql("${query_sql}")
-        notContains "${mv_name}(${mv_name})"
-    }
+    mv_rewrite_fail(query_sql, mv_name)
 
     mtmv_sql = """
         select o_orderdate, o_shippriority, o_comment,
@@ -335,10 +314,7 @@ suite("negative_partition_mv_rewrite") {
             bitmap_union(to_bitmap(case when o_shippriority > 2 and o_orderkey IN (2) then o_custkey else null end)) as cnt_2
             from orders_1
         """
-    explain {
-        sql("${query_sql}")
-        contains "${mv_name}(${mv_name})"
-    }
+    mv_rewrite_success(query_sql, mv_name)
 
     // query partial rewriting
     mtmv_sql = """
@@ -356,10 +332,7 @@ suite("negative_partition_mv_rewrite") {
         select l_shipdate, l_partkey, count(*) from lineitem_1 
         group by l_shipdate, l_partkey
         """
-    explain {
-        sql("${query_sql}")
-        notContains "${mv_name}(${mv_name})"
-    }
+    mv_rewrite_fail(query_sql, mv_name)
 
     mtmv_sql = """
         select
@@ -386,10 +359,7 @@ suite("negative_partition_mv_rewrite") {
         count(*)
         from orders_1
         """
-    explain {
-        sql("${query_sql}")
-        notContains "${mv_name}(${mv_name})"
-    }
+    mv_rewrite_fail(query_sql, mv_name)
 
     // view partial rewriting
     mtmv_sql = """
@@ -405,10 +375,7 @@ suite("negative_partition_mv_rewrite") {
         on lineitem_1.l_shipdate=orders_1.o_orderdate 
         group by l_shipdate, l_partkey, l_orderkey
         """
-    explain {
-        sql("${query_sql}")
-        notContains "${mv_name}(${mv_name})"
-    }
+    mv_rewrite_fail(query_sql, mv_name)
 
     mtmv_sql = """
         select o_orderdate, o_shippriority, o_comment, l_orderkey, o_orderkey, sum(o_orderkey)   
@@ -437,10 +404,7 @@ suite("negative_partition_mv_rewrite") {
             l_orderkey, 
             ps_partkey
         """
-    explain {
-        sql("${query_sql}")
-        notContains "${mv_name}(${mv_name})"
-    }
+    mv_rewrite_fail(query_sql, mv_name)
 
     // union rewrite
     mtmv_sql = """
@@ -463,10 +427,7 @@ suite("negative_partition_mv_rewrite") {
         where l_shipdate >= "2023-10-15"
         group by l_shipdate, o_orderdate, l_partkey
         """
-    explain {
-        sql("${query_sql}")
-        notContains "${mv_name}(${mv_name})"
-    }
+    mv_rewrite_fail(query_sql, mv_name)
 
     mtmv_sql = """
         select l_shipdate, l_partkey, l_orderkey
@@ -486,10 +447,7 @@ suite("negative_partition_mv_rewrite") {
         where l_shipdate >= "2023-10-10"
         group by t.l_shipdate, o_orderdate, t.l_partkey
         """
-    explain {
-        sql("${query_sql}")
-        notContains "${mv_name}(${mv_name})"
-    }
+    mv_rewrite_fail(query_sql, mv_name)
 
     // project rewriting
     mtmv_sql = """
@@ -508,10 +466,7 @@ suite("negative_partition_mv_rewrite") {
         case when o_shippriority > 2 and o_orderkey IN (2) then o_custkey else null end as cnt_2
         from orders_1;
         """
-    explain {
-        sql("${query_sql}")
-        notContains "${mv_name}(${mv_name})"
-    }
+    mv_rewrite_fail(query_sql, mv_name)
 
     // agg under join
     mtmv_sql = """
@@ -532,10 +487,7 @@ suite("negative_partition_mv_rewrite") {
         group by
         t1.o_orderdate, t1.o_shippriority, t1.o_orderkey
         """
-    explain {
-        sql("${query_sql}")
-        notContains "${mv_name}(${mv_name})"
-    }
+    mv_rewrite_fail(query_sql, mv_name)
 
     // filter include and or
     mtmv_sql = """
@@ -555,10 +507,7 @@ suite("negative_partition_mv_rewrite") {
         on lineitem_1.l_orderkey = orders_1.o_orderkey 
         where  orders_1.o_orderkey > 2 and (orders_1.o_orderdate >= "2023-10-17" or l_partkey > 1)
         """
-    explain {
-        sql("${query_sql}")
-        notContains "${mv_name}(${mv_name})"
-    }
+    mv_rewrite_fail(query_sql, mv_name)
 
     // group by under group by
     mtmv_sql = """
@@ -577,10 +526,7 @@ suite("negative_partition_mv_rewrite") {
               LEFT OUTER JOIN orders_1 ON l_orderkey = o_custkey AND o_comment NOT LIKE '%special%requests%' 
               GROUP BY l_orderkey) AS c_orders 
         GROUP BY c_count ORDER BY custdist DESC, c_count DESC;"""
-    explain {
-        sql("${query_sql}")
-        notContains "${mv_name}(${mv_name})"
-    }
+    mv_rewrite_fail(query_sql, mv_name)
 
     // condition on not equal
     mtmv_sql = """
@@ -600,10 +546,7 @@ suite("negative_partition_mv_rewrite") {
         on lineitem_1.l_orderkey > orders_1.o_orderkey 
         group by l_shipdate, o_orderdate, l_partkey
     """
-    explain {
-        sql("${query_sql}")
-        notContains "${mv_name}(${mv_name})"
-    }
+    mv_rewrite_fail(query_sql, mv_name)
 
     // mtmv exists join but not exists agg, query exists agg
     mtmv_sql = """
@@ -622,8 +565,5 @@ suite("negative_partition_mv_rewrite") {
         on t.l_orderkey = orders_1.o_orderkey 
         group by l_shipdate, o_orderdate, l_partkey ;
         """
-    explain {
-        sql("${query_sql}")
-        notContains "${mv_name}(${mv_name})"
-    }
+    mv_rewrite_fail(query_sql, mv_name)
 }

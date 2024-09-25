@@ -77,13 +77,7 @@ suite("sync_async_same_name") {
 
         def job_name = getJobName(db, mv_name);
         waitingMTMVTaskFinished(job_name)
-        explain {
-            sql("${query_sql}")
-            check {result ->
-                def splitResult = result.split("MaterializedViewRewriteFail")
-                splitResult.length == 2 ? splitResult[0].contains(mv_name) : false
-            }
-        }
+        mv_rewrite_success_without_check_chosen(query_sql, mv_name)
     }
 
     def common_mv_name = 'common_mv_name'
@@ -151,23 +145,10 @@ suite("sync_async_same_name") {
     waitingMTMVTaskFinished(job_name)
 
     // only async mv rewrite successfully
-    explain {
-        sql("${mtmv_query}")
-        check {result ->
-            def splitResult = result.split("MaterializedViewRewriteFail")
-            splitResult.length == 2 ? splitResult[0].contains(common_mv_name) : false
-        }
-    }
+    mv_rewrite_success_without_check_chosen(mtmv_query, common_mv_name)
 
     // both sync and async mv rewrite successfully
-    explain {
-        sql("${mv_query}")
-        check {result ->
-            def splitResult = result.split("MaterializedViewRewriteFail")
-            splitResult.length == 2 ? splitResult[0].contains(common_mv_name)
-                    && splitResult[0].contains("orders.${common_mv_name}") : false
-        }
-    }
+    mv_rewrite_all_success_without_check_chosen(mv_query, [common_mv_name, "orders.${common_mv_name}"])
 
 
     order_qt_query_mv_after "${mv_query}"

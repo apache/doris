@@ -122,14 +122,9 @@ suite("dml_insert_and_overwrite") {
     // enable dml rewrite by mv
     sql "set enable_dml_materialized_view_rewrite=true";
 
-    explain {
-        sql """insert into insert_target_olap_table
-            ${insert_into_async_query}"""
-        check {result ->
-            def splitResult = result.split("MaterializedViewRewriteFail")
-            splitResult.length == 2 ? splitResult[0].contains(insert_into_async_mv_name) : false
-        }
-    }
+    mv_rewrite_success_without_check_chosen (
+            """insert into insert_target_olap_table
+            ${insert_into_async_query}""", insert_into_async_mv_name)
 
     sql """insert into insert_target_olap_table ${insert_into_async_query}"""
     order_qt_query_insert_into_async_mv_after "${result_test_sql}"
@@ -176,14 +171,9 @@ suite("dml_insert_and_overwrite") {
     // enable dml rewrite by mv
     sql "set enable_dml_materialized_view_rewrite=true";
 
-    explain {
-        sql """insert into insert_target_olap_table
-            ${insert_into_sync_query}"""
-        check {result ->
-            def splitResult = result.split("MaterializedViewRewriteFail")
-            splitResult.length == 2 ? splitResult[0].contains(insert_into_sync_mv_name) : false
-        }
-    }
+    mv_rewrite_success_without_check_chosen (
+            """insert into insert_target_olap_table
+            ${insert_into_sync_query}""", insert_into_sync_mv_name)
     sql """insert into insert_target_olap_table ${insert_into_sync_query}"""
 
     order_qt_query_insert_into_sync_mv_after "${result_test_sql}"
@@ -229,14 +219,8 @@ suite("dml_insert_and_overwrite") {
     // enable dml rewrite by mv
     sql "set enable_dml_materialized_view_rewrite=true";
 
-    explain {
-        sql """INSERT OVERWRITE table insert_target_olap_table
-            ${insert_overwrite_async_query}"""
-        check {result ->
-            def splitResult = result.split("MaterializedViewRewriteFail")
-            splitResult.length == 2 ? splitResult[0].contains(insert_overwrite_async_mv_name) : false
-        }
-    }
+    mv_rewrite_success_without_check_chosen ("""INSERT OVERWRITE table insert_target_olap_table
+            ${insert_overwrite_async_query}""", insert_overwrite_async_mv_name)
 
     sql """INSERT OVERWRITE table insert_target_olap_table ${insert_overwrite_async_query}"""
     order_qt_query_insert_overwrite_async_mv_after "${result_test_sql}"

@@ -301,10 +301,7 @@ suite("partition_mv_rewrite_dimension_2_4") {
             left join lineitem_2_4
             on lineitem_2_4.l_orderkey = orders_2_4.o_orderkey
             left join partsupp_2_4 on partsupp_2_4.ps_partkey = lineitem_2_4.l_orderkey"""
-    explain {
-        sql("${sql_stmt_4}")
-        contains "${mv_name_4}(${mv_name_4})"
-    }
+    mv_rewrite_success(sql_stmt_4, mv_name_4)
     compare_res(sql_stmt_4 + " order by 1,2,3,4,5")
     sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name_4};"""
 
@@ -330,10 +327,7 @@ suite("partition_mv_rewrite_dimension_2_4") {
             o_orderdate,
             o_shippriority,
             o_comment """
-    explain {
-        sql("${sql_stmt_5}")
-        notContains "${mv_name_5}(${mv_name_5})"
-    }
+    mv_rewrite_fail(sql_stmt_5, mv_name_5)
     compare_res(sql_stmt_5 + " order by 1,2,3")
     sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name_5};"""
 
@@ -371,10 +365,7 @@ suite("partition_mv_rewrite_dimension_2_4") {
             o_orderdate, 
             o_shippriority, 
             o_comment """
-    explain {
-        sql("${sql_stmt_6}")
-        notContains "${mv_name_6}(${mv_name_6})"
-    }
+    mv_rewrite_fail(sql_stmt_6, mv_name_6)
     compare_res(sql_stmt_6 + " order by 1,2,3,4,5,6,7")
     sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name_6};"""
 
@@ -502,10 +493,7 @@ suite("partition_mv_rewrite_dimension_2_4") {
             bitmap_union(to_bitmap(case when o_shippriority > 2 and o_orderkey IN (2) then o_custkey else null end)) as cnt_2 
             from orders_2_4 where o_orderdate >= "2023-10-17" )  as t
             where t.count_all = 3"""
-    explain {
-        sql("${sql_stmt_10}")
-        contains "${mv_name_10}(${mv_name_10})"
-    }
+    mv_rewrite_success(sql_stmt_10, mv_name_10)
     compare_res(sql_stmt_10 + " order by 1")
     sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name_10};"""
 
@@ -531,10 +519,7 @@ suite("partition_mv_rewrite_dimension_2_4") {
             o_orderdate,
             o_shippriority,
             o_comment """
-    explain {
-        sql("${sql_stmt_11}")
-        notContains "${mv_name_11}(${mv_name_11})"
-    }
+    mv_rewrite_fail(sql_stmt_11, mv_name_11)
     compare_res(sql_stmt_11 + " order by 1,2,3")
     sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name_11};"""
 
@@ -606,10 +591,7 @@ suite("partition_mv_rewrite_dimension_2_4") {
             ) as t 
             where t.o_totalprice = 1 
              """
-    explain {
-        sql("${sql_stmt_12}")
-        contains "${mv_name_12}(${mv_name_12})"
-    }
+    mv_rewrite_success(sql_stmt_12, mv_name_12)
     compare_res(sql_stmt_12 + " order by 1,2,3,4,5,6,7")
     sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name_12};"""
 
@@ -634,10 +616,7 @@ suite("partition_mv_rewrite_dimension_2_4") {
             count(distinct case when O_SHIPPRIORITY > 2 and o_orderkey IN (2) then o_custkey else null end) as cnt_2 
             from orders_2_4  
             where o_orderkey > (-3) + 5 """
-    explain {
-        sql("${sql_stmt_13}")
-        contains "${mv_name_13}(${mv_name_13})"
-    }
+    mv_rewrite_success(sql_stmt_13, mv_name_13)
     compare_res(sql_stmt_13 + " order by 1")
     sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name_13};"""
 
@@ -662,10 +641,7 @@ suite("partition_mv_rewrite_dimension_2_4") {
             o_orderdate, 
             o_shippriority, 
             o_comment """
-    explain {
-        sql("${sql_stmt_14}")
-        contains "${mv_name_14}(${mv_name_14})"
-    }
+    mv_rewrite_success(sql_stmt_14, mv_name_14)
     compare_res(sql_stmt_14 + " order by 1,2")
     sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name_14};"""
 
@@ -701,10 +677,7 @@ suite("partition_mv_rewrite_dimension_2_4") {
             o_custkey,
             case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end,
             case when O_SHIPPRIORITY > 2 and o_orderkey IN (2) then o_custkey else null end   """
-    explain {
-        sql("${sql_stmt_15}")
-        contains "${mv_name_15}(${mv_name_15})"
-    }
+    mv_rewrite_success(sql_stmt_15, mv_name_15)
     compare_res(sql_stmt_15 + " order by 1,2,3,4,5")
     sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name_15};"""
 

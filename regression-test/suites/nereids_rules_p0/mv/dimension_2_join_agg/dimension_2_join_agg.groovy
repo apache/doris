@@ -908,10 +908,7 @@ suite("dimension_2_join_agg_replenish") {
         def job_name = getJobName(db, mv_name)
         waitingMTMVTaskFinished(job_name)
 
-        explain {
-            sql("${sql_list[i]}")
-            contains "${mv_name}(${mv_name})"
-        }
+        mv_rewrite_success(sql_list[i], mv_name)
 
         compare_res(sql_list[i] + " order by 1,2,3")
         sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name};"""

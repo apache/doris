@@ -469,10 +469,7 @@ suite("dimension_join_agg_negative") {
         def job_name = getJobName(db, mv_name)
         waitingMTMVTaskFinished(job_name)
 
-        explain {
-            sql("${query_list[i]}")
-            notContains "${mv_name}(${mv_name})"
-        }
+        mv_rewrite_fail(query_list[i], mv_name)
 
         sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name};"""
     }

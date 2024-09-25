@@ -264,10 +264,7 @@ suite("nested_materialized_view") {
     create_mtmv(db, "mv1_0_inner_mv", mv1_0_inner_mv)
     async_mv_rewrite_fail(db, mv1_0, query1_0, "mv1_0")
 
-    explain {
-        sql("${query1_0}")
-        contains("mv1_0_inner_mv(mv1_0_inner_mv)")
-    }
+    mv_rewrite_success(query1_0, "mv1_0_inner_mv")
     order_qt_query1_1_after "${query1_0}"
 
 
@@ -916,13 +913,7 @@ select * from (
 
     sql "SET enable_materialized_view_rewrite= true"
     sql "SET enable_materialized_view_nest_rewrite = true"
-    explain {
-        sql("${query2_0}")
-        check {result ->
-            result.contains("mv_all_6_a(mv_all_6_a)") && result.contains("mv_all_6_b(mv_all_6_b)")
-            && result.contains("mv_all_6_c(mv_all_6_c)") && result.contains("mv_all_6_d(mv_all_6_d)")
-        }
-    }
+    mv_rewrite_all_success(query2_0, ["mv_all_6_a", "mv_all_6_b", "mv_all_6_c", "mv_all_6_d"])
     // Compare result when before and after mv rewrite
     compare_res(query2_0)
 }

@@ -168,10 +168,7 @@ suite("filter_equal_or_notequal_case") {
         """
     def res_tmp = sql """explain ${query_sql}"""
     logger.info("res_temp:" + res_tmp)
-    explain {
-        sql("${query_sql}")
-        contains "${mv_name}(${mv_name})"
-    }
+    mv_rewrite_success(query_sql, mv_name)
     compare_res(query_sql + " order by 1,2,3,4")
 
     // mv equal and sql not equal
@@ -182,10 +179,7 @@ suite("filter_equal_or_notequal_case") {
         on lineitem_1.l_orderkey = orders_1.o_orderkey
         where l_shipdate != '2023-10-17'
         """
-    explain {
-        sql("${query_sql}")
-        notContains "${mv_name}(${mv_name})"
-    }
+    mv_rewrite_fail(query_sql, mv_name)
 
     // mv equal and sql equal and number is difference
     query_sql = """
@@ -195,10 +189,7 @@ suite("filter_equal_or_notequal_case") {
         on lineitem_1.l_orderkey = orders_1.o_orderkey
         where l_shipdate = '2023-10-19'
         """
-    explain {
-        sql("${query_sql}")
-        notContains "${mv_name}(${mv_name})"
-    }
+    mv_rewrite_fail(query_sql, mv_name)
 
     mtmv_sql = """
         select l_shipdate, o_orderdate, l_partkey, l_suppkey, o_orderkey 
@@ -220,10 +211,7 @@ suite("filter_equal_or_notequal_case") {
         on lineitem_1.l_orderkey = orders_1.o_orderkey
         where l_shipdate = '2023-10-17'
         """
-    explain {
-        sql("${query_sql}")
-        notContains "${mv_name}(${mv_name})"
-    }
+    mv_rewrite_fail(query_sql, mv_name)
 
     // mv not equal and sql not equal
     query_sql = """
@@ -233,10 +221,7 @@ suite("filter_equal_or_notequal_case") {
         on lineitem_1.l_orderkey = orders_1.o_orderkey
         where l_shipdate != '2023-10-17'
         """
-    explain {
-        sql("${query_sql}")
-        contains "${mv_name}(${mv_name})"
-    }
+    mv_rewrite_success(query_sql, mv_name)
     compare_res(query_sql + " order by 1,2,3,4")
 
 
@@ -260,10 +245,7 @@ suite("filter_equal_or_notequal_case") {
         on lineitem_1.l_orderkey = orders_1.o_orderkey
         where l_shipdate = '2023-10-16'
         """
-    explain {
-        sql("${query_sql}")
-        notContains "${mv_name}(${mv_name})"
-    }
+    mv_rewrite_fail(query_sql, mv_name)
 
     // mv is range and sql equal and filter in mv range
     query_sql = """
@@ -273,10 +255,7 @@ suite("filter_equal_or_notequal_case") {
         on lineitem_1.l_orderkey = orders_1.o_orderkey
         where l_shipdate = '2023-10-17'
         """
-    explain {
-        sql("${query_sql}")
-        notContains "${mv_name}(${mv_name})"
-    }
+    mv_rewrite_fail(query_sql, mv_name)
 
     // mv is range and sql equal and filter in mv range
     query_sql = """
@@ -286,10 +265,7 @@ suite("filter_equal_or_notequal_case") {
         on lineitem_1.l_orderkey = orders_1.o_orderkey
         where l_shipdate = '2023-10-19'
         """
-    explain {
-        sql("${query_sql}")
-        contains "${mv_name}(${mv_name})"
-    }
+    mv_rewrite_success(query_sql, mv_name)
     compare_res(query_sql + " order by 1,2,3,4")
 
     // mv is range and sql is range and sql range is bigger than mv
@@ -300,10 +276,7 @@ suite("filter_equal_or_notequal_case") {
         on lineitem_1.l_orderkey = orders_1.o_orderkey
         where l_shipdate > '2023-10-16'
         """
-    explain {
-        sql("${query_sql}")
-        notContains "${mv_name}(${mv_name})"
-    }
+    mv_rewrite_fail(query_sql, mv_name)
 
     // mv is range and sql is range and sql range is not in mv range
     query_sql = """
@@ -313,10 +286,7 @@ suite("filter_equal_or_notequal_case") {
         on lineitem_1.l_orderkey = orders_1.o_orderkey
         where l_shipdate < '2023-10-16'
         """
-    explain {
-        sql("${query_sql}")
-        notContains "${mv_name}(${mv_name})"
-    }
+    mv_rewrite_fail(query_sql, mv_name)
 
     // mv is range and sql is range and sql range is bigger than mv
     query_sql = """
@@ -326,10 +296,7 @@ suite("filter_equal_or_notequal_case") {
         on lineitem_1.l_orderkey = orders_1.o_orderkey
         where l_shipdate > '2023-10-17'
         """
-    explain {
-        sql("${query_sql}")
-        contains "${mv_name}(${mv_name})"
-    }
+    mv_rewrite_success(query_sql, mv_name)
     compare_res(query_sql + " order by 1,2,3,4")
 
     // mv is range and sql is range and sql range is not in mv range
@@ -340,10 +307,7 @@ suite("filter_equal_or_notequal_case") {
         on lineitem_1.l_orderkey = orders_1.o_orderkey
         where l_shipdate < '2023-10-17'
         """
-    explain {
-        sql("${query_sql}")
-        notContains "${mv_name}(${mv_name})"
-    }
+    mv_rewrite_fail(query_sql, mv_name)
 
     // mv is range and sql is range and sql range is bigger than mv
     query_sql = """
@@ -353,10 +317,7 @@ suite("filter_equal_or_notequal_case") {
         on lineitem_1.l_orderkey = orders_1.o_orderkey
         where l_shipdate > '2023-10-18'
         """
-    explain {
-        sql("${query_sql}")
-        contains "${mv_name}(${mv_name})"
-    }
+    mv_rewrite_success(query_sql, mv_name)
     compare_res(query_sql + " order by 1,2,3,4")
 
     // mv is range and sql is range and sql range is not in mv range
@@ -367,10 +328,7 @@ suite("filter_equal_or_notequal_case") {
         on lineitem_1.l_orderkey = orders_1.o_orderkey
         where l_shipdate < '2023-10-19'
         """
-    explain {
-        sql("${query_sql}")
-        notContains "${mv_name}(${mv_name})"
-    }
+    mv_rewrite_fail(query_sql, mv_name)
 
     // mv is range and sql is range and sql range is bigger than mv
     query_sql = """
@@ -380,10 +338,7 @@ suite("filter_equal_or_notequal_case") {
         on lineitem_1.l_orderkey = orders_1.o_orderkey
         where l_shipdate > '2023-10-16' and l_shipdate < '2023-10-17'
         """
-    explain {
-        sql("${query_sql}")
-        notContains "${mv_name}(${mv_name})"
-    }
+    mv_rewrite_fail(query_sql, mv_name)
 
     // mv is range and sql is range and sql range is not in mv range
     query_sql = """
@@ -393,10 +348,7 @@ suite("filter_equal_or_notequal_case") {
         on lineitem_1.l_orderkey = orders_1.o_orderkey
         where l_shipdate > '2023-10-17' and l_shipdate < '2023-10-19'
         """
-    explain {
-        sql("${query_sql}")
-        contains "${mv_name}(${mv_name})"
-    }
+    mv_rewrite_success(query_sql, mv_name)
     compare_res(query_sql + " order by 1,2,3,4")
 
     // sql range is not in mv range
@@ -407,10 +359,7 @@ suite("filter_equal_or_notequal_case") {
         on lineitem_1.l_orderkey = orders_1.o_orderkey
         where l_shipdate in ('2023-10-17')
         """
-    explain {
-        sql("${query_sql}")
-        notContains "${mv_name}(${mv_name})"
-    }
+    mv_rewrite_fail(query_sql, mv_name)
 
     // sql range is in mv range
     // single value
@@ -421,10 +370,7 @@ suite("filter_equal_or_notequal_case") {
         on lineitem_1.l_orderkey = orders_1.o_orderkey
         where l_shipdate in ('2023-10-18')
         """
-    explain {
-        sql("${query_sql}")
-        contains "${mv_name}(${mv_name})"
-    }
+    mv_rewrite_success(query_sql, mv_name)
     compare_res(query_sql + " order by 1,2,3,4")
 
     // multi value
@@ -435,10 +381,7 @@ suite("filter_equal_or_notequal_case") {
         on lineitem_1.l_orderkey = orders_1.o_orderkey
         where l_shipdate in ('2023-10-18', '2023-11-18')
         """
-    explain {
-        sql("${query_sql}")
-        contains "${mv_name}(${mv_name})"
-    }
+    mv_rewrite_success(query_sql, mv_name)
     compare_res(query_sql + " order by 1,2,3,4")
 
     // sql range like mv range
@@ -449,10 +392,7 @@ suite("filter_equal_or_notequal_case") {
         on lineitem_1.l_orderkey = orders_1.o_orderkey
         where l_shipdate like "%2023-10-18%"
         """
-    explain {
-        sql("${query_sql}")
-        notContains "${mv_name}(${mv_name})"
-    }
+    mv_rewrite_fail(query_sql, mv_name)
 
     // sql range is null
     query_sql = """
@@ -462,10 +402,7 @@ suite("filter_equal_or_notequal_case") {
         on lineitem_1.l_orderkey = orders_1.o_orderkey
         where l_shipdate is null
         """
-    explain {
-        sql("${query_sql}")
-        notContains "${mv_name}(${mv_name})"
-    }
+    mv_rewrite_fail(query_sql, mv_name)
 
     // sql range is not null
     query_sql = """
@@ -475,10 +412,7 @@ suite("filter_equal_or_notequal_case") {
         on lineitem_1.l_orderkey = orders_1.o_orderkey
         where l_shipdate is not null
         """
-    explain {
-        sql("${query_sql}")
-        notContains "${mv_name}(${mv_name})"
-    }
+    mv_rewrite_fail(query_sql, mv_name)
 
     mtmv_sql = """
         select l_shipdate, o_orderdate, l_partkey, l_suppkey, o_orderkey  
@@ -500,10 +434,7 @@ suite("filter_equal_or_notequal_case") {
         on lineitem_1.l_orderkey = orders_1.o_orderkey
         where l_shipdate > '2023-10-16' and l_shipdate < '2023-10-19'
         """
-    explain {
-        sql("${query_sql}")
-        contains "${mv_name}(${mv_name})"
-    }
+    mv_rewrite_success(query_sql, mv_name)
     compare_res(query_sql + " order by 1,2,3,4")
 
 
@@ -514,10 +445,7 @@ suite("filter_equal_or_notequal_case") {
         on lineitem_1.l_orderkey = orders_1.o_orderkey
         where l_shipdate > '2023-10-17' and l_shipdate < '2023-10-19'
         """
-    explain {
-        sql("${query_sql}")
-        contains "${mv_name}(${mv_name})"
-    }
+    mv_rewrite_success(query_sql, mv_name)
     compare_res(query_sql + " order by 1,2,3,4")
 
     //
@@ -541,10 +469,7 @@ suite("filter_equal_or_notequal_case") {
         on lineitem_1.l_orderkey = orders_1.o_orderkey
         where l_shipdate in ('2023-10-17', '2023-10-18', '2023-10-19')
         """
-    explain {
-        sql("${query_sql}")
-        contains "${mv_name}(${mv_name})"
-    }
+    mv_rewrite_success(query_sql, mv_name)
     compare_res(query_sql + " order by 1,2,3,4")
 
     // mv is in range and sql is in range and filter is not in mv range
@@ -555,10 +480,7 @@ suite("filter_equal_or_notequal_case") {
         on lineitem_1.l_orderkey = orders_1.o_orderkey
         where l_shipdate not in ('2023-10-17', '2023-10-18', '2023-10-19')
         """
-    explain {
-        sql("${query_sql}")
-        notContains "${mv_name}(${mv_name})"
-    }
+    mv_rewrite_fail(query_sql, mv_name)
 
     mtmv_sql = """
         select l_shipdate, o_orderdate, l_partkey, l_suppkey, o_orderkey  
@@ -580,10 +502,7 @@ suite("filter_equal_or_notequal_case") {
         on lineitem_1.l_orderkey = orders_1.o_orderkey
         where l_shipdate like "%2023-10-17%"
         """
-    explain {
-        sql("${query_sql}")
-        contains "${mv_name}(${mv_name})"
-    }
+    mv_rewrite_success(query_sql, mv_name)
     compare_res(query_sql + " order by 1,2,3,4")
 
     // mv is like filter and sql is not like filter
@@ -594,10 +513,7 @@ suite("filter_equal_or_notequal_case") {
         on lineitem_1.l_orderkey = orders_1.o_orderkey
         where l_shipdate like "%2023-10-17%"
         """
-    explain {
-        sql("${query_sql}")
-        contains "${mv_name}(${mv_name})"
-    }
+    mv_rewrite_success(query_sql, mv_name)
     compare_res(query_sql + " order by 1,2,3,4")
 
     // Todo: It is not currently supported and is expected to be

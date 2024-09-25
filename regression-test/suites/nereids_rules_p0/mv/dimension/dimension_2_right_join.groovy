@@ -235,96 +235,60 @@ suite("partition_mv_rewrite_dimension_2_right_join") {
             for (int j = 0; j < mv_list_1.size(); j++) {
                 logger.info("j:" + j)
                 if (j in [ 0, 2, 4, 5, 10, 11]) {
-                    explain {
-                        sql("${mv_list_1[j]}")
-                        contains "${mv_name}(${mv_name})"
-                    }
+                    mv_rewrite_success(mv_list_1[j], mv_name)
                     compare_res(mv_list_1[j] + " order by 1,2,3,4,5")
                 } else {
-                    explain {
-                        sql("${mv_list_1[j]}")
-                        notContains "${mv_name}(${mv_name})"
-                    }
+                    mv_rewrite_fail(mv_list_1[j], mv_name)
                 }
             }
         } else if (i == 1) {
             for (int j = 0; j < mv_list_1.size(); j++) {
                 logger.info("j:" + j)
                 if (j in [1, 3, 4, 5, 10, 11]) {
-                    explain {
-                        sql("${mv_list_1[j]}")
-                        contains "${mv_name}(${mv_name})"
-                    }
+                    mv_rewrite_success(mv_list_1[j], mv_name)
                     compare_res(mv_list_1[j] + " order by 1,2,3,4,5")
                 } else {
-                    explain {
-                        sql("${mv_list_1[j]}")
-                        notContains "${mv_name}(${mv_name})"
-                    }
+                    mv_rewrite_fail(mv_list_1[j], mv_name)
                 }
             }
         } else if (i == 2) {
             for (int j = 0; j < mv_list_1.size(); j++) {
                 logger.info("j:" + j)
                 if (j in [0, 2, 4, 5, 10, 11]) {
-                    explain {
-                        sql("${mv_list_1[j]}")
-                        contains "${mv_name}(${mv_name})"
-                    }
+                    mv_rewrite_success(mv_list_1[j], mv_name)
                     compare_res(mv_list_1[j] + " order by 1,2,3,4,5")
                 } else {
-                    explain {
-                        sql("${mv_list_1[j]}")
-                        notContains "${mv_name}(${mv_name})"
-                    }
+                    mv_rewrite_fail(mv_list_1[j], mv_name)
                 }
             }
         } else if (i == 3) {
             for (int j = 0; j < mv_list_1.size(); j++) {
                 logger.info("j:" + j)
                 if (j in [3, 4, 5, 10, 11]) {
-                    explain {
-                        sql("${mv_list_1[j]}")
-                        contains "${mv_name}(${mv_name})"
-                    }
+                    mv_rewrite_success(mv_list_1[j], mv_name)
                     compare_res(mv_list_1[j] + " order by 1,2,3,4,5")
                 } else {
-                    explain {
-                        sql("${mv_list_1[j]}")
-                        notContains "${mv_name}(${mv_name})"
-                    }
+                    mv_rewrite_fail(mv_list_1[j], mv_name)
                 }
             }
         } else if (i == 4) {
             for (int j = 0; j < mv_list_1.size(); j++) {
                 logger.info("j:" + j)
                 if (j in [4, 5, 10, 11]) {
-                    explain {
-                        sql("${mv_list_1[j]}")
-                        contains "${mv_name}(${mv_name})"
-                    }
+                    mv_rewrite_success(mv_list_1[j], mv_name)
                     compare_res(mv_list_1[j] + " order by 1,2,3,4,5")
                 } else {
-                    explain {
-                        sql("${mv_list_1[j]}")
-                        notContains "${mv_name}(${mv_name})"
-                    }
+                    mv_rewrite_fail(mv_list_1[j], mv_name)
                 }
             }
         } else if (i == 5) {
             for (int j = 0; j < mv_list_1.size(); j++) {
                 logger.info("j:" + j)
                 if (j in [5, 11]) {
-                    explain {
-                        sql("${mv_list_1[j]}")
-                        contains "${mv_name}(${mv_name})"
-                    }
+                    mv_rewrite_success(mv_list_1[j], mv_name)
                     compare_res(mv_list_1[j] + " order by 1,2,3,4,5")
                 } else {
-                    explain {
-                        sql("${mv_list_1[j]}")
-                        notContains "${mv_name}(${mv_name})"
-                    }
+                    mv_rewrite_fail(mv_list_1[j], mv_name)
                 }
             }
         } else if (i == 6) {
@@ -332,96 +296,60 @@ suite("partition_mv_rewrite_dimension_2_right_join") {
                 logger.info("j:" + j)
                 // 5, 11 should be success but not now, should support in the future by equivalence class
                 if (j in [4, 5, 6, 8, 10, 11]) {
-                    explain {
-                        sql("${mv_list_1[j]}")
-                        contains "${mv_name}(${mv_name})"
-                    }
+                    mv_rewrite_success(mv_list_1[j], mv_name)
                     compare_res(mv_list_1[j] + " order by 1,2,3,4,5")
                 } else {
-                    explain {
-                        sql("${mv_list_1[j]}")
-                        notContains "${mv_name}(${mv_name})"
-                    }
+                    mv_rewrite_fail(mv_list_1[j], mv_name)
                 }
             }
         } else if (i == 7) {
             for (int j = 0; j < mv_list_1.size(); j++) {
                 logger.info("j:" + j)
                 if (j in [4, 5, 7, 9, 10, 11]) {
-                    explain {
-                        sql("${mv_list_1[j]}")
-                        contains "${mv_name}(${mv_name})"
-                    }
+                    mv_rewrite_success(mv_list_1[j], mv_name)
                     compare_res(mv_list_1[j] + " order by 1,2,3,4,5")
                 } else {
-                    explain {
-                        sql("${mv_list_1[j]}")
-                        notContains "${mv_name}(${mv_name})"
-                    }
+                    mv_rewrite_fail(mv_list_1[j], mv_name)
                 }
             }
         } else if (i == 8) {
             for (int j = 0; j < mv_list_1.size(); j++) {
                 logger.info("j:" + j)
                 if (j in [4, 5, 8, 10, 11]) {
-                    explain {
-                        sql("${mv_list_1[j]}")
-                        contains "${mv_name}(${mv_name})"
-                    }
+                    mv_rewrite_success(mv_list_1[j], mv_name)
                     compare_res(mv_list_1[j] + " order by 1,2,3,4,5")
                 } else {
-                    explain {
-                        sql("${mv_list_1[j]}")
-                        notContains "${mv_name}(${mv_name})"
-                    }
+                    mv_rewrite_fail(mv_list_1[j], mv_name)
                 }
             }
         } else if (i == 9) {
             for (int j = 0; j < mv_list_1.size(); j++) {
                 logger.info("j:" + j)
                 if (j in [4, 5, 7, 9, 10, 11]) {
-                    explain {
-                        sql("${mv_list_1[j]}")
-                        contains "${mv_name}(${mv_name})"
-                    }
+                    mv_rewrite_success(mv_list_1[j], mv_name)
                     compare_res(mv_list_1[j] + " order by 1,2,3,4,5")
                 } else {
-                    explain {
-                        sql("${mv_list_1[j]}")
-                        notContains "${mv_name}(${mv_name})"
-                    }
+                    mv_rewrite_fail(mv_list_1[j], mv_name)
                 }
             }
         } else if (i == 10) {
             for (int j = 0; j < mv_list_1.size(); j++) {
                 logger.info("j:" + j)
                 if (j in [4, 5, 10, 11]) {
-                    explain {
-                        sql("${mv_list_1[j]}")
-                        contains "${mv_name}(${mv_name})"
-                    }
+                    mv_rewrite_success(mv_list_1[j], mv_name)
                     compare_res(mv_list_1[j] + " order by 1,2,3,4,5")
                 } else {
-                    explain {
-                        sql("${mv_list_1[j]}")
-                        notContains "${mv_name}(${mv_name})"
-                    }
+                    mv_rewrite_fail(mv_list_1[j], mv_name)
                 }
             }
         } else if (i == 11) {
             for (int j = 0; j < mv_list_1.size(); j++) {
                 logger.info("j:" + j)
                 if (j in [5, 11]) {
-                    explain {
-                        sql("${mv_list_1[j]}")
-                        contains "${mv_name}(${mv_name})"
-                    }
+                    mv_rewrite_success(mv_list_1[j], mv_name)
                     compare_res(mv_list_1[j] + " order by 1,2,3,4,5")
                 } else {
-                    explain {
-                        sql("${mv_list_1[j]}")
-                        notContains "${mv_name}(${mv_name})"
-                    }
+                    mv_rewrite_fail(mv_list_1[j], mv_name)
                 }
             }
         }

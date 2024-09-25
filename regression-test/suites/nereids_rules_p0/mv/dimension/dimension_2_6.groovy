@@ -296,10 +296,7 @@ suite("partition_mv_rewrite_dimension_2_6") {
         on t.l_orderkey = orders_2_6.o_orderkey 
         where l_shipdate >= "2023-10-17" and l_partkey  > 1 + 1 
         group by t.l_shipdate, o_orderdate, t.l_partkey"""
-    explain {
-        sql("${sql_stmt_5}")
-        contains "${mv_name_5}(${mv_name_5})"
-    }
+    mv_rewrite_success(sql_stmt_5, mv_name_5)
     compare_res(sql_stmt_5 + " order by 1,2,3")
     sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name_5};"""
 
@@ -319,10 +316,7 @@ suite("partition_mv_rewrite_dimension_2_6") {
         on t.l_orderkey = orders_2_6.o_orderkey
         where  l_partkey  > (-3) + 5
         group by t.l_shipdate, o_orderdate, t.l_partkey"""
-    explain {
-        sql("${sql_stmt_6}")
-        contains "${mv_name_6}(${mv_name_6})"
-    }
+    mv_rewrite_success(sql_stmt_6, mv_name_6)
     compare_res(sql_stmt_6 + " order by 1,2,3")
     sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name_6};"""
 
@@ -394,10 +388,7 @@ suite("partition_mv_rewrite_dimension_2_6") {
             left join lineitem_2_6 
             on lineitem_2_6.l_orderkey = orders_2_6.o_orderkey 
             where  o_custkey > (-3) + 5 and o_orderdate >= '2023-10-17'  """
-    explain {
-        sql("${sql_stmt_9}")
-        contains "${mv_name_9}(${mv_name_9})"
-    }
+    mv_rewrite_success(sql_stmt_9, mv_name_9)
     compare_res(sql_stmt_9 + " order by 1,2,3,4,5,6")
     sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name_9};"""
 

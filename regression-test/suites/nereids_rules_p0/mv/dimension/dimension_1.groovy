@@ -293,42 +293,27 @@ suite("partition_mv_rewrite_dimension_1") {
                 if (j == 2) {
                     continue
                 }
-                explain {
-                    sql("${mv_list[j]}")
-                    contains "${join_filter_mv}(${join_filter_mv})"
-                }
+                mv_rewrite_success(mv_list[j], join_filter_mv)
                 compare_res(mv_list[j] + " order by 1, 2, 3, 4, 5")
             }
         } else if (i == 1) {
             for (int j = 0; j < mv_list.size(); j++) {
                 logger.info("j:" + j)
                 if (j == 1 || j == 4 || j == 3) {
-                    explain {
-                        sql("${mv_list[j]}")
-                        contains "${join_filter_mv}(${join_filter_mv})"
-                    }
+                    mv_rewrite_success(mv_list[j], join_filter_mv)
                     compare_res(mv_list[j] + " order by 1, 2, 3, 4, 5")
                 } else {
-                    explain {
-                        sql("${mv_list[j]}")
-                        notContains "${join_filter_mv}(${join_filter_mv})"
-                    }
+                    mv_rewrite_fail(mv_list[j], join_filter_mv)
                 }
             }
         } else if (i == 2) {
             for (int j = 0; j < mv_list.size(); j++) {
                 logger.info("j:" + j)
                 if (j == 2 || j == 3 || j == 5) {
-                    explain {
-                        sql("${mv_list[j]}")
-                        contains "${join_filter_mv}(${join_filter_mv})"
-                    }
+                    mv_rewrite_success(mv_list[j], join_filter_mv)
                     compare_res(mv_list[j] + " order by 1, 2, 3, 4, 5")
                 } else {
-                    explain {
-                        sql("${mv_list[j]}")
-                        notContains "${join_filter_mv}(${join_filter_mv})"
-                    }
+                    mv_rewrite_fail(mv_list[j], join_filter_mv)
                 }
 
             }
@@ -336,63 +321,39 @@ suite("partition_mv_rewrite_dimension_1") {
             for (int j = 0; j < mv_list.size(); j++) {
                 logger.info("j:" + j)
                 if (j == 3) {
-                    explain {
-                        sql("${mv_list[j]}")
-                        contains "${join_filter_mv}(${join_filter_mv})"
-                    }
+                    mv_rewrite_success(mv_list[j], join_filter_mv)
                     compare_res(mv_list[j] + " order by 1, 2, 3, 4, 5")
                 } else {
-                    explain {
-                        sql("${mv_list[j]}")
-                        notContains "${join_filter_mv}(${join_filter_mv})"
-                    }
+                    mv_rewrite_fail(mv_list[j], join_filter_mv)
                 }
             }
         } else if (i == 4) {
             for (int j = 0; j < mv_list.size(); j++) {
                 logger.info("j:" + j)
                 if (j == 4 || j == 1 || j == 3) {
-                    explain {
-                        sql("${mv_list[j]}")
-                        contains "${join_filter_mv}(${join_filter_mv})"
-                    }
+                    mv_rewrite_success(mv_list[j], join_filter_mv)
                     compare_res(mv_list[j] + " order by 1, 2, 3, 4, 5")
                 } else {
-                    explain {
-                        sql("${mv_list[j]}")
-                        notContains "${join_filter_mv}(${join_filter_mv})"
-                    }
+                    mv_rewrite_fail(mv_list[j], join_filter_mv)
                 }
             }
         } else if (i == 5) {
             for (int j = 0; j < mv_list.size(); j++) {
                 if (j == 5 || j == 3) {
-                    explain {
-                        sql("${mv_list[j]}")
-                        contains "${join_filter_mv}(${join_filter_mv})"
-                    }
+                    mv_rewrite_success(mv_list[j], join_filter_mv)
                     compare_res(mv_list[j] + " order by 1, 2, 3, 4, 5")
                 } else {
-                    explain {
-                        sql("${mv_list[j]}")
-                        notContains "${join_filter_mv}(${join_filter_mv})"
-                    }
+                    mv_rewrite_fail(mv_list[j], join_filter_mv)
                 }
 
             }
         } else if (i == 6) {
             for (int j = 0; j < mv_list.size(); j++) {
                 if (j == 6) {
-                    explain {
-                        sql("${mv_list[j]}")
-                        contains "${join_filter_mv}(${join_filter_mv})"
-                    }
+                    mv_rewrite_success(mv_list[j], join_filter_mv)
                     compare_res(mv_list[j] + " order by 1, 2, 3, 4, 5")
                 } else {
-                    explain {
-                        sql("${mv_list[j]}")
-                        notContains "${join_filter_mv}(${join_filter_mv})"
-                    }
+                    mv_rewrite_fail(mv_list[j], join_filter_mv)
                 }
 
             }
@@ -465,16 +426,10 @@ suite("partition_mv_rewrite_dimension_1") {
         for (int j = 0; j < join_type_stmt_list.size(); j++) {
             logger.info("j:" + j)
             if (i == j) {
-                explain {
-                    sql("${join_type_stmt_list[j]}")
-                    contains "${join_type_mv}(${join_type_mv})"
-                }
+                mv_rewrite_success(join_type_stmt_list[j], join_type_mv)
                 compare_res(join_type_stmt_list[j] + " order by 1,2,3,4")
             } else {
-                explain {
-                    sql("${join_type_stmt_list[j]}")
-                    notContains "${join_type_mv}(${join_type_mv})"
-                }
+                mv_rewrite_fail(join_type_stmt_list[j], join_type_mv)
             }
         }
         sql """DROP MATERIALIZED VIEW IF EXISTS ${join_type_mv};"""
@@ -512,10 +467,7 @@ suite("partition_mv_rewrite_dimension_1") {
         count(*) 
         from orders_1
         """
-    explain {
-        sql("${agg_sql_1}")
-        contains "${agg_mv_name_1}(${agg_mv_name_1})"
-    }
+    mv_rewrite_success(agg_sql_1, agg_mv_name_1)
     compare_res(agg_sql_1 + " order by 1,2,3,4,5,6")
     sql """DROP MATERIALIZED VIEW IF EXISTS ${agg_mv_name_1};"""
 
@@ -676,10 +628,7 @@ suite("partition_mv_rewrite_dimension_1") {
         on lineitem_1.l_orderkey = orders_1.o_orderkey
         where l_shipdate >= "2023-10-17" and l_partkey = 1
         """
-    explain {
-        sql("${predicate_sql_1}")
-        contains "${predicate_mv_name_1}(${predicate_mv_name_1})"
-    }
+    mv_rewrite_success(predicate_sql_1, predicate_mv_name_1)
     compare_res(predicate_sql_1 + " order by 1,2,3")
     sql """DROP MATERIALIZED VIEW IF EXISTS ${predicate_mv_name_1};"""
 
@@ -745,16 +694,10 @@ suite("partition_mv_rewrite_dimension_1") {
         where l_commitdate like '2023-10-%' and l_partkey > 0 + 1
         """
 
-    explain {
-        sql("${single_table_query_stmt_1}")
-        contains "${mv_name_1}(${mv_name_1})"
-    }
+    mv_rewrite_success(single_table_query_stmt_1, mv_name_1)
     compare_res(single_table_query_stmt_1 + " order by 1,2,3")
 
-    explain {
-        sql("${single_table_query_stmt_2}")
-        contains "${mv_name_1}(${mv_name_1})"
-    }
+    mv_rewrite_success(single_table_query_stmt_2, mv_name_1)
     compare_res(single_table_query_stmt_2 + " order by 1,2,3")
 
 
@@ -831,10 +774,7 @@ suite("partition_mv_rewrite_dimension_1") {
         from lineitem_1 
         where l_commitdate in (select l_commitdate from lineitem_1) 
         """
-    explain {
-        sql("${single_table_query_stmt_1}")
-        contains "${mv_name_1}(${mv_name_1})"
-    }
+    mv_rewrite_success(single_table_query_stmt_1, mv_name_1)
     compare_res(single_table_query_stmt_1 + " order by 1,2,3")
 
 // not supported currently
