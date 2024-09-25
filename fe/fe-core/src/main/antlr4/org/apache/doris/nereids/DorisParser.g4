@@ -849,7 +849,7 @@ unsupportedUseStatement
 
 unsupportedDmlStatement
     : TRUNCATE TABLE multipartIdentifier specifiedPartition?                        #truncateTable
-    | COPY INTO selectHint? name=multipartIdentifier columns=identifierList? FROM
+    | COPY INTO name=multipartIdentifier columns=identifierList? FROM
         (stageAndPattern | (LEFT_PAREN SELECT selectColumnClause
             FROM stageAndPattern whereClause RIGHT_PAREN))
         properties=propertyClause?                                                  #copyInto
@@ -1130,7 +1130,7 @@ columnAliases
     ;
 
 selectClause
-    : SELECT selectHint? (DISTINCT|ALL)? selectColumnClause
+    : SELECT (DISTINCT|ALL)? selectColumnClause
     ;
 
 selectColumnClause
