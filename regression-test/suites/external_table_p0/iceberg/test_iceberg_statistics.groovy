@@ -36,6 +36,9 @@ suite("test_iceberg_statistics", "p0,external,doris,external_docker,external_doc
                     "s3.region" = "us-east-1"
                 );"""
 
+            def result = sql """show frontends;"""
+            logger.info("Frontends info: " + result)
+
             def table_id_mor = get_table_id(catalog_name, db_name, "sample_mor_parquet")
             def table_id_cow = get_table_id(catalog_name, db_name, "sample_cow_parquet")
 
@@ -54,4 +57,3 @@ suite("test_iceberg_statistics", "p0,external,doris,external_docker,external_doc
         }
     }
 }
-
