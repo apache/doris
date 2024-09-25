@@ -562,6 +562,10 @@ Status OlapTableBlockConvertor::_fill_auto_inc_cols(vectorized::Block* block, si
 
 Status OlapTableBlockConvertor::_partial_update_fill_auto_inc_cols(vectorized::Block* block,
                                                                    size_t rows) {
+    // avoid duplicate PARTIAL_UPDATE_AUTO_INC_COL
+    if (block->has(BeConsts::PARTIAL_UPDATE_AUTO_INC_COL)) {
+        return Status::OK();
+    }
     auto dst_column = vectorized::ColumnInt64::create();
     vectorized::ColumnInt64::Container& dst_values = dst_column->get_data();
     size_t null_value_count = rows;
@@ -573,11 +577,6 @@ Status OlapTableBlockConvertor::_partial_update_fill_auto_inc_cols(vectorized::B
 
     for (size_t i = 0; i < rows; i++) {
         dst_values.emplace_back(_auto_inc_id_allocator.next_id());
-    }
-    // in VRowDistribution we reuse _batching_block, so the input block may already include PARTIAL_UPDATE_AUTO_INC_COL,
-    // here to avoid duplicate PARTIAL_UPDATE_AUTO_INC_COL, we erase it at first
-    if (block->has(BeConsts::PARTIAL_UPDATE_AUTO_INC_COL)) {
-        block->erase(BeConsts::PARTIAL_UPDATE_AUTO_INC_COL);
     }
     block->insert(vectorized::ColumnWithTypeAndName(std::move(dst_column),
                                                     std::make_shared<DataTypeNumber<Int64>>(),
