@@ -296,6 +296,8 @@ inline doris::Status ThreadMemTrackerMgr::try_reserve(int64_t size) {
                     size, _limiter_tracker->consumption(), _limiter_tracker->limit());
             return doris::Status::Error<ErrorCode::QUERY_MEMORY_EXCEEDED>(err_msg);
         }
+    } else {
+        _limiter_tracker->reserve(size);
     }
     if (wg_ptr) {
         if (!wg_ptr->add_wg_refresh_interval_memory_growth(size)) {

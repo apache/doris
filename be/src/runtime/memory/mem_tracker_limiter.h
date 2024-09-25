@@ -171,6 +171,18 @@ public:
     int64_t reserved_consumption() const { return _reserved_counter.current_value(); }
     int64_t reserved_peak_consumption() const { return _reserved_counter.peak_value(); }
 
+    void reserve(int64_t bytes) {
+        if (UNLIKELY(bytes == 0)) {
+            return;
+        }
+        _mem_counter.add(bytes);
+        if (_query_statistics) {
+            _query_statistics->set_max_peak_memory_bytes(peak_consumption());
+            _query_statistics->set_current_used_memory_bytes(consumption());
+        }
+        _reserved_counter.add(bytes);
+    }
+
     bool try_reserve(int64_t bytes) {
         if (UNLIKELY(bytes == 0)) {
             return true;
