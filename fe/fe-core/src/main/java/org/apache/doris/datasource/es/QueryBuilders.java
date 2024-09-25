@@ -185,32 +185,44 @@ public final class QueryBuilders {
         return QueryBuilders.boolQuery().mustNot(QueryBuilders.existsQuery(column));
     }
 
-    private static QueryBuilder parseLikePredicate(Expr expr, String column) {
-        LikePredicate likePredicate = (LikePredicate) expr;
-        if (likePredicate.getOp().equals(Operator.LIKE)) {
-            char[] chars = likePredicate.getChild(1).getStringValue().toCharArray();
-            // example of translation :
-            //      abc_123  ===> abc?123
-            //      abc%ykz  ===> abc*123
-            //      %abc123  ===> *abc123
-            //      _abc123  ===> ?abc123
-            //      \\_abc1  ===> \\_abc1
-            //      abc\\_123 ===> abc\\_123
-            //      abc\\%123 ===> abc\\%123
-            // NOTE. user must input sql like 'abc\\_123' or 'abc\\%ykz'
-            for (int i = 0; i < chars.length; i++) {
-                if (chars[i] == '_' || chars[i] == '%') {
-                    if (i == 0) {
-                        chars[i] = (chars[i] == '_') ? '?' : '*';
-                    } else if (chars[i - 1] != '\\') {
-                        chars[i] = (chars[i] == '_') ? '?' : '*';
-                    }
+    private static QueryBuilder parseLikeExpression(Expr expr, String column) {
+        String pattern;
+        if (expr instanceof LikePredicate) {
+            LikePredicate likePredicate = (LikePredicate) expr;
+            if (!likePredicate.getOp().equals(Operator.LIKE)) {
+                return QueryBuilders.wildcardQuery(column, likePredicate.getChild(1).getStringValue());
+            }
+            pattern = likePredicate.getChild(1).getStringValue();
+        } else if (expr instanceof FunctionCallExpr) {
+            FunctionCallExpr functionCallExpr = (FunctionCallExpr) expr;
+            String fnName = functionCallExpr.getFnName().getFunction();
+            if (!fnName.equalsIgnoreCase("like")) {
+                return QueryBuilders.wildcardQuery(column, functionCallExpr.getChild(1).getStringValue());
+            }
+            pattern = functionCallExpr.getChild(1).getStringValue();
+        } else {
+            throw new IllegalArgumentException("Unsupported expression type");
+        }
+        char[] chars = pattern.toCharArray();
+        // example of translation :
+        //      abc_123  ===> abc?123
+        //      abc%ykz  ===> abc*123
+        //      %abc123  ===> *abc123
+        //      _abc123  ===> ?abc123
+        //      \\_abc1  ===> \\_abc1
+        //      abc\\_123 ===> abc\\_123
+        //      abc\\%123 ===> abc\\%123
+        // NOTE. user must input sql like 'abc\\_123' or 'abc\\%ykz'
+        for (int i = 0; i < chars.length; i++) {
+            if (chars[i] == '_' || chars[i] == '%') {
+                if (i == 0) {
+                    chars[i] = (chars[i] == '_') ? '?' : '*';
+                } else if (chars[i - 1] != '\\') {
+                    chars[i] = (chars[i] == '_') ? '?' : '*';
                 }
             }
-            return QueryBuilders.wildcardQuery(column, new String(chars));
-        } else {
-            return QueryBuilders.wildcardQuery(column, likePredicate.getChild(1).getStringValue());
         }
+        return QueryBuilders.wildcardQuery(column, new String(chars));
     }
 
     private static QueryBuilder parseInPredicate(Expr expr, String column, boolean needDateCompat) {
@@ -314,25 +326,29 @@ public final class QueryBuilders {
             return parseIsNullPredicate(expr, column);
         }
         if (expr instanceof LikePredicate) {
-            if (!builderOptions.isLikePushDown() || !"keyword".equals(type)) {
+            if (builderOptions.isLikePushDown() && "keyword".equals(type)) {
+                // only keyword can apply wildcard query
+                return parseLikeExpression(expr, column);
+            } else {
                 notPushDownList.add(expr);
                 return null;
-            } else {
-                // only keyword can apply wildcard query
-                return parseLikePredicate(expr, column);
             }
         }
         if (expr instanceof InPredicate) {
             return parseInPredicate(expr, column, needDateCompat);
         }
         if (expr instanceof FunctionCallExpr) {
-            FunctionCallExpr functionCallExpr = (FunctionCallExpr) expr;
-            // current only esquery functionCallExpr can be push down to ES
-            if (!"esquery".equals(functionCallExpr.getFnName().getFunction())) {
+            // current only esquery and like applied in keyword functionCallExpr can be push down to ES
+            String fnName = ((FunctionCallExpr) expr).getFnName().getFunction();
+            if ("esquery".equals(fnName)) {
+                return parseFunctionCallExpr(expr);
+            } else if (builderOptions.isLikePushDown() && "like".equalsIgnoreCase(fnName) && "keyword".equals(type)) {
+                return parseLikeExpression(expr, column);
+            } else if (builderOptions.isLikePushDown() && "regexp".equalsIgnoreCase(fnName)) {
+                return parseLikeExpression(expr, column);
+            } else {
                 notPushDownList.add(expr);
                 return null;
-            } else {
-                return parseFunctionCallExpr(expr);
             }
         }
         return null;

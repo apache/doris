@@ -204,6 +204,43 @@ public class QueryBuildersTest {
     }
 
     @Test
+    public void testLikeFunctionCallConvertEsDsl() {
+        SlotRef k1 = new SlotRef(null, "k1");
+        String str1 = "text%";
+        StringLiteral stringLiteral1 = new StringLiteral(str1);
+        Map<String, String> column2typeMap = new HashMap<>();
+        column2typeMap.put("k1", "keyword");
+        List<Expr> exprs1 = new ArrayList<>();
+        exprs1.add(k1);
+        exprs1.add(stringLiteral1);
+        FunctionCallExpr likeFunctionCallExpr = new FunctionCallExpr("like", exprs1);
+        Assertions.assertEquals("{\"wildcard\":{\"k1\":\"text*\"}}",
+                QueryBuilders.toEsDsl(likeFunctionCallExpr, column2typeMap).toJson());
+
+        SlotRef k2 = new SlotRef(null, "k2");
+        String str2 = "text$";
+        StringLiteral stringLiteral2 = new StringLiteral(str2);
+        List<Expr> exprs2 = new ArrayList<>();
+        exprs2.add(k2);
+        exprs2.add(stringLiteral2);
+        FunctionCallExpr regexFunctionCallExpr = new FunctionCallExpr("regexp", exprs2);
+        Assertions.assertEquals("{\"wildcard\":{\"k2\":\"text$\"}}",
+                QueryBuilders.toEsDsl(regexFunctionCallExpr, column2typeMap).toJson());
+
+
+        column2typeMap.clear();
+        List<Expr> notPushDownList = new ArrayList<>();
+        column2typeMap.put("k1", "text");
+        Assertions.assertNull(QueryBuilders.toEsDsl(likeFunctionCallExpr, notPushDownList, new HashMap<>(),
+                BuilderOptions.builder().likePushDown(true).build(), column2typeMap));
+        Assertions.assertEquals("{\"wildcard\":{\"k2\":\"text$\"}}",
+                QueryBuilders.toEsDsl(regexFunctionCallExpr, notPushDownList, new HashMap<>(),
+                BuilderOptions.builder().likePushDown(true).build(), column2typeMap).toJson());
+
+        Assertions.assertEquals(1, notPushDownList.size());
+    }
+
+    @Test
     public void testCastConvertEsDsl() {
         FloatLiteral floatLiteral = new FloatLiteral(3.14);
         CastExpr castExpr = new CastExpr(Type.INT, floatLiteral);
