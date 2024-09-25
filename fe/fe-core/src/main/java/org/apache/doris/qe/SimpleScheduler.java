@@ -91,7 +91,7 @@ public class SimpleScheduler {
             if (lastRecordBlackTimestampMs <= 0 || firstRecordBlackTimestampMs <= 0) {
                 return false;
             }
-            if (recordBlackListCount < RecordBlackListThreshold){
+            if (recordBlackListCount < RecordBlackListThreshold) {
                 return false;
             }
 
@@ -173,7 +173,7 @@ public class SimpleScheduler {
                 lock.unlock();
             }
         }
-    };
+    }
 
     private static AtomicLong nextId = new AtomicLong(0);
 
