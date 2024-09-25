@@ -933,7 +933,7 @@ Status SchemaChangeJob::_do_process_alter_tablet(const TAlterTabletReqV2& reques
                 _base_tablet_schema->merge_dropped_columns(*rs_meta->tablet_schema());
                 del_preds.push_back(rs_meta);
             }
-            res = delete_handler.init(_base_tablet_schema, del_preds, end_version, true);
+            res = delete_handler.init(_base_tablet_schema, del_preds, end_version);
             if (!res) {
                 LOG(WARNING) << "init delete handler failed. base_tablet="
                              << _base_tablet->tablet_id() << ", end_version=" << end_version;
