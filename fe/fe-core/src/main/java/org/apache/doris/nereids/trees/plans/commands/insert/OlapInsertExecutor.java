@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.trees.plans.commands.insert;
 
-import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
@@ -121,7 +120,7 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
                     isStrictMode,
                     timeout);
             // complete and set commands both modify thrift struct
-            olapTableSink.complete(new Analyzer(Env.getCurrentEnv(), ctx));
+            olapTableSink.complete();
             if (!olapInsertCtx.isAllowAutoPartition()) {
                 olapTableSink.setAutoPartition(false);
             }
@@ -156,11 +155,10 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
                     throw new IllegalStateException("Unsupported DataSink: " + childFragmentSink);
                 }
 
-                Analyzer analyzer = new Analyzer(Env.getCurrentEnv(), ConnectContext.get());
                 dataStreamSink.setTabletSinkSchemaParam(olapTableSink.createSchema(
-                        database.getId(), olapTableSink.getDstTable(), analyzer));
+                        database.getId(), olapTableSink.getDstTable()));
                 dataStreamSink.setTabletSinkPartitionParam(olapTableSink.createPartition(
-                        database.getId(), olapTableSink.getDstTable(), analyzer));
+                        database.getId(), olapTableSink.getDstTable()));
                 dataStreamSink.setTabletSinkTupleDesc(olapTableSink.getTupleDescriptor());
                 List<TOlapTableLocationParam> locationParams = olapTableSink
                         .createLocation(database.getId(), olapTableSink.getDstTable());

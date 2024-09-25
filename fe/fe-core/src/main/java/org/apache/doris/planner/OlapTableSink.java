@@ -18,11 +18,11 @@
 package org.apache.doris.planner;
 
 import org.apache.doris.alter.SchemaChangeHandler;
-import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.SlotDescriptor;
+import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DistributionInfo;
@@ -54,7 +54,27 @@ import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DebugPointUtil.DebugPoint;
+import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.analyzer.Scope;
+import org.apache.doris.nereids.analyzer.UnboundAlias;
+import org.apache.doris.nereids.analyzer.UnboundSlot;
+import org.apache.doris.nereids.glue.translator.ExpressionTranslator;
+import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.rules.analysis.ExpressionAnalyzer;
+import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
@@ -92,6 +112,7 @@ import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -210,7 +231,7 @@ public class OlapTableSink extends DataSink {
     }
 
     // must called after tupleDescriptor is computed
-    public void complete(Analyzer analyzer) throws UserException {
+    public void complete() throws UserException {
         for (Long partitionId : partitionIds) {
             Partition partition = dstTable.getPartition(partitionId);
             if (dstTable.getIndexNumber() != partition.getMaterializedIndices(IndexExtState.ALL).size()) {
@@ -228,8 +249,8 @@ public class OlapTableSink extends DataSink {
         int numReplicas = dstTable.getTableProperty().getReplicaAllocation().getTotalReplicaNum();
         tSink.setNumReplicas(numReplicas);
         tSink.setNeedGenRollup(dstTable.shouldLoadToNewRollup());
-        tSink.setSchema(createSchema(tSink.getDbId(), dstTable, analyzer));
-        tSink.setPartition(createPartition(tSink.getDbId(), dstTable, analyzer));
+        tSink.setSchema(createSchema(tSink.getDbId(), dstTable));
+        tSink.setPartition(createPartition(tSink.getDbId(), dstTable));
         List<TOlapTableLocationParam> locationParams = createLocation(tSink.getDbId(), dstTable);
         tSink.setLocation(locationParams.get(0));
         if (singleReplicaLoad) {
@@ -275,7 +296,7 @@ public class OlapTableSink extends DataSink {
         return tDataSink;
     }
 
-    public TOlapTableSchemaParam createSchema(long dbId, OlapTable table, Analyzer analyzer) throws AnalysisException {
+    public TOlapTableSchemaParam createSchema(long dbId, OlapTable table) throws UserException {
         TOlapTableSchemaParam schemaParam = new TOlapTableSchemaParam();
         schemaParam.setDbId(dbId);
         schemaParam.setTableId(table.getId());
@@ -317,14 +338,9 @@ public class OlapTableSink extends DataSink {
             TOlapTableIndexSchema indexSchema = new TOlapTableIndexSchema(pair.getKey(), columns,
                     indexMeta.getSchemaHash());
             if (indexMeta.getWhereClause() != null) {
-                Expr expr = indexMeta.getWhereClause().clone();
-                expr.replaceSlot(tupleDescriptor);
-                if (analyzer != null) {
-                    tupleDescriptor.setTable(table);
-                    analyzer.registerTupleDescriptor(tupleDescriptor);
-                    expr.analyze(analyzer);
-                }
-                indexSchema.setWhereClause(expr.treeToThrift());
+                ExprAnalyzer exprAnalyzer = new ExprAnalyzer(tupleDescriptor);
+                Expr analyzedExpr = exprAnalyzer.analyze(indexMeta.getWhereClause());
+                indexSchema.setWhereClause(analyzedExpr.treeToThrift());
             }
             indexSchema.setColumnsDesc(columnsDesc);
             indexSchema.setIndexesDesc(indexDesc);
@@ -384,7 +400,7 @@ public class OlapTableSink extends DataSink {
         }
     }
 
-    private TOlapTablePartitionParam createDummyPartition(long dbId, OlapTable table, Analyzer analyzer,
+    private TOlapTablePartitionParam createDummyPartition(long dbId, OlapTable table,
             TOlapTablePartitionParam partitionParam, PartitionInfo partitionInfo, PartitionType partType)
             throws UserException {
         partitionParam.setEnableAutomaticPartition(true);
@@ -414,26 +430,19 @@ public class OlapTableSink extends DataSink {
         partitionParam.addToPartitions(fakePartition);
 
         ArrayList<Expr> exprSource = partitionInfo.getPartitionExprs();
-        if (exprSource != null && analyzer != null) {
-            Analyzer funcAnalyzer = new Analyzer(analyzer.getEnv(), analyzer.getContext());
-            tupleDescriptor.setTable(table);
-            funcAnalyzer.registerTupleDescriptor(tupleDescriptor);
-            // we must clone the exprs. otherwise analyze will influence the origin exprs.
-            ArrayList<Expr> exprs = new ArrayList<Expr>();
+        if (exprSource != null && !exprSource.isEmpty()) {
+            ArrayList<Expr> analyzedExprs = new ArrayList<>();
+            ExprAnalyzer exprAnalyzer = new ExprAnalyzer(tupleDescriptor);
             for (Expr e : exprSource) {
-                exprs.add(e.clone());
+                analyzedExprs.add(exprAnalyzer.analyze(e));
             }
-            for (Expr e : exprs) {
-                e.reset();
-                e.analyze(funcAnalyzer);
-            }
-            partitionParam.setPartitionFunctionExprs(Expr.treesToThrift(exprs));
+            partitionParam.setPartitionFunctionExprs(Expr.treesToThrift(analyzedExprs));
         }
 
         return partitionParam;
     }
 
-    public TOlapTablePartitionParam createPartition(long dbId, OlapTable table, Analyzer analyzer)
+    public TOlapTablePartitionParam createPartition(long dbId, OlapTable table)
             throws UserException {
         TOlapTablePartitionParam partitionParam = new TOlapTablePartitionParam();
         PartitionInfo partitionInfo = table.getPartitionInfo();
@@ -446,7 +455,7 @@ public class OlapTableSink extends DataSink {
 
         // create shadow partition for empty auto partition table. only use in this load.
         if (enableAutomaticPartition && partitionIds.isEmpty()) {
-            return createDummyPartition(dbId, table, analyzer, partitionParam, partitionInfo, partType);
+            return createDummyPartition(dbId, table, partitionParam, partitionInfo, partType);
         }
 
         switch (partType) {
@@ -504,20 +513,13 @@ public class OlapTableSink extends DataSink {
                 }
 
                 ArrayList<Expr> exprSource = partitionInfo.getPartitionExprs();
-                if (enableAutomaticPartition && exprSource != null && analyzer != null) {
-                    Analyzer funcAnalyzer = new Analyzer(analyzer.getEnv(), analyzer.getContext());
-                    tupleDescriptor.setTable(table);
-                    funcAnalyzer.registerTupleDescriptor(tupleDescriptor);
-                    // we must clone the exprs. otherwise analyze will influence the origin exprs.
-                    ArrayList<Expr> exprs = new ArrayList<Expr>();
+                if (enableAutomaticPartition && exprSource != null && !exprSource.isEmpty()) {
+                    ArrayList<Expr> analyzedExprs = new ArrayList<>();
+                    ExprAnalyzer exprAnalyzer = new ExprAnalyzer(tupleDescriptor);
                     for (Expr e : exprSource) {
-                        exprs.add(e.clone());
+                        analyzedExprs.add(exprAnalyzer.analyze(e));
                     }
-                    for (Expr e : exprs) {
-                        e.reset();
-                        e.analyze(funcAnalyzer);
-                    }
-                    partitionParam.setPartitionFunctionExprs(Expr.treesToThrift(exprs));
+                    partitionParam.setPartitionFunctionExprs(Expr.treesToThrift(analyzedExprs));
                 }
 
                 partitionParam.setEnableAutomaticPartition(enableAutomaticPartition);
@@ -784,5 +786,89 @@ public class OlapTableSink extends DataSink {
 
     public long getTxnId() {
         return txnId;
+    }
+
+    private static class ExprAnalyzer {
+        private final Map<String, Slot> nereidsSlotReplaceMap = new HashMap<>();
+        private final Map<Slot, SlotRef> nereidsSlotToSlotRefMap = new HashMap<>();
+
+        public ExprAnalyzer(TupleDescriptor tupleDescriptor) {
+            for (SlotDescriptor slotDescriptor : tupleDescriptor.getSlots()) {
+                Column column = slotDescriptor.getColumn();
+                if (column != null) {
+                    String name = column.getName().toUpperCase();
+                    SlotReference slot = new SlotReference(name,
+                            DataType.fromCatalogType(column.getType()), column.isAllowNull());
+                    nereidsSlotReplaceMap.put(name, slot);
+                    nereidsSlotToSlotRefMap.put(slot, new SlotRef(slotDescriptor));
+                }
+            }
+        }
+
+        public Expr analyze(Expr expr) throws UserException {
+            String querySql = "select " + expr.toSql();
+            LogicalPlan dummyPlan = new NereidsParser().parseSingle(querySql);
+            if (dummyPlan.child(0) instanceof LogicalProject) {
+                List<NamedExpression> projects =
+                        ((LogicalProject<?>) dummyPlan.child(0)).getProjects();
+                if (projects.size() == 1) {
+                    Expression expression = projects.get(0) instanceof UnboundAlias
+                            ? ((UnboundAlias) projects.get(0)).child() : projects.get(0);
+                    Expression boundSlotExpression =
+                            SlotReplacer.INSTANCE.replace(expression, nereidsSlotReplaceMap);
+                    Scope scope = new Scope(Lists.newArrayList(nereidsSlotReplaceMap.values()));
+                    CascadesContext cascadesContext = CascadesContext.initContext(
+                            new StatementContext(ConnectContext.get(),
+                                    new OriginStatement(querySql, 0)),
+                            dummyPlan, PhysicalProperties.ANY);
+                    ExpressionAnalyzer analyzer = new ExpressionAnalyzer(null, scope, cascadesContext, false, false);
+                    ExpressionToExpr translator = new ExpressionToExpr(nereidsSlotToSlotRefMap);
+                    try {
+                        Expression analyzedExpr = analyzer.analyze(boundSlotExpression,
+                                new ExpressionRewriteContext(cascadesContext));
+                        return analyzedExpr.accept(translator, new PlanTranslatorContext(cascadesContext));
+                    } catch (org.apache.doris.nereids.exceptions.AnalysisException e) {
+                        throw new UserException(expr.toSql() + " analyze failed");
+                    }
+                }
+            }
+            throw new UserException(expr.toSql() + " analyze failed");
+        }
+
+        private static class SlotReplacer extends DefaultExpressionRewriter<Map<String, Slot>> {
+            public static final SlotReplacer INSTANCE = new SlotReplacer();
+
+            public Expression replace(Expression e, Map<String, Slot> replaceMap) {
+                return e.accept(this, replaceMap);
+            }
+
+            @Override
+            public Expression visitUnboundSlot(UnboundSlot unboundSlot,
+                    Map<String, Slot> replaceMap) {
+                if (!replaceMap.containsKey(unboundSlot.getName().toUpperCase())) {
+                    throw new org.apache.doris.nereids.exceptions.AnalysisException(
+                            "Unknown column '" + unboundSlot.getName() + "' in 'generated column function'");
+                }
+                return replaceMap.get(unboundSlot.getName().toUpperCase());
+            }
+        }
+
+        private static class ExpressionToExpr extends ExpressionTranslator {
+            private final Map<Slot, SlotRef> slotRefMap;
+
+            public ExpressionToExpr(Map<Slot, SlotRef> slotRefMap) {
+                this.slotRefMap = slotRefMap;
+            }
+
+            @Override
+            public Expr visitSlotReference(SlotReference slotReference,
+                    PlanTranslatorContext context) {
+                if (!slotRefMap.containsKey(slotReference)) {
+                    throw new org.apache.doris.nereids.exceptions.AnalysisException(
+                            "Unknown column '" + slotReference.getName() + "'");
+                }
+                return slotRefMap.get(slotReference);
+            }
+        }
     }
 }
