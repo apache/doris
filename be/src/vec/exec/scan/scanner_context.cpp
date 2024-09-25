@@ -122,7 +122,7 @@ ScannerContext::ScannerContext(
                              _state->get_query_ctx()->workload_group()};
     _dependency = dependency;
 
-    DorisMetrics::instance()->scanner_ctx_cnt_dev->increment(1);
+    DorisMetrics::instance()->scanner_ctx_cnt->increment(1);
 }
 
 // After init function call, should not access _parent

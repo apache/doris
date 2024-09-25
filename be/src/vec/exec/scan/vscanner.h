@@ -66,7 +66,7 @@ public:
         _origin_block.clear();
         _common_expr_ctxs_push_down.clear();
         _stale_expr_ctxs.clear();
-        DorisMetrics::instance()->scanner_cnt_dev->increment(-1);
+        DorisMetrics::instance()->scanner_cnt->increment(-1);
     }
 
     virtual Status init() { return Status::OK(); }

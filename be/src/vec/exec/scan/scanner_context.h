@@ -57,13 +57,13 @@ class ScanTask {
 public:
     ScanTask(std::weak_ptr<ScannerDelegate> delegate_scanner) : scanner(delegate_scanner) {
         _query_thread_context.init_unlocked();
-        DorisMetrics::instance()->scanner_task_cnt_dev->increment(1);
+        DorisMetrics::instance()->scanner_task_cnt->increment(1);
     }
 
     ~ScanTask() {
         SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_query_thread_context.query_mem_tracker);
         cached_blocks.clear();
-        DorisMetrics::instance()->scanner_task_cnt_dev->increment(-1);
+        DorisMetrics::instance()->scanner_task_cnt->increment(-1);
     }
 
 private:
@@ -119,7 +119,7 @@ public:
             // do nothing
         }
         block.reset();
-        DorisMetrics::instance()->scanner_ctx_cnt_dev->increment(-1);
+        DorisMetrics::instance()->scanner_ctx_cnt->increment(-1);
     }
     Status init();
 

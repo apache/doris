@@ -137,11 +137,11 @@ public:
 
     Status submit_scan_task(SimplifiedScanTask scan_task) {
         if (!_is_stop) {
-            DorisMetrics::instance()->scanner_task_queued_dev->increment(1);
+            DorisMetrics::instance()->scanner_task_queued->increment(1);
             auto st = _scan_thread_pool->submit_func([scan_task] { scan_task.scan_func(); });
             if (!st.ok()) {
-                DorisMetrics::instance()->scanner_task_queued_dev->increment(-1);
-                DorisMetrics::instance()->scanner_task_submit_failed_dev->increment(1);
+                DorisMetrics::instance()->scanner_task_queued->increment(-1);
+                DorisMetrics::instance()->scanner_task_submit_failed->increment(1);
             }
             return st;
         } else {
