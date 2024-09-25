@@ -51,6 +51,11 @@ public class PaimonDLFExternalCatalog extends PaimonExternalCatalog {
     protected void setPaimonCatalogOptions(Map<String, String> properties, Map<String, String> options) {
         options.put(PaimonProperties.PAIMON_CATALOG_TYPE, PaimonProperties.PAIMON_HMS_CATALOG);
         options.put(PaimonProperties.PAIMON_METASTORE_CLIENT, ProxyMetaStoreClient.class.getName());
-        options.putAll(PropertyConverter.convertToMetaProperties(properties));
+        options.put(PaimonProperties.PAIMON_OSS_ENDPOINT,
+            properties.get(PaimonProperties.PAIMON_OSS_ENDPOINT));
+        options.put(PaimonProperties.PAIMON_OSS_ACCESS_KEY,
+            properties.get(PaimonProperties.PAIMON_OSS_ACCESS_KEY));
+        options.put(PaimonProperties.PAIMON_OSS_SECRET_KEY,
+            properties.get(PaimonProperties.PAIMON_OSS_SECRET_KEY));
     }
 }
