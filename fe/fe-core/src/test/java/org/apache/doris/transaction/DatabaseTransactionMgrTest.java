@@ -111,7 +111,8 @@ public class DatabaseTransactionMgrTest {
         transTablets.add(tabletCommitInfo3);
         Table testTable1 = masterEnv.getInternalCatalog().getDbOrMetaException(CatalogTestUtil.testDbId1)
                 .getTableOrMetaException(CatalogTestUtil.testTableId1);
-        masterTransMgr.commitTransaction(CatalogTestUtil.testDbId1, Lists.newArrayList(testTable1), transactionId1, transTablets);
+        masterTransMgr.commitTransaction(CatalogTestUtil.testDbId1, Lists.newArrayList(testTable1), transactionId1,
+                transTablets, null);
         TransactionState transactionState1 = fakeEditLog.getTransaction(transactionId1);
         setTransactionFinishPublish(transactionState1,
                 Lists.newArrayList(CatalogTestUtil.testBackendId1,
