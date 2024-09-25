@@ -3055,4 +3055,8 @@ public class Config extends ConfigBase {
     @ConfField(description = {"检查资源就绪的周期，单位秒",
             "Interval checking if resource is ready"})
     public static long resource_not_ready_sleep_seconds = 5;
+
+    @ConfField(mutable = true, description = {
+            "设置为 true，如果查询无法选择到健康副本时，会打印出该tablet所有副本的详细信息，"})
+    public static boolean sql_block_rule_ignore_admin = false;
 }
