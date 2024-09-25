@@ -993,6 +993,10 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         }
     }
 
+    public Map<Long, Long> getIndexIdMap() {
+        return indexIdMap;
+    }
+
     public List<List<String>> getUnfinishedTasks(int limit) {
         List<List<String>> taskInfos = Lists.newArrayList();
         if (jobState == JobState.RUNNING) {
