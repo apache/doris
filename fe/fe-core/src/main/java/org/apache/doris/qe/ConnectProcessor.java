@@ -174,6 +174,16 @@ public abstract class ConnectProcessor {
         ctx.getState().setOk();
     }
 
+    // Do nothing for now.
+    protected void handleStatistics() {
+        ctx.getState().setOk();
+    }
+
+    // Do nothing for now.
+    protected void handleDebug() {
+        ctx.getState().setOk();
+    }
+
     protected void handleStmtReset() {
         ctx.getState().setOk();
     }
