@@ -92,7 +92,7 @@ class Command(object):
     def run(self, args):
         raise Exception("No implemented")
 
-    def _add_parser_output_json(self, parser):
+    def _add_parser_common_args(self, parser):
         parser.add_argument("-v",
                             "--verbose",
                             default=False,
@@ -155,7 +155,7 @@ class SimpleCommand(Command):
         parser = args_parsers.add_parser(self.command, help=help)
         parser.add_argument("NAME", help="Specify cluster name.")
         self._add_parser_ids_args(parser)
-        self._add_parser_output_json(parser)
+        self._add_parser_common_args(parser)
 
     def run(self, args):
         cluster = CLUSTER.Cluster.load(args.NAME)
@@ -185,7 +185,7 @@ class UpCommand(Command):
                             nargs="?",
                             help="Specify docker image.")
 
-        self._add_parser_output_json(parser)
+        self._add_parser_common_args(parser)
         parser.add_argument(
             "--cloud",
             default=False,
@@ -671,7 +671,7 @@ class DownCommand(Command):
                                            "then apply to all containers.")
         parser.add_argument("NAME", help="Specify cluster name")
         self._add_parser_ids_args(parser)
-        self._add_parser_output_json(parser)
+        self._add_parser_common_args(parser)
         parser.add_argument(
             "--clean",
             default=False,
@@ -973,7 +973,7 @@ class ListCommand(Command):
             help=
             "Specify multiple clusters, if specific, show all their containers."
         )
-        self._add_parser_output_json(parser)
+        self._add_parser_common_args(parser)
         parser.add_argument("--detail",
                             default=False,
                             action=self._get_parser_bool_action(True),
@@ -1183,7 +1183,7 @@ class GetCloudIniCommand(Command):
             help=
             "Specify multiple clusters, if specific, show all their containers."
         )
-        self._add_parser_output_json(parser)
+        self._add_parser_common_args(parser)
 
     def _handle_data(self, header, datas):
         if utils.is_enable_log():
