@@ -26,7 +26,7 @@ import org.apache.doris.regression.util.DebugPoint
 
 import org.apache.doris.regression.util.NodeType
 
-suite('test_schema_change_with_compaction7', 'nonConcurrent') {
+suite('test_schema_change_with_compaction2', 'p1,nonConcurrent') {
     def getJobState = { tableName ->
         def jobStateResult = sql """ SHOW ALTER TABLE COLUMN WHERE IndexName='${tableName}' ORDER BY createtime DESC LIMIT 1 """
         return jobStateResult[0][9]
@@ -67,7 +67,7 @@ suite('test_schema_change_with_compaction7', 'nonConcurrent') {
         }
     }
 
-    sql new File("""${context.file.parent}/../ddl/date_unique_create.sql""").text
+    sql new File("""${context.file.parent}/../ddl/date_create.sql""").text
     def injectName = 'CloudSchemaChangeJob.process_alter_tablet.sleep'
     def injectBe = null
     def backends = sql_return_maparray('show backends')
@@ -102,18 +102,15 @@ suite('test_schema_change_with_compaction7', 'nonConcurrent') {
         load_delete_compaction()
         load_delete_compaction()
         
-        load_date_once("date");
 
         sleep(1000)
 
         DebugPoint.enableDebugPoint(injectBe.Host, injectBe.HttpPort.toInteger(), NodeType.BE, injectName)
         sql "ALTER TABLE date MODIFY COLUMN d_holidayfl bigint(11)"
-        sleep(15000) 
+        sleep(5000) 
         array = sql_return_maparray("SHOW TABLETS FROM date")
 
-        for (int i = 0; i < 5; i++) {
-            load_date_once("date");
-        }
+
         // base compaction
         logger.info("run compaction:" + originTabletId)
         (code, out, err) = be_run_base_compaction(injectBe.Host, injectBe.HttpPort, originTabletId)
@@ -137,28 +134,6 @@ suite('test_schema_change_with_compaction7', 'nonConcurrent') {
         logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
         assertTrue(out.contains("invalid tablet state."))
         
-
-        // cu compaction
-        for (int i = 0; i < array.size(); i++) {
-            tabletId = array[i].TabletId
-            logger.info("run compaction:" + tabletId)
-            (code, out, err) = be_run_cumulative_compaction(injectBe.Host, injectBe.HttpPort, tabletId)
-            logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
-        }
-
-        for (int i = 0; i < array.size(); i++) {
-            running = true
-            do {
-                Thread.sleep(100)
-                tabletId = array[i].TabletId
-                (code, out, err) = be_get_compaction_status(injectBe.Host, injectBe.HttpPort, tabletId)
-                logger.info("Get compaction status: code=" + code + ", out=" + out + ", err=" + err)
-                assertEquals(code, 0)
-                def compactionStatus = parseJson(out.trim())
-                assertEquals("success", compactionStatus.status.toLowerCase())
-                running = compactionStatus.run_status
-            } while (running)
-        }
     } finally {
         if (injectBe != null) {
             DebugPoint.disableDebugPoint(injectBe.Host, injectBe.HttpPort.toInteger(), NodeType.BE, injectName)
@@ -166,7 +141,7 @@ suite('test_schema_change_with_compaction7', 'nonConcurrent') {
         int max_try_time = 3000
         while (max_try_time--){
             result = getJobState("date")
-            if (result == "FINISHED" || result == "CANCELLED") {
+            if (result == "FINISHED") {
                 sleep(3000)
                 break
             } else {
@@ -176,17 +151,17 @@ suite('test_schema_change_with_compaction7', 'nonConcurrent') {
                 }
             }
         }
-        assertEquals(result, "FINISHED");
+        for (int i = 0; i < 5; i++) {
+            load_date_once("date");
+        }
         def count = sql """ select count(*) from date; """
-        assertEquals(count[0][0], 2556);
+        assertEquals(count[0][0], 20448);
         // check rowsets
         logger.info("run show:" + originTabletId)
         (code, out, err) = be_show_tablet_status(injectBe.Host, injectBe.HttpPort, originTabletId)
         logger.info("Run show: code=" + code + ", out=" + out + ", err=" + err)
         assertTrue(out.contains("[0-1]"))
         assertTrue(out.contains("[2-7]"))
-        assertTrue(out.contains("[8-8]"))
-        assertTrue(out.contains("[9-13]"))
 
         logger.info("run show:" + newTabletId)
         (code, out, err) = be_show_tablet_status(injectBe.Host, injectBe.HttpPort, newTabletId)
@@ -194,8 +169,6 @@ suite('test_schema_change_with_compaction7', 'nonConcurrent') {
         assertTrue(out.contains("[0-1]"))
         assertTrue(out.contains("[2-2]"))
         assertTrue(out.contains("[7-7]"))
-        assertTrue(out.contains("[8-8]"))
-        assertTrue(out.contains("[9-13]"))
         
         // base compaction
         logger.info("run compaction:" + newTabletId)
@@ -215,25 +188,10 @@ suite('test_schema_change_with_compaction7', 'nonConcurrent') {
             running = compactionStatus.run_status
         }
 
-        logger.info("run show:" + newTabletId)
-        (code, out, err) = be_show_tablet_status(injectBe.Host, injectBe.HttpPort, newTabletId)
-        logger.info("Run show: code=" + code + ", out=" + out + ", err=" + err)
-        assertTrue(out.contains("[0-1]"))
-        assertTrue(out.contains("[2-7]"))
-        assertTrue(out.contains("[8-8]"))
-        assertTrue(out.contains("[9-13]"))
-
-        for (int i = 0; i < 3; i++) {
-            load_date_once("date");
-        }
-
-        sql """ select count(*) from date """
-
         logger.info("run compaction:" + newTabletId)
         (code, out, err) = be_run_cumulative_compaction(injectBe.Host, injectBe.HttpPort, newTabletId)
         logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
 
-        // wait for all compactions done
         running = true
         while (running) {
             Thread.sleep(100)
@@ -250,7 +208,7 @@ suite('test_schema_change_with_compaction7', 'nonConcurrent') {
         logger.info("Run show: code=" + code + ", out=" + out + ", err=" + err)
         assertTrue(out.contains("[0-1]"))
         assertTrue(out.contains("[2-7]"))
-        assertTrue(out.contains("[8-16]"))
+        assertTrue(out.contains("[8-12]"))
     }
 
 }

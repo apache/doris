@@ -26,7 +26,7 @@ import org.apache.doris.regression.util.DebugPoint
 
 import org.apache.doris.regression.util.NodeType
 
-suite('test_schema_change_with_compaction2', 'nonConcurrent') {
+suite('test_schema_change_with_compaction8', 'p1,nonConcurrent') {
     def getJobState = { tableName ->
         def jobStateResult = sql """ SHOW ALTER TABLE COLUMN WHERE IndexName='${tableName}' ORDER BY createtime DESC LIMIT 1 """
         return jobStateResult[0][9]
@@ -67,7 +67,7 @@ suite('test_schema_change_with_compaction2', 'nonConcurrent') {
         }
     }
 
-    sql new File("""${context.file.parent}/../ddl/date_create.sql""").text
+    sql new File("""${context.file.parent}/../ddl/date_unique_create.sql""").text
     def injectName = 'CloudSchemaChangeJob.process_alter_tablet.sleep'
     def injectBe = null
     def backends = sql_return_maparray('show backends')
@@ -155,7 +155,7 @@ suite('test_schema_change_with_compaction2', 'nonConcurrent') {
             load_date_once("date");
         }
         def count = sql """ select count(*) from date; """
-        assertEquals(count[0][0], 20448);
+        assertEquals(count[0][0], 2556);
         // check rowsets
         logger.info("run show:" + originTabletId)
         (code, out, err) = be_show_tablet_status(injectBe.Host, injectBe.HttpPort, originTabletId)
