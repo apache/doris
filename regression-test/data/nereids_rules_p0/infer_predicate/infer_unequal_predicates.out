@@ -69,7 +69,7 @@ PhysicalResultSink
 -- !remove_useless_predicate --
 PhysicalResultSink
 --NestedLoopJoin[CROSS_JOIN]
-----filter((t1.a = t1.c) and (t1.a > 1) and (t1.c > 1))
+----filter((t1.a = t1.c) and (t1.a > 1))
 ------PhysicalOlapScan[test_like1]
 ----PhysicalOlapScan[test_like2]
 
@@ -117,4 +117,9 @@ PhysicalResultSink
 ------PhysicalOlapScan[test_cast_infer9]
 ----filter((t2.d_smallint > 1))
 ------PhysicalOlapScan[test_cast_infer9]
+
+-- !multi_slot_equal --
+PhysicalResultSink
+--filter((test_like1.a = test_like1.c) and (test_like1.a = test_like1.d))
+----PhysicalOlapScan[test_like1]
 

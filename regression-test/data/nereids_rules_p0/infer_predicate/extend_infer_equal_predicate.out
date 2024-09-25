@@ -159,7 +159,8 @@ PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((expr_(a + c) = expr_(a + c))) otherCondition=()
 ----filter(((t1.a + t1.c) < 10))
 ------PhysicalOlapScan[test_like1]
-----PhysicalOlapScan[test_like2]
+----filter(((t2.a + t2.c) < 10))
+------PhysicalOlapScan[test_like2]
 
 -- !test_multi_slot_in_predicate2 --
 PhysicalResultSink
@@ -317,7 +318,8 @@ PhysicalResultSink
 -- !test_cast_and_func3 --
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((expr_cast(cast(d_int as TINYINT) as SMALLINT) = expr_abs(d_tinyint))) otherCondition=()
-----PhysicalOlapScan[test_cast_infer9]
+----filter((cast(cast(d_int as TINYINT) as SMALLINT) < 10))
+------PhysicalOlapScan[test_cast_infer9]
 ----filter((abs(d_tinyint) < 10))
 ------PhysicalOlapScan[test_cast_infer9]
 
@@ -479,4 +481,184 @@ PhysicalResultSink
 -- !predicate_to_empty_relation_res --
 
 -- !equal_table_predicate_delete_res --
+
+-- !not_equal_inner_left --
+PhysicalResultSink
+--hashJoin[INNER_JOIN] hashCondition=((t3.d_int = t.c1)) otherCondition=()
+----filter(( not (d_int = 10)))
+------PhysicalOlapScan[test_cast_infer9]
+----hashJoin[LEFT_OUTER_JOIN] hashCondition=((c1 = t2.d_int)) otherCondition=()
+------filter(( not (d_int = 10)))
+--------PhysicalOlapScan[test_cast_infer9]
+------filter(( not (d_int = 10)))
+--------PhysicalOlapScan[test_cast_infer9]
+
+-- !not_equal_inner_left2 --
+PhysicalResultSink
+--hashJoin[INNER_JOIN] hashCondition=((t3.d_int = t.c1)) otherCondition=()
+----filter(( not (d_int = 10)))
+------PhysicalOlapScan[test_cast_infer9]
+----hashJoin[INNER_JOIN] hashCondition=((t1.d_int = c1)) otherCondition=()
+------filter(( not (d_int = 10)))
+--------PhysicalOlapScan[test_cast_infer9]
+------filter(( not (d_int = 10)))
+--------PhysicalOlapScan[test_cast_infer9]
+
+-- !not_equal_left_inner --
+PhysicalResultSink
+--hashJoin[INNER_JOIN] hashCondition=((t3.d_int = t.c1)) otherCondition=()
+----filter(( not (d_int = 10)))
+------PhysicalOlapScan[test_cast_infer9]
+----hashJoin[INNER_JOIN] hashCondition=((c1 = t2.d_int)) otherCondition=()
+------filter(( not (d_int = 10)))
+--------PhysicalOlapScan[test_cast_infer9]
+------filter(( not (d_int = 10)))
+--------PhysicalOlapScan[test_cast_infer9]
+
+-- !not_equal_left_left --
+PhysicalResultSink
+--hashJoin[INNER_JOIN] hashCondition=((t3.d_int = t.c1)) otherCondition=()
+----filter(( not (d_int = 10)))
+------PhysicalOlapScan[test_cast_infer9]
+----hashJoin[LEFT_OUTER_JOIN] hashCondition=((c1 = t2.d_int)) otherCondition=()
+------filter(( not (d_int = 10)))
+--------PhysicalOlapScan[test_cast_infer9]
+------filter(( not (d_int = 10)))
+--------PhysicalOlapScan[test_cast_infer9]
+
+-- !not_equal_left_left2 --
+PhysicalResultSink
+--hashJoin[INNER_JOIN] hashCondition=((t3.d_int = t.c1)) otherCondition=()
+----filter(( not (d_int = 10)))
+------PhysicalOlapScan[test_cast_infer9]
+----hashJoin[INNER_JOIN] hashCondition=((t1.d_int = c1)) otherCondition=()
+------filter(( not (d_int = 10)))
+--------PhysicalOlapScan[test_cast_infer9]
+------filter(( not (d_int = 10)))
+--------PhysicalOlapScan[test_cast_infer9]
+
+-- !not_in_inner_right --
+PhysicalResultSink
+--hashJoin[INNER_JOIN] hashCondition=((t3.d_int = t.c1)) otherCondition=()
+----filter(( not d_int IN (10, 20)))
+------PhysicalOlapScan[test_cast_infer9]
+----hashJoin[INNER_JOIN] hashCondition=((c1 = t2.d_int)) otherCondition=()
+------filter(( not d_int IN (10, 20)))
+--------PhysicalOlapScan[test_cast_infer9]
+------filter(( not d_int IN (10, 20)))
+--------PhysicalOlapScan[test_cast_infer9]
+
+-- !not_in_inner_right2 --
+PhysicalResultSink
+--hashJoin[INNER_JOIN] hashCondition=((t3.d_int = t.c1)) otherCondition=()
+----filter(( not d_int IN (10, 20)))
+------PhysicalOlapScan[test_cast_infer9]
+----hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t1.d_int = c1)) otherCondition=()
+------filter(( not d_int IN (10, 20)))
+--------PhysicalOlapScan[test_cast_infer9]
+------filter(( not d_int IN (10, 20)))
+--------PhysicalOlapScan[test_cast_infer9]
+
+-- !not_in_right_inner --
+PhysicalResultSink
+--hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t3.d_int = t.c1)) otherCondition=()
+----filter(( not d_int IN (10, 20)))
+------PhysicalOlapScan[test_cast_infer9]
+----hashJoin[INNER_JOIN] hashCondition=((c1 = t2.d_int)) otherCondition=()
+------filter(( not d_int IN (10, 20)))
+--------PhysicalOlapScan[test_cast_infer9]
+------filter(( not d_int IN (10, 20)))
+--------PhysicalOlapScan[test_cast_infer9]
+
+-- !not_in_right_right --
+PhysicalResultSink
+--hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t3.d_int = t.c1)) otherCondition=()
+----filter(( not d_int IN (10, 20)))
+------PhysicalOlapScan[test_cast_infer9]
+----hashJoin[INNER_JOIN] hashCondition=((c1 = t2.d_int)) otherCondition=()
+------filter(( not d_int IN (10, 20)))
+--------PhysicalOlapScan[test_cast_infer9]
+------filter(( not d_int IN (10, 20)))
+--------PhysicalOlapScan[test_cast_infer9]
+
+-- !not_in_right_right2 --
+PhysicalResultSink
+--hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t3.d_int = t.c1)) otherCondition=()
+----filter(( not d_int IN (10, 20)))
+------PhysicalOlapScan[test_cast_infer9]
+----hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t1.d_int = c1)) otherCondition=()
+------filter(( not d_int IN (10, 20)))
+--------PhysicalOlapScan[test_cast_infer9]
+------filter(( not d_int IN (10, 20)))
+--------PhysicalOlapScan[test_cast_infer9]
+
+-- !not_equal_semi_semi_with_cast --
+PhysicalResultSink
+--hashJoin[LEFT_SEMI_JOIN] hashCondition=((expr_cast(d_smallint as INT) = t.c1)) otherCondition=()
+----filter(( not (cast(d_smallint as INT) = 10)) and ( not (d_smallint = 10)))
+------PhysicalOlapScan[test_cast_infer9]
+----hashJoin[LEFT_SEMI_JOIN] hashCondition=((c1 = expr_cast(d_tinyint as INT))) otherCondition=()
+------filter(( not (d_int = 10)))
+--------PhysicalOlapScan[test_cast_infer9]
+------filter(( not (cast(d_tinyint as INT) = 10)))
+--------PhysicalOlapScan[test_cast_infer9]
+
+-- !not_equal_anti_anti_with_cast --
+PhysicalResultSink
+--hashJoin[LEFT_ANTI_JOIN] hashCondition=((expr_cast(d_smallint as INT) = t.c1)) otherCondition=()
+----filter(( not (d_smallint = 10)))
+------PhysicalOlapScan[test_cast_infer9]
+----hashJoin[LEFT_ANTI_JOIN] hashCondition=((c1 = expr_cast(d_tinyint as INT))) otherCondition=()
+------filter(( not (d_int = 10)))
+--------PhysicalOlapScan[test_cast_infer9]
+------filter(( not (cast(d_tinyint as INT) = 10)))
+--------PhysicalOlapScan[test_cast_infer9]
+
+-- !not_equal_anti_left_with_cast --
+PhysicalResultSink
+--hashJoin[LEFT_ANTI_JOIN] hashCondition=((expr_cast(d_smallint as INT) = t.c1)) otherCondition=()
+----filter(( not (d_smallint = 10)))
+------PhysicalOlapScan[test_cast_infer9]
+----hashJoin[LEFT_OUTER_JOIN] hashCondition=((c1 = expr_cast(d_tinyint as INT))) otherCondition=()
+------filter(( not (d_int = 10)))
+--------PhysicalOlapScan[test_cast_infer9]
+------filter(( not (cast(d_tinyint as INT) = 10)))
+--------PhysicalOlapScan[test_cast_infer9]
+
+-- !not_equal_semi_anti_with_cast --
+PhysicalResultSink
+--hashJoin[LEFT_SEMI_JOIN] hashCondition=((expr_cast(d_smallint as INT) = t.c1)) otherCondition=()
+----filter(( not (cast(d_smallint as INT) = 10)) and ( not (d_smallint = 10)))
+------PhysicalOlapScan[test_cast_infer9]
+----hashJoin[LEFT_ANTI_JOIN] hashCondition=((c1 = expr_cast(d_tinyint as INT))) otherCondition=()
+------filter(( not (d_int = 10)))
+--------PhysicalOlapScan[test_cast_infer9]
+------filter(( not (cast(d_tinyint as INT) = 10)))
+--------PhysicalOlapScan[test_cast_infer9]
+
+-- !in_subquery_to_semi_join --
+PhysicalResultSink
+--hashJoin[LEFT_SEMI_JOIN] hashCondition=((t1.d_int = test_cast_infer8.d_int)) otherCondition=()
+----filter(( not (d_int = 10)))
+------PhysicalOlapScan[test_cast_infer9]
+----filter(( not (d_int = 10)))
+------PhysicalOlapScan[test_cast_infer8]
+
+-- !not_in_subquery_to_na_anti_join_not_infer --
+PhysicalResultSink
+--hashJoin[NULL_AWARE_LEFT_ANTI_JOIN] hashCondition=((t1.d_int = test_cast_infer8.d_int)) otherCondition=()
+----filter(( not (d_int = 10)))
+------PhysicalOlapScan[test_cast_infer9]
+----PhysicalOlapScan[test_cast_infer8]
+
+-- !in_subquery_to_semi_join --
+PhysicalResultSink
+--hashJoin[LEFT_SEMI_JOIN] hashCondition=((t1.d_int = test_cast_infer8.d_int)) otherCondition=()
+----hashJoin[INNER_JOIN] hashCondition=((t1.d_int = t2.d_int)) otherCondition=()
+------filter(( not (d_int = 10)))
+--------PhysicalOlapScan[test_cast_infer9]
+------filter(( not (d_int = 10)))
+--------PhysicalOlapScan[test_cast_infer9]
+----filter(( not (d_int = 10)))
+------PhysicalOlapScan[test_cast_infer8]
 

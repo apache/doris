@@ -286,4 +286,64 @@ suite("extend_infer_equal_predicate") {
     and day(convert_tz(t1.d_datetimev2,'Asia/Shanghai','Europe/Paris'))>10 order by t1.d_int;"""
     qt_predicate_to_empty_relation_res """select * from test_like1 t1 left join test_like2 t2 on t1.a=t2.a and t2.a=1 left join test_like2 t3 on t1.a=t3.a where t1.a=2"""
     qt_equal_table_predicate_delete_res """select * from test_like1 where a=1 and c=1 order by 1,2,3,4;"""
+
+    // non-inner join
+    qt_not_equal_inner_left """explain shape plan
+    select * from test_cast_infer9 t3 inner join (
+	select t1.d_int as c1 from test_cast_infer9 t1 left join test_cast_infer9 t2 on t1.d_int=t2.d_int) t on t3.d_int=t.c1 where t.c1!=10;"""
+    qt_not_equal_inner_left2 """explain shape plan
+    select * from test_cast_infer9 t3 inner join (
+	select t2.d_int as c1 from test_cast_infer9 t1 left join test_cast_infer9 t2 on t1.d_int=t2.d_int) t on t3.d_int=t.c1 where t.c1!=10;"""
+    qt_not_equal_left_inner """explain shape plan
+    select * from test_cast_infer9 t3 left join (
+	select t1.d_int as c1 from test_cast_infer9 t1 inner join test_cast_infer9 t2 on t1.d_int=t2.d_int) t on t3.d_int=t.c1 where t.c1!=10;"""
+    qt_not_equal_left_left """explain shape plan
+    select * from test_cast_infer9 t3 left join (
+	select t1.d_int as c1 from test_cast_infer9 t1 left join test_cast_infer9 t2 on t1.d_int=t2.d_int) t on t3.d_int=t.c1 where t.c1!=10;"""
+    qt_not_equal_left_left2 """explain shape plan
+    select * from test_cast_infer9 t3 left join (
+	select t2.d_int as c1 from test_cast_infer9 t1 left join test_cast_infer9 t2 on t1.d_int=t2.d_int) t on t3.d_int=t.c1 where t.c1!=10;"""
+
+    qt_not_in_inner_right """explain shape plan
+    select * from test_cast_infer9 t3 inner join (
+	select t1.d_int as c1 from test_cast_infer9 t1 right join test_cast_infer9 t2 on t1.d_int=t2.d_int) t on t3.d_int=t.c1 where t.c1 not in (10,20);"""
+    qt_not_in_inner_right2 """explain shape plan
+    select * from test_cast_infer9 t3 inner join (
+	select t2.d_int as c1 from test_cast_infer9 t1 right join test_cast_infer9 t2 on t1.d_int=t2.d_int) t on t3.d_int=t.c1 where t.c1 not in (10,20);"""
+    qt_not_in_right_inner """explain shape plan
+    select * from test_cast_infer9 t3 right join (
+	select t1.d_int as c1 from test_cast_infer9 t1 inner join test_cast_infer9 t2 on t1.d_int=t2.d_int) t on t3.d_int=t.c1 where t.c1 not in (10,20);"""
+    qt_not_in_right_right """explain shape plan
+    select * from test_cast_infer9 t3 right join (
+	select t1.d_int as c1 from test_cast_infer9 t1 right join test_cast_infer9 t2 on t1.d_int=t2.d_int) t on t3.d_int=t.c1 where t.c1 not in (10,20);"""
+    qt_not_in_right_right2 """explain shape plan
+    select * from test_cast_infer9 t3 right join (
+	select t2.d_int as c1 from test_cast_infer9 t1 right join test_cast_infer9 t2 on t1.d_int=t2.d_int) t on t3.d_int=t.c1 where t.c1 not in (10,20);"""
+
+    qt_not_equal_semi_semi_with_cast """explain shape plan 
+    select * from test_cast_infer9 t3 left semi join (
+	select t1.d_int as c1 from test_cast_infer9 t1 left semi join test_cast_infer9 t2 on t1.d_int=t2.d_tinyint) t 
+	on t3.d_smallint=t.c1 where t3.d_smallint !=10;"""
+    qt_not_equal_anti_anti_with_cast """explain shape plan 
+    select * from test_cast_infer9 t3 left anti join (
+	select t1.d_int as c1 from test_cast_infer9 t1 left anti join test_cast_infer9 t2 on t1.d_int=t2.d_tinyint) t 
+	on t3.d_smallint=t.c1 where t3.d_smallint !=10;"""
+    qt_not_equal_anti_left_with_cast """explain shape plan 
+    select * from test_cast_infer9 t3 left anti join (
+	select t1.d_int as c1 from test_cast_infer9 t1 left join test_cast_infer9 t2 on t1.d_int=t2.d_tinyint) t 
+	on t3.d_smallint=t.c1 where t3.d_smallint !=10;"""
+    qt_not_equal_semi_anti_with_cast """explain shape plan 
+    select * from test_cast_infer9 t3 left semi join (
+	select t1.d_int as c1 from test_cast_infer9 t1 left anti join test_cast_infer9 t2 on t1.d_int=t2.d_tinyint) t 
+	on t3.d_smallint=t.c1 where t3.d_smallint !=10;"""
+    qt_in_subquery_to_semi_join """explain shape plan
+	select * from test_cast_infer9 t1 where t1.d_int in (select d_int from test_cast_infer8 where d_int != 10)
+	"""
+    // should not infer
+    qt_not_in_subquery_to_na_anti_join_not_infer """explain shape plan
+	select * from test_cast_infer9 t1 where t1.d_int not in (select d_int from test_cast_infer8 ) and t1.d_int !=10
+	"""
+    qt_in_subquery_to_semi_join """explain shape plan
+	select * from test_cast_infer9 t1 inner join test_cast_infer9 t2 on t1.d_int=t2.d_int where t1.d_int in (select d_int from test_cast_infer8 where d_int != 10)
+	"""
 }

@@ -121,7 +121,6 @@ suite("infer_unequal_predicates") {
     explain shape plan
     SELECT * FROM test_like1 t1 WHERE t1.a<t1.c AND t1.c<t1.d AND t1.d<10 and t1.c<10
     """
-    // t1.c>1 should not infer(TODO)
     qt_remove_useless_predicate """
     explain shape plan
     SELECT * FROM test_like1 t1 INNER JOIN test_like2 t2 ON t1.a>1 AND t1.a=t1.c
@@ -155,4 +154,6 @@ suite("infer_unequal_predicates") {
     explain shape plan
     select * from test_cast_infer9 t1 inner join test_cast_infer9 t2 on t1.d_int>t2.d_smallint and t2.d_smallint >1;
     """
+
+    qt_multi_slot_equal """explain shape plan select * from test_like1 where a=c and c=d"""
 }

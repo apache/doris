@@ -34,12 +34,14 @@ import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.util.PredicateInferUtils;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
@@ -84,7 +86,7 @@ public class UnequalPredicateInfer {
 
         /**Constructor*/
         private InferenceGraph(Set<ComparisonPredicate> inputs) {
-            Set<Expression> inputExpressionSet = new LinkedHashSet<>();
+            Set<Expression> inputExpressionSet = new HashSet<>();
             for (ComparisonPredicate comparison : inputs) {
                 if (comparison.left().equals(comparison.right())) {
                     otherPredicates.add(comparison);
@@ -123,6 +125,9 @@ public class UnequalPredicateInfer {
                 predicatesPairs.add(new PairAndRelation(pair, getType(commute)));
             }
             inputExprs.addAll(inputExpressionSet);
+            // Sorting is required to ensure the stability of the plan shape
+            // and to ensure that the same results are output in the derivation of d>1 d=c and c>1 d=c
+            inputExprs.sort(Comparator.comparing(ExpressionTrait::toSql));
             size = inputExprs.size();
             for (int i = 0; i < size; ++i) {
                 inputExprPosition.put(inputExprs.get(i), i);
@@ -342,6 +347,11 @@ public class UnequalPredicateInfer {
                         newPredicates.add(TypeCoercionUtils.processComparisonPredicate(
                                 normalizePredicate(new GreaterThanEqual(
                                 inputExprs.get(i), inputExprs.get(j)))).withInferred(true));
+                    } else if (chosen[i][j] == Relation.EQ) {
+                        newPredicates.add(TypeCoercionUtils.processComparisonPredicate(
+                                normalizePredicate(new EqualTo(
+                                        inputExprs.get(i), inputExprs.get(j)))).withInferred(true));
+                        clear(chosen, i, j, Relation.EQ);
                     }
                 }
             }
@@ -366,7 +376,7 @@ public class UnequalPredicateInfer {
         private void clear(Relation[][] graph, int left, int right, Relation type) {
             graph[left][right] = Relation.UNDEFINED;
             if (type == Relation.EQ) {
-                graph[left][right] = Relation.UNDEFINED;
+                graph[right][left] = Relation.UNDEFINED;
             }
         }
 

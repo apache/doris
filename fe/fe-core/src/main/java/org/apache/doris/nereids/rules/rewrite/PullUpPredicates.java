@@ -26,7 +26,6 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
-import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
@@ -40,6 +39,7 @@ import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.PredicateInferUtils;
 
+import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -155,14 +155,35 @@ public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void
     @Override
     public ImmutableSet<Expression> visitLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> join, Void context) {
         return cacheOrElse(join, () -> {
-            Set<Expression> predicates = Sets.newHashSet();
-            ImmutableSet<Expression> leftPredicates = join.left().accept(this, context);
-            ImmutableSet<Expression> rightPredicates = join.right().accept(this, context);
-            predicates.addAll(leftPredicates);
-            predicates.addAll(rightPredicates);
-            if (join.getJoinType() == JoinType.CROSS_JOIN || join.getJoinType() == JoinType.INNER_JOIN) {
-                predicates.addAll(join.getHashJoinConjuncts());
-                predicates.addAll(join.getOtherJoinConjuncts());
+            Set<Expression> predicates = new LinkedHashSet<>();
+            Supplier<ImmutableSet<Expression>> leftPredicates = Suppliers.memoize(
+                    () -> join.left().accept(this, context));
+            Supplier<ImmutableSet<Expression>> rightPredicates = Suppliers.memoize(
+                    () -> join.right().accept(this, context));
+            switch (join.getJoinType()) {
+                case CROSS_JOIN:
+                case INNER_JOIN: {
+                    predicates.addAll(leftPredicates.get());
+                    predicates.addAll(rightPredicates.get());
+                    predicates.addAll(join.getHashJoinConjuncts());
+                    predicates.addAll(join.getOtherJoinConjuncts());
+                    break;
+                }
+                case LEFT_OUTER_JOIN:
+                case LEFT_SEMI_JOIN:
+                case LEFT_ANTI_JOIN:
+                case NULL_AWARE_LEFT_ANTI_JOIN: {
+                    predicates.addAll(leftPredicates.get());
+                    break;
+                }
+                case RIGHT_OUTER_JOIN:
+                case RIGHT_SEMI_JOIN:
+                case RIGHT_ANTI_JOIN: {
+                    predicates.addAll(rightPredicates.get());
+                    break;
+                }
+                default:
+                    break;
             }
             return getAvailableExpressions(predicates, join);
         });
