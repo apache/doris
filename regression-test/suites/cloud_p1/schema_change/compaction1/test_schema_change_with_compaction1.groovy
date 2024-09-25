@@ -26,10 +26,10 @@ import org.apache.doris.regression.util.DebugPoint
 
 import org.apache.doris.regression.util.NodeType
 
-suite('test_schema_change_with_compaction4', 'nonConcurrent') {
+suite('test_schema_change_with_compaction1', 'p1,nonConcurrent') {
     def getJobState = { tableName ->
-        def jobStateResult = sql """ SHOW ALTER TABLE MATERIALIZED VIEW WHERE IndexName='${tableName}' ORDER BY createtime DESC LIMIT 1 """
-        return jobStateResult[0][8]
+        def jobStateResult = sql """ SHOW ALTER TABLE COLUMN WHERE IndexName='${tableName}' ORDER BY createtime DESC LIMIT 1 """
+        return jobStateResult[0][9]
     }
 
     def s3BucketName = getS3BucketName()
@@ -107,7 +107,7 @@ suite('test_schema_change_with_compaction4', 'nonConcurrent') {
         sleep(1000)
 
         DebugPoint.enableDebugPoint(injectBe.Host, injectBe.HttpPort.toInteger(), NodeType.BE, injectName)
-        sql " CREATE MATERIALIZED VIEW date_view as select d_datekey, sum(d_daynuminweek) from date group by d_datekey;"
+        sql "ALTER TABLE date MODIFY COLUMN d_holidayfl bigint(11)"
         sleep(5000) 
         array = sql_return_maparray("SHOW TABLETS FROM date")
 
@@ -161,7 +161,6 @@ suite('test_schema_change_with_compaction4', 'nonConcurrent') {
             } while (running)
         }
     } finally {
-        sql """ CANCEL ALTER TABLE MATERIALIZED VIEW FROM date """
         if (injectBe != null) {
             DebugPoint.disableDebugPoint(injectBe.Host, injectBe.HttpPort.toInteger(), NodeType.BE, injectName)
         }
@@ -178,7 +177,7 @@ suite('test_schema_change_with_compaction4', 'nonConcurrent') {
                 }
             }
         }
-        assertEquals(result, "CANCELLED");
+        assertEquals(result, "FINISHED");
         def count = sql """ select count(*) from date; """
         assertEquals(count[0][0], 23004);
         // check rowsets
@@ -189,6 +188,70 @@ suite('test_schema_change_with_compaction4', 'nonConcurrent') {
         assertTrue(out.contains("[2-7]"))
         assertTrue(out.contains("[8-8]"))
         assertTrue(out.contains("[9-13]"))
+
+        logger.info("run show:" + newTabletId)
+        (code, out, err) = be_show_tablet_status(injectBe.Host, injectBe.HttpPort, newTabletId)
+        logger.info("Run show: code=" + code + ", out=" + out + ", err=" + err)
+        assertTrue(out.contains("[0-1]"))
+        assertTrue(out.contains("[2-2]"))
+        assertTrue(out.contains("[7-7]"))
+        assertTrue(out.contains("[8-8]"))
+        assertTrue(out.contains("[9-13]"))
+        
+        // base compaction
+        logger.info("run compaction:" + newTabletId)
+        (code, out, err) = be_run_base_compaction(injectBe.Host, injectBe.HttpPort, newTabletId)
+        logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
+
+
+        // wait for all compactions done
+        boolean running = true
+        while (running) {
+            Thread.sleep(100)
+            (code, out, err) = be_get_compaction_status(injectBe.Host, injectBe.HttpPort, newTabletId)
+            logger.info("Get compaction status: code=" + code + ", out=" + out + ", err=" + err)
+            assertEquals(code, 0)
+            def compactionStatus = parseJson(out.trim())
+            assertEquals("success", compactionStatus.status.toLowerCase())
+            running = compactionStatus.run_status
+        }
+
+        logger.info("run show:" + newTabletId)
+        (code, out, err) = be_show_tablet_status(injectBe.Host, injectBe.HttpPort, newTabletId)
+        logger.info("Run show: code=" + code + ", out=" + out + ", err=" + err)
+        assertTrue(out.contains("[0-1]"))
+        assertTrue(out.contains("[2-7]"))
+        assertTrue(out.contains("[8-8]"))
+        assertTrue(out.contains("[9-13]"))
+
+        for (int i = 0; i < 3; i++) {
+            load_date_once("date");
+        }
+
+        sql """ select count(*) from date """
+
+        logger.info("run compaction:" + newTabletId)
+        (code, out, err) = be_run_cumulative_compaction(injectBe.Host, injectBe.HttpPort, newTabletId)
+        logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
+
+        // wait for all compactions done
+        running = true
+        while (running) {
+            Thread.sleep(100)
+            (code, out, err) = be_get_compaction_status(injectBe.Host, injectBe.HttpPort, newTabletId)
+            logger.info("Get compaction status: code=" + code + ", out=" + out + ", err=" + err)
+            assertEquals(code, 0)
+            def compactionStatus = parseJson(out.trim())
+            assertEquals("success", compactionStatus.status.toLowerCase())
+            running = compactionStatus.run_status
+        }
+
+        logger.info("run show:" + newTabletId)
+        (code, out, err) = be_show_tablet_status(injectBe.Host, injectBe.HttpPort, newTabletId)
+        logger.info("Run show: code=" + code + ", out=" + out + ", err=" + err)
+        assertTrue(out.contains("[0-1]"))
+        assertTrue(out.contains("[2-7]"))
+        assertTrue(out.contains("[8-16]"))
     }
 
 }
