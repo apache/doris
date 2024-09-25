@@ -163,8 +163,6 @@ suite("test_fold_constant_by_fe") {
     res = sql """explain select "12" like '%123%'"""
     assertTrue(res.contains("like"))
 
-    // Normal Usage Test Cases
-
     // Test Case 1: Append missing trailing character
     testFoldConst("select append_trailing_char_if_absent('hello', '!')")
     // Expected Output: 'hello!'
@@ -248,5 +246,6 @@ suite("test_fold_constant_by_fe") {
     // Test Case 20: Trailing character with whitespace
     testFoldConst("select append_trailing_char_if_absent('hello', ' ')")
     // Expected Output: 'hello '
+    testFoldConst("select DATE_SUB(CURRENT_DATE(), INTERVAL 1 DAY) + INTERVAL 3600 SECOND")
 
 }
