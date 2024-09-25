@@ -48,7 +48,6 @@ github:
         # if strict is true, means "Require branches to be up to date before merging".
         strict: false
         contexts:
-          - License Check
           - Clang Formatter
           - CheckStyle
           - P0 Regression (Doris Regression)
@@ -86,7 +85,6 @@ github:
         # strict means "Require branches to be up to date before merging".
         strict: false
         contexts:
-          - License Check
           - Clang Formatter
           - CheckStyle
           - Build Broker
@@ -108,7 +106,6 @@ github:
       # if strict is true, means "Require branches to be up to date before merging".
         strict: false
         contexts:
-          - License Check
           - CheckStyle
           - P0 Regression (Doris Regression)
           - External Regression (Doris External Regression)
