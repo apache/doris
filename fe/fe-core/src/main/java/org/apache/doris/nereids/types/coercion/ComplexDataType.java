@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.analyzer;
+package org.apache.doris.nereids.types.coercion;
 
 /** ComplexDataType */
 public interface ComplexDataType {
