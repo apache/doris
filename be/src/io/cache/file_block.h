@@ -30,6 +30,7 @@
 
 #include "common/status.h"
 #include "io/cache/file_cache_common.h"
+#include "olap/olap_common.h"
 #include "util/slice.h"
 
 namespace doris {
@@ -153,6 +154,7 @@ private:
     std::condition_variable _cv;
     FileCacheKey _key;
     size_t _downloaded_size {0};
+    io::FileCacheStatistics* _file_cache_stat;
 };
 
 extern std::ostream& operator<<(std::ostream& os, const FileBlock::State& value);

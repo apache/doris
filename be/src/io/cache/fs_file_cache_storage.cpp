@@ -17,6 +17,8 @@
 
 #include "io/cache/fs_file_cache_storage.h"
 
+#include <bvar/scoped_timer.h>
+
 #include <filesystem>
 #include <mutex>
 #include <system_error>
@@ -113,6 +115,7 @@ Status FSFileCacheStorage::append(const FileCacheKey& key, const Slice& value) {
     FileWriter* writer = nullptr;
     {
         std::lock_guard lock(_mtx);
+        int64_t start = butil::cpuwide_time_ms();
         auto file_writer_map_key = std::make_pair(key.hash, key.offset);
         if (auto iter = _key_to_writer.find(file_writer_map_key); iter != _key_to_writer.end()) {
             writer = iter->second.get();
@@ -129,20 +132,37 @@ Status FSFileCacheStorage::append(const FileCacheKey& key, const Slice& value) {
             writer = file_writer.get();
             _key_to_writer.emplace(file_writer_map_key, std::move(file_writer));
         }
+        int cost = butil::cpuwide_time_ms() - start;
+        if (cost > 50) {
+            LOG(WARNING) << "FSFileCacheStorage 1 append cost " << cost << "ms";
+        }
     }
     DCHECK_NE(writer, nullptr);
-    return writer->append(value);
+    {
+        int64_t start = butil::cpuwide_time_ms();
+        auto s = writer->append(value);
+        int cost = butil::cpuwide_time_ms() - start;
+        if (cost > 50) {
+            LOG(WARNING) << "FSFileCacheStorage 2 append cost " << cost << "ms";
+        }
+        return s;
+    }
 }
 
 Status FSFileCacheStorage::finalize(const FileCacheKey& key) {
     FileWriterPtr file_writer;
     {
         std::lock_guard lock(_mtx);
+        int64_t start = butil::cpuwide_time_ms();
         auto file_writer_map_key = std::make_pair(key.hash, key.offset);
         auto iter = _key_to_writer.find(file_writer_map_key);
         DCHECK(iter != _key_to_writer.end());
         file_writer = std::move(iter->second);
         _key_to_writer.erase(iter);
+        int cost = butil::cpuwide_time_ms() - start;
+        if (cost > 50) {
+            LOG(WARNING) << "FSFileCacheStorage finalize cost " << cost << "ms";
+        }
     }
     if (file_writer->state() != FileWriter::State::CLOSED) {
         RETURN_IF_ERROR(file_writer->close());
@@ -154,8 +174,17 @@ Status FSFileCacheStorage::finalize(const FileCacheKey& key) {
 
 Status FSFileCacheStorage::read(const FileCacheKey& key, size_t value_offset, Slice buffer) {
     AccessKeyAndOffset fd_key = std::make_pair(key.hash, key.offset);
-    FileReaderSPtr file_reader = FDCache::instance()->get_file_reader(fd_key);
+    FileReaderSPtr file_reader;
+    {
+        int64_t start = butil::cpuwide_time_ms();
+        file_reader = FDCache::instance()->get_file_reader(fd_key);
+        int cost = butil::cpuwide_time_ms() - start;
+        if (cost > 50) {
+            LOG(WARNING) << "FSFileCacheStorage get_file_reader 1 cost " << cost << "ms";
+        }
+    }
     if (!file_reader) {
+        int64_t start = butil::cpuwide_time_ms();
         std::string file =
                 get_path_in_local_cache(get_path_in_local_cache(key.hash, key.meta.expiration_time),
                                         key.offset, key.meta.type);
@@ -181,10 +210,21 @@ Status FSFileCacheStorage::read(const FileCacheKey& key, size_t value_offset, Sl
             }
         }
         FDCache::instance()->insert_file_reader(fd_key, file_reader);
+        int cost = butil::cpuwide_time_ms() - start;
+        if (cost > 50) {
+            LOG(WARNING) << "FSFileCacheStorage get_file_reader 2 cost " << cost << "ms";
+        }
     }
-    size_t bytes_read = 0;
-    RETURN_IF_ERROR(file_reader->read_at(value_offset, buffer, &bytes_read));
-    DCHECK(bytes_read == buffer.get_size());
+    {
+        int64_t start = butil::cpuwide_time_ms();
+        size_t bytes_read = 0;
+        RETURN_IF_ERROR(file_reader->read_at(value_offset, buffer, &bytes_read));
+        DCHECK(bytes_read == buffer.get_size());
+        int cost = butil::cpuwide_time_ms() - start;
+        if (cost > 50) {
+            LOG(WARNING) << "FSFileCacheStorage get_file_reader 3 cost " << cost << "ms";
+        }
+    }
     return Status::OK();
 }
 

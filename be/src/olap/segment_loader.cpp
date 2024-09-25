@@ -17,6 +17,8 @@
 
 #include "olap/segment_loader.h"
 
+#include <butil/time.h>
+
 #include "common/config.h"
 #include "common/status.h"
 #include "olap/olap_define.h"
@@ -52,7 +54,8 @@ void SegmentCache::erase(const SegmentCache::CacheKey& key) {
 
 Status SegmentLoader::load_segments(const BetaRowsetSharedPtr& rowset,
                                     SegmentCacheHandle* cache_handle, bool use_cache,
-                                    bool need_load_pk_index_and_bf) {
+                                    bool need_load_pk_index_and_bf,
+                                    OlapReaderStatistics* index_load_stats) {
     if (cache_handle->is_inited()) {
         return Status::OK();
     }
@@ -68,9 +71,21 @@ Status SegmentLoader::load_segments(const BetaRowsetSharedPtr& rowset,
         }
         // If the segment is not healthy, then will create a new segment and will replace the unhealthy one in SegmentCache.
         segment_v2::SegmentSharedPtr segment;
-        RETURN_IF_ERROR(rowset->load_segment(i, &segment));
+        {
+            int64_t start = butil::cpuwide_time_ms();
+            RETURN_IF_ERROR(rowset->load_segment(i, &segment));
+            if (butil::cpuwide_time_ms() - start > 50) {
+                LOG(WARNING) << "load segment too long " << i << " cost "
+                             << butil::cpuwide_time_ms() - start << "ms";
+            }
+        }
         if (need_load_pk_index_and_bf) {
-            RETURN_IF_ERROR(segment->load_pk_index_and_bf());
+            int64_t start = butil::cpuwide_time_ms();
+            RETURN_IF_ERROR(segment->load_pk_index_and_bf(index_load_stats));
+            if (butil::cpuwide_time_ms() - start > 50) {
+                LOG(WARNING) << "load_pk_index_and_bf too long " << i << " cost "
+                             << butil::cpuwide_time_ms() - start << "ms";
+            }
         }
         if (use_cache && !config::disable_segment_cache) {
             // memory of SegmentCache::CacheValue will be handled by SegmentCache

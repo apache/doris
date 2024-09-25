@@ -17,6 +17,7 @@
 
 #include "io/cache/cached_remote_file_reader.h"
 
+#include <butil/time.h>
 #include <fmt/format.h>
 #include <gen_cpp/Types_types.h>
 #include <glog/logging.h>
@@ -174,29 +175,41 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
     // read from cache or remote
     auto [align_left, align_size] = s_align_size(offset, bytes_req, size());
     CacheContext cache_context(io_ctx);
+    int64_t start = butil::cpuwide_time_ns();
     FileBlocksHolder holder =
             _cache->get_or_set(_cache_hash, align_left, align_size, cache_context);
+    stats.get_cache_lock_timer += butil::cpuwide_time_ns() - start;
+    if (butil::cpuwide_time_ns() - start > 50 * 1000 * 1000) {
+        LOG(WARNING) << "Get cache lock time too long: " << stats.get_cache_lock_timer;
+    }
     std::vector<FileBlockSPtr> empty_blocks;
-    for (auto& block : holder.file_blocks) {
-        switch (block->state()) {
-        case FileBlock::State::EMPTY:
-            block->get_or_set_downloader();
-            if (block->is_downloader()) {
+    {
+        int64_t start = butil::cpuwide_time_ns();
+        for (auto& block : holder.file_blocks) {
+            switch (block->state()) {
+            case FileBlock::State::EMPTY:
+                block->get_or_set_downloader();
+                if (block->is_downloader()) {
+                    empty_blocks.push_back(block);
+                    TEST_SYNC_POINT_CALLBACK("CachedRemoteFileReader::EMPTY");
+                }
+                stats.hit_cache = false;
+                break;
+            case FileBlock::State::SKIP_CACHE:
                 empty_blocks.push_back(block);
-                TEST_SYNC_POINT_CALLBACK("CachedRemoteFileReader::EMPTY");
+                stats.hit_cache = false;
+                stats.skip_cache = true;
+                break;
+            case FileBlock::State::DOWNLOADING:
+                stats.hit_cache = false;
+                break;
+            case FileBlock::State::DOWNLOADED:
+                break;
             }
-            stats.hit_cache = false;
-            break;
-        case FileBlock::State::SKIP_CACHE:
-            empty_blocks.push_back(block);
-            stats.hit_cache = false;
-            stats.skip_cache = true;
-            break;
-        case FileBlock::State::DOWNLOADING:
-            stats.hit_cache = false;
-            break;
-        case FileBlock::State::DOWNLOADED:
-            break;
+        }
+        stats.get_cache_lock_timer += butil::cpuwide_time_ns() - start;
+        if (butil::cpuwide_time_ns() - start > 50 * 1000 * 1000) {
+            LOG(WARNING) << "Get cache lock time too long: " << stats.get_cache_lock_timer;
         }
     }
     size_t empty_start = 0;
@@ -231,6 +244,7 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
             stats.bytes_write_into_file_cache += block_size;
         }
         // copy from memory directly
+        int64_t start = butil::cpuwide_time_ns();
         size_t right_offset = offset + bytes_req - 1;
         if (empty_start <= right_offset && empty_end >= offset) {
             size_t copy_left_offset = offset < empty_start ? empty_start : offset;
@@ -239,6 +253,9 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
             char* src = buffer.get() + (copy_left_offset - empty_start);
             size_t copy_size = copy_right_offset - copy_left_offset + 1;
             memcpy(dst, src, copy_size);
+        }
+        if (butil::cpuwide_time_ns() - start > 50 * 1000 * 1000) {
+            LOG(WARNING) << "copy from memory directly too long: " << stats.get_cache_lock_timer;
         }
     }
 
@@ -326,9 +343,9 @@ void CachedRemoteFileReader::_update_state(const ReadStatistics& read_stats,
     statis->num_skip_cache_io_total += read_stats.skip_cache;
     statis->bytes_write_into_cache += read_stats.bytes_write_into_file_cache;
     statis->write_cache_io_timer += read_stats.local_write_timer;
-
     g_skip_cache_num << read_stats.skip_cache;
     g_skip_cache_sum << read_stats.skip_cache;
+    statis->get_cache_lock_timer += read_stats.get_cache_lock_timer;
 }
 
 } // namespace doris::io

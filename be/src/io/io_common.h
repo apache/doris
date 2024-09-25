@@ -45,6 +45,7 @@ struct FileCacheStatistics {
     int64_t write_cache_io_timer = 0;
     int64_t bytes_write_into_cache = 0;
     int64_t num_skip_cache_io_total = 0;
+    int64_t get_cache_lock_timer = 0;
 };
 
 struct IOContext {

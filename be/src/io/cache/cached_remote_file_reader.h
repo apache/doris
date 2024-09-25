@@ -75,6 +75,7 @@ private:
         int64_t remote_read_timer = 0;
         int64_t local_read_timer = 0;
         int64_t local_write_timer = 0;
+        int64_t get_cache_lock_timer = 0;
     };
     void _update_state(const ReadStatistics& stats, FileCacheStatistics* state) const;
 };
