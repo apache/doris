@@ -138,6 +138,7 @@ supportedDmlStatement
         TO filePath=STRING_LITERAL
         (propertyClause)?
         (withRemoteStorageSystem)?                                     #export
+    | replayCommand                                                    #replay
     ;
 
 supportedCreateStatement
@@ -980,7 +981,7 @@ grantUserIdentify
 
 explain
     : explainCommand planType?
-          level=(VERBOSE | TREE | GRAPH | PLAN)?
+          level=(VERBOSE | TREE | GRAPH | PLAN | DUMP)?
           PROCESS?
     ;
 
@@ -1000,6 +1001,13 @@ planType
     | DISTRIBUTED
     | ALL // default type
     ;
+
+replayCommand
+    : REPLAYER replayType;
+
+replayType
+    : DUMP query
+    | PLAY filePath=STRING_LITERAL;
 
 mergeType
     : APPEND
@@ -2015,6 +2023,7 @@ nonReserved
     | REPEATABLE
     | REPLACE
     | REPLACE_IF_NOT_NULL
+    | REPLAY
     | REPOSITORIES
     | REPOSITORY
     | RESOURCE

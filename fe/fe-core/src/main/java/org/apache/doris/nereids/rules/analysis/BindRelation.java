@@ -171,14 +171,18 @@ public class BindRelation extends OneAnalysisRuleFactory {
         List<String> tableQualifier = RelationUtil.getQualifierName(cascadesContext.getConnectContext(),
                 unboundRelation.getNameParts());
         TableIf table = null;
-        if (customTableResolver.isPresent()) {
-            table = customTableResolver.get().apply(tableQualifier);
+        table = ConnectContext.get().getTableInMinidumpCache(tableQualifier);
+        if (table == null) {
+            if (customTableResolver.isPresent()) {
+                table = customTableResolver.get().apply(tableQualifier);
+            }
         }
         // In some cases even if we have already called the "cascadesContext.getTableByName",
         // it also gets the null. So, we just check it in the catalog again for safety.
         if (table == null) {
             table = RelationUtil.getTable(tableQualifier, cascadesContext.getConnectContext().getEnv());
         }
+        ConnectContext.get().getTables().put(tableQualifier, table);
 
         // TODO: should generate different Scan sub class according to table's type
         LogicalPlan scan = getLogicalPlan(table, unboundRelation, tableQualifier, cascadesContext);
@@ -191,18 +195,20 @@ public class BindRelation extends OneAnalysisRuleFactory {
     }
 
     private LogicalPlan bind(CascadesContext cascadesContext, UnboundRelation unboundRelation) {
-        List<String> qualifiedTablName = RelationUtil.getQualifierName(cascadesContext.getConnectContext(),
+        List<String> tableQualifier = RelationUtil.getQualifierName(cascadesContext.getConnectContext(),
                 unboundRelation.getNameParts());
         TableIf table = null;
         if (customTableResolver.isPresent()) {
-            table = customTableResolver.get().apply(qualifiedTablName);
+            table = customTableResolver.get().apply(tableQualifier);
         }
+        table = ConnectContext.get().getTableInMinidumpCache(tableQualifier);
         // In some cases even if we have already called the "cascadesContext.getTableByName",
         // it also gets the null. So, we just check it in the catalog again for safety.
         if (table == null) {
-            table = RelationUtil.getTable(qualifiedTablName, cascadesContext.getConnectContext().getEnv());
+            table = RelationUtil.getTable(tableQualifier, cascadesContext.getConnectContext().getEnv());
         }
-        return getLogicalPlan(table, unboundRelation, qualifiedTablName, cascadesContext);
+        ConnectContext.get().getTables().put(tableQualifier, table);
+        return getLogicalPlan(table, unboundRelation, tableQualifier, cascadesContext);
     }
 
     private LogicalPlan makeOlapScan(TableIf table, UnboundRelation unboundRelation, List<String> qualifier) {
