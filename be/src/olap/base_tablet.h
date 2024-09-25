@@ -148,7 +148,8 @@ public:
                           const std::vector<RowsetSharedPtr>& specified_rowsets,
                           RowLocation* row_location, uint32_t version,
                           std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
-                          RowsetSharedPtr* rowset = nullptr, bool with_rowid = true);
+                          RowsetSharedPtr* rowset = nullptr, bool with_rowid = true,
+                          OlapReaderStatistics* stats = nullptr);
 
     static void prepare_to_read(const RowLocation& row_location, size_t pos,
                                 PartialUpdateReadPlan* read_plan);
