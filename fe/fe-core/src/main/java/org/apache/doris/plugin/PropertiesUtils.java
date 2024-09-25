@@ -20,6 +20,9 @@ package org.apache.doris.plugin;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.EnvUtils;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -29,16 +32,28 @@ import java.util.Map;
 import java.util.Properties;
 
 public class PropertiesUtils {
-    public static final String ACCESS_PROPERTIES_FILE_DIR = Config.authorization_config_file_path;
+
+    public static final Logger LOG = LogManager.getLogger(PropertiesUtils.class);
 
     public static Map<String, String> loadAccessControllerPropertiesOrNull() throws IOException {
-        String configFilePath = EnvUtils.getDorisHome() + ACCESS_PROPERTIES_FILE_DIR;
+        String configFilePath = EnvUtils.getDorisHome() + Config.authorization_config_file_path;
         if (new File(configFilePath).exists()) {
             Properties properties = new Properties();
             properties.load(Files.newInputStream(Paths.get(configFilePath)));
             return propertiesToMap(properties);
         }
         return null;
+    }
+
+    public static Properties loadAuthenticationConfigFile() throws Exception {
+        String configFilePath = EnvUtils.getDorisHome() + Config.authentication_config_file_path;
+        if (new File(configFilePath).exists()) {
+            LOG.info("Loading authenticate configuration file: {}", configFilePath);
+            Properties properties = new Properties();
+            properties.load(Files.newInputStream(Paths.get(configFilePath)));
+            return properties;
+        }
+        return new Properties();
     }
 
     public static Map<String, String> propertiesToMap(Properties properties) {
