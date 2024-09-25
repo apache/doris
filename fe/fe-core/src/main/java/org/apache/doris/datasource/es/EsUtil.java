@@ -308,7 +308,7 @@ public class EsUtil {
                     type = Type.UNSUPPORTED;
             }
         } else {
-            type = Type.JSONB;
+            type = ScalarType.createStringType();
             column.setComment("Elasticsearch no type");
             column2typeMap.put(fieldName, "no_type");
         }
