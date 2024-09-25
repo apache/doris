@@ -78,9 +78,7 @@ public:
 
     int timeout_second() const { return _timeout; }
 
-    PipelinePtr add_pipeline();
-
-    PipelinePtr add_pipeline(PipelinePtr parent, int idx = -1);
+    PipelinePtr add_pipeline(PipelinePtr parent = nullptr, int idx = -1);
 
     RuntimeState* get_runtime_state() { return _runtime_state.get(); }
 
@@ -185,8 +183,6 @@ private:
                                     const std::map<int, int>& shuffle_idx_to_instance_idx,
                                     const bool ignore_data_hash_distribution);
 
-    bool _enable_local_shuffle() const { return _runtime_state->enable_local_shuffle(); }
-
     Status _build_pipeline_tasks(const doris::TPipelineFragmentParams& request,
                                  ThreadPool* thread_pool);
     void _close_fragment_instance();
@@ -220,7 +216,7 @@ private:
     RuntimeProfile::Counter* _prepare_timer = nullptr;
     RuntimeProfile::Counter* _init_context_timer = nullptr;
     RuntimeProfile::Counter* _build_pipelines_timer = nullptr;
-    RuntimeProfile::Counter* _plan_local_shuffle_timer = nullptr;
+    RuntimeProfile::Counter* _plan_local_exchanger_timer = nullptr;
     RuntimeProfile::Counter* _prepare_all_pipelines_timer = nullptr;
     RuntimeProfile::Counter* _build_tasks_timer = nullptr;
 
@@ -303,7 +299,20 @@ private:
     //    - _task_runtime_states is at the task level, unique to each task.
 
     std::vector<TUniqueId> _fragment_instance_ids;
-    // Local runtime states for each task
+    /**
+     * Local runtime states for each task.
+     *
+     * 2-D matrix:
+     * +-------------------------+------------+-------+
+     * |            | Instance 0 | Instance 1 |  ...  |
+     * +------------+------------+------------+-------+
+     * | Pipeline 0 |  task 0-0  |  task 0-1  |  ...  |
+     * +------------+------------+------------+-------+
+     * | Pipeline 1 |  task 1-0  |  task 1-1  |  ...  |
+     * +------------+------------+------------+-------+
+     * | ...                                          |
+     * +--------------------------------------+-------+
+     */
     std::vector<std::vector<std::unique_ptr<RuntimeState>>> _task_runtime_states;
 
     std::vector<std::unique_ptr<RuntimeFilterParamsContext>> _runtime_filter_states;

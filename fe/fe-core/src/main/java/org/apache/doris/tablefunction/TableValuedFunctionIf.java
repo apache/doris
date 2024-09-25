@@ -77,6 +77,8 @@ public abstract class TableValuedFunctionIf {
                 return new GroupCommitTableValuedFunction(params);
             case QueryTableValueFunction.NAME:
                 return QueryTableValueFunction.createQueryTableValueFunction(params);
+            case PartitionValuesTableValuedFunction.NAME:
+                return new PartitionValuesTableValuedFunction(params);
             default:
                 throw new AnalysisException("Could not find table function " + funcName);
         }
