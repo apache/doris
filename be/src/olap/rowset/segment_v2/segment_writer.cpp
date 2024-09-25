@@ -29,6 +29,7 @@
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
+#include "common/consts.h"
 #include "common/logging.h" // LOG
 #include "common/status.h"
 #include "gutil/port.h"
@@ -722,7 +723,7 @@ Status SegmentWriter::fill_missing_columns(vectorized::MutableColumns& mutable_f
                             mutable_full_columns[cids_missing[i]].get());
                     auto_inc_column->insert(
                             (assert_cast<const vectorized::ColumnInt64*>(
-                                     block->get_by_name("__PARTIAL_UPDATE_AUTO_INC_COLUMN__")
+                                     block->get_by_name(BeConsts::PARTIAL_UPDATE_AUTO_INC_COL)
                                              .column.get()))
                                     ->get_element(idx));
                 } else {
