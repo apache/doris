@@ -55,6 +55,7 @@ import org.apache.doris.mysql.MysqlSslContext;
 import org.apache.doris.mysql.ProxyMysqlChannel;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.stats.StatsErrorEstimator;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.plsql.Exec;
@@ -73,6 +74,7 @@ import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.TransactionEntry;
 import org.apache.doris.transaction.TransactionStatus;
 
+import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -270,7 +272,7 @@ public class ConnectContext {
     // new planner
     private Map<String, PreparedStatementContext> preparedStatementContextMap = Maps.newHashMap();
 
-    private List<TableIf> tables = null;
+    private Map<List<String>, TableIf> tables = null;
 
     private Map<String, ColumnStatistic> totalColumnStatisticMap = new HashMap<>();
 
@@ -431,12 +433,28 @@ public class ConnectContext {
         return this.preparedStatementContextMap.get(stmtName);
     }
 
-    public List<TableIf> getTables() {
+    public Map<List<String>, TableIf> getTables() {
+        if (tables == null) {
+            tables = Maps.newHashMap();
+        }
         return tables;
     }
 
-    public void setTables(List<TableIf> tables) {
+    public void setTables(Map<List<String>, TableIf> tables) {
         this.tables = tables;
+    }
+
+    /** get table by table name, try to get from information from dumpfile first */
+    public TableIf getTableInMinidumpCache(List<String> tableQualifier) {
+        if (!getSessionVariable().isPlayNereidsDump()) {
+            return null;
+        }
+        Preconditions.checkState(tables != null, "tables should not be null");
+        TableIf table = tables.getOrDefault(tableQualifier, null);
+        if (getSessionVariable().isPlayNereidsDump() && table == null) {
+            throw new AnalysisException("Minidump cache can not find table:" + tableQualifier);
+        }
+        return table;
     }
 
     public void closeTxn() {

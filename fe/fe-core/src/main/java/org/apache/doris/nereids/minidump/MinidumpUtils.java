@@ -23,6 +23,10 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.SchemaTable;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.View;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
+import org.apache.doris.common.proc.FrontendsProcNode;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
@@ -41,6 +45,8 @@ import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.ColumnStatisticBuilder;
 import org.apache.doris.statistics.Histogram;
 
+import com.google.common.collect.Maps;
+import com.google.gson.reflect.TypeToken;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.json.JSONArray;
@@ -51,6 +57,9 @@ import java.io.FileInputStream;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.lang.reflect.Field;
+import java.lang.reflect.Type;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Iterator;
@@ -65,15 +74,43 @@ public class MinidumpUtils {
 
     private static final Logger LOG = LogManager.getLogger(MinidumpUtils.class);
 
-    private static String DUMP_PATH = null;
+    private static String DUMP_PATH = Config.spilled_minidump_storage_path;
+
+    private static String DUMP_FILE_FULL_PATH = null;
+
+    private static String HTTP_GET_STRING = null;
+
+    private static boolean dump = false;
+
+    private static final int FE_VERSION_PREFIX_LENGTH = 13;
+
+    public static void openDump() {
+        dump = true;
+    }
+
+    public static boolean isDump() {
+        return dump;
+    }
+
+    public static String getDumpFileFullPath() {
+        return DUMP_FILE_FULL_PATH;
+    }
+
+    public static String getHttpGetString() {
+        return HTTP_GET_STRING;
+    }
 
     /**
      * Saving of minidump file to fe log path
      */
-    public static void saveMinidumpString(JSONObject minidump, String dumpName) {
-        String dumpPath = MinidumpUtils.DUMP_PATH + "/" + dumpName;
+    public static void saveMinidumpString(JSONObject minidump, String querId) {
+        String dumpPath = MinidumpUtils.DUMP_PATH + File.separator + "_" + querId;
+        String feAddress = FrontendsProcNode.getCurrentFrontendVersion(Env.getCurrentEnv()).getHost();
+        int feHttpPort = Config.http_port;
+        MinidumpUtils.DUMP_FILE_FULL_PATH = dumpPath + ".json";
+        MinidumpUtils.HTTP_GET_STRING = "http://" + feAddress + ":" + feHttpPort + "/api/minidump?query_id=" + querId;
         String jsonMinidump = minidump.toString(4);
-        try (FileWriter file = new FileWriter(dumpPath + ".json")) {
+        try (FileWriter file = new FileWriter(MinidumpUtils.DUMP_FILE_FULL_PATH)) {
             file.write(jsonMinidump);
         } catch (IOException e) {
             LOG.info("failed to save minidump file", e);
@@ -83,8 +120,8 @@ public class MinidumpUtils {
     /**
      * deserialize of tables using gson, we need to get table type first
      */
-    private static List<TableIf> dserializeTables(JSONArray tablesJson) {
-        List<TableIf> tables = new ArrayList<>();
+    private static Map<List<String>, TableIf> dserializeTables(JSONArray tablesJson) {
+        Map<List<String>, TableIf> tables = Maps.newHashMap();
         for (int i = 0; i < tablesJson.length(); i++) {
             JSONObject tableJson = (JSONObject) tablesJson.get(i);
             TableIf newTable;
@@ -93,11 +130,19 @@ public class MinidumpUtils {
                     String tableJsonValue = tableJson.get("TableValue").toString();
                     newTable = GsonUtils.GSON.fromJson(tableJsonValue, OlapTable.class);
                     break;
+                case "VIEW":
+                    String viewJsonValue = tableJson.get("TableValue").toString();
+                    newTable = GsonUtils.GSON.fromJson(viewJsonValue, View.class);
+                    ((View) newTable).setInlineViewDefWithSqlMode(tableJson.get("InlineViewDef").toString(),
+                            tableJson.getLong("SqlMode"));
+                    break;
                 default:
                     newTable = null;
                     break;
             }
-            tables.add(newTable);
+            Type listType = new TypeToken<List<String>>() {}.getType();
+            List<String> key = GsonUtils.GSON.fromJson(tableJson.getString("TableName"), listType);
+            tables.put(key, newTable);
         }
         return tables;
     }
@@ -105,15 +150,22 @@ public class MinidumpUtils {
     /**
      * Load minidump to memory using string
      */
-    public static Minidump jsonMinidumpLoadFromString(String inputString) throws IOException {
+    public static Minidump jsonMinidumpLoadFromString(String inputString) throws Exception {
         // Parse the JSON string back into a JSON object
         JSONObject inputJSON = new JSONObject(inputString);
+        String dumpFeVersion = inputJSON.getString("FeVersion");
+        String currFeVersion = FrontendsProcNode.getCurrentFrontendVersion(Env.getCurrentEnv()).getVersion()
+                .substring(FE_VERSION_PREFIX_LENGTH);
+        if (!currFeVersion.equals(dumpFeVersion)) {
+            throw new AnalysisException("fe version:" + currFeVersion
+                    + " does not match dump fe version: " + dumpFeVersion);
+        }
         SessionVariable newSessionVariable = new SessionVariable();
         newSessionVariable.readFromJson(inputJSON.getString("SessionVariable"));
         String sql = inputJSON.getString("Sql");
 
         JSONArray tablesJson = (JSONArray) inputJSON.get("Tables");
-        List<TableIf> tables = dserializeTables(tablesJson);
+        Map<List<String>, TableIf> tables = dserializeTables(tablesJson);
 
         String colocateTableIndexJson = inputJSON.get("ColocateTableIndex").toString();
         ColocateTableIndex newColocateTableIndex
@@ -125,7 +177,7 @@ public class MinidumpUtils {
             JSONObject oneColumnStat = (JSONObject) columnStats.get(i);
             String colName = oneColumnStat.keys().next();
             String colStat = oneColumnStat.getString(colName);
-            ColumnStatistic columnStatistic = ColumnStatistic.fromJson(colStat);
+            ColumnStatistic columnStatistic = GsonUtils.GSON.fromJson(colStat, ColumnStatistic.class);
             columnStatisticMap.put(colName, columnStatistic);
         }
         JSONArray histogramJsonArray = (JSONArray) inputJSON.get("Histogram");
@@ -148,7 +200,7 @@ public class MinidumpUtils {
     /**
      * Loading of minidump file
      */
-    public static Minidump jsonMinidumpLoad(String dumpFilePath) throws IOException {
+    public static Minidump jsonMinidumpLoad(String dumpFilePath) throws Exception {
         // open file, read file, put them into minidump object
         try (FileInputStream inputStream = new FileInputStream(dumpFilePath)) {
             StringBuilder sb = new StringBuilder();
@@ -177,7 +229,6 @@ public class MinidumpUtils {
         connectContext.setSessionVariable(minidump.getSessionVariable());
         connectContext.setTables(minidump.getTables());
         connectContext.setDatabase(minidump.getDbName());
-        connectContext.getSessionVariable().setEnableMinidump(false);
         connectContext.getSessionVariable().setPlanNereidsDump(true);
         connectContext.getSessionVariable().enableNereidsTimeout = false;
     }
@@ -187,15 +238,19 @@ public class MinidumpUtils {
      * @param minidumpPath path of minidump file
      * @return minidump messages in memory
      */
-    public static Minidump loadMinidumpInputs(String minidumpPath) {
+    public static Minidump loadMinidumpInputs(String minidumpPath) throws AnalysisException {
         Minidump minidump = null;
         try {
             minidump = MinidumpUtils.jsonMinidumpLoad(minidumpPath);
-        } catch (IOException e) {
+        } catch (AnalysisException e) {
+            throw e;
+        } catch (Exception e) {
             throw new RuntimeException(e);
         }
         setConnectContext(minidump);
 
+        Env env = Env.getCurrentEnv();
+        ConnectContext.get().setEnv(env);
         ConnectContext.get().getSessionVariable().setEnableNereidsTrace(false);
         ConnectContext.get().getSessionVariable().setNereidsTraceEventMode("all");
         return minidump;
@@ -221,13 +276,17 @@ public class MinidumpUtils {
     /**
      * serialize tables from Table in catalog to json format
      */
-    public static JSONArray serializeTables(List<TableIf> tables) {
+    public static JSONArray serializeTables(Map<List<String>, TableIf> tables) {
         JSONArray tablesJson = new JSONArray();
-        for (TableIf table : tables) {
-            String tableValues = GsonUtils.GSON.toJson(table);
+        for (Map.Entry<List<String>, TableIf> table : tables.entrySet()) {
+            String tableValues = GsonUtils.GSON.toJson(table.getValue());
             JSONObject oneTableJson = new JSONObject();
-            oneTableJson.put("TableType", table.getType());
-            oneTableJson.put("TableName", table.getName());
+            oneTableJson.put("TableType", table.getValue().getType());
+            oneTableJson.put("TableName", GsonUtils.GSON.toJson(table.getKey()));
+            if (table.getValue() instanceof View) {
+                oneTableJson.put("InlineViewDef", ((View) table.getValue()).getInlineViewDef());
+                oneTableJson.put("SqlMode", Long.toString(((View) table.getValue()).getSqlMode()));
+            }
             JSONObject jsonTableValues = new JSONObject(tableValues);
             oneTableJson.put("TableValue", jsonTableValues);
             tablesJson.put(oneTableJson);
@@ -254,10 +313,11 @@ public class MinidumpUtils {
     /**
      * serialize column statistic and histograms when loading to dumpfile and environment
      */
-    private static void serializeStatsUsed(JSONObject jsonObj, List<TableIf> tables) {
+    private static void serializeStatsUsed(JSONObject jsonObj, Map<List<String>, TableIf> tables) {
         JSONArray columnStatistics = new JSONArray();
         JSONArray histograms = new JSONArray();
-        for (TableIf table : tables) {
+        for (Map.Entry<List<String>, TableIf> tableEntry : tables.entrySet()) {
+            TableIf table = tableEntry.getValue();
             if (table instanceof SchemaTable) {
                 continue;
             }
@@ -276,11 +336,11 @@ public class MinidumpUtils {
                 Histogram histogram = getColumnHistogram(table, colName);
                 if (histogram != null) {
                     JSONObject oneHistogram = new JSONObject();
-                    oneHistogram.put(colName, Histogram.serializeToJson(histogram));
+                    oneHistogram.put(table.getName() + colName, Histogram.serializeToJson(histogram));
                     histograms.put(oneHistogram);
                 }
                 JSONObject oneColumnStats = new JSONObject();
-                oneColumnStats.put(colName, cache.toJson());
+                oneColumnStats.put(table.getName() + colName, GsonUtils.GSON.toJson(cache));
                 columnStatistics.put(oneColumnStats);
             }
         }
@@ -293,12 +353,11 @@ public class MinidumpUtils {
      */
     public static void serializeOutputToDumpFile(Plan resultPlan) {
         ConnectContext connectContext = ConnectContext.get();
-        if (connectContext.getSessionVariable().isPlayNereidsDump()
-                || !connectContext.getSessionVariable().isEnableMinidump()) {
+        if (!isDump()) {
             return;
         }
         connectContext.getMinidump().put("ResultPlan", ((AbstractPlan) resultPlan).toJson());
-        if (connectContext.getSessionVariable().isEnableMinidump()) {
+        if (isDump()) {
             saveMinidumpString(connectContext.getMinidump(), DebugUtil.printId(connectContext.queryId()));
         }
     }
@@ -386,10 +445,39 @@ public class MinidumpUtils {
         return differences;
     }
 
+    private static String getValue(Object obj, Field field) {
+        try {
+            switch (field.getType().getSimpleName()) {
+                case "boolean":
+                    return Boolean.toString(field.getBoolean(obj));
+                case "byte":
+                    return Byte.toString(field.getByte(obj));
+                case "short":
+                    return Short.toString(field.getShort(obj));
+                case "int":
+                    return Integer.toString(field.getInt(obj));
+                case "long":
+                    return Long.toString(field.getLong(obj));
+                case "float":
+                    return Float.toString(field.getFloat(obj));
+                case "double":
+                    return Double.toString(field.getDouble(obj));
+                case "String":
+                    return (String) field.get(obj);
+                default:
+                    return "";
+            }
+        } catch (IllegalAccessException e) {
+            LOG.warn("Access failed.", e);
+        }
+        return "";
+    }
+
     /**
      * serialize sessionVariables different than default
      */
-    private static JSONObject serializeChangedSessionVariable(SessionVariable sessionVariable) throws IOException {
+    private static JSONObject serializeChangedSessionVariable(SessionVariable sessionVariable,
+                                                              SessionVariable newVar) throws IOException {
         JSONObject root = new JSONObject();
         try {
             for (Field field : SessionVariable.class.getDeclaredFields()) {
@@ -398,7 +486,7 @@ public class MinidumpUtils {
                     continue;
                 }
                 field.setAccessible(true);
-                if (field.get(sessionVariable).equals(field.get(VariableMgr.getDefaultSessionVariable()))) {
+                if (getValue(sessionVariable, field).equals(getValue(newVar, field))) {
                     continue;
                 }
                 switch (field.getType().getSimpleName()) {
@@ -434,15 +522,22 @@ public class MinidumpUtils {
     /**
      * implementation of interface serializeInputsToDumpFile
      */
-    private static JSONObject serializeInputs(Plan parsedPlan, List<TableIf> tables) throws IOException {
+    private static JSONObject serializeInputs(Plan parsedPlan, Map<List<String>, TableIf> tables) throws IOException {
         ConnectContext connectContext = ConnectContext.get();
         // Create a JSON object
         JSONObject jsonObj = new JSONObject();
-        jsonObj.put("Sql", connectContext.getStatementContext().getOriginStatement().originStmt);
+        String feVersion = FrontendsProcNode.getCurrentFrontendVersion(Env.getCurrentEnv()).getVersion()
+                .substring(FE_VERSION_PREFIX_LENGTH);
+        jsonObj.put("FeVersion", feVersion);
+        String sql = connectContext.getStatementContext().getOriginStatement().originStmt;
+        String sqlWithOutReplayCommand = sql.substring(14);
+        jsonObj.put("Sql", sqlWithOutReplayCommand);
         // add session variable
         int beNumber = connectContext.getEnv().getClusterInfo().getBackendsNumber(true);
         connectContext.getSessionVariable().setBeNumberForTest(beNumber);
-        jsonObj.put("SessionVariable", serializeChangedSessionVariable(connectContext.getSessionVariable()));
+        SessionVariable newVar = new SessionVariable();
+        jsonObj.put("SessionVariable", serializeChangedSessionVariable(connectContext.getSessionVariable(), newVar));
+        jsonObj.put("CatalogMgr", GsonUtils.GSON.toJson(Env.getCurrentEnv().getInternalCatalog()));
         // add tables
         jsonObj.put("DbName", connectContext.getDatabase());
         JSONArray tablesJson = serializeTables(tables);
@@ -463,21 +558,46 @@ public class MinidumpUtils {
      * @param tables all tables relative to this query
      * @throws IOException this will write to disk, so io exception should be dealed with
      */
-    public static void serializeInputsToDumpFile(Plan parsedPlan, List<TableIf> tables) throws IOException {
+    public static void serializeInputsToDumpFile(Plan parsedPlan, Map<List<String>, TableIf> tables)
+            throws IOException {
         ConnectContext connectContext = ConnectContext.get();
         // when playing minidump file, we do not save input again.
-        if (connectContext.getSessionVariable().isPlayNereidsDump()
-                || !connectContext.getSessionVariable().isEnableMinidump()) {
+        if (!isDump()) {
             return;
         }
 
-        if (!connectContext.getSessionVariable().getMinidumpPath().equals("")) {
-            MinidumpUtils.DUMP_PATH = connectContext.getSessionVariable().getMinidumpPath();
-        } else {
-            connectContext.getSessionVariable().setMinidumpPath("defaultMinidumpPath");
-        }
         MinidumpUtils.init();
         connectContext.setMinidump(serializeInputs(parsedPlan, tables));
+    }
+
+    /**
+     * get minidump string by query id, would find file in DUMP_PATH
+     * @param queryId unique query id of a sql
+     * @return minidump file content
+     */
+    public static String getMinidumpString(String queryId) {
+        // Create a File object for the directory
+        File directory = new File(DUMP_PATH);
+
+        // Get all files in the directory
+        File[] files = directory.listFiles();
+
+        if (files != null) {
+            for (File file : files) {
+                // Check if the file name contains the search string
+                if (file.isFile() && file.getName().contains(queryId)) {
+                    try {
+                        // Read the content of the file
+                        String content = new String(Files.readAllBytes(Paths.get(file.getPath())));
+                        // Add the content to the list
+                        return content;
+                    } catch (IOException e) {
+                        break;
+                    }
+                }
+            }
+        }
+        return null;
     }
 
     /**
