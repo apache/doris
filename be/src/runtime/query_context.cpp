@@ -99,6 +99,7 @@ QueryContext::QueryContext(TUniqueId query_id, int total_fragment_num, ExecEnv* 
     clock_gettime(CLOCK_MONOTONIC, &this->_query_arrival_timestamp);
     register_memory_statistics();
     register_cpu_statistics();
+    DorisMetrics::instance()->query_ctx_cnt->increment(1);
 }
 
 void QueryContext::_init_query_mem_tracker() {
@@ -183,7 +184,7 @@ QueryContext::~QueryContext() {
     obj_pool.clear();
 
     _exec_env->spill_stream_mgr()->async_cleanup_query(_query_id);
-
+    DorisMetrics::instance()->query_ctx_cnt->increment(-1);
     LOG_INFO("Query {} deconstructed, {}", print_id(this->_query_id), mem_tracker_msg);
 }
 
