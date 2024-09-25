@@ -2461,4 +2461,8 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true)
     public static boolean enable_cooldown_replica_affinity = true;
+
+    @ConfField(mutable = true, description = {
+            "设置为 true，如果查询无法选择到健康副本时，会打印出该tablet所有副本的详细信息，"})
+    public static boolean sql_block_rule_ignore_admin = false;
 }
