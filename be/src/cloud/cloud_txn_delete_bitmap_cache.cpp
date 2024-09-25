@@ -72,9 +72,18 @@ Status CloudTxnDeleteBitmapCache::get_tablet_txn_info(
         *publish_status = iter->second.publish_status;
         *previous_publish_info = iter->second.publish_info;
     }
-    RETURN_IF_ERROR(
-            get_delete_bitmap(transaction_id, tablet_id, delete_bitmap, rowset_ids, nullptr));
-    return Status::OK();
+
+    auto st = get_delete_bitmap(transaction_id, tablet_id, delete_bitmap, rowset_ids, nullptr);
+
+    if (st.is<ErrorCode::NOT_FOUND>()) {
+        // Because of the rowset_ids become empty, all delete bitmap
+        // will be recalculate in CalcDeleteBitmapTask
+        if (delete_bitmap != nullptr) {
+            *delete_bitmap = std::make_shared<DeleteBitmap>(tablet_id);
+        }
+        return Status::OK();
+    }
+    return st;
 }
 
 Status CloudTxnDeleteBitmapCache::get_delete_bitmap(
@@ -94,7 +103,6 @@ Status CloudTxnDeleteBitmapCache::get_delete_bitmap(
     std::string key_str = fmt::format("{}/{}", transaction_id, tablet_id);
     CacheKey key(key_str);
     Cache::Handle* handle = lookup(key);
-    LOG(INFO) << "DEBUG: get_delete_bitmap()";
 
     DBUG_EXECUTE_IF("CloudTxnDeleteBitmapCache::get_delete_bitmap.cache_miss", {
         handle = nullptr;
@@ -106,7 +114,6 @@ Status CloudTxnDeleteBitmapCache::get_delete_bitmap(
     DeleteBitmapCacheValue* val =
             handle == nullptr ? nullptr : reinterpret_cast<DeleteBitmapCacheValue*>(value(handle));
     if (val) {
-        LOG(INFO) << "DEBUG: get_delete_bitmap(), found in cache";
         *delete_bitmap = val->delete_bitmap;
         if (rowset_ids) {
             *rowset_ids = val->rowset_ids;
@@ -118,9 +125,9 @@ Status CloudTxnDeleteBitmapCache::get_delete_bitmap(
         LOG_INFO("cache missed when get delete bitmap")
                 .tag("txn_id", transaction_id)
                 .tag("tablet_id", tablet_id);
-        // Because of the rowset_ids become empty, all delete bitmap
-        // will be recalculate in CalcDeleteBitmapTask
-        *delete_bitmap = std::make_shared<DeleteBitmap>(tablet_id);
+        return Status::Error<ErrorCode::NOT_FOUND, false>(
+                "cache missed when get delete bitmap, tablet_id={}, transaction_id={}", tablet_id,
+                transaction_id);
     }
     return Status::OK();
 }
