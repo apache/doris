@@ -1954,6 +1954,12 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = false)
     public static boolean disable_backend_black_list = false;
 
+    @ConfField(mutable = true, masterOnly = false)
+    public static long do_add_backend_black_list_threshold_secs = 10;
+
+    @ConfField(mutable = true, masterOnly = false)
+    public static long stay_in_backend_black_list_threshold_secs = 10;
+
     /**
      * Maximum backend heartbeat failure tolerance count.
      * Default is 1, which means if 1 heart failed, the backend will be marked as dead.

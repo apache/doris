@@ -34,6 +34,9 @@ import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -43,8 +46,20 @@ import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Collectors;
 
 public class SimpleScheduler {
+    private static final Logger LOG = LogManager.getLogger(SimpleScheduler.class);
+
+    public static final long RecordBlackListThreshold = 10;
+
     public static class BlackListInfo {
         public BlackListInfo() {}
+
+        private Lock lock = new ReentrantLock();
+        private String reasonForBlackList = "";
+        private Long firstRecordBlackTimestampMs = 0L;
+        private Long lastRecordBlackTimestampMs = 0L;
+        private Long lastBlackTimestampMs = 0L;
+        private Long recordBlackListCount = 0L;
+        private Long backendID = 0L;
 
         public void tryAddBlackList(String reason) {
             lock.lock();
@@ -52,48 +67,60 @@ public class SimpleScheduler {
                 recordAddBlackList(reason);
                 if (shuoldBeBlackListed()) {
                     doAddBlackList();
+                    LOG.info("Backend is added to black list.\n{}", getDebugInfo());
                 }
             } finally {
                 lock.unlock();
-            }   
+            }
         }
 
         private void recordAddBlackList(String reason) {
+            if (firstRecordBlackTimestampMs <= 0) {
+                firstRecordBlackTimestampMs = System.currentTimeMillis();
+            }
+
             lastRecordBlackTimestampMs = System.currentTimeMillis();
             recordBlackListCount++;
+
             if (Strings.isNullOrEmpty(reasonForBlackList) && !Strings.isNullOrEmpty(reason)) {
                 reasonForBlackList = reason;
             }
         }
 
         private boolean shuoldBeBlackListed() {
-            if (lastRecordBlackTimestampMs <= 0) {
+            if (lastRecordBlackTimestampMs <= 0 || firstRecordBlackTimestampMs <= 0) {
+                return false;
+            }
+            if (recordBlackListCount < RecordBlackListThreshold){
                 return false;
             }
 
-            Long currentTimeStamp = System.currentTimeMillis();
-            if (recordBlackListCount >= 10 && currentTimeStamp - lastRecordBlackTimestampMs > 60 * 1000) {
-                return true;
+            if (lastRecordBlackTimestampMs - firstRecordBlackTimestampMs
+                    >= Config.do_add_backend_black_list_threshold_secs * 1000) {
+                return false;
             }
 
-            return false;
+            return true;
         }
 
         private void doAddBlackList() {
             lastBlackTimestampMs = System.currentTimeMillis();
-            LOG.warn("Add backend {} to black list. reason: {}", backendID, reasonForBlackList, new Exception());
+            Exception e = new Exception();
+            String stack = org.apache.commons.lang3.exception.ExceptionUtils.getStackTrace(e);
+            LOG.warn("Add backend {} to black list, reason: {}. Stack {}", backendID, reasonForBlackList, stack);
         }
 
         public boolean shuoldBeRemoved() {
             lock.lock();
             try {
+                if (lastBlackTimestampMs <= 0) {
+                    return false;
+                }
+
                 Long currentTimeStamp = System.currentTimeMillis();
-                // If this backend has not been recorded as black for more than 1 minutes, then regard it as normal
-                if (currentTimeStamp - lastRecordBlackTimestampMs > 60 * 1000) {
-                    lastRecordBlackTimestampMs = 0L;
-                    lastBlackTimestampMs = 0L;
-                    recordBlackListCount = 0L;
-                    reasonForBlackList = "";
+                // If this backend has not been recorded as black for more than 10 secs, then regard it as normal
+                if (currentTimeStamp - lastBlackTimestampMs
+                        >= Config.stay_in_backend_black_list_threshold_secs * 1000) {
                     return true;
                 } else {
                     return false;
@@ -124,27 +151,29 @@ public class SimpleScheduler {
         public String getDebugInfo() {
             StringBuilder sb = new StringBuilder();
             lock.lock();
+            LocalDateTime firstRecordBlackTimes = LocalDateTime.ofInstant(
+                    Instant.ofEpochMilli(firstRecordBlackTimestampMs), ZoneId.systemDefault());
+            LocalDateTime lastRecordBlackTimes = LocalDateTime.ofInstant(
+                    Instant.ofEpochMilli(lastRecordBlackTimestampMs), ZoneId.systemDefault());
+            LocalDateTime lastBlackTimes = LocalDateTime.ofInstant(
+                    Instant.ofEpochMilli(lastBlackTimestampMs), ZoneId.systemDefault());
             try {
-                sb.append("backendID: ").append(backendID).append("\n");
+                sb.append("\nbackendID: ").append(backendID).append("\n");
                 sb.append("reasonForBlackList: ").append(reasonForBlackList).append("\n");
-                sb.append("lastRecordBlackTimestampMs: ").append(lastRecordBlackTimestampMs).append("\n");
-                sb.append("lastBlackTimestampMs: ").append(lastBlackTimestampMs).append("\n");
+                sb.append("firstRecordBlackTimestampMs: ").append(firstRecordBlackTimes).append("\n");
+                sb.append("lastRecordBlackTimestampMs: ").append(lastRecordBlackTimes).append("\n");
+                sb.append("lastBlackTimestampMs: ").append(lastBlackTimes).append("\n");
                 sb.append("recordBlackListCount: ").append(recordBlackListCount).append("\n");
+                sb.append("Config.do_add_backend_black_list_threshold_secs: ")
+                    .append(Config.do_add_backend_black_list_threshold_secs).append("\n");
+                sb.append("Config.stay_in_backend_black_list_threshold_secs: ")
+                    .append(Config.stay_in_backend_black_list_threshold_secs).append("\n");
                 return sb.toString();
             } finally {
                 lock.unlock();
             }
         }
-
-        private Lock lock = new ReentrantLock();
-        private String reasonForBlackList = "";
-        private Long lastRecordBlackTimestampMs = 0L;
-        private Long lastBlackTimestampMs = 0L;
-        private Long recordBlackListCount = 0L;
-        private Long backendID = 0L;
-
     };
-    private static final Logger LOG = LogManager.getLogger(SimpleScheduler.class);
 
     private static AtomicLong nextId = new AtomicLong(0);
 
