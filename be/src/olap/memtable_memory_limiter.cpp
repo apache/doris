@@ -254,7 +254,7 @@ void MemTableMemoryLimiter::_refresh_mem_tracker() {
             _writers.pop_back();
         }
     }
-    _mem_usage = _flush_mem_usage + _queue_mem_usage;
+    _mem_usage = _active_mem_usage + _queue_mem_usage + _flush_mem_usage;
     g_memtable_active_memory.set_value(_active_mem_usage);
     g_memtable_write_memory.set_value(_queue_mem_usage);
     g_memtable_flush_memory.set_value(_flush_mem_usage);
