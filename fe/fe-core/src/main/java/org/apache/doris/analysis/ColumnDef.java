@@ -178,6 +178,17 @@ public class ColumnDef {
             }
             return value;
         }
+
+        public String toSql() {
+            StringBuilder sb = new StringBuilder();
+            sb.append("DEFAULT ");
+            if (value != null) {
+                sb.append('"').append(value).append('"');
+            } else {
+                sb.append("NULL");
+            }
+            return sb.toString();
+        }
     }
 
     // parameter initialized in constructor
@@ -658,7 +669,7 @@ public class ColumnDef {
         }
 
         if (defaultValue.isSet) {
-            sb.append("DEFAULT \"").append(defaultValue.value).append("\" ");
+            sb.append(defaultValue.toSql()).append(" ");
         }
         sb.append("COMMENT \"").append(comment).append("\"");
 
