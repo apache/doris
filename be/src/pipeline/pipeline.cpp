@@ -65,4 +65,12 @@ Status Pipeline::set_sink(DataSinkOperatorPtr& sink) {
     return Status::OK();
 }
 
+void Pipeline::make_all_runnable() {
+    for (auto* task : _tasks) {
+        if (task) {
+            task->clear_blocking_state();
+        }
+    }
+}
+
 } // namespace doris::pipeline

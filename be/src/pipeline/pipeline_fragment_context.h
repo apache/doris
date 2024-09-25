@@ -292,7 +292,6 @@ private:
             _op_id_to_le_state;
 
     std::map<PipelineId, Pipeline*> _pip_id_to_pipeline;
-    std::map<PipelineId, std::vector<PipelineTask*>> _pip_id_to_tasks;
     // UniqueId -> runtime mgr
     std::map<UniqueId, std::unique_ptr<RuntimeFilterMgr>> _runtime_filter_mgr_map;
 

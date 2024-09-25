@@ -144,7 +144,6 @@ PipelineFragmentContext::~PipelineFragmentContext() {
         }
     }
     _dag.clear();
-    _pip_id_to_tasks.clear();
     _pip_id_to_pipeline.clear();
     _pipelines.clear();
     _sink.reset();
@@ -365,8 +364,6 @@ Status PipelineFragmentContext::_build_pipeline_tasks(const doris::TPipelineFrag
     _task_runtime_states.resize(_pipelines.size());
     for (size_t pip_idx = 0; pip_idx < _pipelines.size(); pip_idx++) {
         _task_runtime_states[pip_idx].resize(_pipelines[pip_idx]->num_tasks());
-        _pip_id_to_tasks[_pipelines[pip_idx]->id()] =
-                std::vector<PipelineTask*>(_pipelines[pip_idx]->num_tasks());
         _pip_id_to_pipeline[_pipelines[pip_idx]->id()] = _pipelines[pip_idx].get();
     }
     auto pipeline_id_to_profile = _runtime_state->build_pipeline_profile(_pipelines.size());
@@ -472,9 +469,9 @@ Status PipelineFragmentContext::_build_pipeline_tasks(const doris::TPipelineFrag
                                                            task_runtime_state.get(), this,
                                                            pipeline_id_to_profile[pip_idx].get(),
                                                            get_local_exchange_state(pipeline), i);
+                pipeline->incr_created_tasks(i, task.get());
                 task_runtime_state->set_task(task.get());
                 pipeline_id_to_task.insert({pipeline->id(), task.get()});
-                _pip_id_to_tasks[pipeline->id()][i] = task.get();
                 _tasks[i].emplace_back(std::move(task));
             }
         }
@@ -1759,11 +1756,7 @@ void PipelineFragmentContext::close_a_pipeline(PipelineId pipeline_id) {
     DCHECK(_pip_id_to_pipeline.contains(pipeline_id));
     if (_pip_id_to_pipeline[pipeline_id]->close_task()) {
         for (auto dep : _dag[pipeline_id]) {
-            for (auto* task : _pip_id_to_tasks[dep]) {
-                if (task) {
-                    task->clear_blocking_state();
-                }
-            }
+            _pip_id_to_pipeline[dep]->make_all_runnable();
         }
     }
     std::lock_guard<std::mutex> l(_task_mutex);

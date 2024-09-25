@@ -47,6 +47,7 @@ public:
                       std::weak_ptr<PipelineFragmentContext> context)
             : _pipeline_id(pipeline_id), _num_tasks(num_tasks) {
         _init_profile();
+        _tasks.resize(_num_tasks, nullptr);
     }
 
     // Add operators for pipelineX
@@ -104,12 +105,18 @@ public:
     void set_children(std::shared_ptr<Pipeline> child) { _children.push_back(child); }
     void set_children(std::vector<std::shared_ptr<Pipeline>> children) { _children = children; }
 
-    void incr_created_tasks() {
+    void incr_created_tasks(int i, PipelineTask* task) {
         _num_tasks_created++;
         _num_tasks_running++;
+        DCHECK_LT(i, _tasks.size());
+        _tasks[i] = task;
     }
+
+    void make_all_runnable();
+
     void set_num_tasks(int num_tasks) {
         _num_tasks = num_tasks;
+        _tasks.resize(_num_tasks, nullptr);
         for (auto& op : _operators) {
             op->set_parallel_tasks(_num_tasks);
         }
@@ -164,6 +171,8 @@ private:
     std::atomic<int> _num_tasks_created = 0;
     // How many tasks are already created and not finished?
     std::atomic<int> _num_tasks_running = 0;
+    // Tasks in this pipeline.
+    std::vector<PipelineTask*> _tasks;
 };
 
 } // namespace doris::pipeline

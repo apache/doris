@@ -71,7 +71,6 @@ PipelineTask::PipelineTask(
     if (shared_state) {
         _sink_shared_state = shared_state;
     }
-    pipeline->incr_created_tasks();
 }
 
 Status PipelineTask::prepare(const TPipelineInstanceParams& local_params, const TDataSink& tsink,
