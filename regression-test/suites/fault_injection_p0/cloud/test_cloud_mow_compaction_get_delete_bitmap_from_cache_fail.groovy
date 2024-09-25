@@ -59,7 +59,7 @@ suite("test_cloud_mow_compaction_get_delete_bitmap_from_cache_fail", "nonConcurr
 
         DebugPoint.enableDebugPoint(injectBe.Host, injectBe.HttpPort.toInteger(), NodeType.BE, inject_spin_wait)
         DebugPoint.enableDebugPoint(injectBe.Host, injectBe.HttpPort.toInteger(), NodeType.BE, inject_spin_block)
-        logger.info("run compaction:" + originTabletId)
+        logger.info("run compaction:" + tabletId)
         (code, out, err) = be_run_cumulative_compaction(injectBe.Host, injectBe.HttpPort, tabletId)
         logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
 
