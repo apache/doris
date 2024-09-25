@@ -46,26 +46,16 @@ suite ("aggOnAggMV6") {
     sql "analyze table aggOnAggMV6 with sync;"
     sql """set enable_stats=false;"""
 
-    explain {
-        sql("select * from aggOnAggMV6 order by empid;")
-        contains "(aggOnAggMV6)"
-    }
+    mv_rewrite_fail("select * from aggOnAggMV6 order by empid;", "aggOnAggMV6_mv")
     order_qt_select_star "select * from aggOnAggMV6 order by empid;"
 
-    explain {
-        sql("select * from (select deptno, sum(salary) as sum_salary from aggOnAggMV6 where deptno>=20 group by deptno) a where sum_salary>10;")
-        contains "(aggOnAggMV6_mv)"
-    }
+    mv_rewrite_success("select * from (select deptno, sum(salary) as sum_salary from aggOnAggMV6 where deptno>=20 group by deptno) a where sum_salary>10;",
+            "aggOnAggMV6_mv")
     order_qt_select_mv "select * from (select deptno, sum(salary) as sum_salary from aggOnAggMV6 where deptno>=20 group by deptno) a where sum_salary>10 order by 1;"
 
     sql """set enable_stats=true;"""
-    explain {
-        sql("select * from aggOnAggMV6 order by empid;")
-        contains "(aggOnAggMV6)"
-    }
+    mv_rewrite_fail("select * from aggOnAggMV6 order by empid;", "aggOnAggMV6_mv")
 
-    explain {
-        sql("select * from (select deptno, sum(salary) as sum_salary from aggOnAggMV6 where deptno>=20 group by deptno) a where sum_salary>10;")
-        contains "(aggOnAggMV6_mv)"
-    }
+    mv_rewrite_success("select * from (select deptno, sum(salary) as sum_salary from aggOnAggMV6 where deptno>=20 group by deptno) a where sum_salary>10;",
+            "aggOnAggMV6_mv")
 }

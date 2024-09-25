@@ -1779,7 +1779,20 @@ class Suite implements GroovyInterceptable {
     }
 
     // multi mv part in rewrite process, all rewrte success without check if chosen by cbo
-    def mv_rewrite_all_success_without_check_chosen = { query_sql, mv_names ->
+    def mv_rewrite_all_success_without_check_chosen = { query_sql, mv_names, sync_cbo_rewrite = true ->
+        if (!sync_cbo_rewrite) {
+            explain {
+                sql("${query_sql}")
+                check { result ->
+                    boolean success = true;
+                    for (String mv_name : mv_names) {
+                        success = success && result.contains("(${mv_name})")
+                    }
+                    Assert.assertEquals(true, success)
+                }
+            }
+            return
+        }
         explain {
             sql(" memo plan ${query_sql}")
             check {result ->
@@ -1794,7 +1807,20 @@ class Suite implements GroovyInterceptable {
     }
 
     // multi mv part in rewrite process, any of them rewrte success without check if chosen by cbo or not
-    def mv_rewrite_any_success_without_check_chosen = { query_sql, mv_names ->
+    def mv_rewrite_any_success_without_check_chosen = { query_sql, mv_names, sync_cbo_rewrite = true ->
+        if (!sync_cbo_rewrite) {
+            explain {
+                sql("${query_sql}")
+                check { result ->
+                    boolean success = false;
+                    for (String mv_name : mv_names) {
+                        success = success || result.contains("(${mv_name})")
+                    }
+                    Assert.assertEquals(true, success)
+                }
+            }
+            return
+        }
         explain {
             sql(" memo plan ${query_sql}")
             check {result ->
@@ -1808,7 +1834,14 @@ class Suite implements GroovyInterceptable {
     }
 
     // multi mv part in rewrite process, rewrte success without check if chosen by cbo or not
-    def mv_rewrite_success_without_check_chosen = { query_sql, mv_name ->
+    def mv_rewrite_success_without_check_chosen = { query_sql, mv_name, sync_cbo_rewrite = true ->
+        if (!sync_cbo_rewrite) {
+            explain {
+                sql("${query_sql}")
+                contains("(${mv_name})")
+            }
+            return
+        }
         explain {
             sql(" memo plan ${query_sql}")
             check { result ->
