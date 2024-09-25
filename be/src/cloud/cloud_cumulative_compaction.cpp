@@ -257,7 +257,8 @@ Status CloudCumulativeCompaction::modify_rowsets() {
 
     DBUG_EXECUTE_IF("CloudCumulativeCompaction::modify_rowsets.enable_spin_wait", {
         LOG(INFO) << "CloudCumulativeCompaction::modify_rowsets.enable_spin_wait, start";
-        while (DebugPoints::instance()->is_enable("CloudCumulativeCompaction::modify_rowsets.block")) {
+        while (DebugPoints::instance()->is_enable(
+                "CloudCumulativeCompaction::modify_rowsets.block")) {
             std::this_thread::sleep_for(std::chrono::milliseconds(50));
         }
         LOG(INFO) << "CloudCumulativeCompaction::modify_rowsets.enable_spin_wait, exit";
