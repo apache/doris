@@ -102,6 +102,13 @@ suite("test_jdbc_call", "p0,external,doris,external_docker,external_docker_doris
     order_qt_sql6 """select * from ${catalog_name}.${internal_db_name}.${internal_tbl_name2}"""
     order_qt_sql7 """select * from internal.${internal_db_name}.${internal_tbl_name2}"""
 
+    // test not fallback
+    // if fallback, the error msg will be: Syntax error: xxx
+    test {
+        sql """call execute_stmt("${catalog_name}", "insert into ${internal_db_name}.${internal_tbl_name2} value (5, 6), (7, 8)")"""
+        exception """Failed to execute stmt"""
+    }
+
     // test priv
     // only user with load priv can execute call
     String user1 = "normal_jdbc_user";
