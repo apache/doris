@@ -41,15 +41,10 @@
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_number.h"
 
-namespace doris {
-namespace vectorized {
+namespace doris::vectorized {
 class Arena;
 class BufferReadable;
 class BufferWritable;
-} // namespace vectorized
-} // namespace doris
-
-namespace doris::vectorized {
 
 struct RowNumberData {
     int64_t count = 0;
