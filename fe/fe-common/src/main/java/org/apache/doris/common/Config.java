@@ -2810,4 +2810,8 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, description = {"元数据同步是否开启安全模式",
             "Is metadata synchronization enabled in safe mode"})
     public static boolean meta_helper_security_mode = false;
+
+    @ConfField(mutable = true, description = {
+            "设置为 true，如果查询无法选择到健康副本时，会打印出该tablet所有副本的详细信息，"})
+    public static boolean sql_block_rule_ignore_admin = false;
 }
