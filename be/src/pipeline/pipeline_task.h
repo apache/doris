@@ -231,6 +231,8 @@ public:
         }
     }
 
+    PipelineId pipeline_id() const { return _pipeline->id(); }
+
 private:
     friend class RuntimeFilterDependency;
     bool _is_blocked();

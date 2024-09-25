@@ -104,7 +104,10 @@ public:
     void set_children(std::shared_ptr<Pipeline> child) { _children.push_back(child); }
     void set_children(std::vector<std::shared_ptr<Pipeline>> children) { _children = children; }
 
-    void incr_created_tasks() { _num_tasks_created++; }
+    void incr_created_tasks() {
+        _num_tasks_created++;
+        _num_tasks_running++;
+    }
     void set_num_tasks(int num_tasks) {
         _num_tasks = num_tasks;
         for (auto& op : _operators) {
@@ -112,6 +115,7 @@ public:
         }
     }
     int num_tasks() const { return _num_tasks; }
+    bool close_task() { return _num_tasks_running.fetch_sub(1) == 1; }
 
     std::string debug_string() {
         fmt::memory_buffer debug_string_buffer;
@@ -158,6 +162,8 @@ private:
     int _num_tasks = 1;
     // How many tasks are already created?
     std::atomic<int> _num_tasks_created = 0;
+    // How many tasks are already created and not finished?
+    std::atomic<int> _num_tasks_running = 0;
 };
 
 } // namespace doris::pipeline
