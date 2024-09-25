@@ -538,8 +538,8 @@ relationPrimary
     | LEFT_PAREN query RIGHT_PAREN tableAlias lateralView*                 #aliasedQuery
     | tvfName=identifier LEFT_PAREN
       (properties=propertyItemList)?
-      RIGHT_PAREN tableAlias                                               #tableValuedFunction
-    | LEFT_PAREN relations RIGHT_PAREN                                     #relationList
+      RIGHT_PAREN tableAlias                                                               #tableValuedFunction
+    | LEFT_PAREN relations RIGHT_PAREN                                                     #relationList
     ;
 
 materializedViewName

@@ -66,8 +66,6 @@ public interface TableIf {
     default void readUnlock() {
     }
 
-    ;
-
     default void writeLock() {
     }
 
@@ -555,5 +553,9 @@ public interface TableIf {
 
     default Set<String> getDistributionColumnNames() {
         return Sets.newHashSet();
+    }
+
+    default boolean isPartitionedTable() {
+        return false;
     }
 }
