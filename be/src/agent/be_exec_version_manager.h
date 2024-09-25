@@ -34,7 +34,7 @@ constexpr inline int VARIANT_SERDE = 6;         // change variant serde to fix P
 constexpr inline int AGGREGATION_2_1_VERSION =
         6; // some aggregation changed the data format after this version
 constexpr inline int USE_CONST_SERDE =
-        7; // support const column in serialize/deserialize function: PR #41175
+        1000; // support const column in serialize/deserialize function: PR #41175
 
 class BeExecVersionManager {
 public:
