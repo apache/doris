@@ -588,7 +588,7 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
         ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder(childColumnStats)
                 .setAvgSizeByte(toDate.getDataType().width())
                 .setDataSize(toDate.getDataType().width() * context.getRowCount());
-        if (childColumnStats.minOrMaxIsInf()) {
+        if (childColumnStats.isMinMaxInvalid()) {
             return columnStatisticBuilder.build();
         }
         double minValue;
@@ -619,7 +619,7 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
         ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder(childColumnStats)
                 .setAvgSizeByte(toDays.getDataType().width())
                 .setDataSize(toDays.getDataType().width() * context.getRowCount());
-        if (childColumnStats.minOrMaxIsInf()) {
+        if (childColumnStats.isMinMaxInvalid()) {
             return columnStatisticBuilder.build();
         }
         double minValue;
