@@ -38,7 +38,8 @@ import org.apache.doris.regression.suite.ClusterOptions
 // NOTICE:
 // 1. No need to use code ` if (isCloudMode()) { return } `  in docker suites,
 // instead should use `ClusterOptions.cloudMode = true/false` is enough.
-// the later code can enable run a docker suite without an external doris cluster.
+// Because when run docker suite without an external doris cluster, if suite use code `isCloudMode()`, it need specific -runMode=cloud/not_cloud.
+// On the contrary, `ClusterOptions.cloudMode = true/false` no need specific -runMode=cloud/not_cloud when no external doris cluster exists.
 
 // need add 'docker' to suite's group, and don't add 'nonConcurrent' to it
 suite('docker_action', 'docker') {
