@@ -446,6 +446,20 @@ public class Repository implements Writable, GsonPostProcessable {
         return Status.OK;
     }
 
+    // Visit the repository, and list all existing snapshot names
+    public Status deleteSnapshot(String snapshotName) {
+        // eg. __palo_repository_repo_name/__ss_label
+        String remotePath = Joiner.on(PATH_DELIMITER).join(location, joinPrefix(PREFIX_REPO, name),
+                joinPrefix(PREFIX_SNAPSHOT_DIR, snapshotName));
+
+        Status st = fileSystem.deleteDirectory(remotePath);
+        if (!st.ok()) {
+            return st;
+        }
+
+        return Status.OK;
+    }
+
     //
     public boolean prepareSnapshotInfo() {
         return false;
