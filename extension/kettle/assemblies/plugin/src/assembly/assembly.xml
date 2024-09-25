@@ -1,0 +1,37 @@
+<assembly xmlns="http://maven.apache.org/ASSEMBLY/2.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xsi:schemaLocation="http://maven.apache.org/ASSEMBLY/2.0.0 http://maven.apache.org/xsd/assembly-2.0.0.xsd">
+  <id>doris-bulk-loader</id>
+  <formats>
+    <format>zip</format>
+  </formats>
+  <baseDirectory>doris-stream-loader</baseDirectory>
+
+  <files>
+    <file>
+      <source>${project.basedir}/src/main/resources/version.xml</source>
+      <outputDirectory>.</outputDirectory>
+      <filtered>true</filtered>
+    </file>
+  </files>
+
+  <fileSets>
+    <!-- the staging dir -->
+    <fileSet>
+      <directory>${project.build.directory}/assembly</directory>
+      <outputDirectory>.</outputDirectory>
+    </fileSet>
+  </fileSets>
+
+  <dependencySets>
+    <dependencySet>
+      <outputDirectory>.</outputDirectory>
+      <includes>
+        <include>org.pentaho.di.plugins:doris-stream-loader-impl:jar</include>
+        <include>org.pentaho.di.plugins:doris-stream-loader-ui:jar</include>
+      </includes>
+      <useProjectArtifact>false</useProjectArtifact>
+    </dependencySet>
+  </dependencySets>
+</assembly>
+
+
