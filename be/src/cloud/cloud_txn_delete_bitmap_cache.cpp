@@ -95,6 +95,13 @@ Status CloudTxnDeleteBitmapCache::get_delete_bitmap(
     CacheKey key(key_str);
     Cache::Handle* handle = lookup(key);
 
+    DBUG_EXECUTE_IF("CloudTxnDeleteBitmapCache::get_delete_bitmap.cache_miss", {
+        handle = nullptr;
+        LOG(INFO) << "CloudTxnDeleteBitmapCache::get_delete_bitmap.cache_miss, make cache missed "
+                     "when get delete bitmap, txn_id:"
+                  << transaction_id << ", tablet_id: " << tablet_id;
+    });
+
     DeleteBitmapCacheValue* val =
             handle == nullptr ? nullptr : reinterpret_cast<DeleteBitmapCacheValue*>(value(handle));
     if (val) {
