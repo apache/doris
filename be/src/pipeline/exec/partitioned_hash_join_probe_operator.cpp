@@ -167,6 +167,7 @@ Status PartitionedHashJoinProbeLocalState::spill_probe_blocks(RuntimeState* stat
 
     MonotonicStopWatch submit_timer;
     submit_timer.start();
+
     auto spill_func = [query_id, state, submit_timer, spill_size_threshold, this] {
         _spill_wait_in_queue_timer->update(submit_timer.elapsed_time());
         SCOPED_TIMER(_spill_probe_timer);
@@ -791,7 +792,8 @@ size_t PartitionedHashJoinProbeOperatorX::_revocable_mem_size(RuntimeState* stat
     return mem_size;
 }
 
-Status PartitionedHashJoinProbeOperatorX::revoke_memory(RuntimeState* state) {
+Status PartitionedHashJoinProbeOperatorX::revoke_memory(
+        RuntimeState* state, const std::shared_ptr<SpillContext>& spill_context) {
     auto& local_state = get_local_state(state);
     VLOG_DEBUG << "query: " << print_id(state->query_id()) << ", hash probe node: " << node_id()
                << ", task: " << state->task_id() << ", child eos: " << local_state._child_eos;
@@ -806,7 +808,7 @@ Status PartitionedHashJoinProbeOperatorX::revoke_memory(RuntimeState* state) {
     RETURN_IF_ERROR(local_state.spill_probe_blocks(state, true));
 
     if (_child) {
-        return _child->revoke_memory(state);
+        return _child->revoke_memory(state, nullptr);
     }
     return Status::OK();
 }
