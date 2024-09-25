@@ -29,10 +29,9 @@ import java.util.Map;
 import java.util.Properties;
 
 public class PropertiesUtils {
-    public static final String ACCESS_PROPERTIES_FILE_DIR = File.separator + Config.authorization_config_file_path;
 
     public static Map<String, String> loadAccessControllerPropertiesOrNull() throws IOException {
-        String configFilePath = EnvUtils.getDorisHome() + ACCESS_PROPERTIES_FILE_DIR;
+        String configFilePath = EnvUtils.getDorisHome() + Config.authorization_config_file_path;
         if (new File(configFilePath).exists()) {
             Properties properties = new Properties();
             properties.load(Files.newInputStream(Paths.get(configFilePath)));
