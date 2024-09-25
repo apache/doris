@@ -269,7 +269,8 @@ private:
     // return true means one column's predicates all pushed down
     bool _check_column_pred_all_push_down(const std::string& column_name, bool in_compound = false,
                                           bool is_match = false);
-    void _calculate_pred_in_remaining_conjunct_root(const vectorized::VExprSPtr& expr);
+    void _calculate_pred_in_remaining_conjunct_root(const vectorized::VExprSPtr& expr,
+                                                    const vectorized::VExprSPtr& parent = nullptr);
 
     // todo(wb) remove this method after RowCursor is removed
     void _convert_rowcursor_to_short_key(const RowCursor& key, size_t num_keys) {
@@ -369,6 +370,7 @@ private:
             _short_cir_pred_column_ids; // keep columnId of columns for short circuit predicate evaluation
     std::vector<bool> _is_pred_column; // columns hold _init segmentIter
     std::map<uint32_t, bool> _need_read_data_indices;
+    std::unordered_set<uint32_t> _must_read_data_indices;
     std::vector<bool> _is_common_expr_column;
     vectorized::MutableColumns _current_return_columns;
     std::vector<ColumnPredicate*> _pre_eval_block_predicate;

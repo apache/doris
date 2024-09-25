@@ -1130,6 +1130,10 @@ bool SegmentIterator::_need_read_data(ColumnId cid) {
         // occurring, return true here that column data needs to be read
         return true;
     }
+
+    if (_must_read_data_indices.count(cid)) {
+        return true;
+    }
     // Check the following conditions:
     // 1. If the column represented by the unique ID is an inverted index column (indicated by '_need_read_data_indices.count(unique_id) > 0 && !_need_read_data_indices[unique_id]')
     //    and it's not marked for projection in '_output_columns'.
@@ -2517,14 +2521,14 @@ bool SegmentIterator::_check_column_pred_all_push_down(const std::string& column
 }
 
 void SegmentIterator::_calculate_pred_in_remaining_conjunct_root(
-        const vectorized::VExprSPtr& expr) {
+        const vectorized::VExprSPtr& expr, const vectorized::VExprSPtr& parent) {
     if (expr == nullptr) {
         return;
     }
 
     auto& children = expr->children();
     for (int i = 0; i < children.size(); ++i) {
-        _calculate_pred_in_remaining_conjunct_root(children[i]);
+        _calculate_pred_in_remaining_conjunct_root(children[i], expr);
     }
 
     auto node_type = expr->node_type();
@@ -2561,6 +2565,10 @@ void SegmentIterator::_calculate_pred_in_remaining_conjunct_root(
         }
 
         if (!_column_predicate_info->is_empty()) {
+            if (parent != nullptr && parent->node_type() != TExprNodeType::COMPOUND_PRED) {
+                int cid = _schema->column_id(_column_predicate_info->column_id);
+                _must_read_data_indices.insert(cid);
+            }
             _column_pred_in_remaining_vconjunct[_column_predicate_info->column_name].push_back(
                     *_column_predicate_info);
             _column_predicate_info.reset(new ColumnPredicateInfo());
@@ -2586,6 +2594,10 @@ bool SegmentIterator::_no_need_read_key_data(ColumnId cid, vectorized::MutableCo
     }
 
     if (_has_delete_predicate(cid)) {
+        return false;
+    }
+
+    if (_must_read_data_indices.count(cid)) {
         return false;
     }
 

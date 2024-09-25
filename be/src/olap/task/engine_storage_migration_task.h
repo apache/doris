@@ -18,9 +18,8 @@
 #ifndef DORIS_BE_SRC_OLAP_TASK_ENGINE_STORAGE_MIGRATION_TASK_H
 #define DORIS_BE_SRC_OLAP_TASK_ENGINE_STORAGE_MIGRATION_TASK_H
 
-#include <stdint.h>
-
 #include <gen_cpp/olap_file.pb.h>
+#include <stdint.h>
 
 #include <mutex>
 #include <shared_mutex>
