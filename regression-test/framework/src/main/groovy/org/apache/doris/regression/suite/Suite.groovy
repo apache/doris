@@ -290,11 +290,6 @@ class Suite implements GroovyInterceptable {
                     + "see example demo_p0/docker_action.groovy")
         }
 
-        try {
-            context.config.fetchCloudMode()
-        } catch (Exception e) {
-        }
-
         boolean dockerIsCloud = false
         if (options.cloudMode == null) {
             if (context.config.runMode == RunMode.UNKNOWN) {

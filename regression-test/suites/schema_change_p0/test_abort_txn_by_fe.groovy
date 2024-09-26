@@ -65,7 +65,7 @@ suite('test_abort_txn_by_fe', 'docker') {
 
         def dbId = getDbId()
         dockerAwaitUntil(20, {
-            def txns = sql_return_maparray("show proc "/transactions/${dbId}/running")
+            def txns = sql_return_maparray("show proc '/transactions/${dbId}/running'")
             txns.any { it.Label == loadLabel }
         })
 
@@ -87,13 +87,15 @@ suite('test_abort_txn_by_fe', 'docker') {
         sleep 10000
         assertEquals(result, "WAITING_TXN");
 
-        def masterFe = cluster.getMasterFe()
-        cluster.restartFrontends(masterFe.index)
-        sleep(30000)
+        def oldMasterFe = cluster.getMasterFe()
+        cluster.restartFrontends(oldMasterFe.index)
+        dockerAwaitUntil(30, {
+            cluster.getFeByIndex(oldMasterFe.index).alive
+        })
         context.reconnectFe()
         if (!cluster.isCloudMode()) {
             def newMasterFe = cluster.getMasterFe()
-            assertTrue(masterFe.index != newMasterFe.index)
+            assertTrue(oldMasterFe.index != newMasterFe.index)
         }
 
         max_try_time = 3000
