@@ -138,3 +138,9 @@
 -- !sql_select --
 1	11	11
 
+-- !sql_select2 --
+1
+
+-- !sql_select3 --
+601022201389484209	2024-04-09T20:58:49	卖卖	{"is_poi_first_order":0}
+
