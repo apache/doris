@@ -160,7 +160,7 @@ suite("mv_contain_external_table", "p0,external,hive,external_docker,external_do
 
     // test query rewrite by mv, should fail ,because materialized_view_rewrite_enable_contain_external_table
     // switch is false default
-    mv_rewrite_fail(query_sql, mv_name)
+    mv_not_part_in(query_sql, mv_name)
     sql "SET materialized_view_rewrite_enable_contain_external_table=true"
     mv_rewrite_success(query_sql, mv_name)
 
