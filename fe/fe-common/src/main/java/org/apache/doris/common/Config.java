@@ -1954,11 +1954,19 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = false)
     public static boolean disable_backend_black_list = false;
 
-    @ConfField(mutable = true, masterOnly = false)
-    public static long do_add_backend_black_list_threshold_secs = 10;
+    @ConfField(mutable = true, masterOnly = false, description = {
+        "If a backend is tried to be added to black list do_add_backend_black_list_threshold_count times "
+            + "in do_add_backend_black_list_threshold_secs, it will be added to black list."})
+    public static long do_add_backend_black_list_threshold_count = 10;
 
-    @ConfField(mutable = true, masterOnly = false)
-    public static long stay_in_backend_black_list_threshold_secs = 10;
+    @ConfField(mutable = true, masterOnly = false, description = {
+        "If a backend is tried to be added to black list do_add_backend_black_list_threshold_count times "
+            + "in do_add_backend_black_list_threshold_secs, it will be added to black list."})
+    public static long do_add_backend_black_list_threshold_secs = 30;
+
+    @ConfField(mutable = true, masterOnly = false, description = {
+        "Backend will stay in black list for this time after it is added to black list."})
+    public static long stay_in_backend_black_list_threshold_secs = 60;
 
     /**
      * Maximum backend heartbeat failure tolerance count.

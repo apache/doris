@@ -48,38 +48,52 @@ import java.util.stream.Collectors;
 public class SimpleScheduler {
     private static final Logger LOG = LogManager.getLogger(SimpleScheduler.class);
 
-    public static final long RecordBlackListThreshold = 10;
-
     public static class BlackListInfo {
         public BlackListInfo() {}
 
         private Lock lock = new ReentrantLock();
+        // Record the reason why this backend is added to black list, will be updated only once.
         private String reasonForBlackList = "";
+        // Record the first time this backend is tried to be added to black list.
         private Long firstRecordBlackTimestampMs = 0L;
+        // Record the last time this backend is tried to be added to black list.
         private Long lastRecordBlackTimestampMs = 0L;
+        // Record the timestamp this backend is really regarded as blacked.
         private Long lastBlackTimestampMs = 0L;
+        // Record the count of this backend is tried to be added to black list.
         private Long recordBlackListCount = 0L;
+        // Record the backend id
         private Long backendID = 0L;
 
+        // Try to add this backend to black list, backend is not really added to black list until
+        // condition in shouldBeBlackListed is met.
         public void tryAddBlackList(String reason) {
             lock.lock();
             try {
                 recordAddBlackList(reason);
-                if (shuoldBeBlackListed()) {
+                if (shouldBeBlackListed()) {
                     doAddBlackList();
-                    LOG.info("Backend is added to black list.\n{}", getDebugInfo());
                 }
             } finally {
                 lock.unlock();
             }
         }
 
+        // Just update the fileds.
         private void recordAddBlackList(String reason) {
             if (firstRecordBlackTimestampMs <= 0) {
                 firstRecordBlackTimestampMs = System.currentTimeMillis();
             }
 
             lastRecordBlackTimestampMs = System.currentTimeMillis();
+
+            // Restart the counter if the time interval is too long
+            if (lastRecordBlackTimestampMs - firstRecordBlackTimestampMs
+                    >= Config.do_add_backend_black_list_threshold_secs * 1000) {
+                firstRecordBlackTimestampMs = lastRecordBlackTimestampMs;
+                recordBlackListCount = 0L;
+            }
+
             recordBlackListCount++;
 
             if (Strings.isNullOrEmpty(reasonForBlackList) && !Strings.isNullOrEmpty(reason)) {
@@ -87,11 +101,12 @@ public class SimpleScheduler {
             }
         }
 
-        private boolean shuoldBeBlackListed() {
+        private boolean shouldBeBlackListed() {
             if (lastRecordBlackTimestampMs <= 0 || firstRecordBlackTimestampMs <= 0) {
                 return false;
             }
-            if (recordBlackListCount < RecordBlackListThreshold) {
+
+            if (recordBlackListCount < Config.do_add_backend_black_list_threshold_count) {
                 return false;
             }
 
@@ -107,10 +122,10 @@ public class SimpleScheduler {
             lastBlackTimestampMs = System.currentTimeMillis();
             Exception e = new Exception();
             String stack = org.apache.commons.lang3.exception.ExceptionUtils.getStackTrace(e);
-            LOG.warn("Add backend {} to black list, reason: {}. Stack {}", backendID, reasonForBlackList, stack);
+            LOG.warn("Backend is added to black list.\nInformation:\n{}\nStack:\n{}", toString(), stack);
         }
 
-        public boolean shuoldBeRemoved() {
+        public boolean shouldBeRemoved() {
             lock.lock();
             try {
                 if (lastBlackTimestampMs <= 0) {
@@ -148,9 +163,10 @@ public class SimpleScheduler {
             }
         }
 
-        public String getDebugInfo() {
+        public String toString() {
             StringBuilder sb = new StringBuilder();
             lock.lock();
+            // Convert to human readable time
             LocalDateTime firstRecordBlackTimes = LocalDateTime.ofInstant(
                     Instant.ofEpochMilli(firstRecordBlackTimestampMs), ZoneId.systemDefault());
             LocalDateTime lastRecordBlackTimes = LocalDateTime.ofInstant(
@@ -368,13 +384,13 @@ public class SimpleScheduler {
                             LOG.info("remove backend {} from black list because it does not exist", backendId);
                         } else {
                             BlackListInfo blackListInfo = entry.getValue();
-                            if (backend.isAlive() || blackListInfo.shuoldBeRemoved()) {
+                            if (backend.isAlive() || blackListInfo.shouldBeRemoved()) {
                                 iterator.remove();
                                 LOG.info("remove backend {} from black list. backend is alive: {}",
                                         backendId, backend.isAlive());
                             } else {
                                 if (LOG.isDebugEnabled()) {
-                                    LOG.debug("blacklistBackends {}", blackListInfo.getDebugInfo());
+                                    LOG.debug("blacklistBackends {}", blackListInfo.toString());
                                 }
                             }
                         }

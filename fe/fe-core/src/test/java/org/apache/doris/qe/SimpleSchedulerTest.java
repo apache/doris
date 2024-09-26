@@ -193,7 +193,7 @@ public class SimpleSchedulerTest {
         scanRangeLocation5.setBackendId(be5.getId());
         locations.add(scanRangeLocation5);
 
-        for (int i = 0; i <= SimpleScheduler.RecordBlackListThreshold; i++) {
+        for (int i = 0; i <= Config.do_add_backend_black_list_threshold_count; i++) {
             SimpleScheduler.addToBlacklist(be1.getId(), "test");
             SimpleScheduler.addToBlacklist(be2.getId(), "test");
             SimpleScheduler.addToBlacklist(be3.getId(), "test");
