@@ -235,7 +235,7 @@ public class Config extends ConfigBase {
             "连续写多批 BDBJE 日志后需要短暂停顿。这里最大的连写次数。",
             "After writting multiple batching BDBJE continuously, need a short rest. "
                     + "Indicates the writting count before a rest"})
-    public static long batch_edit_log_continuous_count_for_rest = 100000;
+    public static long batch_edit_log_continuous_count_for_rest = 1000;
 
     @ConfField(description = {"元数据同步的容忍延迟时间，单位为秒。如果元数据的延迟超过这个值，非主 FE 会停止提供服务",
             "The toleration delay time of meta data synchronization, in seconds. "
