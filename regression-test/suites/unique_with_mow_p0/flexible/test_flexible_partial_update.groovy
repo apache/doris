@@ -50,7 +50,42 @@ suite('test_flexible_partial_update') {
             file "test1.json"
             time 20000
         }
+        qt_read_json_by_line "select k,v1,v2,v3,v4,v5,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName} order by k;"
+    
+        streamLoad {
+            table "${tableName}"
+            set 'format', 'json'
+            set 'strip_outer_array', 'true'
+            set 'strict_mode', 'false'
+            set 'unique_key_update_mode', 'UPDATE_FLEXIBLE_COLUMNS'
+            file "test8.json"
+            time 20000
+        }
+        qt_strip_outer_array "select k,v1,v2,v3,v4,v5,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName} order by k;"
 
-        order_qt_sql "select k,v1,v2,v3,v4,v5,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName};"
+        streamLoad {
+            table "${tableName}"
+            set 'format', 'json'
+            set 'read_json_by_line', 'true'
+            set 'json_root', '$.bar[1].value'
+            set 'strict_mode', 'false'
+            set 'unique_key_update_mode', 'UPDATE_FLEXIBLE_COLUMNS'
+            file "test9.json"
+            time 20000
+        }
+        qt_read_json_by_line_json_root "select k,v1,v2,v3,v4,v5,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName} order by k;"
+
+        // !!NOTE!!: will apply `json_root` first, then apply `strip_outer_array`
+        streamLoad {
+            table "${tableName}"
+            set 'format', 'json'
+            set 'strip_outer_array', 'true'
+            set 'json_root', '$.bar[1].value'
+            set 'strict_mode', 'false'
+            set 'unique_key_update_mode', 'UPDATE_FLEXIBLE_COLUMNS'
+            file "test10.json"
+            time 20000
+        }
+        qt_strip_outer_array_json_root "select k,v1,v2,v3,v4,v5,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName} order by k;"
     }
 }
