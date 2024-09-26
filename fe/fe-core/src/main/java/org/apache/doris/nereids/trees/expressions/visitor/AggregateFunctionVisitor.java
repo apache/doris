@@ -54,6 +54,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctGro
 import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctSum;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctSum0;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MultiTopN;
+import org.apache.doris.nereids.trees.expressions.functions.agg.MultiTopSum;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Ndv;
 import org.apache.doris.nereids.trees.expressions.functions.agg.NullableAggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.OrthogonalBitmapIntersect;
@@ -337,6 +338,10 @@ public interface AggregateFunctionVisitor<R, C> {
 
     default R visitMultiTopN(MultiTopN multiTopN, C context) {
         return visitNullableAggregateFunction(multiTopN, context);
+    }
+
+    default R visitMultiTopSum(MultiTopSum multiTopSum, C context) {
+        return visitNullableAggregateFunction(multiTopSum, context);
     }
 
 }

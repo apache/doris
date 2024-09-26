@@ -17,49 +17,39 @@
 
 #pragma once
 
-#include <rapidjson/encodings.h>
-#include <rapidjson/stringbuffer.h>
-#include <rapidjson/writer.h>
-
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/aggregate_functions/aggregate_function_multi_top.h"
-#include "vec/columns/column.h"
-#include "vec/columns/column_array.h"
-#include "vec/columns/column_string.h"
-#include "vec/columns/column_struct.h"
-#include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
-#include "vec/common/assert_cast.h"
 #include "vec/common/space_saving.h"
 #include "vec/common/string_ref.h"
-#include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_ipv4.h"
-#include "vec/data_types/data_type_nullable.h"
-#include "vec/data_types/data_type_struct.h"
-#include "vec/io/io_helper.h"
 
 namespace doris::vectorized {
 
+template <typename T>
 struct AggregateFunctionTopKGenericData {
     using Set = SpaceSaving<StringRef, StringRefHash>;
 
     Set value;
 };
 
-class AggregateFunctionMultiTopN final
-        : public IAggregateFunctionDataHelper<AggregateFunctionTopKGenericData,
-                                              AggregateFunctionMultiTopN>,
+template <typename T, typename TResult, typename Data>
+class AggregateFunctionMultiTopSum final
+        : public IAggregateFunctionDataHelper<Data, AggregateFunctionMultiTopSum<T, TResult, Data>>,
           public AggregateFunctionMultiTop {
 private:
-    using State = AggregateFunctionTopKGenericData;
+    using ResultDataType = DataTypeNumber<TResult>;
+    using ColVecType = ColumnVector<T>;
+    using ColVecResult = ColumnVector<TResult>;
+
+    using State = AggregateFunctionTopKGenericData<T>;
 
 public:
-    AggregateFunctionMultiTopN(const DataTypes& argument_types_)
-            : IAggregateFunctionDataHelper<AggregateFunctionTopKGenericData,
-                                           AggregateFunctionMultiTopN>(argument_types_),
+    AggregateFunctionMultiTopSum(const DataTypes& argument_types_)
+            : IAggregateFunctionDataHelper<Data, AggregateFunctionMultiTopSum<T, TResult, Data>>(
+                      argument_types_),
               column_size(argument_types_.size() - 2) {}
 
-    String get_name() const override { return "multi_topn"; }
+    String get_name() const override { return "multi_top_sum"; }
 
     DataTypePtr get_return_type() const override { return std::make_shared<DataTypeString>(); }
 
@@ -119,7 +109,7 @@ public:
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena* arena) const override {
         if (!init_flag) {
-            lazy_init(columns, row_num);
+            lazy_init(columns);
         }
 
         auto& set = this->data(place).value;
@@ -141,7 +131,9 @@ public:
 
         StringRef str_serialized =
                 all_serialize_value_into_arena(row_num, column_size, columns, arena);
-        set.insert(str_serialized);
+        const auto& column = assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(
+                *columns[column_size - 1]);
+        set.insert(str_serialized, TResult(column.get_data()[row_num]));
         arena->rollback(str_serialized.size);
     }
 
@@ -207,7 +199,7 @@ public:
     }
 
 private:
-    void lazy_init(const IColumn** columns, ssize_t row_num) const {
+    void lazy_init(const IColumn** columns) const {
         auto get_param = [](size_t idx, const DataTypes& data_types,
                             const IColumn** columns) -> uint64_t {
             const auto& data_type = data_types.at(idx);
@@ -234,13 +226,13 @@ private:
         };
 
         const auto& data_types = this->get_argument_types();
-        threshold = std::min(get_param(column_size, data_types, columns), (uint64_t)1000);
-        reserved = std::min(std::max(get_param(column_size + 1, data_types, columns), threshold),
-                            (uint64_t)1000);
 
-        if (threshold == 0 || reserved == 0 || threshold > 1000 || reserved > 1000) {
+        threshold = std::min(get_param(column_size, data_types, columns), (uint64_t)1000);
+        reserved = std::min(get_param(column_size + 1, data_types, columns), (uint64_t)4096);
+
+        if (threshold == 0 || threshold > 1000 || reserved == 0 || reserved > 4096) {
             throw Exception(ErrorCode::INTERNAL_ERROR,
-                            "multi_topn param error, threshold: {}, reserved: {}", threshold,
+                            "multi_top_sum param error, threshold: {}, reserved: {}", threshold,
                             reserved);
         }
 
@@ -252,5 +244,15 @@ private:
     mutable uint64_t threshold = 0;
     mutable uint64_t reserved = 0;
 };
+
+template <typename T>
+struct TopSumSimple {
+    using ResultType = T;
+    using AggregateDataType = AggregateFunctionTopKGenericData<ResultType>;
+    using Function = AggregateFunctionMultiTopSum<T, ResultType, AggregateDataType>;
+};
+
+template <typename T>
+using AggregateFunctionTopSumSimple = typename TopSumSimple<T>::Function;
 
 } // namespace doris::vectorized

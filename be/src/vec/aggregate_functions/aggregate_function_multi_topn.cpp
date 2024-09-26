@@ -30,8 +30,8 @@ AggregateFunctionPtr create_aggregate_function_multi_topn(const std::string& nam
         return nullptr;
     }
 
-    return creator_without_type::create<AggregateFunctionMultiTopN<false>>(argument_types,
-                                                                           result_is_nullable);
+    return creator_without_type::create<AggregateFunctionMultiTopN>(argument_types,
+                                                                    result_is_nullable);
 }
 
 void register_aggregate_function_multi_topn(AggregateFunctionSimpleFactory& factory) {

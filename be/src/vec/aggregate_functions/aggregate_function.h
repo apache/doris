@@ -21,6 +21,7 @@
 #pragma once
 
 #include "util/defer_op.h"
+#include "vec/aggregate_functions/aggregate_function_multi_top.h"
 #include "vec/columns/column_complex.h"
 #include "vec/columns/column_string.h"
 #include "vec/common/assert_cast.h"
@@ -51,20 +52,6 @@ using DataTypes = std::vector<DataTypePtr>;
 
 using AggregateDataPtr = char*;
 using ConstAggregateDataPtr = const char*;
-
-template <typename NestFuction, bool result_is_nullable>
-class AggregateFunctionNullVariadicInline;
-
-template <bool is_include_counts>
-class AggregateFunctionMultiTopN;
-
-template <typename T>
-struct is_aggregate_function_null_variadic_inline : std::false_type {};
-
-// Currently only supports AggregateFunctionMultiTopN
-template <bool result_is_nullable, bool is_include_counts>
-struct is_aggregate_function_null_variadic_inline<AggregateFunctionNullVariadicInline<
-        AggregateFunctionMultiTopN<is_include_counts>, result_is_nullable>> : std::true_type {};
 
 #define SAFE_CREATE(create, destroy) \
     do {                             \
@@ -305,7 +292,8 @@ public:
                                 Arena* arena) const override {
         const Derived* derived = assert_cast<const Derived*>(this);
 
-        if constexpr (is_aggregate_function_null_variadic_inline<Derived>::value) {
+        if constexpr (is_aggregate_function_multi_top<Derived>::value ||
+                      is_aggregate_function_multi_top_with_null_variadic_inline<Derived>::value) {
             derived->add_range(place, columns, 0, batch_size, arena);
         } else {
             for (size_t i = 0; i < batch_size; ++i) {
