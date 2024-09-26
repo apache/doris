@@ -7,9 +7,9 @@ After downloading, unzip it and run spoon.sh to start kettle.
 
 You can also compile it yourself, refer to the [compilation section](https://github.com/pentaho/pentaho-kettle?tab=readme-ov-file#how-to-build)
 
-2. Compile doris-stream-loader
+2. Compile doris stream load plugin
 ```shell
-cd doris-stream-loader
+cd doris/extension/kettle
 mvn clean package -DskipTests
 ```
 After the compilation is complete, unzip the plugin package and copy it to the plugins directory of kettle

@@ -7,9 +7,9 @@
 
 也可以自行编译，参考[编译章节](https://github.com/pentaho/pentaho-kettle?tab=readme-ov-file#how-to-build)
 
-2. 编译doris-stream-loader
+2. 编译Doris的stream load插件
 ```shell
-cd doris-stream-loader
+cd doris/extension/kettle
 mvn clean package -DskipTests
 ```
 编译完成后，将插件包解压后拷贝到kettle的plugins目录下
