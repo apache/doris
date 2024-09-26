@@ -499,8 +499,10 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
             local_state._row_distribution._deal_batched = true;
             RETURN_IF_ERROR(local_state._send_new_partition_batch());
         }
+        // the convert_block maybe different with block after execute exprs
+        // when send data we still use block
         RETURN_IF_ERROR(channel_add_rows_with_idx(state, local_state.channels, num_channels,
-                                                  channel2rows, convert_block.get(), eos));
+                                                  channel2rows, block, eos));
     } else if (_part_type == TPartitionType::TABLE_SINK_HASH_PARTITIONED) {
         {
             SCOPED_TIMER(local_state._split_block_hash_compute_timer);
