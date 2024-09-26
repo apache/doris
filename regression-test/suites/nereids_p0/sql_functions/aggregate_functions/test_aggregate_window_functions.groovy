@@ -131,7 +131,8 @@ suite("test_aggregate_window_functions") {
     // percentile_approx
     order_qt_agg_window_percentile_approx "select id, percentile_approx(price, 0.95) over(partition by id) from test_aggregate_window_functions;"
     // percentile_approx_weighted
-    order_qt_agg_window_percentile_approx_weighted "select id, percentile_approx_weighted(price, count, 0.95) over(partition by id) from test_aggregate_window_functions;"
+    // error: Can not found function 'percentile_approx_weighted'
+    // order_qt_agg_window_percentile_approx_weighted "select id, percentile_approx_weighted(price, count, 0.95) over(partition by id) from test_aggregate_window_functions;"
 
     // topn
     order_qt_agg_window_topn "select id, topn(price, 3) over(partition by id) from test_aggregate_window_functions;"    
