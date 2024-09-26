@@ -21,10 +21,10 @@ mvn clean package -DskipTests
 ```
 3. 构建作业
 在Kettle中的批量加载中找到Doris Stream Loader，构建作业
-![create.png](images/create.png)
+![create_zh.png](images/create_zh.png)
 
 4. 点击开始运行作业即可完成数据同步
-![running.png](images/running.png)
+![running_zh.png](images/running_zh.png)
 
 5. 参数说明
 
