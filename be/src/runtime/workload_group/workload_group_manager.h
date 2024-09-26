@@ -108,6 +108,7 @@ private:
     bool handle_single_query(std::shared_ptr<QueryContext> query_ctx, Status paused_reason);
     void handle_non_overcommit_wg_paused_queries();
     void handle_overcommit_wg_paused_queries();
+    void change_query_to_hard_limit(WorkloadGroupPtr wg, bool enable_hard_limit);
 
 private:
     std::shared_mutex _group_mutex;
