@@ -186,7 +186,8 @@ public:
         return _inner_probe_operator->require_data_distribution();
     }
 
-    Status revoke_memory(RuntimeState* state) override;
+    Status revoke_memory(RuntimeState* state,
+                         const std::shared_ptr<SpillContext>& spill_context) override;
 
 private:
     Status _revoke_memory(RuntimeState* state);

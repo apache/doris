@@ -23,13 +23,17 @@
 #include <gen_cpp/Types_types.h>
 #include <glog/logging.h>
 
+#include <algorithm>
 #include <exception>
 #include <memory>
 #include <mutex>
+#include <shared_mutex>
 #include <sstream>
 #include <utility>
+#include <vector>
 
 #include "common/logging.h"
+#include "common/status.h"
 #include "olap/olap_common.h"
 #include "pipeline/dependency.h"
 #include "pipeline/pipeline_fragment_context.h"
@@ -438,6 +442,66 @@ size_t QueryContext::get_revocable_size() const {
         }
     }
     return revocable_size;
+}
+
+Status QueryContext::revoke_memory() {
+    std::vector<std::pair<size_t, pipeline::PipelineTask*>> tasks;
+    std::vector<std::shared_ptr<pipeline::PipelineFragmentContext>> fragments;
+    for (auto&& [fragment_id, fragment_wptr] : _fragment_id_to_pipeline_ctx) {
+        auto fragment_ctx = fragment_wptr.lock();
+        if (!fragment_ctx) {
+            continue;
+        }
+
+        auto tasks_of_fragment = fragment_ctx->get_revocable_tasks();
+        for (auto* task : tasks_of_fragment) {
+            tasks.emplace_back(task->get_revocable_size(), task);
+        }
+        fragments.emplace_back(std::move(fragment_ctx));
+    }
+
+    std::sort(tasks.begin(), tasks.end(), [](auto&& l, auto&& r) { return l.first > r.first; });
+
+    const auto mem_limit = query_mem_tracker->limit();
+    const auto target_revoking_size = mem_limit * 0.2;
+    size_t revoked_size = 0;
+
+    std::vector<pipeline::PipelineTask*> chosen_tasks;
+    for (auto&& [revocable_size, task] : tasks) {
+        chosen_tasks.emplace_back(task);
+
+        revoked_size += revocable_size;
+        if (revoked_size >= target_revoking_size) {
+            break;
+        }
+    }
+
+    std::weak_ptr<QueryContext> this_ctx = shared_from_this();
+    auto spill_context =
+            std::make_shared<pipeline::SpillContext>(chosen_tasks.size(), _query_id, [this_ctx] {
+                auto query_context = this_ctx.lock();
+                if (!query_context) {
+                    return;
+                }
+
+                LOG(INFO) << "query: " << print_id(query_context->_query_id)
+                          << " all revoking tasks done, resumt it.";
+                query_context->set_memory_sufficient(true);
+            });
+
+    for (auto* task : chosen_tasks) {
+        RETURN_IF_ERROR(task->revoke_memory(spill_context));
+    }
+
+    LOG(INFO) << "query: " << print_id(_query_id) << " total revoked size: " << revoked_size
+              << ", target_size: " << target_revoking_size
+              << ", tasks count: " << chosen_tasks.size() << "/" << tasks.size();
+
+    return Status::OK();
+}
+
+void QueryContext::decrease_revoking_tasks_count() {
+    _revoking_tasks_count.fetch_sub(1);
 }
 
 std::vector<pipeline::PipelineTask*> QueryContext::get_revocable_tasks() const {

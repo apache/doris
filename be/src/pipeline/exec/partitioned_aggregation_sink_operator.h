@@ -16,6 +16,7 @@
 // under the License.
 
 #pragma once
+#include <limits>
 #include <memory>
 
 #include "aggregation_sink_operator.h"
@@ -45,7 +46,7 @@ public:
     Status close(RuntimeState* state, Status exec_status) override;
     Dependency* finishdependency() override { return _finish_dependency.get(); }
 
-    Status revoke_memory(RuntimeState* state);
+    Status revoke_memory(RuntimeState* state, const std::shared_ptr<SpillContext>& spill_context);
 
     Status setup_in_memory_agg_op(RuntimeState* state);
 
@@ -102,6 +103,7 @@ public:
                 for (int i = 0; i < Base::_shared_state->partition_count && !state->is_cancelled();
                      ++i) {
                     if (spill_infos[i].keys_.size() >= spill_batch_rows) {
+                        _rows_in_partitions[i] += spill_infos[i].keys_.size();
                         status = _spill_partition(
                                 state, context, Base::_shared_state->spill_partitions[i],
                                 spill_infos[i].keys_, spill_infos[i].values_, nullptr, false);
@@ -117,6 +119,7 @@ public:
             auto spill_null_key_data =
                     (hash_null_key_data && i == Base::_shared_state->partition_count - 1);
             if (spill_infos[i].keys_.size() > 0 || spill_null_key_data) {
+                _rows_in_partitions[i] += spill_infos[i].keys_.size();
                 status = _spill_partition(state, context, Base::_shared_state->spill_partitions[i],
                                           spill_infos[i].keys_, spill_infos[i].values_,
                                           spill_null_key_data
@@ -338,7 +341,8 @@ public:
     }
     size_t revocable_mem_size(RuntimeState* state) const override;
 
-    Status revoke_memory(RuntimeState* state) override;
+    Status revoke_memory(RuntimeState* state,
+                         const std::shared_ptr<SpillContext>& spill_context) override;
 
     size_t get_reserve_mem_size(RuntimeState* state) override;
 

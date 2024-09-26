@@ -32,6 +32,7 @@
 #include "common/status.h"
 #include "pipeline/dependency.h"
 #include "pipeline/exec/operator.h"
+#include "pipeline/exec/spill_utils.h"
 #include "pipeline/local_exchange/local_exchanger.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/query_context.h"
@@ -113,7 +114,11 @@ public:
         return state->minimum_operator_memory_required_bytes();
     }
 
-    virtual Status revoke_memory(RuntimeState* state) { return Status::OK(); }
+    virtual Status revoke_memory(RuntimeState* state,
+                                 const std::shared_ptr<SpillContext>& spill_context) {
+        return Status::OK();
+    }
+
     [[nodiscard]] virtual bool require_data_distribution() const { return false; }
     OperatorPtr child() { return _child; }
     [[nodiscard]] bool followed_by_shuffled_join() const { return _followed_by_shuffled_join; }
@@ -603,6 +608,10 @@ public:
         _spill_write_wait_io_timer =
                 ADD_TIMER_WITH_LEVEL(Base::profile(), "SpillWriteWaitIOTime", 1);
         _spill_read_wait_io_timer = ADD_TIMER_WITH_LEVEL(Base::profile(), "SpillReadWaitIOTime", 1);
+        _spill_max_rows_of_partition =
+                ADD_COUNTER_WITH_LEVEL(Base::profile(), "SpillMaxRowsOfPartition", TUnit::UNIT, 1);
+        _spill_min_rows_of_partition =
+                ADD_COUNTER_WITH_LEVEL(Base::profile(), "SpillMinRowsOfPartition", TUnit::UNIT, 1);
         return Status::OK();
     }
 
@@ -610,6 +619,25 @@ public:
         auto dependencies = Base::dependencies();
         return dependencies;
     }
+
+    void update_max_min_rows_counter() {
+        int64_t max_rows = 0;
+        int64_t min_rows = std::numeric_limits<int64_t>::max();
+
+        for (auto rows : _rows_in_partitions) {
+            if (rows > max_rows) {
+                max_rows = rows;
+            }
+            if (rows < min_rows) {
+                min_rows = rows;
+            }
+        }
+
+        COUNTER_SET(_spill_max_rows_of_partition, max_rows);
+        COUNTER_SET(_spill_min_rows_of_partition, min_rows);
+    }
+
+    std::vector<int64_t> _rows_in_partitions;
 
     RuntimeProfile::Counter* _spill_timer = nullptr;
     RuntimeProfile::Counter* _spill_serialize_block_timer = nullptr;
@@ -619,6 +647,8 @@ public:
     RuntimeProfile::Counter* _spill_wait_in_queue_timer = nullptr;
     RuntimeProfile::Counter* _spill_write_wait_io_timer = nullptr;
     RuntimeProfile::Counter* _spill_read_wait_io_timer = nullptr;
+    RuntimeProfile::Counter* _spill_max_rows_of_partition = nullptr;
+    RuntimeProfile::Counter* _spill_min_rows_of_partition = nullptr;
 };
 
 class OperatorXBase : public OperatorBase {
@@ -718,9 +748,10 @@ public:
         return (_child and !is_source()) ? _child->revocable_mem_size(state) : 0;
     }
 
-    Status revoke_memory(RuntimeState* state) override {
+    Status revoke_memory(RuntimeState* state,
+                         const std::shared_ptr<SpillContext>& spill_context) override {
         if (_child and !is_source()) {
-            return _child->revoke_memory(state);
+            return _child->revoke_memory(state, spill_context);
         }
         return Status::OK();
     }

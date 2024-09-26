@@ -248,7 +248,7 @@ public:
     }
 
     [[nodiscard]] size_t get_revocable_size() const;
-    [[nodiscard]] Status revoke_memory();
+    [[nodiscard]] Status revoke_memory(const std::shared_ptr<SpillContext>& spill_context);
 
     void add_spill_dependency(Dependency* dependency) {
         _spill_dependencies.emplace_back(dependency);

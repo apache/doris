@@ -22,6 +22,7 @@
 #include <gen_cpp/Types_types.h>
 
 #include <atomic>
+#include <cstdint>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -189,6 +190,8 @@ public:
 
     std::vector<pipeline::PipelineTask*> get_revocable_tasks() const;
 
+    Status revoke_memory();
+
     void register_query_statistics(std::shared_ptr<QueryStatistics> qs);
 
     std::shared_ptr<QueryStatistics> get_query_statistics();
@@ -226,7 +229,7 @@ public:
 
     void increase_revoking_tasks_count() { _revoking_tasks_count.fetch_add(1); }
 
-    void decrease_revoking_tasks_count() { _revoking_tasks_count.fetch_sub(1); }
+    void decrease_revoking_tasks_count();
 
     int get_revoking_tasks_count() const { return _revoking_tasks_count.load(); }
 
@@ -352,6 +355,8 @@ private:
     bool _is_pipeline = false;
     bool _is_nereids = false;
     std::atomic<int> _running_big_mem_op_num = 0;
+
+    std::mutex _revoking_tasks_mutex;
     std::atomic<int> _revoking_tasks_count = 0;
 
     // A token used to submit olap scanner to the "_limited_scan_thread_pool",
