@@ -1440,6 +1440,7 @@ DECLARE_Int32(query_cache_size);
 
 // Enable validation to check the correctness of table size.
 DECLARE_Bool(enable_table_size_correctness_check);
+DECLARE_mDouble(max_table_index_data_ratio);
 
 #ifdef BE_TEST
 // test s3

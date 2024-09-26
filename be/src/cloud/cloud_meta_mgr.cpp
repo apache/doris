@@ -759,6 +759,15 @@ Status CloudMetaMgr::commit_rowset(const RowsetMeta& rs_meta,
                        << ", rowset index disk size:" << rs_meta.index_disk_size()
                        << ", rowset total disk size:" << rs_meta.total_disk_size() << ".";
         }
+        if (rs_meta.index_disk_size() >
+            config::max_table_index_data_ratio * rs_meta.data_disk_size()) {
+            LOG(FATAL) << "[Cloud table size check failed]:"
+                       << " tablet id: " << rs_meta.tablet_id()
+                       << ", rowset id:" << rs_meta.rowset_id()
+                       << ", rowset data disk size:" << rs_meta.data_disk_size()
+                       << ", rowset index disk size:" << rs_meta.index_disk_size()
+                       << ", rowset total disk size:" << rs_meta.total_disk_size() << ".";
+        }
     }
     CreateRowsetRequest req;
     CreateRowsetResponse resp;
