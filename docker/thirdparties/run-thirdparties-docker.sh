@@ -603,77 +603,106 @@ start_kerberos() {
 
 echo "starting dockers in parrallel"
 
+pids=()
+
 if [[ "${RUN_ES}" -eq 1 ]]; then
     start_es > start_es.log  2>&1 &
+    pids+=($!)
 fi
 
 if [[ "${RUN_MYSQL}" -eq 1 ]]; then
     start_mysql > start_mysql.log 2>&1 &
+    pids+=($!)
 fi
 
 if [[ "${RUN_PG}" -eq 1 ]]; then
     start_pg > start_pg.log 2>&1 &
+    pids+=($!)
 fi
 
 if [[ "${RUN_ORACLE}" -eq 1 ]]; then
     start_oracle > start_oracle.log 2>&1 &
+    pids+=($!)
 fi
 
 if [[ "${RUN_DB2}" -eq 1 ]]; then
     start_db2 > start_db2.log 2>&1 &
+    pids+=($!)
 fi
 
 if [[ "${RUN_OCEANBASE}" -eq 1 ]]; then
     start_oceanbase > start_oceanbase.log 2>&1 &
+    pids+=($!)
 fi
 
 if [[ "${RUN_SQLSERVER}" -eq 1 ]]; then
     start_sqlserver > start_sqlserver.log 2>&1 &
+    pids+=($!)
 fi
 
 if [[ "${RUN_CLICKHOUSE}" -eq 1 ]]; then
     start_clickhouse > start_clickhouse.log 2>&1 &
+    pids+=($!)
 fi
 
 if [[ "${RUN_KAFKA}" -eq 1 ]]; then
     start_kafka > start_kafka.log 2>&1 &
+    pids+=($!)
 fi
 
 if [[ "${RUN_HIVE2}" -eq 1 ]]; then
     start_hive2 > start_hive2.log 2>&1 &
+    pids+=($!)
 fi
 
 if [[ "${RUN_HIVE3}" -eq 1 ]]; then
     start_hive3 > start_hive3.log 2>&1 &
+    pids+=($!)
 fi
 
 if [[ "${RUN_SPARK}" -eq 1 ]]; then
     start_spark > start_spark.log 2>&1 &
+    pids+=($!)
 fi
 
 if [[ "${RUN_ICEBERG}" -eq 1 ]]; then
     start_iceberg > start_icerberg.log 2>&1 &
+    pids+=($!)
 fi
 
 if [[ "${RUN_HUDI}" -eq 1 ]]; then
     start_hudi > start_hudi.log 2>&1 &
+    pids+=($!)
 fi
 
 if [[ "${RUN_TRINO}" -eq 1 ]]; then
     start_trino > start_trino.log 2>&1 &
+    pids+=($!)
 fi
 
 if [[ "${RUN_MARIADB}" -eq 1 ]]; then
     start_mariadb > start_mariadb.log 2>&1 &
+    pids+=($!)
 fi
 
 if [[ "${RUN_LAKESOUL}" -eq 1 ]]; then
     start_lakesoul > start_lakesoule.log 2>&1 &
+    pids+=($!)
 fi
 
 if [[ "${RUN_KERBEROS}" -eq 1 ]]; then
     start_kerberos > start_kerberos.log 2>&1 &
+    pids+=($!)
 fi
 
 echo "waiting all dockers starting done"
-wait
+
+for pid in "${pids[@]}"; do
+    wait "${pid}"
+    if [ $? -ne 0 ]; then
+        echo "one of the dockers started failed, exiting"
+        exit 1
+    fi
+done
+
+echo "all dockers started successfully"
