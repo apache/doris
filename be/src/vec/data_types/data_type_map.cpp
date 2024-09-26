@@ -280,14 +280,14 @@ bool DataTypeMap::equals(const IDataType& rhs) const {
     return true;
 }
 
-// binary : const flag| row num | offset | key_col | val_col
+// binary : const flag| row num | real saved num | offset | key_col | val_col
 // offset : off1 | off2 ...
 // key_col: key1 | key1 ...
 // val_col: val1 | val2 ...
 int64_t DataTypeMap::get_uncompressed_serialized_bytes(const IColumn& column,
                                                        int data_version) const {
     if (data_version >= USE_CONST_SERDE) {
-        auto size = sizeof(bool);
+        auto size = sizeof(bool) + sizeof(size_t) + sizeof(size_t);
         bool is_const_column = is_column_const(column);
         auto real_need_copy_num = is_const_column ? 1 : column.size();
 
@@ -297,7 +297,7 @@ int64_t DataTypeMap::get_uncompressed_serialized_bytes(const IColumn& column,
             data_column = &(const_column.get_data_column());
         }
         const auto& map_column = assert_cast<const ColumnMap&>(*data_column);
-        size = size + sizeof(ColumnArray::Offset64) * (real_need_copy_num + 1);
+        size = size + sizeof(ColumnArray::Offset64) * real_need_copy_num;
         size = size + get_key_type()->get_uncompressed_serialized_bytes(map_column.get_keys(),
                                                                         data_version);
         size = size + get_value_type()->get_uncompressed_serialized_bytes(map_column.get_values(),
@@ -317,22 +317,10 @@ int64_t DataTypeMap::get_uncompressed_serialized_bytes(const IColumn& column,
 // serialize to binary
 char* DataTypeMap::serialize(const IColumn& column, char* buf, int be_exec_version) const {
     if (be_exec_version >= USE_CONST_SERDE) {
-        // const flag
-        bool is_const_column = is_column_const(column);
-        *reinterpret_cast<bool*>(buf) = is_const_column;
-        buf += sizeof(bool);
+        const auto* data_column = &column;
+        size_t real_need_copy_num = 0;
+        buf = serialize_const_flag_and_row_num(&data_column, buf, &real_need_copy_num);
 
-        // row num
-        const auto row_num = column.size();
-        *reinterpret_cast<ColumnArray::Offset64*>(buf) = column.size();
-        buf += sizeof(ColumnArray::Offset64);
-        auto real_need_copy_num = is_const_column ? 1 : row_num;
-
-        const IColumn* data_column = &column;
-        if (is_const_column) {
-            const auto& const_column = assert_cast<const ColumnConst&>(column);
-            data_column = &(const_column.get_data_column());
-        }
         const auto& map_column = assert_cast<const ColumnMap&>(*data_column);
         // offsets
         memcpy(buf, map_column.get_offsets().data(),
@@ -359,29 +347,21 @@ char* DataTypeMap::serialize(const IColumn& column, char* buf, int be_exec_versi
 const char* DataTypeMap::deserialize(const char* buf, MutableColumnPtr* column,
                                      int be_exec_version) const {
     if (be_exec_version >= USE_CONST_SERDE) {
-        //const flag
-        bool is_const_column = *reinterpret_cast<const bool*>(buf);
-        buf += sizeof(bool);
-        //row num
-        ColumnArray::Offset64 row_num = *reinterpret_cast<const ColumnArray::Offset64*>(buf);
-        buf += sizeof(ColumnArray::Offset64);
+        auto* origin_column = column->get();
+        size_t real_have_saved_num = 0;
+        buf = deserialize_const_flag_and_row_num(buf, column, &real_have_saved_num);
 
-        auto* map_column = assert_cast<ColumnMap*>(column->get());
+        auto* map_column = assert_cast<ColumnMap*>(origin_column);
         auto& map_offsets = map_column->get_offsets();
-        auto real_copy_num = is_const_column ? 1 : row_num;
         // offsets
-        map_offsets.resize(real_copy_num);
-        memcpy(map_offsets.data(), buf, sizeof(ColumnArray::Offset64) * real_copy_num);
-        buf += sizeof(ColumnArray::Offset64) * real_copy_num;
+        map_offsets.resize(real_have_saved_num);
+        memcpy(map_offsets.data(), buf, sizeof(ColumnArray::Offset64) * real_have_saved_num);
+        buf += sizeof(ColumnArray::Offset64) * real_have_saved_num;
         // key value
         auto nested_keys_column = map_column->get_keys_ptr()->assume_mutable();
         auto nested_values_column = map_column->get_values_ptr()->assume_mutable();
         buf = get_key_type()->deserialize(buf, &nested_keys_column, be_exec_version);
         buf = get_value_type()->deserialize(buf, &nested_values_column, be_exec_version);
-        if (is_const_column) {
-            auto const_column = ColumnConst::create((*column)->get_ptr(), row_num);
-            *column = const_column->get_ptr();
-        }
         return buf;
     } else {
         auto* map_column = assert_cast<ColumnMap*>(column->get());

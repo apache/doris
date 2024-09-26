@@ -95,13 +95,13 @@ Status DataTypeNullable::from_string(ReadBuffer& rb, IColumn* column) const {
     return Status::OK();
 }
 
-// binary: const flag | row num | mem_size| <null array> | <values array>
+// binary: const flag | row num | read saved num| <null array> | <values array>
 //  <null array>: is_null1 | is_null2 | ...
 //  <values array>: value1 | value2 | ...>
 int64_t DataTypeNullable::get_uncompressed_serialized_bytes(const IColumn& column,
                                                             int be_exec_version) const {
     if (be_exec_version >= USE_CONST_SERDE) {
-        auto size = sizeof(bool) + sizeof(uint32_t) + sizeof(uint32_t);
+        auto size = sizeof(bool) + sizeof(size_t) + sizeof(size_t);
         bool is_const_column = is_column_const(column);
         auto real_need_copy_num = is_const_column ? 1 : column.size();
         const IColumn* data_column = &column;
@@ -139,26 +139,12 @@ int64_t DataTypeNullable::get_uncompressed_serialized_bytes(const IColumn& colum
 
 char* DataTypeNullable::serialize(const IColumn& column, char* buf, int be_exec_version) const {
     if (be_exec_version >= USE_CONST_SERDE) {
-        // const flag
-        bool is_const_column = is_column_const(column);
-        *reinterpret_cast<bool*>(buf) = is_const_column;
-        buf += sizeof(bool);
-        // row num
-        const auto row_num = column.size();
-        *reinterpret_cast<uint32_t*>(buf) = row_num;
-        buf += sizeof(uint32_t);
+        const auto* data_column = &column;
+        size_t real_need_copy_num = 0;
+        buf = serialize_const_flag_and_row_num(&data_column, buf, &real_need_copy_num);
 
         // mem_size = real_row_num * sizeof(T)
-        auto real_need_copy_num = is_const_column ? 1 : row_num;
         const uint32_t mem_size = real_need_copy_num * sizeof(bool);
-        *reinterpret_cast<uint32_t*>(buf) = mem_size;
-        buf += sizeof(uint32_t);
-
-        const IColumn* data_column = &column;
-        if (is_const_column) {
-            const auto& const_column = assert_cast<const ColumnConst&>(column);
-            data_column = &(const_column.get_data_column());
-        }
         const auto& col = assert_cast<const ColumnNullable&>(*data_column);
         // null flags
         if (mem_size <= SERIALIZED_MEM_SIZE_LIMIT) {
@@ -200,19 +186,14 @@ char* DataTypeNullable::serialize(const IColumn& column, char* buf, int be_exec_
 const char* DataTypeNullable::deserialize(const char* buf, MutableColumnPtr* column,
                                           int be_exec_version) const {
     if (be_exec_version >= USE_CONST_SERDE) {
-        //const flag
-        bool is_const_column = *reinterpret_cast<const bool*>(buf);
-        buf += sizeof(bool);
-        //row num
-        uint32_t row_num = *reinterpret_cast<const uint32_t*>(buf);
-        buf += sizeof(uint32_t);
-        // mem_size
-        uint32_t mem_size = *reinterpret_cast<const uint32_t*>(buf);
-        buf += sizeof(uint32_t);
+        auto* origin_column = column->get();
+        size_t real_have_saved_num = 0;
+        buf = deserialize_const_flag_and_row_num(buf, column, &real_have_saved_num);
 
-        auto* col = assert_cast<ColumnNullable*>(column->get());
+        auto* col = assert_cast<ColumnNullable*>(origin_column);
         // null flags
-        col->get_null_map_data().resize(mem_size / sizeof(bool));
+        auto mem_size = real_have_saved_num * sizeof(bool);
+        col->get_null_map_data().resize(real_have_saved_num);
         if (mem_size <= SERIALIZED_MEM_SIZE_LIMIT) {
             memcpy(col->get_null_map_data().data(), buf, mem_size);
             buf += mem_size;
@@ -226,10 +207,6 @@ const char* DataTypeNullable::deserialize(const char* buf, MutableColumnPtr* col
         // column data values
         auto nested = col->get_nested_column_ptr();
         buf = nested_data_type->deserialize(buf, &nested, be_exec_version);
-        if (is_const_column) {
-            auto const_column = ColumnConst::create((*column)->get_ptr(), row_num);
-            *column = const_column->get_ptr();
-        }
         return buf;
     } else {
         auto* col = assert_cast<ColumnNullable*>(column->get());

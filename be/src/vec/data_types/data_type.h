@@ -33,6 +33,7 @@
 #include "common/exception.h"
 #include "common/status.h"
 #include "runtime/define_primitive_type.h"
+#include "vec/columns/column_const.h"
 #include "vec/columns/column_string.h"
 #include "vec/common/cow.h"
 #include "vec/core/types.h"
@@ -414,5 +415,10 @@ inline bool is_variant_type(const DataTypePtr& data_type) {
     return WhichDataType(data_type).is_variant_type();
 }
 
+// write const_flag and row_num to buf, and return real_need_copy_num
+char* serialize_const_flag_and_row_num(const IColumn** column, char* buf,
+                                       size_t* real_need_copy_num);
+const char* deserialize_const_flag_and_row_num(const char* buf, MutableColumnPtr* column,
+                                               size_t* real_have_saved_num);
 } // namespace vectorized
 } // namespace doris

@@ -74,12 +74,13 @@ bool DataTypeString::equals(const IDataType& rhs) const {
     return typeid(rhs) == typeid(*this);
 }
 
-// binary: const flag | row num | mem size | offset | chars
+// binary: const flag | row num | read saved num | offset | chars
 // offset: {offset1 | offset2 ...} or {encode_size | offset1 |offset2 ...}
 // chars : {value_length | <value1> | <value2 ...} or {value_length | encode_size | <value1> | <value2 ...}
 int64_t DataTypeString::get_uncompressed_serialized_bytes(const IColumn& column,
                                                           int be_exec_version) const {
     if (be_exec_version >= USE_CONST_SERDE) {
+        auto size = sizeof(bool) + sizeof(size_t) + sizeof(size_t);
         bool is_const_column = is_column_const(column);
         const IColumn* string_column = &column;
         if (is_const_column) {
@@ -88,7 +89,6 @@ int64_t DataTypeString::get_uncompressed_serialized_bytes(const IColumn& column,
         }
         const auto& data_column = assert_cast<const ColumnString&>(*string_column);
 
-        auto size = sizeof(bool) + sizeof(uint32_t) + sizeof(uint32_t);
         auto real_need_copy_num = is_const_column ? 1 : data_column.size();
         auto offsets_size = real_need_copy_num * sizeof(IColumn::Offset);
         if (offsets_size <= SERIALIZED_MEM_SIZE_LIMIT) {
@@ -127,27 +127,12 @@ int64_t DataTypeString::get_uncompressed_serialized_bytes(const IColumn& column,
 
 char* DataTypeString::serialize(const IColumn& column, char* buf, int be_exec_version) const {
     if (be_exec_version >= USE_CONST_SERDE) {
-        // const flag
-        bool is_const_column = is_column_const(column);
-        *reinterpret_cast<bool*>(buf) = is_const_column;
-        buf += sizeof(bool);
+        const auto* data_column = &column;
+        size_t real_need_copy_num = 0;
+        buf = serialize_const_flag_and_row_num(&data_column, buf, &real_need_copy_num);
 
-        // row num
-        const auto row_num = column.size();
-        *reinterpret_cast<IColumn::Offset*>(buf) = row_num;
-        buf += sizeof(IColumn::Offset);
-
-        // mem_size = real_row_num * sizeof(T)
-        auto real_need_copy_num = is_const_column ? 1 : row_num;
+        // mem_size = real_row_num * sizeof(IColumn::Offset)
         uint32_t mem_size = real_need_copy_num * sizeof(IColumn::Offset);
-        *reinterpret_cast<uint32_t*>(buf) = mem_size;
-        buf += sizeof(uint32_t);
-
-        const IColumn* data_column = &column;
-        if (is_const_column) {
-            const auto& const_column = assert_cast<const ColumnConst&>(column);
-            data_column = &(const_column.get_data_column());
-        }
         const auto& string_column = assert_cast<const ColumnString&>(*data_column);
         // offsets
         if (mem_size <= SERIALIZED_MEM_SIZE_LIMIT) {
@@ -217,20 +202,15 @@ char* DataTypeString::serialize(const IColumn& column, char* buf, int be_exec_ve
 const char* DataTypeString::deserialize(const char* buf, MutableColumnPtr* column,
                                         int be_exec_version) const {
     if (be_exec_version >= USE_CONST_SERDE) {
-        // const flag
-        bool is_const_column = *reinterpret_cast<const bool*>(buf);
-        buf += sizeof(bool);
-        // row num
-        IColumn::Offset row_num = *reinterpret_cast<const IColumn::Offset*>(buf);
-        buf += sizeof(IColumn::Offset);
-        // mem_size
-        uint32_t mem_size = *reinterpret_cast<const uint32_t*>(buf);
-        buf += sizeof(uint32_t);
+        auto* origin_column = column->get();
+        size_t real_have_saved_num = 0;
+        buf = deserialize_const_flag_and_row_num(buf, column, &real_have_saved_num);
 
-        auto* column_string = assert_cast<ColumnString*>(column->get());
+        auto mem_size = real_have_saved_num * sizeof(IColumn::Offset);
+        auto* column_string = assert_cast<ColumnString*>(origin_column);
         ColumnString::Chars& data = column_string->get_chars();
         ColumnString::Offsets& offsets = column_string->get_offsets();
-        offsets.resize(mem_size / sizeof(IColumn::Offset));
+        offsets.resize(real_have_saved_num);
 
         // offsets
         if (mem_size <= SERIALIZED_MEM_SIZE_LIMIT) {
@@ -258,10 +238,6 @@ const char* DataTypeString::deserialize(const char* buf, MutableColumnPtr* colum
             buf += sizeof(size_t);
             LZ4_decompress_safe(buf, reinterpret_cast<char*>(data.data()), encode_size, value_len);
             buf += encode_size;
-        }
-        if (is_const_column) {
-            auto const_column = ColumnConst::create((*column)->get_ptr(), row_num);
-            *column = const_column->get_ptr();
         }
         return buf;
     } else {

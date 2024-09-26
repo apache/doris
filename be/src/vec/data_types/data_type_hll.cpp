@@ -32,37 +32,25 @@
 
 namespace doris::vectorized {
 
-// Two part of binary: <row num > + <size array> | <hll data array>
-// first: row num | hll1 size | hll2 size | ...
+// Two part of binary: <size array> | <hll data array>
+// first: const flag| row num | real_saved_num | hll1 size | hll2 size | ...
 // second: hll1 | hll2 | ...
 char* DataTypeHLL::serialize(const IColumn& column, char* buf, int be_exec_version) const {
     if (be_exec_version >= USE_CONST_SERDE) {
-        // const flag
-        bool is_const_column = is_column_const(column);
-        *reinterpret_cast<bool*>(buf) = is_const_column;
-        buf += sizeof(bool);
-
-        // row num
-        const auto row_num = column.size();
-        auto real_need_copy_num = is_const_column ? 1 : row_num;
-        const IColumn* hll_column = &column;
-        if (is_const_column) {
-            const auto& const_column = assert_cast<const ColumnConst&>(column);
-            hll_column = &(const_column.get_data_column());
-        }
+        const auto* hll_column = &column;
+        size_t real_need_copy_num = 0;
+        buf = serialize_const_flag_and_row_num(&hll_column, buf, &real_need_copy_num);
 
         const auto& data_column = assert_cast<const ColumnHLL&>(*hll_column);
-        std::vector<size_t> hll_size_array(real_need_copy_num + 1);
-        hll_size_array[0] = row_num;
-
-        auto allocate_len_size = sizeof(size_t) * (real_need_copy_num + 1);
+        std::vector<size_t> hll_size_array(real_need_copy_num);
+        auto allocate_len_size = sizeof(size_t) * real_need_copy_num;
         char* buf_start = buf;
         buf += allocate_len_size;
 
         for (size_t i = 0; i < real_need_copy_num; ++i) {
             auto& hll = const_cast<HyperLogLog&>(data_column.get_element(i));
             size_t actual_size = hll.serialize(reinterpret_cast<uint8_t*>(buf));
-            hll_size_array[i + 1] = actual_size;
+            hll_size_array[i] = actual_size;
             buf += actual_size;
         }
 
@@ -92,34 +80,27 @@ char* DataTypeHLL::serialize(const IColumn& column, char* buf, int be_exec_versi
     }
 }
 
-// Two part of binary: <row num > + <size array> | <hll data array>
-// first: row num | hll1 size | hll2 size | ...
+// Two part of binary: <size array> | <hll data array>
+// first: const flag| row num | real_saved_num | hll1 size | hll2 size | ...
 // second: hll1 | hll2 | ...
 const char* DataTypeHLL::deserialize(const char* buf, MutableColumnPtr* column,
                                      int be_exec_version) const {
     if (be_exec_version >= USE_CONST_SERDE) {
-        //const flag
-        bool is_const_column = *reinterpret_cast<const bool*>(buf);
-        buf += sizeof(bool);
-        auto& data_column = assert_cast<ColumnHLL&>(*(column->get()));
+        auto* origin_column = column->get();
+        size_t real_have_saved_num = 0;
+        buf = deserialize_const_flag_and_row_num(buf, column, &real_have_saved_num);
+
+        auto& data_column = assert_cast<ColumnHLL&>(*origin_column);
         auto& data = data_column.get_data();
 
-        size_t row_num = *reinterpret_cast<const size_t*>(buf);
-        buf += sizeof(size_t);
+        std::vector<size_t> hll_size_array(real_have_saved_num);
+        memcpy(hll_size_array.data(), buf, sizeof(size_t) * real_have_saved_num);
+        buf += sizeof(size_t) * real_have_saved_num;
 
-        auto real_copy_num = is_const_column ? 1 : row_num;
-        std::vector<size_t> hll_size_array(real_copy_num);
-        memcpy(hll_size_array.data(), buf, sizeof(size_t) * real_copy_num);
-        buf += sizeof(size_t) * real_copy_num;
-
-        data.resize(real_copy_num);
-        for (int i = 0; i < real_copy_num; ++i) {
+        data.resize(real_have_saved_num);
+        for (int i = 0; i < real_have_saved_num; ++i) {
             data[i].deserialize(Slice(buf, hll_size_array[i]));
             buf += hll_size_array[i];
-        }
-        if (is_const_column) {
-            auto const_column = ColumnConst::create((*column)->get_ptr(), row_num);
-            *column = const_column->get_ptr();
         }
         return buf;
     } else {
@@ -142,13 +123,13 @@ const char* DataTypeHLL::deserialize(const char* buf, MutableColumnPtr* column,
     }
 }
 
-// binary: const flag| row num | size array | data array
+// binary: const flag| row num | real_saved_num | size array | data array
 // <size array>: hll1 size | hll1 size | ...
 // <data array>: hll1 | hll1 | ...
 int64_t DataTypeHLL::get_uncompressed_serialized_bytes(const IColumn& column,
                                                        int be_exec_version) const {
     if (be_exec_version >= USE_CONST_SERDE) {
-        auto size = sizeof(bool);
+        auto size = sizeof(bool) + sizeof(size_t) + sizeof(size_t);
         bool is_const_column = is_column_const(column);
         auto real_need_copy_num = is_const_column ? 1 : column.size();
         const IColumn* hll_column = &column;
@@ -157,7 +138,7 @@ int64_t DataTypeHLL::get_uncompressed_serialized_bytes(const IColumn& column,
             hll_column = &(const_column.get_data_column());
         }
         const auto& data_column = assert_cast<const ColumnHLL&>(*hll_column);
-        auto allocate_len_size = sizeof(size_t) * (real_need_copy_num + 1);
+        auto allocate_len_size = sizeof(size_t) * real_need_copy_num;
         size_t allocate_content_size = 0;
         for (size_t i = 0; i < real_need_copy_num; ++i) {
             auto& hll = const_cast<HyperLogLog&>(data_column.get_element(i));

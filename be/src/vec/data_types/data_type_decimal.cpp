@@ -149,13 +149,13 @@ Status DataTypeDecimal<T>::from_string(ReadBuffer& rb, IColumn* column) const {
                                    DataTypeDecimalSerDe<T>::get_primitive_type());
 }
 
-// binary: const flag | row num | mem_size| data
+// binary: const flag | row num | real_saved_num | data
 // data  : {val1 | val2| ...} or {encode_size | val1 | val2| ...}
 template <typename T>
 int64_t DataTypeDecimal<T>::get_uncompressed_serialized_bytes(const IColumn& column,
                                                               int be_exec_version) const {
     if (be_exec_version >= USE_CONST_SERDE) {
-        auto size = sizeof(bool) + sizeof(uint32_t) + sizeof(uint32_t);
+        auto size = sizeof(bool) + sizeof(size_t) + sizeof(size_t);
         auto real_need_copy_num = is_column_const(column) ? 1 : column.size();
         auto mem_size = sizeof(T) * real_need_copy_num;
         if (mem_size <= SERIALIZED_MEM_SIZE_LIMIT) {
@@ -178,27 +178,12 @@ int64_t DataTypeDecimal<T>::get_uncompressed_serialized_bytes(const IColumn& col
 template <typename T>
 char* DataTypeDecimal<T>::serialize(const IColumn& column, char* buf, int be_exec_version) const {
     if (be_exec_version >= USE_CONST_SERDE) {
-        // const flag
-        bool is_const_column = is_column_const(column);
-        *reinterpret_cast<bool*>(buf) = is_const_column;
-        buf += sizeof(bool);
+        const auto* data_column = &column;
+        size_t real_need_copy_num = 0;
+        buf = serialize_const_flag_and_row_num(&data_column, buf, &real_need_copy_num);
 
-        // row num
-        const auto row_num = column.size();
-        *reinterpret_cast<uint32_t*>(buf) = row_num;
-        buf += sizeof(uint32_t);
-
-        // mem_size = real_row_num * sizeof(T)
-        auto real_need_copy_num = is_const_column ? 1 : row_num;
+        // mem_size = real_need_copy_num * sizeof(T)
         const uint32_t mem_size = real_need_copy_num * sizeof(T);
-        *reinterpret_cast<uint32_t*>(buf) = mem_size;
-        buf += sizeof(uint32_t);
-
-        const IColumn* data_column = &column;
-        if (is_const_column) {
-            const auto& const_column = assert_cast<const ColumnConst&>(column);
-            data_column = &(const_column.get_data_column());
-        }
         const auto* origin_data =
                 assert_cast<const ColumnDecimal<T>&>(*data_column).get_data().data();
 
@@ -240,19 +225,14 @@ template <typename T>
 const char* DataTypeDecimal<T>::deserialize(const char* buf, MutableColumnPtr* column,
                                             int be_exec_version) const {
     if (be_exec_version >= USE_CONST_SERDE) {
-        //const flag
-        bool is_const_column = *reinterpret_cast<const bool*>(buf);
-        buf += sizeof(bool);
-        //row num
-        uint32_t row_num = *reinterpret_cast<const uint32_t*>(buf);
-        buf += sizeof(uint32_t);
-        // mem_size
-        uint32_t mem_size = *reinterpret_cast<const uint32_t*>(buf);
-        buf += sizeof(uint32_t);
+        auto* origin_column = column->get();
+        size_t real_have_saved_num = 0;
+        buf = deserialize_const_flag_and_row_num(buf, column, &real_have_saved_num);
 
         // column data
-        auto& container = assert_cast<ColumnDecimal<T>*>(column->get())->get_data();
-        container.resize(mem_size / sizeof(T));
+        auto mem_size = real_have_saved_num * sizeof(T);
+        auto& container = assert_cast<ColumnDecimal<T>*>(origin_column)->get_data();
+        container.resize(real_have_saved_num);
         if (mem_size <= SERIALIZED_MEM_SIZE_LIMIT) {
             memcpy(container.data(), buf, mem_size);
             buf = buf + mem_size;
@@ -262,10 +242,6 @@ const char* DataTypeDecimal<T>::deserialize(const char* buf, MutableColumnPtr* c
             streamvbyte_decode((const uint8_t*)buf, (uint32_t*)(container.data()),
                                upper_int32(mem_size));
             buf = buf + encode_size;
-        }
-        if (is_const_column) {
-            auto const_column = ColumnConst::create((*column)->get_ptr(), row_num);
-            *column = const_column->get_ptr();
         }
         return buf;
     } else {
