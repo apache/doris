@@ -331,6 +331,8 @@ DECLARE_mInt32(doris_scanner_queue_size);
 DECLARE_mInt32(doris_scanner_row_num);
 // single read execute fragment row bytes
 DECLARE_mInt32(doris_scanner_row_bytes);
+// single read execute fragment max run time millseconds
+DECLARE_mInt32(doris_scanner_max_run_time_ms);
 DECLARE_mInt32(min_bytes_in_scanner_queue);
 // number of max scan keys
 DECLARE_mInt32(doris_max_scan_key_num);
