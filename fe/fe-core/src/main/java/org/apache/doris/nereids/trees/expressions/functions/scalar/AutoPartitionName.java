@@ -93,6 +93,11 @@ public class AutoPartitionName extends ScalarFunction
     }
 
     @Override
+    public void checkLegalityBeforeTypeCoercion() {
+        checkLegalityAfterRewrite();
+    }
+
+    @Override
     public List<FunctionSignature> getSignatures() {
         return SIGNATURES;
     }
