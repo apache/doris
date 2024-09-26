@@ -47,7 +47,9 @@ public:
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state) override;
 
-    Status spill_probe_blocks(RuntimeState* state, bool force = false);
+    Status spill_probe_blocks(RuntimeState* state,
+                              const std::shared_ptr<SpillContext>& spill_context = nullptr,
+                              bool force = false);
 
     Status recovery_build_blocks_from_disk(RuntimeState* state, uint32_t partition_index,
                                            bool& has_data);
@@ -122,6 +124,9 @@ private:
     RuntimeProfile::Counter* _build_table_insert_timer = nullptr;
     RuntimeProfile::Counter* _build_side_compute_hash_timer = nullptr;
     RuntimeProfile::Counter* _build_side_merge_block_timer = nullptr;
+
+    RuntimeProfile::Counter* _hash_table_memory_usage = nullptr;
+    RuntimeProfile::Counter* _probe_blocks_bytes = nullptr;
 
     RuntimeProfile::Counter* _allocate_resource_timer = nullptr;
 

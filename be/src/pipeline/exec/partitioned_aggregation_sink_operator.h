@@ -303,6 +303,8 @@ public:
     RuntimeProfile::Counter* _deserialize_data_timer = nullptr;
     RuntimeProfile::Counter* _max_row_size_counter = nullptr;
     RuntimeProfile::Counter* _hash_table_memory_usage = nullptr;
+    RuntimeProfile::Counter* _container_memory_usage = nullptr;
+    RuntimeProfile::Counter* _arena_memory_usage = nullptr;
     RuntimeProfile::HighWaterMarkCounter* _serialize_key_arena_memory_usage = nullptr;
 
     RuntimeProfile::Counter* _spill_serialize_hash_table_timer = nullptr;

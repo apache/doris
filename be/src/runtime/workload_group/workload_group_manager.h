@@ -106,7 +106,8 @@ public:
     void update_load_memtable_usage(const std::map<uint64_t, MemtableUsage>& wg_memtable_usages);
 
 private:
-    bool handle_single_query(std::shared_ptr<QueryContext> query_ctx, Status paused_reason);
+    bool handle_single_query(std::shared_ptr<QueryContext> query_ctx, size_t size_to_reserve,
+                             Status paused_reason);
     void handle_non_overcommit_wg_paused_queries();
     void handle_overcommit_wg_paused_queries();
     void change_query_to_hard_limit(WorkloadGroupPtr wg, bool enable_hard_limit);

@@ -245,13 +245,15 @@ public:
         query_mem_tracker->set_limit(std::min<int64_t>(new_mem_limit, _user_set_mem_limit));
     }
 
+    int64_t get_mem_limit() const { return query_mem_tracker->limit(); }
+
     std::shared_ptr<MemTrackerLimiter>& get_mem_tracker() { return query_mem_tracker; }
 
-    int32_t get_slot_count() {
+    int32_t get_slot_count() const {
         return _query_options.__isset.query_slot_count ? _query_options.query_slot_count : 1;
     }
 
-    bool enable_query_slot_hard_limit() {
+    bool enable_query_slot_hard_limit() const {
         return _query_options.__isset.enable_query_slot_hard_limit
                        ? _query_options.enable_query_slot_hard_limit
                        : false;

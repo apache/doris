@@ -74,6 +74,7 @@ protected:
     RuntimeProfile::Counter* _hash_table_compute_timer = nullptr;
     RuntimeProfile::Counter* _hash_table_emplace_timer = nullptr;
     RuntimeProfile::Counter* _hash_table_input_counter = nullptr;
+    RuntimeProfile::Counter* _hash_table_memory_usage = nullptr;
 };
 class AggSourceOperatorX;
 class PartitionedAggSourceOperatorX : public OperatorX<PartitionedAggLocalState> {

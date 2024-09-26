@@ -74,7 +74,7 @@ Status HashJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
     _build_blocks_memory_usage =
             ADD_CHILD_COUNTER_WITH_LEVEL(profile(), "BuildBlocks", TUnit::BYTES, "MemoryUsage", 1);
     _hash_table_memory_usage =
-            ADD_CHILD_COUNTER_WITH_LEVEL(profile(), "HashTable", TUnit::BYTES, "MemoryUsage", 1);
+            ADD_COUNTER_WITH_LEVEL(profile(), "HashTableMemoryUsage", TUnit::BYTES, 1);
     _build_arena_memory_usage =
             profile()->AddHighWaterMarkCounter("BuildKeyArena", TUnit::BYTES, "MemoryUsage", 1);
 
@@ -337,6 +337,8 @@ Status HashJoinBuildSinkLocalState::process_build_block(RuntimeState* state,
                         _mem_tracker->consume(arg.hash_table->get_byte_size() -
                                               old_hash_table_size);
                         _mem_tracker->consume(arg.serialized_keys_size(true) - old_key_size);
+                        COUNTER_SET(_hash_table_memory_usage,
+                                    int64_t(arg.hash_table->get_byte_size()));
                         return st;
                     }},
             *_shared_state->hash_table_variants, _shared_state->join_op_variants,

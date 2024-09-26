@@ -107,6 +107,10 @@ void PartitionedAggSinkLocalState::_init_counters() {
     _hash_table_emplace_timer = ADD_TIMER(Base::profile(), "HashTableEmplaceTime");
     _hash_table_input_counter = ADD_COUNTER(Base::profile(), "HashTableInputCount", TUnit::UNIT);
     _max_row_size_counter = ADD_COUNTER(Base::profile(), "MaxRowSizeInBytes", TUnit::UNIT);
+    _container_memory_usage =
+            ADD_COUNTER_WITH_LEVEL(Base::profile(), "ContainerMemoryUsage", TUnit::BYTES, 1);
+    _arena_memory_usage =
+            ADD_COUNTER_WITH_LEVEL(Base::profile(), "ArenaMemoryUsage", TUnit::BYTES, 1);
     COUNTER_SET(_max_row_size_counter, (int64_t)0);
 
     _spill_serialize_hash_table_timer =
@@ -133,6 +137,8 @@ void PartitionedAggSinkLocalState::update_profile(RuntimeProfile* child_profile)
     UPDATE_PROFILE(_hash_table_emplace_timer, "HashTableEmplaceTime");
     UPDATE_PROFILE(_hash_table_input_counter, "HashTableInputCount");
     UPDATE_PROFILE(_max_row_size_counter, "MaxRowSizeInBytes");
+    UPDATE_PROFILE(_container_memory_usage, "ContainerMemoryUsage");
+    UPDATE_PROFILE(_arena_memory_usage, "ArenaMemoryUsage");
 
     update_max_min_rows_counter();
 }

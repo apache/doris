@@ -486,26 +486,25 @@ Status QueryContext::revoke_memory() {
     }
 
     std::weak_ptr<QueryContext> this_ctx = shared_from_this();
-    auto spill_context =
-            std::make_shared<pipeline::SpillContext>(chosen_tasks.size(), _query_id, [this_ctx] {
+    auto spill_context = std::make_shared<pipeline::SpillContext>(
+            chosen_tasks.size(), _query_id, [this_ctx](pipeline::SpillContext* context) {
                 auto query_context = this_ctx.lock();
                 if (!query_context) {
                     return;
                 }
 
                 LOG(INFO) << "query: " << print_id(query_context->_query_id)
-                          << " all revoking tasks done, resume it.";
+                          << ", context: " << ((void*)context)
+                          << " all revoking tasks done, resumt it.";
                 query_context->set_memory_sufficient(true);
             });
 
+    LOG(INFO) << "query: " << print_id(_query_id) << ", context: " << ((void*)spill_context.get())
+              << " total revoked size: " << revoked_size << ", tasks count: " << chosen_tasks.size()
+              << "/" << tasks.size();
     for (auto* task : chosen_tasks) {
         RETURN_IF_ERROR(task->revoke_memory(spill_context));
     }
-
-    LOG(INFO) << "query: " << print_id(_query_id) << " total revoked size: " << revoked_size
-              << ", target_size: " << PrettyPrinter::print(target_revoking_size, TUnit::BYTES)
-              << ", tasks count: " << chosen_tasks.size() << "/" << tasks.size();
-
     return Status::OK();
 }
 

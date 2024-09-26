@@ -287,8 +287,9 @@ Status PartitionedHashJoinSinkLocalState::_revoke_unpartitioned_block(
 
 Status PartitionedHashJoinSinkLocalState::revoke_memory(
         RuntimeState* state, const std::shared_ptr<SpillContext>& spill_context) {
-    LOG(INFO) << "hash join sink " << _parent->node_id() << " revoke_memory"
-              << ", eos: " << _child_eos;
+    VLOG_DEBUG << "query: " << print_id(state->query_id()) << ", task: " << state->task_id()
+               << " hash join sink " << _parent->node_id() << " revoke_memory"
+               << ", eos: " << _child_eos;
     DCHECK_EQ(_spilling_streams_count, 0);
     CHECK_EQ(_spill_dependency->is_blocked_by(nullptr), nullptr);
 
@@ -450,6 +451,8 @@ void PartitionedHashJoinSinkLocalState::_spill_to_disk(
         }
     }
 
+    VLOG_DEBUG << "query: " << print_id(_state->query_id()) << ", task: " << _state->task_id()
+               << ", join sink " << _parent->node_id() << " revoke done";
     auto num = _spilling_streams_count.fetch_sub(1);
     DCHECK_GE(_spilling_streams_count, 0);
 

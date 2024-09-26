@@ -23,6 +23,7 @@
 #include "common/exception.h"
 #include "pipeline/exec/operator.h"
 #include "runtime/thread_context.h"
+#include "util/runtime_profile.h"
 #include "vec/exprs/vectorized_agg_fn.h"
 #include "vec/exprs/vexpr_fwd.h"
 
@@ -44,7 +45,12 @@ Status AggLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     _deserialize_data_timer = ADD_TIMER(Base::profile(), "DeserializeAndMergeTime");
     _hash_table_compute_timer = ADD_TIMER(Base::profile(), "HashTableComputeTime");
     _hash_table_emplace_timer = ADD_TIMER(Base::profile(), "HashTableEmplaceTime");
-    _hash_table_input_counter = ADD_COUNTER(Base::profile(), "HashTableInputCount", TUnit::UNIT);
+    _hash_table_input_counter =
+            ADD_COUNTER_WITH_LEVEL(Base::profile(), "HashTableInputCount", TUnit::UNIT, 1);
+    _hash_table_memory_usage =
+            ADD_COUNTER_WITH_LEVEL(Base::profile(), "HashTableMemoryUsage", TUnit::BYTES, 1);
+    _hash_table_size_counter =
+            ADD_COUNTER_WITH_LEVEL(Base::profile(), "HashTableSize", TUnit::UNIT, 1);
 
     auto& p = _parent->template cast<AggSourceOperatorX>();
     if (p._without_key) {
@@ -626,6 +632,11 @@ void AggLocalState::_emplace_into_hash_table(vectorized::AggregateDataPtr* place
                            }
 
                            COUNTER_UPDATE(_hash_table_input_counter, num_rows);
+                           COUNTER_SET(_hash_table_memory_usage,
+                                       static_cast<int64_t>(
+                                               agg_method.hash_table->get_buffer_size_in_bytes()));
+                           COUNTER_SET(_hash_table_size_counter,
+                                       static_cast<int64_t>(agg_method.hash_table->size()));
                        }},
                _shared_state->agg_data->method_variant);
 }
