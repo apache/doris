@@ -278,7 +278,7 @@ Status PipelineTask::execute(bool* eos) {
     SCOPED_TIMER(_task_profile->total_time_counter());
     SCOPED_TIMER(_exec_timer);
     SCOPED_ATTACH_TASK(_state);
-    _eos = _sink->is_finished(_state) || _eos;
+    _eos = _sink->is_finished(_state) || _eos || _wake_up_by_downstream;
     *eos = _eos;
     if (_eos) {
         // If task is waken up by finish dependency, `_eos` is set to true by last execution, and we should return here.
