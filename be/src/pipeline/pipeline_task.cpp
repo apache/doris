@@ -553,11 +553,14 @@ size_t PipelineTask::get_revocable_size() const {
     return revocable_size;
 }
 
-Status PipelineTask::revoke_memory() {
+Status PipelineTask::revoke_memory(const std::shared_ptr<SpillContext>& spill_context) {
     if (_sink->revocable_mem_size(_state) >= vectorized::SpillStream::MIN_SPILL_WRITE_BATCH_MEM) {
-        RETURN_IF_ERROR(_sink->revoke_memory(_state));
+        RETURN_IF_ERROR(_sink->revoke_memory(_state, spill_context));
+    } else if (spill_context) {
+        spill_context->on_task_finished();
     }
-    return _root->revoke_memory(_state);
+
+    return Status::OK();
 }
 
 void PipelineTask::wake_up() {

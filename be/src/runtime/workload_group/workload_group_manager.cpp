@@ -17,13 +17,17 @@
 
 #include "workload_group_manager.h"
 
+#include <glog/logging.h>
+
 #include <algorithm>
 #include <memory>
 #include <mutex>
 #include <unordered_map>
 
+#include "common/status.h"
 #include "exec/schema_scanner/schema_scanner_helper.h"
 #include "pipeline/task_scheduler.h"
+#include "runtime/memory/global_memory_arbitrator.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/workload_group/workload_group.h"
 #include "util/mem_info.h"
@@ -198,8 +202,7 @@ void WorkloadGroupMgr::refresh_wg_weighted_memory_limit() {
             doris::GlobalMemoryArbitrator::sys_mem_available_details_str(),
             PrettyPrinter::print(all_workload_groups_mem_usage, TUnit::BYTES),
             weighted_memory_limit_ratio);
-    // LOG_EVERY_T(INFO, 60) << debug_msg;
-    LOG(INFO) << debug_msg;
+    LOG_EVERY_T(INFO, 60) << debug_msg;
     for (auto& wg : _workload_groups) {
         auto wg_mem_limit = wg.second->memory_limit();
         auto wg_weighted_mem_limit = int64_t(wg_mem_limit * weighted_memory_limit_ratio);
@@ -299,8 +302,7 @@ void WorkloadGroupMgr::refresh_wg_weighted_memory_limit() {
         }
         // During memory insufficent stage, we already set every query's memlimit, so that the flag is useless any more.
         wg.second->update_memory_sufficent(true);
-        // LOG_EVERY_T(INFO, 60) << debug_msg;
-        LOG(INFO) << debug_msg;
+        LOG_EVERY_T(INFO, 60) << debug_msg;
     }
 }
 
@@ -348,6 +350,7 @@ void WorkloadGroupMgr::add_paused_query(const std::shared_ptr<QueryContext>& que
  * strategy 5: If any query exceed process's memlimit and cache is zero, then do spill disk or cancel it.
  */
 void WorkloadGroupMgr::handle_paused_queries() {
+    const int64_t TIMEOUT_IN_QUEUE = 1000L * 10;
     std::unique_lock<std::mutex> lock(_paused_queries_lock);
     for (auto it = _paused_queries_list.begin(); it != _paused_queries_list.end();) {
         auto& queries_list = it->second;
@@ -376,9 +379,13 @@ void WorkloadGroupMgr::handle_paused_queries() {
                 continue;
             }
             if (query_ctx->is_cancelled()) {
-                LOG(INFO) << "query: " << print_id(query_ctx->query_id())
-                          << "was canceled, remove from paused list";
-                query_it = queries_list.erase(query_it);
+                /// Memory may not be released immediately after a query is canceled.
+                /// So here wait for a while.
+                if (query_it->elapsed_time() > TIMEOUT_IN_QUEUE) {
+                    LOG(INFO) << "query: " << print_id(query_ctx->query_id())
+                              << " was canceled, remove from paused list";
+                    query_it = queries_list.erase(query_it);
+                }
                 continue;
             }
             if (query_ctx->paused_reason().is<ErrorCode::QUERY_MEMORY_EXCEEDED>()) {
@@ -401,8 +408,9 @@ void WorkloadGroupMgr::handle_paused_queries() {
                 }
                 // Should not put the query back to task scheduler immediately, because when wg's memory not sufficient,
                 // and then set wg's flag, other query may not free memory very quickly.
-                if (query_it->elapsed_time() > 1000) {
+                if (query_it->elapsed_time() > TIMEOUT_IN_QUEUE) {
                     // set wg's memory to insufficent, then add it back to task scheduler to run.
+                    LOG(INFO) << "query: " << print_id(query_ctx->query_id()) << " will be resume.";
                     query_ctx->set_memory_sufficient(true);
                     query_it = queries_list.erase(query_it);
                 } else {
@@ -437,6 +445,8 @@ void WorkloadGroupMgr::handle_paused_queries() {
                 if (doris::GlobalMemoryArbitrator::last_affected_cache_capacity_adjust_weighted <
                             0.001 &&
                     query_it->cache_ratio_ > 0.001) {
+                    LOG(INFO) << "query: " << print_id(query_ctx->query_id())
+                              << " will be resume after cache adjust.";
                     query_ctx->set_memory_sufficient(true);
                     query_it = queries_list.erase(query_it);
                     continue;
@@ -479,17 +489,7 @@ bool WorkloadGroupMgr::spill_or_cancel_query(std::shared_ptr<QueryContext> query
         }
     } else {
         SCOPED_ATTACH_TASK(query_ctx.get());
-        // TODO, should spill the task that has max memory, not all
-        for (auto* task : revocable_tasks) {
-            auto st = task->revoke_memory();
-            if (!st.ok()) {
-                query_ctx->cancel(st);
-                break;
-            }
-        }
-        LOG(INFO) << "query: " << print_id(query_ctx->query_id()) << ", has "
-                  << revocable_tasks.size()
-                  << " tasks to revoke memory, revocable size: " << revocable_size;
+        RETURN_IF_ERROR(query_ctx->revoke_memory());
     }
     return true;
 }

@@ -26,6 +26,7 @@
 #include <thread>
 #include <utility>
 
+#include "common/config.h"
 #include "common/logging.h"
 #include "concurrentqueue.h"
 #include "gutil/integral_types.h"
@@ -832,6 +833,7 @@ public:
     std::unique_ptr<ExchangerBase> exchanger {};
     std::vector<MemTracker*> mem_trackers;
     std::atomic<int64_t> mem_usage = 0;
+    size_t _buffer_mem_limit = config::local_exchange_buffer_mem_limit;
     // We need to make sure to add mem_usage first and then enqueue, otherwise sub mem_usage may cause negative mem_usage during concurrent dequeue.
     std::mutex le_lock;
     virtual void create_dependencies(int local_exchange_id) {
@@ -875,7 +877,7 @@ public:
     void sub_mem_usage(int channel_id, size_t delta) { mem_trackers[channel_id]->release(delta); }
 
     virtual void add_total_mem_usage(size_t delta, int channel_id) {
-        if (mem_usage.fetch_add(delta) + delta > config::local_exchange_buffer_mem_limit) {
+        if (mem_usage.fetch_add(delta) + delta > _buffer_mem_limit) {
             sink_deps.front()->block();
         }
     }
@@ -884,9 +886,14 @@ public:
         auto prev_usage = mem_usage.fetch_sub(delta);
         DCHECK_GE(prev_usage - delta, 0) << "prev_usage: " << prev_usage << " delta: " << delta
                                          << " channel_id: " << channel_id;
-        if (prev_usage - delta <= config::local_exchange_buffer_mem_limit) {
+        if (prev_usage - delta <= _buffer_mem_limit) {
             sink_deps.front()->set_ready();
         }
+    }
+
+    virtual void set_low_memory_mode() {
+        _buffer_mem_limit =
+                std::min<int64_t>(config::local_exchange_buffer_mem_limit, 10 * 1024 * 1024);
     }
 };
 
@@ -933,6 +940,14 @@ struct LocalMergeExchangeSharedState : public LocalExchangeSharedState {
         source_deps[channel_id]->set_ready();
     }
 
+    void set_low_memory_mode() override {
+        _buffer_mem_limit =
+                std::min<int64_t>(config::local_exchange_buffer_mem_limit, 10 * 1024 * 1024);
+        DCHECK(!_queues_mem_usage.empty());
+        _each_queue_limit =
+                std::max<int64_t>(64 * 1024, _buffer_mem_limit / _queues_mem_usage.size());
+    }
+
     Dependency* get_sink_dep_by_channel_id(int channel_id) override {
         return sink_deps[channel_id].get();
     }
@@ -943,7 +958,7 @@ struct LocalMergeExchangeSharedState : public LocalExchangeSharedState {
 
 private:
     std::vector<std::atomic_int64_t> _queues_mem_usage;
-    const int64_t _each_queue_limit;
+    int64_t _each_queue_limit;
 };
 
 } // namespace doris::pipeline
