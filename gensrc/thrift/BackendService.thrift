@@ -36,6 +36,7 @@ struct TTabletStat {
     3: optional i64 row_num
     4: optional i64 version_count
     5: optional i64 remote_data_size
+    6: optional i64 visible_version
 }
 
 struct TTabletStatResult {
