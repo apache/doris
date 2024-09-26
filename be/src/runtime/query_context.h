@@ -303,6 +303,7 @@ public:
             bool is_low_wartermark = false;
             bool is_high_wartermark = false;
             _workload_group->check_mem_used(&is_low_wartermark, &is_high_wartermark);
+            // If the wg is not enable hard limit, this will also take effect to lower down the memory usage.
             if (is_high_wartermark) {
                 LOG(INFO)
                         << "Query " << print_id(_query_id)
@@ -347,6 +348,12 @@ public:
     Status paused_reason() {
         std::lock_guard l(_paused_mutex);
         return _paused_reason;
+    }
+
+    bool is_pure_load_task() {
+        return _query_source == QuerySource::STREAM_LOAD ||
+               _query_source == QuerySource::ROUTINE_LOAD ||
+               _query_source == QuerySource::GROUP_COMMIT_LOAD;
     }
 
 private:
