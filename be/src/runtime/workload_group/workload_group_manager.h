@@ -46,9 +46,10 @@ public:
     size_t last_mem_usage {0};
     double cache_ratio_ {0.0};
     bool any_wg_exceed_limit_ {false};
+    int64_t reserve_size_ {0};
 
     PausedQuery(std::shared_ptr<QueryContext> query_ctx, double cache_ratio,
-                bool any_wg_exceed_limit);
+                bool any_wg_exceed_limit, int64_t reserve_size);
 
     int64_t elapsed_time() const {
         auto now = std::chrono::system_clock::now();
@@ -98,7 +99,7 @@ public:
 
     void get_wg_resource_usage(vectorized::Block* block);
 
-    void add_paused_query(const std::shared_ptr<QueryContext>& query_ctx);
+    void add_paused_query(const std::shared_ptr<QueryContext>& query_ctx, int64_t reserve_size);
 
     void handle_paused_queries();
 

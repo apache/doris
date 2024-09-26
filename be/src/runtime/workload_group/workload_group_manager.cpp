@@ -39,10 +39,11 @@
 namespace doris {
 
 PausedQuery::PausedQuery(std::shared_ptr<QueryContext> query_ctx, double cache_ratio,
-                         bool any_wg_exceed_limit)
+                         bool any_wg_exceed_limit, int64_t reserve_size)
         : query_ctx_(query_ctx),
           cache_ratio_(cache_ratio),
           any_wg_exceed_limit_(any_wg_exceed_limit),
+          reserve_size_(reserve_size),
           query_id_(print_id(query_ctx->query_id())) {
     enqueue_at = std::chrono::system_clock::now();
 }
@@ -239,13 +240,16 @@ void WorkloadGroupMgr::get_wg_resource_usage(vectorized::Block* block) {
     }
 }
 
-void WorkloadGroupMgr::add_paused_query(const std::shared_ptr<QueryContext>& query_ctx) {
+void WorkloadGroupMgr::add_paused_query(const std::shared_ptr<QueryContext>& query_ctx,
+                                        int64_t reserve_size) {
     std::lock_guard<std::mutex> lock(_paused_queries_lock);
     DCHECK(query_ctx != nullptr);
     auto wg = query_ctx->workload_group();
     auto&& [it, inserted] = _paused_queries_list[wg].emplace(
             query_ctx, doris::GlobalMemoryArbitrator::last_affected_cache_capacity_adjust_weighted,
-            doris::GlobalMemoryArbitrator::any_workload_group_exceed_limit);
+            doris::GlobalMemoryArbitrator::any_workload_group_exceed_limit, reserve_size);
+    // Check if this is an invalid reserve, for example, if the reserve size is too large, larger than the query limit
+    // if hard limit is enabled, then not need enable other queries hard limit.
     if (inserted) {
         LOG(INFO) << "workload group " << wg->debug_string()
                   << " insert one new paused query: " << it->query_id();
