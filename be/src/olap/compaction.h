@@ -130,7 +130,7 @@ protected:
     Version _output_version;
 
     int64_t _newest_write_timestamp;
-    RowIdConversion _rowid_conversion;
+    std::unique_ptr<RowIdConversion> _rowid_conversion = nullptr;
     TabletSchemaSPtr _cur_tablet_schema;
 
     std::unique_ptr<RuntimeProfile> _profile;
