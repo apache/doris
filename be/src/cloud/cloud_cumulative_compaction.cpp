@@ -255,6 +255,15 @@ Status CloudCumulativeCompaction::modify_rowsets() {
     compaction_job->add_txn_id(_output_rowset->txn_id());
     compaction_job->add_output_rowset_ids(_output_rowset->rowset_id().to_string());
 
+    DBUG_EXECUTE_IF("CloudCumulativeCompaction::modify_rowsets.enable_spin_wait", {
+        LOG(INFO) << "CloudCumulativeCompaction::modify_rowsets.enable_spin_wait, start";
+        while (DebugPoints::instance()->is_enable(
+                "CloudCumulativeCompaction::modify_rowsets.block")) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        }
+        LOG(INFO) << "CloudCumulativeCompaction::modify_rowsets.enable_spin_wait, exit";
+    });
+
     DeleteBitmapPtr output_rowset_delete_bitmap = nullptr;
     int64_t initiator =
             HashUtil::hash64(_uuid.data(), _uuid.size(), 0) & std::numeric_limits<int64_t>::max();
