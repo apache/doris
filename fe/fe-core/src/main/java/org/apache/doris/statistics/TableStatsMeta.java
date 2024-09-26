@@ -24,7 +24,6 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
-import org.apache.doris.statistics.AnalysisInfo.AnalysisMethod;
 import org.apache.doris.statistics.AnalysisInfo.JobType;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
@@ -167,7 +166,9 @@ public class TableStatsMeta implements Writable, GsonPostProcessable {
 
     public void update(AnalysisInfo analyzedJob, TableIf tableIf) {
         updatedTime = analyzedJob.tblUpdateTime;
-        userInjected = analyzedJob.userInject;
+        if (analyzedJob.userInject) {
+            userInjected = true;
+        }
         String colNameStr = analyzedJob.colName;
         // colName field AnalyzeJob's format likes: "[col1, col2]", we need to remove brackets here
         // TODO: Refactor this later
@@ -195,15 +196,16 @@ public class TableStatsMeta implements Writable, GsonPostProcessable {
                 indexesRowCount.putAll(analyzedJob.indexesRowCount);
                 clearStaleIndexRowCount((OlapTable) tableIf);
             }
-            if (analyzedJob.emptyJob && AnalysisMethod.SAMPLE.equals(analyzedJob.analysisMethod)) {
-                return;
-            }
             if (analyzedJob.colToPartitions.keySet()
                     .containsAll(tableIf.getBaseSchema().stream()
                             .filter(c -> !StatisticsUtil.isUnsupportedType(c.getType()))
                             .map(Column::getName).collect(Collectors.toSet()))) {
                 updatedRows.set(0);
                 newPartitionLoaded.set(false);
+            }
+            // Set userInject back to false after manual analyze.
+            if (JobType.MANUAL.equals(jobType) && !analyzedJob.userInject) {
+                userInjected = false;
             }
         }
     }
