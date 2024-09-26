@@ -211,124 +211,7 @@ void WorkloadGroupMgr::refresh_wg_weighted_memory_limit() {
             weighted_memory_limit_ratio);
     LOG_EVERY_T(INFO, 60) << debug_msg;
     for (auto& wg : _workload_groups) {
-        auto wg_mem_limit = wg.second->memory_limit();
-        auto wg_weighted_mem_limit = int64_t(wg_mem_limit * weighted_memory_limit_ratio);
-        wg.second->set_weighted_memory_limit(wg_weighted_mem_limit);
-        auto all_query_ctxs = wg.second->queries();
-        bool is_low_wartermark = false;
-        bool is_high_wartermark = false;
-        wg.second->check_mem_used(&is_low_wartermark, &is_high_wartermark);
-        int64_t wg_high_water_mark_limit =
-                (int64_t)(wg_mem_limit * wg.second->spill_threshold_high_water_mark() * 1.0 / 100);
-        int64_t memtable_active_bytes = 0;
-        int64_t memtable_queue_bytes = 0;
-        int64_t memtable_flush_bytes = 0;
-        wg.second->get_load_mem_usage(&memtable_active_bytes, &memtable_queue_bytes,
-                                      &memtable_flush_bytes);
-        int64_t memtable_usage =
-                memtable_active_bytes + memtable_queue_bytes + memtable_flush_bytes;
-        int64_t wg_high_water_mark_except_load = wg_high_water_mark_limit;
-        if (memtable_usage > wg.second->load_buffer_limit()) {
-            wg_high_water_mark_except_load =
-                    wg_high_water_mark_limit - wg.second->load_buffer_limit();
-        } else {
-            wg_high_water_mark_except_load =
-                    wg_high_water_mark_limit - memtable_usage - 10 * 1024 * 1024;
-        }
-        std::string debug_msg;
-        if (is_high_wartermark || is_low_wartermark) {
-            debug_msg = fmt::format(
-                    "\nWorkload Group {}: mem limit: {}, mem used: {}, weighted mem limit: {}, "
-                    "high water mark mem limit: {}, load memtable usage: {}, used ratio: {}",
-                    wg.second->name(),
-                    PrettyPrinter::print(wg.second->memory_limit(), TUnit::BYTES),
-                    PrettyPrinter::print(wgs_mem_info[wg.first].total_mem_used, TUnit::BYTES),
-                    PrettyPrinter::print(wg_weighted_mem_limit, TUnit::BYTES),
-                    PrettyPrinter::print(wg_high_water_mark_limit, TUnit::BYTES),
-                    PrettyPrinter::print(memtable_usage, TUnit::BYTES),
-                    (double)wgs_mem_info[wg.first].total_mem_used / wg_weighted_mem_limit);
-
-            debug_msg += "\n  Query Memory Summary:";
-            // check whether queries need to revoke memory for task group
-            for (const auto& query_mem_tracker : wgs_mem_info[wg.first].tracker_snapshots) {
-                debug_msg += fmt::format(
-                        "\n    MemTracker Label={}, Used={}, MemLimit={}, "
-                        "Peak={}",
-                        query_mem_tracker->label(),
-                        PrettyPrinter::print(query_mem_tracker->consumption(), TUnit::BYTES),
-                        PrettyPrinter::print(query_mem_tracker->limit(), TUnit::BYTES),
-                        PrettyPrinter::print(query_mem_tracker->peak_consumption(), TUnit::BYTES));
-            }
-        }
-
-        // If the wg enable over commit memory, then it is no need to update query memlimit
-        if (wg.second->enable_memory_overcommit() && !wg.second->has_changed_to_hard_limit()) {
-            continue;
-        }
-        int32_t total_used_slot_count = 0;
-        int32_t total_slot_count = wg.second->total_query_slot_count();
-        // calculate total used slot count
-        for (const auto& query : all_query_ctxs) {
-            auto query_ctx = query.second.lock();
-            if (!query_ctx) {
-                continue;
-            }
-            // Streamload kafka load group commit, not modify slot
-            if (query_ctx->is_pure_load_task()) {
-                total_used_slot_count += query_ctx->get_slot_count();
-            }
-        }
-        // calculate per query weighted memory limit
-        debug_msg = "Query Memory Summary:";
-        for (const auto& query : all_query_ctxs) {
-            auto query_ctx = query.second.lock();
-            if (!query_ctx) {
-                continue;
-            }
-            int64_t query_weighted_mem_limit = 0;
-            // If the query enable hard limit, then it should not use the soft limit
-            if (query_ctx->enable_query_slot_hard_limit()) {
-                if (total_slot_count < 1) {
-                    LOG(WARNING)
-                            << "query " << print_id(query_ctx->query_id())
-                            << " enabled hard limit, but the slot count < 1, could not take affect";
-                } else {
-                    // If the query enable hard limit, then not use weighted info any more, just use the settings limit.
-                    query_weighted_mem_limit = (int64_t)((wg_high_water_mark_except_load *
-                                                          query_ctx->get_slot_count() * 1.0) /
-                                                         total_slot_count);
-                }
-            } else {
-                // If low water mark is not reached, then use process memory limit as query memory limit.
-                // It means it will not take effect.
-                // If there are some query in paused list, then limit should take effect.
-                if (!is_low_wartermark && wg.second->memory_sufficent()) {
-                    query_weighted_mem_limit = wg_high_water_mark_except_load;
-                } else {
-                    query_weighted_mem_limit = total_used_slot_count > 0
-                                                       ? (int64_t)((wg_high_water_mark_except_load +
-                                                                    total_used_slot_count) *
-                                                                   query_ctx->get_slot_count() *
-                                                                   1.0 / total_used_slot_count)
-                                                       : wg_high_water_mark_except_load;
-                }
-            }
-            debug_msg += fmt::format(
-                    "\n    MemTracker Label={}, Used={}, Limit={}, Peak={}",
-                    query_ctx->get_mem_tracker()->label(),
-                    PrettyPrinter::print(query_ctx->get_mem_tracker()->consumption(), TUnit::BYTES),
-                    PrettyPrinter::print(query_weighted_mem_limit, TUnit::BYTES),
-                    PrettyPrinter::print(query_ctx->get_mem_tracker()->peak_consumption(),
-                                         TUnit::BYTES));
-            // If the query is a pure load task, then should not modify its limit. Or it will reserve
-            // memory failed and we did not hanle it.
-            if (query_ctx->is_pure_load_task()) {
-                query_ctx->set_mem_limit(query_weighted_mem_limit);
-            }
-        }
-        // During memory insufficent stage, we already set every query's memlimit, so that the flag is useless any more.
-        wg.second->update_memory_sufficent(true);
-        LOG_EVERY_T(INFO, 60) << debug_msg;
+        change_query_to_hard_limit(wg.second, false);
     }
 }
 
@@ -407,7 +290,7 @@ void WorkloadGroupMgr::handle_non_overcommit_wg_paused_queries() {
         bool is_high_wartermark = false;
 
         wg->check_mem_used(&is_low_wartermark, &is_high_wartermark);
-
+        bool has_changed_hard_limit = false;
         // If the query is paused because its limit exceed the query itself's memlimit, then just spill disk.
         // The query's memlimit is set using slot mechanism and its value is set using the user settings, not
         // by weighted value. So if reserve failed, then it is actually exceed limit.
@@ -451,8 +334,9 @@ void WorkloadGroupMgr::handle_non_overcommit_wg_paused_queries() {
                     continue;
                 }
             } else if (query_ctx->paused_reason().is<ErrorCode::WORKLOAD_GROUP_MEMORY_EXCEEDED>()) {
-                if (wg->memory_sufficent()) {
-                    wg->update_memory_sufficent(false);
+                if (!has_changed_hard_limit) {
+                    change_query_to_hard_limit(wg, true);
+                    has_changed_hard_limit = true;
                     LOG(INFO) << "query: " << print_id(query_ctx->query_id())
                               << " reserve memory failed due to workload group memory exceed, "
                                  "should set the workload group work in memory insufficent mode, "
@@ -617,6 +501,123 @@ bool WorkloadGroupMgr::handle_single_query(std::shared_ptr<QueryContext> query_c
         RETURN_IF_ERROR(query_ctx->revoke_memory());
     }
     return true;
+}
+
+void WorkloadGroupMgr::change_query_to_hard_limit(WorkloadGroupPtr wg, bool enable_hard_limit) {
+    auto wg_mem_limit = wg->memory_limit();
+    auto wg_weighted_mem_limit = int64_t(wg_mem_limit * weighted_memory_limit_ratio);
+    wg->set_weighted_memory_limit(wg_weighted_mem_limit);
+    auto all_query_ctxs = wg->queries();
+    bool is_low_wartermark = false;
+    bool is_high_wartermark = false;
+    wg->check_mem_used(&is_low_wartermark, &is_high_wartermark);
+    int64_t wg_high_water_mark_limit =
+            (int64_t)(wg_mem_limit * wg->spill_threshold_high_water_mark() * 1.0 / 100);
+    int64_t memtable_active_bytes = 0;
+    int64_t memtable_queue_bytes = 0;
+    int64_t memtable_flush_bytes = 0;
+    wg->get_load_mem_usage(&memtable_active_bytes, &memtable_queue_bytes, &memtable_flush_bytes);
+    int64_t memtable_usage = memtable_active_bytes + memtable_queue_bytes + memtable_flush_bytes;
+    int64_t wg_high_water_mark_except_load = wg_high_water_mark_limit;
+    if (memtable_usage > wg->load_buffer_limit()) {
+        wg_high_water_mark_except_load = wg_high_water_mark_limit - wg->load_buffer_limit();
+    } else {
+        wg_high_water_mark_except_load =
+                wg_high_water_mark_limit - memtable_usage - 10 * 1024 * 1024;
+    }
+    std::string debug_msg;
+    if (is_high_wartermark || is_low_wartermark) {
+        debug_msg = fmt::format(
+                "\nWorkload Group {}: mem limit: {}, mem used: {}, weighted mem limit: {}, "
+                "high water mark mem limit: {}, load memtable usage: {}, used ratio: {}",
+                wg->name(), PrettyPrinter::print(wg->memory_limit(), TUnit::BYTES),
+                PrettyPrinter::print(wgs_mem_info[wg.first].total_mem_used, TUnit::BYTES),
+                PrettyPrinter::print(wg_weighted_mem_limit, TUnit::BYTES),
+                PrettyPrinter::print(wg_high_water_mark_limit, TUnit::BYTES),
+                PrettyPrinter::print(memtable_usage, TUnit::BYTES),
+                (double)wgs_mem_info[wg.first].total_mem_used / wg_weighted_mem_limit);
+
+        debug_msg += "\n  Query Memory Summary:";
+        // check whether queries need to revoke memory for task group
+        for (const auto& query_mem_tracker : wgs_mem_info[wg.first].tracker_snapshots) {
+            debug_msg += fmt::format(
+                    "\n    MemTracker Label={}, Used={}, MemLimit={}, "
+                    "Peak={}",
+                    query_mem_tracker->label(),
+                    PrettyPrinter::print(query_mem_tracker->consumption(), TUnit::BYTES),
+                    PrettyPrinter::print(query_mem_tracker->limit(), TUnit::BYTES),
+                    PrettyPrinter::print(query_mem_tracker->peak_consumption(), TUnit::BYTES));
+        }
+    }
+
+    // If the wg enable over commit memory, then it is no need to update query memlimit
+    if (wg->enable_memory_overcommit() && !wg->has_changed_to_hard_limit()) {
+        continue;
+    }
+    int32_t total_used_slot_count = 0;
+    int32_t total_slot_count = wg->total_query_slot_count();
+    // calculate total used slot count
+    for (const auto& query : all_query_ctxs) {
+        auto query_ctx = query.second.lock();
+        if (!query_ctx) {
+            continue;
+        }
+        // Streamload kafka load group commit, not modify slot
+        if (query_ctx->is_pure_load_task()) {
+            total_used_slot_count += query_ctx->get_slot_count();
+        }
+    }
+    // calculate per query weighted memory limit
+    debug_msg = "Query Memory Summary:";
+    for (const auto& query : all_query_ctxs) {
+        auto query_ctx = query.second.lock();
+        if (!query_ctx) {
+            continue;
+        }
+        int64_t query_weighted_mem_limit = 0;
+        // If the query enable hard limit, then it should not use the soft limit
+        if (query_ctx->enable_query_slot_hard_limit()) {
+            if (total_slot_count < 1) {
+                LOG(WARNING)
+                        << "query " << print_id(query_ctx->query_id())
+                        << " enabled hard limit, but the slot count < 1, could not take affect";
+            } else {
+                // If the query enable hard limit, then not use weighted info any more, just use the settings limit.
+                query_weighted_mem_limit = (int64_t)((wg_high_water_mark_except_load *
+                                                      query_ctx->get_slot_count() * 1.0) /
+                                                     total_slot_count);
+            }
+        } else {
+            // If low water mark is not reached, then use process memory limit as query memory limit.
+            // It means it will not take effect.
+            // If there are some query in paused list, then limit should take effect.
+            if (!is_low_wartermark && !enable_hard_limit) {
+                query_weighted_mem_limit = wg_high_water_mark_except_load;
+            } else {
+                query_weighted_mem_limit = total_used_slot_count > 0
+                                                   ? (int64_t)((wg_high_water_mark_except_load +
+                                                                total_used_slot_count) *
+                                                               query_ctx->get_slot_count() * 1.0 /
+                                                               total_used_slot_count)
+                                                   : wg_high_water_mark_except_load;
+            }
+        }
+        debug_msg += fmt::format(
+                "\n    MemTracker Label={}, Used={}, Limit={}, Peak={}",
+                query_ctx->get_mem_tracker()->label(),
+                PrettyPrinter::print(query_ctx->get_mem_tracker()->consumption(), TUnit::BYTES),
+                PrettyPrinter::print(query_weighted_mem_limit, TUnit::BYTES),
+                PrettyPrinter::print(query_ctx->get_mem_tracker()->peak_consumption(),
+                                     TUnit::BYTES));
+        // If the query is a pure load task, then should not modify its limit. Or it will reserve
+        // memory failed and we did not hanle it.
+        if (query_ctx->is_pure_load_task()) {
+            query_ctx->set_mem_limit(query_weighted_mem_limit);
+        }
+    }
+    // During memory insufficent stage, we already set every query's memlimit, so that the flag is useless any more.
+    wg->update_memory_sufficent(true);
+    LOG_EVERY_T(INFO, 60) << debug_msg;
 }
 
 void WorkloadGroupMgr::stop() {
