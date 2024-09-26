@@ -24,6 +24,9 @@ suite("test_two_hive_kerberos", "p0,external,kerberos,external_docker,external_d
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String hms_catalog_name = "test_two_hive_kerberos"
         sql """drop catalog if exists ${hms_catalog_name};"""
+        println 'check hadoop-master:88 dns'
+        def hadoopMaster88DnsCheckresult = "nslookup hadoop-master:88".execute().text
+        println hadoopMaster88DnsCheckresult
         sql """
             CREATE CATALOG IF NOT EXISTS ${hms_catalog_name}
             PROPERTIES ( 
@@ -40,6 +43,9 @@ suite("test_two_hive_kerberos", "p0,external,kerberos,external_docker,external_d
         """
 
         sql """drop catalog if exists other_${hms_catalog_name};"""
+        println 'check hadoop-master-2:88 dns'
+        def hadoopMaster288Dnsresult = "nslookup hadoop-master-2:88".execute().text
+        println hadoopMaster288Dnsresult
         sql """
             CREATE CATALOG IF NOT EXISTS other_${hms_catalog_name}
             PROPERTIES (
