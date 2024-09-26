@@ -45,6 +45,7 @@
 #include "olap/tablet_meta.h"
 #include "olap/tablet_schema.h"
 #include "util/runtime_profile.h"
+#include "runtime/query_context.h"
 #include "vec/core/block.h"
 #include "vec/olap/vgeneric_iterators.h"
 
@@ -350,6 +351,7 @@ Status BetaRowsetReader::next_block(vectorized::Block* block) {
     if (_empty) {
         return Status::Error<END_OF_FILE>("BetaRowsetReader is empty");
     }
+    QueryContext* query_ctx = _read_context->runtime_state->get_query_ctx();
 
     do {
         auto s = _iterator->next_batch(block);
@@ -359,6 +361,10 @@ Status BetaRowsetReader::next_block(vectorized::Block* block) {
             }
             return s;
         }
+
+        if (query_ctx != nullptr && query_ctx->is_cancelled()) [[unlikely]] {
+            return query_ctx->exec_status();
+        }
     } while (block->empty());
 
     return Status::OK();
@@ -367,6 +373,8 @@ Status BetaRowsetReader::next_block(vectorized::Block* block) {
 Status BetaRowsetReader::next_block_view(vectorized::BlockView* block_view) {
     SCOPED_RAW_TIMER(&_stats->block_fetch_ns);
     RETURN_IF_ERROR(_init_iterator_once());
+    QueryContext* query_ctx = _read_context->runtime_state->get_query_ctx();
+
     do {
         auto s = _iterator->next_block_view(block_view);
         if (!s.ok()) {
@@ -374,6 +382,10 @@ Status BetaRowsetReader::next_block_view(vectorized::BlockView* block_view) {
                 LOG(WARNING) << "failed to read next block view: " << s.to_string();
             }
             return s;
+        }
+
+        if (query_ctx != nullptr && query_ctx->is_cancelled()) [[unlikely]] {
+            return query_ctx->exec_status();
         }
     } while (block_view->empty());
 

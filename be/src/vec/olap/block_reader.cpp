@@ -39,6 +39,8 @@
 #include "olap/rowset/rowset_reader_context.h"
 #include "olap/tablet.h"
 #include "olap/tablet_schema.h"
+#include "runtime/query_context.h"
+#include "runtime/runtime_state.h"
 #include "vec/aggregate_functions/aggregate_function_reader.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
@@ -135,8 +137,15 @@ Status BlockReader::_init_collect_iter(const ReaderParams& read_params) {
                         read_params.read_orderby_key_reverse);
 
     std::vector<RowsetReaderSharedPtr> valid_rs_readers;
+    RuntimeState* runtime_state = read_params.runtime_state;
+    DCHECK(runtime_state != nullptr) << read_params.to_string();
+    QueryContext* query_ctx = read_params.runtime_state->get_query_ctx();
 
     for (int i = 0; i < read_params.rs_splits.size(); ++i) {
+        if (query_ctx != nullptr && query_ctx->is_cancelled()) {
+            return query_ctx->exec_status();
+        }
+
         auto& rs_split = read_params.rs_splits[i];
 
         // _vcollect_iter.topn_next() will init rs_reader by itself

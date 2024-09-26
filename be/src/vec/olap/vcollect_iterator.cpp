@@ -490,6 +490,9 @@ int64_t VCollectIterator::Level0Iterator::version() const {
 }
 
 Status VCollectIterator::Level0Iterator::refresh_current_row() {
+    DCHECK(_reader != nullptr);
+    QueryContext* query_context = _reader->_reader_context.runtime_state->get_query_ctx();
+
     do {
         if (_block == nullptr && !_get_data_by_ref) {
             _block = std::make_shared<Block>(_schema.create_block(
@@ -501,6 +504,10 @@ Status VCollectIterator::Level0Iterator::refresh_current_row() {
         } else {
             _reset();
             auto res = _refresh();
+            if (query_context != nullptr && query_context->is_cancelled()) {
+                return query_context->exec_status();
+            }
+
             if (!res.ok() && !res.is<END_OF_FILE>()) {
                 return res;
             }
@@ -677,9 +684,15 @@ Status VCollectIterator::Level1Iterator::init(bool get_data_by_ref) {
 }
 
 Status VCollectIterator::Level1Iterator::ensure_first_row_ref() {
+    DCHECK(_reader != nullptr);
+    QueryContext* query_context = _reader->_reader_context.runtime_state->get_query_ctx();
+
     for (auto iter = _children.begin(); iter != _children.end();) {
         auto s = (*iter)->ensure_first_row_ref();
         if (!s.ok()) {
+            if (query_context != nullptr && query_context->is_cancelled()) {
+                return query_context->exec_status();
+            }
             iter = _children.erase(iter);
             if (!s.is<END_OF_FILE>()) {
                 return s;
