@@ -18,13 +18,13 @@
 import org.apache.doris.regression.suite.ClusterOptions
 import org.apache.http.NoHttpResponseException
 
-suite('test_abort_txn_by_be_local5', 'docker') {
+void run_test(boolean enable_abort_txn_by_checking_coordinator_be, boolean enable_abort_txn_by_checking_conflict_txn) {
     def options = new ClusterOptions()
-    options.cloudMode = false
+    options.cloudMode = null
     options.enableDebugPoints()
     options.beConfigs += [ "enable_java_support=false" ]
-    options.feConfigs += [ "enable_abort_txn_by_checking_coordinator_be=true" ]
-    options.feConfigs += [ "enable_abort_txn_by_checking_conflict_txn=false" ]
+    options.feConfigs += [ "enable_abort_txn_by_checking_coordinator_be=${enable_abort_txn_by_checking_coordinator_be}" ]
+    options.feConfigs += [ "enable_abort_txn_by_checking_conflict_txn=${enable_abort_txn_by_checking_conflict_txn}" ]
     options.beNum = 1
 
     docker(options) {
@@ -161,4 +161,9 @@ suite('test_abort_txn_by_be_local5', 'docker') {
             }
         }
     }
+}
+
+suite('test_abort_txn_by_be', 'docker') {
+    run_test(true, false)
+    run_test(false, true)
 }
