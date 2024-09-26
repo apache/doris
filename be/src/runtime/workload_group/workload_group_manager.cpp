@@ -504,7 +504,7 @@ bool WorkloadGroupMgr::handle_single_query(std::shared_ptr<QueryContext> query_c
 
 void WorkloadGroupMgr::change_query_to_hard_limit(WorkloadGroupPtr wg, bool enable_hard_limit) {
     auto wg_mem_limit = wg->memory_limit();
-    auto wg_weighted_mem_limit = int64_t(wg_mem_limit * weighted_memory_limit_ratio);
+    auto wg_weighted_mem_limit = int64_t(wg_mem_limit * 1);
     wg->set_weighted_memory_limit(wg_weighted_mem_limit);
     auto all_query_ctxs = wg->queries();
     bool is_low_wartermark = false;
@@ -539,7 +539,7 @@ void WorkloadGroupMgr::change_query_to_hard_limit(WorkloadGroupPtr wg, bool enab
 
     // If the wg enable over commit memory, then it is no need to update query memlimit
     if (wg->enable_memory_overcommit() && !wg->has_changed_to_hard_limit()) {
-        continue;
+        return;
     }
     int32_t total_used_slot_count = 0;
     int32_t total_slot_count = wg->total_query_slot_count();
