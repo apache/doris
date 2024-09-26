@@ -676,7 +676,7 @@ public class FunctionSet<T> {
                 "",
                 null, null,
                 "",
-                null, false, true, true, true));
+                null, false, false, false, true));
         // regr_slope
         addBuiltin(AggregateFunction.createBuiltin(FunctionSet.REGR_SLOPE,
                 Lists.newArrayList(Type.DOUBLE, Type.DOUBLE), Type.DOUBLE, Type.DOUBLE,
@@ -685,7 +685,7 @@ public class FunctionSet<T> {
                 "",
                 null, null,
                 "",
-                null, false, true, true, true));
+                null, false, false, false, true));
 
         // count(array/map/struct)
         for (Type complexType : Lists.newArrayList(Type.ARRAY, Type.MAP, Type.GENERIC_STRUCT)) {

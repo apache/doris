@@ -17,34 +17,23 @@
 
 #pragma once
 
-#include <boost/iterator/iterator_facade.hpp>
 #include <cmath>
-#include <cstddef>
-#include <memory>
+#include <cstdint>
+#include <string>
+#include <type_traits>
 
-#include "olap/olap_common.h"
-#include "runtime/decimalv2_value.h"
+#include "common/exception.h"
+#include "common/status.h"
 #include "vec/aggregate_functions/aggregate_function.h"
-#include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
+#include "vec/columns/column_vector.h"
 #include "vec/common/assert_cast.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
-#include "vec/data_types/data_type_decimal.h"
+#include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/io/io_helper.h"
-namespace doris {
-namespace vectorized {
-class Arena;
-class BufferReadable;
-class BufferWritable;
-template <typename T>
-class ColumnDecimal;
-template <typename>
-class ColumnVector;
-} // namespace vectorized
-} // namespace doris
-
 namespace doris::vectorized {
 
 template <typename T>
@@ -81,7 +70,7 @@ struct AggregateFunctionRegrSlopeData {
 
     double get_slope_result() const {
         double denominator = count * sum_of_x_squared - sum_x * sum_x;
-        if (count == 0 || denominator == 0.0) {
+        if (count < 2 || denominator == 0.0) {
             return std::numeric_limits<double>::quiet_NaN();
         }
         return (count * sum_of_x_mul_y - sum_x * sum_y) / denominator;
@@ -99,11 +88,7 @@ struct AggregateFunctionRegrSlopeData {
         count += rhs.count;
     }
 
-    void add(const IColumn* column_y, const IColumn* column_x, size_t row_num) {
-        const auto& sources_x = assert_cast<const ColumnVector<T>&, TypeCheckOnRelease::DISABLE>(*column_x);
-        const auto& sources_y = assert_cast<const ColumnVector<T>&, TypeCheckOnRelease::DISABLE>(*column_y);
-        const auto& value_x = sources_x.get_data()[row_num];
-        const auto& value_y = sources_y.get_data()[row_num];
+    void add(T value_y, T value_x) {  // 注意参数顺序变更
         sum_x += value_x;
         sum_y += value_y;
         sum_of_x_mul_y += value_x * value_y;
@@ -112,35 +97,61 @@ struct AggregateFunctionRegrSlopeData {
     }
 };
 
-template <typename T, typename Data>
-struct RegrSlopeData : AggregateFunctionRegrSlopeData<T> {
-    void insert_result_into(IColumn& to) const {
-        auto& col = assert_cast<ColumnFloat64&, TypeCheckOnRelease::DISABLE>(to);
-        col.get_data().push_back(this->get_slope_result());
-    }
+template <typename TX, typename TY>
+struct RegrSlopeFuncTwoArg {
+    using TypeX = TX;
+    using TypeY = TY;
+    using Data = AggregateFunctionRegrSlopeData<Float64>;
 };
 
-template <typename Data>
-struct RegrSlopeName : Data {
-    static const char* name() { return "regr_slope"; }
-};
-
-template <typename T, typename Data>
-class AggregateFunctionRegrFunc
-        : public IAggregateFunctionDataHelper<Data, AggregateFunctionRegrFunc<T, Data>> {
+template <typename StatFunc, bool NullableInput>
+class AggregateFunctionRegrSlopeSimple
+        : public IAggregateFunctionDataHelper<
+                  typename StatFunc::Data,
+                  AggregateFunctionRegrSlopeSimple<StatFunc, NullableInput>> {
 public:
-    AggregateFunctionRegrFunc(const DataTypes& argument_types_)
-            : IAggregateFunctionDataHelper<Data, AggregateFunctionRegrFunc<T, Data>>(argument_types_) {}
+    using TX = typename StatFunc::TypeX;
+    using TY = typename StatFunc::TypeY;
+    using XInputCol = ColumnVector<TX>;
+    using YInputCol = ColumnVector<TY>;
+    using ResultCol = ColumnVector<Float64>;
 
-    String get_name() const override { return Data::name(); }
+    explicit AggregateFunctionRegrSlopeSimple(const DataTypes& argument_types_)
+            : IAggregateFunctionDataHelper<
+                      typename StatFunc::Data,
+                      AggregateFunctionRegrSlopeSimple<StatFunc, NullableInput>>(argument_types_) {
+        DCHECK(!argument_types_.empty());
+    }
+
+    String get_name() const override { return "regr_slope"; }
 
     DataTypePtr get_return_type() const override {
-        return std::make_shared<DataTypeNumber<Float64>>();
+        return make_nullable(std::make_shared<DataTypeFloat64>());
     }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena*) const override {
-        this->data(place).add(columns[0], columns[1], row_num);
+        if constexpr (NullableInput) {
+            const ColumnNullable& y_column_nullable =
+                    assert_cast<const ColumnNullable&>(*columns[0]);
+            const ColumnNullable& x_column_nullable =
+                    assert_cast<const ColumnNullable&>(*columns[1]);
+            bool y_null = y_column_nullable.is_null_at(row_num);
+            bool x_null = x_column_nullable.is_null_at(row_num);
+            if (y_null || x_null) {
+                return;
+            } else {
+                TY y_value = assert_cast<const YInputCol&>(y_column_nullable.get_nested_column())
+                                        .get_data()[row_num];
+                TX x_value = assert_cast<const XInputCol&>(x_column_nullable.get_nested_column())
+                                        .get_data()[row_num];
+                this->data(place).add(static_cast<Float64>(y_value), static_cast<Float64>(x_value));
+            }
+        } else {
+            TY y_value = assert_cast<const YInputCol&>(*columns[0]).get_data()[row_num];
+            TX x_value = assert_cast<const XInputCol&>(*columns[1]).get_data()[row_num];
+            this->data(place).add(static_cast<Float64>(y_value), static_cast<Float64>(x_value));
+        }
     }
 
     void reset(AggregateDataPtr __restrict place) const override { this->data(place).reset(); }
@@ -160,7 +171,18 @@ public:
     }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
-        this->data(place).insert_result_into(to);
+        const auto& data = this->data(place);
+        auto& dst_column_with_nullable = assert_cast<ColumnNullable&>(to);
+        auto& dst_column =
+                assert_cast<ResultCol&>(dst_column_with_nullable.get_nested_column());
+        Float64 slope = data.get_slope_result();
+        if (std::isnan(slope)) {
+            dst_column_with_nullable.get_null_map_data().push_back(1);
+            dst_column.insert_default();
+        } else {
+            dst_column_with_nullable.get_null_map_data().push_back(0);
+            dst_column.get_data().push_back(slope);
+        }
     }
 };
 
