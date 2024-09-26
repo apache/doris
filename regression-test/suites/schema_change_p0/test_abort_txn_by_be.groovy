@@ -18,7 +18,9 @@
 import org.apache.doris.regression.suite.ClusterOptions
 import org.apache.http.NoHttpResponseException
 
-void run_test(boolean enable_abort_txn_by_checking_coordinator_be, boolean enable_abort_txn_by_checking_conflict_txn) {
+suite('test_abort_txn_by_be', 'docker') {
+
+  def run_test = { enable_abort_txn_by_checking_coordinator_be, enable_abort_txn_by_checking_conflict_txn ->
     def options = new ClusterOptions()
     options.cloudMode = null
     options.enableDebugPoints()
@@ -161,9 +163,8 @@ void run_test(boolean enable_abort_txn_by_checking_coordinator_be, boolean enabl
             }
         }
     }
-}
+  }
 
-suite('test_abort_txn_by_be', 'docker') {
-    run_test(true, false)
-    run_test(false, true)
+  run_test(true, false)
+  run_test(false, true)
 }
