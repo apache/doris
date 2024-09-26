@@ -469,8 +469,10 @@ Status QueryContext::revoke_memory() {
 
     std::sort(tasks.begin(), tasks.end(), [](auto&& l, auto&& r) { return l.first > r.first; });
 
-    const auto mem_limit = query_mem_tracker->limit();
-    const auto target_revoking_size = mem_limit * 0.2;
+    // Do not use memlimit, use current memory usage.
+    // For example, if current limit is 1.6G, but current used is 1G, if reserve failed
+    // should free 200MB memory, not 300MB
+    const auto target_revoking_size = query_mem_tracker->consumption() * 0.2;
     size_t revoked_size = 0;
 
     std::vector<pipeline::PipelineTask*> chosen_tasks;
@@ -492,7 +494,7 @@ Status QueryContext::revoke_memory() {
                 }
 
                 LOG(INFO) << "query: " << print_id(query_context->_query_id)
-                          << " all revoking tasks done, resumt it.";
+                          << " all revoking tasks done, resume it.";
                 query_context->set_memory_sufficient(true);
             });
 
@@ -501,7 +503,7 @@ Status QueryContext::revoke_memory() {
     }
 
     LOG(INFO) << "query: " << print_id(_query_id) << " total revoked size: " << revoked_size
-              << ", target_size: " << target_revoking_size
+              << ", target_size: " << PrettyPrinter::print(target_revoking_size, TUnit::BYTES)
               << ", tasks count: " << chosen_tasks.size() << "/" << tasks.size();
 
     return Status::OK();
@@ -522,6 +524,19 @@ std::vector<pipeline::PipelineTask*> QueryContext::get_revocable_tasks() const {
         tasks.insert(tasks.end(), tasks_of_fragment.cbegin(), tasks_of_fragment.cend());
     }
     return tasks;
+}
+
+std::string QueryContext::debug_string() {
+    std::lock_guard l(_paused_mutex);
+    return fmt::format(
+            "MemTracker Label={}, Used={}, Limit={}, Peak={}, running revoke task count {}, "
+            "MemorySufficient={}, PausedReason={}",
+            query_mem_tracker->label(),
+            PrettyPrinter::print(query_mem_tracker->consumption(), TUnit::BYTES),
+            PrettyPrinter::print(query_mem_tracker->limit(), TUnit::BYTES),
+            PrettyPrinter::print(query_mem_tracker->peak_consumption(), TUnit::BYTES),
+            _revoking_tasks_count, _memory_sufficient_dependency->ready(),
+            _paused_reason.to_string());
 }
 
 std::unordered_map<int, std::vector<std::shared_ptr<TRuntimeProfileTree>>>

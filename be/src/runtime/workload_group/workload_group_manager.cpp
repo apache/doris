@@ -559,7 +559,7 @@ void WorkloadGroupMgr::change_query_to_hard_limit(WorkloadGroupPtr wg, bool enab
         }
     }
     // calculate per query weighted memory limit
-    debug_msg = "Query Memory Summary:";
+    debug_msg = "Query Memory Summary: \n";
     for (const auto& query : all_query_ctxs) {
         auto query_ctx = query.second.lock();
         if (!query_ctx) {
@@ -593,19 +593,14 @@ void WorkloadGroupMgr::change_query_to_hard_limit(WorkloadGroupPtr wg, bool enab
                                                    : wg_high_water_mark_except_load;
             }
         }
-        debug_msg += fmt::format(
-                "\n    MemTracker Label={}, Used={}, Limit={}, Peak={}",
-                query_ctx->get_mem_tracker()->label(),
-                PrettyPrinter::print(query_ctx->get_mem_tracker()->consumption(), TUnit::BYTES),
-                PrettyPrinter::print(query_weighted_mem_limit, TUnit::BYTES),
-                PrettyPrinter::print(query_ctx->get_mem_tracker()->peak_consumption(),
-                                     TUnit::BYTES));
+        debug_msg += query_ctx->debug_string() + "\n";
         // If the query is a pure load task, then should not modify its limit. Or it will reserve
         // memory failed and we did not hanle it.
         if (!query_ctx->is_pure_load_task()) {
             query_ctx->set_mem_limit(query_weighted_mem_limit);
         }
     }
+    //LOG(INFO) << debug_msg;
     LOG_EVERY_T(INFO, 60) << debug_msg;
 }
 
