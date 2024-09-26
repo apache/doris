@@ -153,7 +153,7 @@ class OrToInTest extends ExpressionRewriteTestHelper {
         String expr = "(a=1 and b=2 and c=3) or (a=2 and b=2 and c=4)";
         Expression expression = PARSER.parseExpression(expr);
         Expression rewritten = OrToIn.INSTANCE.rewriteTree(expression, context);
-        Assertions.assertEquals("((a IN (1, 2) AND (b = 2)) AND c IN (3, 4))",
+        Assertions.assertEquals("(((a IN (1, 2) AND (b = 2)) AND c IN (3, 4)) AND ((((a = 1) AND (b = 2)) AND (c = 3)) OR (((a = 2) AND (b = 2)) AND (c = 4))))",
                 rewritten.toSql());
     }
 

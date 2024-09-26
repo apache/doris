@@ -44,21 +44,6 @@ import java.util.Set;
 /**
  * dependends on SimplifyRange rule
  *
- * Used to convert multi equalTo which has same slot and compare to a literal of disjunction to a InPredicate so that
- * it could be push down to storage engine.
- * example:
- * col1 = 1 or col1 = 2 or col1 = 3 and (col2 = 4)
- * col1 = 1 and col1 = 3 and col2 = 3 or col2 = 4
- * (col1 = 1 or col1 = 2) and  (col2 = 3 or col2 = 4)
- * <p>
- * would be converted to:
- * col1 in (1, 2) or col1 = 3 and (col2 = 4)
- * col1 = 1 and col1 = 3 and col2 = 3 or col2 = 4
- * (col1 in (1, 2) and (col2 in (3, 4)))
- * The generic type declaration and the overridden 'rewrite' function in this class may appear unconventional
- * because we need to maintain a map passed between methods in this class. But the owner of this module prohibits
- * adding any additional rule-specific fields to the default ExpressionRewriteContext. However, the entire expression
- * rewrite framework always passes an ExpressionRewriteContext of type context to all rules.
  */
 public class OrToIn implements ExpressionPatternRuleFactory {
 
@@ -99,14 +84,14 @@ public class OrToIn implements ExpressionPatternRuleFactory {
             }
         }
 
-        Map<Expression, Set<Literal>> candidates = getCandidate(disjuncts.get(0));
+        Map<Expression, Set<Literal>> candidates = getCandidates(disjuncts.get(0));
         if (candidates.isEmpty()) {
             return or;
         }
 
         // verify each candidate
         for (int i = 1; i < disjuncts.size(); i++) {
-            Map<Expression, Set<Literal>> otherCandidates = getCandidate(disjuncts.get(i));
+            Map<Expression, Set<Literal>> otherCandidates = getCandidates(disjuncts.get(i));
             if (otherCandidates.isEmpty()) {
                 return or;
             }
@@ -117,8 +102,8 @@ public class OrToIn implements ExpressionPatternRuleFactory {
         }
         if (!candidates.isEmpty()) {
             Expression conjunct = candidatesToFinalResult(candidates);
-            boolean hasOtherExpr = hasOtherExpressionExceptCandidates(disjuncts, candidates.keySet());
-            if (hasOtherExpr) {
+            boolean keep = keepOriginalOrExpression(disjuncts);
+            if (keep) {
                 return new And(conjunct, or);
             } else {
                 return conjunct;
@@ -127,15 +112,12 @@ public class OrToIn implements ExpressionPatternRuleFactory {
         return or;
     }
 
-    private boolean hasOtherExpressionExceptCandidates(List<Expression> disjuncts, Set<Expression> candidateKeys) {
+    private boolean keepOriginalOrExpression(List<Expression> disjuncts) {
         for (Expression disjunct : disjuncts) {
             List<Expression> conjuncts = ExpressionUtils.extractConjunction(disjunct);
-            for (Expression conjunct : conjuncts) {
-                if (!containsAny(conjunct.getInputSlots(), candidateKeys)) {
-                    return true;
-                }
+            if (conjuncts.size() > 1) {
+                return true;
             }
-
         }
         return false;
     }
@@ -215,7 +197,7 @@ public class OrToIn implements ExpressionPatternRuleFactory {
         return true;
     }
 
-    private Map<Expression, Set<Literal>> getCandidate(Expression disjunct) {
+    private Map<Expression, Set<Literal>> getCandidates(Expression disjunct) {
         List<Expression> conjuncts = ExpressionUtils.extractConjunction(disjunct);
         Map<Expression, Set<Literal>> candidates = new LinkedHashMap<>();
         // collect candidates from the first disjunction
