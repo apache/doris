@@ -351,7 +351,11 @@ Status BetaRowsetReader::next_block(vectorized::Block* block) {
     if (_empty) {
         return Status::Error<END_OF_FILE>("BetaRowsetReader is empty");
     }
-    QueryContext* query_ctx = _read_context->runtime_state->get_query_ctx();
+
+    QueryContext* query_ctx = nullptr;
+    if (_read_context != nullptr && _read_context->runtime_state != nullptr) {
+        query_ctx = _read_context->runtime_state->get_query_ctx();
+    }
 
     do {
         auto s = _iterator->next_batch(block);
@@ -373,7 +377,10 @@ Status BetaRowsetReader::next_block(vectorized::Block* block) {
 Status BetaRowsetReader::next_block_view(vectorized::BlockView* block_view) {
     SCOPED_RAW_TIMER(&_stats->block_fetch_ns);
     RETURN_IF_ERROR(_init_iterator_once());
-    QueryContext* query_ctx = _read_context->runtime_state->get_query_ctx();
+    QueryContext* query_ctx = nullptr;
+    if (_read_context != nullptr && _read_context->runtime_state != nullptr) {
+        query_ctx = _read_context->runtime_state->get_query_ctx();
+    }
 
     do {
         auto s = _iterator->next_block_view(block_view);

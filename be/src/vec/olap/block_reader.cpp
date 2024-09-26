@@ -138,8 +138,10 @@ Status BlockReader::_init_collect_iter(const ReaderParams& read_params) {
 
     std::vector<RowsetReaderSharedPtr> valid_rs_readers;
     RuntimeState* runtime_state = read_params.runtime_state;
-    DCHECK(runtime_state != nullptr) << read_params.to_string();
-    QueryContext* query_ctx = read_params.runtime_state->get_query_ctx();
+    QueryContext* query_ctx = nullptr;
+    if (runtime_state != nullptr) {
+        query_ctx = runtime_state->get_query_ctx();
+    }
 
     for (int i = 0; i < read_params.rs_splits.size(); ++i) {
         if (query_ctx != nullptr && query_ctx->is_cancelled()) {
