@@ -52,8 +52,10 @@ import java.util.Set;
 
 /**UnEqualPredicateInfer*/
 public class UnequalPredicateInfer {
-    private static class InferenceGraph {
-        enum Relation {
+    /**InferenceGraph*/
+    public static class InferenceGraph {
+        /** relation between inputExprs */
+        public enum Relation {
             GT,
             GTE,
             EQ,
@@ -85,7 +87,7 @@ public class UnequalPredicateInfer {
         private final List<PairAndRelation> predicatesPairs = new ArrayList<>();
 
         /**Constructor*/
-        private InferenceGraph(Set<ComparisonPredicate> inputs) {
+        public InferenceGraph(Set<ComparisonPredicate> inputs) {
             Set<Expression> inputExpressionSet = new HashSet<>();
             for (ComparisonPredicate comparison : inputs) {
                 if (comparison.left().equals(comparison.right())) {
@@ -142,7 +144,7 @@ public class UnequalPredicateInfer {
             }
         }
 
-        private void initGraph(Relation[][] g) {
+        public void initGraph(Relation[][] g) {
             for (int i = 0; i < size; ++i) {
                 for (int j = 0; j < size; ++j) {
                     g[i][j] = Relation.UNDEFINED;
@@ -187,8 +189,8 @@ public class UnequalPredicateInfer {
             return deduceRelation;
         }
 
-        // use Floyd algorithm to deduce the inequality
-        private void deduce(Relation[][] graph) {
+        /** use Floyd algorithm to deduce the inequality */
+        public void deduce(Relation[][] graph) {
             for (int mid = 0; mid < size; ++mid) {
                 for (int left = 0; left < size; ++left) {
                     for (int right = 0; right < size; ++right) {
@@ -198,7 +200,8 @@ public class UnequalPredicateInfer {
             }
         }
 
-        private List<Integer> topoSort() {
+        /**topoSort*/
+        public List<Integer> topoSort() {
             ArrayList<Integer> order = new ArrayList<>();
             order.ensureCapacity(size);
             ArrayList<Boolean> visited = new ArrayList<>();
@@ -225,7 +228,7 @@ public class UnequalPredicateInfer {
             order.add(node);
         }
 
-        // Determine whether the slots in a predicate come from only one table
+        /**Determine whether the slots in a predicate come from only one table*/
         private boolean isTableFilter(int left, int right) {
             Set<String> qualifiers = new HashSet<>();
             for (Slot slot : inputExprs.get(left).getInputSlots()) {
@@ -290,7 +293,7 @@ public class UnequalPredicateInfer {
             return deduceType == type;
         }
 
-        List<Integer> removeExprEqualToConstant(List<Integer> order, Set<Integer> equalWithConstant) {
+        private List<Integer> removeExprEqualToConstant(List<Integer> order, Set<Integer> equalWithConstant) {
             // Remove expr equal to constant
             List<Integer> orderToInfer = new ArrayList<>();
             for (Integer integer : order) {
@@ -302,7 +305,8 @@ public class UnequalPredicateInfer {
             return orderToInfer;
         }
 
-        private void getUnequalPredicates(Relation[][] chosen, Set<Integer> equalWithConstant) {
+        /**chooseUnequalPredicates*/
+        public void chooseUnequalPredicates(Relation[][] chosen, Set<Integer> equalWithConstant) {
             List<Integer> order = topoSort();
             List<Integer> orderToInfer = removeExprEqualToConstant(order, equalWithConstant);
             //Select predicate:
@@ -340,17 +344,11 @@ public class UnequalPredicateInfer {
             for (int i = 0; i < size; ++i) {
                 for (int j = 0; j < size; ++j) {
                     if (chosen[i][j] == Relation.GT) {
-                        newPredicates.add(TypeCoercionUtils.processComparisonPredicate(
-                                normalizePredicate(new GreaterThan(
-                                inputExprs.get(i), inputExprs.get(j)))).withInferred(true));
+                        newPredicates.add(normalize(new GreaterThan(inputExprs.get(i), inputExprs.get(j))));
                     } else if (chosen[i][j] == Relation.GTE) {
-                        newPredicates.add(TypeCoercionUtils.processComparisonPredicate(
-                                normalizePredicate(new GreaterThanEqual(
-                                inputExprs.get(i), inputExprs.get(j)))).withInferred(true));
+                        newPredicates.add(normalize(new GreaterThanEqual(inputExprs.get(i), inputExprs.get(j))));
                     } else if (chosen[i][j] == Relation.EQ) {
-                        newPredicates.add(TypeCoercionUtils.processComparisonPredicate(
-                                normalizePredicate(new EqualTo(
-                                        inputExprs.get(i), inputExprs.get(j)))).withInferred(true));
+                        newPredicates.add(normalize(new EqualTo(inputExprs.get(i), inputExprs.get(j))));
                         clear(chosen, i, j, Relation.EQ);
                     }
                 }
@@ -402,7 +400,8 @@ public class UnequalPredicateInfer {
             }
         }
 
-        private Set<Expression> chooseInputPredicates(Relation[][] chosen) {
+        /**chooseInputPredicates*/
+        public Set<Expression> chooseInputPredicates(Relation[][] chosen) {
             boolean[] keep = new boolean[inputPredicates.size()];
             Relation[][] deduced = new Relation[size][size];
             for (int i = 0; i < size; ++i) {
@@ -426,7 +425,7 @@ public class UnequalPredicateInfer {
                     clear(chosen, left, right, type);
                 } else if (deduced[left][right] != type) {
                     keep[i] = true;
-                    deduced[left][right] = type;
+                    set(deduced, left, right, Relation.EQ);
                     expand_graph(deduced, left, right);
                     if (type == Relation.EQ) {
                         expand_graph(deduced, right, left);
@@ -444,7 +443,8 @@ public class UnequalPredicateInfer {
             return chooseInputs;
         }
 
-        private Relation[][] chooseEqualPredicates(Set<Integer> equalWithConstant) {
+        /**chooseEqualPredicates*/
+        public Relation[][] chooseEqualPredicates(Set<Integer> equalWithConstant) {
             Relation[][] chosen = new Relation[size][size];
             initGraph(chosen);
             int[] equalToLiteral = new int[size];
@@ -486,6 +486,15 @@ public class UnequalPredicateInfer {
             }
             return chosen;
         }
+
+        private Expression normalize(ComparisonPredicate cmp) {
+            return TypeCoercionUtils.processComparisonPredicate(normalizePredicate(cmp)).withInferred(true);
+        }
+
+        /** for test */
+        public Relation[][] getGraph() {
+            return graph;
+        }
     }
 
     /**inferUnequalPredicates*/
@@ -497,7 +506,7 @@ public class UnequalPredicateInfer {
         inferGraph.deduce(inferGraph.graph);
         Set<Integer> equalWithConstant = new HashSet<>();
         InferenceGraph.Relation[][] chosen = inferGraph.chooseEqualPredicates(equalWithConstant);
-        inferGraph.getUnequalPredicates(chosen, equalWithConstant);
+        inferGraph.chooseUnequalPredicates(chosen, equalWithConstant);
         Set<Expression> newPredicates = inferGraph.chooseInputPredicates(chosen);
         newPredicates.addAll(inferGraph.generatePredicates(chosen));
         newPredicates.addAll(inferGraph.otherPredicates);

@@ -18,8 +18,12 @@
 package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.Scope;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.analysis.ExpressionAnalyzer;
+import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -32,11 +36,15 @@ import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.types.DecimalV2Type;
+import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.util.ImmutableEqualSet;
 import org.apache.doris.nereids.util.PredicateInferUtils;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import com.google.common.collect.ImmutableList;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -144,7 +152,7 @@ public class ReplacePredicate {
      return: all predicates that replaceToThis can deduce (return b<10, b>1) */
     private static <T extends Expression> Set<Expression> getEqualSetAndDoReplace(T replaceToThis, Set<T> equalSet,
             Map<? extends Expression, Set<Expression>> exprPredicates) {
-        ExpressionAnalyzer analyzer = new ExpressionAnalyzer(null, new Scope(ImmutableList.of()), null, false, false);
+        ExpressionAnalyzer analyzer = new ReplaceAnalyzer(null, new Scope(ImmutableList.of()), null, false, false);
         Set<Expression> res = new LinkedHashSet<>();
         for (T equals : equalSet) {
             Map<Expression, Expression> replaceMap = new HashMap<>();
@@ -154,7 +162,13 @@ public class ReplacePredicate {
             }
             for (Expression predicate : exprPredicates.get(equals)) {
                 Expression newPredicates = Replacer.INSTANCE.replace(predicate, replaceMap);
-                res.add(analyzer.analyze(newPredicates).withInferred(true));
+                try {
+                    Expression analyzed = analyzer.analyze(newPredicates);
+                    res.add(analyzed.withInferred(true));
+                } catch (Exception e) {
+                    // has cast error, just not infer and do nothing
+                    continue;
+                }
             }
         }
         return res;
@@ -270,5 +284,38 @@ public class ReplacePredicate {
             qualifiers.add(String.join(".", slot.getQualifier()));
         }
         return qualifiers.size() == 1;
+    }
+
+    private static class ReplaceAnalyzer extends ExpressionAnalyzer {
+        private ReplaceAnalyzer(Plan currentPlan, Scope scope,
+                @Nullable CascadesContext cascadesContext,
+                boolean enableExactMatch, boolean bindSlotInOuterScope) {
+            super(currentPlan, scope, cascadesContext, enableExactMatch, bindSlotInOuterScope);
+        }
+
+        @Override
+        public Expression visitCast(Cast cast, ExpressionRewriteContext context) {
+            cast = (Cast) super.visitCast(cast, context);
+            if (cast.getDataType().isDecimalV3Type()) {
+                DecimalV3Type targetType = (DecimalV3Type) cast.getDataType();
+                DecimalV3Type childType = DecimalV3Type.forType(cast.child().getDataType());
+                if ((childType.getPrecision() - childType.getScale())
+                        > (targetType.getPrecision() - targetType.getScale())
+                        || childType.getScale() > targetType.getScale()) {
+                    throw new AnalysisException("can not cast from origin type " + cast.child().getDataType()
+                            + " to target type=" + targetType);
+                }
+            } else if (cast.getDataType().isDecimalV2Type()) {
+                DecimalV2Type targetType = (DecimalV2Type) cast.getDataType();
+                DecimalV2Type childType = DecimalV2Type.forType(cast.child().getDataType());
+                if ((childType.getPrecision() - childType.getScale())
+                        > (targetType.getPrecision() - targetType.getScale())
+                        || childType.getScale() > targetType.getScale()) {
+                    throw new AnalysisException("can not cast from origin type " + cast.child().getDataType()
+                            + " to target type=" + targetType);
+                }
+            }
+            return cast;
+        }
     }
 }

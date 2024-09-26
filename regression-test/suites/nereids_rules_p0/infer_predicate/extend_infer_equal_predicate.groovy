@@ -346,4 +346,12 @@ suite("extend_infer_equal_predicate") {
     qt_in_subquery_to_semi_join """explain shape plan
 	select * from test_cast_infer9 t1 inner join test_cast_infer9 t2 on t1.d_int=t2.d_int where t1.d_int in (select d_int from test_cast_infer8 where d_int != 10)
 	"""
+
+    qt_cast_to_decimal_overflow_not_infer """explain shape plan
+    select 1 from test_cast_infer9 t1 inner join test_cast_infer8 t2 on t1.d_tinyint=t2.d_int and t1.d_tinyint in(0.5,0.1)"""
+    qt_char_equal_int_infer """explain shape plan
+    select 1 from test_cast_infer9 t1 inner join test_cast_infer8 t2 on t1.d_char10=t2.d_int and t1.d_char10 in('d','bb')"""
+    qt_date_equal_int_infer """explain shape plan
+    select 1 from test_cast_infer9 t1 inner join test_cast_infer8 t2 on t1.d_datev2=t2.d_int and t1.d_datev2 in('2024-01-01','2024-01-02')"""
+
 }

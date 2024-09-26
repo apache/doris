@@ -662,3 +662,25 @@ PhysicalResultSink
 ----filter(( not (d_int = 10)))
 ------PhysicalOlapScan[test_cast_infer8]
 
+-- !cast_to_decimal_overflow_not_infer --
+PhysicalResultSink
+--hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_tinyint as INT) = t2.d_int)) otherCondition=()
+----filter(cast(d_tinyint as DECIMALV3(4, 1)) IN (0.1, 0.5))
+------PhysicalOlapScan[test_cast_infer9]
+----PhysicalOlapScan[test_cast_infer8]
+
+-- !char_equal_int_infer --
+PhysicalResultSink
+--hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_char10 as DOUBLE) = expr_cast(d_int as DOUBLE))) otherCondition=()
+----filter(d_char10 IN ('bb', 'd'))
+------PhysicalOlapScan[test_cast_infer9]
+----PhysicalOlapScan[test_cast_infer8]
+
+-- !date_equal_int_infer --
+PhysicalResultSink
+--hashJoin[INNER_JOIN] hashCondition=((t1.d_datev2 = expr_cast(d_int as DATEV2))) otherCondition=()
+----filter(d_datev2 IN ('2024-01-01', '2024-01-02'))
+------PhysicalOlapScan[test_cast_infer9]
+----filter(cast(d_int as DATEV2) IN ('2024-01-01', '2024-01-02'))
+------PhysicalOlapScan[test_cast_infer8]
+
