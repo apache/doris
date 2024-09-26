@@ -38,7 +38,7 @@ suite('test_flexible_partial_update') {
         def show_res = sql "show create table ${tableName}"
         assertTrue(show_res.toString().contains('"enable_unique_key_skip_bitmap_column" = "true"'))
         sql """insert into ${tableName} select number, number, number, number, number, number from numbers("number" = "6"); """
-        order_qt_sql "select k,v1,v2,v3,v4,v5,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName};"
+        qt_sql "select k,v1,v2,v3,v4,v5,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName} order by k;"
 
 
         streamLoad {
@@ -87,5 +87,71 @@ suite('test_flexible_partial_update') {
             time 20000
         }
         qt_strip_outer_array_json_root "select k,v1,v2,v3,v4,v5,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName} order by k;"
+
+
+        // the following cases test when there are rows which don't miss columns
+        tableName = "test_flexible_partial_update_full_cols_${use_row_store}"
+        sql """ DROP TABLE IF EXISTS ${tableName} """
+        sql """ CREATE TABLE ${tableName} (
+            `k` int(11) NULL, 
+            `v1` BIGINT NULL,
+            `v2` BIGINT NULL,
+            `v3` BIGINT NULL,
+            ) UNIQUE KEY(`k`) DISTRIBUTED BY HASH(`k`) BUCKETS 1
+            PROPERTIES(
+            "replication_num" = "1",
+            "enable_unique_key_merge_on_write" = "true",
+            "light_schema_change" = "true",
+            "store_row_column" = "${use_row_store}"); """
+
+        show_res = sql "show create table ${tableName}"
+        assertTrue(show_res.toString().contains('"enable_unique_key_skip_bitmap_column" = "true"'))
+        sql """insert into ${tableName} select number, number, number, number from numbers("number" = "6"); """
+        qt_sql "select k,v1,v2,v3,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName};"
+
+        streamLoad {
+            table "${tableName}"
+            set 'format', 'json'
+            set 'read_json_by_line', 'true'
+            set 'strict_mode', 'false'
+            set 'unique_key_update_mode', 'UPDATE_FLEXIBLE_COLUMNS'
+            file "test11.json"
+            time 20000
+        }
+        qt_row_1_full "select k,v1,v2,v3,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName} order by k;"
+
+        streamLoad {
+            table "${tableName}"
+            set 'format', 'json'
+            set 'read_json_by_line', 'true'
+            set 'strict_mode', 'false'
+            set 'unique_key_update_mode', 'UPDATE_FLEXIBLE_COLUMNS'
+            file "test12.json"
+            time 20000
+        }
+        qt_row_2_full "select k,v1,v2,v3,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName} order by k;"
+
+        streamLoad {
+            table "${tableName}"
+            set 'format', 'json'
+            set 'read_json_by_line', 'true'
+            set 'strict_mode', 'false'
+            set 'unique_key_update_mode', 'UPDATE_FLEXIBLE_COLUMNS'
+            file "test13.json"
+            time 20000
+        }
+        qt_row_3_full "select k,v1,v2,v3,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName} order by k;"
+
+        // some invisible columns should be ommitted when parsing
+        streamLoad {
+            table "${tableName}"
+            set 'format', 'json'
+            set 'read_json_by_line', 'true'
+            set 'strict_mode', 'false'
+            set 'unique_key_update_mode', 'UPDATE_FLEXIBLE_COLUMNS'
+            file "test14.json"
+            time 20000
+        }
+        qt_ommit_invisible_cols "select k,v1,v2,v3,__DORIS_VERSION_COL__,__DORIS_DELETE_SIGN__,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName} order by k;"
     }
 }

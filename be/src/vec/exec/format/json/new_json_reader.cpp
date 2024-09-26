@@ -750,8 +750,12 @@ Status NewJsonReader::_set_column_value(rapidjson::Value& objectValue, Block& bl
 
     int ctx_idx = 0;
     bool has_valid_value = false;
-    bool has_missing_value = false;
     size_t cur_row_count = block.rows();
+
+    if (_should_process_skip_bitmap_col()) {
+        _append_empty_skip_bitmap_value(block, cur_row_count);
+    }
+
     for (auto* slot_desc : slot_descs) {
         if (!slot_desc->is_materialized()) {
             continue;
@@ -801,8 +805,7 @@ Status NewJsonReader::_set_column_value(rapidjson::Value& objectValue, Block& bl
                     }
                     return Status::OK();
                 }
-                _process_skip_bitmap_mark(slot_desc, column_ptr, block, cur_row_count,
-                                          has_missing_value, valid);
+                _process_skip_bitmap_mark(slot_desc, column_ptr, block, cur_row_count, valid);
                 column_ptr->insert_default();
             } else {
                 // not found, filling with default value
@@ -1387,6 +1390,9 @@ Status NewJsonReader::_simdjson_set_column_value(simdjson::ondemand::object* val
         if (_seen_columns[column_index]) {
             continue;
         }
+        if (column_index == skip_bitmap_col_idx) {
+            continue;
+        }
         simdjson::ondemand::value val = field.value();
         auto* column_ptr = block.get_by_position(column_index).column->assume_mutable().get();
         RETURN_IF_ERROR(
@@ -1411,9 +1417,12 @@ Status NewJsonReader::_simdjson_set_column_value(simdjson::ondemand::object* val
         return Status::OK();
     }
 
+    if (_should_process_skip_bitmap_col()) {
+        _append_empty_skip_bitmap_value(block, cur_row_count);
+    }
+
     // fill missing slot
     int nullcount = 0;
-    bool has_missing_value = false;
     for (size_t i = 0; i < slot_descs.size(); ++i) {
         if (_seen_columns[i]) {
             continue;
@@ -1456,8 +1465,7 @@ Status NewJsonReader::_simdjson_set_column_value(simdjson::ondemand::object* val
                     }
                     return Status::OK();
                 }
-                _process_skip_bitmap_mark(slot_desc, column_ptr, block, cur_row_count,
-                                          has_missing_value, valid);
+                _process_skip_bitmap_mark(slot_desc, column_ptr, block, cur_row_count, valid);
                 column_ptr->insert_default();
             } else {
                 RETURN_IF_ERROR(_fill_missing_column(slot_desc, column_ptr, valid));
@@ -1825,21 +1833,26 @@ Status NewJsonReader::_fill_missing_column(SlotDescriptor* slot_desc, IColumn* c
     return Status::OK();
 }
 
+void NewJsonReader::_append_empty_skip_bitmap_value(Block& block, size_t cur_row_count) {
+    auto* skip_bitmap_nullable_col_ptr = assert_cast<ColumnNullable*>(
+            block.get_by_position(skip_bitmap_col_idx).column->assume_mutable().get());
+    auto* skip_bitmap_col_ptr =
+            assert_cast<ColumnBitmap*>(skip_bitmap_nullable_col_ptr->get_nested_column_ptr().get());
+    DCHECK(skip_bitmap_nullable_col_ptr->size() == cur_row_count);
+    // should append an empty bitmap for every row wheather this line misses columns
+    skip_bitmap_nullable_col_ptr->get_null_map_data().push_back(0);
+    skip_bitmap_col_ptr->insert_default();
+    DCHECK(skip_bitmap_col_ptr->size() == cur_row_count + 1);
+}
+
 void NewJsonReader::_process_skip_bitmap_mark(SlotDescriptor* slot_desc, IColumn* column_ptr,
-                                              Block& block, size_t cur_row_count,
-                                              bool& has_missing_value, bool* valid) {
+                                              Block& block, size_t cur_row_count, bool* valid) {
     // we record the missing column's column unique id in skip bitmap
     // to indicate which columns need to do the alignment process
     auto* skip_bitmap_nullable_col_ptr = assert_cast<ColumnNullable*>(
             block.get_by_position(skip_bitmap_col_idx).column->assume_mutable().get());
     auto* skip_bitmap_col_ptr =
             assert_cast<ColumnBitmap*>(skip_bitmap_nullable_col_ptr->get_nested_column_ptr().get());
-    if (!has_missing_value) {
-        DCHECK(skip_bitmap_nullable_col_ptr->size() == cur_row_count);
-        skip_bitmap_nullable_col_ptr->get_null_map_data().push_back(0);
-        skip_bitmap_col_ptr->insert_default();
-        has_missing_value = true;
-    }
     DCHECK(skip_bitmap_col_ptr->size() == cur_row_count + 1);
     auto& skip_bitmap = skip_bitmap_col_ptr->get_data().back();
     if (!slot_desc->is_auto_increment()) {

@@ -246,4 +246,32 @@ suite('test_flexible_partial_update_restricts') {
             assertTrue(json.Message.contains("Flexible partial update can only support table without variant columns."));
         }
     }
+
+    def doSchemaChange = { cmd ->
+        sql cmd
+        waitForSchemaChangeDone {
+            sql """SHOW ALTER TABLE COLUMN WHERE IndexName='${tableName}' ORDER BY createtime DESC LIMIT 1"""
+            time 2000
+        }
+    }
+
+    tableName = "test_flexible_partial_update_restricts5"
+    sql """ DROP TABLE IF EXISTS ${tableName} """
+    test {
+        sql """ CREATE TABLE ${tableName} (
+            `k` int(11) NULL, 
+            `v1` BIGINT NULL,
+            `v2` BIGINT NULL DEFAULT "9876",
+            `v3` BIGINT NOT NULL,
+            `v4` BIGINT NOT NULL DEFAULT "1234",
+            `v5` BIGINT NULL,
+            `__DORIS_SKIP_BITMAP_COL__` bigint null
+            ) UNIQUE KEY(`k`) DISTRIBUTED BY HASH(`k`) BUCKETS 1
+            PROPERTIES(
+            "replication_num" = "1",
+            "enable_unique_key_merge_on_write" = "true",
+            "light_schema_change" = "false",
+            "store_row_column" = "false"); """
+        exception "Disable to create table column with name start with __DORIS_: __DORIS_SKIP_BITMAP_COL__'"
+    }
 }

@@ -200,13 +200,14 @@ private:
     Status _fill_missing_column(SlotDescriptor* slot_desc, vectorized::IColumn* column_ptr,
                                 bool* valid);
 
-    // fe will add skip_bitmap_col to _file_slot_descs iff the target olaptable has skip_bitmap_col
+    // fe will add skip_bitmap_col to _file_slot_descs iff the target olap table has skip_bitmap_col
     // and the current load is a flexible partial update
     // flexible partial update can not be used when user specify jsonpaths, so we just fill the skip bitmap
     // in `_simdjson_handle_simple_json` and `_vhandle_simple_json` (which will be used when jsonpaths is not specified)
     bool _should_process_skip_bitmap_col() const { return skip_bitmap_col_idx != -1; }
+    void _append_empty_skip_bitmap_value(Block& block, size_t cur_row_count);
     void _process_skip_bitmap_mark(SlotDescriptor* slot_desc, IColumn* column_ptr, Block& block,
-                                   size_t cur_row_count, bool& has_missing_value, bool* valid);
+                                   size_t cur_row_count, bool* valid);
     RuntimeState* _state = nullptr;
     RuntimeProfile* _profile = nullptr;
     ScannerCounter* _counter = nullptr;
