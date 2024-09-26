@@ -242,4 +242,12 @@ public class Statistics {
         }
         return builder.build();
     }
+
+    public double getDeltaRowCount() {
+        return deltaRowCount;
+    }
+
+    public void setDeltaRowCount(double deltaRowCount) {
+        this.deltaRowCount = deltaRowCount;
+    }
 }
