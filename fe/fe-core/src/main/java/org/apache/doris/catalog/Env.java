@@ -3462,7 +3462,7 @@ public class Env {
             boolean getDdlForSync, List<Long> partitionId) {
         // replicationNum
         ReplicaAllocation replicaAlloc = olapTable.getDefaultReplicaAllocation();
-        if (Config.isCloudMode()) {
+        if (Config.isCloudMode() && olapTable.getTTLSeconds() != 0) {
             sb.append("\"").append(PropertyAnalyzer.PROPERTIES_FILE_CACHE_TTL_SECONDS).append("\" = \"");
             sb.append(olapTable.getTTLSeconds()).append("\"");
         } else {
@@ -3660,9 +3660,11 @@ public class Env {
             sb.append(olapTable.getStorageVaultName()).append("\"");
         }
 
-        // disable auto compaction
-        sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION).append("\" = \"");
-        sb.append(olapTable.disableAutoCompaction()).append("\"");
+        if (olapTable.disableAutoCompaction()) {
+            // disable auto compaction
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION).append("\" = \"");
+            sb.append(olapTable.disableAutoCompaction()).append("\"");
+        }
 
         if (olapTable.variantEnableFlattenNested()) {
             // enable flatten nested type in variant
@@ -3676,9 +3678,11 @@ public class Env {
             binlogConfig.appendToShowCreateTable(sb);
         }
 
-        // enable single replica compaction
-        sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION).append("\" = \"");
-        sb.append(olapTable.enableSingleReplicaCompaction()).append("\"");
+        if (olapTable.enableSingleReplicaCompaction()) {
+            // enable single replica compaction
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION).append("\" = \"");
+            sb.append(olapTable.enableSingleReplicaCompaction()).append("\"");
+        }
 
         // group commit interval ms
         sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_INTERVAL_MS).append("\" = \"");
