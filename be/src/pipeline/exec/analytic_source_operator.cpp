@@ -361,6 +361,7 @@ Status AnalyticLocalState::_get_next_for_rows(size_t current_block_rows) {
                         1; //going on calculate,add up data, no need to reset state
         } else {
             _reset_agg_status();
+            range_end = _shared_state->current_row_position + _rows_end_offset + 1;
             if (!_parent->cast<AnalyticSourceOperatorX>()
                          ._window.__isset
                          .window_start) { //[preceding, offset]        --unbound: [preceding, following]
@@ -368,7 +369,8 @@ Status AnalyticLocalState::_get_next_for_rows(size_t current_block_rows) {
             } else {
                 range_start = _shared_state->current_row_position + _rows_start_offset;
             }
-            range_end = _shared_state->current_row_position + _rows_end_offset + 1;
+            // Make sure range_start <= range_end
+            range_start = std::min(range_start, range_end);
         }
         _executor.execute(_partition_by_start.pos, _shared_state->partition_by_end.pos, range_start,
                           range_end);
@@ -577,6 +579,7 @@ Status AnalyticSourceOperatorX::prepare(RuntimeState* state) {
         SlotDescriptor* output_slot_desc = _output_tuple_desc->slots()[i];
         RETURN_IF_ERROR(_agg_functions[i]->prepare(state, _child_x->row_desc(),
                                                    intermediate_slot_desc, output_slot_desc));
+        _agg_functions[i]->set_version(state->be_exec_version());
         _change_to_nullable_flags.push_back(output_slot_desc->is_nullable() &&
                                             !_agg_functions[i]->data_type()->is_nullable());
     }
