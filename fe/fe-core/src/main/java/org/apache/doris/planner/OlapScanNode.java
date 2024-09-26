@@ -978,10 +978,11 @@ public class OlapScanNode extends ScanNode {
 
     private boolean isEnableCooldownReplicaAffinity() {
         ConnectContext connectContext = ConnectContext.get();
-        if (connectContext != null) {
+        if (connectContext == null) {
+            return Config.enable_cooldown_replica_affinity;
+        } else {
             return connectContext.getSessionVariable().isEnableCooldownReplicaAffinity();
         }
-        return true;
     }
 
     private void computePartitionInfo() throws AnalysisException {
