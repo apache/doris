@@ -342,6 +342,15 @@ void Tablet::save_meta() {
                            << ", rowset index disk size:" << rs_meta->index_disk_size()
                            << ", rowset total disk size:" << rs_meta->total_disk_size() << ".";
             }
+            if (rs_meta->index_disk_size() >
+                config::max_table_index_data_ratio * rs_meta->data_disk_size()) {
+                LOG(FATAL) << "[Local table index size check failed]:"
+                           << " tablet id: " << get_tablet_info().tablet_id
+                           << ", rowset id:" << rs_meta->rowset_id()
+                           << ", rowset data disk size:" << rs_meta->data_disk_size()
+                           << ", rowset index disk size:" << rs_meta->index_disk_size()
+                           << ", rowset total disk size:" << rs_meta->total_disk_size() << ".";
+            }
         }
     }
     auto res = _tablet_meta->save_meta(_data_dir);
