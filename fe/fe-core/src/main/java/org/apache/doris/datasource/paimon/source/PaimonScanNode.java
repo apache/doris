@@ -22,6 +22,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.FileFormatUtils;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
@@ -143,7 +144,7 @@ public class PaimonScanNode extends FileQueryScanNode {
             // use jni reader
             fileDesc.setPaimonSplit(encodeObjectToString(split));
         }
-        fileDesc.setFileFormat(source.getFileFormat());
+        fileDesc.setFileFormat(getFileFormat(paimonSplit.getPathString()));
         fileDesc.setPaimonPredicate(encodeObjectToString(predicates));
         fileDesc.setPaimonColumnNames(source.getDesc().getSlots().stream().map(slot -> slot.getColumn().getName())
                 .collect(Collectors.joining(",")));
@@ -180,19 +181,18 @@ public class PaimonScanNode extends FileQueryScanNode {
         List<org.apache.paimon.table.source.Split> paimonSplits = readBuilder.withFilter(predicates)
                 .withProjection(projected)
                 .newScan().plan().splits();
-        boolean supportNative = supportNativeReader();
         // Just for counting the number of selected partitions for this paimon table
         Set<BinaryRow> selectedPartitionValues = Sets.newHashSet();
         for (org.apache.paimon.table.source.Split split : paimonSplits) {
             SplitStat splitStat = new SplitStat();
             splitStat.setRowCount(split.rowCount());
-            if (!forceJniScanner && supportNative && split instanceof DataSplit) {
+            if (!forceJniScanner && split instanceof DataSplit) {
                 DataSplit dataSplit = (DataSplit) split;
                 BinaryRow partitionValue = dataSplit.partition();
                 selectedPartitionValues.add(partitionValue);
                 Optional<List<RawFile>> optRawFiles = dataSplit.convertToRawFiles();
                 Optional<List<DeletionFile>> optDeletionFiles = dataSplit.deletionFiles();
-                if (optRawFiles.isPresent()) {
+                if (supportNativeReader(optRawFiles)) {
                     splitStat.setType(SplitReadType.NATIVE);
                     splitStat.setRawFileConvertable(true);
                     List<RawFile> rawFiles = optRawFiles.get();
@@ -262,15 +262,22 @@ public class PaimonScanNode extends FileQueryScanNode {
         return splits;
     }
 
-    private boolean supportNativeReader() {
-        String fileFormat = source.getFileFormat().toLowerCase();
-        switch (fileFormat) {
-            case "orc":
-            case "parquet":
-                return true;
-            default:
-                return false;
+    private String getFileFormat(String path) {
+        return FileFormatUtils.getFileFormatBySuffix(path).orElse(source.getFileFormatFromTableProperties());
+    }
+
+    private boolean supportNativeReader(Optional<List<RawFile>> optRawFiles) {
+        if (!optRawFiles.isPresent()) {
+            return false;
         }
+        List<String> files = optRawFiles.get().stream().map(RawFile::path).collect(Collectors.toList());
+        for (String f : files) {
+            String splitFileFormat = getFileFormat(f);
+            if (!splitFileFormat.equals("orc") && !splitFileFormat.equals("parquet")) {
+                return false;
+            }
+        }
+        return true;
     }
 
     @Override

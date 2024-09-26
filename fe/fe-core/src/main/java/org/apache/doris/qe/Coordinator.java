@@ -726,8 +726,13 @@ public class Coordinator implements CoordInterface {
         DataSink topDataSink = topParams.fragment.getSink();
         this.timeoutDeadline = System.currentTimeMillis() + queryOptions.getExecutionTimeout() * 1000L;
         if (topDataSink instanceof ResultSink || topDataSink instanceof ResultFileSink) {
-            Boolean enableParallelResultSink = queryOptions.isEnableParallelResultSink()
-                    && topDataSink instanceof ResultSink;
+            Boolean enableParallelResultSink = false;
+            if (topDataSink instanceof ResultSink) {
+                enableParallelResultSink = queryOptions.isEnableParallelResultSink();
+            } else {
+                enableParallelResultSink = queryOptions.isEnableParallelOutfile();
+            }
+
             TNetworkAddress execBeAddr = topParams.instanceExecParams.get(0).host;
             Set<TNetworkAddress> addrs = new HashSet<>();
             for (FInstanceExecParam param : topParams.instanceExecParams) {
@@ -1278,18 +1283,11 @@ public class Coordinator implements CoordInterface {
         }
     }
 
-    // Cancel execution of query. This includes the execution of the local plan
-    // fragment,
-    // if any, as well as all plan fragments on remote nodes.
-    public void cancel() {
-        cancel(new Status(TStatusCode.CANCELLED, "query is cancelled by user"));
+    @Override
+    public void cancel(Status cancelReason) {
         if (queueToken != null) {
             queueToken.cancel();
         }
-    }
-
-    @Override
-    public void cancel(Status cancelReason) {
         for (ScanNode scanNode : scanNodes) {
             scanNode.stop();
         }
@@ -2453,7 +2451,7 @@ public class Coordinator implements CoordInterface {
                 for (TFragmentInstanceReport report : params.getFragmentInstanceReports()) {
                     Env.getCurrentEnv().getLoadManager().updateJobProgress(
                             jobId, params.getBackendId(), params.getQueryId(), report.getFragmentInstanceId(),
-                            params.getLoadedRows(), params.getLoadedBytes(), params.isDone());
+                            report.getLoadedRows(), report.getLoadedBytes(), params.isDone());
                     Env.getCurrentEnv().getProgressManager().updateProgress(String.valueOf(jobId),
                             params.getQueryId(), report.getFragmentInstanceId(), report.getNumFinishedRange());
                 }

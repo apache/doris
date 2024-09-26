@@ -437,6 +437,8 @@ struct TQueryProfile {
 struct TFragmentInstanceReport {
   1: optional Types.TUniqueId fragment_instance_id;
   2: optional i32 num_finished_range;
+  3: optional i64 loaded_rows
+  4: optional i64 loaded_bytes
 }
 
 
@@ -1029,6 +1031,7 @@ struct TMetadataTableRequestParams {
   10: optional PlanNodes.TTasksMetadataParams tasks_metadata_params
   11: optional PlanNodes.TPartitionsMetadataParams partitions_metadata_params
   12: optional PlanNodes.TMetaCacheStatsParams meta_cache_stats_params
+  13: optional PlanNodes.TPartitionValuesMetadataParams partition_values_metadata_params
 }
 
 struct TSchemaTableRequestParams {
@@ -1492,6 +1495,7 @@ struct TGetMetaDBMeta {
     3: optional list<TGetMetaTableMeta> tables
     4: optional list<i64> dropped_partitions
     5: optional list<i64> dropped_tables
+    6: optional list<i64> dropped_indexes
 }
 
 struct TGetMetaResult {

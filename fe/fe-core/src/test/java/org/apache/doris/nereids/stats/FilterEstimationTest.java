@@ -310,7 +310,7 @@ class FilterEstimationTest {
         FilterEstimation filterEstimation = new FilterEstimation();
         Statistics expected = filterEstimation.estimate(or, stat);
         Assertions.assertTrue(
-                Precision.equals(503.12,
+                Precision.equals(506.25,
                         expected.getRowCount(), 0.01));
     }
 
@@ -1142,7 +1142,9 @@ class FilterEstimationTest {
         stats.addColumnStats(b, builderB.build());
         FilterEstimation filterEstimation = new FilterEstimation();
         Statistics result = filterEstimation.estimate(and, stats);
-        Assertions.assertEquals(result.getRowCount(), 1.0, 0.01);
+        // result 1.0->2.0 bc happens because the calculation from normalization of
+        // "Math.min(columnStatistic.numNulls * factor, rowCount - ndv);"
+        Assertions.assertEquals(result.getRowCount(), 2.0, 0.01);
     }
 
     /**
@@ -1325,15 +1327,68 @@ class FilterEstimationTest {
         Statistics baseStats = statsBuilder.build();
 
         // (2020-2022) > (2010,2012), sel=1
+        // string type, use conservative way to do estimation: sel = DEFAULT (0.5)
+        Statistics agrtb = new FilterEstimation().estimate(new GreaterThan(a, b), baseStats);
+        Assertions.assertEquals(50, agrtb.getRowCount());
+        // (2020-2022) < (2010,2012), sel=0
+        // string type, use conservative way to do estimation: sel = DEFAULT (0.5)
+        Statistics alessb = new FilterEstimation().estimate(new LessThan(a, b), baseStats);
+        Assertions.assertEquals(50, alessb.getRowCount());
+
+        // (2020-2022) > (2010-2021), sel = DEFAULT (0.5)
+        Statistics agrtc = new FilterEstimation().estimate(new GreaterThan(a, c), baseStats);
+        Assertions.assertEquals(50, agrtc.getRowCount());
+    }
+
+    @Test
+    public void testStringRangeColToColDateType() {
+        SlotReference a = new SlotReference("a", DateType.INSTANCE);
+        ColumnStatisticBuilder columnStatisticBuilderA = new ColumnStatisticBuilder(100)
+                .setNdv(100)
+                .setAvgSizeByte(25)
+                .setNumNulls(0)
+                .setMaxExpr(new StringLiteral("2022-01-01"))
+                .setMaxValue(new DateLiteral("2022-01-01").getDouble())
+                .setMinExpr(new StringLiteral("2020-01-01"))
+                .setMinValue(new DateLiteral("2020-01-01").getDouble());
+
+        SlotReference b = new SlotReference("b", DateType.INSTANCE);
+        ColumnStatisticBuilder columnStatisticBuilderB = new ColumnStatisticBuilder(100)
+                .setNdv(100)
+                .setAvgSizeByte(25)
+                .setNumNulls(0)
+                .setMaxExpr(new StringLiteral("2012-01-01"))
+                .setMaxValue(new DateLiteral("2012-01-01").getDouble())
+                .setMinExpr(new StringLiteral("2010-01-01"))
+                .setMinValue(new DateLiteral("2010-01-01").getDouble());
+
+        SlotReference c = new SlotReference("c", DateType.INSTANCE);
+        ColumnStatisticBuilder columnStatisticBuilderC = new ColumnStatisticBuilder(100)
+                .setNdv(100)
+                .setAvgSizeByte(25)
+                .setNumNulls(0)
+                .setMaxExpr(new StringLiteral("2021-01-01"))
+                .setMaxValue(new DateLiteral("2021-01-01").getDouble())
+                .setMinExpr(new StringLiteral("2010-01-01"))
+                .setMinValue(new DateLiteral("2010-01-01").getDouble());
+
+        StatisticsBuilder statsBuilder = new StatisticsBuilder();
+        statsBuilder.setRowCount(100);
+        statsBuilder.putColumnStatistics(a, columnStatisticBuilderA.build());
+        statsBuilder.putColumnStatistics(b, columnStatisticBuilderB.build());
+        statsBuilder.putColumnStatistics(c, columnStatisticBuilderC.build());
+        Statistics baseStats = statsBuilder.build();
+
+        // (2020-2022) > (2010,2012), sel=1
         Statistics agrtb = new FilterEstimation().estimate(new GreaterThan(a, b), baseStats);
         Assertions.assertEquals(100, agrtb.getRowCount());
         // (2020-2022) < (2010,2012), sel=0
         Statistics alessb = new FilterEstimation().estimate(new LessThan(a, b), baseStats);
         Assertions.assertEquals(0, alessb.getRowCount());
 
-        // (2020-2022) > (2010-2021), sel = DEFAULT (0.5)
+        // (2020-2022) > (2010-2021), sel = 97.72
         Statistics agrtc = new FilterEstimation().estimate(new GreaterThan(a, c), baseStats);
-        Assertions.assertEquals(50, agrtc.getRowCount());
+        Assertions.assertTrue(Precision.equals(97.72, agrtc.getRowCount(), 0.01));
     }
 
     @Test

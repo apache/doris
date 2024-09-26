@@ -157,6 +157,7 @@ import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cloud.datasource.CloudInternalCatalog;
 import org.apache.doris.cloud.load.CloudLoadManager;
 import org.apache.doris.cloud.proto.Cloud;
+import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.cluster.ClusterNamespace;
@@ -812,7 +813,13 @@ public class ShowExecutor {
                             PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER)) {
                 continue;
             }
-            row.add(clusterName.equals(ctx.getCloudCluster()) ? "TRUE" : "FALSE");
+            String clusterNameFromCtx = "";
+            try {
+                clusterNameFromCtx = ctx.getCloudCluster();
+            } catch (ComputeGroupException e) {
+                LOG.warn("failed to get cluster name", e);
+            }
+            row.add(clusterName.equals(clusterNameFromCtx) ? "TRUE" : "FALSE");
             List<String> users = Env.getCurrentEnv().getAuth().getCloudClusterUsers(clusterName);
             // non-root do not display root information
             if (!Auth.ROOT_USER.equals(ctx.getQualifiedUser())) {
@@ -2039,7 +2046,7 @@ public class ShowExecutor {
 
                     List<Replica> replicas = tablet.getReplicas();
                     for (Replica replica : replicas) {
-                        Replica tmp = invertedIndex.getReplica(tabletId, replica.getBackendId());
+                        Replica tmp = invertedIndex.getReplica(tabletId, replica.getBackendIdWithoutException());
                         if (tmp == null) {
                             isSync = false;
                             break;
@@ -3163,7 +3170,7 @@ public class ShowExecutor {
         if (replica == null) {
             throw new AnalysisException("Replica not found on backend: " + backendId);
         }
-        backendId = replica.getBackendId();
+        backendId = replica.getBackendIdWithoutException();
         Backend be = Env.getCurrentSystemInfo().getBackend(backendId);
         if (be == null || !be.isAlive()) {
             throw new AnalysisException("Unavailable backend: " + backendId);

@@ -112,7 +112,6 @@
 #include "vec/runtime/vdata_stream_mgr.h"
 
 namespace doris::pipeline {
-bvar::Adder<int64_t> g_pipeline_tasks_count("doris_pipeline_tasks_count");
 
 PipelineFragmentContext::PipelineFragmentContext(
         const TUniqueId& query_id, const int fragment_id, std::shared_ptr<QueryContext> query_ctx,
@@ -181,9 +180,10 @@ void PipelineFragmentContext::cancel(const Status reason) {
         LOG(WARNING) << "PipelineFragmentContext is cancelled due to timeout : " << debug_string();
     }
 
+    // `ILLEGAL_STATE` means queries this fragment belongs to was not found in FE (maybe finished)
     if (reason.is<ErrorCode::ILLEGAL_STATE>()) {
         LOG_WARNING("PipelineFragmentContext is cancelled due to illegal state : {}",
-                    this->debug_string());
+                    debug_string());
     }
 
     _query_ctx->cancel(reason, _fragment_id);
@@ -208,18 +208,7 @@ void PipelineFragmentContext::cancel(const Status reason) {
     }
 }
 
-PipelinePtr PipelineFragmentContext::add_pipeline() {
-    // _prepared、_submitted, _canceled should do not add pipeline
-    PipelineId id = _next_pipeline_id++;
-    auto pipeline = std::make_shared<Pipeline>(
-            id, _num_instances,
-            std::dynamic_pointer_cast<PipelineFragmentContext>(shared_from_this()));
-    _pipelines.emplace_back(pipeline);
-    return pipeline;
-}
-
 PipelinePtr PipelineFragmentContext::add_pipeline(PipelinePtr parent, int idx) {
-    // _prepared、_submitted, _canceled should do not add pipeline
     PipelineId id = _next_pipeline_id++;
     auto pipeline = std::make_shared<Pipeline>(
             id, _num_instances,
@@ -229,7 +218,9 @@ PipelinePtr PipelineFragmentContext::add_pipeline(PipelinePtr parent, int idx) {
     } else {
         _pipelines.emplace_back(pipeline);
     }
-    parent->set_children(pipeline);
+    if (parent) {
+        parent->set_children(pipeline);
+    }
     return pipeline;
 }
 
@@ -242,14 +233,14 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
         _timeout = request.query_options.execution_timeout;
     }
 
-    _runtime_profile = std::make_unique<RuntimeProfile>("PipelineContext");
-    _prepare_timer = ADD_TIMER(_runtime_profile, "PrepareTime");
+    _fragment_level_profile = std::make_unique<RuntimeProfile>("PipelineContext");
+    _prepare_timer = ADD_TIMER(_fragment_level_profile, "PrepareTime");
     SCOPED_TIMER(_prepare_timer);
-    _build_pipelines_timer = ADD_TIMER(_runtime_profile, "BuildPipelinesTime");
-    _init_context_timer = ADD_TIMER(_runtime_profile, "InitContextTime");
-    _plan_local_shuffle_timer = ADD_TIMER(_runtime_profile, "PlanLocalShuffleTime");
-    _build_tasks_timer = ADD_TIMER(_runtime_profile, "BuildTasksTime");
-    _prepare_all_pipelines_timer = ADD_TIMER(_runtime_profile, "PrepareAllPipelinesTime");
+    _build_pipelines_timer = ADD_TIMER(_fragment_level_profile, "BuildPipelinesTime");
+    _init_context_timer = ADD_TIMER(_fragment_level_profile, "InitContextTime");
+    _plan_local_exchanger_timer = ADD_TIMER(_fragment_level_profile, "PlanLocalLocalExchangerTime");
+    _build_tasks_timer = ADD_TIMER(_fragment_level_profile, "BuildTasksTime");
+    _prepare_all_pipelines_timer = ADD_TIMER(_fragment_level_profile, "PrepareAllPipelinesTime");
     {
         SCOPED_TIMER(_init_context_timer);
         _num_instances = request.local_params.size();
@@ -334,14 +325,15 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
             RETURN_IF_ERROR(pipeline->sink()->set_child(pipeline->operators().back()));
         }
     }
-    if (_enable_local_shuffle()) {
-        SCOPED_TIMER(_plan_local_shuffle_timer);
+    // 4. Build local exchanger
+    if (_runtime_state->enable_local_shuffle()) {
+        SCOPED_TIMER(_plan_local_exchanger_timer);
         RETURN_IF_ERROR(_plan_local_exchange(request.num_buckets,
                                              request.bucket_seq_to_instance_idx,
                                              request.shuffle_idx_to_instance_idx));
     }
 
-    // 4. Initialize global states in pipelines.
+    // 5. Initialize global states in pipelines.
     for (PipelinePtr& pipeline : _pipelines) {
         SCOPED_TIMER(_prepare_all_pipelines_timer);
         pipeline->children().clear();
@@ -350,7 +342,7 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
 
     {
         SCOPED_TIMER(_build_tasks_timer);
-        // 5. Build pipeline tasks and initialize local state.
+        // 6. Build pipeline tasks and initialize local state.
         RETURN_IF_ERROR(_build_pipeline_tasks(request, thread_pool));
     }
 
@@ -377,40 +369,6 @@ Status PipelineFragmentContext::_build_pipeline_tasks(const doris::TPipelineFrag
         const auto& local_params = request.local_params[i];
         auto fragment_instance_id = local_params.fragment_instance_id;
         _fragment_instance_ids[i] = fragment_instance_id;
-        std::unique_ptr<RuntimeFilterMgr> runtime_filter_mgr;
-        auto init_runtime_state = [&](std::unique_ptr<RuntimeState>& runtime_state) {
-            runtime_state->set_query_mem_tracker(_query_ctx->query_mem_tracker);
-
-            runtime_state->set_task_execution_context(shared_from_this());
-            runtime_state->set_be_number(local_params.backend_num);
-
-            if (request.__isset.backend_id) {
-                runtime_state->set_backend_id(request.backend_id);
-            }
-            if (request.__isset.import_label) {
-                runtime_state->set_import_label(request.import_label);
-            }
-            if (request.__isset.db_name) {
-                runtime_state->set_db_name(request.db_name);
-            }
-            if (request.__isset.load_job_id) {
-                runtime_state->set_load_job_id(request.load_job_id);
-            }
-            if (request.__isset.wal_id) {
-                runtime_state->set_wal_id(request.wal_id);
-            }
-
-            runtime_state->set_desc_tbl(_desc_tbl);
-            runtime_state->set_per_fragment_instance_idx(local_params.sender_id);
-            runtime_state->set_num_per_fragment_instances(request.num_senders);
-            runtime_state->resize_op_id_to_local_state(max_operator_id());
-            runtime_state->set_max_operator_id(max_operator_id());
-            runtime_state->set_load_stream_per_node(request.load_stream_per_node);
-            runtime_state->set_total_load_streams(request.total_load_streams);
-            runtime_state->set_num_local_sink(request.num_local_sink);
-            DCHECK(runtime_filter_mgr);
-            runtime_state->set_runtime_filter_mgr(runtime_filter_mgr.get());
-        };
 
         auto filterparams = std::make_unique<RuntimeFilterParamsContext>();
 
@@ -429,8 +387,7 @@ Status PipelineFragmentContext::_build_pipeline_tasks(const doris::TPipelineFrag
             filterparams->query_ctx = _query_ctx.get();
         }
 
-        // build local_runtime_filter_mgr for each instance
-        runtime_filter_mgr = std::make_unique<RuntimeFilterMgr>(
+        auto runtime_filter_mgr = std::make_unique<RuntimeFilterMgr>(
                 request.query_id, filterparams.get(), _query_ctx->query_mem_tracker);
 
         filterparams->runtime_filter_mgr = runtime_filter_mgr.get();
@@ -467,7 +424,41 @@ Status PipelineFragmentContext::_build_pipeline_tasks(const doris::TPipelineFrag
                         request.fragment_id, request.query_options, _query_ctx->query_globals,
                         _exec_env, _query_ctx.get());
                 auto& task_runtime_state = _task_runtime_states[pip_idx][i];
-                init_runtime_state(task_runtime_state);
+                {
+                    // Initialize runtime state for this task
+                    task_runtime_state->set_query_mem_tracker(_query_ctx->query_mem_tracker);
+
+                    task_runtime_state->set_task_execution_context(shared_from_this());
+                    task_runtime_state->set_be_number(local_params.backend_num);
+
+                    if (request.__isset.backend_id) {
+                        task_runtime_state->set_backend_id(request.backend_id);
+                    }
+                    if (request.__isset.import_label) {
+                        task_runtime_state->set_import_label(request.import_label);
+                    }
+                    if (request.__isset.db_name) {
+                        task_runtime_state->set_db_name(request.db_name);
+                    }
+                    if (request.__isset.load_job_id) {
+                        task_runtime_state->set_load_job_id(request.load_job_id);
+                    }
+                    if (request.__isset.wal_id) {
+                        task_runtime_state->set_wal_id(request.wal_id);
+                    }
+
+                    task_runtime_state->set_desc_tbl(_desc_tbl);
+                    task_runtime_state->set_per_fragment_instance_idx(local_params.sender_id);
+                    task_runtime_state->set_num_per_fragment_instances(request.num_senders);
+                    task_runtime_state->resize_op_id_to_local_state(max_operator_id());
+                    task_runtime_state->set_max_operator_id(max_operator_id());
+                    task_runtime_state->set_load_stream_per_node(request.load_stream_per_node);
+                    task_runtime_state->set_total_load_streams(request.total_load_streams);
+                    task_runtime_state->set_num_local_sink(request.num_local_sink);
+                    DCHECK(_runtime_filter_states[i]->runtime_filter_mgr);
+                    task_runtime_state->set_runtime_filter_mgr(
+                            _runtime_filter_states[i]->runtime_filter_mgr);
+                }
                 auto cur_task_id = _total_tasks++;
                 task_runtime_state->set_task_id(cur_task_id);
                 task_runtime_state->set_task_num(pipeline->num_tasks());
@@ -498,22 +489,12 @@ Status PipelineFragmentContext::_build_pipeline_tasks(const doris::TPipelineFrag
          * Finally, we have two upstream dependencies in Pipeline1 corresponding to JoinProbeOperator1
          * and JoinProbeOperator2.
          */
-
-        // First, set up the parent profile,task runtime state
-
-        auto prepare_and_set_parent_profile = [&](PipelineTask* task, size_t pip_idx) {
-            DCHECK(pipeline_id_to_profile[pip_idx]);
-            RETURN_IF_ERROR(
-                    task->prepare(local_params, request.fragment.output_sink, _query_ctx.get()));
-            return Status::OK();
-        };
-
         for (auto& _pipeline : _pipelines) {
             if (pipeline_id_to_task.contains(_pipeline->id())) {
                 auto* task = pipeline_id_to_task[_pipeline->id()];
                 DCHECK(task != nullptr);
 
-                // if this task has upstream dependency, then record them.
+                // If this task has upstream dependency, then inject it into this task.
                 if (_dag.find(_pipeline->id()) != _dag.end()) {
                     auto& deps = _dag[_pipeline->id()];
                     for (auto& dep : deps) {
@@ -533,7 +514,9 @@ Status PipelineFragmentContext::_build_pipeline_tasks(const doris::TPipelineFrag
         for (size_t pip_idx = 0; pip_idx < _pipelines.size(); pip_idx++) {
             if (pipeline_id_to_task.contains(_pipelines[pip_idx]->id())) {
                 auto* task = pipeline_id_to_task[_pipelines[pip_idx]->id()];
-                RETURN_IF_ERROR(prepare_and_set_parent_profile(task, pip_idx));
+                DCHECK(pipeline_id_to_profile[pip_idx]);
+                RETURN_IF_ERROR(task->prepare(local_params, request.fragment.output_sink,
+                                              _query_ctx.get()));
             }
         }
         {
@@ -545,6 +528,7 @@ Status PipelineFragmentContext::_build_pipeline_tasks(const doris::TPipelineFrag
     if (target_size > 1 &&
         (_runtime_state->query_options().__isset.parallel_prepare_threshold &&
          target_size > _runtime_state->query_options().parallel_prepare_threshold)) {
+        // If instances parallelism is big enough ( > parallel_prepare_threshold), we will prepare all tasks by multi-threads
         std::vector<Status> prepare_status(target_size);
         std::mutex m;
         std::condition_variable cv;
@@ -638,8 +622,8 @@ void PipelineFragmentContext::trigger_report_if_necessary() {
                 _runtime_state->load_channel_profile()->pretty_print(&ss);
             }
 
-            VLOG_FILE << "Query " << print_id(this->get_query_id()) << " fragment "
-                      << this->get_fragment_id() << " profile:\n"
+            VLOG_FILE << "Query " << print_id(get_query_id()) << " fragment " << get_fragment_id()
+                      << " profile:\n"
                       << ss.str();
         }
         auto st = send_report(false);
@@ -932,7 +916,6 @@ Status PipelineFragmentContext::_add_local_exchange(
         const std::map<int, int>& bucket_seq_to_instance_idx,
         const std::map<int, int>& shuffle_idx_to_instance_idx,
         const bool ignore_data_distribution) {
-    DCHECK(_enable_local_shuffle());
     if (_num_instances <= 1) {
         return Status::OK();
     }
@@ -1727,7 +1710,7 @@ void PipelineFragmentContext::_close_fragment_instance() {
         return;
     }
     Defer defer_op {[&]() { _is_fragment_instance_closed = true; }};
-    _runtime_profile->total_time_counter()->update(_fragment_watcher.elapsed_time());
+    _fragment_level_profile->total_time_counter()->update(_fragment_watcher.elapsed_time());
     static_cast<void>(send_report(true));
     // Print profile content in info log is a tempoeray solution for stream load and external_connector.
     // Since stream load does not have someting like coordinator on FE, so
@@ -1752,8 +1735,7 @@ void PipelineFragmentContext::_close_fragment_instance() {
             _runtime_state->load_channel_profile()->pretty_print(&ss);
         }
 
-        LOG_INFO("Query {} fragment {} profile:\n {}", print_id(this->_query_id),
-                 this->_fragment_id, ss.str());
+        LOG_INFO("Query {} fragment {} profile:\n {}", print_id(_query_id), _fragment_id, ss.str());
     }
 
     if (_query_ctx->enable_profile()) {
@@ -1768,7 +1750,6 @@ void PipelineFragmentContext::_close_fragment_instance() {
 
 void PipelineFragmentContext::close_a_pipeline() {
     std::lock_guard<std::mutex> l(_task_mutex);
-    g_pipeline_tasks_count << -1;
     ++_closed_tasks;
     if (_closed_tasks == _total_tasks) {
         _close_fragment_instance();
@@ -1803,8 +1784,6 @@ Status PipelineFragmentContext::send_report(bool done) {
 
     ReportStatusRequest req {exec_status,
                              runtime_states,
-                             _runtime_profile.get(),
-                             _runtime_state->load_channel_profile(),
                              done || !exec_status.ok(),
                              _query_ctx->coord_addr,
                              _query_id,
@@ -1838,13 +1817,18 @@ PipelineFragmentContext::collect_realtime_profile() const {
     // we do not have mutex to protect pipeline_id_to_profile
     // so we need to make sure this funciton is invoked after fragment context
     // has already been prepared.
-    if (!this->_prepared) {
+    if (!_prepared) {
         std::string msg =
-                "Query " + print_id(this->_query_id) + " collecting profile, but its not prepared";
+                "Query " + print_id(_query_id) + " collecting profile, but its not prepared";
         DCHECK(false) << msg;
         LOG_ERROR(msg);
         return res;
     }
+
+    // Make sure first profile is fragment level profile
+    auto fragment_profile = std::make_shared<TRuntimeProfileTree>();
+    _fragment_level_profile->to_thrift(fragment_profile.get());
+    res.push_back(fragment_profile);
 
     // pipeline_id_to_profile is initialized in prepare stage
     for (auto pipeline_profile : _runtime_state->pipeline_id_to_profile()) {
@@ -1861,9 +1845,9 @@ PipelineFragmentContext::collect_realtime_load_channel_profile() const {
     // we do not have mutex to protect pipeline_id_to_profile
     // so we need to make sure this funciton is invoked after fragment context
     // has already been prepared.
-    if (!this->_prepared) {
+    if (!_prepared) {
         std::string msg =
-                "Query " + print_id(this->_query_id) + " collecting profile, but its not prepared";
+                "Query " + print_id(_query_id) + " collecting profile, but its not prepared";
         DCHECK(false) << msg;
         LOG_ERROR(msg);
         return nullptr;
@@ -1871,19 +1855,19 @@ PipelineFragmentContext::collect_realtime_load_channel_profile() const {
 
     for (auto& runtime_states : _task_runtime_states) {
         for (auto& runtime_state : runtime_states) {
-            if (runtime_state->runtime_profile() == nullptr) {
+            if (runtime_state == nullptr || runtime_state->runtime_profile() == nullptr) {
                 continue;
             }
 
             auto tmp_load_channel_profile = std::make_shared<TRuntimeProfileTree>();
 
             runtime_state->runtime_profile()->to_thrift(tmp_load_channel_profile.get());
-            this->_runtime_state->load_channel_profile()->update(*tmp_load_channel_profile);
+            _runtime_state->load_channel_profile()->update(*tmp_load_channel_profile);
         }
     }
 
     auto load_channel_profile = std::make_shared<TRuntimeProfileTree>();
-    this->_runtime_state->load_channel_profile()->to_thrift(load_channel_profile.get());
+    _runtime_state->load_channel_profile()->to_thrift(load_channel_profile.get());
     return load_channel_profile;
 }
 

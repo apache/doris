@@ -735,6 +735,7 @@ private:
     std::shared_ptr<io::S3FileSystem> _s3_error_fs;
     // error file path on s3, ${bucket}/${prefix}/error_log/${label}_${fragment_instance_id}
     std::string _s3_error_log_file_path;
+    std::mutex _s3_error_log_file_lock;
 };
 
 #define RETURN_IF_CANCELLED(state)               \

@@ -110,6 +110,7 @@ QueryContext::QueryContext(TUniqueId query_id, ExecEnv* exec_env,
     clock_gettime(CLOCK_MONOTONIC, &this->_query_arrival_timestamp);
     register_memory_statistics();
     register_cpu_statistics();
+    DorisMetrics::instance()->query_ctx_cnt->increment(1);
 }
 
 void QueryContext::_init_query_mem_tracker() {
@@ -198,7 +199,7 @@ QueryContext::~QueryContext() {
     _merge_controller_handler.reset();
 
     _exec_env->spill_stream_mgr()->async_cleanup_query(_query_id);
-
+    DorisMetrics::instance()->query_ctx_cnt->increment(-1);
     LOG_INFO("Query {} deconstructed, {}", print_id(this->_query_id), mem_tracker_msg);
 }
 
@@ -368,9 +369,6 @@ void QueryContext::add_fragment_profile(
 
 void QueryContext::_report_query_profile() {
     std::lock_guard<std::mutex> lg(_profile_mutex);
-    LOG_INFO(
-            "Pipeline x query context, register query profile, query {}, fragment profile count {}",
-            print_id(_query_id), _profile_map.size());
 
     for (auto& [fragment_id, fragment_profile] : _profile_map) {
         std::shared_ptr<TRuntimeProfileTree> load_channel_profile = nullptr;

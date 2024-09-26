@@ -35,7 +35,6 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.datasource.CatalogIf;
-import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.policy.Policy;
 import org.apache.doris.policy.StoragePolicy;
@@ -1560,16 +1559,6 @@ public class PropertyAnalyzer {
         // "access_controller.properties.prop2" = "yyy",
         // )
         // 1. get access controller class
-        String acClass = properties.getOrDefault(CatalogMgr.ACCESS_CONTROLLER_CLASS_PROP, "");
-        if (!Strings.isNullOrEmpty(acClass)) {
-            // 2. check if class exists
-            try {
-                Class.forName(acClass);
-            } catch (ClassNotFoundException e) {
-                throw new AnalysisException("failed to find class " + acClass, e);
-            }
-        }
-
         if (isAlter) {
             // The 'use_meta_cache' property can not be modified
             if (properties.containsKey(ExternalCatalog.USE_META_CACHE)) {
@@ -1631,7 +1620,7 @@ public class PropertyAnalyzer {
 
     private static Map<String, String> rewriteReplicaAllocationPropertiesByDatabase(
             String ctl, String database, Map<String, String> properties) {
-        // if table contain `replication_allocation` or `replication_allocation`,not need rewrite by db
+        // if table contain `replication_allocation` or `replication_num`,not need rewrite by db
         if (properties != null && (properties.containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION)
                 || properties.containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM))) {
             return properties;

@@ -291,7 +291,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                         long shadowTabletId = shadowTablet.getId();
                         List<Replica> shadowReplicas = shadowTablet.getReplicas();
                         for (Replica shadowReplica : shadowReplicas) {
-                            long backendId = shadowReplica.getBackendId();
+                            long backendId = shadowReplica.getBackendIdWithoutException();
                             long shadowReplicaId = shadowReplica.getId();
                             countDownLatch.addMark(backendId, shadowTabletId);
                             CreateReplicaTask createReplicaTask = new CreateReplicaTask(
@@ -521,7 +521,8 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                         long originTabletId = partitionIndexTabletMap.get(partitionId, shadowIdxId).get(shadowTabletId);
                         List<Replica> shadowReplicas = shadowTablet.getReplicas();
                         for (Replica shadowReplica : shadowReplicas) {
-                            AlterReplicaTask rollupTask = new AlterReplicaTask(shadowReplica.getBackendId(), dbId,
+                            AlterReplicaTask rollupTask
+                                    = new AlterReplicaTask(shadowReplica.getBackendIdWithoutException(), dbId,
                                     tableId, partitionId, shadowIdxId, originIdxId, shadowTabletId, originTabletId,
                                     shadowReplica.getId(), shadowSchemaHash, originSchemaHash, visibleVersion, jobId,
                                     JobType.SCHEMA_CHANGE, defineExprs, descTable, originSchemaColumns, objectPool,
@@ -694,7 +695,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                     List<Long> failedBackends = failedTabletBackends.get(tablet.getId());
                     for (Replica replica : tablet.getReplicas()) {
                         replica.setState(ReplicaState.NORMAL);
-                        if (failedBackends != null && failedBackends.contains(replica.getBackendId())) {
+                        if (failedBackends != null && failedBackends.contains(replica.getBackendIdWithoutException())) {
                             replica.setBad(true);
                         }
                     }
@@ -990,6 +991,10 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             info.add(timeoutMs / 1000);
             infos.add(info);
         }
+    }
+
+    public Map<Long, Long> getIndexIdMap() {
+        return indexIdMap;
     }
 
     public List<List<String>> getUnfinishedTasks(int limit) {

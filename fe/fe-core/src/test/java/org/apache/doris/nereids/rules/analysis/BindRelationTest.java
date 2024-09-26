@@ -18,6 +18,8 @@
 package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PartitionInfo;
@@ -98,6 +100,8 @@ class BindRelationTest extends TestWithFeService implements GeneratedPlanPattern
                 new Column("name", Type.VARCHAR)
         );
 
+        Database externalDatabase = new Database(10000, DEFAULT_CLUSTER_PREFIX + DB1);
+
         OlapTable externalOlapTable = new OlapTable(1, tableName, externalTableColumns, KeysType.DUP_KEYS,
                 new PartitionInfo(), new RandomDistributionInfo(10)) {
             @Override
@@ -108,6 +112,11 @@ class BindRelationTest extends TestWithFeService implements GeneratedPlanPattern
             @Override
             public boolean hasDeleteSign() {
                 return false;
+            }
+
+            @Override
+            public DatabaseIf getDatabase() {
+                return externalDatabase;
             }
         };
 

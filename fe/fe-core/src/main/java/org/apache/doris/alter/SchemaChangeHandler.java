@@ -741,12 +741,6 @@ public class SchemaChangeHandler extends AlterHandler {
         } // end for handling other indices
 
         if (typeChanged && !lightSchemaChange) {
-            Optional<Column> autoIncCol = olapTable.getBaseSchema(true).stream()
-                    .filter(col -> col.isAutoInc()).findFirst();
-            if (autoIncCol.isPresent()) {
-                throw new DdlException("Can not modify column " + modColumn.getName() + " becasue table "
-                        + olapTable.getName() + " has auto-increment column " + autoIncCol.get().getName());
-            }
             /*
              * In new alter table process (AlterJobV2), any modified columns are treated as new columns.
              * But the modified columns' name does not changed. So in order to distinguish this, we will add
@@ -2234,8 +2228,9 @@ public class SchemaChangeHandler extends AlterHandler {
                     int schemaHash = olapTable.getSchemaHashByIndexId(index.getId());
                     for (Tablet tablet : index.getTablets()) {
                         for (Replica replica : tablet.getReplicas()) {
-                            ClearAlterTask alterTask = new ClearAlterTask(replica.getBackendId(), db.getId(),
-                                    olapTable.getId(), partition.getId(), index.getId(), tablet.getId(), schemaHash);
+                            ClearAlterTask alterTask = new ClearAlterTask(replica.getBackendIdWithoutException(),
+                                    db.getId(), olapTable.getId(), partition.getId(),
+                                    index.getId(), tablet.getId(), schemaHash);
                             batchTask.addTask(alterTask);
                         }
                     }

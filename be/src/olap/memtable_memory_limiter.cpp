@@ -160,7 +160,7 @@ void MemTableMemoryLimiter::_flush_active_memtables(int64_t need_flush) {
     }
 
     using WriterMem = std::pair<std::weak_ptr<MemTableWriter>, int64_t>;
-    auto cmp = [](WriterMem left, WriterMem right) { return left.second > right.second; };
+    auto cmp = [](WriterMem left, WriterMem right) { return left.second < right.second; };
     std::priority_queue<WriterMem, std::vector<WriterMem>, decltype(cmp)> heap(cmp);
 
     for (auto writer : _active_writers) {
@@ -251,7 +251,7 @@ void MemTableMemoryLimiter::_refresh_mem_tracker() {
             _writers.pop_back();
         }
     }
-    _mem_usage = _flush_mem_usage + _queue_mem_usage;
+    _mem_usage = _active_mem_usage + _queue_mem_usage + _flush_mem_usage;
     g_memtable_active_memory.set_value(_active_mem_usage);
     g_memtable_write_memory.set_value(_queue_mem_usage);
     g_memtable_flush_memory.set_value(_flush_mem_usage);

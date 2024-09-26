@@ -64,6 +64,8 @@ public class DBBinlog {
     private List<Pair<Long, Long>> droppedPartitions;
     // The commit seq of the dropped tables
     private List<Pair<Long, Long>> droppedTables;
+    // The commit seq of the dropped indexes
+    private List<Pair<Long, Long>> droppedIndexes;
 
     private List<TBinlog> tableDummyBinlogs;
 
@@ -82,6 +84,7 @@ public class DBBinlog {
         timestamps = Lists.newArrayList();
         droppedPartitions = Lists.newArrayList();
         droppedTables = Lists.newArrayList();
+        droppedIndexes = Lists.newArrayList();
 
         TBinlog dummy;
         if (binlog.getType() == TBinlogType.DUMMY) {
@@ -128,6 +131,15 @@ public class DBBinlog {
             DropTableRecord record = DropTableRecord.fromJson(binlog.data);
             if (record != null && record.getTableId() > 0) {
                 droppedTables.add(Pair.of(record.getTableId(), binlog.getCommitSeq()));
+            }
+        } else if (binlog.getType() == TBinlogType.ALTER_JOB) {
+            AlterJobRecord record = AlterJobRecord.fromJson(binlog.data);
+            if (record != null && record.isSchemaChangeJob() && record.isJobFinished()) {
+                for (Long indexId : record.getOriginIndexIdList()) {
+                    if (indexId != null && indexId > 0) {
+                        droppedIndexes.add(Pair.of(indexId, binlog.getCommitSeq()));
+                    }
+                }
             }
         }
 
@@ -193,6 +205,15 @@ public class DBBinlog {
                 if (tableId > 0) {
                     droppedTables.add(Pair.of(tableId, binlog.getCommitSeq()));
                 }
+            } else if (binlog.getType() == TBinlogType.ALTER_JOB && raw instanceof AlterJobRecord) {
+                AlterJobRecord alterJobRecord = (AlterJobRecord) raw;
+                if (alterJobRecord.isJobFinished() && alterJobRecord.isSchemaChangeJob()) {
+                    for (Long indexId : alterJobRecord.getOriginIndexIdList()) {
+                        if (indexId != null && indexId > 0) {
+                            droppedIndexes.add(Pair.of(indexId, binlog.getCommitSeq()));
+                        }
+                    }
+                }
             }
 
             switch (binlog.getType()) {
@@ -256,6 +277,18 @@ public class DBBinlog {
         lock.readLock().lock();
         try {
             return droppedTables.stream()
+                    .map(v -> v.first)
+                    .collect(Collectors.toList());
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    // Get the dropped indexes of the db.
+    public List<Long> getDroppedIndexes() {
+        lock.readLock().lock();
+        try {
+            return droppedIndexes.stream()
                     .map(v -> v.first)
                     .collect(Collectors.toList());
         } finally {
@@ -380,7 +413,7 @@ public class DBBinlog {
                 }
             }
 
-            gcDroppedPartitionAndTables(largestExpiredCommitSeq);
+            gcDroppedResources(largestExpiredCommitSeq);
             if (lastCommitSeq != -1) {
                 dummy.setCommitSeq(lastCommitSeq);
             }
@@ -418,7 +451,7 @@ public class DBBinlog {
                 timeIter.remove();
             }
 
-            gcDroppedPartitionAndTables(lastExpiredBinlog.getCommitSeq());
+            gcDroppedResources(lastExpiredBinlog.getCommitSeq());
         }
 
         return lastExpiredBinlog;
@@ -528,12 +561,16 @@ public class DBBinlog {
         }
     }
 
-    private void gcDroppedPartitionAndTables(long commitSeq) {
+    private void gcDroppedResources(long commitSeq) {
         Iterator<Pair<Long, Long>> iter = droppedPartitions.iterator();
         while (iter.hasNext() && iter.next().second < commitSeq) {
             iter.remove();
         }
         iter = droppedTables.iterator();
+        while (iter.hasNext() && iter.next().second < commitSeq) {
+            iter.remove();
+        }
+        iter = droppedIndexes.iterator();
         while (iter.hasNext() && iter.next().second < commitSeq) {
             iter.remove();
         }

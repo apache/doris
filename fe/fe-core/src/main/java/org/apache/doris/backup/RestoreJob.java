@@ -833,16 +833,23 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                 if (localTbl != null) {
                     Preconditions.checkState(localTbl.getType() == TableType.VIEW);
                     View localView = (View) localTbl;
-                    if (!localView.getSignature(BackupHandler.SIGNATURE_VERSION)
-                            .equals(remoteView.getSignature(BackupHandler.SIGNATURE_VERSION))) {
-                        status = new Status(ErrCode.COMMON_ERROR, "View "
-                                + jobInfo.getAliasByOriginNameIfSet(backupViewName)
-                                + " already exist but with different schema");
-                        return;
+                    String localViewSignature = localView.getSignature(BackupHandler.SIGNATURE_VERSION);
+                    // keep compatible with old version, compare the signature without reset view def
+                    if (!localViewSignature.equals(remoteView.getSignature(BackupHandler.SIGNATURE_VERSION))) {
+                        // reset view def to dest db name and compare signature again
+                        String srcDbName = jobInfo.dbName;
+                        remoteView.resetViewDefForRestore(srcDbName, db.getName());
+                        if (!localViewSignature.equals(remoteView.getSignature(BackupHandler.SIGNATURE_VERSION))) {
+                            status = new Status(ErrCode.COMMON_ERROR, "View "
+                                    + jobInfo.getAliasByOriginNameIfSet(backupViewName)
+                                    + " already exist but with different schema");
+                            return;
+                        }
                     }
                 } else {
                     String srcDbName = jobInfo.dbName;
-                    remoteView.resetIdsForRestore(env, srcDbName, db.getFullName());
+                    remoteView.resetViewDefForRestore(srcDbName, db.getName());
+                    remoteView.resetIdsForRestore(env);
                     restoredTbls.add(remoteView);
                 }
             }
@@ -1100,7 +1107,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                                     remoteReplicas.size()));
                         }
                         for (int j = 0; j < remoteReplicas.size(); j++) {
-                            long backendId = localReplicas.get(j).getBackendId();
+                            long backendId = localReplicas.get(j).getBackendIdWithoutException();
                             remoteReplicas.get(j).setBackendId(backendId);
                             if (LOG.isDebugEnabled()) {
                                 LOG.debug("bind local replica {} and remote replica {} with same backend {}, table={}",
@@ -1143,7 +1150,8 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                     boolean isRestoreTask = true;
                     // We don't care the visible version in restore job, the end version is used.
                     long visibleVersion = -1L;
-                    SnapshotTask task = new SnapshotTask(null, replica.getBackendId(), signature, jobId, db.getId(),
+                    SnapshotTask task = new SnapshotTask(null, replica.getBackendIdWithoutException(),
+                            signature, jobId, db.getId(),
                             tbl.getId(), part.getId(), index.getId(), tablet.getId(), visibleVersion,
                             tbl.getSchemaHashByIndexId(index.getId()), timeoutMs, isRestoreTask);
                     if (entry.getValue().hasRefTabletId()) {
@@ -1151,7 +1159,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                     }
                     batchTask.addTask(task);
                     unfinishedSignatureToId.put(signature, tablet.getId());
-                    bePathsMap.put(replica.getBackendId(), replica.getPathHash());
+                    bePathsMap.put(replica.getBackendIdWithoutException(), replica.getPathHash());
                 } finally {
                     tbl.readUnlock();
                 }
@@ -1271,7 +1279,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                 Env.getCurrentInvertedIndex().addTablet(restoreTablet.getId(), tabletMeta);
                 for (Replica restoreReplica : restoreTablet.getReplicas()) {
                     Env.getCurrentInvertedIndex().addReplica(restoreTablet.getId(), restoreReplica);
-                    CreateReplicaTask task = new CreateReplicaTask(restoreReplica.getBackendId(), dbId,
+                    CreateReplicaTask task = new CreateReplicaTask(restoreReplica.getBackendIdWithoutException(), dbId,
                             localTbl.getId(), restorePart.getId(), restoredIdx.getId(),
                             restoreTablet.getId(), restoreReplica.getId(), indexMeta.getShortKeyColumnCount(),
                             indexMeta.getSchemaHash(), restoreReplica.getVersion(),
@@ -2257,6 +2265,12 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
 
             // remove restored tbls
             for (Table restoreTbl : restoredTbls) {
+                if (isAtomicRestore && restoreTbl.getType() == TableType.OLAP
+                        && !restoreTbl.getName().startsWith(ATOMIC_RESTORE_TABLE_PREFIX)) {
+                    // In atomic restore, a table registered to db must have a name with the prefix,
+                    // otherwise, it has not been registered and can be ignored here.
+                    continue;
+                }
                 LOG.info("remove restored table when cancelled: {}", restoreTbl.getName());
                 if (db.writeLockIfExist()) {
                     try {
