@@ -664,7 +664,8 @@ public class SessionVariable implements Serializable, Writable {
                                     "enable_adaptive_pipeline_task_serial_read_on_limit";
     public static final String ADAPTIVE_PIPELINE_TASK_SERIAL_READ_ON_LIMIT =
                                     "adaptive_pipeline_task_serial_read_on_limit";
-
+    public static final String ENABLE_COOLDOWN_REPLICA_AFFINITY =
+            "enable_cooldown_replica_affinity";
     /**
      * If set false, user couldn't submit analyze SQL and FE won't allocate any related resources.
      */
@@ -2176,6 +2177,13 @@ public class SessionVariable implements Serializable, Writable {
             + "the number of rows at which the parallelism of the scan will be set to 1."
     })
     public int adaptivePipelineTaskSerialReadOnLimit = 10000;
+
+    @VariableMgr.VarAttr(name = ENABLE_COOLDOWN_REPLICA_AFFINITY, needForward = true)
+    public boolean enableCooldownReplicaAffinity = true;
+
+    public boolean isEnableCooldownReplicaAffinity() {
+        return enableCooldownReplicaAffinity;
+    }
 
     public void setEnableEsParallelScroll(boolean enableESParallelScroll) {
         this.enableESParallelScroll = enableESParallelScroll;
