@@ -44,8 +44,8 @@
 #include "olap/schema_cache.h"
 #include "olap/tablet_meta.h"
 #include "olap/tablet_schema.h"
-#include "util/runtime_profile.h"
 #include "runtime/query_context.h"
+#include "util/runtime_profile.h"
 #include "vec/core/block.h"
 #include "vec/olap/vgeneric_iterators.h"
 
