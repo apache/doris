@@ -490,8 +490,6 @@ int64_t VCollectIterator::Level0Iterator::version() const {
 }
 
 Status VCollectIterator::Level0Iterator::refresh_current_row() {
-    DCHECK(_reader != nullptr);
-
     QueryContext* query_context = nullptr;
     if (_reader != nullptr && _reader->_reader_context.runtime_state != nullptr) {
         query_context = _reader->_reader_context.runtime_state->get_query_ctx();
@@ -688,7 +686,6 @@ Status VCollectIterator::Level1Iterator::init(bool get_data_by_ref) {
 }
 
 Status VCollectIterator::Level1Iterator::ensure_first_row_ref() {
-    DCHECK(_reader != nullptr);
     QueryContext* query_context = nullptr;
     if (_reader != nullptr && _reader->_reader_context.runtime_state != nullptr) {
         query_context = _reader->_reader_context.runtime_state->get_query_ctx();
