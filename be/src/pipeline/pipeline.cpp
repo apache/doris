@@ -69,7 +69,7 @@ Status Pipeline::set_sink(DataSinkOperatorPtr& sink) {
 void Pipeline::make_all_runnable() {
     for (auto* task : _tasks) {
         if (task) {
-            task->clear_blocking_state();
+            task->clear_blocking_state(true);
         }
     }
 }
