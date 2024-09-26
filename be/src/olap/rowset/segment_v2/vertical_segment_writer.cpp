@@ -827,7 +827,7 @@ Status VerticalSegmentWriter::_generate_primary_key_index(
             }
             DCHECK(key.compare(last_key) > 0)
                     << "found duplicate key or key is not sorted! current key: " << key
-                    << ", last key" << last_key;
+                    << ", last key: " << last_key;
             RETURN_IF_ERROR(_primary_key_index_builder->add_item(key));
             last_key = std::move(key);
         }
@@ -850,8 +850,9 @@ Status VerticalSegmentWriter::_generate_primary_key_index(
         for (const auto& key : primary_keys) {
             DCHECK(key.compare(last_key) > 0)
                     << "found duplicate key or key is not sorted! current key: " << key
-                    << ", last key" << last_key;
+                    << ", last key: " << last_key;
             RETURN_IF_ERROR(_primary_key_index_builder->add_item(key));
+            last_key = key;
         }
     }
     return Status::OK();
@@ -863,10 +864,18 @@ Status VerticalSegmentWriter::_generate_short_key_index(
     // use _key_coders
     _set_min_key(_full_encode_keys(key_columns, 0));
     _set_max_key(_full_encode_keys(key_columns, num_rows - 1));
+    DCHECK(Slice(_max_key.data(), _max_key.size())
+                   .compare(Slice(_min_key.data(), _min_key.size())) >= 0)
+            << "key is not sorted! min key: " << _min_key << ", max key: " << _max_key;
 
     key_columns.resize(_num_short_key_columns);
+    std::string last_key;
     for (const auto pos : short_key_pos) {
-        RETURN_IF_ERROR(_short_key_index_builder->add_item(_encode_keys(key_columns, pos)));
+        std::string key = _encode_keys(key_columns, pos);
+        DCHECK(key.compare(last_key) >= 0)
+                << "key is not sorted! current key: " << key << ", last key: " << last_key;
+        RETURN_IF_ERROR(_short_key_index_builder->add_item(key));
+        last_key = std::move(key);
     }
     return Status::OK();
 }

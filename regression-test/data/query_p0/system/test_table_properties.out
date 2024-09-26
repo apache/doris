@@ -12,7 +12,6 @@ internal	test_table_properties_db	duplicate_table	compaction_policy	size_based
 internal	test_table_properties_db	duplicate_table	compression	LZ4F
 internal	test_table_properties_db	duplicate_table	data_sort.col_num	3
 internal	test_table_properties_db	duplicate_table	data_sort.sort_type	LEXICAL
-internal	test_table_properties_db	duplicate_table	default.replication_allocation	tag.location.default: 1
 internal	test_table_properties_db	duplicate_table	disable_auto_compaction	false
 internal	test_table_properties_db	duplicate_table	enable_mow_light_delete	false
 internal	test_table_properties_db	duplicate_table	enable_single_replica_compaction	false
@@ -45,7 +44,6 @@ internal	test_table_properties_db	listtable	compaction_policy	size_based
 internal	test_table_properties_db	listtable	compression	LZ4F
 internal	test_table_properties_db	listtable	data_sort.col_num	6
 internal	test_table_properties_db	listtable	data_sort.sort_type	LEXICAL
-internal	test_table_properties_db	listtable	default.replication_allocation	tag.location.default: 1
 internal	test_table_properties_db	listtable	disable_auto_compaction	false
 internal	test_table_properties_db	listtable	enable_mow_light_delete	false
 internal	test_table_properties_db	listtable	enable_single_replica_compaction	false
@@ -78,7 +76,6 @@ internal	test_table_properties_db	unique_table	compaction_policy	size_based
 internal	test_table_properties_db	unique_table	compression	LZ4F
 internal	test_table_properties_db	unique_table	data_sort.col_num	2
 internal	test_table_properties_db	unique_table	data_sort.sort_type	LEXICAL
-internal	test_table_properties_db	unique_table	default.replication_allocation	tag.location.default: 1
 internal	test_table_properties_db	unique_table	disable_auto_compaction	false
 internal	test_table_properties_db	unique_table	enable_mow_light_delete	false
 internal	test_table_properties_db	unique_table	enable_single_replica_compaction	false
@@ -113,7 +110,6 @@ internal	test_table_properties_db	duplicate_table	compaction_policy	size_based
 internal	test_table_properties_db	duplicate_table	compression	LZ4F
 internal	test_table_properties_db	duplicate_table	data_sort.col_num	3
 internal	test_table_properties_db	duplicate_table	data_sort.sort_type	LEXICAL
-internal	test_table_properties_db	duplicate_table	default.replication_allocation	tag.location.default: 1
 internal	test_table_properties_db	duplicate_table	disable_auto_compaction	false
 internal	test_table_properties_db	duplicate_table	enable_mow_light_delete	false
 internal	test_table_properties_db	duplicate_table	enable_single_replica_compaction	false
@@ -146,7 +142,6 @@ internal	test_table_properties_db	unique_table	compaction_policy	size_based
 internal	test_table_properties_db	unique_table	compression	LZ4F
 internal	test_table_properties_db	unique_table	data_sort.col_num	2
 internal	test_table_properties_db	unique_table	data_sort.sort_type	LEXICAL
-internal	test_table_properties_db	unique_table	default.replication_allocation	tag.location.default: 1
 internal	test_table_properties_db	unique_table	disable_auto_compaction	false
 internal	test_table_properties_db	unique_table	enable_mow_light_delete	false
 internal	test_table_properties_db	unique_table	enable_single_replica_compaction	false
@@ -183,7 +178,6 @@ internal	test_table_properties_db	duplicate_table	compaction_policy	size_based
 internal	test_table_properties_db	duplicate_table	compression	LZ4F
 internal	test_table_properties_db	duplicate_table	data_sort.col_num	3
 internal	test_table_properties_db	duplicate_table	data_sort.sort_type	LEXICAL
-internal	test_table_properties_db	duplicate_table	default.replication_allocation	tag.location.default: 1
 internal	test_table_properties_db	duplicate_table	disable_auto_compaction	false
 internal	test_table_properties_db	duplicate_table	enable_mow_light_delete	false
 internal	test_table_properties_db	duplicate_table	enable_single_replica_compaction	false

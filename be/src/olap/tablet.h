@@ -46,6 +46,7 @@
 #include "olap/rowset/rowset_reader.h"
 #include "olap/rowset/segment_v2/segment.h"
 #include "olap/version_graph.h"
+#include "runtime/memory/mem_tracker_limiter.h"
 #include "segment_loader.h"
 #include "util/metrics.h"
 #include "util/once.h"
@@ -631,6 +632,8 @@ private:
 
     int32_t _compaction_score = -1;
     int32_t _score_check_cnt = 0;
+ 
+    std::shared_ptr<MemTrackerLimiter> _upload_cooldown_meta_tracker;
 };
 
 inline CumulativeCompactionPolicy* Tablet::cumulative_compaction_policy() {

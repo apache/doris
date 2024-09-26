@@ -26,6 +26,7 @@
 
 #include "common/status.h"
 #include "olap/tablet_fwd.h"
+#include "runtime/memory/mem_tracker_limiter.h"
 
 namespace doris {
 namespace io {
@@ -111,6 +112,7 @@ private:
     const TNetworkAddress _broker_addr;
     const std::map<std::string, std::string> _prop;
     std::shared_ptr<io::RemoteFileSystem> _remote_fs;
+    std::shared_ptr<MemTrackerLimiter> _mem_tracker;
 };
 
 } // end namespace doris

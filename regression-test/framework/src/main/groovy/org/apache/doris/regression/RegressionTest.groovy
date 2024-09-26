@@ -274,6 +274,10 @@ class RegressionTest {
             }
         }
 
+        if (!config.runNonConcurrent) {
+            return
+        }
+        
         log.info('Start to run single scripts')
         futures.clear()
         scriptSources.eachWithIndex { source, i ->

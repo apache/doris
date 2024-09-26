@@ -1089,7 +1089,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                     long tabletId = tablet.getId();
                     List<Replica> replicas = tablet.getReplicas();
                     for (Replica replica : replicas) {
-                        long backendId = replica.getBackendId();
+                        long backendId = replica.getBackendIdWithoutException();
                         long replicaId = replica.getId();
                         DropReplicaTask dropTask = new DropReplicaTask(backendId, tabletId,
                                 replicaId, schemaHash, true);
@@ -1671,13 +1671,6 @@ public class InternalCatalog implements CatalogIf<Database> {
             if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY)) {
                 properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY, olapTable.getStoragePolicy());
             }
-            if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM)) {
-                TStorageMedium tableStorageMedium = olapTable.getStorageMedium();
-                if (tableStorageMedium != null) {
-                    properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM,
-                            tableStorageMedium.name().toLowerCase());
-                }
-            }
 
             singlePartitionDesc.analyze(partitionInfo.getPartitionColumns().size(), properties);
             partitionInfo.createAndCheckPartitionItem(singlePartitionDesc, isTempPartition);
@@ -2157,7 +2150,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             for (Tablet tablet : index.getTablets()) {
                 long tabletId = tablet.getId();
                 for (Replica replica : tablet.getReplicas()) {
-                    long backendId = replica.getBackendId();
+                    long backendId = replica.getBackendIdWithoutException();
                     long replicaId = replica.getId();
                     countDownLatch.addMark(backendId, tabletId);
                     CreateReplicaTask task = new CreateReplicaTask(backendId, dbId, tbl.getId(), partitionId, indexId,
@@ -2525,6 +2518,16 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
         // use light schema change optimization
         olapTable.setEnableLightSchemaChange(enableLightSchemaChange);
+
+        // check if light schema change is disabled, variant type rely on light schema change
+        if (!enableLightSchemaChange) {
+            for (Column column : baseSchema) {
+                if (column.getType().isVariantType()) {
+                    throw new DdlException("Variant type rely on light schema change, "
+                            + " please use light_schema_change = true.");
+                }
+            }
+        }
 
         boolean disableAutoCompaction = false;
         try {

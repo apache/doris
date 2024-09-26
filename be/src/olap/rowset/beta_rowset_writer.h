@@ -226,7 +226,7 @@ protected:
     Status _build_rowset_meta(RowsetMeta* rowset_meta, bool check_segment_num = false);
     Status _create_file_writer(const std::string& path, io::FileWriterPtr& file_writer);
     virtual Status _close_file_writers();
-    virtual Status _check_segment_number_limit();
+    virtual Status _check_segment_number_limit(size_t segnum);
     virtual int64_t _num_seg() const;
     // build a tmp rowset for load segment to calc delete_bitmap for this segment
     Status _build_tmp(RowsetSharedPtr& rowset_ptr);
@@ -285,6 +285,8 @@ public:
 
     Status build(RowsetSharedPtr& rowset) override;
 
+    Status init(const RowsetWriterContext& rowset_writer_context) override;
+
     Status add_segment(uint32_t segment_id, const SegmentStatistics& segstat,
                        TabletSchemaSPtr flush_schema) override;
 
@@ -298,7 +300,7 @@ private:
     // segment compaction
     friend class SegcompactionWorker;
     Status _close_file_writers() override;
-    Status _check_segment_number_limit() override;
+    Status _check_segment_number_limit(size_t segnum) override;
     int64_t _num_seg() const override;
     Status _wait_flying_segcompaction();
     Status _create_segment_writer_for_segcompaction(
@@ -307,7 +309,6 @@ private:
     Status _segcompaction_rename_last_segments();
     Status _load_noncompacted_segment(segment_v2::SegmentSharedPtr& segment, int32_t segment_id);
     Status _find_longest_consecutive_small_segment(SegCompactionCandidatesSharedPtr& segments);
-    bool _check_and_set_is_doing_segcompaction();
     Status _rename_compacted_segments(int64_t begin, int64_t end);
     Status _rename_compacted_segment_plain(uint64_t seg_id);
     Status _rename_compacted_indices(int64_t begin, int64_t end, uint64_t seg_id);
@@ -319,7 +320,7 @@ private:
                                                   // already been segment compacted
     std::atomic<int32_t> _num_segcompacted {0};   // index for segment compaction
 
-    std::shared_ptr<SegcompactionWorker> _segcompaction_worker;
+    std::shared_ptr<SegcompactionWorker> _segcompaction_worker = nullptr;
 
     // ensure only one inflight segcompaction task for each rowset
     std::atomic<bool> _is_doing_segcompaction {false};
