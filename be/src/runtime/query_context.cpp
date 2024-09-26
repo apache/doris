@@ -130,6 +130,11 @@ void QueryContext::_init_query_mem_tracker() {
                     << " OR is -1. Using process memory limit instead.";
         bytes_limit = MemInfo::mem_limit();
     }
+    // If the query is a pure load task(streamload, routine load, group commit), then it should not use
+    // memlimit per query to limit their memory usage.
+    if (is_pure_load_task()) {
+        bytes_limit = MemInfo::mem_limit();
+    }
     if (_query_options.query_type == TQueryType::SELECT) {
         query_mem_tracker = MemTrackerLimiter::create_shared(
                 MemTrackerLimiter::Type::QUERY, fmt::format("Query#Id={}", print_id(_query_id)),

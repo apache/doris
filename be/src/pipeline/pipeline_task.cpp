@@ -367,7 +367,7 @@ Status PipelineTask::execute(bool* eos) {
 
         // `_dry_run` means sink operator need no more data
         // `_sink->is_finished(_state)` means sink operator should be finished
-        size_t reserve_size = 0;
+        int64_t reserve_size = 0;
         bool has_enough_memory = true;
         if (_dry_run || _sink->is_finished(_state)) {
             *eos = true;
@@ -401,7 +401,7 @@ Status PipelineTask::execute(bool* eos) {
                     if (is_low_wartermark || is_high_wartermark) {
                         _memory_sufficient_dependency->block();
                         ExecEnv::GetInstance()->workload_group_mgr()->add_paused_query(
-                                _state->get_query_ctx()->shared_from_this());
+                                _state->get_query_ctx()->shared_from_this(), reserve_size);
                         continue;
                     }
                     has_enough_memory = false;
@@ -439,7 +439,7 @@ Status PipelineTask::execute(bool* eos) {
                       << ", insufficient memory. reserve_size: " << reserve_size;
             _memory_sufficient_dependency->block();
             ExecEnv::GetInstance()->workload_group_mgr()->add_paused_query(
-                    _state->get_query_ctx()->shared_from_this());
+                    _state->get_query_ctx()->shared_from_this(), reserve_size);
             break;
         }
     }
