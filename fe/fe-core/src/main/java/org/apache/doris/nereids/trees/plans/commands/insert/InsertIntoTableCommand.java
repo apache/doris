@@ -123,12 +123,20 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
         runInternal(ctx, executor);
     }
 
+    public AbstractInsertExecutor initPlan(ConnectContext ctx, StmtExecutor executor) throws Exception {
+        return initPlan(ctx, executor, true);
+    }
+
     /**
      * This function is used to generate the plan for Nereids.
      * There are some load functions that only need to the plan, such as stream_load.
      * Therefore, this section will be presented separately.
+     * @param needBeginTransaction whether to start a transaction.
+     *       For external uses such as creating a job, only basic analysis is needed without starting a transaction,
+     *       in which case this can be set to false.
      */
-    public AbstractInsertExecutor initPlan(ConnectContext ctx, StmtExecutor executor) throws Exception {
+    public AbstractInsertExecutor initPlan(ConnectContext ctx, StmtExecutor executor,
+                                           boolean needBeginTransaction) throws Exception {
         TableIf targetTableIf = InsertUtils.getTargetTable(logicalQuery, ctx);
         // check auth
         if (!Env.getCurrentEnv().getAccessManager()
@@ -219,6 +227,10 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
             } else {
                 // TODO: support other table types
                 throw new AnalysisException("insert into command only support [olap, hive, iceberg, jdbc] table");
+            }
+            if (!needBeginTransaction) {
+                targetTableIf.readUnlock();
+                return insertExecutor;
             }
             if (!insertExecutor.isEmptyInsert()) {
                 insertExecutor.beginTransaction();
