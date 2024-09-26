@@ -15,11 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite('test_flexible_partial_update_filter_missing_key') {
+suite('test_flexible_partial_update_filter_ratio') {
 
     for (def row_store : [false, true]) {
+        // rows that miss key columns will be filtered
         def tableName = "test_flexible_partial_update_filter_missing_key"
-        sql """ DROP TABLE IF EXISTS ${tableName} """
+        sql """ DROP TABLE IF EXISTS ${tableName} force"""
         sql """ CREATE TABLE ${tableName} (
             `k1` int NULL, 
             `k2` int null,
@@ -38,7 +39,7 @@ suite('test_flexible_partial_update_filter_missing_key') {
         def show_res = sql "show create table ${tableName}"
         assertTrue(show_res.toString().contains('"enable_unique_key_skip_bitmap_column" = "true"'))
         sql """insert into ${tableName} select number, number, number, number, number, number, number from numbers("number" = "6"); """
-        order_qt_sql "select k1,k2,v1,v2,v3,v4,v5,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName};"
+        qt_sql "select k1,k2,v1,v2,v3,v4,v5,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName} order by k1,k2;"
 
         // the default value of max_filter_ratio is 0, will fail
         streamLoad {
@@ -143,7 +144,55 @@ suite('test_flexible_partial_update_filter_missing_key') {
                 assertEquals(3, json.NumberLoadedRows)
             }
         }
-        order_qt_sql "select k1,k2,v1,v2,v3,v4,v5,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName};"
-        sql """ DROP TABLE IF EXISTS ${tableName} """
+        qt_key_missing "select k1,k2,v1,v2,v3,v4,v5,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName} order by k1,k2;"
+
+        // in strict mode, rows with invalid input data will be filtered
+        // and the load will fail if exceeds max_filter_ratio
+        streamLoad {
+            table "${tableName}"
+            set 'format', 'json'
+            set 'read_json_by_line', 'true'
+            set 'strict_mode', 'true'
+            set 'unique_key_update_mode', 'UPDATE_FLEXIBLE_COLUMNS'
+            set 'max_filter_ratio', '0.8'
+            file "quality1.json"
+            time 20000
+            check { result, exception, startTime, endTime ->
+                if (exception != null) {
+                    throw exception
+                }
+                def json = parseJson(result)
+                assertEquals("success", json.Status.toLowerCase())
+                assertEquals(3, json.NumberTotalRows)
+                assertEquals(1, json.NumberFilteredRows)
+                assertEquals(2, json.NumberLoadedRows)
+            }
+        }
+        qt_quality1 "select k1,k2,v1,v2,v3,v4,v5,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName} order by k1,k2;"
+        
+
+        streamLoad {
+            table "${tableName}"
+            set 'format', 'json'
+            set 'read_json_by_line', 'true'
+            set 'strict_mode', 'true'
+            set 'unique_key_update_mode', 'UPDATE_FLEXIBLE_COLUMNS'
+            set 'max_filter_ratio', '0.2'
+            file "quality2.json"
+            time 20000
+            check { result, exception, startTime, endTime ->
+                if (exception != null) {
+                    throw exception
+                }
+                def json = parseJson(result)
+                assertEquals("fail", json.Status.toLowerCase())
+                assertEquals(3, json.NumberTotalRows)
+                assertEquals(1, json.NumberFilteredRows)
+                assertEquals(2, json.NumberLoadedRows)
+            }
+        }
+        qt_quality2 "select k1,k2,v1,v2,v3,v4,v5,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName} order by k1,k2;"
+
+        sql """ DROP TABLE IF EXISTS ${tableName} force;"""
     }
 }
