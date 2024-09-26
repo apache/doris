@@ -626,6 +626,27 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         }
     }
 
+    /**
+     * if the table is not analyzed and BE does not report row count, return -1
+     */
+    private double getOlapTableRowCount(OlapScan olapScan) {
+        OlapTable olapTable = olapScan.getTable();
+        AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
+        TableStatsMeta tableMeta = analysisManager.findTableStatsStatus(olapScan.getTable().getId());
+        double rowCount = -1;
+        if (tableMeta != null && tableMeta.userInjected) {
+            rowCount = tableMeta.getRowCount(olapScan.getSelectedIndexId());
+        } else {
+            rowCount = olapTable.getRowCountForIndex(olapScan.getSelectedIndexId(), true);
+            if (rowCount == -1) {
+                if (tableMeta != null) {
+                    rowCount = tableMeta.getRowCount(olapScan.getSelectedIndexId());
+                }
+            }
+        }
+        return rowCount;
+    }
+
     // TODO: 1. Subtract the pruned partition
     //       2. Consider the influence of runtime filter
     //       3. Get NDV and column data size from StatisticManger, StatisticManager doesn't support it now.
@@ -644,7 +665,16 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         TableStatsMeta tableMeta = analysisManager.findTableStatsStatus(table.getId());
         // rows newly updated after last analyze
         long deltaRowCount = tableMeta == null ? 0 : tableMeta.updatedRows.get();
-        double rowCount = catalogRelation.getTable().getRowCountForNereids();
+        double rowCount;
+        if (catalogRelation instanceof OlapScan) {
+            rowCount = getOlapTableRowCount((OlapScan) catalogRelation);
+            if (rowCount == -1) {
+                // if reported table row count is not valid, use 1
+                rowCount = 1;
+            }
+        } else {
+            rowCount = catalogRelation.getTable().getRowCountForNereids();
+        }
         boolean hasUnknownCol = false;
         long idxId = -1;
         if (catalogRelation instanceof OlapScan) {
@@ -653,10 +683,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                 idxId = olapScan.getSelectedIndexId();
             }
         }
-        // if (deltaRowCount > 0 && LOG.isDebugEnabled()) {
-        //     LOG.debug("{} is partially analyzed, clear min/max values in column stats",
-        //             catalogRelation.getTable().getName());
-        // }
+
         for (SlotReference slotReference : slotSet) {
             String colName = slotReference.getColumn().isPresent()
                     ? slotReference.getColumn().get().getName()
@@ -684,20 +711,10 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                 colStatsBuilder.setMinExpr(null);
                 colStatsBuilder.setMaxExpr(null);
             }
-            if (!cache.isUnKnown) {
-                rowCount = Math.max(rowCount, cache.count + deltaRowCount);
-            } else {
+            if (cache.isUnKnown) {
                 hasUnknownCol = true;
             }
             if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().enableStats) {
-                // if (deltaRowCount > 0) {
-                //     // clear min-max to avoid error estimation
-                //     // for example, after yesterday data loaded, user send query about yesterday immediately.
-                //     // since yesterday data are not analyzed, the max date is before yesterday, and hence optimizer
-                //     // estimates the filter result is zero
-                //     colStatsBuilder.setMinExpr(null).setMinValue(Double.NEGATIVE_INFINITY)
-                //             .setMaxExpr(null).setMaxValue(Double.POSITIVE_INFINITY);
-                // }
                 columnStatisticBuilderMap.put(slotReference, colStatsBuilder);
             } else {
                 columnStatisticBuilderMap.put(slotReference, new ColumnStatisticBuilder(ColumnStatistic.UNKNOWN));
@@ -1136,27 +1153,6 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     public Statistics visitPhysicalCTEAnchor(
             PhysicalCTEAnchor<? extends Plan, ? extends Plan> cteAnchor, Void context) {
         return groupExpression.childStatistics(1);
-    }
-
-    /**
-     * if the table is not analyzed and BE does not report row count, return -1
-     */
-    private double getOlapTableRowCount(OlapScan olapScan) {
-        OlapTable olapTable = olapScan.getTable();
-        AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
-        TableStatsMeta tableMeta = analysisManager.findTableStatsStatus(olapScan.getTable().getId());
-        double rowCount = -1;
-        if (tableMeta != null && tableMeta.userInjected) {
-            rowCount = tableMeta.getRowCount(olapScan.getSelectedIndexId());
-        } else {
-            rowCount = olapTable.getRowCountForIndex(olapScan.getSelectedIndexId(), true);
-            if (rowCount == -1) {
-                if (tableMeta != null) {
-                    rowCount = tableMeta.getRowCount(olapScan.getSelectedIndexId());
-                }
-            }
-        }
-        return rowCount;
     }
 
     /**
