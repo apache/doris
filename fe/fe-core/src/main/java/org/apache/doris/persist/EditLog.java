@@ -1271,11 +1271,24 @@ public class EditLog {
     private synchronized <T extends Writable> void logEdit(short op, List<T> entries) throws IOException {
         int itemNum = Math.max(1, Math.min(Config.batch_edit_log_max_item_num, entries.size()));
         JournalBatch batch = new JournalBatch(itemNum);
+        long batchCount = 0;
         for (T entry : entries) {
             if (batch.getJournalEntities().size() >= Config.batch_edit_log_max_item_num
                     || batch.getSize() >= Config.batch_edit_log_max_byte_size) {
                 journal.write(batch);
                 batch = new JournalBatch(itemNum);
+
+                // take a rest
+                batchCount++;
+                if (batchCount >= Config.batch_edit_log_continuous_count_for_rest
+                        && Config.batch_edit_log_rest_time_ms > 0) {
+                    batchCount = 0;
+                    try {
+                        Thread.sleep(Config.batch_edit_log_rest_time_ms);
+                    } catch (InterruptedException e) {
+                        LOG.warn("sleep failed", e);
+                    }
+                }
             }
             batch.addJournal(op, entry);
         }
