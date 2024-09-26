@@ -69,7 +69,7 @@ Status StreamLoadExecutor::execute_plan_fragment(std::shared_ptr<StreamLoadConte
 // submit this params
 #ifndef BE_TEST
     ctx->start_write_data_nanos = MonotonicNanos();
-    LOG(INFO) << "begin to execute job. label=" << ctx->label << ", txn_id=" << ctx->txn_id
+    LOG(INFO) << "begin to execute stream load. label=" << ctx->label << ", txn_id=" << ctx->txn_id
               << ", query_id=" << print_id(ctx->put_result.params.params.query_id);
     Status st;
     if (ctx->put_result.__isset.params) {
@@ -144,6 +144,16 @@ Status StreamLoadExecutor::execute_plan_fragment(std::shared_ptr<StreamLoadConte
                             this->commit_txn(ctx.get());
                         }
                     }
+
+                    LOG(INFO) << "finished to execute stream load. label=" << ctx->label
+                              << ", txn_id=" << ctx->txn_id
+                              << ", query_id=" << print_id(ctx->put_result.params.params.query_id)
+                              << ", receive_data_cost_ms="
+                              << (ctx->receive_and_read_data_cost_nanos -
+                                  ctx->read_data_cost_nanos) /
+                                         1000000
+                              << ", read_data_cost_ms=" << ctx->read_data_cost_nanos / 1000000
+                              << ", write_data_cost_ms=" << ctx->write_data_cost_nanos / 1000000;
                 });
     } else {
         st = _exec_env->fragment_mgr()->exec_plan_fragment(
@@ -217,6 +227,16 @@ Status StreamLoadExecutor::execute_plan_fragment(std::shared_ptr<StreamLoadConte
                             this->commit_txn(ctx.get());
                         }
                     }
+
+                    LOG(INFO) << "finished to execute stream load. label=" << ctx->label
+                              << ", txn_id=" << ctx->txn_id
+                              << ", query_id=" << print_id(ctx->put_result.params.params.query_id)
+                              << ", receive_data_cost_ms="
+                              << (ctx->receive_and_read_data_cost_nanos -
+                                  ctx->read_data_cost_nanos) /
+                                         1000000
+                              << ", read_data_cost_ms=" << ctx->read_data_cost_nanos / 1000000
+                              << ", write_data_cost_ms=" << ctx->write_data_cost_nanos / 1000000;
                 });
     }
     if (!st.ok()) {
