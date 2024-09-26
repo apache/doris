@@ -529,7 +529,7 @@ public class Profile {
         long currentTimeMillis = System.currentTimeMillis();
         if (this.queryFinishTimestamp != Long.MAX_VALUE
                     && (currentTimeMillis - this.queryFinishTimestamp)
-                        > Config.profile_waiting_time_for_spill_secs * 1000) {
+                        > Config.profile_waiting_time_for_spill_seconds * 1000) {
             LOG.warn("Profile {} should be stored to storage without waiting for incoming profile,"
                     + " since it has been waiting for {} ms, current time {} query finished time: {}",
                     id, currentTimeMillis - this.queryFinishTimestamp, currentTimeMillis, this.queryFinishTimestamp);
@@ -537,7 +537,7 @@ public class Profile {
             this.summaryProfile.setSystemMessage(
                             "This profile is not complete, since its collection does not finish in time."
                             + " Maybe increase profile_waiting_time_for_spill_secs in fe.conf current val: "
-                            + String.valueOf(Config.profile_waiting_time_for_spill_secs));
+                            + String.valueOf(Config.profile_waiting_time_for_spill_seconds));
             return true;
         }
 

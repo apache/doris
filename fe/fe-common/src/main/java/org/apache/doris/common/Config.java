@@ -2785,8 +2785,10 @@ public class Config extends ConfigBase {
     public static long spilled_profile_storage_limit_bytes = 1 * 1024 * 1024 * 1024; // 1GB
 
     // Profile will be spilled to storage after query has finished for this time.
-    @ConfField
-    public static int profile_waiting_time_for_spill_secs = 10;
+    @ConfField(mutable = true, description = {
+            "Profile 在 query 完成后等待多久后才会被写入磁盘",
+            "Profile will be spilled to storage after query has finished for this time"})
+    public static int profile_waiting_time_for_spill_seconds = 10;
 
     @ConfField(mutable = true, description = {
             "是否通过检测协调者BE心跳来 abort 事务",
