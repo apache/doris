@@ -89,7 +89,7 @@ public class SimpleScheduler {
 
             // Restart the counter if the time interval is too long
             if (lastRecordBlackTimestampMs - firstRecordBlackTimestampMs
-                    >= Config.do_add_backend_black_list_threshold_secs * 1000) {
+                    >= Config.do_add_backend_black_list_threshold_seconds * 1000) {
                 firstRecordBlackTimestampMs = lastRecordBlackTimestampMs;
                 recordBlackListCount = 0L;
             }
@@ -111,7 +111,7 @@ public class SimpleScheduler {
             }
 
             if (lastRecordBlackTimestampMs - firstRecordBlackTimestampMs
-                    >= Config.do_add_backend_black_list_threshold_secs * 1000) {
+                    >= Config.do_add_backend_black_list_threshold_seconds * 1000) {
                 return false;
             }
 
@@ -135,7 +135,7 @@ public class SimpleScheduler {
                 Long currentTimeStamp = System.currentTimeMillis();
                 // If this backend has not been recorded as black for more than 10 secs, then regard it as normal
                 if (currentTimeStamp - lastBlackTimestampMs
-                        >= Config.stay_in_backend_black_list_threshold_secs * 1000) {
+                        >= Config.stay_in_backend_black_list_threshold_seconds * 1000) {
                     return true;
                 } else {
                     return false;
@@ -180,10 +180,10 @@ public class SimpleScheduler {
                 sb.append("lastRecordBlackTimestampMs: ").append(lastRecordBlackTimes).append("\n");
                 sb.append("lastBlackTimestampMs: ").append(lastBlackTimes).append("\n");
                 sb.append("recordBlackListCount: ").append(recordBlackListCount).append("\n");
-                sb.append("Config.do_add_backend_black_list_threshold_secs: ")
-                    .append(Config.do_add_backend_black_list_threshold_secs).append("\n");
-                sb.append("Config.stay_in_backend_black_list_threshold_secs: ")
-                    .append(Config.stay_in_backend_black_list_threshold_secs).append("\n");
+                sb.append("Config.do_add_backend_black_list_threshold_seconds: ")
+                    .append(Config.do_add_backend_black_list_threshold_seconds).append("\n");
+                sb.append("Config.stay_in_backend_black_list_threshold_seconds: ")
+                    .append(Config.stay_in_backend_black_list_threshold_seconds).append("\n");
                 return sb.toString();
             } finally {
                 lock.unlock();
