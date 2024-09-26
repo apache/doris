@@ -1956,6 +1956,9 @@ public class DatabaseTransactionMgr {
                                 }
                             }
                             replica.updateVersionWithFailed(newVersion, lastFailedVersion, lastSuccessVersion);
+                            if (newVersion == Partition.PARTITION_INIT_VERSION + 1) {
+                                index.setRowCountReported(false);
+                            }
                         }
                     }
                 } // end for indices
