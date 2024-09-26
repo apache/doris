@@ -44,41 +44,6 @@ import java.util.Set;
 
 public class UnequalPredicateInferTest {
     @Test
-    public void testInferWithTransitiveEqualityDifferentTable() {
-        // t1.a = t2.b, t2.b = t3.c
-        SlotReference a = new SlotReference("a", IntegerType.INSTANCE, true, ImmutableList.of("t1"));
-        SlotReference b = new SlotReference("b", IntegerType.INSTANCE, true, ImmutableList.of("t2"));
-        SlotReference c = new SlotReference("c", IntegerType.INSTANCE, true, ImmutableList.of("t3"));
-        EqualTo equalTo1 = new EqualTo(a, b);
-        EqualTo equalTo2 = new EqualTo(b, c);
-        Set<ComparisonPredicate> inputs = new LinkedHashSet<>();
-        inputs.add(equalTo1);
-        inputs.add(equalTo2);
-        Set<? extends Expression> result = UnequalPredicateInfer.inferUnequalPredicates(inputs);
-        Assertions.assertEquals(2, result.size());
-        Assertions.assertTrue(result.contains(equalTo1) && result.contains(equalTo2));
-    }
-
-    // should t1.a=t2.c be inferred?
-    @Test
-    public void testInferWithTransitiveEqualityDifferentTableThreeConjuncts() {
-        // t1.a = t2.b, t2.b = t3.c, t1.a=t3.c
-        SlotReference a = new SlotReference("a", IntegerType.INSTANCE, true, ImmutableList.of("t1"));
-        SlotReference b = new SlotReference("b", IntegerType.INSTANCE, true, ImmutableList.of("t2"));
-        SlotReference c = new SlotReference("c", IntegerType.INSTANCE, true, ImmutableList.of("t3"));
-        EqualTo equalTo1 = new EqualTo(a, b);
-        EqualTo equalTo2 = new EqualTo(b, c);
-        EqualTo equalTo3 = new EqualTo(a, c);
-        Set<ComparisonPredicate> inputs = new LinkedHashSet<>();
-        inputs.add(equalTo1);
-        inputs.add(equalTo2);
-        inputs.add(equalTo3);
-        Set<? extends Expression> result = UnequalPredicateInfer.inferUnequalPredicates(inputs);
-        Assertions.assertEquals(2, result.size());
-        Assertions.assertTrue(result.contains(equalTo1) && result.contains(equalTo2));
-    }
-
-    @Test
     public void testInferWithTransitiveEqualitySameTable() {
         // t1.a = t1.b, t1.b = t1.c  only output 2 predicates
         SlotReference a = new SlotReference("a", IntegerType.INSTANCE, true, ImmutableList.of("t1"));
@@ -348,7 +313,7 @@ public class UnequalPredicateInferTest {
     }
 
     @Test
-    // t1.a = 1, t2.b = 1 -> t1.a = 1, t2.b = 1 (no t1.a = t2.b)
+    // t1.a = 1, t2.b = 1 -> t1.a = 1, t2.b = 1, t1.a = t2.b
     public void testChooseEqualPredicatesDiffTable1() {
         SlotReference a = new SlotReference("a", IntegerType.INSTANCE, true, ImmutableList.of("t1"));
         SlotReference b = new SlotReference("b", IntegerType.INSTANCE, true, ImmutableList.of("t2"));
@@ -368,11 +333,13 @@ public class UnequalPredicateInferTest {
         expected[0][2] = Relation.EQ;
         expected[1][0] = Relation.EQ;
         expected[2][0] = Relation.EQ;
+        expected[1][2] = Relation.EQ;
+        expected[2][1] = Relation.EQ;
         assert2DArrayEquals(expected, chosen);
         Assertions.assertTrue(equalWithLiteral.contains(1) && equalWithLiteral.contains(2));
     }
 
-    // t1.a = 1, t2.b = 1, t2.c = 1 -> t1.a = 1, t2.b = 1, t2.c = 1
+    // t1.a = 1, t2.b = 1, t3.c = 1 -> t1.a = 1, t2.b = 1, t2.c = 1, t1.a=t2.b t2.b=t3.c t1.a=t3.c
     @Test
     public void testChooseEqualPredicatesDiffTable2() {
         SlotReference a = new SlotReference("a", IntegerType.INSTANCE, true, ImmutableList.of("t1"));
@@ -398,12 +365,18 @@ public class UnequalPredicateInferTest {
         expected[1][0] = Relation.EQ;
         expected[2][0] = Relation.EQ;
         expected[3][0] = Relation.EQ;
+        expected[2][1] = Relation.EQ;
+        expected[1][2] = Relation.EQ;
+        expected[1][3] = Relation.EQ;
+        expected[3][1] = Relation.EQ;
+        expected[2][3] = Relation.EQ;
+        expected[3][2] = Relation.EQ;
         assert2DArrayEquals(expected, chosen);
         Assertions.assertTrue(equalWithLiteral.contains(1) && equalWithLiteral.contains(2)
                 && equalWithLiteral.contains(3));
     }
 
-    // t1.a = 1, t2.b = t1.a, t1.a = t3.c -> t1.a = 1, t2.b = 1, t3.c = 1
+    // t1.a = 1, t2.b = t1.a, t1.a = t3.c -> t1.a = 1, t2.b = 1, t3.c = 1, t1.a=t2.b t2.b=t3.c t1.a=t3.c
     @Test
     public void testChooseEqualPredicatesDiffTable3() {
         SlotReference a = new SlotReference("a", IntegerType.INSTANCE, true, ImmutableList.of("t1"));
@@ -429,12 +402,18 @@ public class UnequalPredicateInferTest {
         expected[1][0] = Relation.EQ;
         expected[2][0] = Relation.EQ;
         expected[3][0] = Relation.EQ;
+        expected[2][1] = Relation.EQ;
+        expected[1][2] = Relation.EQ;
+        expected[1][3] = Relation.EQ;
+        expected[3][1] = Relation.EQ;
+        expected[2][3] = Relation.EQ;
+        expected[3][2] = Relation.EQ;
         assert2DArrayEquals(expected, chosen);
         Assertions.assertTrue(equalWithLiteral.contains(1) && equalWithLiteral.contains(2)
                 && equalWithLiteral.contains(3));
     }
 
-    // t1.a = 1, t1.b = t1.a, t1.d = t1.c -> t1.a = 1, t1.b = 1, t1.c = t1.d
+    // t1.a = 1, t2.b = t1.a, t4.d = t3.c -> t1.a = 1, t2.b = 1, t4.d = t3.c, t2.b = t1.a, t4.d = t3.c
     @Test
     public void testChooseEqualPredicatesDiffTable5() {
         SlotReference a = new SlotReference("a", IntegerType.INSTANCE, true, ImmutableList.of("t1"));
@@ -455,11 +434,14 @@ public class UnequalPredicateInferTest {
         Relation[][] chosen = inferenceGraph.chooseEqualPredicates(equalWithLiteral);
         Relation[][] expected = new Relation[5][5];
         initGraph(expected, 5);
-        // expected[3][4] (t1.d=t1.c) not chose
         expected[0][1] = Relation.EQ;
         expected[0][2] = Relation.EQ;
         expected[1][0] = Relation.EQ;
         expected[2][0] = Relation.EQ;
+        expected[1][2] = Relation.EQ;
+        expected[2][1] = Relation.EQ;
+        expected[3][4] = Relation.EQ;
+        expected[4][3] = Relation.EQ;
         assert2DArrayEquals(expected, chosen);
         Assertions.assertTrue(equalWithLiteral.contains(1) && equalWithLiteral.contains(2));
         Set<Expression> chosenInputs = inferenceGraph.chooseInputPredicates(chosen);
@@ -582,7 +564,83 @@ public class UnequalPredicateInferTest {
         initGraph(expected, 3);
         expected[0][2] = Relation.GT;
         expected[0][1] = Relation.GT;
+        expected[1][2] = Relation.EQ;
+        expected[2][1] = Relation.EQ;
         assert2DArrayEquals(expected, chosen);
+    }
+
+    // t1.a=t2.b t1.a=t3.c t2.b=t3.c -> t1.a=t2.b t1.a=t3.c t2.b=t3.c
+    @Test
+    public void testInferWithTransitiveEqualityDifferentTableThreeConjuncts1() {
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE, true, ImmutableList.of("t1"));
+        SlotReference b = new SlotReference("b", IntegerType.INSTANCE, true, ImmutableList.of("t2"));
+        SlotReference c = new SlotReference("c", IntegerType.INSTANCE, true, ImmutableList.of("t3"));
+        ComparisonPredicate cmp1 = new EqualTo(a, b);
+        ComparisonPredicate cmp2 = new EqualTo(a, c);
+        ComparisonPredicate cmp3 = new EqualTo(b, c);
+
+        Set<ComparisonPredicate> inputs = new LinkedHashSet<>();
+        inputs.add(cmp1);
+        inputs.add(cmp2);
+        inputs.add(cmp3);
+        Set<? extends Expression> sets = UnequalPredicateInfer.inferUnequalPredicates(inputs);
+        Assertions.assertEquals(3, sets.size());
+        Assertions.assertTrue(sets.contains(cmp1) && sets.contains(cmp2) && sets.contains(cmp3));
+    }
+
+    // t1.a=t3.c t1.a=t2.b t1.b=t3.c -> t1.a=t2.b t1.a=t3.c t2.b=t3.c
+    @Test
+    public void testInferWithTransitiveEqualityDifferentTableTwoConjuncts() {
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE, true, ImmutableList.of("t1"));
+        SlotReference b = new SlotReference("b", IntegerType.INSTANCE, true, ImmutableList.of("t2"));
+        SlotReference c = new SlotReference("c", IntegerType.INSTANCE, true, ImmutableList.of("t3"));
+        ComparisonPredicate cmp1 = new EqualTo(a, c);
+        ComparisonPredicate cmp2 = new EqualTo(a, b);
+        ComparisonPredicate cmp3 = new EqualTo(b, c);
+
+        Set<ComparisonPredicate> inputs = new LinkedHashSet<>();
+        inputs.add(cmp1);
+        inputs.add(cmp2);
+        Set<? extends Expression> sets = UnequalPredicateInfer.inferUnequalPredicates(inputs);
+        Assertions.assertEquals(3, sets.size());
+        Assertions.assertTrue(sets.contains(cmp1) && sets.contains(cmp2) && sets.contains(cmp3));
+    }
+
+    // t1.a=t3.c t1.a=t2.b t1.b=t3.c -> t1.a=t2.b t1.a=t3.c t2.b=t3.c
+    @Test
+    public void testUtilChooseMultiEquals() {
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE, true, ImmutableList.of("t1"));
+        SlotReference b = new SlotReference("b", IntegerType.INSTANCE, true, ImmutableList.of("t2"));
+        SlotReference c = new SlotReference("c", IntegerType.INSTANCE, true, ImmutableList.of("t3"));
+        ComparisonPredicate cmp1 = new EqualTo(a, c);
+        ComparisonPredicate cmp2 = new EqualTo(a, b);
+        ComparisonPredicate cmp3 = new EqualTo(b, c);
+
+        Set<Expression> inputs = new LinkedHashSet<>();
+        inputs.add(cmp1);
+        inputs.add(cmp2);
+        inputs.add(cmp3);
+        Set<? extends Expression> sets = PredicateInferUtils.inferPredicate(inputs);
+        Assertions.assertEquals(3, sets.size());
+        Assertions.assertTrue(sets.contains(cmp1) && sets.contains(cmp2) && sets.contains(cmp3));
+    }
+
+    // t1.a=t3.c t1.a=t2.b -> t1.a=t2.b t1.a=t3.c t2.b=t3.c
+    @Test
+    public void testUtilChooseMultiEquals2() {
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE, true, ImmutableList.of("t1"));
+        SlotReference b = new SlotReference("b", IntegerType.INSTANCE, true, ImmutableList.of("t2"));
+        SlotReference c = new SlotReference("c", IntegerType.INSTANCE, true, ImmutableList.of("t3"));
+        ComparisonPredicate cmp1 = new EqualTo(a, c);
+        ComparisonPredicate cmp2 = new EqualTo(a, b);
+        ComparisonPredicate cmp3 = new EqualTo(b, c);
+
+        Set<Expression> inputs = new LinkedHashSet<>();
+        inputs.add(cmp1);
+        inputs.add(cmp2);
+        Set<? extends Expression> sets = PredicateInferUtils.inferPredicate(inputs);
+        Assertions.assertEquals(3, sets.size());
+        Assertions.assertTrue(sets.contains(cmp1) && sets.contains(cmp2) && sets.contains(cmp3));
     }
 
     @Test

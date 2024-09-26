@@ -456,9 +456,15 @@ public class UnequalPredicateInfer {
                     if (graph[i][j] != Relation.EQ) {
                         continue;
                     }
-                    // choose predicate with one side literal
+                    // choose predicate with one side literal or t1.a=t2.b(not table filter equal)
                     if (inputExprs.get(i) instanceof Literal && inputExprs.get(j) instanceof Literal) {
                         continue;
+                    } else if (!(inputExprs.get(i) instanceof Literal) && !(inputExprs.get(j) instanceof Literal)) {
+                        if (isTableFilter(i, j)) {
+                            tableFilters.add(Pair.of(i, j));
+                        } else {
+                            set(chosen, i, j, Relation.EQ);
+                        }
                     } else if (inputExprs.get(i) instanceof Literal
                             || inputExprs.get(j) instanceof Literal) {
                         set(chosen, i, j, Relation.EQ);
@@ -469,8 +475,6 @@ public class UnequalPredicateInfer {
                             equalToLiteral[i] = j;
                             equalWithConstant.add(i);
                         }
-                    } else if (isTableFilter(i, j)) {
-                        tableFilters.add(Pair.of(i, j));
                     }
                 }
             }
