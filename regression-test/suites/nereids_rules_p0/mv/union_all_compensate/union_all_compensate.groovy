@@ -289,7 +289,6 @@ suite("union_all_compensate") {
       test_table2 t4 on t3.data_date = t4.data_date
     """
     waitingMTMVTaskFinishedByMvName("test_join_mv")
-    sql """analyze table test_table1 with sync"""
 
     // Data modify
     sql """
@@ -299,7 +298,7 @@ suite("union_all_compensate") {
     ('2024-09-12 00:20:00', 'a', 1),
     ('2024-09-12 00:20:00', 'b', 1);
     """
-    sql """analyze table test_join_mv with sync"""
+    sql """analyze table test_table1 with sync"""
 
     // Join, if select expression not use the partition column, and the invalid partition is not in the
     // grace_period, should union all,and should rewritten successfully

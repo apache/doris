@@ -1683,6 +1683,7 @@ class Suite implements GroovyInterceptable {
 
     // mv not part in rewrite process
     def mv_not_part_in = { query_sql, mv_name ->
+        logger.info("query_sql = " + query_sql)
         explain {
             sql(" memo plan ${query_sql}")
             check { result ->
@@ -1695,6 +1696,7 @@ class Suite implements GroovyInterceptable {
 
     // multi mv all not part in rewrite process
     def mv_all_not_part_in = { query_sql, mv_names ->
+        logger.info("query_sql = " + query_sql)
         explain {
             sql(" memo plan ${query_sql}")
             check { result ->
@@ -1711,6 +1713,7 @@ class Suite implements GroovyInterceptable {
     // mv part in rewrite process, rewrte success and chosen by cbo
     // sync_cbo_rewrite is the bool value which control sync mv is use cbo based mv rewrite
     def mv_rewrite_success = { query_sql, mv_name, sync_cbo_rewrite = true ->
+        logger.info("query_sql = " + query_sql)
         if (!sync_cbo_rewrite) {
             explain {
                 sql("${query_sql}")
@@ -1726,6 +1729,7 @@ class Suite implements GroovyInterceptable {
 
     // multi mv part in rewrite process, all rewrte success and chosen by cbo
     def mv_rewrite_all_success = { query_sql, mv_names, sync_cbo_rewrite = true ->
+        logger.info("query_sql = " + query_sql)
         if (!sync_cbo_rewrite) {
             explain {
                 sql("${query_sql}")
@@ -1753,6 +1757,7 @@ class Suite implements GroovyInterceptable {
 
     // multi mv part in rewrite process, any of them rewrte success and chosen by cbo
     def mv_rewrite_any_success = { query_sql, mv_names, sync_cbo_rewrite = true ->
+        logger.info("query_sql = " + query_sql)
         if (!sync_cbo_rewrite) {
             explain {
                 sql("${query_sql}")
@@ -1780,6 +1785,7 @@ class Suite implements GroovyInterceptable {
 
     // multi mv part in rewrite process, all rewrte success without check if chosen by cbo
     def mv_rewrite_all_success_without_check_chosen = { query_sql, mv_names, sync_cbo_rewrite = true ->
+        logger.info("query_sql = " + query_sql)
         if (!sync_cbo_rewrite) {
             explain {
                 sql("${query_sql}")
@@ -1808,6 +1814,7 @@ class Suite implements GroovyInterceptable {
 
     // multi mv part in rewrite process, any of them rewrte success without check if chosen by cbo or not
     def mv_rewrite_any_success_without_check_chosen = { query_sql, mv_names, sync_cbo_rewrite = true ->
+        logger.info("query_sql = " + query_sql)
         if (!sync_cbo_rewrite) {
             explain {
                 sql("${query_sql}")
@@ -1835,6 +1842,7 @@ class Suite implements GroovyInterceptable {
 
     // multi mv part in rewrite process, rewrte success without check if chosen by cbo or not
     def mv_rewrite_success_without_check_chosen = { query_sql, mv_name, sync_cbo_rewrite = true ->
+        logger.info("query_sql = " + query_sql)
         if (!sync_cbo_rewrite) {
             explain {
                 sql("${query_sql}")
@@ -1853,6 +1861,7 @@ class Suite implements GroovyInterceptable {
     // single mv part in rewrite process, rewrte fail
     // sync_cbo_rewrite is the bool value which control sync mv is use cbo based mv rewrite
     def mv_rewrite_fail = { query_sql, mv_name, sync_cbo_rewrite = true ->
+        logger.info("query_sql = " + query_sql)
         if (!sync_cbo_rewrite) {
             explain {
                 sql("${query_sql}")
@@ -1869,6 +1878,7 @@ class Suite implements GroovyInterceptable {
     // multi mv part in rewrite process, all rewrte fail
     // sync_cbo_rewrite is the bool value which control sync mv is use cbo based mv rewrite
     def mv_rewrite_all_fail = {query_sql, mv_names, sync_cbo_rewrite = true ->
+        logger.info("query_sql = " + query_sql)
         if (!sync_cbo_rewrite) {
             explain {
                 sql("${query_sql}")
@@ -1899,6 +1909,7 @@ class Suite implements GroovyInterceptable {
     // multi mv part in rewrite process, any rewrte fail
     // sync_cbo_rewrite is the bool value which control sync mv is use cbo based mv rewrite
     def mv_rewrite_any_fail = {query_sql, mv_names, sync_cbo_rewrite = true ->
+        logger.info("query_sql = " + query_sql)
         if (!sync_cbo_rewrite) {
             explain {
                 sql("${query_sql}")
