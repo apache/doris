@@ -1297,10 +1297,20 @@ public class Coordinator implements CoordInterface {
         }
         lock();
         try {
-            if (queryStatus.ok()) {
+            if (!queryStatus.ok()) {
+                if (LOG.isDebugEnabled()) {
+                    // Print an error stack here to know why send cancel again.
+                    LOG.debug("Query {} already in abnormal status {}, but received cancel again,"
+                            + "so that send cancel to BE again",
+                            DebugUtil.printId(queryId), queryStatus.toString(),
+                            new Exception("cancel failed"));
+                }
+            } else {
                 queryStatus.updateStatus(cancelReason.getErrorCode(), cancelReason.getErrorMsg());
             }
 
+            LOG.warn("Cancel execution of query {}, this is a outside invoke, cancelReason {}",
+                    DebugUtil.printId(queryId), cancelReason.toString());
             cancelInternal(cancelReason);
         } finally {
             unlock();
