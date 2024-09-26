@@ -97,14 +97,15 @@ public class CloudReplica extends Replica {
         return Env.getCurrentColocateIndex().isColocateTable(tableId);
     }
 
-    public long getColocatedBeId(String cluster) throws ComputeGroupException {
-        List<Backend> bes = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
-                .getBackendsByClusterId(cluster).stream()
+    public long getColocatedBeId(String clusterId) throws ComputeGroupException {
+        CloudSystemInfoService infoService = ((CloudSystemInfoService) Env.getCurrentSystemInfo());
+        List<Backend> bes = infoService.getBackendsByClusterId(clusterId).stream()
                 .filter(be -> !be.isQueryDisabled()).collect(Collectors.toList());
+        String clusterName = infoService.getClusterNameByClusterId(clusterId);
         if (bes.isEmpty()) {
-            LOG.warn("failed to get available be, clusterId: {}", cluster);
+            LOG.warn("failed to get available be, cluster: {}-{}", clusterName, clusterId);
             throw new ComputeGroupException(
-                String.format("There are no Backend nodes in the current compute group %s", cluster),
+                String.format("There are no Backend nodes in the current compute group %s", clusterName),
                 ComputeGroupException.FailedTypeEnum.CURRENT_COMPUTE_GROUP_NO_BE);
         }
         List<Backend> availableBes = new ArrayList<>();
@@ -122,10 +123,10 @@ public class CloudReplica extends Replica {
             availableBes = decommissionAvailBes;
         }
         if (availableBes.isEmpty()) {
-            LOG.warn("failed to get available backend due to all backend dead, clusterId: {}", cluster);
+            LOG.warn("failed to get available backend due to all backend dead, cluster: {}-{}", clusterName, clusterId);
             throw new ComputeGroupException(
                 String.format("All the Backend nodes in the current compute group %s are in an abnormal state",
-                    cluster),
+                        clusterName),
                 ComputeGroupException.FailedTypeEnum.COMPUTE_GROUPS_NO_ALIVE_BE);
         }
 
@@ -162,7 +163,7 @@ public class CloudReplica extends Replica {
     public long getBackendId(String beEndpoint) {
         String clusterName = ((CloudSystemInfoService) Env.getCurrentSystemInfo()).getClusterNameByBeAddr(beEndpoint);
         try {
-            String clusterId = getClusterIdByClusterName(clusterName);
+            String clusterId = getCloudClusterIdByName(clusterName);
             return getBackendIdImpl(clusterId);
         } catch (ComputeGroupException e) {
             LOG.warn("failed to get compute group name {}", clusterName, e);
@@ -214,7 +215,7 @@ public class CloudReplica extends Replica {
                 } catch (Exception e) {
                     LOG.warn("get compute group by session context exception");
                     throw new ComputeGroupException(String.format("default compute group %s check auth failed",
-                        cluster),
+                            cluster),
                         ComputeGroupException.FailedTypeEnum.CURRENT_USER_NO_AUTH_TO_USE_DEFAULT_COMPUTE_GROUP);
                 }
                 if (LOG.isDebugEnabled()) {
@@ -244,10 +245,10 @@ public class CloudReplica extends Replica {
                 ComputeGroupException.FailedTypeEnum.CONNECT_CONTEXT_NOT_SET);
         }
 
-        return getClusterIdByClusterName(cluster);
+        return getCloudClusterIdByName(cluster);
     }
 
-    private String getClusterIdByClusterName(String cluster) throws ComputeGroupException {
+    private String getCloudClusterIdByName(String cluster) throws ComputeGroupException {
         // if cluster is SUSPENDED, wait
         String wakeUPCluster = "";
         try {

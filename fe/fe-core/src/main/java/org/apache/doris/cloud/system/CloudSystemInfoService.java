@@ -642,6 +642,10 @@ public class CloudSystemInfoService extends SystemInfoService {
         }
     }
 
+    public String getCloudClusterIdByName(String clusterName) {
+        return clusterNameToId.get(clusterName);
+    }
+
     public String getClusterNameByClusterId(final String clusterId) {
         rlock.lock();
         try {
@@ -774,15 +778,6 @@ public class CloudSystemInfoService extends SystemInfoService {
         rlock.lock();
         try {
             return new ConcurrentHashMap<>(clusterIdToBackend);
-        } finally {
-            rlock.unlock();
-        }
-    }
-
-    public String getCloudClusterIdByName(String clusterName) {
-        rlock.lock();
-        try {
-            return clusterNameToId.get(clusterName);
         } finally {
             rlock.unlock();
         }
