@@ -1268,7 +1268,8 @@ public class EditLog {
         journal.rollJournal();
     }
 
-    private synchronized <T extends Writable> void logEdit(short op, List<T> entries) throws IOException {
+    // NOTICE: No guarantee atomicity of entries
+    private <T extends Writable> void logEdit(short op, List<T> entries) throws IOException {
         int itemNum = Math.max(1, Math.min(Config.batch_edit_log_max_item_num, entries.size()));
         JournalBatch batch = new JournalBatch(itemNum);
         long batchCount = 0;
