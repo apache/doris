@@ -23,6 +23,16 @@
 #include "olap/rowset/segment_v2/inverted_index_file_reader.h"
 #include "olap/tablet_schema.h"
 
+#define FINALIZE_INPUT(x) \
+    if (x != nullptr) {   \
+        x->close();       \
+        _CLDELETE(x);     \
+    }
+#define FINALLY_FINALIZE_INPUT(x) \
+    try {                         \
+        FINALIZE_INPUT(x)         \
+    } catch (...) {               \
+    }
 namespace doris::segment_v2::inverted_index {
 class InvertedIndexReader {
     ENABLE_FACTORY_CREATOR(InvertedIndexReader);
@@ -43,6 +53,8 @@ public:
     [[nodiscard]] const std::map<string, string>& get_index_properties() const {
         return _index_meta.properties();
     }
+
+    Result<std::shared_ptr<roaring::Roaring>> read_null_bitmap();
 
 private:
     std::shared_ptr<InvertedIndexFileReader> _inverted_index_file_reader = nullptr;

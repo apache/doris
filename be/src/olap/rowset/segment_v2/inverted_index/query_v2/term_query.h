@@ -26,7 +26,7 @@ namespace doris::segment_v2::inverted_index {
 class TermQuery : public Query {
 public:
     TermQuery(const std::shared_ptr<lucene::index::IndexReader>& reader,
-              const std::string& field_name, const std::string& term);
+              const std::string& field_name, const std::string_view& term);
     ~TermQuery() override;
 
     void execute(const std::shared_ptr<roaring::Roaring>& result) {

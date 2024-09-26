@@ -112,8 +112,8 @@ Status VMatchPredicate::prepare(RuntimeState* state, const RowDescriptor& desc,
 Status VMatchPredicate::open(RuntimeState* state, VExprContext* context,
                              FunctionContext::FunctionStateScope scope) {
     DCHECK(_prepare_finished);
-    for (int i = 0; i < _children.size(); ++i) {
-        RETURN_IF_ERROR(_children[i]->open(state, context, scope));
+    for (auto& child : _children) {
+        RETURN_IF_ERROR(child->open(state, context, scope));
     }
     RETURN_IF_ERROR(VExpr::init_function_context(context, scope, _function));
     if (scope == FunctionContext::THREAD_LOCAL || scope == FunctionContext::FRAGMENT_LOCAL) {
@@ -134,19 +134,7 @@ void VMatchPredicate::close(VExprContext* context, FunctionContext::FunctionStat
 Status VMatchPredicate::evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) {
     DCHECK_EQ(get_num_children(), 2);
     if (_enable_inverted_index_query_v2) {
-        auto inverted_index_query = DORIS_TRY(_build_inverted_index_query(context, _function));
-        inverted_index::BooleanQuery::Builder builder;
-        auto result = std::make_shared<roaring::Roaring>();
-
-        visit_node(inverted_index_query, inverted_index::QueryExecute {}, result);
-        std::shared_ptr<roaring::Roaring> null_bitmap = std::make_shared<roaring::Roaring>();
-        segment_v2::InvertedIndexResultBitmap result_bitmap(result, null_bitmap);
-        context->get_inverted_index_context()->set_inverted_index_result_for_expr(this,
-                                                                                  result_bitmap);
-        _can_fast_execute = true;
-        //TODO:read null bitmap from reader and mask out
-        //TODO:set status for column id
-        return Status::OK();
+        return _evaluate_inverted_index_v2(context, _function, segment_num_rows);
     } else if (_enable_inverted_index_query) {
         return _evaluate_inverted_index(context, _function, segment_num_rows);
     }

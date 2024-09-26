@@ -29,6 +29,10 @@
 #include "common/status.h"
 #include "exprs/create_predicate_function.h"
 #include "exprs/hybrid_set.h"
+#include "olap/rowset/segment_v2/inverted_index/analyzer/analyzer.h"
+#include "olap/rowset/segment_v2/inverted_index/query_v2/boolean_query.h"
+#include "olap/rowset/segment_v2/inverted_index/query_v2/factory.inline.h"
+#include "olap/rowset/segment_v2/inverted_index/query_v2/operator.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/types.h"
 #include "udf/udf.h"
@@ -133,6 +137,56 @@ public:
             }
         }
         return Status::OK();
+    }
+
+    Result<segment_v2::inverted_index::Node> build_inverted_index_query(
+            const ColumnsWithTypeAndName& arguments,
+            const std::vector<vectorized::IndexFieldNameAndTypePair>& data_type_with_names,
+            std::vector<segment_v2::inverted_index::InvertedIndexReaderPtr>& readers)
+            const override {
+        DCHECK(data_type_with_names.size() == 1);
+        DCHECK(readers.size() == 1);
+        auto inverted_index_reader = readers[0];
+        auto data_type_with_name = data_type_with_names[0];
+        if (inverted_index_reader == nullptr) {
+            return ResultError(Status::OK());
+        }
+        const auto& properties = inverted_index_reader->get_index_properties();
+        if (get_parser_string_from_properties(properties) != INVERTED_INDEX_PARSER_NONE) {
+            //NOT support in list when parser is FULLTEXT for expr inverted index evaluate.
+            return ResultError(Status::OK());
+        }
+
+        std::shared_ptr<roaring::Roaring> roaring = std::make_shared<roaring::Roaring>();
+
+        auto column_name = data_type_with_name.first;
+        auto data_type = data_type_with_name.second->get_type_as_type_descriptor().type;
+        if (is_string_type(data_type)) {
+            inverted_index::BooleanQuery::Builder query_builder;
+            RETURN_IF_ERROR_RESULT(query_builder.set_op(inverted_index::OperatorType::OP_OR));
+            for (const auto& arg : arguments) {
+                auto column_ptr = arg.column;
+                if (column_ptr->is_null_at(0)) {
+                    // predicate like column NOT IN (NULL, '') should not push down to index.
+                    if (negative) {
+                        return ResultError(Status::OK());
+                    }
+                    continue;
+                }
+                auto query_str = column_ptr->get_data_at(0).to_string_view();
+                auto reader = inverted_index_reader->get_index_reader();
+                auto result = inverted_index::QueryFactory::create(
+                        inverted_index::QueryType::TERM_QUERY, reader, column_name, query_str);
+                if (!result.has_value()) {
+                    return result;
+                }
+                auto clause = result.value();
+                RETURN_IF_ERROR_RESULT(query_builder.add(clause));
+            }
+            return query_builder.build();
+        }
+        //TODO: BKD
+        return ResultError(Status::OK());
     }
 
     Status evaluate_inverted_index(

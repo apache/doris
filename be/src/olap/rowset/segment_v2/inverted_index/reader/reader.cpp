@@ -18,6 +18,7 @@
 #include "olap/rowset/segment_v2/inverted_index/reader/reader.h"
 
 #include "CLucene.h"
+#include "util/faststring.h"
 
 namespace doris::segment_v2::inverted_index {
 
@@ -50,6 +51,31 @@ Status InvertedIndexReader::init_index_reader() {
     _index_reader = std::shared_ptr<lucene::index::IndexReader>(reader);
     _inited = true;
     return Status::OK();
+}
+
+Result<std::shared_ptr<roaring::Roaring>> InvertedIndexReader::read_null_bitmap() {
+    lucene::store::IndexInput* null_bitmap_in = nullptr;
+    std::shared_ptr<roaring::Roaring> null_bitmap = std::make_shared<roaring::Roaring>();
+    try {
+        const char* null_bitmap_file_name =
+                InvertedIndexDescriptor::get_temporary_null_bitmap_file_name();
+        auto* dir = _index_reader->directory();
+        if (dir->fileExists(null_bitmap_file_name)) {
+            null_bitmap_in = dir->openInput(null_bitmap_file_name);
+            size_t null_bitmap_size = null_bitmap_in->length();
+            faststring buf;
+            buf.resize(null_bitmap_size);
+            null_bitmap_in->readBytes(buf.data(), null_bitmap_size);
+            *null_bitmap = roaring::Roaring::read(reinterpret_cast<char*>(buf.data()), false);
+            null_bitmap->runOptimize();
+            FINALIZE_INPUT(null_bitmap_in);
+        }
+    } catch (CLuceneError& e) {
+        FINALLY_FINALIZE_INPUT(null_bitmap_in);
+        return ResultError(Status::Error<doris::ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
+                "Inverted index read null bitmap error occurred, reason={}", e.what()));
+    }
+    return null_bitmap;
 }
 
 } // namespace doris::segment_v2::inverted_index

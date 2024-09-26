@@ -24,6 +24,10 @@
 #include <type_traits>
 
 #include "common/logging.h"
+#include "olap/rowset/segment_v2/inverted_index/analyzer/analyzer.h"
+#include "olap/rowset/segment_v2/inverted_index/query_v2/boolean_query.h"
+#include "olap/rowset/segment_v2/inverted_index/query_v2/factory.inline.h"
+#include "olap/rowset/segment_v2/inverted_index/query_v2/operator.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_decimal.h"
 #include "vec/columns/column_nullable.h"
@@ -39,7 +43,6 @@
 #include "vec/functions/function_helpers.h"
 #include "vec/functions/functions_logical.h"
 #include "vec/runtime/vdatetime_value.h"
-//#include "olap/rowset/segment_v2/inverted_index_reader.h"
 
 namespace doris::vectorized {
 
@@ -526,6 +529,64 @@ public:
     /// Get result types by argument types. If the function does not apply to these arguments, throw an exception.
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         return std::make_shared<DataTypeUInt8>();
+    }
+
+    Result<segment_v2::inverted_index::Node> build_inverted_index_query(
+            const ColumnsWithTypeAndName& arguments,
+            const std::vector<vectorized::IndexFieldNameAndTypePair>& data_type_with_names,
+            std::vector<segment_v2::inverted_index::InvertedIndexReaderPtr>& readers)
+            const override {
+        DCHECK(arguments.size() == 1);
+        DCHECK(data_type_with_names.size() == 1);
+        DCHECK(readers.size() == 1);
+        auto inverted_index_reader = readers[0];
+        auto data_type_with_name = data_type_with_names[0];
+        if (inverted_index_reader == nullptr) {
+            return ResultError(Status::OK());
+        }
+        const auto& properties = inverted_index_reader->get_index_properties();
+        if (get_parser_string_from_properties(properties) != INVERTED_INDEX_PARSER_NONE) {
+            //NOT support comparison predicate when parser is FULLTEXT for expr inverted index evaluate.
+            return ResultError(Status::OK());
+        }
+
+        std::shared_ptr<roaring::Roaring> roaring = std::make_shared<roaring::Roaring>();
+
+        auto column_ptr = arguments[0].column;
+        auto type_ptr = arguments[0].type;
+        auto param_type = type_ptr->get_type_as_type_descriptor().type;
+
+        std::string_view name_view(name);
+        if (is_string_type(param_type)) {
+            if (name_view == NameLess::name || name_view == NameLessOrEquals::name ||
+                name_view == NameGreater::name || name_view == NameGreaterOrEquals::name) {
+                // untokenized strings exceed ignore_above, they are written as null, causing range query errors
+                return ResultError(Status::OK());
+            }
+            auto query_str = column_ptr->get_data_at(0).to_string_view();
+            std::string column_name = data_type_with_name.first;
+
+            // If the written value exceeds ignore_above, it will be written as null.
+            // The queried value exceeds ignore_above means the written value cannot be found.
+            // The query needs to be downgraded to read from the segment file.
+            if (int ignore_above =
+                        std::stoi(get_parser_ignore_above_value_from_properties(properties));
+                query_str.size() > ignore_above) {
+                return ResultError(Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED>(
+                        "query value is too long, evaluate skipped."));
+            }
+
+            VLOG_DEBUG << "begin to query the inverted index from clucene"
+                       << ", column_name: " << column_name << ", query_str: " << query_str;
+            auto reader = inverted_index_reader->get_index_reader();
+            return segment_v2::inverted_index::QueryFactory::create(
+                    segment_v2::inverted_index::QueryType::TERM_QUERY, reader, column_name,
+                    query_str);
+        } else if (is_enumeration_type(param_type) || is_date_type(param_type)) {
+            //TODO: BKD range point query
+        }
+        //TODO: need to prcoess not equal
+        return ResultError(Status::OK());
     }
 
     Status evaluate_inverted_index(

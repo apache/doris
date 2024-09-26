@@ -248,6 +248,11 @@ public:
     virtual bool equals(const VExpr& other);
     void set_index_unique_id(uint32_t index_unique_id) { _index_unique_id = index_unique_id; }
     uint32_t index_unique_id() const { return _index_unique_id; }
+    Result<segment_v2::inverted_index::Node> build_inverted_index_query(
+            VExprContext* context, const FunctionBasePtr& function,
+            std::vector<segment_v2::inverted_index::InvertedIndexReaderPtr>& readers,
+            std::vector<vectorized::IndexFieldNameAndTypePair>& data_type_with_names,
+            std::vector<int>& column_ids) const;
 
 protected:
     /// Simple debug string that provides no expr subclass-specific information
@@ -293,9 +298,8 @@ protected:
 
     Status _evaluate_inverted_index(VExprContext* context, const FunctionBasePtr& function,
                                     uint32_t segment_num_rows);
-
-    Result<segment_v2::inverted_index::Node> _build_inverted_index_query(
-            VExprContext* context, const FunctionBasePtr& function) const;
+    Status _evaluate_inverted_index_v2(VExprContext* context, const FunctionBasePtr& function,
+                                       uint32_t segment_num_rows);
 
     TExprNodeType::type _node_type;
     // Used to check what opcode

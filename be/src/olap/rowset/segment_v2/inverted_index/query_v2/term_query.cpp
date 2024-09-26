@@ -28,7 +28,7 @@ TermQuery::~TermQuery() {
 }
 
 TermQuery::TermQuery(const std::shared_ptr<lucene::index::IndexReader>& reader,
-                     const std::string& field_name, const std::string& term) {
+                     const std::string& field_name, const std::string_view& term) {
     auto ws_term = StringUtil::string_to_wstring(term);
     auto field_name_ws = StringUtil::string_to_wstring(field_name);
     auto* t = _CLNEW Term(field_name_ws.c_str(), ws_term.c_str());

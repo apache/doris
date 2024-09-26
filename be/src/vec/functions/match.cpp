@@ -305,9 +305,9 @@ Result<segment_v2::inverted_index::Node> FunctionMatchAny::build_inverted_index_
             return query_builder.build();
         }
     } else {
-        return ResultError(Status::Error<ErrorCode::INVERTED_INDEX_INVALID_PARAMETERS>(
-                "invalid params type for FunctionMatchAny::build_inverted_index_query {}",
-                param_type));
+        auto err_msg = fmt::format(
+                "Invalid argument type for 'match_any'. Expected a string, but got {}", param_type);
+        return ResultError(Status::Error<ErrorCode::INVERTED_INDEX_INVALID_PARAMETERS>(err_msg));
     }
 }
 

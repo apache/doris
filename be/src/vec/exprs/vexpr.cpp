@@ -31,6 +31,10 @@
 #include "common/config.h"
 #include "common/exception.h"
 #include "common/status.h"
+#include "olap/rowset/segment_v2/inverted_index/query_v2/boolean_query.h"
+#include "olap/rowset/segment_v2/inverted_index/query_v2/node.h"
+#include "olap/rowset/segment_v2/inverted_index/query_v2/roaring_query.h"
+#include "olap/rowset/segment_v2/inverted_index/query_v2/term_query.h"
 #include "runtime/define_primitive_type.h"
 #include "vec/columns/column_vector.h"
 #include "vec/columns/columns_number.h"
@@ -612,12 +616,12 @@ Status VExpr::get_result_from_const(vectorized::Block* block, const std::string&
     return Status::OK();
 }
 
-Result<segment_v2::inverted_index::Node> VExpr::_build_inverted_index_query(
-        VExprContext* context, const FunctionBasePtr& function) const {
+Result<segment_v2::inverted_index::Node> VExpr::build_inverted_index_query(
+        VExprContext* context, const FunctionBasePtr& function,
+        std::vector<segment_v2::inverted_index::InvertedIndexReaderPtr>& readers,
+        std::vector<vectorized::IndexFieldNameAndTypePair>& data_type_with_names,
+        std::vector<int>& column_ids) const {
     // Pre-allocate vectors based on an estimated or known size
-    std::vector<segment_v2::inverted_index::InvertedIndexReaderPtr> readers;
-    std::vector<vectorized::IndexFieldNameAndTypePair> data_type_with_names;
-    std::vector<int> column_ids;
     vectorized::ColumnsWithTypeAndName arguments;
     VExprSPtrs children_exprs;
 
@@ -719,6 +723,34 @@ Result<segment_v2::inverted_index::Node> VExpr::_build_inverted_index_query(
         return ResultError(Status::OK()); // Nothing to evaluate or no literals to compare against
     }
     return function->build_inverted_index_query(arguments, data_type_with_names, readers);
+}
+
+Status VExpr::_evaluate_inverted_index_v2(VExprContext* context, const FunctionBasePtr& function,
+                                          uint32_t segment_num_rows) {
+    auto index_context = context->get_inverted_index_context();
+    std::vector<segment_v2::inverted_index::InvertedIndexReaderPtr> readers;
+    std::vector<vectorized::IndexFieldNameAndTypePair> data_type_with_names;
+    std::vector<int> column_ids;
+    try {
+        auto inverted_index_query = DORIS_TRY(build_inverted_index_query(
+                context, function, readers, data_type_with_names, column_ids));
+        DCHECK(readers.size() == 1 && data_type_with_names.size() == 1);
+        auto result = std::make_shared<roaring::Roaring>();
+
+        visit_node(inverted_index_query, segment_v2::inverted_index::QueryExecute {}, result);
+        auto null_bitmap = DORIS_TRY(readers[0]->read_null_bitmap());
+        segment_v2::InvertedIndexResultBitmap result_bitmap(result, null_bitmap);
+        result_bitmap.mask_out_null();
+        index_context->set_inverted_index_result_for_expr(this, result_bitmap);
+        _can_fast_execute = true;
+        for (int column_id : column_ids) {
+            index_context->set_true_for_inverted_index_status(this, column_id);
+        }
+    } catch (const CLuceneError& e) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
+                "CLuceneError occured in VMatchPredicate::evaluate_inverted_index : {}", e.what());
+    }
+    return Status::OK();
 }
 
 Status VExpr::_evaluate_inverted_index(VExprContext* context, const FunctionBasePtr& function,
