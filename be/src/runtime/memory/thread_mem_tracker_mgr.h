@@ -286,18 +286,27 @@ inline doris::Status ThreadMemTrackerMgr::try_reserve(int64_t size) {
     // _untracked_mem store bytes that not synchronized to process reserved memory.
     flush_untracked_mem();
     auto wg_ptr = _wg_wptr.lock();
-    // If wg not exist or wg enable overcommit, then query's memlimit is not considered.
-    if (wg_ptr != nullptr && !wg_ptr->enable_memory_overcommit()) {
-        if (!_limiter_tracker->try_reserve(size)) {
-            auto err_msg = fmt::format(
-                    "reserve memory failed, size: {}, because memory tracker consumption: {}, "
-                    "limit: "
-                    "{}",
-                    size, _limiter_tracker->consumption(), _limiter_tracker->limit());
-            return doris::Status::Error<ErrorCode::QUERY_MEMORY_EXCEEDED>(err_msg);
+    // For wg with overcommit, the limit will only task affect when memory > soft limit
+    // wg mgr will change wg's hard limit property.
+    if (wg_ptr != nullptr && wg_ptr->enable_memory_overcommit() &&
+        !wg_ptr->has_changed_to_hard_limit()) {
+        // TODO: Only do a check here, do not real reserve. If we could reserve it, it is better, but the logic is too complicated.
+        if (!doris::GlobalMemoryArbitrator::try_reserve_process_memory(size)) {
+            return doris::Status::Error<ErrorCode::PROCESS_MEMORY_EXCEEDED>(
+                    "reserve memory failed, size: {}, because {}", size,
+                    GlobalMemoryArbitrator::process_mem_log_str());
+        } else {
+            doris::GlobalMemoryArbitrator::release_process_reserved_memory(size);
+            return Status::OK();
         }
-    } else {
-        _limiter_tracker->reserve(size);
+    }
+    if (!_limiter_tracker->try_reserve(size)) {
+        auto err_msg = fmt::format(
+                "reserve memory failed, size: {}, because memory tracker consumption: {}, "
+                "limit: "
+                "{}",
+                size, _limiter_tracker->consumption(), _limiter_tracker->limit());
+        return doris::Status::Error<ErrorCode::QUERY_MEMORY_EXCEEDED>(err_msg);
     }
     if (wg_ptr) {
         if (!wg_ptr->add_wg_refresh_interval_memory_growth(size)) {
