@@ -384,8 +384,7 @@ template Status DeleteHandler::_parse_column_pred<std::string>(
         DeleteConditions* delete_conditions);
 
 Status DeleteHandler::init(TabletSchemaSPtr tablet_schema,
-                           const std::vector<RowsetMetaSharedPtr>& delete_preds, int64_t version,
-                           bool with_sub_pred_v2) {
+                           const std::vector<RowsetMetaSharedPtr>& delete_preds, int64_t version) {
     DCHECK(!_is_inited) << "reinitialize delete handler.";
     DCHECK(version >= 0) << "invalid parameters. version=" << version;
     _predicate_arena = std::make_unique<vectorized::Arena>();
@@ -400,7 +399,7 @@ Status DeleteHandler::init(TabletSchemaSPtr tablet_schema,
         const auto& delete_condition = delete_pred->delete_predicate();
         DeleteConditions temp;
         temp.filter_version = delete_pred->version().first;
-        if (with_sub_pred_v2 && !delete_condition.sub_predicates_v2().empty()) {
+        if (!delete_condition.sub_predicates_v2().empty()) {
             RETURN_IF_ERROR(_parse_column_pred(tablet_schema, delete_pred_related_schema,
                                                delete_condition.sub_predicates_v2(), &temp));
         } else {
