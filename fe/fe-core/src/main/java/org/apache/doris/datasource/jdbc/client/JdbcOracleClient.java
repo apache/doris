@@ -49,12 +49,10 @@ public class JdbcOracleClient extends JdbcClient {
     }
 
     @Override
-    public List<JdbcFieldSchema> getJdbcColumnsInfo(String localDbName, String localTableName) {
+    public List<JdbcFieldSchema> getJdbcColumnsInfo(String remoteDbName, String remoteTableName) {
         Connection conn = getConnection();
         ResultSet rs = null;
         List<JdbcFieldSchema> tableSchema = Lists.newArrayList();
-        String remoteDbName = getRemoteDatabaseName(localDbName);
-        String remoteTableName = getRemoteTableName(localDbName, localTableName);
         try {
             DatabaseMetaData databaseMetaData = conn.getMetaData();
             String catalogName = getCatalogName(conn);
