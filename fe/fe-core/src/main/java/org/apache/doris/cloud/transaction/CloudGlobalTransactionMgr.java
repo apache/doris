@@ -1097,12 +1097,19 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             }
             throw new UserException("abortTxn failed, errMsg:" + e.getMessage());
         }
-        afterAbortTxnResp(abortTxnResponse, String.valueOf(transactionId));
+        afterAbortTxnResp(abortTxnResponse, String.valueOf(transactionId), txnCommitAttachment);
     }
 
-    private void afterAbortTxnResp(AbortTxnResponse abortTxnResponse, String txnIdOrLabel) throws UserException {
+    private void afterAbortTxnResp(AbortTxnResponse abortTxnResponse, String txnIdOrLabel,
+            TxnCommitAttachment txnCommitAttachment) throws UserException {
         if (abortTxnResponse.getStatus().getCode() != MetaServiceCode.OK) {
             LOG.warn("abortTxn failed, transaction:{}, response:{}", txnIdOrLabel, abortTxnResponse);
+            // For routine load, it is necessary to release the write lock when abort transaction fails,
+            // otherwise it will cause the lock added in beforeAborted to not be released.
+            if (txnCommitAttachment != null && txnCommitAttachment instanceof RLTaskTxnCommitAttachment) {
+                RLTaskTxnCommitAttachment rlTaskTxnCommitAttachment = (RLTaskTxnCommitAttachment) txnCommitAttachment;
+                Env.getCurrentEnv().getRoutineLoadManager().getJob(rlTaskTxnCommitAttachment.getJobId()).writeUnlock();
+            }
             switch (abortTxnResponse.getStatus().getCode()) {
                 case TXN_ID_NOT_FOUND:
                 case TXN_LABEL_NOT_FOUND:
@@ -1169,7 +1176,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             LOG.warn("abortTxn failed, label:{}, exception:", label, e);
             throw new UserException("abortTxn failed, errMsg:" + e.getMessage());
         }
-        afterAbortTxnResp(abortTxnResponse, label);
+        afterAbortTxnResp(abortTxnResponse, label, null);
     }
 
     @Override
