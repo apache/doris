@@ -187,6 +187,7 @@ public class Profile {
         Gson gson = new GsonBuilder().setPrettyPrinting().create();
         return gson.toJson(rootProfile.toBrief());
     }
+
     public void setChangedSessionVar(String changedSessionVar) {
         this.changedSessionVarCache = changedSessionVar;
     }
