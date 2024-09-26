@@ -282,7 +282,6 @@ void WorkloadGroupMgr::handle_non_overcommit_wg_paused_queries() {
         if (queries_list.empty()) {
             LOG(INFO) << "wg: " << wg->debug_string()
                       << " has no paused query, update it to memory sufficent";
-            wg->update_memory_sufficent(true);
             it = _paused_queries_list.erase(it);
             continue;
         }
@@ -531,23 +530,11 @@ void WorkloadGroupMgr::change_query_to_hard_limit(WorkloadGroupPtr wg, bool enab
                 "\nWorkload Group {}: mem limit: {}, mem used: {}, weighted mem limit: {}, "
                 "high water mark mem limit: {}, load memtable usage: {}, used ratio: {}",
                 wg->name(), PrettyPrinter::print(wg->memory_limit(), TUnit::BYTES),
-                PrettyPrinter::print(wgs_mem_info[wg.first].total_mem_used, TUnit::BYTES),
+                PrettyPrinter::print(wg->total_mem_used(), TUnit::BYTES),
                 PrettyPrinter::print(wg_weighted_mem_limit, TUnit::BYTES),
                 PrettyPrinter::print(wg_high_water_mark_limit, TUnit::BYTES),
                 PrettyPrinter::print(memtable_usage, TUnit::BYTES),
-                (double)wgs_mem_info[wg.first].total_mem_used / wg_weighted_mem_limit);
-
-        debug_msg += "\n  Query Memory Summary:";
-        // check whether queries need to revoke memory for task group
-        for (const auto& query_mem_tracker : wgs_mem_info[wg.first].tracker_snapshots) {
-            debug_msg += fmt::format(
-                    "\n    MemTracker Label={}, Used={}, MemLimit={}, "
-                    "Peak={}",
-                    query_mem_tracker->label(),
-                    PrettyPrinter::print(query_mem_tracker->consumption(), TUnit::BYTES),
-                    PrettyPrinter::print(query_mem_tracker->limit(), TUnit::BYTES),
-                    PrettyPrinter::print(query_mem_tracker->peak_consumption(), TUnit::BYTES));
-        }
+                (double)(wg->total_mem_used()) / wg_weighted_mem_limit);
     }
 
     // If the wg enable over commit memory, then it is no need to update query memlimit
@@ -563,7 +550,7 @@ void WorkloadGroupMgr::change_query_to_hard_limit(WorkloadGroupPtr wg, bool enab
             continue;
         }
         // Streamload kafka load group commit, not modify slot
-        if (query_ctx->is_pure_load_task()) {
+        if (!query_ctx->is_pure_load_task()) {
             total_used_slot_count += query_ctx->get_slot_count();
         }
     }
@@ -611,12 +598,10 @@ void WorkloadGroupMgr::change_query_to_hard_limit(WorkloadGroupPtr wg, bool enab
                                      TUnit::BYTES));
         // If the query is a pure load task, then should not modify its limit. Or it will reserve
         // memory failed and we did not hanle it.
-        if (query_ctx->is_pure_load_task()) {
+        if (!query_ctx->is_pure_load_task()) {
             query_ctx->set_mem_limit(query_weighted_mem_limit);
         }
     }
-    // During memory insufficent stage, we already set every query's memlimit, so that the flag is useless any more.
-    wg->update_memory_sufficent(true);
     LOG_EVERY_T(INFO, 60) << debug_msg;
 }
 

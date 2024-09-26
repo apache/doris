@@ -76,7 +76,9 @@ public:
     int64_t memory_limit() const {
         std::shared_lock<std::shared_mutex> r_lock(_mutex);
         return _memory_limit;
-    };
+    }
+
+    int64_t total_mem_used() const { return _total_mem_used; }
 
     void set_weighted_memory_limit(int64_t weighted_memory_limit) {
         _weighted_memory_limit = weighted_memory_limit;
@@ -222,10 +224,6 @@ public:
 
     int64_t load_buffer_limit() { return _load_buffer_limit; }
 
-    void update_memory_sufficent(bool is_sufficient) { _is_sufficient = is_sufficient; }
-
-    bool memory_sufficent() const { return _is_sufficient; }
-
     bool has_changed_to_hard_limit() const { return _has_changed_hard_limit; }
 
     void change_to_hard_limit(bool to_hard_limit) { _has_changed_hard_limit = to_hard_limit; }
@@ -240,7 +238,6 @@ private:
     // If the wg's memory reached high water mark, then the load buffer
     // will be restricted to this limit.
     int64_t _load_buffer_limit;
-    std::atomic<bool> _is_sufficient = true;
     std::atomic<bool> _has_changed_hard_limit = false;
 
     // memory used by load memtable
