@@ -285,6 +285,8 @@ public:
 
     Status build(RowsetSharedPtr& rowset) override;
 
+    Status init(const RowsetWriterContext& rowset_writer_context) override;
+
     Status add_segment(uint32_t segment_id, const SegmentStatistics& segstat,
                        TabletSchemaSPtr flush_schema) override;
 
@@ -318,7 +320,7 @@ private:
                                                   // already been segment compacted
     std::atomic<int32_t> _num_segcompacted {0};   // index for segment compaction
 
-    std::shared_ptr<SegcompactionWorker> _segcompaction_worker;
+    std::shared_ptr<SegcompactionWorker> _segcompaction_worker = nullptr;
 
     // ensure only one inflight segcompaction task for each rowset
     std::atomic<bool> _is_doing_segcompaction {false};
