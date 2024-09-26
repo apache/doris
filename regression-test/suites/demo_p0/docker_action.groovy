@@ -36,14 +36,12 @@ import org.apache.doris.regression.suite.ClusterOptions
 //      then run docker suite, otherwise don't run docker suite.
 
 // NOTICE:
-// 1. Need add 'docker' to suite's group, and don't add 'nonConcurrent' to it;
-// 2. In docker closure:
-//    a. Don't use 'Awaitility.await()...until(f)', but use 'dockerAwaitUntil(..., f)';
-// 3. No need to use code ` if (isCloudMode()) { return } `  in docker suites,
+// 1. No need to use code ` if (isCloudMode()) { return } `  in docker suites,
 // instead should use `ClusterOptions.cloudMode = true/false` is enough.
 // Because when run docker suite without an external doris cluster, if suite use code `isCloudMode()`, it need specific -runMode=cloud/not_cloud.
 // On the contrary, `ClusterOptions.cloudMode = true/false` no need specific -runMode=cloud/not_cloud when no external doris cluster exists.
 
+// need add 'docker' to suite's group, and don't add 'nonConcurrent' to it
 suite('docker_action', 'docker') {
     // run a new docker
     docker {
@@ -67,7 +65,7 @@ suite('docker_action', 'docker') {
 
     def options = new ClusterOptions()
     // add fe config items
-    options.feConfigs = ['example_conf_k1=v1', 'example_conf_k2=v2']
+    options.feConfigs += ['example_conf_k1=v1', 'example_conf_k2=v2']
     // contains 5 backends
     options.beNum = 5
     // each backend has 1 HDD disk and 3 SSD disks
@@ -82,8 +80,6 @@ suite('docker_action', 'docker') {
     options2.beNum = 1
     // create cloud cluster
     options2.cloudMode = true
-    //// cloud docker only run in cloud pipeline, but enable it run in none-cloud pipeline
-    // options2.skipRunWhenPipelineDiff = false
     // run another docker, create a cloud cluster
     docker(options2) {
         // cloud cluster will ignore replication_num, always set to 1. so create table succ even has 1 be.
