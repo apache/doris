@@ -301,16 +301,17 @@ public class EsUtil {
                     type = ScalarType.createStringType();
                     break;
                 case "nested":
-                case "object":
                     type = Type.JSONB;
                     break;
                 default:
                     type = Type.UNSUPPORTED;
             }
         } else {
-            type = ScalarType.createStringType();
-            column.setComment("Elasticsearch no type");
-            column2typeMap.put(fieldName, "no_type");
+            // When there is no explicit type in mapping, it indicates this type is an `object` in Elasticsearch.
+            // reference: https://www.elastic.co/guide/en/elasticsearch/reference/current/object.html
+            type = Type.JSONB;
+            column.setComment("Elasticsearch type is object");
+            column2typeMap.put(fieldName, "object");
         }
         if (arrayFields.contains(fieldName)) {
             column.setType(ArrayType.create(type, true));
