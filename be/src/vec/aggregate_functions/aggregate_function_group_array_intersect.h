@@ -93,6 +93,11 @@ struct AggregateFunctionGroupArrayIntersectData {
     Set value;
     bool init = false;
 
+    void reset() {
+        init = false;
+        value = std::make_unique<NullableNumericOrDateSetType>();
+    }
+
     void process_col_data(auto& column_data, size_t offset, size_t arr_size, bool& init, Set& set) {
         const bool is_column_data_nullable = column_data.is_nullable();
 
@@ -162,7 +167,7 @@ public:
 
     DataTypePtr get_return_type() const override { return argument_type; }
 
-    bool allocates_memory_in_arena() const override { return false; }
+    void reset(AggregateDataPtr __restrict place) const override { this->data(place).reset(); }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena*) const override {
@@ -328,6 +333,11 @@ struct AggregateFunctionGroupArrayIntersectGenericData {
             : value(std::make_unique<NullableStringSet>()) {}
     Set value;
     bool init = false;
+
+    void reset() {
+        init = false;
+        value = std::make_unique<NullableStringSet>();
+    }
 };
 
 /** Template parameter with true value should be used for columns that store their elements in memory continuously.
@@ -354,7 +364,7 @@ public:
 
     DataTypePtr get_return_type() const override { return input_data_type; }
 
-    bool allocates_memory_in_arena() const override { return true; }
+    void reset(AggregateDataPtr __restrict place) const override { this->data(place).reset(); }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena* arena) const override {

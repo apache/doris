@@ -29,6 +29,7 @@
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
+#include "common/consts.h"
 #include "common/logging.h" // LOG
 #include "gutil/port.h"
 #include "inverted_index_fs_directory.h"
@@ -665,7 +666,7 @@ Status VerticalSegmentWriter::_fill_missing_columns(
                             mutable_full_columns[missing_cids[i]].get());
                     auto_inc_column->insert(
                             (assert_cast<const vectorized::ColumnInt64*>(
-                                     block->get_by_name("__PARTIAL_UPDATE_AUTO_INC_COLUMN__")
+                                     block->get_by_name(BeConsts::PARTIAL_UPDATE_AUTO_INC_COL)
                                              .column.get()))
                                     ->get_element(idx));
                 } else {
