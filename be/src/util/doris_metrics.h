@@ -239,45 +239,37 @@ public:
     static DorisMetrics* instance() {
         static DorisMetrics instance;
         return &instance;
+    }
+    // not thread-safe, call before calling metrics
+    void initialize(
+            bool init_system_metrics = false,
+            const std::set<std::string>& disk_devices = std::set<std::string>(),
+            const std::vector<std::string>& network_interfaces = std::vector<std::string>());
 
-        // not thread-safe, call before calling metrics
-        void initialize(
-                bool init_system_metrics = false,
-                const std::set<std::string>& disk_devices = std::set<std::string>(),
-                const std::vector<std::string>& network_interfaces = std::vector<std::string>());
+    MetricRegistry* metric_registry() { return &_metric_registry; }
+    SystemMetrics* system_metrics() { return _system_metrics.get(); }
+    MetricEntity* server_entity() { return _server_metric_entity.get(); }
+    JvmMetrics* jvm_metrics() { return _jvm_metrics.get(); }
+    void init_jvm_metrics(JNIEnv* env);
 
-        MetricRegistry* metric_registry() {
-            return &_metric_registry;
-        }
-        SystemMetrics* system_metrics() {
-            return _system_metrics.get();
-        }
-        MetricEntity* server_entity() {
-            return _server_metric_entity.get();
-        }
-        JvmMetrics* jvm_metrics() {
-            return _jvm_metrics.get();
-        }
-        void init_jvm_metrics(JNIEnv * env);
+private:
+    // Don't allow constructor
+    DorisMetrics();
 
-    private:
-        // Don't allow constructor
-        DorisMetrics();
+    void _update();
+    void _update_process_thread_num();
+    void _update_process_fd_num();
 
-        void _update();
-        void _update_process_thread_num();
-        void _update_process_fd_num();
+private:
+    static const std::string _s_registry_name;
+    static const std::string _s_hook_name;
 
-    private:
-        static const std::string _s_registry_name;
-        static const std::string _s_hook_name;
+    MetricRegistry _metric_registry;
 
-        MetricRegistry _metric_registry;
+    std::unique_ptr<SystemMetrics> _system_metrics;
+    std::unique_ptr<JvmMetrics> _jvm_metrics;
 
-        std::unique_ptr<SystemMetrics> _system_metrics;
-        std::unique_ptr<JvmMetrics> _jvm_metrics;
-
-        std::shared_ptr<MetricEntity> _server_metric_entity;
-    };
+    std::shared_ptr<MetricEntity> _server_metric_entity;
+};
 
 }; // namespace doris
