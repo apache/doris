@@ -354,6 +354,8 @@ public:
                _query_source == QuerySource::GROUP_COMMIT_LOAD;
     }
 
+    std::string debug_string();
+
 private:
     int _timeout_second;
     TUniqueId _query_id;
