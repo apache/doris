@@ -603,104 +603,106 @@ start_kerberos() {
 
 echo "starting dockers in parrallel"
 
-pids=()
+declare -A pids
 
 if [[ "${RUN_ES}" -eq 1 ]]; then
     start_es > start_es.log  2>&1 &
-    pids+=($!)
+    pids["es"]=$!
 fi
 
 if [[ "${RUN_MYSQL}" -eq 1 ]]; then
     start_mysql > start_mysql.log 2>&1 &
-    pids+=($!)
+    pids["mysql"]=$!
 fi
 
 if [[ "${RUN_PG}" -eq 1 ]]; then
     start_pg > start_pg.log 2>&1 &
-    pids+=($!)
+    pids["pg"]=$!
 fi
 
 if [[ "${RUN_ORACLE}" -eq 1 ]]; then
     start_oracle > start_oracle.log 2>&1 &
-    pids+=($!)
+    pids["oracle"]=$!
 fi
 
 if [[ "${RUN_DB2}" -eq 1 ]]; then
     start_db2 > start_db2.log 2>&1 &
-    pids+=($!)
+    pids["db2"]=$!
 fi
 
 if [[ "${RUN_OCEANBASE}" -eq 1 ]]; then
     start_oceanbase > start_oceanbase.log 2>&1 &
-    pids+=($!)
+    pids["oceanbase"]=$!
 fi
 
 if [[ "${RUN_SQLSERVER}" -eq 1 ]]; then
     start_sqlserver > start_sqlserver.log 2>&1 &
-    pids+=($!)
+    pids["sqlserver"]=$!
 fi
 
 if [[ "${RUN_CLICKHOUSE}" -eq 1 ]]; then
     start_clickhouse > start_clickhouse.log 2>&1 &
-    pids+=($!)
+    pids["clickhouse"]=$!
 fi
 
 if [[ "${RUN_KAFKA}" -eq 1 ]]; then
     start_kafka > start_kafka.log 2>&1 &
-    pids+=($!)
+    pids["kafka"]=$!
 fi
 
 if [[ "${RUN_HIVE2}" -eq 1 ]]; then
     start_hive2 > start_hive2.log 2>&1 &
-    pids+=($!)
+    pids["hive2"]=$!
 fi
 
 if [[ "${RUN_HIVE3}" -eq 1 ]]; then
     start_hive3 > start_hive3.log 2>&1 &
-    pids+=($!)
+    pids["hive3"]=$!
 fi
 
 if [[ "${RUN_SPARK}" -eq 1 ]]; then
     start_spark > start_spark.log 2>&1 &
-    pids+=($!)
+    pids["spark"]=$!
 fi
 
 if [[ "${RUN_ICEBERG}" -eq 1 ]]; then
     start_iceberg > start_icerberg.log 2>&1 &
-    pids+=($!)
+    pids["iceberg"]=$!
 fi
 
 if [[ "${RUN_HUDI}" -eq 1 ]]; then
     start_hudi > start_hudi.log 2>&1 &
-    pids+=($!)
+    pids["hudi"]=$!
 fi
 
 if [[ "${RUN_TRINO}" -eq 1 ]]; then
     start_trino > start_trino.log 2>&1 &
-    pids+=($!)
+    pids["trino"]=$!
 fi
 
 if [[ "${RUN_MARIADB}" -eq 1 ]]; then
     start_mariadb > start_mariadb.log 2>&1 &
-    pids+=($!)
+    pids["mariadb"]=$!
 fi
 
 if [[ "${RUN_LAKESOUL}" -eq 1 ]]; then
     start_lakesoul > start_lakesoule.log 2>&1 &
-    pids+=($!)
+    pids["lakesoul"]=$!
 fi
 
 if [[ "${RUN_KERBEROS}" -eq 1 ]]; then
     start_kerberos > start_kerberos.log 2>&1 &
-    pids+=($!)
+    pids["kerberos"]=$!
 fi
 
 echo "waiting all dockers starting done"
 
-for pid in "${pids[@]}"; do
-    wait "${pid}"
-    if [ $? -ne 0 ]; then
-        echo "one of the dockers started failed, exiting"
+for compose in "${!pids[@]}"; do
+    # prevent wait return 1 make the script exit
+    status=0
+    wait "${pids[$compose]}" || status=$?
+    if [ $status -ne 0 ]; then
+        echo "docker $compose started failed with status $status"
         exit 1
     fi
 done
