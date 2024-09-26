@@ -1308,7 +1308,7 @@ public class Coordinator implements CoordInterface {
             } else {
                 queryStatus.updateStatus(cancelReason.getErrorCode(), cancelReason.getErrorMsg());
                 LOG.warn("Cancel execution of query {}, this is a outside invoke, cancelReason {}",
-                    DebugUtil.printId(queryId), cancelReason.toString());
+                        DebugUtil.printId(queryId), cancelReason.toString());
             }
 
             cancelInternal(cancelReason);
