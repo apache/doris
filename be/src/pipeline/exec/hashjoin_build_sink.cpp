@@ -111,6 +111,9 @@ Status HashJoinBuildSinkLocalState::open(RuntimeState* state) {
 }
 
 Status HashJoinBuildSinkLocalState::close(RuntimeState* state, Status exec_status) {
+    if (_closed) {
+        return Status::OK();
+    }
     auto p = _parent->cast<HashJoinBuildSinkOperatorX>();
     Defer defer {[&]() {
         if (_should_build_hash_table && p._shared_hashtable_controller) {
@@ -119,7 +122,7 @@ Status HashJoinBuildSinkLocalState::close(RuntimeState* state, Status exec_statu
     }};
 
     if (!_runtime_filter_slots || _runtime_filters.empty() || state->is_cancelled() || !_eos) {
-        return Status::OK();
+        return Base::close(state, exec_status);
     }
     auto* block = _shared_state->build_block.get();
     uint64_t hash_table_size = block ? block->rows() : 0;
@@ -137,7 +140,7 @@ Status HashJoinBuildSinkLocalState::close(RuntimeState* state, Status exec_statu
 
     SCOPED_TIMER(_publish_runtime_filter_timer);
     RETURN_IF_ERROR(_runtime_filter_slots->publish(!_should_build_hash_table));
-    return Status::OK();
+    return Base::close(state, exec_status);
 }
 
 bool HashJoinBuildSinkLocalState::build_unique() const {
