@@ -1246,7 +1246,7 @@ public class SessionVariable implements Serializable, Writable {
                     + " if this threshold is exceeded and input rows less than the estimated total rows, the remaining"
                     + " data will be pass through to other node directly."
     })
-    private int partitionTopNMaxPartitions = 1024;
+    private int partitionTopNMaxPartitions = 1;
 
     @VariableMgr.VarAttr(name = PARTITION_TOPN_PER_PARTITION_ROWS, needForward = true, description = {
             "这个数值用于partition_topn预估每个分区的行数，用来计算所有分区的预估数据总量，决定是否能透传下一个算子",
@@ -1254,7 +1254,7 @@ public class SessionVariable implements Serializable, Writable {
             + " the estimated total amount of data for all partitions, and to determine whether the next operator "
             + " can be passed transparently."
     })
-    private int partitionTopNPerPartitionRows = 1000;
+    private int partitionTopNPerPartitionRows = 1;
 
     @VariableMgr.VarAttr(name = GLOBAL_PARTITION_TOPN_THRESHOLD)
     private double globalPartitionTopNThreshold = 100;
