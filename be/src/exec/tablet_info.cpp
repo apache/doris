@@ -320,6 +320,10 @@ void OlapTableSchemaParam::to_protobuf(POlapTableSchemaParam* pschema) const {
     pschema->set_table_id(_table_id);
     pschema->set_version(_version);
     pschema->set_unique_key_update_mode(_unique_key_update_mode);
+    if (_unique_key_update_mode == UniqueKeyUpdateModePB::UPDATE_FIXED_COLUMNS) {
+        // for backward compatibility
+        pschema->set_partial_update(true);
+    }
     pschema->set_is_strict_mode(_is_strict_mode);
     pschema->set_auto_increment_column(_auto_increment_column);
     pschema->set_auto_increment_column_unique_id(_auto_increment_column_unique_id);
