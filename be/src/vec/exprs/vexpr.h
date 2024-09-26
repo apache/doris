@@ -371,7 +371,7 @@ Status create_texpr_literal_node(const void* data, TExprNode* node, int precisio
         large_int_literal.__set_value(LargeIntValue::to_string(*origin_value));
         (*node).__set_large_int_literal(large_int_literal);
         (*node).__set_type(create_type_desc(PrimitiveType::TYPE_LARGEINT));
-    } else if constexpr ((T == TYPE_DATE) || (T == TYPE_DATETIME) || (T == TYPE_TIME)) {
+    } else if constexpr ((T == TYPE_DATE) || (T == TYPE_DATETIME) || (T == TYPE_TIMEV2)) {
         const auto* origin_value = reinterpret_cast<const VecDateTimeValue*>(data);
         TDateLiteral date_literal;
         char convert_buffer[30];
@@ -384,7 +384,7 @@ Status create_texpr_literal_node(const void* data, TExprNode* node, int precisio
         } else if (origin_value->type() == TimeType::TIME_DATETIME) {
             (*node).__set_type(create_type_desc(PrimitiveType::TYPE_DATETIME));
         } else if (origin_value->type() == TimeType::TIME_TIME) {
-            (*node).__set_type(create_type_desc(PrimitiveType::TYPE_TIME));
+            (*node).__set_type(create_type_desc(PrimitiveType::TYPE_TIMEV2));
         }
     } else if constexpr (T == TYPE_DATEV2) {
         const auto* origin_value = reinterpret_cast<const DateV2Value<DateV2ValueType>*>(data);
