@@ -656,30 +656,35 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
                 if (!http_req->header(HTTP_FUZZY_PARSE).empty() &&
                     iequal(http_req->header(HTTP_FUZZY_PARSE), "true")) {
                     return Status::InvalidArgument(
-                            "Don't support flexible partial update when fuzzy_parse is enabled");
+                            "Don't support flexible partial update when 'fuzzy_parse' is enabled");
                 }
                 if (!http_req->header(HTTP_COLUMNS).empty()) {
                     return Status::InvalidArgument(
-                            "Don't support flexible partial update when columns is specified");
+                            "Don't support flexible partial update when 'columns' is specified");
                 }
                 if (!http_req->header(HTTP_JSONPATHS).empty()) {
                     return Status::InvalidArgument(
-                            "Don't support flexible partial update when jsonpaths is specified");
+                            "Don't support flexible partial update when 'jsonpaths' is specified");
                 }
                 if (!http_req->header(HTTP_HIDDEN_COLUMNS).empty()) {
                     return Status::InvalidArgument(
-                            "Don't support flexible partial update when hidden_columns is "
+                            "Don't support flexible partial update when 'hidden_columns' is "
                             "specified");
                 }
                 if (!http_req->header(HTTP_FUNCTION_COLUMN + "." + HTTP_SEQUENCE_COL).empty()) {
                     return Status::InvalidArgument(
                             "Don't support flexible partial update when "
-                            "function_column.sequence_col is specified");
+                            "'function_column.sequence_col' is specified");
                 }
                 if (!http_req->header(HTTP_MERGE_TYPE).empty()) {
                     return Status::InvalidArgument(
                             "Don't support flexible partial update when "
-                            "merge_type is specified");
+                            "'merge_type' is specified");
+                }
+                if (!http_req->header(HTTP_WHERE).empty()) {
+                    return Status::InvalidArgument(
+                            "Don't support flexible partial update when "
+                            "'where' is specified");
                 }
             }
             request.__set_unique_key_update_mode(unique_key_update_mode);
