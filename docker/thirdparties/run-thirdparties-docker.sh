@@ -601,74 +601,79 @@ start_kerberos() {
     fi
 }
 
+echo "starting dockers in parrallel"
+
 if [[ "${RUN_ES}" -eq 1 ]]; then
-    start_es > /dev/null 2>&1 &
+    start_es > start_es.log  2>&1 &
 fi
 
 if [[ "${RUN_MYSQL}" -eq 1 ]]; then
-    start_mysql > /dev/null 2>&1 &
+    start_mysql > start_mysql.log 2>&1 &
 fi
 
 if [[ "${RUN_PG}" -eq 1 ]]; then
-    start_pg > /dev/null 2>&1 &
+    start_pg > start_pg.log 2>&1 &
 fi
 
 if [[ "${RUN_ORACLE}" -eq 1 ]]; then
-    start_oracle > /dev/null 2>&1 &
+    start_oracle > start_oracle.log 2>&1 &
 fi
 
 if [[ "${RUN_DB2}" -eq 1 ]]; then
-    start_db2 > /dev/null 2>&1 &
+    start_db2 > start_db2.log 2>&1 &
 fi
 
 if [[ "${RUN_OCEANBASE}" -eq 1 ]]; then
-    start_oceanbase > /dev/null 2>&1 &
+    start_oceanbase > start_oceanbase.log 2>&1 &
 fi
 
 if [[ "${RUN_SQLSERVER}" -eq 1 ]]; then
-    start_sqlserver > /dev/null 2>&1 &
+    start_sqlserver > start_sqlserver.log 2>&1 &
 fi
 
 if [[ "${RUN_CLICKHOUSE}" -eq 1 ]]; then
-    start_clickhouse > /dev/null 2>&1 &
+    start_clickhouse > start_clickhouse.log 2>&1 &
 fi
 
 if [[ "${RUN_KAFKA}" -eq 1 ]]; then
-    start_kafka > /dev/null 2>&1 &
+    start_kafka > start_kafka.log 2>&1 &
 fi
 
 if [[ "${RUN_HIVE2}" -eq 1 ]]; then
-    start_hive2 > /dev/null 2>&1 &
+    start_hive2 > start_hive2.log 2>&1 &
 fi
 
 if [[ "${RUN_HIVE3}" -eq 1 ]]; then
-    start_hive3 > /dev/null 2>&1 &
+    start_hive3 > start_hive3.log 2>&1 &
 fi
 
 if [[ "${RUN_SPARK}" -eq 1 ]]; then
-    start_spark > /dev/null 2>&1 &
+    start_spark > start_spark.log 2>&1 &
 fi
 
 if [[ "${RUN_ICEBERG}" -eq 1 ]]; then
-    start_iceberg > /dev/null 2>&1 &
+    start_iceberg > start_icerberg.log 2>&1 &
 fi
 
 if [[ "${RUN_HUDI}" -eq 1 ]]; then
-    start_hudi > /dev/null 2>&1 &
+    start_hudi > start_hudi.log 2>&1 &
 fi
 
 if [[ "${RUN_TRINO}" -eq 1 ]]; then
-    start_trino > /dev/null 2>&1 &
+    start_trino > start_trino.log 2>&1 &
 fi
 
 if [[ "${RUN_MARIADB}" -eq 1 ]]; then
-    start_mariadb > /dev/null 2>&1 &
+    start_mariadb > start_mariadb.log 2>&1 &
 fi
 
 if [[ "${RUN_LAKESOUL}" -eq 1 ]]; then
-    start_lakesoul > /dev/null 2>&1 &
+    start_lakesoul > start_lakesoule.log 2>&1 &
 fi
 
 if [[ "${RUN_KERBEROS}" -eq 1 ]]; then
-    start_kerberos > /dev/null 2>&1 &
+    start_kerberos > start_kerberos.log 2>&1 &
 fi
+
+echo "waiting all dockers starting done"
+wait
