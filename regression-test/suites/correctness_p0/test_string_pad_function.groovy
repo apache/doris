@@ -54,4 +54,10 @@ suite("test_string_pad_function") {
     qt_lpad3 """ SELECT lpad("123", -1, ""); """
     qt_lpad4 """ SELECT lpad(NULL, 0, ""); """
     qt_lpad5 """ SELECT lpad("123", 2, NULL); """
+
+    sql """ set enable_decimal256 = true;"""
+    sql """ set parallel_pipeline_task_num = 1;"""
+    sql new File("""${context.file.parent}/create.sql""").text
+    sql """sync"""
+    qt_select_rpad2 """ select pk,col_char_10__undef_signed_not_null_index_inverted as ori_col, rpad(col_char_10__undef_signed_not_null_index_inverted, 10, 'x') as col_rpad from table_1000_undef_partitions2_keys3_properties4_distributed_by56 order by 1; """
 }
