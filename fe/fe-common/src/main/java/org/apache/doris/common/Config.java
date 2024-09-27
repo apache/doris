@@ -219,6 +219,24 @@ public class Config extends ConfigBase {
             "The log roll size of BDBJE. When the number of log entries exceeds this value, the log will be rolled"})
     public static int edit_log_roll_num = 50000;
 
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "批量 BDBJE 日志包含的最大条目数", "The max number of log entries for batching BDBJE"})
+    public static int batch_edit_log_max_item_num = 100;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "批量 BDBJE 日志包含的最大长度", "The max size for batching BDBJE"})
+    public static long batch_edit_log_max_byte_size = 640 * 1024L;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "连续写多批 BDBJE 日志后的停顿时间", "The sleep time after writting multiple batching BDBJE continuously"})
+    public static long batch_edit_log_rest_time_ms = 10;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "连续写多批 BDBJE 日志后需要短暂停顿。这里最大的连写次数。",
+            "After writting multiple batching BDBJE continuously, need a short rest. "
+                    + "Indicates the writting count before a rest"})
+    public static long batch_edit_log_continuous_count_for_rest = 1000;
+
     @ConfField(description = {"元数据同步的容忍延迟时间，单位为秒。如果元数据的延迟超过这个值，非主 FE 会停止提供服务",
             "The toleration delay time of meta data synchronization, in seconds. "
                     + "If the delay of meta data exceeds this value, non-master FE will stop offering service"})
@@ -3056,8 +3074,14 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, description = {"存算分离模式下是否开启大事务提交，默认false"})
     public static boolean enable_cloud_txn_lazy_commit = false;
 
-    @ConfField(mutable = true, description = {"存算分离模式下，当tablet分布的be异常，是否立即映射tablet到新的be上，默认true"})
-    public static boolean enable_immediate_be_assign = true;
+    @ConfField(mutable = true, masterOnly = true,
+            description = {"存算分离模式下，当tablet分布的be异常，是否立即映射tablet到新的be上，默认false"})
+    public static boolean enable_immediate_be_assign = false;
+
+    @ConfField(mutable = true, masterOnly = false,
+            description = { "存算分离模式下，一个BE挂掉多长时间后，它的tablet彻底转移到其他BE上" })
+    public static int rehash_tablet_after_be_dead_seconds = 3600;
+
 
     @ConfField(mutable = true, description = {"存算分离模式下是否启用自动启停功能，默认true",
         "Whether to enable the automatic start-stop feature in cloud model, default is true."})
