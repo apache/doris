@@ -25,6 +25,7 @@
 #include <utility>
 
 #include "common/status.h"
+#include "olap/rowset/segment_v2/inverted_index_reader.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_nullable.h"
@@ -87,25 +88,6 @@ public:
 
     bool use_default_implementation_for_nulls() const override { return false; }
 
-    Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
-        if (scope == FunctionContext::THREAD_LOCAL) {
-            return Status::OK();
-        }
-
-        DCHECK(context->get_num_args() >= 1);
-        DCHECK(context->get_arg_type(0)->is_array_type());
-        // now we only support same
-        std::shared_ptr<ParamValue> state = std::make_shared<ParamValue>();
-        Field field;
-        if (context->get_constant_col(1)) {
-            context->get_constant_col(1)->column_ptr->get(0, field);
-            state->value = field;
-            state->type = context->get_arg_type(1)->type;
-            context->set_function_state(scope, state);
-        }
-        return Status::OK();
-    }
-
     Status evaluate_inverted_index(
             const ColumnsWithTypeAndName& arguments,
             const std::vector<vectorized::IndexFieldNameAndTypePair>& data_type_with_names,
@@ -145,9 +127,9 @@ public:
             RETURN_IF_ERROR(iter->read_null_bitmap(&null_bitmap_cache_handle));
             null_bitmap = null_bitmap_cache_handle.get_bitmap();
         }
-        std::unique_ptr<InvertedIndexQueryParamFactory> query_param = nullptr;
-        RETURN_IF_ERROR(InvertedIndexQueryParamFactory::create_query_value(param_type, &param_value,
-                                                                           query_param));
+        std::unique_ptr<segment_v2::InvertedIndexQueryParamFactory> query_param = nullptr;
+        RETURN_IF_ERROR(segment_v2::InvertedIndexQueryParamFactory::create_query_value(
+                param_type, &param_value, query_param));
         if (is_string_type(param_type)) {
             Status st = iter->read_from_inverted_index(
                     data_type_with_name.first, query_param->get_value(),

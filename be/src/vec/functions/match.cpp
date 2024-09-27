@@ -56,9 +56,9 @@ Status FunctionMatchBase::evaluate_inverted_index(
         return Status::Error<ErrorCode::INVERTED_INDEX_INVALID_PARAMETERS>(
                 "arguments for match must be string");
     }
-    std::unique_ptr<InvertedIndexQueryParamFactory> query_param = nullptr;
-    RETURN_IF_ERROR(InvertedIndexQueryParamFactory::create_query_value(param_type, &param_value,
-                                                                       query_param));
+    std::unique_ptr<segment_v2::InvertedIndexQueryParamFactory> query_param = nullptr;
+    RETURN_IF_ERROR(segment_v2::InvertedIndexQueryParamFactory::create_query_value(
+            param_type, &param_value, query_param));
     if (is_string_type(param_type)) {
         auto inverted_index_query_type = get_query_type_from_fn_name();
         RETURN_IF_ERROR(

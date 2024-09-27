@@ -174,8 +174,8 @@ public:
                 *roaring |= *null_bitmap;
                 continue;
             }
-            std::unique_ptr<InvertedIndexQueryParamFactory> query_param = nullptr;
-            RETURN_IF_ERROR(InvertedIndexQueryParamFactory::create_query_value(
+            std::unique_ptr<segment_v2::InvertedIndexQueryParamFactory> query_param = nullptr;
+            RETURN_IF_ERROR(segment_v2::InvertedIndexQueryParamFactory::create_query_value(
                     param_type, &param_value, query_param));
             InvertedIndexQueryType query_type = InvertedIndexQueryType::EQUAL_QUERY;
             std::shared_ptr<roaring::Roaring> index = std::make_shared<roaring::Roaring>();
