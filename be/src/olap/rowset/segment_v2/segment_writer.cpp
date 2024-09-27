@@ -643,7 +643,9 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
             use_default_or_null_flag, has_default_or_nullable, segment_start_pos, block));
 
     // convert block to row store format
-    _serialize_block_to_row_column(full_block);
+    if (_tablet_schema->has_row_store_column()) {
+        _serialize_block_to_row_column(full_block);
+    }
 
     // convert missing columns and send to column writer
     RETURN_IF_ERROR(_olap_data_convertor->set_source_content_with_specifid_columns(
@@ -705,7 +707,9 @@ Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_po
     // or it's schema change write(since column data type maybe changed, so we should reubild)
     if (_opts.write_type == DataWriteType::TYPE_DIRECT ||
         _opts.write_type == DataWriteType::TYPE_SCHEMA_CHANGE) {
-        _serialize_block_to_row_column(*const_cast<vectorized::Block*>(block));
+        if (_tablet_schema->has_row_store_column()) {
+            _serialize_block_to_row_column(*const_cast<vectorized::Block*>(block));
+        }
     }
 
     _olap_data_convertor->set_source_content(block, row_pos, num_rows);

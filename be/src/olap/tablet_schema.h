@@ -361,6 +361,7 @@ public:
     bool has_row_store_for_all_columns() const {
         return _store_row_column && row_columns_uids().empty();
     }
+    bool has_row_store_column() const { return _store_row_column; }
     void set_skip_write_index_on_load(bool skip) { _skip_write_index_on_load = skip; }
     bool skip_write_index_on_load() const { return _skip_write_index_on_load; }
     int32_t delete_sign_idx() const { return _delete_sign_idx; }
