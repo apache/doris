@@ -265,7 +265,7 @@ public class NereidsPlanner extends Planner {
         // except:
         //   1. user set leading hint
         //   2. ut test. In ut test, FeConstants.enableInternalSchemaDb is false or FeConstants.runningUnitTest is true
-        if (FeConstants.enableInternalSchemaDb && !FeConstants.runningUnitTest) {
+        if (FeConstants.enableInternalSchemaDb && !FeConstants.runningUnitTest && cascadesContext.isLeadingJoin()) {
             List<LogicalOlapScan> scans = cascadesContext.getRewritePlan()
                     .collectToList(LogicalOlapScan.class::isInstance);
             StatsCalculator.disableJoinReorderIfTableRowCountNotAvailable(scans, cascadesContext);
