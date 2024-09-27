@@ -120,7 +120,7 @@ suite("smoke_test_grant_revoke_cluster_to_user_30", "smoke") {
         sql "sync"
         test {
             sql """use @${cluster1}"""
-            exception "Cluster ${cluster1} not exist"
+            exception "${cluster1} not exist"
         }
         result = sql_return_maparray """show grants for '${user1}'"""
         commonAuth result, "'${user1}'@'%'", "Yes", "admin", "Admin_priv"
