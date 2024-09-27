@@ -116,7 +116,7 @@ suite("test_show_create_mtmv","mtmv") {
     logger.info("showCreateMTMVResult: " + showCreateMTMVResult.toString())
     sql """drop materialized view if exists ${mvName};"""
     sql """
-            ${showCreateMTMVResult}
+            ${showCreateMTMVResult[0][1]}
         """
     def showCreateMTMVResultAgain = sql """show CREATE MATERIALIZED VIEW ${mvName}"""
     logger.info("showCreateMTMVAgainResult: " + showCreateMTMVResultAgain.toString())
