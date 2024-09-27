@@ -273,7 +273,7 @@ public interface AggregateFunctionVisitor<R, C> {
     }
 
     default R visitRegrSlope(RegrSlope regrSlope, C context) {
-        return visitNullableAggregateFunction(regrSlope, context);
+        return visitAggregateFunction(regrSlope, context);
     }
 
     default R visitRetention(Retention retention, C context) {
