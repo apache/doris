@@ -179,7 +179,7 @@ public class ReplacePredicate {
     EqualPairs is the output parameter and the equivalent pair of predicate derivation input,
     which is used to ensure that the derivation
     does not generate repeated equivalent conditions, such as a=b and b=a */
-    private static ImmutableEqualSet<Slot> findEqual(Set<Expression> inputs, Set<Pair<Slot, Slot>> equalPairs) {
+    private static ImmutableEqualSet<Slot> findEqual(Set<Expression> inputs) {
         ImmutableEqualSet.Builder<Slot> fromCastEqualSetBuilder = new ImmutableEqualSet.Builder<>();
         for (Expression input : inputs) {
             if (!(input instanceof EqualTo)) {
@@ -199,8 +199,6 @@ public class ReplacePredicate {
                         Slot left = (Slot) pair.first;
                         Slot right = (Slot) pair.second;
                         fromCastEqualSetBuilder.addEqualPair(left, right);
-                        equalPairs.add(left.getExprId().asInt() <= right.getExprId().asInt()
-                                ? Pair.of(left, right) : Pair.of(right, left));
                     });
         }
         return fromCastEqualSetBuilder.build();
@@ -209,8 +207,7 @@ public class ReplacePredicate {
     /** This is the exposed interface. Inputs are the input predicates for derivation.
      * The return value is the derived predicates*/
     public static Set<Expression> infer(Set<Expression> inputs) {
-        Set<Pair<Slot, Slot>> equalPairs = new HashSet<>();
-        ImmutableEqualSet<Slot> hasCastEqualSet = findEqual(inputs, equalPairs);
+        ImmutableEqualSet<Slot> hasCastEqualSet = findEqual(inputs);
         Set<Slot> targetExprs = hasCastEqualSet.getAllItemSet();
         if (targetExprs.isEmpty()) {
             return new LinkedHashSet<>();
@@ -230,7 +227,6 @@ public class ReplacePredicate {
                         exprPredicates));
             }
         }
-        inferPredicates.addAll(deduceTransitiveEquality(hasCastEqualSet, equalPairs));
         return inferPredicates;
     }
 
