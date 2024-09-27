@@ -82,6 +82,8 @@ protected:
     RuntimeProfile::Counter* _hash_table_compute_timer = nullptr;
     RuntimeProfile::Counter* _hash_table_emplace_timer = nullptr;
     RuntimeProfile::Counter* _hash_table_input_counter = nullptr;
+    RuntimeProfile::Counter* _hash_table_size_counter = nullptr;
+    RuntimeProfile::Counter* _hash_table_memory_usage = nullptr;
     RuntimeProfile::Counter* _merge_timer = nullptr;
     RuntimeProfile::Counter* _deserialize_data_timer = nullptr;
 

@@ -87,8 +87,8 @@ Status StreamingAggLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
     SCOPED_TIMER(Base::exec_time_counter());
     SCOPED_TIMER(Base::_init_timer);
-    _hash_table_memory_usage = ADD_CHILD_COUNTER_WITH_LEVEL(Base::profile(), "HashTable",
-                                                            TUnit::BYTES, "MemoryUsage", 1);
+    _hash_table_memory_usage =
+            ADD_COUNTER_WITH_LEVEL(Base::profile(), "HashTableMemoryUsage", TUnit::BYTES, 1);
     _serialize_key_arena_memory_usage = Base::profile()->AddHighWaterMarkCounter(
             "SerializeKeyArena", TUnit::BYTES, "MemoryUsage", 1);
 

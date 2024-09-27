@@ -388,7 +388,7 @@ Status PipelineTask::execute(bool* eos) {
                 if (!st.ok()) {
                     LOG(INFO) << "query: " << print_id(query_id)
                               << ", try to reserve: " << reserve_size << "(sink reserve size:("
-                              << sink_reserve_size << " )"
+                              << sink_reserve_size << ")"
                               << ", sink name: " << _sink->get_name()
                               << ", node id: " << _sink->node_id() << " failed: " << st.to_string()
                               << ", debug info: " << GlobalMemoryArbitrator::process_mem_log_str();
@@ -547,19 +547,20 @@ size_t PipelineTask::get_revocable_size() const {
         return 0;
     }
 
-    auto revocable_size = _root->revocable_mem_size(_state);
-    revocable_size += _sink->revocable_mem_size(_state);
-
-    return revocable_size;
+    return _sink->revocable_mem_size(_state) + _root->revocable_mem_size(_state);
 }
 
 Status PipelineTask::revoke_memory(const std::shared_ptr<SpillContext>& spill_context) {
-    if (_sink->revocable_mem_size(_state) >= vectorized::SpillStream::MIN_SPILL_WRITE_BATCH_MEM) {
+    RETURN_IF_ERROR(_root->revoke_memory(_state, spill_context));
+
+    const auto revocable_size = _sink->revocable_mem_size(_state);
+    if (revocable_size >= vectorized::SpillStream::MIN_SPILL_WRITE_BATCH_MEM) {
         RETURN_IF_ERROR(_sink->revoke_memory(_state, spill_context));
     } else if (spill_context) {
         spill_context->on_task_finished();
+        LOG(INFO) << "query: " << print_id(_state->query_id()) << ", task: " << ((void*)this)
+                  << " has not enough data to revoke: " << revocable_size;
     }
-
     return Status::OK();
 }
 

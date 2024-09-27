@@ -64,13 +64,16 @@ void PartitionedAggLocalState::_init_counters() {
     _hash_table_iterate_timer = ADD_TIMER(profile(), "HashTableIterateTime");
     _insert_keys_to_column_timer = ADD_TIMER(profile(), "InsertKeysToColumnTime");
     _serialize_data_timer = ADD_TIMER(profile(), "SerializeDataTime");
-    _hash_table_size_counter = ADD_COUNTER(profile(), "HashTableSize", TUnit::UNIT);
+    _hash_table_size_counter = ADD_COUNTER_WITH_LEVEL(profile(), "HashTableSize", TUnit::UNIT, 1);
 
     _merge_timer = ADD_TIMER(profile(), "MergeTime");
     _deserialize_data_timer = ADD_TIMER(profile(), "DeserializeAndMergeTime");
     _hash_table_compute_timer = ADD_TIMER(profile(), "HashTableComputeTime");
     _hash_table_emplace_timer = ADD_TIMER(profile(), "HashTableEmplaceTime");
-    _hash_table_input_counter = ADD_COUNTER(profile(), "HashTableInputCount", TUnit::UNIT);
+    _hash_table_input_counter =
+            ADD_COUNTER_WITH_LEVEL(profile(), "HashTableInputCount", TUnit::UNIT, 1);
+    _hash_table_memory_usage =
+            ADD_COUNTER_WITH_LEVEL(profile(), "HashTableMemoryUsage", TUnit::BYTES, 1);
 }
 
 #define UPDATE_PROFILE(counter, name)                           \
@@ -88,6 +91,7 @@ void PartitionedAggLocalState::update_profile(RuntimeProfile* child_profile) {
     UPDATE_PROFILE(_insert_keys_to_column_timer, "InsertKeysToColumnTime");
     UPDATE_PROFILE(_serialize_data_timer, "SerializeDataTime");
     UPDATE_PROFILE(_hash_table_size_counter, "HashTableSize");
+    UPDATE_PROFILE(_hash_table_memory_usage, "HashTableMemoryUsage");
 }
 
 Status PartitionedAggLocalState::close(RuntimeState* state) {

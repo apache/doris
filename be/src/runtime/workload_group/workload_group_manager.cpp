@@ -328,7 +328,8 @@ void WorkloadGroupMgr::handle_non_overcommit_wg_paused_queries() {
             }
 
             if (query_ctx->paused_reason().is<ErrorCode::QUERY_MEMORY_EXCEEDED>()) {
-                bool spill_res = handle_single_query(query_ctx, query_ctx->paused_reason());
+                bool spill_res = handle_single_query(query_ctx, query_it->reserve_size_,
+                                                     query_ctx->paused_reason());
                 if (!spill_res) {
                     ++query_it;
                     continue;
@@ -412,7 +413,8 @@ void WorkloadGroupMgr::handle_non_overcommit_wg_paused_queries() {
                 }
                 if (query_it->cache_ratio_ < 0.001) {
                     // TODO: Find other exceed limit workload group and cancel query.
-                    bool spill_res = handle_single_query(query_ctx, query_ctx->paused_reason());
+                    bool spill_res = handle_single_query(query_ctx, query_it->reserve_size_,
+                                                         query_ctx->paused_reason());
                     if (!spill_res) {
                         ++query_it;
                         continue;
@@ -473,11 +475,12 @@ void WorkloadGroupMgr::handle_overcommit_wg_paused_queries() {
 // If the query could not release memory, then cancel the query, the return value is true.
 // If the query is not ready to do these tasks, it means just wait.
 bool WorkloadGroupMgr::handle_single_query(std::shared_ptr<QueryContext> query_ctx,
-                                           Status paused_reason) {
+                                           size_t size_to_reserve, Status paused_reason) {
     // TODO: If the query is an insert into select query, should consider memtable as revoke memory.
     size_t revocable_size = 0;
     size_t memory_usage = 0;
     bool has_running_task = false;
+    const auto query_id = print_id(query_ctx->query_id());
     query_ctx->get_revocable_info(&revocable_size, &memory_usage, &has_running_task);
     if (has_running_task) {
         LOG(INFO) << "query: " << print_id(query_ctx->query_id())
@@ -488,16 +491,25 @@ bool WorkloadGroupMgr::handle_single_query(std::shared_ptr<QueryContext> query_c
     auto revocable_tasks = query_ctx->get_revocable_tasks();
     if (revocable_tasks.empty()) {
         if (paused_reason.is<ErrorCode::QUERY_MEMORY_EXCEEDED>()) {
-            // Use MEM_LIMIT_EXCEEDED so that FE could parse the error code and do try logic
-            query_ctx->cancel(doris::Status::Error<ErrorCode::MEM_LIMIT_EXCEEDED>(
-                    "query reserve memory failed, but could not find  memory that "
-                    "could "
-                    "release or spill to disk"));
+            const auto limit = query_ctx->get_mem_limit();
+            if ((memory_usage + size_to_reserve) < limit) {
+                LOG(INFO) << "query: " << query_id << ", usage(" << memory_usage << " + "
+                          << size_to_reserve << ") less than limit(" << limit << "), resume it.";
+                query_ctx->set_memory_sufficient(true);
+                return true;
+            } else {
+                // Use MEM_LIMIT_EXCEEDED so that FE could parse the error code and do try logic
+                query_ctx->cancel(doris::Status::Error<ErrorCode::MEM_LIMIT_EXCEEDED>(
+                        "query({}) reserve memory failed, but could not find  memory that could "
+                        "release or spill to disk(usage:{}, limit: {})",
+                        query_id, memory_usage, query_ctx->get_mem_limit()));
+            }
         } else {
             query_ctx->cancel(doris::Status::Error<ErrorCode::MEM_LIMIT_EXCEEDED>(
-                    "The query reserved memory failed because process limit exceeded, and "
+                    "The query({}) reserved memory failed because process limit exceeded, and "
                     "there is no cache now. And could not find task to spill. Maybe you should set "
-                    "the workload group's limit to a lower value."));
+                    "the workload group's limit to a lower value.",
+                    query_id));
         }
     } else {
         SCOPED_ATTACH_TASK(query_ctx.get());
