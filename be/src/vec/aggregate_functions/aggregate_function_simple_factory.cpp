@@ -91,7 +91,8 @@ AggregateFunctionSimpleFactory& AggregateFunctionSimpleFactory::instance() {
         register_aggregate_function_group_concat(instance);
         register_aggregate_function_quantile_state(instance);
         register_aggregate_function_combinator_distinct(instance);
-        register_aggregate_function_reader_load(instance); // register aggregate function for agg reader
+        register_aggregate_function_reader_load(
+                instance); // register aggregate function for agg reader
         register_aggregate_function_window_rank(instance);
         register_aggregate_function_stddev_variance_pop(instance);
         register_aggregate_function_topn(instance);

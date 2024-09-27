@@ -39,10 +39,10 @@ namespace doris::vectorized {
 template <typename T>
 struct AggregateFunctionRegrSlopeData {
     UInt64 count = 0;
-    double sum_x {};
-    double sum_y {};
-    double sum_of_x_mul_y {};
-    double sum_of_x_squared {};
+    Float64 sum_x {};
+    Float64 sum_y {};
+    Float64 sum_of_x_mul_y {};
+    Float64 sum_of_x_squared {};
 
     void write(BufferWritable& buf) const {
         write_binary(sum_x, buf);
@@ -68,14 +68,14 @@ struct AggregateFunctionRegrSlopeData {
         count = 0;
     }
 
-    double get_slope_result() const {
-        double denominator = count * sum_of_x_squared - sum_x * sum_x;
+    Float64 get_slope_result() const {
+        Float64 denominator = count * sum_of_x_squared - sum_x * sum_x;
         if (count < 2 || denominator == 0.0) {
-            return std::numeric_limits<double>::quiet_NaN();
+            return std::numeric_limits<Float64>::quiet_NaN();
         }
-        return (count * sum_of_x_mul_y - sum_x * sum_y) / denominator;
+        Float64 slope = (count * sum_of_x_mul_y - sum_x * sum_y) / denominator;
+        return slope;
     }
-    
 
     void merge(const AggregateFunctionRegrSlopeData& rhs) {
         if (rhs.count == 0) {
@@ -103,20 +103,22 @@ struct RegrSlopeFuncTwoArg {
     using Data = AggregateFunctionRegrSlopeData<T>;
 };
 
-template <typename StatFunc>
+template <typename StatFunc, bool y_nullable, bool x_nullable>
 class AggregateFunctionRegrSlopeSimple
         : public IAggregateFunctionDataHelper<
                   typename StatFunc::Data,
-                  AggregateFunctionRegrSlopeSimple<StatFunc>> {
+                  AggregateFunctionRegrSlopeSimple<StatFunc, y_nullable, x_nullable>> {
 public:
-    using T = typename StatFunc::Type;
-    using InputCol = ColumnVector<T>;
+    using Type = typename StatFunc::Type;
+    using XInputCol = ColumnVector<Type>;
+    using YInputCol = ColumnVector<Type>;
     using ResultCol = ColumnVector<Float64>;
 
     explicit AggregateFunctionRegrSlopeSimple(const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper<
                       typename StatFunc::Data,
-                      AggregateFunctionRegrSlopeSimple<StatFunc>>(argument_types_) {
+                      AggregateFunctionRegrSlopeSimple<StatFunc, y_nullable, x_nullable>>(
+                      argument_types_) {
         DCHECK(!argument_types_.empty());
     }
 
@@ -130,31 +132,38 @@ public:
              Arena*) const override {
         bool y_null = false;
         bool x_null = false;
-        T y_value, x_value;
+        const YInputCol* y_nested_column = nullptr;
+        const XInputCol* x_nested_column = nullptr;
 
-        if (columns[0]->is_nullable()) {
-            const auto& y_column_nullable = assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(*columns[0]);
+        if constexpr (y_nullable) {
+            const ColumnNullable& y_column_nullable =
+                    assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(*columns[0]);
             y_null = y_column_nullable.is_null_at(row_num);
-            if (!y_null) {
-                y_value = assert_cast<const InputCol&, TypeCheckOnRelease::DISABLE>(y_column_nullable.get_nested_column()).get_data()[row_num];
-            }
+            y_nested_column = assert_cast<const YInputCol*, TypeCheckOnRelease::DISABLE>(
+                    y_column_nullable.get_nested_column_ptr().get());
         } else {
-            y_value = assert_cast<const InputCol&, TypeCheckOnRelease::DISABLE>(*columns[0]).get_data()[row_num];
+            y_nested_column = assert_cast<const YInputCol*, TypeCheckOnRelease::DISABLE>(
+                    (*columns[0]).get_ptr().get());
+        }
+        if constexpr (x_nullable) {
+            const ColumnNullable& x_column_nullable =
+                    assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(*columns[1]);
+            x_null = x_column_nullable.is_null_at(row_num); 
+            x_nested_column = assert_cast<const XInputCol*, TypeCheckOnRelease::DISABLE>(
+                    x_column_nullable.get_nested_column_ptr().get());
+        } else {
+            x_nested_column = assert_cast<const XInputCol*, TypeCheckOnRelease::DISABLE>(
+                    (*columns[1]).get_ptr().get());
         }
 
-        if (columns[1]->is_nullable()) {
-            const auto& x_column_nullable = assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(*columns[1]);
-            x_null = x_column_nullable.is_null_at(row_num);
-            if (!x_null) {
-                x_value = assert_cast<const InputCol&, TypeCheckOnRelease::DISABLE>(x_column_nullable.get_nested_column()).get_data()[row_num];
-            }
-        } else {
-            x_value = assert_cast<const InputCol&, TypeCheckOnRelease::DISABLE>(*columns[1]).get_data()[row_num];
+        if (x_null || y_null) {
+            return;
         }
 
-        if (!y_null && !x_null) {
-            this->data(place).add(y_value, x_value);
-        }
+        Type x_value = x_nested_column->get_data()[row_num];
+        Type y_value = y_nested_column->get_data()[row_num];
+
+        this->data(place).add(y_value, x_value);
     }
 
     void reset(AggregateDataPtr __restrict place) const override { this->data(place).reset(); }
@@ -176,8 +185,7 @@ public:
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         const auto& data = this->data(place);
         auto& dst_column_with_nullable = assert_cast<ColumnNullable&>(to);
-        auto& dst_column =
-                assert_cast<ResultCol&>(dst_column_with_nullable.get_nested_column());
+        auto& dst_column = assert_cast<ResultCol&>(dst_column_with_nullable.get_nested_column());
         Float64 slope = data.get_slope_result();
         if (std::isnan(slope)) {
             dst_column_with_nullable.get_null_map_data().push_back(1);
