@@ -77,16 +77,6 @@ tar -zxf paimon1.tar.gz
 rm -rf paimon1.tar.gz
 cd -
 
-rm -f "$lockfile2"
-
-# put data file
-## put tpch1
-hadoop fs -mkdir -p /user/doris/
-hadoop fs -put /mnt/scripts/tpch1.db /user/doris/
-
-## put paimon1
-hadoop fs -put /mnt/scripts/paimon1 /user/doris/
-
 # download tvf_data
 if [[ ! -d "/mnt/scripts/tvf_data" ]]; then
     echo "/mnt/scripts/tvf_data does not exist"
@@ -98,6 +88,16 @@ if [[ ! -d "/mnt/scripts/tvf_data" ]]; then
 else
     echo "/mnt/scripts/tvf_data exist, continue !"
 fi
+
+rm -f "$lockfile2"
+
+# put data file
+## put tpch1
+hadoop fs -mkdir -p /user/doris/
+hadoop fs -put /mnt/scripts/tpch1.db /user/doris/
+
+## put paimon1
+hadoop fs -put /mnt/scripts/paimon1 /user/doris/
 
 ## put tvf_data
 hadoop fs -put /mnt/scripts/tvf_data /user/doris/
