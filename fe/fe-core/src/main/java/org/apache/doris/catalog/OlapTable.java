@@ -2782,6 +2782,10 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         return getKeysType() == KeysType.UNIQUE_KEYS && getEnableUniqueKeyMergeOnWrite();
     }
 
+    public boolean isUniqKeyMergeOnWriteWithClusterKeys() {
+        return isUniqKeyMergeOnWrite() && getBaseSchema().stream().anyMatch(Column::isClusterKey);
+    }
+
     public boolean isDuplicateWithoutKey() {
         return getKeysType() == KeysType.DUP_KEYS && getKeysNum() == 0;
     }
