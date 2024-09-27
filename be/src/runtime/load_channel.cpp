@@ -67,7 +67,7 @@ Status LoadChannel::open(const PTabletWriterOpenRequest& params) {
     int64_t index_id = params.index_id();
     std::shared_ptr<TabletsChannel> channel;
     {
-        (std::lock_guard<std::mutex>(_lock));
+        std::lock_guard<std::mutex> l(_lock);
         auto it = _tablets_channels.find(index_id);
         if (it != _tablets_channels.end()) {
             channel = it->second;
