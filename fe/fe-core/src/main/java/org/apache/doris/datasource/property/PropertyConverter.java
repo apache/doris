@@ -518,7 +518,7 @@ public class PropertyConverter {
     }
 
     private static String getDlfEndpointByRegion(String region) {
-        return "dlf." + region + ".aliyuncs.com";
+        return "dlf-vpc." + region + ".aliyuncs.com";
     }
 
     private static Map<String, String> convertToGlueProperties(Map<String, String> props, CloudCredential credential) {
