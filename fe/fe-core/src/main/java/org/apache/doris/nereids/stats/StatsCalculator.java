@@ -351,10 +351,10 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     private long getSelectedPartitionRowCount(OlapScan olapScan) {
         long partRowCountSum = 0;
         for (long id : olapScan.getSelectedPartitionIds()) {
-            long partRowCount = olapScan.getTable().getPartition(id)
-                    .getIndex(olapScan.getSelectedIndexId()).getRowCount();
+            long partRowCount = olapScan.getTable()
+                    .getRowCountForPartitionIndex(id, olapScan.getSelectedIndexId(), true);
             // if we cannot get any partition's rowCount, return -1 to fallback to table level stats
-            if (partRowCount <= 0) {
+            if (partRowCount == -1) {
                 return -1;
             }
             partRowCountSum += partRowCount;
