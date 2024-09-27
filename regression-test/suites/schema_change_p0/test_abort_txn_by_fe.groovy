@@ -93,9 +93,15 @@ suite('test_abort_txn_by_fe', 'docker') {
 
         def oldMasterFe = cluster.getMasterFe()
         cluster.restartFrontends(oldMasterFe.index)
-        dockerAwaitUntil(30, {
-            cluster.getFeByIndex(oldMasterFe.index).alive
-        })
+        boolean hasRestart = false
+        for (int i = 0; i < 30; i++) {
+            if (cluster.getFeByIndex(oldMasterFe.index).alive) {
+                hasRestart = true
+                break
+            }
+            sleep 1000
+        }
+        assertTrue(hasRestart)
         context.reconnectFe()
         if (isCloudMode()) {
             def newMasterFe = cluster.getMasterFe()
