@@ -213,48 +213,6 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         return statsCalculator;
     }
 
-    /**
-     * disable join reorder if any table row count is not available.
-     */
-    public static void disableJoinReorderIfTableRowCountNotAvailable(
-            List<LogicalOlapScan> scans, CascadesContext context) {
-        StatsCalculator calculator = new StatsCalculator(context);
-        for (LogicalOlapScan scan : scans) {
-            double rowCount = calculator.getOlapTableRowCount(scan);
-            if (rowCount == -1 && ConnectContext.get() != null) {
-                try {
-                    ConnectContext.get().getSessionVariable().disableNereidsJoinReorderOnce();
-                    LOG.info("disable join reorder since row count not available: "
-                            + scan.getTable().getNameWithFullQualifiers());
-                } catch (Exception e) {
-                    LOG.info("disableNereidsJoinReorderOnce failed");
-                }
-                return;
-            }
-        }
-    }
-
-    /**
-     * if the table is not analyzed and BE does not report row count, return -1
-     */
-    private double getOlapTableRowCount(OlapScan olapScan) {
-        OlapTable olapTable = olapScan.getTable();
-        AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
-        TableStatsMeta tableMeta = analysisManager.findTableStatsStatus(olapScan.getTable().getId());
-        double rowCount = -1;
-        if (tableMeta != null && tableMeta.userInjected) {
-            rowCount = tableMeta.getRowCount(olapScan.getSelectedIndexId());
-        } else {
-            rowCount = olapTable.getRowCountForIndex(olapScan.getSelectedIndexId(), true);
-            if (rowCount == -1) {
-                if (tableMeta != null) {
-                    rowCount = tableMeta.getRowCount(olapScan.getSelectedIndexId());
-                }
-            }
-        }
-        return rowCount;
-    }
-
     public static StatsCalculator estimate(GroupExpression groupExpression, boolean forbidUnknownColStats,
             Map<String, ColumnStatistic> columnStatisticMap, boolean isPlayNereidsDump, CascadesContext context) {
         return StatsCalculator.estimate(groupExpression,
@@ -1180,4 +1138,46 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         return groupExpression.childStatistics(1);
     }
 
+    /**
+     * if the table is not analyzed and BE does not report row count, return -1
+     */
+    private double getOlapTableRowCount(OlapScan olapScan) {
+        OlapTable olapTable = olapScan.getTable();
+        AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
+        TableStatsMeta tableMeta = analysisManager.findTableStatsStatus(olapScan.getTable().getId());
+        double rowCount = -1;
+        if (tableMeta != null && tableMeta.userInjected) {
+            rowCount = tableMeta.getRowCount(olapScan.getSelectedIndexId());
+        } else {
+            rowCount = olapTable.getRowCountForIndex(olapScan.getSelectedIndexId(), true);
+            if (rowCount == -1) {
+                if (tableMeta != null) {
+                    rowCount = tableMeta.getRowCount(olapScan.getSelectedIndexId());
+                }
+            }
+        }
+        return rowCount;
+    }
+
+    /**
+     * disable join reorder if any table row count is not available.
+     */
+    public static void disableJoinReorderIfTableRowCountNotAvailable(
+            List<LogicalOlapScan> scans,
+            CascadesContext context) {
+        StatsCalculator calculator = new StatsCalculator(context);
+        for (LogicalOlapScan scan : scans) {
+            double rowCount = calculator.getOlapTableRowCount(scan);
+            if (rowCount == -1 && ConnectContext.get() != null) {
+                try {
+                    ConnectContext.get().getSessionVariable().disableNereidsJoinReorderOnce();
+                    LOG.info("disable join reorder since row count not available: "
+                            + scan.getTable().getNameWithFullQualifiers());
+                } catch (Exception e) {
+                    LOG.info("disableNereidsJoinReorderOnce failed");
+                }
+                return;
+            }
+        }
+    }
 }
