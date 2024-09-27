@@ -47,6 +47,12 @@ class DateLiteralTest {
         Assertions.assertEquals("2021-05-01 00:00:00", s);
         s = DateLiteral.normalize("2021-5-01 0:0:0.001");
         Assertions.assertEquals("2021-05-01 00:00:00.001", s);
+        s = DateLiteral.normalize("2021-5-01 0:0:0.12345678");
+        Assertions.assertEquals("2021-05-01 00:00:00.1234567", s);
+        s = DateLiteral.normalize("2021-5-1    Asia/Shanghai");
+        Assertions.assertEquals("2021-05-01Asia/Shanghai", s);
+        s = DateLiteral.normalize("2021-5-1 0:0:0.12345678   Asia/Shanghai");
+        Assertions.assertEquals("2021-05-01 00:00:00.1234567Asia/Shanghai", s);
     }
 
     @Test
