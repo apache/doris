@@ -278,10 +278,6 @@ class SuiteCluster {
         this.running = false
     }
 
-    boolean isCloudMode() {
-        return this.isCloudMode
-    }
-
     void init(ClusterOptions options, boolean isCloud) {
         assert name != null && name != ''
         assert options.feNum > 0 || options.beNum > 0
@@ -520,6 +516,10 @@ class SuiteCluster {
 
     boolean isRunning() {
         return running
+    }
+
+    boolean isCloudMode() {
+        return this.isCloudMode
     }
 
     // if not specific fe indices, then start all frontends

@@ -93,7 +93,7 @@ suite('test_abort_txn_by_fe', 'docker') {
             cluster.getFeByIndex(oldMasterFe.index).alive
         })
         context.reconnectFe()
-        if (!cluster.isCloudMode()) {
+        if (isCloudMode()) {
             def newMasterFe = cluster.getMasterFe()
             assertTrue(oldMasterFe.index != newMasterFe.index)
         }

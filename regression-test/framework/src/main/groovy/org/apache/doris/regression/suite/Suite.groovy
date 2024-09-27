@@ -1473,7 +1473,11 @@ class Suite implements GroovyInterceptable {
     }
 
     boolean isCloudMode() {
-        return context.config.isCloudMode()
+        if (cluster.isRunning()) {
+            return cluster.isCloudMode()
+        } else {
+            return context.config.isCloudMode()
+        }
     }
 
     boolean enableStoragevault() {
