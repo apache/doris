@@ -17,12 +17,14 @@
 
 package org.apache.doris.nereids.rules.expression.rules;
 
+import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.rules.expression.ExpressionBottomUpRewriter;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternMatcher;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
 import org.apache.doris.nereids.rules.expression.ExpressionRewrite;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.trees.expressions.And;
+import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
@@ -30,8 +32,10 @@ import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.MutableState;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
 import java.util.ArrayList;
@@ -59,24 +63,28 @@ public class OrToIn implements ExpressionPatternRuleFactory {
     }
 
     public Expression rewriteTree(Expression expr, ExpressionRewriteContext context) {
+        if (expr instanceof CompoundPredicate) {
+            expr = SimplifyRange.rewrite((CompoundPredicate) expr);
+        }
         ExpressionBottomUpRewriter bottomUpRewriter = ExpressionRewrite.bottomUp(this);
         return bottomUpRewriter.rewrite(expr, context);
     }
 
     private Expression rewrite(Or or) {
-        if (or.getMutableState("OrToIn").isPresent()) {
+        if (or.getMutableState(MutableState.KEY_OR_TO_IN).isPresent()) {
             return or;
         }
-
-        Expression simple = SimplifyRange.rewrite(or);
-        if (!(simple instanceof Or)) {
-            simple.setMutableState("OrToIn", 1);
-            return simple;
+        Pair<Expression, Expression> pair = extractCommonConjunct(or);
+        Expression result = tryToRewriteIn(pair.second);
+        if (pair.first != null) {
+            result = new And(pair.first, result);
         }
+        result.setMutableState(MutableState.KEY_OR_TO_IN, 1);
+        return result;
+    }
 
-        or = (Or) simple;
-        or.setMutableState("OrToIn", 1);
-
+    private Expression tryToRewriteIn(Expression or) {
+        or.setMutableState(MutableState.KEY_OR_TO_IN, 1);
         List<Expression> disjuncts = ExpressionUtils.extractDisjunction(or);
         for (Expression disjunct : disjuncts) {
             if (!hasInOrEqualChildren(disjunct)) {
@@ -260,5 +268,45 @@ public class OrToIn implements ExpressionPatternRuleFactory {
             }
         }
         return candidates;
+    }
+
+    /**
+     * (a and b and ...) or (a and c and ...)
+     * =>
+     * a and [(b and ...) or (c and ...)]
+     * extract the common part: a
+     * and remaining part (b and ...) or (c and ...)
+     * @returns Pair (common, remaining)
+     */
+    private Pair<Expression, Expression> extractCommonConjunct(Or or) {
+        List<Expression> disjuncts = ExpressionUtils.extractDisjunction(or);
+        List<List<Expression>> conjunctsList = Lists.newArrayList();
+        for (Expression disjunct : disjuncts) {
+            conjunctsList.add(ExpressionUtils.extractConjunction(disjunct));
+        }
+        List<Expression> commons = Lists.newArrayList();
+        for (Expression a : conjunctsList.get(0)) {
+            boolean isCommon = true;
+            for (int i = 1; i < disjuncts.size(); i++) {
+                if (!conjunctsList.get(i).contains(a)) {
+                    isCommon = false;
+                    break;
+                }
+            }
+            if (isCommon) {
+                commons.add(a);
+            }
+        }
+        if (!commons.isEmpty()) {
+            List<Expression> remainPart = Lists.newArrayList();
+            for (int i = 0; i < disjuncts.size(); i++) {
+                conjunctsList.get(i).removeAll(commons);
+                remainPart.add(ExpressionUtils.and(conjunctsList.get(i)));
+            }
+            Expression remainOr = ExpressionUtils.or(remainPart);
+            return Pair.of(ExpressionUtils.and(commons), remainOr);
+        } else {
+            return Pair.of(null, or);
+        }
     }
 }

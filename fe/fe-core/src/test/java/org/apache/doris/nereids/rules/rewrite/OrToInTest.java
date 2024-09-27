@@ -153,7 +153,7 @@ class OrToInTest extends ExpressionRewriteTestHelper {
         String expr = "(a=1 and b=2 and c=3) or (a=2 and b=2 and c=4)";
         Expression expression = PARSER.parseExpression(expr);
         Expression rewritten = OrToIn.INSTANCE.rewriteTree(expression, context);
-        Assertions.assertEquals("(((a IN (1, 2) AND (b = 2)) AND c IN (3, 4)) AND ((((a = 1) AND (b = 2)) AND (c = 3)) OR (((a = 2) AND (b = 2)) AND (c = 4))))",
+        Assertions.assertEquals("((b = 2) AND ((a IN (1, 2) AND c IN (3, 4)) AND (((a = 1) AND (c = 3)) OR ((a = 2) AND (c = 4)))))",
                 rewritten.toSql());
     }
 
@@ -163,7 +163,7 @@ class OrToInTest extends ExpressionRewriteTestHelper {
         String expr = "a in (1, 2) and a in (3, 4)";
         Expression expression = PARSER.parseExpression(expr);
         Expression rewritten = OrToIn.INSTANCE.rewriteTree(expression, context);
-        Assertions.assertEquals("(a IN (1, 2) AND a IN (3, 4))",
+        Assertions.assertEquals("FALSE",
                 rewritten.toSql());
     }
 
@@ -194,6 +194,15 @@ class OrToInTest extends ExpressionRewriteTestHelper {
         Expression expression = PARSER.parseExpression(expr);
         Expression rewritten = OrToIn.INSTANCE.rewriteTree(expression, context);
         Assertions.assertEquals("((x = 1) OR (((a = 1) AND (b = 2)) OR ((a = 2) AND (c = 3))))",
+                rewritten.toSql());
+    }
+
+    @Test
+    void test16() {
+        String expr = "a=1 or a=1 or a=1";
+        Expression expression = PARSER.parseExpression(expr);
+        Expression rewritten = OrToIn.INSTANCE.rewriteTree(expression, context);
+        Assertions.assertEquals("(a = 1)",
                 rewritten.toSql());
     }
 }
