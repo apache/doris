@@ -59,8 +59,8 @@ public class Profile {
     private List<ExecutionProfile> executionProfiles = Lists.newArrayList();
     private boolean isFinished;
     private Map<Integer, String> planNodeMap;
-
     private int profileLevel = 3;
+    private String changedSessionVarCache = "";
 
     public Profile(String name, boolean isEnable, int profileLevel, boolean isPipelineX) {
         this.name = name;
@@ -122,6 +122,7 @@ public class Profile {
         // add summary to builder
         summaryProfile.prettyPrint(builder);
         waitProfileCompleteIfNeeded();
+        getChangedSessionVars(builder);
         // Only generate merged profile for select, insert into select.
         // Not support broker load now.
         if (this.profileLevel == MergedProfileLevel && this.executionProfiles.size() == 1) {
@@ -185,5 +186,19 @@ public class Profile {
         RuntimeProfile rootProfile = composeRootProfile();
         Gson gson = new GsonBuilder().setPrettyPrinting().create();
         return gson.toJson(rootProfile.toBrief());
+    }
+
+    public void setChangedSessionVar(String changedSessionVar) {
+        this.changedSessionVarCache = changedSessionVar;
+    }
+
+    private void getChangedSessionVars(StringBuilder builder) {
+        if (builder == null) {
+            builder = new StringBuilder();
+        }
+
+        builder.append("\nChanged Session Variables:\n");
+        builder.append(changedSessionVarCache);
+        builder.append("\n");
     }
 }
