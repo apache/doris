@@ -685,6 +685,7 @@ public class UnequalPredicateInferTest {
         EqualTo expected = new EqualTo(a, b);
         Assertions.assertTrue(result.contains(expected) || result.contains(expected.commute()), "Expected to find a = b in the result.");
     }
+
     @Test
     public void testNotInferWithTransitiveEqualitySameTable() {
         // a = b, b = c
