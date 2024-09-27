@@ -39,8 +39,8 @@ import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableComma
 import org.apache.doris.nereids.trees.plans.logical.LogicalInlineTable;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
-import org.apache.doris.plugin.audit.AuditEvent.AuditEventBuilder;
-import org.apache.doris.plugin.audit.AuditEvent.EventType;
+import org.apache.doris.plugin.AuditEvent.AuditEventBuilder;
+import org.apache.doris.plugin.AuditEvent.EventType;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.service.FrontendOptions;
 

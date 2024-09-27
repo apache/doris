@@ -20,6 +20,7 @@ package org.apache.doris.plugin.audit;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.util.DigitalVersion;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.plugin.AuditEvent;
 import org.apache.doris.plugin.AuditPlugin;
 import org.apache.doris.plugin.Plugin;
 import org.apache.doris.plugin.PluginContext;
@@ -42,8 +43,8 @@ import java.util.concurrent.TimeUnit;
 /*
  * This plugin will load audit log to specified doris table at specified interval
  */
-public class AuditLoaderPlugin extends Plugin implements AuditPlugin {
-    private static final Logger LOG = LogManager.getLogger(AuditLoaderPlugin.class);
+public class AuditLoader extends Plugin implements AuditPlugin {
+    private static final Logger LOG = LogManager.getLogger(AuditLoader.class);
 
     public static final String AUDIT_LOG_TABLE = "audit_log";
 
@@ -65,10 +66,10 @@ public class AuditLoaderPlugin extends Plugin implements AuditPlugin {
 
     private final PluginInfo pluginInfo;
 
-    public AuditLoaderPlugin() {
+    public AuditLoader() {
         pluginInfo = new PluginInfo(PluginMgr.BUILTIN_PLUGIN_PREFIX + "AuditLoader", PluginType.AUDIT,
                 "builtin audit loader, to load audit log to internal table", DigitalVersion.fromString("2.1.0"),
-                DigitalVersion.fromString("1.8.31"), AuditLoaderPlugin.class.getName(), null, null);
+                DigitalVersion.fromString("1.8.31"), AuditLoader.class.getName(), null, null);
     }
 
     public PluginInfo getPluginInfo() {
