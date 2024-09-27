@@ -80,6 +80,15 @@ void VCollectIterator::init(TabletReader* reader, bool ori_data_overlapping, boo
     } else if (force_merge) {
         _merge = true;
     }
+    if (_reader->_tablet->keys_type() == UNIQUE_KEYS &&
+        _reader->_tablet->enable_unique_key_merge_on_write() &&
+        !_reader->_tablet->tablet_schema()->cluster_key_idxes().empty() &&
+        (_reader->_reader_type == ReaderType::READER_CUMULATIVE_COMPACTION ||
+         _reader->_reader_type == ReaderType::READER_BASE_COMPACTION ||
+         _reader->_reader_type == ReaderType::READER_FULL_COMPACTION ||
+         _reader->_reader_type == ReaderType::READER_COLD_DATA_COMPACTION)) {
+        _merge = false;
+    }
     _is_reverse = is_reverse;
 
     // use topn_next opt only for DUP_KEYS and UNIQUE_KEYS with MOW
