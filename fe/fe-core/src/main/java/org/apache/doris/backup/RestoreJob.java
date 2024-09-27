@@ -1011,7 +1011,8 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                     Tablet tablet = index.getTablet(idChain.getTabletId());
                     Replica replica = tablet.getReplicaById(idChain.getReplicaId());
                     long signature = env.getNextId();
-                    SnapshotTask task = new SnapshotTask(null, replica.getBackendIdWithoutException(), signature, jobId, db.getId(),
+                    SnapshotTask task = new SnapshotTask(null, replica.getBackendIdWithoutException(),
+                            signature, jobId, db.getId(),
                             tbl.getId(), part.getId(), index.getId(), tablet.getId(), part.getVisibleVersion(),
                             tbl.getSchemaHashByIndexId(index.getId()), timeoutMs, true /* is restore task*/);
                     batchTask.addTask(task);
