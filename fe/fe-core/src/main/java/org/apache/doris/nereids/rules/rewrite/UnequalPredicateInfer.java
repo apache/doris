@@ -17,13 +17,8 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
-import org.apache.doris.analysis.IndexDef;
-import org.apache.doris.analysis.IndexDef.IndexType;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.TableIf.TableType;
-import org.apache.doris.catalog.TableIndexes;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
@@ -50,7 +45,13 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
-/**UnEqualPredicateInfer*/
+/**
+ * this class do these things:
+ * 1. t1.a=t2.b t2.b=t3.c -> t1.a=t2.b t2.b=t3.c (reserve all three condition)
+ * 2. remove useless equal predicates(e.g. t1.a=t1.b t1.a=1 t1.b=1 -> t1.a=1 t1.b=1. t1.a=t1.b is removed)
+ * 3. do unequalPredicateInfer(e.g. t1.a<t2.b and t2.b<1 -> t1.a<1 t1.a<t2.b and t2.b<1)
+ * 4. remove useless unequal predicates(e.g. t1.a<t1.b t1.a<1 t1.b<1 -> t1.a<t1.b t1.b<1)
+ * */
 public class UnequalPredicateInfer {
     /**InferenceGraph*/
     public static class InferenceGraph {
@@ -269,7 +270,7 @@ public class UnequalPredicateInfer {
             if (tableIf.isPartitionedTable() && tableIf.isPartitionColumn(column.getName())) {
                 return true;
             }
-
+            /* Indexes are seldom used and are not supported temporarily
             if (tableIf.getType() != TableType.OLAP) {
                 return false;
             }
@@ -283,7 +284,7 @@ public class UnequalPredicateInfer {
                 if (columns.contains(column.getName())) {
                     return true;
                 }
-            }
+            }*/
             return false;
         }
 
@@ -516,6 +517,9 @@ public class UnequalPredicateInfer {
             return inputs;
         }
         InferenceGraph inferGraph = new InferenceGraph(inputs);
+        if (inferGraph.inputExprs.isEmpty()) {
+            return inputs;
+        }
         inferGraph.deduce(inferGraph.graph);
         Set<Integer> equalWithConstant = new HashSet<>();
         InferenceGraph.Relation[][] chosen = inferGraph.chooseEqualPredicates(equalWithConstant);

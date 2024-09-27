@@ -167,7 +167,6 @@ public class ReplacePredicate {
                     res.add(analyzed.withInferred(true));
                 } catch (Exception e) {
                     // has cast error, just not infer and do nothing
-                    continue;
                 }
             }
         }
@@ -188,9 +187,7 @@ public class ReplacePredicate {
             EqualTo equalTo = (EqualTo) input;
             Set<Slot> leftInputSlots = equalTo.left().getInputSlots();
             Set<Slot> rightInputSlots = equalTo.right().getInputSlots();
-            // not support a=1 b=1 -> a=b, because Sometimes there are cases where the predicates a=1 and a=2
-            // are not eliminated in time. After being pulled up, it is wrong to deduce a=b with b=1.
-            if (leftInputSlots.isEmpty() || rightInputSlots.isEmpty()) {
+            if (leftInputSlots.isEmpty() && rightInputSlots.isEmpty()) {
                 continue;
             }
             PredicateInferUtils.getPairFromCast((ComparisonPredicate) input)

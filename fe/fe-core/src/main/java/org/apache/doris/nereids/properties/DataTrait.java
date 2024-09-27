@@ -64,10 +64,6 @@ public class DataTrait {
         this.fdDg = fdDg;
     }
 
-    public ImmutableEqualSet<Slot> getEqualSet() {
-        return equalSet;
-    }
-
     public boolean isEmpty() {
         return uniformSet.isEmpty() && uniqueSet.isEmpty() && equalSet.isEmpty() && fdDg.isEmpty();
     }
