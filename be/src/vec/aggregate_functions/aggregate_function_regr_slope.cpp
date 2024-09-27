@@ -71,9 +71,9 @@ AggregateFunctionPtr create_aggregate_function_regr_slope(const std::string& nam
     WhichDataType y_type(remove_nullable(argument_types[0]));
     WhichDataType x_type(remove_nullable(argument_types[1]));
 
-#define DISPATCH(TYPE)                                                    \
-    if (x_type.idx == TypeIndex::TYPE && y_type.idx == TypeIndex::TYPE)   \
-        return type_dispatch_for_aggregate_function_regr_slope<TYPE>(     \
+#define DISPATCH(TYPE)                                                  \
+    if (x_type.idx == TypeIndex::TYPE && y_type.idx == TypeIndex::TYPE) \
+        return type_dispatch_for_aggregate_function_regr_slope<TYPE>(   \
                 argument_types, result_is_nullable, y_nullable_input, x_nullable_input);
     FOR_NUMERIC_TYPES(DISPATCH)
 #undef DISPATCH

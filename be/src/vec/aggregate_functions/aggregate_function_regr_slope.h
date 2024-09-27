@@ -148,7 +148,7 @@ public:
         if constexpr (x_nullable) {
             const ColumnNullable& x_column_nullable =
                     assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(*columns[1]);
-            x_null = x_column_nullable.is_null_at(row_num); 
+            x_null = x_column_nullable.is_null_at(row_num);
             x_nested_column = assert_cast<const XInputCol*, TypeCheckOnRelease::DISABLE>(
                     x_column_nullable.get_nested_column_ptr().get());
         } else {
