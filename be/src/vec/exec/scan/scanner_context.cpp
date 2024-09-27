@@ -29,6 +29,7 @@
 #include "common/status.h"
 #include "pipeline/exec/scan_operator.h"
 #include "runtime/descriptors.h"
+#include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 #include "util/uid_util.h"
 #include "vec/core/block.h"
@@ -138,6 +139,8 @@ ScannerContext::ScannerContext(doris::RuntimeState* state, doris::vectorized::VS
         : ScannerContext(state, output_tuple_desc, output_row_descriptor, scanners, limit_,
                          max_bytes_in_blocks_queue, num_parallel_instances, local_state) {
     _parent = parent;
+
+    DorisMetrics::instance()->scanner_ctx_cnt->increment(1);
 }
 
 // After init function call, should not access _parent
