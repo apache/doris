@@ -573,7 +573,6 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                         + "\"storage_format\" = \"V2\",\n"
                         + "\"inverted_index_storage_format\" = \"V2\",\n"
                         + "\"enable_unique_key_merge_on_write\" = \"true\",\n"
-                        + "\"enable_unique_key_skip_bitmap_column\" = \"true\",\n"
                         + "\"light_schema_change\" = \"true\",\n"
                         + "\"disable_auto_compaction\" = \"false\",\n"
                         + "\"enable_single_replica_compaction\" = \"false\",\n"
