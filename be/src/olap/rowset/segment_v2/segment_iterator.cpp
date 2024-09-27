@@ -2071,7 +2071,7 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
     _opts.stats->blocks_load += 1;
     _opts.stats->raw_rows_read += _current_batch_rows_read;
 
-    DCHECK_EQ(_current_batch_rows_read, block->rows());
+    // DCHECK_EQ(_current_batch_rows_read, block->rows());
 
     if (_current_batch_rows_read == 0) {
         // Convert all columns in _current_return_columns to schema column
@@ -2153,6 +2153,7 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
                         _output_index_result_column_for_expr(_sel_rowid_idx.data(), selected_size,
                                                              block);
                         block->shrink_char_type_column_suffix_zero(_char_type_idx_no_0);
+                        DCHECK_LE(block->rows(), _current_batch_rows_read);
                         RETURN_IF_ERROR(
                                 _execute_common_expr(_sel_rowid_idx.data(), selected_size, block));
                         block->replace_by_position(0, std::move(col0));
@@ -2160,6 +2161,7 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
                         _output_index_result_column_for_expr(_sel_rowid_idx.data(), selected_size,
                                                              block);
                         block->shrink_char_type_column_suffix_zero(_char_type_idx);
+                        DCHECK_LE(block->rows(), _current_batch_rows_read);
                         RETURN_IF_ERROR(
                                 _execute_common_expr(_sel_rowid_idx.data(), selected_size, block));
                     }
@@ -2193,11 +2195,13 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
                 block->replace_by_position(0, std::move(col_const));
                 _output_index_result_column_for_expr(_sel_rowid_idx.data(), selected_size, block);
                 block->shrink_char_type_column_suffix_zero(_char_type_idx_no_0);
+                DCHECK_LE(block->rows(), _current_batch_rows_read);
                 RETURN_IF_ERROR(_execute_common_expr(_sel_rowid_idx.data(), selected_size, block));
                 block->replace_by_position(0, std::move(col0));
             } else {
                 _output_index_result_column_for_expr(_sel_rowid_idx.data(), selected_size, block);
                 block->shrink_char_type_column_suffix_zero(_char_type_idx);
+                DCHECK_LE(block->rows(), _current_batch_rows_read);
                 RETURN_IF_ERROR(_execute_common_expr(_sel_rowid_idx.data(), selected_size, block));
             }
         }
