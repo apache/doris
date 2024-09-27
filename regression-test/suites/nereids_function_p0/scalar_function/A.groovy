@@ -80,10 +80,14 @@ suite("nereids_scalar_fn_A") {
 	qt_sql_auto_partition_name_list_column_type_mixed "select auto_partition_name('list', kchrs1, kbool) from fn_test_not_nullable where id < 3 order by kchrs1"
 	qt_sql_auto_partition_name_list_column_literal_mixed "select auto_partition_name('list', kstr, 'hello') from fn_test_not_nullable where id < 3 order by kstr"
 	qt_sql_auto_partition_name_list_column "select auto_partition_name('list', kchrs1, kvchrs1) from fn_test_not_nullable where id < 3 order by kchrs1"
+	qt_sql_auto_partition_name_list_column "select auto_partition_name('list', kchrs1, null, kvchrs1) from fn_test where id < 3 order by kchrs1"
+	qt_sql_auto_partition_name_list_column "select auto_partition_name('list', null, kstr, null, null) from fn_test where id < 3 order by kstr"
 	qt_sql_auto_partition_name_list_literal_empty "select auto_partition_name('list', '')"
 	qt_sql_auto_partition_name_list_literal_mixed "select auto_partition_name('list', '你好', true, false)"
 	qt_sql_auto_partition_name_list_literal_mixed "select auto_partition_name('list', '-hello')"
 	qt_sql_auto_partition_name_list_literal_mixed "select auto_partition_name('list', '@#￥%~|world11111....')"
+	qt_sql_auto_partition_name_list_literal_mixed "select auto_partition_name('list', 'list', null, true, null)"
+	qt_sql_auto_partition_name_list_literal_null "select auto_partition_name('list', null, null, null);"
 	qt_sql_auto_partition_name_range_literal_notnull "select auto_partition_name('range', 'day', '2022-12-12 19:20:30')"
 	qt_sql_auto_partition_name_range_literal_notnull "select auto_partition_name('range', 'month', '2022-12-12 19:20:30')"
 	qt_sql_auto_partition_name_range_literal_notnull "select auto_partition_name('range', 'year', '2022-12-12 19:20:30')"
@@ -107,7 +111,7 @@ suite("nereids_scalar_fn_A") {
 	}
 	test{
 		sql """select auto_partition_name(kdt, 'day', kdt) from fn_test_not_nullable order by kdt"""
-		exception "auto_partition_name must accept literal for 1nd argument"
+		exception "auto_partition_name must accept literal for 1st argument"
 	}
 	test{
 		sql """select auto_partition_name('range', kdt, kdt) from fn_test_not_nullable order by kdt"""
@@ -139,7 +143,11 @@ suite("nereids_scalar_fn_A") {
 	}
 	test{
 		sql """select auto_partition_name('ranges', 'year', 'hello');"""
-		exception "function auto_partition_name must accept range|list for 1nd argument"
+		exception "function auto_partition_name must accept range|list for 1st argument"
+	}
+	test{
+		sql """select auto_partition_name('lists', 'year', 'hello');"""
+		exception "function auto_partition_name must accept range|list for 1st argument"
 	}
 	test{
 		sql """select auto_partition_name('range', 'years', 'hello');"""

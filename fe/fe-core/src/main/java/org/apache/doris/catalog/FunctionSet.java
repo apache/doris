@@ -1940,6 +1940,42 @@ public class FunctionSet<T> {
                 Lists.<Type>newArrayList(Type.DOUBLE, Type.DOUBLE), Type.DOUBLE, Type.DOUBLE,
                 "", "", "", "", "", "", "",
                 false, false, false, true));
+
+
+        List<String> skewnessAndKurtosis = Lists.newArrayList("skew", "skew_pop", "skewness", "kurt",
+                "kurt_pop", "kurtosis");
+        skewnessAndKurtosis.addAll(skewnessAndKurtosis);
+
+        for (String name : skewnessAndKurtosis) {
+            addBuiltin(AggregateFunction.createBuiltin(name,
+                    Lists.<Type>newArrayList(Type.TINYINT), Type.DOUBLE, Type.DOUBLE,
+                    "", "", "", "", "", "", "",
+                    false, false, false, true));
+            addBuiltin(AggregateFunction.createBuiltin(name,
+                    Lists.<Type>newArrayList(Type.SMALLINT), Type.DOUBLE, Type.DOUBLE,
+                    "", "", "", "", "", "", "",
+                    false, false, false, true));
+            addBuiltin(AggregateFunction.createBuiltin(name,
+                    Lists.<Type>newArrayList(Type.INT), Type.DOUBLE, Type.DOUBLE,
+                    "", "", "", "", "", "", "",
+                    false, false, false, true));
+            addBuiltin(AggregateFunction.createBuiltin(name,
+                    Lists.<Type>newArrayList(Type.BIGINT), Type.DOUBLE, Type.DOUBLE,
+                    "", "", "", "", "", "", "",
+                    false, false, false, true));
+            addBuiltin(AggregateFunction.createBuiltin(name,
+                    Lists.<Type>newArrayList(Type.LARGEINT), Type.DOUBLE, Type.DOUBLE,
+                    "", "", "", "", "", "", "",
+                    false, false, false, true));
+            addBuiltin(AggregateFunction.createBuiltin(name,
+                    Lists.<Type>newArrayList(Type.FLOAT), Type.DOUBLE, Type.DOUBLE,
+                    "", "", "", "", "", "", "",
+                    false, false, false, true));
+            addBuiltin(AggregateFunction.createBuiltin(name,
+                    Lists.<Type>newArrayList(Type.DOUBLE), Type.DOUBLE, Type.DOUBLE,
+                    "", "", "", "", "", "", "",
+                    false, false, false, true));
+        }
     }
 
     public Map<String, List<Function>> getVectorizedFunctions() {

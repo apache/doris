@@ -1107,7 +1107,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                                     remoteReplicas.size()));
                         }
                         for (int j = 0; j < remoteReplicas.size(); j++) {
-                            long backendId = localReplicas.get(j).getBackendId();
+                            long backendId = localReplicas.get(j).getBackendIdWithoutException();
                             remoteReplicas.get(j).setBackendId(backendId);
                             if (LOG.isDebugEnabled()) {
                                 LOG.debug("bind local replica {} and remote replica {} with same backend {}, table={}",
@@ -1150,7 +1150,8 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                     boolean isRestoreTask = true;
                     // We don't care the visible version in restore job, the end version is used.
                     long visibleVersion = -1L;
-                    SnapshotTask task = new SnapshotTask(null, replica.getBackendId(), signature, jobId, db.getId(),
+                    SnapshotTask task = new SnapshotTask(null, replica.getBackendIdWithoutException(),
+                            signature, jobId, db.getId(),
                             tbl.getId(), part.getId(), index.getId(), tablet.getId(), visibleVersion,
                             tbl.getSchemaHashByIndexId(index.getId()), timeoutMs, isRestoreTask);
                     if (entry.getValue().hasRefTabletId()) {
@@ -1158,7 +1159,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                     }
                     batchTask.addTask(task);
                     unfinishedSignatureToId.put(signature, tablet.getId());
-                    bePathsMap.put(replica.getBackendId(), replica.getPathHash());
+                    bePathsMap.put(replica.getBackendIdWithoutException(), replica.getPathHash());
                 } finally {
                     tbl.readUnlock();
                 }
@@ -1278,7 +1279,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                 Env.getCurrentInvertedIndex().addTablet(restoreTablet.getId(), tabletMeta);
                 for (Replica restoreReplica : restoreTablet.getReplicas()) {
                     Env.getCurrentInvertedIndex().addReplica(restoreTablet.getId(), restoreReplica);
-                    CreateReplicaTask task = new CreateReplicaTask(restoreReplica.getBackendId(), dbId,
+                    CreateReplicaTask task = new CreateReplicaTask(restoreReplica.getBackendIdWithoutException(), dbId,
                             localTbl.getId(), restorePart.getId(), restoredIdx.getId(),
                             restoreTablet.getId(), restoreReplica.getId(), indexMeta.getShortKeyColumnCount(),
                             indexMeta.getSchemaHash(), restoreReplica.getVersion(),

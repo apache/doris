@@ -56,6 +56,7 @@ import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Tablet;
+import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
@@ -872,7 +873,7 @@ public class OlapScanNode extends ScanNode {
                     replicaOptional.ifPresent(
                             r -> {
                                 Backend backend = Env.getCurrentSystemInfo()
-                                        .getBackend(r.getBackendId());
+                                        .getBackend(r.getBackendIdWithoutException());
                                 if (backend != null && backend.isAlive()) {
                                     replicas.clear();
                                     replicas.add(r);
@@ -884,22 +885,30 @@ public class OlapScanNode extends ScanNode {
 
             boolean tabletIsNull = true;
             boolean collectedStat = false;
+            boolean clusterException = false;
             List<String> errs = Lists.newArrayList();
 
             int replicaInTablet = 0;
             long oneReplicaBytes = 0;
             for (Replica replica : replicas) {
-                Backend backend = Env.getCurrentSystemInfo().getBackend(replica.getBackendId());
+                Backend backend = null;
+                long backendId = -1;
+                try {
+                    backendId = replica.getBackendId();
+                    backend = Env.getCurrentSystemInfo().getBackend(backendId);
+                } catch (ComputeGroupException e) {
+                    LOG.warn("failed to get backend {} for replica {}", backendId, replica.getId(), e);
+                    errs.add(e.toString());
+                    clusterException = true;
+                    continue;
+                }
                 if (backend == null || !backend.isAlive()) {
                     if (LOG.isDebugEnabled()) {
-                        LOG.debug("backend {} not exists or is not alive for replica {}", replica.getBackendId(),
+                        LOG.debug("backend {} not exists or is not alive for replica {}", backendId,
                                 replica.getId());
                     }
-                    String err = "replica " + replica.getId() + "'s backend " + replica.getBackendId()
+                    String err = "replica " + replica.getId() + "'s backend " + backendId
                             + " does not exist or not alive";
-                    if (Config.isCloudMode()) {
-                        errs.add(ConnectContext.cloudNoBackendsReason());
-                    }
                     errs.add(err);
                     continue;
                 }
@@ -942,6 +951,9 @@ public class OlapScanNode extends ScanNode {
                 if (skipMissingVersion) {
                     break;
                 }
+            }
+            if (clusterException) {
+                throw new UserException("tablet " + tabletId + " err: " + Joiner.on(", ").join(errs));
             }
             if (tabletIsNull) {
                 throw new UserException("tablet " + tabletId + " has no queryable replicas. err: "

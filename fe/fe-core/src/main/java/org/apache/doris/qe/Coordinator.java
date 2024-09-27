@@ -726,8 +726,13 @@ public class Coordinator implements CoordInterface {
         DataSink topDataSink = topParams.fragment.getSink();
         this.timeoutDeadline = System.currentTimeMillis() + queryOptions.getExecutionTimeout() * 1000L;
         if (topDataSink instanceof ResultSink || topDataSink instanceof ResultFileSink) {
-            Boolean enableParallelResultSink = queryOptions.isEnableParallelResultSink()
-                    && topDataSink instanceof ResultSink;
+            Boolean enableParallelResultSink = false;
+            if (topDataSink instanceof ResultSink) {
+                enableParallelResultSink = queryOptions.isEnableParallelResultSink();
+            } else {
+                enableParallelResultSink = queryOptions.isEnableParallelOutfile();
+            }
+
             TNetworkAddress execBeAddr = topParams.instanceExecParams.get(0).host;
             Set<TNetworkAddress> addrs = new HashSet<>();
             for (FInstanceExecParam param : topParams.instanceExecParams) {
@@ -1293,16 +1298,19 @@ public class Coordinator implements CoordInterface {
         lock();
         try {
             if (!queryStatus.ok()) {
-                // Print an error stack here to know why send cancel again.
-                LOG.warn("Query {} already in abnormal status {}, but received cancel again,"
-                        + "so that send cancel to BE again",
-                        DebugUtil.printId(queryId), queryStatus.toString(),
-                        new Exception("cancel failed"));
+                if (LOG.isDebugEnabled()) {
+                    // Print an error stack here to know why send cancel again.
+                    LOG.debug("Query {} already in abnormal status {}, but received cancel again,"
+                            + "so that send cancel to BE again",
+                            DebugUtil.printId(queryId), queryStatus.toString(),
+                            new Exception("cancel failed"));
+                }
             } else {
                 queryStatus.updateStatus(cancelReason.getErrorCode(), cancelReason.getErrorMsg());
+                LOG.warn("Cancel execution of query {}, this is a outside invoke, cancelReason {}",
+                        DebugUtil.printId(queryId), cancelReason.toString());
             }
-            LOG.warn("Cancel execution of query {}, this is a outside invoke, cancelReason {}",
-                    DebugUtil.printId(queryId), cancelReason.toString());
+
             cancelInternal(cancelReason);
         } finally {
             unlock();
@@ -2446,7 +2454,7 @@ public class Coordinator implements CoordInterface {
                 for (TFragmentInstanceReport report : params.getFragmentInstanceReports()) {
                     Env.getCurrentEnv().getLoadManager().updateJobProgress(
                             jobId, params.getBackendId(), params.getQueryId(), report.getFragmentInstanceId(),
-                            params.getLoadedRows(), params.getLoadedBytes(), params.isDone());
+                            report.getLoadedRows(), report.getLoadedBytes(), params.isDone());
                     Env.getCurrentEnv().getProgressManager().updateProgress(String.valueOf(jobId),
                             params.getQueryId(), report.getFragmentInstanceId(), report.getNumFinishedRange());
                 }
@@ -3021,10 +3029,9 @@ public class Coordinator implements CoordInterface {
             }
 
             if (this.hasCancelled || this.cancelInProcess) {
-                LOG.info("Frangment has already been cancelled. Query {} backend: {}",
-                        DebugUtil.printId(queryId), idToBackend.get(beId));
                 return;
             }
+
             try {
                 try {
                     ListenableFuture<InternalService.PCancelPlanFragmentResult> cancelResult =
@@ -3042,8 +3049,6 @@ public class Coordinator implements CoordInterface {
                                             DebugUtil.printId(queryId), idToBackend.get(beId), status.toString());
                                 }
                             }
-                            LOG.warn("Failed to cancel query {} backend: {} reason: {}",
-                                    DebugUtil.printId(queryId), idToBackend.get(beId), "without status");
                         }
 
                         public void onFailure(Throwable t) {

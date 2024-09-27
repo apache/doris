@@ -19,6 +19,7 @@
 
 #include <gen_cpp/olap_file.pb.h>
 
+#include "common/consts.h"
 #include "olap/base_tablet.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/rowset.h"
@@ -306,7 +307,7 @@ Status PartialUpdateReadPlan::fill_missing_columns(
                             assert_cast<vectorized::ColumnInt64*, TypeCheckOnRelease::DISABLE>(missing_col.get());
                     auto_inc_column->insert(
                             (assert_cast<const vectorized::ColumnInt64*, TypeCheckOnRelease::DISABLE>(
-                                     block->get_by_name("__PARTIAL_UPDATE_AUTO_INC_COLUMN__").column.get()))->get_element(idx));
+                                     block->get_by_name(BeConsts::PARTIAL_UPDATE_AUTO_INC_COL).column.get()))->get_element(idx));
                 } else {
                     // If the control flow reaches this branch, the column neither has default value
                     // nor is nullable. It means that the row's delete sign is marked, and the value

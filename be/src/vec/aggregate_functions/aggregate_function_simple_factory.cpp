@@ -68,6 +68,8 @@ void register_aggregate_function_bitmap_agg(AggregateFunctionSimpleFactory& fact
 void register_aggregate_functions_corr(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_covar_pop(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_covar_samp(AggregateFunctionSimpleFactory& factory);
+void register_aggregate_function_skewness(AggregateFunctionSimpleFactory& factory);
+void register_aggregate_function_kurtosis(AggregateFunctionSimpleFactory& factory);
 
 AggregateFunctionSimpleFactory& AggregateFunctionSimpleFactory::instance() {
     static std::once_flag oc;
@@ -119,6 +121,9 @@ AggregateFunctionSimpleFactory& AggregateFunctionSimpleFactory::instance() {
         register_aggregate_function_covar_samp(instance);
 
         register_aggregate_function_combinator_foreach(instance);
+
+        register_aggregate_function_skewness(instance);
+        register_aggregate_function_kurtosis(instance);
     });
     return instance;
 }

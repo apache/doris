@@ -43,20 +43,20 @@ import java.util.List;
 public class ShowCacheHotSpotStmt extends ShowStmt implements NotFallbackInParser {
     public static final ShowResultSetMetaData[] RESULT_SET_META_DATAS = {
         ShowResultSetMetaData.builder()
-            .addColumn(new Column("compute_group_id", ScalarType.createType(PrimitiveType.BIGINT)))
-            .addColumn(new Column("compute_group_name", ScalarType.createVarchar(128)))
-            .addColumn(new Column("table_id", ScalarType.createType(PrimitiveType.BIGINT)))
-            .addColumn(new Column("table_name", ScalarType.createVarchar(128)))
+            .addColumn(new Column("ComputeGroupId", ScalarType.createType(PrimitiveType.BIGINT)))
+            .addColumn(new Column("ComputeGroupName", ScalarType.createVarchar(128)))
+            .addColumn(new Column("TableId", ScalarType.createType(PrimitiveType.BIGINT)))
+            .addColumn(new Column("TableName", ScalarType.createVarchar(128)))
             .build(),
         ShowResultSetMetaData.builder()
-            .addColumn(new Column("table_id", ScalarType.createType(PrimitiveType.BIGINT)))
-            .addColumn(new Column("table_name", ScalarType.createVarchar(128)))
-            .addColumn(new Column("partition_id", ScalarType.createType(PrimitiveType.BIGINT)))
-            .addColumn(new Column("partition_name", ScalarType.createVarchar(65535)))
+            .addColumn(new Column("TableId", ScalarType.createType(PrimitiveType.BIGINT)))
+            .addColumn(new Column("TableName", ScalarType.createVarchar(128)))
+            .addColumn(new Column("PartitionId", ScalarType.createType(PrimitiveType.BIGINT)))
+            .addColumn(new Column("PartitionName", ScalarType.createVarchar(65535)))
             .build(),
         ShowResultSetMetaData.builder()
-            .addColumn(new Column("partition_id", ScalarType.createType(PrimitiveType.BIGINT)))
-            .addColumn(new Column("partition_name", ScalarType.createVarchar(65535)))
+            .addColumn(new Column("PartitionId", ScalarType.createType(PrimitiveType.BIGINT)))
+            .addColumn(new Column("PartitionName", ScalarType.createVarchar(65535)))
             .build()
     };
     private int metaDataPos;

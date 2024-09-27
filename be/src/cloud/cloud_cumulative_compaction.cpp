@@ -255,13 +255,22 @@ Status CloudCumulativeCompaction::modify_rowsets() {
     compaction_job->add_txn_id(_output_rowset->txn_id());
     compaction_job->add_output_rowset_ids(_output_rowset->rowset_id().to_string());
 
+    DBUG_EXECUTE_IF("CloudCumulativeCompaction::modify_rowsets.enable_spin_wait", {
+        LOG(INFO) << "CloudCumulativeCompaction::modify_rowsets.enable_spin_wait, start";
+        while (DebugPoints::instance()->is_enable(
+                "CloudCumulativeCompaction::modify_rowsets.block")) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        }
+        LOG(INFO) << "CloudCumulativeCompaction::modify_rowsets.enable_spin_wait, exit";
+    });
+
     DeleteBitmapPtr output_rowset_delete_bitmap = nullptr;
     int64_t initiator =
             HashUtil::hash64(_uuid.data(), _uuid.size(), 0) & std::numeric_limits<int64_t>::max();
     if (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
         _tablet->enable_unique_key_merge_on_write()) {
         RETURN_IF_ERROR(cloud_tablet()->calc_delete_bitmap_for_compaction(
-                _input_rowsets, _output_rowset, _rowid_conversion, compaction_type(),
+                _input_rowsets, _output_rowset, *_rowid_conversion, compaction_type(),
                 _stats.merged_rows, _stats.filtered_rows, initiator, output_rowset_delete_bitmap,
                 _allow_delete_in_cumu_compaction));
         LOG_INFO("update delete bitmap in CloudCumulativeCompaction, tablet_id={}, range=[{}-{}]",

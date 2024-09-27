@@ -20,6 +20,7 @@ suite("mv_on_unique_table") {
     sql "use ${db}"
     sql "set runtime_filter_mode=OFF";
     sql "SET ignore_shape_nodes='PhysicalDistribute,PhysicalProject'"
+    sql "set DELETE_WITHOUT_PARTITION=true"
 
     sql """
     drop table if exists lineitem_2_uniq;

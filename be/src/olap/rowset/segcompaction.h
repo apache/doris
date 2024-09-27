@@ -50,6 +50,14 @@ class SegcompactionWorker {
 public:
     explicit SegcompactionWorker(BetaRowsetWriter* writer);
 
+    ~SegcompactionWorker() {
+        DCHECK(_seg_compact_mem_tracker != nullptr);
+        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_seg_compact_mem_tracker);
+        if (_rowid_conversion) {
+            _rowid_conversion.reset();
+        }
+    }
+
     void compact_segments(SegCompactionCandidatesSharedPtr segments);
 
     bool need_convert_delete_bitmap();
@@ -64,6 +72,8 @@ public:
 
     // set the cancel flag, tasks already started will not be cancelled.
     bool cancel();
+
+    void init_mem_tracker(int64_t txn_id);
 
 private:
     Status _create_segment_writer_for_segcompaction(
@@ -88,8 +98,9 @@ private:
     io::FileWriterPtr _file_writer;
 
     // for unique key mow table
-    std::unique_ptr<SimpleRowIdConversion> _rowid_conversion;
+    std::unique_ptr<SimpleRowIdConversion> _rowid_conversion = nullptr;
     DeleteBitmapPtr _converted_delete_bitmap;
+    std::shared_ptr<MemTrackerLimiter> _seg_compact_mem_tracker = nullptr;
 
     // the state is not mutable when 1)actual compaction operation started or 2) cancelled
     std::atomic<bool> _is_compacting_state_mutable = true;

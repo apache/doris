@@ -142,6 +142,7 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
 public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
@@ -150,6 +151,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
 
     private TxnStateCallbackFactory callbackFactory;
     private final Map<Long, Long> subTxnIdToTxnId = new ConcurrentHashMap<>();
+    private Map<Long, AtomicInteger> waitToCommitTxnCountMap = new ConcurrentHashMap<>();
 
     public CloudGlobalTransactionMgr() {
         this.callbackFactory = new TxnStateCallbackFactory();
@@ -327,6 +329,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         }
     }
 
+    @Deprecated
     @Override
     public void commitTransaction(long dbId, List<Table> tableList,
             long transactionId, List<TabletCommitInfo> tabletCommitInfos)
@@ -385,6 +388,10 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                     commitTxnResponse.getPartitionIds(idx));
             if (partition == null) {
                 continue;
+            }
+            if (version == 2) {
+                partition.getMaterializedIndices(MaterializedIndex.IndexExtState.ALL)
+                    .stream().forEach(i -> i.setRowCountReported(false));
             }
             partition.setCachedVisibleVersion(version, commitTxnResponse.getVersionUpdateTimeMs());
             LOG.info("Update Partition. transactionId:{}, table_id:{}, partition_id:{}, version:{}, update time:{}",
@@ -993,7 +1000,19 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     public boolean commitAndPublishTransaction(DatabaseIf db, List<Table> tableList, long transactionId,
                                                List<TabletCommitInfo> tabletCommitInfos, long timeoutMillis,
                                                TxnCommitAttachment txnCommitAttachment) throws UserException {
+        for (int i = 0; i < tableList.size(); i++) {
+            long tableId = tableList.get(i).getId();
+            LOG.info("start commit txn=" + transactionId + ",table=" + tableId);
+        }
+        for (Map.Entry<Long, AtomicInteger> entry : waitToCommitTxnCountMap.entrySet()) {
+            if (entry.getValue().get() > 5) {
+                LOG.info("now table {} commitAndPublishTransaction queue is {}", entry.getKey(),
+                        entry.getValue().get());
+            }
+        }
+        increaseWaitingLockCount(tableList);
         if (!MetaLockUtils.tryCommitLockTables(tableList, timeoutMillis, TimeUnit.MILLISECONDS)) {
+            decreaseWaitingLockCount(tableList);
             // DELETE_BITMAP_LOCK_ERR will be retried on be
             throw new UserException(InternalErrorCode.DELETE_BITMAP_LOCK_ERR,
                     "get table cloud commit lock timeout, tableList=("
@@ -1002,6 +1021,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         try {
             commitTransaction(db.getId(), tableList, transactionId, tabletCommitInfos, txnCommitAttachment);
         } finally {
+            decreaseWaitingLockCount(tableList);
             MetaLockUtils.commitUnlockTables(tableList);
         }
         return true;
@@ -1077,6 +1097,33 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             }
             throw new UserException("abortTxn failed, errMsg:" + e.getMessage());
         }
+        afterAbortTxnResp(abortTxnResponse, String.valueOf(transactionId), txnCommitAttachment);
+    }
+
+    private void afterAbortTxnResp(AbortTxnResponse abortTxnResponse, String txnIdOrLabel,
+            TxnCommitAttachment txnCommitAttachment) throws UserException {
+        if (abortTxnResponse.getStatus().getCode() != MetaServiceCode.OK) {
+            LOG.warn("abortTxn failed, transaction:{}, response:{}", txnIdOrLabel, abortTxnResponse);
+            // For routine load, it is necessary to release the write lock when abort transaction fails,
+            // otherwise it will cause the lock added in beforeAborted to not be released.
+            if (txnCommitAttachment != null && txnCommitAttachment instanceof RLTaskTxnCommitAttachment) {
+                RLTaskTxnCommitAttachment rlTaskTxnCommitAttachment = (RLTaskTxnCommitAttachment) txnCommitAttachment;
+                Env.getCurrentEnv().getRoutineLoadManager().getJob(rlTaskTxnCommitAttachment.getJobId()).writeUnlock();
+            }
+            switch (abortTxnResponse.getStatus().getCode()) {
+                case TXN_ID_NOT_FOUND:
+                case TXN_LABEL_NOT_FOUND:
+                case TXN_INVALID_STATUS:
+                    throw new TransactionNotFoundException("transaction [" + txnIdOrLabel + "] not found");
+                case TXN_ALREADY_ABORTED:
+                    throw new TransactionNotFoundException("transaction [" + txnIdOrLabel + "] is already aborted");
+                case TXN_ALREADY_VISIBLE:
+                    throw new UserException(
+                            "transaction [" + txnIdOrLabel + "] is already visible, " + ", could not abort");
+                default:
+                    throw new UserException(abortTxnResponse.getStatus().getMsg());
+            }
+        }
 
         TransactionState txnState = TxnUtil.transactionStateFromPb(abortTxnResponse.getTxnInfo());
         TxnStateChangeCallback cb = callbackFactory.getCallback(txnState.getCallbackId());
@@ -1129,20 +1176,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             LOG.warn("abortTxn failed, label:{}, exception:", label, e);
             throw new UserException("abortTxn failed, errMsg:" + e.getMessage());
         }
-
-        TransactionState txnState = TxnUtil.transactionStateFromPb(abortTxnResponse.getTxnInfo());
-        TxnStateChangeCallback cb = callbackFactory.getCallback(txnState.getCallbackId());
-        if (cb == null) {
-            LOG.info("no callback to run for this txn, txnId:{} callbackId:{}", txnState.getTransactionId(),
-                        txnState.getCallbackId());
-            return;
-        }
-
-        LOG.info("run txn callback, txnId:{} callbackId:{}", txnState.getTransactionId(), txnState.getCallbackId());
-        cb.afterAborted(txnState, true, txnState.getReason());
-        if (MetricRepo.isInit) {
-            MetricRepo.COUNTER_TXN_FAILED.increase(1L);
-        }
+        afterAbortTxnResp(abortTxnResponse, label, null);
     }
 
     @Override
@@ -1760,5 +1794,24 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             throw new UserException(response.getStatus().getMsg());
         }
         return TxnUtil.transactionStateFromPb(response.getTxnInfo());
+    }
+
+    private void increaseWaitingLockCount(List<Table> tableList) {
+        for (int i = 0; i < tableList.size(); i++) {
+            long tableId = tableList.get(i).getId();
+            if (waitToCommitTxnCountMap.containsKey(tableId)) {
+                waitToCommitTxnCountMap.get(tableId).addAndGet(1);
+            } else {
+                waitToCommitTxnCountMap.put(tableId, new AtomicInteger());
+                waitToCommitTxnCountMap.get(tableId).addAndGet(1);
+            }
+        }
+    }
+
+    private void decreaseWaitingLockCount(List<Table> tableList) {
+        for (int i = 0; i < tableList.size(); i++) {
+            long tableId = tableList.get(i).getId();
+            waitToCommitTxnCountMap.get(tableId).decrementAndGet();
+        }
     }
 }
