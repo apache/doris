@@ -363,11 +363,12 @@ public class MaxComputeScanNode extends FileQueryScanNode {
                 ScalarType dstType = ScalarType.createDateV2Type();
                 return  " \"" + dateLiteral.getStringValue(dstType) + "\" ";
             }
-            case DATETIME: {
-                DateLiteral dateLiteral = (DateLiteral) literalExpr;
-                ScalarType dstType = ScalarType.createDatetimeV2Type(3);
-                return  " \"" + dateLiteral.getStringValue(dstType) + "\" ";
-            }
+            // case DATETIME: {
+            //     Need to consider which time zone the datetime is passed in.
+            //     DateLiteral dateLiteral = (DateLiteral) literalExpr;
+            //     ScalarType dstType = ScalarType.createDatetimeV2Type(3);
+            //     return  " \"" + dateLiteral.getStringValue(dstType) + "\" ";
+            // }
             case TIMESTAMP_NTZ: {
                 DateLiteral dateLiteral = (DateLiteral) literalExpr;
                 ScalarType dstType = ScalarType.createDatetimeV2Type(6);

@@ -29,11 +29,8 @@ import org.apache.arrow.vector.Float4Vector;
 import org.apache.arrow.vector.Float8Vector;
 import org.apache.arrow.vector.IntVector;
 import org.apache.arrow.vector.SmallIntVector;
-import org.apache.arrow.vector.TimeStampMicroTZVector;
 import org.apache.arrow.vector.TimeStampMilliTZVector;
-import org.apache.arrow.vector.TimeStampNanoTZVector;
 import org.apache.arrow.vector.TimeStampNanoVector;
-import org.apache.arrow.vector.TimeStampSecTZVector;
 import org.apache.arrow.vector.TinyIntVector;
 import org.apache.arrow.vector.ValueVector;
 import org.apache.arrow.vector.VarBinaryVector;
@@ -62,6 +59,7 @@ public class MaxComputeColumnValue implements ColumnValue {
     private static final Logger LOG = Logger.getLogger(MaxComputeColumnValue.class);
     private int idx;
     private ValueVector column;
+    private ZoneId timeZone;
 
     public MaxComputeColumnValue() {
         idx = 0;
@@ -79,6 +77,10 @@ public class MaxComputeColumnValue implements ColumnValue {
     public void reset(ValueVector column) {
         this.column = column;
         this.idx = 0;
+    }
+
+    public void setTimeZone(ZoneId timeZone) {
+        this.timeZone = timeZone;
     }
 
     @Override
@@ -317,28 +319,9 @@ public class MaxComputeColumnValue implements ColumnValue {
         }
     }
 
-    public static LocalDateTime convertToLocalDateTime(TimeStampMilliTZVector milliTZVector, int index) {
+    public LocalDateTime convertToLocalDateTime(TimeStampMilliTZVector milliTZVector, int index) {
         long timestampMillis = milliTZVector.get(index);
-        // time_zone        DateTime  set
-        return LocalDateTime.ofInstant(Instant.ofEpochMilli(timestampMillis), ZoneId.systemDefault());
+        return LocalDateTime.ofInstant(Instant.ofEpochMilli(timestampMillis), timeZone);
     }
 
-    public static LocalDateTime convertToLocalDateTime(TimeStampNanoTZVector nanoTZVector, int index) {
-        long timestampNanos = nanoTZVector.get(index);
-        return LocalDateTime.ofInstant(Instant.ofEpochSecond(timestampNanos / 1_000_000_000,
-                timestampNanos % 1_000_000_000), ZoneId.systemDefault());
-    }
-
-    public static LocalDateTime convertToLocalDateTime(TimeStampSecTZVector secTZVector, int index) {
-        long timestampSeconds = secTZVector.get(index);
-        return LocalDateTime.ofInstant(Instant.ofEpochSecond(timestampSeconds), ZoneId.systemDefault());
-    }
-
-    public static LocalDateTime convertToLocalDateTime(TimeStampMicroTZVector microTZVector, int index) {
-        long timestampMicros = microTZVector.get(index);
-        long seconds = timestampMicros / 1_000_000;
-        long nanos = (timestampMicros % 1_000_000) * 1_000;
-
-        return LocalDateTime.ofInstant(Instant.ofEpochSecond(seconds, nanos), ZoneId.systemDefault());
-    }
 }

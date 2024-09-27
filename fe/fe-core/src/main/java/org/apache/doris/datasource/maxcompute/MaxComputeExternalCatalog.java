@@ -106,7 +106,6 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
             and MCProperties.ENDPOINT is a REQUIRED_PROPERTIES in current versions,
             `else {}` is not needed here.
          */
-        catalogProperty.addProperty(MCProperties.ENDPOINT, endpoint);
     }
 
 
