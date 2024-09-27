@@ -1036,7 +1036,7 @@ public class CloudInternalCatalog extends InternalCatalog {
                     clusterId = realClusterId;
                 }
 
-                ((CloudReplica) replica).updateClusterToBe(clusterId, info.getBeId(), true);
+                ((CloudReplica) replica).updateClusterToPrimaryBe(clusterId, info.getBeId());
 
                 LOG.debug("update single cloud replica cluster {} replica {} be {}", info.getClusterId(),
                         replica.getId(), info.getBeId());
@@ -1062,7 +1062,7 @@ public class CloudInternalCatalog extends InternalCatalog {
 
                     LOG.debug("update cloud replica cluster {} replica {} be {}", info.getClusterId(),
                             replica.getId(), info.getBeIds().get(i));
-                    ((CloudReplica) replica).updateClusterToBe(clusterId, info.getBeIds().get(i), true);
+                    ((CloudReplica) replica).updateClusterToPrimaryBe(clusterId, info.getBeIds().get(i));
                 }
             }
         } catch (Exception e) {
