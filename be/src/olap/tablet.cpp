@@ -106,6 +106,7 @@
 #include "olap/txn_manager.h"
 #include "olap/types.h"
 #include "olap/utils.h"
+#include "runtime/memory/mem_tracker_limiter.h"
 #include "segment_loader.h"
 #include "service/point_query_executor.h"
 #include "tablet.h"

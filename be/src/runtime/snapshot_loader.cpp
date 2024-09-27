@@ -52,6 +52,7 @@
 #include "olap/tablet_manager.h"
 #include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
+#include "runtime/memory/mem_tracker_limiter.h"
 #include "util/s3_uri.h"
 #include "util/s3_util.h"
 #include "util/thrift_rpc_helper.h"

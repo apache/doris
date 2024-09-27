@@ -26,6 +26,7 @@
 
 #include "common/status.h"
 #include "olap/tablet_fwd.h"
+#include "runtime/memory/mem_tracker_limiter.h"
 
 namespace doris {
 namespace io {

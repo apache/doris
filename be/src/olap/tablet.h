@@ -46,6 +46,7 @@
 #include "olap/rowset/rowset_reader.h"
 #include "olap/rowset/segment_v2/segment.h"
 #include "olap/version_graph.h"
+#include "runtime/memory/mem_tracker_limiter.h"
 #include "segment_loader.h"
 #include "util/metrics.h"
 #include "util/once.h"
