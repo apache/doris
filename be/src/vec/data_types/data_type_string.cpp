@@ -23,6 +23,7 @@
 #include <lz4/lz4.h>
 #include <streamvbyte.h>
 
+#include <cstddef>
 #include <cstring>
 
 #include "agent/be_exec_version_manager.h"
@@ -97,7 +98,7 @@ int64_t DataTypeString::get_uncompressed_serialized_bytes(const IColumn& column,
             size += sizeof(size_t) + std::max(offsets_size, streamvbyte_max_compressedbytes(
                                                                     upper_int32(offsets_size)));
         }
-        size += sizeof(uint64_t);
+        size += sizeof(size_t);
         if (auto bytes = data_column.get_chars().size(); bytes <= SERIALIZED_MEM_SIZE_LIMIT) {
             size += bytes;
         } else {
@@ -132,7 +133,7 @@ char* DataTypeString::serialize(const IColumn& column, char* buf, int be_exec_ve
         buf = serialize_const_flag_and_row_num(&data_column, buf, &real_need_copy_num);
 
         // mem_size = real_row_num * sizeof(IColumn::Offset)
-        uint32_t mem_size = real_need_copy_num * sizeof(IColumn::Offset);
+        auto mem_size = real_need_copy_num * sizeof(IColumn::Offset);
         const auto& string_column = assert_cast<const ColumnString&>(*data_column);
         // offsets
         if (mem_size <= SERIALIZED_MEM_SIZE_LIMIT) {
@@ -147,9 +148,9 @@ char* DataTypeString::serialize(const IColumn& column, char* buf, int be_exec_ve
         }
 
         // values
-        uint64_t value_len = string_column.get_chars().size();
-        *reinterpret_cast<uint64_t*>(buf) = value_len;
-        buf += sizeof(uint64_t);
+        auto value_len = string_column.get_chars().size();
+        *reinterpret_cast<size_t*>(buf) = value_len;
+        buf += sizeof(size_t);
         if (value_len <= SERIALIZED_MEM_SIZE_LIMIT) {
             memcpy(buf, string_column.get_chars().data(), value_len);
             buf += value_len;
@@ -225,8 +226,8 @@ const char* DataTypeString::deserialize(const char* buf, MutableColumnPtr* colum
         }
 
         // total length
-        uint64_t value_len = *reinterpret_cast<const uint64_t*>(buf);
-        buf += sizeof(uint64_t);
+        size_t value_len = *reinterpret_cast<const size_t*>(buf);
+        buf += sizeof(size_t);
         data.resize(value_len);
 
         // values

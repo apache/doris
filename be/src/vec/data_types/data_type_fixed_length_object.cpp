@@ -38,8 +38,8 @@ char* DataTypeFixedLengthObject::serialize(const IColumn& column, char* buf,
 
         // row num
         const auto row_num = column.size();
-        *reinterpret_cast<uint32_t*>(buf) = row_num;
-        buf += sizeof(uint32_t);
+        *reinterpret_cast<size_t*>(buf) = row_num;
+        buf += sizeof(size_t);
         auto real_need_copy_num = is_const_column ? 1 : row_num;
 
         const IColumn* data_column = &column;
@@ -87,8 +87,8 @@ const char* DataTypeFixedLengthObject::deserialize(const char* buf, MutableColum
         bool is_const_column = *reinterpret_cast<const bool*>(buf);
         buf += sizeof(bool);
         //row num
-        uint32_t row_num = *reinterpret_cast<const uint32_t*>(buf);
-        buf += sizeof(uint32_t);
+        size_t row_num = *reinterpret_cast<const size_t*>(buf);
+        buf += sizeof(size_t);
         //item size
         size_t item_size = *reinterpret_cast<const size_t*>(buf);
         buf += sizeof(size_t);
@@ -134,7 +134,7 @@ const char* DataTypeFixedLengthObject::deserialize(const char* buf, MutableColum
 int64_t DataTypeFixedLengthObject::get_uncompressed_serialized_bytes(const IColumn& column,
                                                                      int be_exec_version) const {
     if (be_exec_version >= USE_CONST_SERDE) {
-        auto size = sizeof(bool) + sizeof(uint32_t) + sizeof(size_t);
+        auto size = sizeof(bool) + sizeof(size_t) + sizeof(size_t);
         const IColumn* data_column = &column;
         if (is_column_const(column)) {
             const auto& const_column = assert_cast<const ColumnConst&>(column);

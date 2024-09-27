@@ -144,7 +144,7 @@ char* DataTypeNullable::serialize(const IColumn& column, char* buf, int be_exec_
         buf = serialize_const_flag_and_row_num(&data_column, buf, &real_need_copy_num);
 
         // mem_size = real_row_num * sizeof(T)
-        const uint32_t mem_size = real_need_copy_num * sizeof(bool);
+        const auto mem_size = real_need_copy_num * sizeof(bool);
         const auto& col = assert_cast<const ColumnNullable&>(*data_column);
         // null flags
         if (mem_size <= SERIALIZED_MEM_SIZE_LIMIT) {
