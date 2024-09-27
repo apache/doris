@@ -451,6 +451,8 @@ public class UnequalPredicateInfer {
             Arrays.fill(equalToLiteral, -1);
             // save equal predicates like a=b (no literal)
             List<Pair<Integer, Integer>> tableFilters = new ArrayList<>();
+            // save equal predicates like t1.a=t2.b (no literal)
+            List<Pair<Integer, Integer>> nonTableFilters = new ArrayList<>();
             for (int i = 0; i < size; ++i) {
                 for (int j = i + 1; j < size; ++j) {
                     if (graph[i][j] != Relation.EQ) {
@@ -463,7 +465,7 @@ public class UnequalPredicateInfer {
                         if (isTableFilter(i, j)) {
                             tableFilters.add(Pair.of(i, j));
                         } else {
-                            set(chosen, i, j, Relation.EQ);
+                            nonTableFilters.add(Pair.of(i, j));
                         }
                     } else if (inputExprs.get(i) instanceof Literal
                             || inputExprs.get(j) instanceof Literal) {
@@ -486,6 +488,13 @@ public class UnequalPredicateInfer {
                     set(chosen, left, right, Relation.EQ);
                     equalToLiteral[left] = left;
                     equalToLiteral[right] = left;
+                }
+            }
+            for (Pair<Integer, Integer> nonTableFilter : nonTableFilters) {
+                int left = nonTableFilter.first;
+                int right = nonTableFilter.second;
+                if (!equalWithConstant.contains(left) && !equalWithConstant.contains(right)) {
+                    set(chosen, left, right, Relation.EQ);
                 }
             }
             return chosen;
