@@ -44,7 +44,6 @@
 #include "olap/schema_cache.h"
 #include "olap/tablet_meta.h"
 #include "olap/tablet_schema.h"
-#include "runtime/query_context.h"
 #include "util/runtime_profile.h"
 #include "vec/core/block.h"
 #include "vec/olap/vgeneric_iterators.h"
@@ -352,9 +351,9 @@ Status BetaRowsetReader::next_block(vectorized::Block* block) {
         return Status::Error<END_OF_FILE>("BetaRowsetReader is empty");
     }
 
-    QueryContext* query_ctx = nullptr;
-    if (_read_context != nullptr && _read_context->runtime_state != nullptr) {
-        query_ctx = _read_context->runtime_state->get_query_ctx();
+    RuntimeState* runtime_state = nullptr;
+    if (_read_context != nullptr) {
+        runtime_state = _read_context->runtime_state;
     }
 
     do {
@@ -366,8 +365,8 @@ Status BetaRowsetReader::next_block(vectorized::Block* block) {
             return s;
         }
 
-        if (query_ctx != nullptr && query_ctx->is_cancelled()) [[unlikely]] {
-            return query_ctx->exec_status();
+        if (runtime_state != nullptr && runtime_state->is_cancelled()) [[unlikely]] {
+            return runtime_state->cancel_reason();
         }
     } while (block->empty());
 
@@ -377,9 +376,10 @@ Status BetaRowsetReader::next_block(vectorized::Block* block) {
 Status BetaRowsetReader::next_block_view(vectorized::BlockView* block_view) {
     SCOPED_RAW_TIMER(&_stats->block_fetch_ns);
     RETURN_IF_ERROR(_init_iterator_once());
-    QueryContext* query_ctx = nullptr;
-    if (_read_context != nullptr && _read_context->runtime_state != nullptr) {
-        query_ctx = _read_context->runtime_state->get_query_ctx();
+
+    RuntimeState* runtime_state = nullptr;
+    if (_read_context != nullptr) {
+        runtime_state = _read_context->runtime_state;
     }
 
     do {
@@ -391,8 +391,8 @@ Status BetaRowsetReader::next_block_view(vectorized::BlockView* block_view) {
             return s;
         }
 
-        if (query_ctx != nullptr && query_ctx->is_cancelled()) [[unlikely]] {
-            return query_ctx->exec_status();
+        if (runtime_state != nullptr && runtime_state->is_cancelled()) [[unlikely]] {
+            return runtime_state->cancel_reason();
         }
     } while (block_view->empty());
 

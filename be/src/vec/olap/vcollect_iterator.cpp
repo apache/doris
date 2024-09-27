@@ -490,9 +490,9 @@ int64_t VCollectIterator::Level0Iterator::version() const {
 }
 
 Status VCollectIterator::Level0Iterator::refresh_current_row() {
-    QueryContext* query_context = nullptr;
-    if (_reader != nullptr && _reader->_reader_context.runtime_state != nullptr) {
-        query_context = _reader->_reader_context.runtime_state->get_query_ctx();
+    RuntimeState* runtime_state = nullptr;
+    if (_reader != nullptr) {
+        runtime_state = _reader->_reader_context.runtime_state;
     }
 
     do {
@@ -506,10 +506,10 @@ Status VCollectIterator::Level0Iterator::refresh_current_row() {
         } else {
             _reset();
             auto res = _refresh();
-            if (query_context != nullptr && query_context->is_cancelled()) [[unlikely]] {
-                return query_context->exec_status();
-            }
 
+            if (runtime_state != nullptr && runtime_state->is_cancelled()) [[unlikely]] {
+                return runtime_state->cancel_reason();
+            }
             if (!res.ok() && !res.is<END_OF_FILE>()) {
                 return res;
             }
@@ -686,18 +686,18 @@ Status VCollectIterator::Level1Iterator::init(bool get_data_by_ref) {
 }
 
 Status VCollectIterator::Level1Iterator::ensure_first_row_ref() {
-    QueryContext* query_context = nullptr;
-    if (_reader != nullptr && _reader->_reader_context.runtime_state != nullptr) {
-        query_context = _reader->_reader_context.runtime_state->get_query_ctx();
+    RuntimeState* runtime_state = nullptr;
+    if (_reader != nullptr) {
+        runtime_state = _reader->_reader_context.runtime_state;
     }
 
     for (auto iter = _children.begin(); iter != _children.end();) {
         auto s = (*iter)->ensure_first_row_ref();
-        if (!s.ok()) {
-            if (query_context != nullptr && query_context->is_cancelled()) [[unlikely]] {
-                return query_context->exec_status();
-            }
+        if (runtime_state != nullptr && runtime_state->is_cancelled()) {
+            return runtime_state->cancel_reason();
+        }
 
+        if (!s.ok()) {
             iter = _children.erase(iter);
             if (!s.is<END_OF_FILE>()) {
                 return s;
