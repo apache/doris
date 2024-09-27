@@ -33,6 +33,7 @@
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
 #include "olap/rowset/segment_v2/inverted_index_query_type.h"
 #include "olap/tablet_schema.h"
+#include "runtime/primitive_type.h"
 #include "util/once.h"
 
 #define FINALIZE_INPUT(x) \
