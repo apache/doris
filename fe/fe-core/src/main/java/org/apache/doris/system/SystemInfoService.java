@@ -1030,4 +1030,10 @@ public class SystemInfoService {
         }
         return minPipelineExecutorSize;
     }
+
+    // CloudSystemInfoService override
+    public int getTabletNumByBackendId(long beId) {
+        return Env.getCurrentInvertedIndex().getTabletNumByBackendId(beId);
+    }
+
 }

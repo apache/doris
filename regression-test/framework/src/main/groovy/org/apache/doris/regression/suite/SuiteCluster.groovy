@@ -43,10 +43,14 @@ class ClusterOptions {
 
     int waitTimeout = 180
 
+    // don't add whitespace in feConfigs items,
+    // for example, ' xx = yy ' is bad, should use 'xx=yy'
     List<String> feConfigs = [
         'heartbeat_interval_second=5',
     ]
 
+    // don't add whitespace in beConfigs items,
+    // for example, ' xx = yy ' is bad, should use 'xx=yy'
     List<String> beConfigs = [
         'max_sys_mem_available_low_water_mark_bytes=0', //no check mem available memory
         'report_disk_state_interval_seconds=2',
@@ -265,7 +269,7 @@ class SuiteCluster {
     final String name
     final Config config
     private boolean running
-    private boolean sqlModeNodeMgr = false;
+    private boolean sqlModeNodeMgr = false
 
     SuiteCluster(String name, Config config) {
         this.name = name
@@ -324,7 +328,7 @@ class SuiteCluster {
 
         cmd += ['--wait-timeout', String.valueOf(options.waitTimeout)]
 
-        sqlModeNodeMgr = options.sqlModeNodeMgr;
+        sqlModeNodeMgr = options.sqlModeNodeMgr
 
         runCmd(cmd.join(' '), -1)
 
@@ -428,7 +432,7 @@ class SuiteCluster {
         def data = runCmd(cmd)
         assert data instanceof List
         def rows = (List<List<Object>>) data
-        logger.info("get all nodes {}", rows);
+        logger.info('get all nodes {}', rows)
         def header = new ListHeader(rows.get(0))
         for (int i = 1; i < rows.size(); i++) {
             def row = (List<Object>) rows.get(i)
