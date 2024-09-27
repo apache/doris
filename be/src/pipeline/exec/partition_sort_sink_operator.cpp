@@ -298,14 +298,16 @@ Status PartitionSortSinkOperatorX::_emplace_into_hash_table(
                             SCOPED_TIMER(local_state._selector_block_timer);
                             RETURN_IF_ERROR(place->append_block_by_selector(input_block, eos));
                         }
-                        if (local_state._is_need_passthrough) {
+                        //Perform passthrough for the range [0, row] of input_block
+                        if (local_state._is_need_passthrough && row >= 0) {
                             {
                                 COUNTER_UPDATE(local_state._passthrough_rows_counter,
-                                               (int64_t)(num_rows - row));
+                                               (int64_t)(row + 1));
                                 std::lock_guard<std::mutex> lock(
                                         local_state._shared_state->buffer_mutex);
                                 // have emplace (num_rows - row) to hashtable, and now have row remaining needed in block;
-                                input_block->set_num_rows(row);
+                                // set_num_rows(x) retains the range [0, x - 1], so row + 1 is needed here.
+                                input_block->set_num_rows(row + 1);
                                 local_state._shared_state->blocks_buffer.push(
                                         std::move(*input_block));
                                 // buffer have data, source could read this.
