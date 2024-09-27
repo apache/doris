@@ -252,9 +252,9 @@ public class OlapTableSink extends DataSink {
         strBuilder.append(prefix + "  IS_PARTIAL_UPDATE: " + isPartialUpdate);
         if (isPartialUpdate) {
             if (uniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS) {
-                strBuilder.append(prefix + "  PARTIAL_UPDATE_MODE: FIXED_PARTIAL_UPDATE");
+                strBuilder.append(prefix + "  PARTIAL_UPDATE_MODE: UPDATE_FIXED_COLUMNS");
             } else {
-                strBuilder.append(prefix + "  PARTIAL_UPDATE_MODE: FLEXIBLE_PARTIAL_UPDATE");
+                strBuilder.append(prefix + "  PARTIAL_UPDATE_MODE: UPDATE_FLEXIBLE_COLUMNS");
             }
         }
         return strBuilder.toString();

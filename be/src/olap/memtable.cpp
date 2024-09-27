@@ -331,12 +331,6 @@ size_t MemTable::_sort() {
     auto new_row_it = std::next(_row_in_blocks.begin(), _last_sorted_pos);
     std::inplace_merge(_row_in_blocks.begin(), new_row_it, _row_in_blocks.end(), cmp_func);
     _last_sorted_pos = _row_in_blocks.size();
-    {
-        std::string res;
-        for (const auto& row : _row_in_blocks) {
-            res += fmt::format(",{}", row->_row_pos);
-        }
-    }
     return same_keys_num;
 }
 

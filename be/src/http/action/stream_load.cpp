@@ -637,11 +637,11 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
         }
     }
 
-    StringCaseMap<TUniqueKeyUpdateMode::type> unique_key_update_mode_map = {
-            {"UPSERT", TUniqueKeyUpdateMode::UPSERT},
-            {"UPDATE_FIXED_COLUMNS", TUniqueKeyUpdateMode::UPDATE_FIXED_COLUMNS},
-            {"UPDATE_FLEXIBLE_COLUMNS", TUniqueKeyUpdateMode::UPDATE_FLEXIBLE_COLUMNS}};
     if (!http_req->header(HTTP_UNIQUE_KEY_UPDATE_MODE).empty()) {
+        static const StringCaseMap<TUniqueKeyUpdateMode::type> unique_key_update_mode_map = {
+                {"UPSERT", TUniqueKeyUpdateMode::UPSERT},
+                {"UPDATE_FIXED_COLUMNS", TUniqueKeyUpdateMode::UPDATE_FIXED_COLUMNS},
+                {"UPDATE_FLEXIBLE_COLUMNS", TUniqueKeyUpdateMode::UPDATE_FLEXIBLE_COLUMNS}};
         std::string unique_key_update_mode_str = http_req->header(HTTP_UNIQUE_KEY_UPDATE_MODE);
         auto iter = unique_key_update_mode_map.find(unique_key_update_mode_str);
         if (iter != unique_key_update_mode_map.end()) {
@@ -690,8 +690,9 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
             request.__set_unique_key_update_mode(unique_key_update_mode);
         } else {
             return Status::InvalidArgument(
-                    "Invalid unique_key_partial_mode {}, must be UPSERT, PARTIAL_UPDATE or "
-                    "FLEXIBLE_PARTIAL_UPDATE",
+                    "Invalid unique_key_partial_mode {}, must be one of {'UPSERT', "
+                    "'UPDATE_FIXED_COLUMNS', "
+                    "'UPDATE_FLEXIBLE_COLUMNS'}",
                     unique_key_update_mode_str);
         }
     }

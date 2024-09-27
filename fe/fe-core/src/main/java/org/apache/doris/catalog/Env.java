@@ -3560,7 +3560,8 @@ public class Env {
         }
 
         // enable_unique_key_skip_bitmap, always print this property for merge-on-write unique table
-        if (olapTable.getKeysType() == KeysType.UNIQUE_KEYS && olapTable.getEnableUniqueKeyMergeOnWrite()) {
+        if (olapTable.getKeysType() == KeysType.UNIQUE_KEYS && olapTable.getEnableUniqueKeyMergeOnWrite()
+                && olapTable.getEnableUniqueKeySkipBitmap()) {
             sb.append(",\n\"").append(PropertyAnalyzer.ENABLE_UNIQUE_KEY_SKIP_BITMAP_COLUMN).append("\" = \"");
             sb.append(olapTable.getEnableUniqueKeySkipBitmap()).append("\"");
         }
