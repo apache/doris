@@ -86,5 +86,4 @@ AggregateFunctionPtr create_aggregate_function_regr_intercept(const std::string&
 void register_aggregate_function_regr_intercept(AggregateFunctionSimpleFactory& factory) {
     factory.register_function_both("regr_intercept", create_aggregate_function_regr_intercept);
 }
-
 } // namespace doris::vectorized
