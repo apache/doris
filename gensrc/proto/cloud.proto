@@ -1122,6 +1122,15 @@ message GetTabletStatsResponse {
     repeated TabletStatsPB tablet_stats = 2;
 }
 
+message FixTabletStatsRequest {
+    optional string cloud_unique_id = 1;
+    repeated int64 tablet_id = 2;
+}
+
+message FixTabletStatsResponse {
+    optional MetaServiceResponseStatus status = 1;
+}
+
 message CreateStageRequest {
     optional string cloud_unique_id = 1;
     optional StagePB stage = 2;

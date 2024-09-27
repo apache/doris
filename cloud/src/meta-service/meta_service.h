@@ -298,6 +298,8 @@ public:
                                                               const std::string& cloud_unique_id,
                                                               InstanceInfoPB* instance);
 
+    void fix_tablet_stats(const FixTabletStatsRequest* req, const FixTabletStatsResponse* resp);
+
 private:
     std::pair<MetaServiceCode, std::string> alter_instance(
             const AlterInstanceRequest* request,
