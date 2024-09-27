@@ -24,9 +24,6 @@ suite("test_two_hive_kerberos", "p0,external,kerberos,external_docker,external_d
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String hms_catalog_name = "test_two_hive_kerberos"
         sql """drop catalog if exists ${hms_catalog_name};"""
-        println 'check hadoop-master:88 dns'
-        def hadoopMaster88DnsCheckresult = "nslookup hadoop-master:88".execute().text
-        println hadoopMaster88DnsCheckresult
         sql """
             CREATE CATALOG IF NOT EXISTS ${hms_catalog_name}
             PROPERTIES ( 
@@ -38,7 +35,11 @@ suite("test_two_hive_kerberos", "p0,external,kerberos,external_docker,external_d
                 "hadoop.kerberos.principal"="hive/presto-master.docker.cluster@LABS.TERADATA.COM",
                 "hadoop.kerberos.keytab" = "/keytabs/hive-presto-master.keytab",
                 "hive.metastore.sasl.enabled " = "true",
-                "hive.metastore.kerberos.principal" = "hive/_HOST@LABS.TERADATA.COM"
+                "hive.metastore.kerberos.principal" = "hive/_HOST@LABS.TERADATA.COM",
+                "hadoop.security.auth_to_local" = "RULE:[2:\$1@\$0](.*@LABS.TERADATA.COM)s/@.*//
+                                   RULE:[2:\$1@\$0](.*@OTHERLABS.TERADATA.COM)s/@.*//
+                                   RULE:[2:\$1@\$0](.*@OTHERREALM.COM)s/@.*//
+                                   DEFAULT",
             );
         """
 

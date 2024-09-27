@@ -20,9 +20,6 @@ suite("test_single_hive_kerberos", "p0,external,kerberos,external_docker,externa
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String hms_catalog_name = "test_single_hive_kerberos"
         sql """drop catalog if exists hms_kerberos;"""
-        println 'check hadoop-master:88 dns'
-        def hadoopMaster88Dnsresult = "nslookup hadoop-master:88".execute().text
-        println hadoopMaster88Dnsresult
         sql """
             CREATE CATALOG IF NOT EXISTS hms_kerberos
             PROPERTIES (
