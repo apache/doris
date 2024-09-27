@@ -61,6 +61,8 @@ suite('test_abort_txn_by_be', 'docker') {
                 lo_shippriority,lo_quantity,lo_extendedprice,lo_ordtotalprice,lo_discount, 
                 lo_revenue,lo_supplycost,lo_tax,lo_commitdate,lo_shipmode,lo_dummy"""
 
+        GetDebugPoint().enableDebugPointForAllBEs('StreamLoadExecutor.commit_txn.block')
+
         thread {
             streamLoad {
                 // a default db 'regression_test' is specified in
@@ -88,22 +90,17 @@ suite('test_abort_txn_by_be', 'docker') {
                 // if declared a check callback, the default check condition will ignore.
                 // So you must check all condition
                 check { result, exception, startTime, endTime ->
-                    if (exception != null) {
-                        throw exception
-                    }
-                    log.info("Stream load result: ${result}".toString())
-                    def json = parseJson(result)
-                    assertEquals("success", json.Status.toLowerCase())
-                    assertEquals(json.NumberTotalRows, json.NumberLoadedRows)
-                    assertTrue(json.NumberLoadedRows > 0 && json.LoadBytes > 0)
                 }
             }
         }
 
-        sleep(10000)
+        def dbId = getDbId()
+        dockerAwaitUntil(20, {
+            def txns = sql_return_maparray("show proc '/transactions/${dbId}/running'")
+            txns.size() > 0
+        })
 
         sql """ alter table ${tableName} modify column lo_suppkey bigint NULL """
-
         String result = ""
         int max_try_time = 3000
         while (max_try_time--){

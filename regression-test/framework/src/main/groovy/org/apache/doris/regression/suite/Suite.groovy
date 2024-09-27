@@ -293,9 +293,11 @@ class Suite implements GroovyInterceptable {
         boolean dockerIsCloud = false
         if (options.cloudMode == null) {
             if (context.config.runMode == RunMode.UNKNOWN) {
-                throw new Exception("Bad run mode, cloud or not_cloud is unknown")
+                dockerImpl(options, false, actionSupplier)
+                dockerImpl(options, true, actionSupplier)
+            } else {
+                dockerImpl(options, context.config.runMode == RunMode.CLOUD, actionSupplier)
             }
-            dockerIsCloud = context.config.runMode == RunMode.CLOUD
         } else {
             if (options.cloudMode == true && context.config.runMode == RunMode.NOT_CLOUD) {
                 return
@@ -303,12 +305,15 @@ class Suite implements GroovyInterceptable {
             if (options.cloudMode == false && context.config.runMode == RunMode.CLOUD) {
                 return
             }
-            dockerIsCloud = options.cloudMode
+            dockerImpl(options, options.cloudMode, actionSupplier)
         }
+    }
 
+
+    private void dockerImpl(ClusterOptions options, boolean isCloud, Closure actionSupplier) throws Exception {
         try {
             cluster.destroy(true)
-            cluster.init(options, dockerIsCloud)
+            cluster.init(options, isCloud)
 
             def user = context.config.jdbcUser
             def password = context.config.jdbcPassword
