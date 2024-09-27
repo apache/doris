@@ -516,6 +516,10 @@ Status MemTable::_to_block(std::unique_ptr<vectorized::Block>* res) {
     }
     if (_keys_type == KeysType::UNIQUE_KEYS && _enable_unique_key_mow &&
         !_tablet_schema->cluster_key_idxes().empty()) {
+        if (_is_partial_update) {
+            return Status::InternalError(
+                    "Partial update for mow with cluster keys is not supported");
+        }
         RETURN_IF_ERROR(_sort_by_cluster_keys());
     }
     g_memtable_input_block_allocated_size << -_input_mutable_block.allocated_bytes();
