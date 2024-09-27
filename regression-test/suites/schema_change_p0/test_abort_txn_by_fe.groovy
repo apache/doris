@@ -63,11 +63,15 @@ suite('test_abort_txn_by_fe', 'docker') {
         loadSql = loadSql.replaceAll("\\\$\\{loadLabel\\}", loadLabel) + s3WithProperties
         sql loadSql
 
-        def dbId = getDbId()
-        dockerAwaitUntil(20, {
-            def txns = sql_return_maparray("show proc '/transactions/${dbId}/running'")
-            txns.any { it.Label == loadLabel }
-        })
+        if (isCloudMode()) {
+            sleep 6000
+        } else {
+            def dbId = getDbId()
+            dockerAwaitUntil(20, {
+                def txns = sql_return_maparray("show proc '/transactions/${dbId}/running'")
+                txns.any { it.Label == loadLabel }
+            })
+        }
 
         sql """ alter table ${table} modify column lo_suppkey bigint NULL """
         

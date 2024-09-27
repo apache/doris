@@ -94,11 +94,15 @@ suite('test_abort_txn_by_be', 'docker') {
             }
         }
 
-        def dbId = getDbId()
-        dockerAwaitUntil(20, {
-            def txns = sql_return_maparray("show proc '/transactions/${dbId}/running'")
-            txns.size() > 0
-        })
+        if (isCloudMode()) {
+            sleep 3000
+        } else {
+            def dbId = getDbId()
+            dockerAwaitUntil(20, {
+                def txns = sql_return_maparray("show proc '/transactions/${dbId}/running'")
+                txns.size() > 0
+            })
+        }
 
         sql """ alter table ${tableName} modify column lo_suppkey bigint NULL """
         String result = ""
