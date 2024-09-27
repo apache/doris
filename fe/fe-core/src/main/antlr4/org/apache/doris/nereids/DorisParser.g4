@@ -851,7 +851,7 @@ unsupportedDmlStatement
     : TRUNCATE TABLE multipartIdentifier specifiedPartition?                        #truncateTable
     | COPY INTO name=multipartIdentifier columns=identifierList? FROM
         (stageAndPattern | (LEFT_PAREN SELECT selectColumnClause
-            FROM stageAndPattern whereClause RIGHT_PAREN))
+            FROM stageAndPattern whereClause? RIGHT_PAREN))
         properties=propertyClause?                                                  #copyInto
     ;
 
