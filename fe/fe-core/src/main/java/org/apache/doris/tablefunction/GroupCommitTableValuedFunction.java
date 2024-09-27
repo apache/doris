@@ -28,6 +28,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.planner.GroupCommitScanNode;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TFileType;
 
 import java.util.ArrayList;
@@ -66,6 +67,10 @@ public class GroupCommitTableValuedFunction extends ExternalFileTableValuedFunct
             throw new AnalysisException("Only support OLAP table, but table type of table_id "
                     + tableId + " is " + table.getType());
         }
+        // set timeout to max(group_commit_interval * 2, 600s)
+        int timeoutS = (int) Math.max(((OlapTable) table).getGroupCommitIntervalMs() / 1000.0 * 2, 600);
+        ConnectContext.get().getSessionVariable().setInsertTimeoutS(timeoutS);
+
         List<Column> tableColumns = table.getBaseSchema(true);
         for (int i = 1; i <= tableColumns.size(); i++) {
             fileColumns.add(new Column("c" + i, tableColumns.get(i - 1).getType(), true));
