@@ -186,7 +186,7 @@ Status Compaction::merge_input_rowsets() {
     Status res;
     {
         SCOPED_TIMER(_merge_rowsets_latency_timer);
-        if (_is_vertical) {
+        if (_is_vertical || !_tablet->tablet_schema()->cluster_key_idxes().empty()) {
             res = Merger::vertical_merge_rowsets(_tablet, compaction_type(), *_cur_tablet_schema,
                                                  input_rs_readers, _output_rs_writer.get(),
                                                  get_avg_segment_rows(), way_num, &_stats);
