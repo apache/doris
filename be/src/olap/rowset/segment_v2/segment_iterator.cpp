@@ -2566,7 +2566,7 @@ void SegmentIterator::_calculate_pred_in_remaining_conjunct_root(
 
         if (!_column_predicate_info->is_empty()) {
             if (parent != nullptr && parent->node_type() != TExprNodeType::COMPOUND_PRED) {
-                int cid = _schema->column_id(_column_predicate_info->column_id);
+                int cid = _opts.tablet_schema->field_index(_column_predicate_info->column_name);
                 _must_read_data_indices.insert(cid);
             }
             _column_pred_in_remaining_vconjunct[_column_predicate_info->column_name].push_back(
