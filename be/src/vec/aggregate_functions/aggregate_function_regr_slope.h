@@ -103,11 +103,11 @@ struct RegrSlopeFuncTwoArg {
     using Data = AggregateFunctionRegrSlopeData<T>;
 };
 
-template <typename StatFunc, bool NullableInput>
+template <typename StatFunc>
 class AggregateFunctionRegrSlopeSimple
         : public IAggregateFunctionDataHelper<
                   typename StatFunc::Data,
-                  AggregateFunctionRegrSlopeSimple<StatFunc, NullableInput>> {
+                  AggregateFunctionRegrSlopeSimple<StatFunc>> {
 public:
     using T = typename StatFunc::Type;
     using InputCol = ColumnVector<T>;
@@ -116,7 +116,7 @@ public:
     explicit AggregateFunctionRegrSlopeSimple(const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper<
                       typename StatFunc::Data,
-                      AggregateFunctionRegrSlopeSimple<StatFunc, NullableInput>>(argument_types_) {
+                      AggregateFunctionRegrSlopeSimple<StatFunc>>(argument_types_) {
         DCHECK(!argument_types_.empty());
     }
 
@@ -128,25 +128,31 @@ public:
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena*) const override {
-        if constexpr (NullableInput) {
-            const ColumnNullable& y_column_nullable =
-                    assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(*columns[0]);
-            const ColumnNullable& x_column_nullable =
-                    assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(*columns[1]);
-            bool y_null = y_column_nullable.is_null_at(row_num);
-            bool x_null = x_column_nullable.is_null_at(row_num);
-            if (y_null || x_null) {
-                return;
-            } else {
-                T y_value = assert_cast<const InputCol&, TypeCheckOnRelease::DISABLE>(y_column_nullable.get_nested_column())
-                                        .get_data()[row_num];
-                T x_value = assert_cast<const InputCol&, TypeCheckOnRelease::DISABLE>(x_column_nullable.get_nested_column())
-                                        .get_data()[row_num];
-                this->data(place).add(y_value, x_value);
+        bool y_null = false;
+        bool x_null = false;
+        T y_value, x_value;
+
+        if (columns[0]->is_nullable()) {
+            const auto& y_column_nullable = assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(*columns[0]);
+            y_null = y_column_nullable.is_null_at(row_num);
+            if (!y_null) {
+                y_value = assert_cast<const InputCol&, TypeCheckOnRelease::DISABLE>(y_column_nullable.get_nested_column()).get_data()[row_num];
             }
         } else {
-            T y_value = assert_cast<const InputCol&, TypeCheckOnRelease::DISABLE>(*columns[0]).get_data()[row_num];
-            T x_value = assert_cast<const InputCol&, TypeCheckOnRelease::DISABLE>(*columns[1]).get_data()[row_num];
+            y_value = assert_cast<const InputCol&, TypeCheckOnRelease::DISABLE>(*columns[0]).get_data()[row_num];
+        }
+
+        if (columns[1]->is_nullable()) {
+            const auto& x_column_nullable = assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(*columns[1]);
+            x_null = x_column_nullable.is_null_at(row_num);
+            if (!x_null) {
+                x_value = assert_cast<const InputCol&, TypeCheckOnRelease::DISABLE>(x_column_nullable.get_nested_column()).get_data()[row_num];
+            }
+        } else {
+            x_value = assert_cast<const InputCol&, TypeCheckOnRelease::DISABLE>(*columns[1]).get_data()[row_num];
+        }
+
+        if (!y_null && !x_null) {
             this->data(place).add(y_value, x_value);
         }
     }

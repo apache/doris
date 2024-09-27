@@ -27,18 +27,11 @@ namespace doris::vectorized {
 
 template <typename T>
 AggregateFunctionPtr type_dispatch_for_aggregate_function_regr_slope(const DataTypes& argument_types,
-                                                                     const bool& result_is_nullable,
-                                                                     bool nullable_input) {
+                                                                     const bool& result_is_nullable) {
     using StatFunctionTemplate = RegrSlopeFuncTwoArg<T>;
-    if (nullable_input) {
-        return creator_without_type::create_ignore_nullable<
-                AggregateFunctionRegrSlopeSimple<StatFunctionTemplate, true>>(
+    return creator_without_type::create_ignore_nullable<
+            AggregateFunctionRegrSlopeSimple<StatFunctionTemplate>>(
                 argument_types, result_is_nullable);
-    } else {
-        return creator_without_type::create_ignore_nullable<
-                AggregateFunctionRegrSlopeSimple<StatFunctionTemplate, false>>(
-                argument_types, result_is_nullable);
-    }
 }
 
 AggregateFunctionPtr create_aggregate_function_regr_slope(const std::string& name,
@@ -52,14 +45,12 @@ AggregateFunctionPtr create_aggregate_function_regr_slope(const std::string& nam
         LOG(WARNING) << "aggregate function " << name << " requires nullable result type";
         return nullptr;
     }
-    const bool nullable_input = argument_types[0]->is_nullable() || argument_types[1]->is_nullable();
     WhichDataType y_type(remove_nullable(argument_types[0]));
     WhichDataType x_type(remove_nullable(argument_types[1]));
 
 #define DISPATCH(T)                                                                                   \
     if (x_type.idx == TypeIndex::T && y_type.idx == TypeIndex::T)                                        \
-        return type_dispatch_for_aggregate_function_regr_slope<T>(argument_types, result_is_nullable, \
-                                                                             nullable_input);
+        return type_dispatch_for_aggregate_function_regr_slope<T>(argument_types, result_is_nullable);
     FOR_NUMERIC_TYPES(DISPATCH)
 #undef DISPATCH
 
