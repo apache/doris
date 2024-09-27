@@ -108,7 +108,6 @@ Status IcebergTableReader::get_next_block(Block* block, size_t* read_rows, bool*
         auto mutate_columns = block->mutate_columns();
         for (auto& col : mutate_columns) {
             col->resize(rows);
-            break;
         }
         block->set_columns(std::move(mutate_columns));
         *read_rows = rows;
