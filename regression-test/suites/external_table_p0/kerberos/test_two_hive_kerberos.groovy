@@ -23,6 +23,25 @@ suite("test_two_hive_kerberos", "p0,external,kerberos,external_docker,external_d
     String enabled = context.config.otherConfigs.get("enableKerberosTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String hms_catalog_name = "test_two_hive_kerberos"
+        sql """drop catalog if exists other_${hms_catalog_name};"""
+
+        sql """
+            CREATE CATALOG IF NOT EXISTS other_${hms_catalog_name}
+            PROPERTIES (
+                "type" = "hms",
+                "hive.metastore.uris" = "thrift://172.31.71.26:9083",
+                "fs.defaultFS" = "hdfs://172.31.71.26:8020",
+                "hadoop.kerberos.min.seconds.before.relogin" = "5",
+                "hadoop.security.authentication" = "kerberos",
+                "hadoop.kerberos.principal"="hive/presto-master.docker.cluster@OTHERREALM.COM",
+                "hadoop.kerberos.keytab" = "/keytabs/other-hive-presto-master.keytab",
+                "hive.metastore.sasl.enabled " = "true",
+                "hive.metastore.kerberos.principal" = "hive/_HOST@OTHERREALM.COM",
+                "hadoop.security.auth_to_local" ="RULE:[2:\$1@\$0](.*@OTHERREALM.COM)s/@.*//
+                                                  RULE:[2:\$1@\$0](.*@OTHERLABS.TERADATA.COM)s/@.*//
+                                                  DEFAULT"
+            );
+        """
         sql """drop catalog if exists ${hms_catalog_name};"""
         sql """
             CREATE CATALOG IF NOT EXISTS ${hms_catalog_name}
@@ -43,34 +62,9 @@ suite("test_two_hive_kerberos", "p0,external,kerberos,external_docker,external_d
             );
         """
 
-        sql """drop catalog if exists other_${hms_catalog_name};"""
-        println 'check hadoop-master-2:88 dns'
-        def hadoopMaster288Dnsresult = "nslookup hadoop-master-2:88".execute().text
-        println hadoopMaster288Dnsresult
-        sql """
-            CREATE CATALOG IF NOT EXISTS other_${hms_catalog_name}
-            PROPERTIES (
-                "type" = "hms",
-                "hive.metastore.uris" = "thrift://172.31.71.26:9083",
-                "fs.defaultFS" = "hdfs://172.31.71.26:8020",
-                "hadoop.kerberos.min.seconds.before.relogin" = "5",
-                "hadoop.security.authentication" = "kerberos",
-                "hadoop.kerberos.principal"="hive/presto-master.docker.cluster@OTHERREALM.COM",
-                "hadoop.kerberos.keytab" = "/keytabs/other-hive-presto-master.keytab",
-                "hive.metastore.sasl.enabled " = "true",
-                "hive.metastore.kerberos.principal" = "hive/_HOST@OTHERREALM.COM",
-                "hadoop.security.auth_to_local" ="RULE:[2:\$1@\$0](.*@OTHERREALM.COM)s/@.*//
-                                                  RULE:[2:\$1@\$0](.*@OTHERLABS.TERADATA.COM)s/@.*//
-                                                  DEFAULT"
-            );
-        """
+     
 
-        // 1. catalogA
-        sql """switch ${hms_catalog_name};"""
-        logger.info("switched to catalog " + hms_catalog_name)
-        sql """ show databases """
-        sql """ use test_krb_hive_db """
-        order_qt_q01 """ select * from test_krb_hive_db.test_krb_hive_tbl """
+     
 
         // 2. catalogB
         sql """switch other_${hms_catalog_name};"""
@@ -78,7 +72,12 @@ suite("test_two_hive_kerberos", "p0,external,kerberos,external_docker,external_d
         sql """ show databases """
         sql """ use test_krb_hive_db """
         order_qt_q02 """ select * from test_krb_hive_db.test_krb_hive_tbl """
-
+        // 1. catalogA
+        sql """switch ${hms_catalog_name};"""
+        logger.info("switched to catalog " + hms_catalog_name)
+        sql """ show databases """
+        sql """ use test_krb_hive_db """
+        order_qt_q01 """ select * from test_krb_hive_db.test_krb_hive_tbl """
         // 3. write back test case
         sql """ switch ${hms_catalog_name}; """
         sql """ CREATE DATABASE IF NOT EXISTS `test_krb_hms_db`; """
