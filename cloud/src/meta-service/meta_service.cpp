@@ -2188,4 +2188,9 @@ std::pair<MetaServiceCode, std::string> MetaServiceImpl::get_instance_info(
     return {code, std::move(msg)};
 }
 
+void MetaServiceImpl::fix_tablet_stats(const FixTabletStatsRequest* req,
+                                       const FixTabletStatsResponse* resp) {
+                                    
+}
+
 } // namespace doris::cloud
