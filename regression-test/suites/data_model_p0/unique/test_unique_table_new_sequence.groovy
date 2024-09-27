@@ -33,6 +33,7 @@ suite("test_unique_table_new_sequence") {
         "enable_unique_key_merge_on_write" = "true",
         "function_column.sequence_col" = "v2",
         "replication_allocation" = "tag.location.default: 1",
+        "enable_unique_key_skip_bitmap_column" = "false",
         "light_schema_change" = "true"
         );
         """

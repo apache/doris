@@ -30,6 +30,7 @@ suite("test_primary_key_partial_update_with_row_column", "p0") {
                 `dft` int(11) DEFAULT "4321")
                 UNIQUE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 1
                 PROPERTIES("replication_num" = "1", "enable_unique_key_merge_on_write" = "true", 
+                "enable_unique_key_skip_bitmap_column" = "false",
                 "store_row_column"="true")
     """
     // insert 2 lines
