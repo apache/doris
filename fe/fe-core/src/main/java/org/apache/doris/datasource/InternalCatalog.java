@@ -2674,7 +2674,8 @@ public class InternalCatalog implements CatalogIf<Database> {
             }
             if (enableUniqueKeyMergeOnWrite && !enableLightSchemaChange && !CollectionUtils.isEmpty(
                     keysDesc.getClusterKeysColumnNames())) {
-                throw new DdlException("Unique merge-on-write table with cluster keys must enable light schema change");
+                throw new DdlException(
+                        "Unique merge-on-write tables with cluster keys require light schema change to be enabled.");
             }
         }
         olapTable.setEnableUniqueKeyMergeOnWrite(enableUniqueKeyMergeOnWrite);
