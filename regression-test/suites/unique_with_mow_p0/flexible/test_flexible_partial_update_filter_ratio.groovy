@@ -34,6 +34,7 @@ suite('test_flexible_partial_update_filter_ratio') {
             "replication_num" = "1",
             "enable_unique_key_merge_on_write" = "true",
             "light_schema_change" = "true",
+            "enable_unique_key_skip_bitmap_column" = "true",
             "store_row_column" = "${row_store}"); """
 
         def show_res = sql "show create table ${tableName}"

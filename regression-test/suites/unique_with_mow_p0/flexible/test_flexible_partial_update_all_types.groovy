@@ -48,6 +48,7 @@ suite('test_flexible_partial_update_all_types') {
             "replication_num" = "1",
             "enable_unique_key_merge_on_write" = "true",
             "light_schema_change" = "true",
+            "enable_unique_key_skip_bitmap_column" = "true",
             "store_row_column" = "${use_row_store}"); """
 
         def table2 = "test_f_basic_agg"
@@ -135,6 +136,7 @@ suite('test_flexible_partial_update_all_types') {
             "replication_num" = "1",
             "enable_unique_key_merge_on_write" = "true",
             "light_schema_change" = "true",
+            "enable_unique_key_skip_bitmap_column" = "true",
             "store_row_column" = "${use_row_store}"); """
         
         table2 = "test_f_array_agg"

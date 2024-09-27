@@ -690,9 +690,8 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
             request.__set_unique_key_update_mode(unique_key_update_mode);
         } else {
             return Status::InvalidArgument(
-                    "Invalid unique_key_partial_mode {}, must be one of {'UPSERT', "
-                    "'UPDATE_FIXED_COLUMNS', "
-                    "'UPDATE_FLEXIBLE_COLUMNS'}",
+                    "Invalid unique_key_partial_mode {}, must be one of 'UPSERT', "
+                    "'UPDATE_FIXED_COLUMNS' or 'UPDATE_FLEXIBLE_COLUMNS'",
                     unique_key_update_mode_str);
         }
     }

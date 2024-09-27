@@ -41,6 +41,7 @@ suite("test_f_schema_change", "p0") {
                         "disable_auto_compaction" = "true",
                         "light_schema_change" = "true",
                         "enable_unique_key_merge_on_write" = "true",
+                        "enable_unique_key_skip_bitmap_column" = "true",
                         "store_row_column" = "${row_store}")
         """
 

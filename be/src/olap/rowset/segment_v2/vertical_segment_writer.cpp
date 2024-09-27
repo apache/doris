@@ -622,7 +622,7 @@ Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(
         RETURN_IF_ERROR(_merge_rows_for_sequence_column(data, skip_bitmaps, key_columns,
                                                         specified_rowsets, segment_caches));
         if (origin_rows != data.num_rows) {
-            // should re-encode key columns because block has changed
+            // data in block has changed, should re-encode key columns and re-get skip_bitmaps
             _olap_data_convertor->clear_source_content();
             key_columns.clear();
             for (std::size_t cid {0}; cid < _num_sort_key_columns; cid++) {
@@ -723,7 +723,7 @@ Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(
     }
 
     // read to fill full_block
-    RETURN_IF_ERROR(read_plan.fill_non_sort_key_columns(
+    RETURN_IF_ERROR(read_plan.fill_non_primary_key_columns(
             _opts.rowset_ctx, _rsid_to_rowset, *_tablet_schema, full_block,
             use_default_or_null_flag, has_default_or_nullable, segment_start_pos, data.row_pos,
             data.block, skip_bitmaps));

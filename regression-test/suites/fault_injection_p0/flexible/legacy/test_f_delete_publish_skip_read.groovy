@@ -33,6 +33,7 @@ suite("test_delete_publish_skip_read", "nonConcurrent") {
         PROPERTIES (
             "enable_mow_light_delete" = "false",
             "disable_auto_compaction" = "true",
+            "enable_unique_key_skip_bitmap_column" = "true",
             "replication_num" = "1"); """
 
     sql "insert into ${table1} values(1,1,1,1,1),(2,2,2,2,2),(3,3,3,3,3);"

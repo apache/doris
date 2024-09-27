@@ -31,6 +31,7 @@ suite('test_flexible_partial_update_restricts') {
         "replication_num" = "1",
         "enable_unique_key_merge_on_write" = "true",
         "light_schema_change" = "true",
+        "enable_unique_key_skip_bitmap_column" = "true",
         "store_row_column" = "false"); """
 
     sql """insert into ${tableName} select number, number, number, number, number, number from numbers("number" = "6"); """
@@ -137,7 +138,7 @@ suite('test_flexible_partial_update_restricts') {
             }
             def json = parseJson(result)
             assertEquals("fail", json.Status.toLowerCase())
-            assertTrue(json.Message.contains("Invalid unique_key_partial_mode update, must be UPSERT, PARTIAL_UPDATE or FLEXIBLE_PARTIAL_UPDATE"));
+            assertTrue(json.Message.contains("[INVALID_ARGUMENT]Invalid unique_key_partial_mode update, must be one of 'UPSERT', 'UPDATE_FIXED_COLUMNS' or 'UPDATE_FLEXIBLE_COLUMNS"));
         }
     }
 
@@ -193,6 +194,7 @@ suite('test_flexible_partial_update_restricts') {
             "replication_num" = "1",
             "enable_unique_key_merge_on_write" = "true",
             "light_schema_change" = "false",
+            "enable_unique_key_skip_bitmap_column" = "true",
             "store_row_column" = "false"); """
         
         streamLoad {
@@ -230,7 +232,7 @@ suite('test_flexible_partial_update_restricts') {
         "enable_unique_key_skip_bitmap_column" = "false",
         "store_row_column" = "false"); """
     def show_res = sql "show create table ${tableName}"
-    assertTrue(show_res.toString().contains('"enable_unique_key_skip_bitmap_column" = "false"'))
+    assertTrue(!show_res.toString().contains('enable_unique_key_skip_bitmap_column'))
     streamLoad {
         table "${tableName}"
         set 'format', 'json'
@@ -262,6 +264,7 @@ suite('test_flexible_partial_update_restricts') {
         PROPERTIES(
         "replication_num" = "1",
         "enable_unique_key_merge_on_write" = "true",
+        "enable_unique_key_skip_bitmap_column" = "true",
         "store_row_column" = "false"); """
     
     streamLoad {
@@ -396,6 +399,7 @@ suite('test_flexible_partial_update_restricts') {
             PROPERTIES(
             "replication_num" = "1",
             "enable_unique_key_merge_on_write" = "true",
+            "enable_unique_key_skip_bitmap_column" = "true",
             "light_schema_change" = "false",
             "store_row_column" = "false"); """
         exception "Disable to create table column with name start with __DORIS_: __DORIS_SKIP_BITMAP_COL__"

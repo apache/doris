@@ -238,7 +238,7 @@ Status MemTable::insert(const vectorized::Block* input_block,
 template <bool has_skip_bitmap_col>
 void MemTable::_aggregate_two_row_in_block(vectorized::MutableBlock& mutable_block,
                                            RowInBlock* src_row, RowInBlock* dst_row) {
-    // for flexible partial update, the caller guarantees that either src_row and dst_row
+    // for flexible partial update, the caller must guarantees that either src_row and dst_row
     // both specify the sequence column, or src_row and dst_row both don't specify the
     // sequence column
     if (_tablet_schema->has_sequence_col() && _seq_col_idx_in_block >= 0) {
@@ -265,7 +265,7 @@ void MemTable::_aggregate_two_row_in_block(vectorized::MutableBlock& mutable_blo
     } else {
         DCHECK(_skip_bitmap_col_idx != -1);
         DCHECK_LT(_skip_bitmap_col_idx, mutable_block.columns());
-        BitmapValue skip_bitmap =
+        const BitmapValue& skip_bitmap =
                 assert_cast<vectorized::ColumnBitmap*, TypeCheckOnRelease::DISABLE>(
                         mutable_block.mutable_columns()[_skip_bitmap_col_idx].get())
                         ->get_data()[src_row->_row_pos];
@@ -471,7 +471,6 @@ void MemTable::_aggregate() {
         row->init_agg_places(_arena->aligned_alloc(_total_size_of_aggregate_states, 16),
                              _offsets_of_aggregate_states.data());
         for (auto cid = _tablet_schema->num_key_columns(); cid < _num_columns; cid++) {
-            // don't need to consider skip bitmap col when init agg data
             auto* col_ptr = mutable_block.mutable_columns()[cid].get();
             auto* data = prev_row->agg_places(cid);
             _agg_functions[cid]->create(data);
@@ -503,8 +502,8 @@ void MemTable::_aggregate() {
             _finalize_one_row<is_final>(temp_row_in_blocks.back(), block_data, row_pos);
         }
     } else {
-        // For flexible partial update and the table has sequence column, considerthe following situation:
-        // there are multiple rows with the same keys in memtable, some of them specify specify the sequence column,
+        // For flexible partial update and the table has sequence column, considering the following situation:
+        // there are multiple rows with the same keys in memtable, some of them specify the sequence column,
         // some of them don't. We can't do the de-duplication in memtable becasue we can only know the value
         // of the sequence column of the row which don't specify seqeuence column in SegmentWriter after we
         // probe the historical data. So at here we can only merge rows that have sequence column together and
@@ -537,14 +536,14 @@ void MemTable::_aggregate() {
                 row_pos_without_seq = row_pos;
             }
         };
-        // TODO(bobhan1): correct the skip bitmap in NewJsonReader when the table has sequence map col
+        auto& skip_bitmaps = assert_cast<vectorized::ColumnBitmap*>(
+                                     mutable_block.mutable_columns()[_skip_bitmap_col_idx].get())
+                                     ->get_data();
         for (auto* cur_row : _row_in_blocks) {
-            BitmapValue skip_bitmap =
-                    assert_cast<vectorized::ColumnBitmap*, TypeCheckOnRelease::DISABLE>(
-                            mutable_block.mutable_columns()[_skip_bitmap_col_idx].get())
-                            ->get_data()[cur_row->_row_pos];
+            const BitmapValue& skip_bitmap = skip_bitmaps[cur_row->_row_pos];
             bool with_seq_col = !skip_bitmap.contains(_seq_col_unique_id);
-            // compare keys
+            // compare keys, the keys of row_with_seq_col and row_with_seq_col is the same,
+            // choose any of them if it's valid
             prev_row = (row_with_seq_col == nullptr) ? row_without_seq_col : row_with_seq_col;
             if (prev_row != nullptr && (*_vec_row_comparator)(prev_row, cur_row) == 0) {
                 prev_row = (with_seq_col ? row_with_seq_col : row_without_seq_col);

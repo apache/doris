@@ -33,6 +33,7 @@ suite("test_flexible_partial_update_publish_conflict", "nonConcurrent") {
         "replication_num" = "1",
         "enable_unique_key_merge_on_write" = "true",
         "light_schema_change" = "true",
+        "enable_unique_key_skip_bitmap_column" = "true",
         "store_row_column" = "false"); """
     def show_res = sql "show create table ${tableName}"
     assertTrue(show_res.toString().contains('"enable_unique_key_skip_bitmap_column" = "true"'))

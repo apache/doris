@@ -62,6 +62,7 @@ suite("test_f_2pc_schema_change", "p0") {
                     "light_schema_change" = "true",
                     "enable_unique_key_merge_on_write" = "true",
                     "disable_auto_compaction" = "true",
+                    "enable_unique_key_skip_bitmap_column" = "true",
                     "store_row_column" = "${use_row_store}");"""
 
             streamLoad {

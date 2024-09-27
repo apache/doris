@@ -31,6 +31,7 @@ suite("test_f_partial_update_complex_type_schema_change", "p0") {
                         `c_varchar` varchar(65533) NULL COMMENT "用户姓名")
                         UNIQUE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 1
                         PROPERTIES("replication_num" = "1", "enable_unique_key_merge_on_write" = "true",
+                        "enable_unique_key_skip_bitmap_column" = "true",
                         "store_row_column" = "${use_row_store}"); """
 
             sql """insert into ${tableName} values(2, "doris2")"""

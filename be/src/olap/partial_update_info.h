@@ -113,7 +113,6 @@ private:
     std::map<RowsetId, std::map<uint32_t /* segment_id */, std::vector<RidAndPos>>> plan;
 };
 
-// TODO(bobhan1): add support for row_store_column for flexible_partial_update
 class FlexibleReadPlan {
 public:
     void set_row_store(bool has_row_store_column);
@@ -131,7 +130,7 @@ public:
                                 const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
                                 vectorized::Block& old_value_block,
                                 std::map<uint32_t, uint32_t>* read_index) const;
-    Status fill_non_sort_key_columns(
+    Status fill_non_primary_key_columns(
             RowsetWriterContext* rowset_ctx,
             const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
             const TabletSchema& tablet_schema, vectorized::Block& full_block,

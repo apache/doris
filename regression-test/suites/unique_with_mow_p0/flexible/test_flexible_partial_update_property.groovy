@@ -31,6 +31,7 @@ suite('test_flexible_partial_update_property') {
         "replication_num" = "1",
         "enable_unique_key_merge_on_write" = "true",
         "light_schema_change" = "true",
+        "enable_unique_key_skip_bitmap_column" = "true",
         "store_row_column" = "false"); """
 
     def show_res = sql "show create table ${tableName}"
@@ -41,6 +42,7 @@ suite('test_flexible_partial_update_property') {
         exception "table ${tableName} has enabled update flexible columns feature already." 
     }
 
+    // the default value "enable_unique_key_skip_bitmap_column" is "false"
     tableName = "test_flexible_partial_update_property2"
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """ CREATE TABLE ${tableName} (
@@ -55,11 +57,10 @@ suite('test_flexible_partial_update_property') {
         "replication_num" = "1",
         "enable_unique_key_merge_on_write" = "true",
         "light_schema_change" = "true",
-        "enable_unique_key_skip_bitmap_column" = "false",
         "store_row_column" = "false"); """
     
     show_res = sql "show create table ${tableName}"
-    assertTrue(show_res.toString().contains('"enable_unique_key_skip_bitmap_column" = "false"'))
+    assertTrue(!show_res.toString().contains('enable_unique_key_skip_bitmap_column'))
 
     sql """insert into ${tableName} select number, number, number, number, number, number from numbers("number" = "6"); """
     order_qt_sql "select k,v1,v2,v3,v4,v5 from ${tableName};"

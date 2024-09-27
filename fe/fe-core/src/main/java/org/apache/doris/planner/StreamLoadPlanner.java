@@ -170,8 +170,9 @@ public class StreamLoadPlanner {
         }
 
         if (uniquekeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS && !destTable.hasSkipBitmapColumn()) {
+            String tblName = destTable.getName();
             throw new UserException("Flexible partial update can only support table with skip bitmap hidden column."
-                    + " But table " + destTable.getName() + " doesn't have it. You can use `ALTER TABLE " + destTable.getName()
+                    + " But table " + tblName + " doesn't have it. You can use `ALTER TABLE " + tblName
                             + " ENABLE FEATURE \"UPDATE_FLEXIBLE_COLUMNS\";` to add it to the table.");
         }
         if (uniquekeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS

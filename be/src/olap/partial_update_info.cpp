@@ -472,7 +472,7 @@ Status FlexibleReadPlan::read_columns_by_plan(
     return Status::OK();
 }
 
-Status FlexibleReadPlan::fill_non_sort_key_columns(
+Status FlexibleReadPlan::fill_non_primary_key_columns(
         RowsetWriterContext* rowset_ctx, const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
         const TabletSchema& tablet_schema, vectorized::Block& full_block,
         const std::vector<bool>& use_default_or_null_flag, bool has_default_or_nullable,

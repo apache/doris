@@ -35,7 +35,7 @@ import org.apache.http.client.methods.CloseableHttpResponse
 import org.apache.http.util.EntityUtils
 import org.apache.doris.regression.suite.ClusterOptions
 
-suite("test_f_conflict_be_restart") {
+suite("test_f_conflict_be_restart", "docker") {
     def dbName = context.config.getDbNameByFile(context.file)
 
     def options = new ClusterOptions()
@@ -55,6 +55,7 @@ suite("test_f_conflict_be_restart") {
             DISTRIBUTED BY HASH(k1) BUCKETS 1
             PROPERTIES (
                 "disable_auto_compaction" = "true",
+                "enable_unique_key_skip_bitmap_column" = "true",
                 "replication_num" = "1"); """
 
         sql "insert into ${table1} values(1,1,1,1,1),(2,2,2,2,2),(3,3,3,3,3);"

@@ -35,6 +35,7 @@ suite('test_flexible_partial_update_auto_inc') {
             "replication_num" = "1",
             "enable_unique_key_merge_on_write" = "true",
             "light_schema_change" = "true",
+            "enable_unique_key_skip_bitmap_column" = "true",
             "store_row_column" = "${use_row_store}"); """
 
         sql """insert into ${tableName} select (1+number)*1000, number, number, number, number, number from numbers("number" = "6"); """
@@ -70,6 +71,7 @@ suite('test_flexible_partial_update_auto_inc') {
             "replication_num" = "1",
             "enable_unique_key_merge_on_write" = "true",
             "light_schema_change" = "true",
+            "enable_unique_key_skip_bitmap_column" = "true",
             "store_row_column" = "${use_row_store}"); """
 
         sql """insert into ${tableName} select number, number, number, number, number, number from numbers("number" = "6"); """
