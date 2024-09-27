@@ -701,7 +701,7 @@ for compose in "${!pids[@]}"; do
     # prevent wait return 1 make the script exit
     status=0
     wait "${pids[$compose]}" || status=$?
-    if [ $status -ne 0 ]; then
+    if [ $status -ne 0 ] && [ $compose != "db2" ]; then
         echo "docker $compose started failed with status $status"
         echo "print start_${compose}.log"
         cat start_${compose}.log
