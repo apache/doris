@@ -1354,7 +1354,7 @@ DEFINE_Int32(query_cache_size, "512");
 
 // Enable validation to check the correctness of table size.
 DEFINE_Bool(enable_table_size_correctness_check, "false");
-DEFINE_mDouble(max_table_index_data_ratio, "0.1");
+DEFINE_mDouble(max_table_index_data_ratio, "1.0");
 
 // clang-format off
 #ifdef BE_TEST
