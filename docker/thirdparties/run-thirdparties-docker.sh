@@ -703,6 +703,8 @@ for compose in "${!pids[@]}"; do
     wait "${pids[$compose]}" || status=$?
     if [ $status -ne 0 ]; then
         echo "docker $compose started failed with status $status"
+        echo "print start_${compose}.log"
+        cat start_${compose}.log
         exit 1
     fi
 done
