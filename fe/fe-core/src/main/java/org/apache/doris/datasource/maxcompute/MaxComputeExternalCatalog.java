@@ -115,7 +115,6 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
 
         generatorEndpoint();
 
-        endpoint = props.get(MCProperties.ENDPOINT);
         defaultProject = props.get(MCProperties.PROJECT);
         quota = props.getOrDefault(MCProperties.QUOTA, MCProperties.DEFAULT_QUOTA);
 
