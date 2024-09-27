@@ -2071,6 +2071,8 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
     _opts.stats->blocks_load += 1;
     _opts.stats->raw_rows_read += _current_batch_rows_read;
 
+    DCHECK_EQ(_current_batch_rows_read, block->rows());
+
     if (_current_batch_rows_read == 0) {
         // Convert all columns in _current_return_columns to schema column
         RETURN_IF_ERROR(_convert_to_expected_type(_schema->column_ids()));
