@@ -18,14 +18,15 @@
 import org.apache.doris.regression.suite.ClusterOptions
 
 suite('test_f_no_simdjson', 'docker') {
+    // NOTE: This case is the same as test_flexible_partial_update, just set `enable_simdjson_reader=false`
+    // to test code path when not use simdjson
 
     def options = new ClusterOptions()
     options.beConfigs += [
         'enable_simdjson_reader=false',
     ]
-    options.enableDebugPoints()
     docker(options) {
-        def tableName = "test_flexible_partial_update"
+        def tableName = "test_f_no_simdjson"
         sql """ DROP TABLE IF EXISTS ${tableName} """
         sql """ CREATE TABLE ${tableName} (
             `k` int(11) NULL, 
@@ -97,7 +98,7 @@ suite('test_f_no_simdjson', 'docker') {
 
 
         // the following cases test when there are rows which don't miss columns
-        tableName = "test_flexible_partial_update_full_cols_false"
+        tableName = "test_f_no_simdjson_full_cols_false"
         sql """ DROP TABLE IF EXISTS ${tableName} """
         sql """ CREATE TABLE ${tableName} (
             `k` int(11) NULL, 
