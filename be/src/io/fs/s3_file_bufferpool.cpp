@@ -31,7 +31,6 @@
 #include "io/cache/file_cache_common.h"
 #include "io/fs/s3_common.h"
 #include "runtime/exec_env.h"
-#include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/thread_context.h"
 #include "util/defer_op.h"
 #include "util/slice.h"
@@ -78,19 +77,17 @@ Slice FileBuffer::get_slice() const {
 }
 
 FileBuffer::FileBuffer(BufferType type, std::function<FileBlocksHolderPtr()> alloc_holder,
-                       size_t offset, OperationState state,
-                       std::shared_ptr<MemTrackerLimiter> mem_tracker)
+                       size_t offset, OperationState state)
         : _type(type),
           _alloc_holder(std::move(alloc_holder)),
           _offset(offset),
           _size(0),
           _state(std::move(state)),
           _inner_data(std::make_unique<FileBuffer::PartData>()),
-          _capacity(_inner_data->size()),
-          _mem_tracker(std::move(mem_tracker)) {}
+          _capacity(_inner_data->size()) {}
 
 FileBuffer::~FileBuffer() {
-    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_mem_tracker);
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->s3_file_buffer_tracker());
     _inner_data.reset();
 }
 
@@ -243,22 +240,13 @@ FileBufferBuilder& FileBufferBuilder::set_allocate_file_blocks_holder(
 }
 
 Status FileBufferBuilder::build(std::shared_ptr<FileBuffer>* buf) {
-    auto mem_tracker = ExecEnv::GetInstance()->s3_file_buffer_tracker();
-    auto* thread_ctx = doris::thread_context(true);
-    if (thread_ctx != nullptr) {
-        // if thread local mem tracker is set, use it instead.
-        auto curr_tracker = thread_ctx->thread_mem_tracker_mgr->limiter_mem_tracker();
-        if (curr_tracker != ExecEnv::GetInstance()->orphan_mem_tracker()) {
-            mem_tracker = std::move(curr_tracker);
-        }
-    }
-    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(mem_tracker);
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->s3_file_buffer_tracker());
     OperationState state(_sync_after_complete_task, _is_cancelled);
 
     if (_type == BufferType::UPLOAD) {
         RETURN_IF_CATCH_EXCEPTION(*buf = std::make_shared<UploadFileBuffer>(
                                           std::move(_upload_cb), std::move(state), _offset,
-                                          std::move(_alloc_holder_cb), std::move(mem_tracker)));
+                                          std::move(_alloc_holder_cb)));
         return Status::OK();
     }
     if (_type == BufferType::DOWNLOAD) {
@@ -266,8 +254,7 @@ Status FileBufferBuilder::build(std::shared_ptr<FileBuffer>* buf) {
                                           std::move(_download),
                                           std::move(_write_to_local_file_cache),
                                           std::move(_write_to_use_buffer), std::move(state),
-                                          _offset, std::move(_alloc_holder_cb),
-                                          std::move(mem_tracker)));
+                                          _offset, std::move(_alloc_holder_cb)));
         return Status::OK();
     }
     // should never come here
