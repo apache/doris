@@ -23,8 +23,12 @@ suite('test_abort_txn_by_fe', 'docker') {
     options.cloudMode = null
     options.enableDebugPoints()
     options.beConfigs += [ "enable_java_support=false" ]
-    options.feConfigs += [ "enable_abort_txn_by_checking_coordinator_be=false" ]
-    options.feConfigs += [ "enable_abort_txn_by_checking_conflict_txn=true" ]
+    options.feConfigs += [
+        "load_checker_interval_second=2",
+        "enable_abort_txn_by_checking_coordinator_be=false",
+        "enable_abort_txn_by_checking_conflict_txn=true",
+    ]
+    options.feNum = 3
     options.beNum = 1
 
     docker(options) {
@@ -59,10 +63,11 @@ suite('test_abort_txn_by_fe', 'docker') {
         loadSql = loadSql.replaceAll("\\\$\\{loadLabel\\}", loadLabel) + s3WithProperties
         sql loadSql
 
-        def coordinatorFe = cluster.getAllFrontends().get(0)
-        def coordinatorFeHost = coordinatorFe.host
-
-        sleep(5000)
+        def dbId = getDbId()
+        dockerAwaitUntil(20, {
+            def txns = sql_return_maparray("show proc "/transactions/${dbId}/running")
+            txns.any { it.Label == loadLabel }
+        })
 
         sql """ alter table ${table} modify column lo_suppkey bigint NULL """
         
@@ -82,9 +87,14 @@ suite('test_abort_txn_by_fe', 'docker') {
         sleep 10000
         assertEquals(result, "WAITING_TXN");
 
-        cluster.restartFrontends()
+        def masterFe = cluster.getMasterFe()
+        cluster.restartFrontends(masterFe.index)
         sleep(30000)
         context.reconnectFe()
+        if (!cluster.isCloudMode()) {
+            def newMasterFe = cluster.getMasterFe()
+            assertTrue(masterFe.index != newMasterFe.index)
+        }
 
         max_try_time = 3000
         while (max_try_time--){

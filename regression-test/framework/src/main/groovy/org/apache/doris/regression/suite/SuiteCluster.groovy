@@ -270,6 +270,7 @@ class SuiteCluster {
     final Config config
     private boolean running
     private boolean sqlModeNodeMgr = false
+    private boolean isCloudMode = false
 
     SuiteCluster(String name, Config config) {
         this.name = name
@@ -277,10 +278,16 @@ class SuiteCluster {
         this.running = false
     }
 
+    boolean isCloudMode() {
+        return this.isCloudMode
+    }
+
     void init(ClusterOptions options, boolean isCloud) {
         assert name != null && name != ''
         assert options.feNum > 0 || options.beNum > 0
         assert config.image != null && config.image != ''
+
+        this.isCloudMode = isCloud
 
         def cmd = [
             'up', name, config.image
