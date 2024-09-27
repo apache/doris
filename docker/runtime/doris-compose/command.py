@@ -92,7 +92,12 @@ class Command(object):
     def run(self, args):
         raise Exception("No implemented")
 
-    def _add_parser_output_json(self, parser):
+    def _add_parser_common_args(self, parser):
+        parser.add_argument("-v",
+                            "--verbose",
+                            default=False,
+                            action=self._get_parser_bool_action(True),
+                            help="verbose logging.")
         parser.add_argument("--output-json",
                             default=False,
                             action=self._get_parser_bool_action(True),
@@ -150,7 +155,7 @@ class SimpleCommand(Command):
         parser = args_parsers.add_parser(self.command, help=help)
         parser.add_argument("NAME", help="Specify cluster name.")
         self._add_parser_ids_args(parser)
-        self._add_parser_output_json(parser)
+        self._add_parser_common_args(parser)
 
     def run(self, args):
         cluster = CLUSTER.Cluster.load(args.NAME)
@@ -180,6 +185,7 @@ class UpCommand(Command):
                             nargs="?",
                             help="Specify docker image.")
 
+        self._add_parser_common_args(parser)
         parser.add_argument(
             "--cloud",
             default=False,
@@ -196,8 +202,6 @@ class UpCommand(Command):
             "Specify wait seconds for fe/be ready for service: 0 not wait (default), "\
             "> 0 max wait seconds, -1 wait unlimited."
         )
-
-        self._add_parser_output_json(parser)
 
         group1 = parser.add_argument_group("add new nodes",
                                            "add cluster nodes.")
@@ -325,16 +329,14 @@ class UpCommand(Command):
                 "--be-cluster-id",
                 default=True,
                 action=self._get_parser_bool_action(False),
-                help=
-                "Do not set BE cluster ID in conf. Default is False.")
+                help="Do not set BE cluster ID in conf. Default is False.")
         else:
             parser.add_argument(
                 "--no-be-cluster-id",
                 dest='be_cluster_id',
                 default=True,
                 action=self._get_parser_bool_action(False),
-                help=
-                "Do not set BE cluser ID in conf. Default is False.")
+                help="Do not set BE cluser ID in conf. Default is False.")
 
         parser.add_argument(
             "--fdb-version",
@@ -669,7 +671,7 @@ class DownCommand(Command):
                                            "then apply to all containers.")
         parser.add_argument("NAME", help="Specify cluster name")
         self._add_parser_ids_args(parser)
-        self._add_parser_output_json(parser)
+        self._add_parser_common_args(parser)
         parser.add_argument(
             "--clean",
             default=False,
@@ -782,12 +784,9 @@ class ListNode(object):
         self.created = ""
         self.alive = ""
         self.is_master = ""
-        self.query_port = ""
         self.tablet_num = ""
         self.last_heartbeat = ""
         self.err_msg = ""
-        self.edit_log_port = 0
-        self.heartbeat_port = 0
 
     def info(self, detail):
         result = [
@@ -825,10 +824,8 @@ class ListNode(object):
             if fe:
                 self.alive = str(fe.alive).lower()
                 self.is_master = str(fe.is_master).lower()
-                self.query_port = fe.query_port
                 self.last_heartbeat = fe.last_heartbeat
                 self.err_msg = fe.err_msg
-                self.edit_log_port = fe.edit_log_port
         elif self.node_type == CLUSTER.Node.TYPE_BE:
             self.backend_id = -1
             be = db_mgr.get_be(self.id)
@@ -838,7 +835,6 @@ class ListNode(object):
                 self.tablet_num = be.tablet_num
                 self.last_heartbeat = be.last_heartbeat
                 self.err_msg = be.err_msg
-                self.heartbeat_port = be.heartbeat_port
 
 
 class GenConfCommand(Command):
@@ -977,7 +973,7 @@ class ListCommand(Command):
             help=
             "Specify multiple clusters, if specific, show all their containers."
         )
-        self._add_parser_output_json(parser)
+        self._add_parser_common_args(parser)
         parser.add_argument("--detail",
                             default=False,
                             action=self._get_parser_bool_action(True),
@@ -1021,7 +1017,8 @@ class ListCommand(Command):
                 if services is None:
                     return COMPOSE_BAD, {}
                 return COMPOSE_GOOD, {
-                    service: ComposeService(
+                    service:
+                    ComposeService(
                         service,
                         list(service_conf["networks"].values())[0]
                         ["ipv4_address"], service_conf["image"])
@@ -1186,7 +1183,7 @@ class GetCloudIniCommand(Command):
             help=
             "Specify multiple clusters, if specific, show all their containers."
         )
-        self._add_parser_output_json(parser)
+        self._add_parser_common_args(parser)
 
     def _handle_data(self, header, datas):
         if utils.is_enable_log():

@@ -66,10 +66,6 @@ class ClusterOptions {
     // default use 1
     Boolean useFollowersMode = false
 
-    // when cloudMode = true/false,  but the running pipeline is diff with cloudMode,
-    // skip run this docker test or not.
-    boolean skipRunWhenPipelineDiff = true
-
     // each be disks, a disks format is: disk_type=disk_num[,disk_capacity]
     // here disk_type=HDD or SSD,  disk capacity is in gb unit.
     // for example: beDisks = ["HDD=1", "SSD=2,10", "SSD=10,3"] means:

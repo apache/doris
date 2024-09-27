@@ -96,6 +96,27 @@ public:
         return Status::OK();
     }
 
+    Status serialize_one_cell_to_hive_text(
+            const IColumn& column, int row_num, BufferWritable& bw, FormatOptions& options,
+            int hive_text_complex_type_delimiter_level = 1) const override {
+        auto result = check_column_const_set_readability(column, row_num);
+        ColumnPtr ptr = result.first;
+        row_num = result.second;
+        const auto& value = assert_cast<const ColumnType&>(*ptr).get_data_at(row_num);
+        if constexpr (std::is_same_v<ColumnType, ColumnString>) {
+            if (options.escape_char != 0) {
+                StringRef str_ref = value;
+                write_with_escaped_char_to_hive_text(str_ref, bw, options.escape_char,
+                                                     options.need_escape);
+            } else {
+                bw.write(value.data, value.size);
+            }
+        } else {
+            bw.write(value.data, value.size);
+        }
+        return Status::OK();
+    }
+
     inline void write_with_escaped_char_to_json(StringRef value, BufferWritable& bw) const {
         for (char it : value) {
             switch (it) {
@@ -126,6 +147,17 @@ public:
         }
     }
 
+    inline void write_with_escaped_char_to_hive_text(StringRef value, BufferWritable& bw,
+                                                     char escape_char,
+                                                     const bool need_escape[]) const {
+        for (char it : value) {
+            if (need_escape[it & 0xff]) {
+                bw.write(escape_char);
+            }
+            bw.write(it);
+        }
+    }
+
     Status serialize_column_to_json(const IColumn& column, int start_idx, int end_idx,
                                     BufferWritable& bw, FormatOptions& options) const override {
         SERIALIZE_COLUMN_TO_JSON();
@@ -147,6 +179,16 @@ public:
         if (_nesting_level >= 2) {
             slice.trim_quote();
         }
+        if (options.escape_char != 0) {
+            escape_string(slice.data, slice.size, options.escape_char);
+        }
+        assert_cast<ColumnType&>(column).insert_data(slice.data, slice.size);
+        return Status::OK();
+    }
+
+    Status deserialize_one_cell_from_hive_text(
+            IColumn& column, Slice& slice, const FormatOptions& options,
+            int hive_text_complex_type_delimiter_level = 1) const override {
         if (options.escape_char != 0) {
             escape_string(slice.data, slice.size, options.escape_char);
         }
