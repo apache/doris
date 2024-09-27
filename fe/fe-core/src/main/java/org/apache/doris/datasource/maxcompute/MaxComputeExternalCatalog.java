@@ -29,12 +29,17 @@ import org.apache.doris.datasource.property.constants.MCProperties;
 import com.aliyun.odps.Odps;
 import com.aliyun.odps.OdpsException;
 import com.aliyun.odps.Partition;
+import com.aliyun.odps.Project;
 import com.aliyun.odps.account.Account;
 import com.aliyun.odps.account.AliyunAccount;
+import com.aliyun.odps.security.SecurityManager;
 import com.aliyun.odps.table.configuration.SplitOptions;
 import com.aliyun.odps.table.enviroment.Credentials;
 import com.aliyun.odps.table.enviroment.EnvironmentSettings;
+import com.aliyun.odps.utils.StringUtils;
 import com.google.common.collect.ImmutableList;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 
 import java.util.ArrayList;
 import java.util.Iterator;
@@ -43,6 +48,8 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 public class MaxComputeExternalCatalog extends ExternalCatalog {
+    private static final String endpointTemplate = "http://service.{}.maxcompute.aliyun-inc.com/api";
+
     private Odps odps;
     private String accessKey;
     private String secretKey;
@@ -50,6 +57,7 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
     private String defaultProject;
     private String quota;
     private EnvironmentSettings settings;
+    private String catalogOwner;
 
     private String splitStrategy;
     private SplitOptions splitOptions;
@@ -67,9 +75,46 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
         catalogProperty = new CatalogProperty(resource, props);
     }
 
+    //Compatible with existing catalogs in previous versions.
+    protected void generatorEndpoint() {
+        Map<String, String> props = catalogProperty.getProperties();
+
+        if (props.containsKey(MCProperties.ENDPOINT)) {
+            endpoint = props.get(MCProperties.ENDPOINT);
+            return;
+        } else if (props.containsKey(MCProperties.TUNNEL_SDK_ENDPOINT)) {
+            String tunnelEndpoint = props.get(MCProperties.TUNNEL_SDK_ENDPOINT);
+            endpoint = tunnelEndpoint.replace("//dt", "//service") + "/api";
+        } else if (props.containsKey(MCProperties.ODPS_ENDPOINT)) {
+            endpoint = props.get(MCProperties.ODPS_ENDPOINT);
+        } else if (props.containsKey(MCProperties.REGION)) {
+            //Copied from original logic
+            String region = props.get(MCProperties.REGION);
+            if (region.startsWith("oss-")) {
+                // may use oss-cn-beijing, ensure compatible
+                region = region.replace("oss-", "");
+            }
+            boolean enablePublicAccess = Boolean.parseBoolean(props.getOrDefault(MCProperties.PUBLIC_ACCESS,
+                    MCProperties.DEFAULT_PUBLIC_ACCESS));
+            endpoint = endpointTemplate.replace("{}", region);
+            if (enablePublicAccess) {
+                endpoint = endpoint.replace("-inc", "");
+            }
+        }
+        /*
+            Since MCProperties.REGION is a REQUIRED_PROPERTIES in previous versions
+            and MCProperties.ENDPOINT is a REQUIRED_PROPERTIES in current versions,
+            `else {}` is not needed here.
+         */
+        catalogProperty.addProperty(MCProperties.ENDPOINT, endpoint);
+    }
+
+
     @Override
     protected void initLocalObjectsImpl() {
         Map<String, String> props = catalogProperty.getProperties();
+
+        generatorEndpoint();
 
         endpoint = props.get(MCProperties.ENDPOINT);
         defaultProject = props.get(MCProperties.PROJECT);
@@ -124,26 +169,25 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
         List<String> result = new ArrayList<>();
         result.add(defaultProject);
 
-        // TODO: Improve `show tables` and `select * from table` when `use other project`.
-        // try {
-        //     result.add(defaultProject);
-        //     if (StringUtils.isNullOrEmpty(catalogOwner)) {
-        //         SecurityManager sm = odps.projects().get().getSecurityManager();
-        //         String whoami = sm.runQuery("whoami", false);
-        //
-        //         JsonObject js = JsonParser.parseString(whoami).getAsJsonObject();
-        //         catalogOwner = js.get("DisplayName").getAsString();
-        //     }
-        //     Iterator<Project> iterator = odps.projects().iterator(catalogOwner);
-        //     while (iterator.hasNext()) {
-        //         Project project = iterator.next();
-        //         if (!project.getName().equals(defaultProject)) {
-        //             result.add(project.getName());
-        //         }
-        //     }
-        // } catch (OdpsException e) {
-        //     throw new RuntimeException(e);
-        // }
+        try {
+            result.add(defaultProject);
+            if (StringUtils.isNullOrEmpty(catalogOwner)) {
+                SecurityManager sm = odps.projects().get().getSecurityManager();
+                String whoami = sm.runQuery("whoami", false);
+
+                JsonObject js = JsonParser.parseString(whoami).getAsJsonObject();
+                catalogOwner = js.get("DisplayName").getAsString();
+            }
+            Iterator<Project> iterator = odps.projects().iterator(catalogOwner);
+            while (iterator.hasNext()) {
+                Project project = iterator.next();
+                if (!project.getName().equals(defaultProject)) {
+                    result.add(project.getName());
+                }
+            }
+        } catch (OdpsException e) {
+            throw new RuntimeException(e);
+        }
         return result;
     }
 
@@ -166,11 +210,11 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
             if (getClient().projects().exists(dbName)) {
                 List<Partition> parts;
                 if (limit < 0) {
-                    parts = getClient().tables().get(tbl).getPartitions();
+                    parts = getClient().tables().get(dbName, tbl).getPartitions();
                 } else {
                     skip = skip < 0 ? 0 : skip;
                     parts = new ArrayList<>();
-                    Iterator<Partition> it = getClient().tables().get(tbl).getPartitionIterator();
+                    Iterator<Partition> it = getClient().tables().get(dbName, tbl).getPartitionIterator();
                     int count = 0;
                     while (it.hasNext()) {
                         if (count < skip) {
@@ -197,7 +241,7 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
     public List<String> listTableNames(SessionContext ctx, String dbName) {
         makeSureInitialized();
         List<String> result = new ArrayList<>();
-        getClient().tables().forEach(e -> result.add(e.getName()));
+        getClient().tables().iterable(dbName).forEach(e -> result.add(e.getName()));
         return result;
     }
 

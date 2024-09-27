@@ -320,7 +320,7 @@ suite("test_max_compute_all_type", "p2,external,maxcompute,external_remote,exter
         String mc_catalog_name = "test_max_compute_all_type"
         sql """drop catalog if exists ${mc_catalog_name} """
         
-        String defaultProject = "jz_datalake" 
+        String defaultProject = "mc_datalake" 
         sql """
         CREATE CATALOG IF NOT EXISTS ${mc_catalog_name} PROPERTIES (
                 "type" = "max_compute",

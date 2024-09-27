@@ -61,7 +61,6 @@ import java.util.List;
 public class MaxComputeColumnValue implements ColumnValue {
     private static final Logger LOG = Logger.getLogger(MaxComputeColumnValue.class);
     private int idx;
-    private int offset = 0; // for complex type
     private ValueVector column;
 
     public MaxComputeColumnValue() {
@@ -80,7 +79,6 @@ public class MaxComputeColumnValue implements ColumnValue {
     public void reset(ValueVector column) {
         this.column = column;
         this.idx = 0;
-        this.offset = 0;
     }
 
     @Override
@@ -283,7 +281,8 @@ public class MaxComputeColumnValue implements ColumnValue {
     @Override
     public void unpackArray(List<ColumnValue> values) {
         ListVector listCol = (ListVector) column;
-        int elemSize = listCol.getObject(idx).size();
+        int elemSize = listCol.getElementEndIndex(idx) - listCol.getElementStartIndex(idx);
+        int offset = listCol.getElementStartIndex(idx);
         for (int i = 0; i < elemSize; i++) {
             MaxComputeColumnValue val = new MaxComputeColumnValue(listCol.getDataVector(), offset);
             values.add(val);
@@ -295,6 +294,7 @@ public class MaxComputeColumnValue implements ColumnValue {
     public void unpackMap(List<ColumnValue> keys, List<ColumnValue> values) {
         MapVector mapCol = (MapVector) column;
         int elemSize = mapCol.getElementEndIndex(idx) - mapCol.getElementStartIndex(idx);
+        int offset = mapCol.getElementStartIndex(idx);
         List<FieldVector> innerCols = ((StructVector) mapCol.getDataVector()).getChildrenFromFields();
         FieldVector keyList = innerCols.get(0);
         FieldVector valList = innerCols.get(1);
@@ -319,6 +319,7 @@ public class MaxComputeColumnValue implements ColumnValue {
 
     public static LocalDateTime convertToLocalDateTime(TimeStampMilliTZVector milliTZVector, int index) {
         long timestampMillis = milliTZVector.get(index);
+        // time_zone        DateTime  set
         return LocalDateTime.ofInstant(Instant.ofEpochMilli(timestampMillis), ZoneId.systemDefault());
     }
 
