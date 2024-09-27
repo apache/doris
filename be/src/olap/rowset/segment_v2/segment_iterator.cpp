@@ -752,17 +752,6 @@ Status SegmentIterator::_extract_common_expr_columns(const vectorized::VExprSPtr
     return Status::OK();
 }
 
-bool SegmentIterator::_check_apply_by_inverted_index(ColumnId col_id) {
-    if (_opts.runtime_state && !_opts.runtime_state->query_options().enable_inverted_index_query) {
-        return false;
-    }
-    if (_inverted_index_iterators[col_id] == nullptr) {
-        //this column without inverted index
-        return false;
-    }
-    return true;
-}
-
 bool SegmentIterator::_check_apply_by_inverted_index(ColumnPredicate* pred, bool pred_in_compound) {
     if (_opts.runtime_state && !_opts.runtime_state->query_options().enable_inverted_index_query) {
         return false;
