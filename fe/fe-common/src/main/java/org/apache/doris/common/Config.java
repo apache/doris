@@ -2463,6 +2463,6 @@ public class Config extends ConfigBase {
     public static boolean enable_cooldown_replica_affinity = true;
 
     @ConfField(mutable = true, description = {
-            "设置为 true，如果查询无法选择到健康副本时，会打印出该tablet所有副本的详细信息，"})
+            "设置为 true，root 和 admin 将跳过 sql block rule", "Set to true, root and admin will skip SQL block rule"})
     public static boolean sql_block_rule_ignore_admin = false;
 }
