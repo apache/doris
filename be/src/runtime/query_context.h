@@ -245,6 +245,12 @@ public:
 
     int64_t get_mem_limit() const { return query_mem_tracker->limit(); }
 
+    void set_expected_mem_limit(int64_t new_mem_limit) {
+        _expected_mem_limit = std::min<int64_t>(new_mem_limit, _user_set_mem_limit);
+    }
+
+    int64_t expected_mem_limit() { return _expected_mem_limit; }
+
     std::shared_ptr<MemTrackerLimiter>& get_mem_tracker() { return query_mem_tracker; }
 
     int32_t get_slot_count() const {
@@ -409,6 +415,7 @@ private:
 
     std::atomic<bool> _low_memory_mode = false;
     int64_t _user_set_mem_limit = 0;
+    std::atomic<int64_t> _expected_mem_limit = 0;
 
     std::mutex _profile_mutex;
     timespec _query_arrival_timestamp;

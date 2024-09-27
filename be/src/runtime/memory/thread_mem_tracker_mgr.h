@@ -290,7 +290,7 @@ inline doris::Status ThreadMemTrackerMgr::try_reserve(int64_t size) {
     // wg mgr will change wg's hard limit property.
     if (wg_ptr != nullptr && wg_ptr->enable_memory_overcommit() &&
         !wg_ptr->has_changed_to_hard_limit()) {
-        // TODO: Only do a check here, do not real reserve. If we could reserve it, it is better, but the logic is too complicated.
+        // Only do a check here, do not real reserve. If we could reserve it, it is better, but the logic is too complicated.
         if (!doris::GlobalMemoryArbitrator::try_reserve_process_memory(size)) {
             return doris::Status::Error<ErrorCode::PROCESS_MEMORY_EXCEEDED>(
                     "reserve memory failed, size: {}, because {}", size,
