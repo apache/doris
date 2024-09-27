@@ -75,7 +75,6 @@ struct AggregateFunctionRegrSlopeData {
         }
         return (count * sum_of_x_mul_y - sum_x * sum_y) / denominator;
     }
-    
 
     void merge(const AggregateFunctionRegrSlopeData& rhs) {
         if (rhs.count == 0) {
@@ -88,7 +87,7 @@ struct AggregateFunctionRegrSlopeData {
         count += rhs.count;
     }
 
-    void add(T value_y, T value_x) {  // 注意参数顺序变更
+    void add(T value_y, T value_x) { // 注意参数顺序变更
         sum_x += value_x;
         sum_y += value_y;
         sum_of_x_mul_y += value_x * value_y;
@@ -142,9 +141,9 @@ public:
                 return;
             } else {
                 TY y_value = assert_cast<const YInputCol&>(y_column_nullable.get_nested_column())
-                                        .get_data()[row_num];
+                                     .get_data()[row_num];
                 TX x_value = assert_cast<const XInputCol&>(x_column_nullable.get_nested_column())
-                                        .get_data()[row_num];
+                                     .get_data()[row_num];
                 this->data(place).add(static_cast<Float64>(y_value), static_cast<Float64>(x_value));
             }
         } else {
@@ -173,8 +172,7 @@ public:
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         const auto& data = this->data(place);
         auto& dst_column_with_nullable = assert_cast<ColumnNullable&>(to);
-        auto& dst_column =
-                assert_cast<ResultCol&>(dst_column_with_nullable.get_nested_column());
+        auto& dst_column = assert_cast<ResultCol&>(dst_column_with_nullable.get_nested_column());
         Float64 slope = data.get_slope_result();
         if (std::isnan(slope)) {
             dst_column_with_nullable.get_null_map_data().push_back(1);

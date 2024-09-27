@@ -39,10 +39,10 @@ namespace doris::vectorized {
 template <typename T>
 struct AggregateFunctionRegrInterceptData {
     UInt64 count = 0;
-    double sum_x {};
-    double sum_y {};
-    double sum_of_x_mul_y {};
-    double sum_of_x_squared {};
+    Float64 sum_x {};
+    Float64 sum_y {};
+    Float64 sum_of_x_mul_y {};
+    Float64 sum_of_x_squared {};
 
     void write(BufferWritable& buf) const {
         write_binary(sum_x, buf);
@@ -68,12 +68,12 @@ struct AggregateFunctionRegrInterceptData {
         count = 0;
     }
 
-    double get_intercept_result() const {
-        double denominator = count * sum_of_x_squared - sum_x * sum_x;
+    Float64 get_intercept_result() const {
+        Float64 denominator = count * sum_of_x_squared - sum_x * sum_x;
         if (count < 2 || denominator == 0.0) {
-            return std::numeric_limits<double>::quiet_NaN();
+            return std::numeric_limits<Float64>::quiet_NaN();
         }
-        double slope = (count * sum_of_x_mul_y - sum_x * sum_y) / denominator;
+        Float64 slope = (count * sum_of_x_mul_y - sum_x * sum_y) / denominator;
         return (sum_y - slope * sum_x) / count;
     }
 
@@ -97,29 +97,28 @@ struct AggregateFunctionRegrInterceptData {
     }
 };
 
-template <typename TX, typename TY>
+template <typename T>
 struct RegrInterceptFuncTwoArg {
-    using TypeX = TX;
-    using TypeY = TY;
-    using Data = AggregateFunctionRegrInterceptData<Float64>;
+    using Type = T;
+    using Data = AggregateFunctionRegrInterceptData<T>;
 };
 
-template <typename StatFunc, bool NullableInput>
+template <typename StatFunc, bool x_nullable, bool y_nullable>
 class AggregateFunctionRegrInterceptSimple
         : public IAggregateFunctionDataHelper<
                   typename StatFunc::Data,
-                  AggregateFunctionRegrInterceptSimple<StatFunc, NullableInput>> {
+                  AggregateFunctionRegrInterceptSimple<StatFunc, x_nullable, y_nullable>> {
 public:
-    using TX = typename StatFunc::TypeX;
-    using TY = typename StatFunc::TypeY;
-    using XInputCol = ColumnVector<TX>;
-    using YInputCol = ColumnVector<TY>;
+    using Type = typename StatFunc::Type;
+    using XInputCol = ColumnVector<Type>;
+    using YInputCol = ColumnVector<Type>;
     using ResultCol = ColumnVector<Float64>;
 
     explicit AggregateFunctionRegrInterceptSimple(const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper<
                       typename StatFunc::Data,
-                      AggregateFunctionRegrInterceptSimple<StatFunc, NullableInput>>(argument_types_) {
+                      AggregateFunctionRegrInterceptSimple<StatFunc, x_nullable, y_nullable>>(
+                      argument_types_) {
         DCHECK(!argument_types_.empty());
     }
 
@@ -131,27 +130,41 @@ public:
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena*) const override {
-        if constexpr (NullableInput) {
-            const ColumnNullable& y_column_nullable =
-                    assert_cast<const ColumnNullable&>(*columns[0]);
+        bool x_null = false;
+        bool y_null = false;
+        const XInputCol* x_nested_column = nullptr;
+        const YInputCol* y_nested_column = nullptr;
+
+        if constexpr (x_nullable) {
             const ColumnNullable& x_column_nullable =
-                    assert_cast<const ColumnNullable&>(*columns[1]);
-            bool y_null = y_column_nullable.is_null_at(row_num);
-            bool x_null = x_column_nullable.is_null_at(row_num);
-            if (y_null || x_null) {
-                return;
-            } else {
-                TY y_value = assert_cast<const YInputCol&>(y_column_nullable.get_nested_column())
-                                        .get_data()[row_num];
-                TX x_value = assert_cast<const XInputCol&>(x_column_nullable.get_nested_column())
-                                        .get_data()[row_num];
-                this->data(place).add(static_cast<Float64>(y_value), static_cast<Float64>(x_value));
-            }
+                    assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(*columns[0]);
+            x_null = x_column_nullable.is_null_at(row_num);
+            x_nested_column = assert_cast<const XInputCol*, TypeCheckOnRelease::DISABLE>(
+                    x_column_nullable.get_nested_column_ptr().get());
         } else {
-            TY y_value = assert_cast<const YInputCol&>(*columns[0]).get_data()[row_num];
-            TX x_value = assert_cast<const XInputCol&>(*columns[1]).get_data()[row_num];
-            this->data(place).add(static_cast<Float64>(y_value), static_cast<Float64>(x_value));
+            x_nested_column = assert_cast<const XInputCol*, TypeCheckOnRelease::DISABLE>(
+                    (*columns[0]).get_ptr().get());
         }
+
+        if constexpr (y_nullable) {
+            const ColumnNullable& y_column_nullable =
+                    assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(*columns[1]);
+            y_null = y_column_nullable.is_null_at(row_num);
+            y_nested_column = assert_cast<const YInputCol*, TypeCheckOnRelease::DISABLE>(
+                    y_column_nullable.get_nested_column_ptr().get());
+        } else {
+            y_nested_column = assert_cast<const YInputCol*, TypeCheckOnRelease::DISABLE>(
+                    (*columns[1]).get_ptr().get());
+        }
+
+        if (x_null || y_null) {
+            return;
+        }
+
+        Type x_value = x_nested_column->get_data()[row_num];
+        Type y_value = y_nested_column->get_data()[row_num];
+
+        this->data(place).add(x_value, y_value);
     }
 
     void reset(AggregateDataPtr __restrict place) const override { this->data(place).reset(); }
@@ -173,8 +186,7 @@ public:
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         const auto& data = this->data(place);
         auto& dst_column_with_nullable = assert_cast<ColumnNullable&>(to);
-        auto& dst_column =
-                assert_cast<ResultCol&>(dst_column_with_nullable.get_nested_column());
+        auto& dst_column = assert_cast<ResultCol&>(dst_column_with_nullable.get_nested_column());
         Float64 intercept = data.get_intercept_result();
         if (std::isnan(intercept)) {
             dst_column_with_nullable.get_null_map_data().push_back(1);
