@@ -179,8 +179,8 @@ public class ReplacePredicate {
     EqualPairs is the output parameter and the equivalent pair of predicate derivation input,
     which is used to ensure that the derivation
     does not generate repeated equivalent conditions, such as a=b and b=a */
-    private static ImmutableEqualSet<Slot> findEqual(Set<Expression> inputs) {
-        ImmutableEqualSet.Builder<Slot> fromCastEqualSetBuilder = new ImmutableEqualSet.Builder<>();
+    private static ImmutableEqualSet<Expression> findEqual(Set<Expression> inputs) {
+        ImmutableEqualSet.Builder<Expression> fromCastEqualSetBuilder = new ImmutableEqualSet.Builder<>();
         for (Expression input : inputs) {
             if (!(input instanceof EqualTo)) {
                 continue;
@@ -194,10 +194,10 @@ public class ReplacePredicate {
                 continue;
             }
             PredicateInferUtils.getPairFromCast((ComparisonPredicate) input)
-                    .filter(pair -> pair.first instanceof Slot && pair.second instanceof Slot)
+                    .filter(pair -> PredicateInferUtils.isSlotOrLiteral(pair.first) && PredicateInferUtils.isSlotOrLiteral(pair.second))
                     .ifPresent(pair -> {
-                        Slot left = (Slot) pair.first;
-                        Slot right = (Slot) pair.second;
+                        Expression left = pair.first;
+                        Expression right = pair.second;
                         fromCastEqualSetBuilder.addEqualPair(left, right);
                     });
         }
@@ -207,8 +207,8 @@ public class ReplacePredicate {
     /** This is the exposed interface. Inputs are the input predicates for derivation.
      * The return value is the derived predicates*/
     public static Set<Expression> infer(Set<Expression> inputs) {
-        ImmutableEqualSet<Slot> hasCastEqualSet = findEqual(inputs);
-        Set<Slot> targetExprs = hasCastEqualSet.getAllItemSet();
+        ImmutableEqualSet<Expression> hasCastEqualSet = findEqual(inputs);
+        Set<Expression> targetExprs = hasCastEqualSet.getAllItemSet();
         if (targetExprs.isEmpty()) {
             return new LinkedHashSet<>();
         }
@@ -222,7 +222,10 @@ public class ReplacePredicate {
         }
         Set<Expression> inferPredicates = new LinkedHashSet<>();
         if (!exprPredicates.isEmpty()) {
-            for (Slot expr : targetExprs) {
+            for (Expression expr : targetExprs) {
+                if (expr instanceof Literal) {
+                    continue;
+                }
                 inferPredicates.addAll(getEqualSetAndDoReplace(expr, hasCastEqualSet.calEqualSet(expr),
                         exprPredicates));
             }

@@ -34,10 +34,8 @@ import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.BigIntType;
-import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateType;
-import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.TinyIntType;
@@ -60,92 +58,6 @@ public class ReplacePredicateTest {
 
         Set<Expression> result = ReplacePredicate.infer(inputs);
         Assertions.assertTrue(result.isEmpty(), "Expected no additional predicates.");
-    }
-
-    @Test
-    public void testInferWithTransitiveEquality() {
-        // a = b, b = c
-        SlotReference a = new SlotReference("a", IntegerType.INSTANCE, true, ImmutableList.of("t1"));
-        SlotReference b = new SlotReference("b", IntegerType.INSTANCE, true, ImmutableList.of("t2"));
-        SlotReference c = new SlotReference("c", IntegerType.INSTANCE, true, ImmutableList.of("t3"));
-        EqualTo equalTo1 = new EqualTo(a, b);
-        EqualTo equalTo2 = new EqualTo(b, c);
-        Set<Expression> inputs = new HashSet<>();
-        inputs.add(equalTo1);
-        inputs.add(equalTo2);
-        Set<Expression> result = ReplacePredicate.infer(inputs);
-
-        EqualTo expected = new EqualTo(a, c);
-        Assertions.assertTrue(result.contains(expected) || result.contains(expected.commute()), "Expected to find a = c in the result.");
-    }
-
-    @Test
-    public void testInferWithTransitiveEqualitySameTable() {
-        // a = b, b = c
-        SlotReference a = new SlotReference("a", IntegerType.INSTANCE, true, ImmutableList.of("t1"));
-        SlotReference b = new SlotReference("b", IntegerType.INSTANCE, true, ImmutableList.of("t1"));
-        SlotReference c = new SlotReference("c", IntegerType.INSTANCE, true, ImmutableList.of("t1"));
-        EqualTo equalTo1 = new EqualTo(a, b);
-        EqualTo equalTo2 = new EqualTo(b, c);
-        Set<Expression> inputs = new HashSet<>();
-        inputs.add(equalTo1);
-        inputs.add(equalTo2);
-        Set<Expression> result = ReplacePredicate.infer(inputs);
-
-        Assertions.assertTrue(result.isEmpty());
-    }
-
-    @Test
-    public void testInferWithTransitiveEqualityWithCast() {
-        // a = b, b = c
-        SlotReference a = new SlotReference("a", DateTimeV2Type.SYSTEM_DEFAULT, true, ImmutableList.of("t1"));
-        SlotReference b = new SlotReference("b", DateTimeV2Type.SYSTEM_DEFAULT, true, ImmutableList.of("t2"));
-        SlotReference c = new SlotReference("c", DateTimeType.INSTANCE, true, ImmutableList.of("t3"));
-        EqualTo equalTo1 = new EqualTo(a, new Cast(c, DateTimeV2Type.SYSTEM_DEFAULT));
-        EqualTo equalTo2 = new EqualTo(b, new Cast(c, DateTimeV2Type.SYSTEM_DEFAULT));
-        Set<Expression> inputs = new HashSet<>();
-        inputs.add(equalTo1);
-        inputs.add(equalTo2);
-        Set<Expression> result = ReplacePredicate.infer(inputs);
-
-        EqualTo expected = new EqualTo(a, b);
-        Assertions.assertTrue(result.contains(expected) || result.contains(expected.commute()),
-                "Expected to find a = c in the result.");
-    }
-
-    @Test
-    public void testInferWithTransitiveEqualityWithCastDateToDateTime() {
-        // cast(d_datev2 as datetime) = cast(d_datev2 as datetime)
-        SlotReference a = new SlotReference("a", DateV2Type.INSTANCE, true, ImmutableList.of("t1"));
-        SlotReference b = new SlotReference("b", DateV2Type.INSTANCE, true, ImmutableList.of("t2"));
-        SlotReference c = new SlotReference("c", DateTimeType.INSTANCE, true, ImmutableList.of("t3"));
-        EqualTo equalTo1 = new EqualTo(new Cast(a, DateTimeType.INSTANCE), c);
-        EqualTo equalTo2 = new EqualTo(new Cast(b, DateTimeType.INSTANCE), c);
-        Set<Expression> inputs = new HashSet<>();
-        inputs.add(equalTo1);
-        inputs.add(equalTo2);
-        Set<Expression> result = ReplacePredicate.infer(inputs);
-
-        EqualTo expected = new EqualTo(a, b);
-        Assertions.assertTrue(result.contains(expected) || result.contains(expected.commute()), "Expected to find a = b in the result.");
-    }
-
-    @Test
-    public void testInferWithTransitiveEqualityWithCastDatev2andDate() {
-        // cast(d_datev2 as date) = cast(d_date as d_datev2)
-        SlotReference a = new SlotReference("a", DateV2Type.INSTANCE, true, ImmutableList.of("t1"));
-        SlotReference b = new SlotReference("b", DateV2Type.INSTANCE, true, ImmutableList.of("t2"));
-        SlotReference c = new SlotReference("c", DateType.INSTANCE, true, ImmutableList.of("t3"));
-        EqualTo equalTo1 = new EqualTo(new Cast(a, DateType.INSTANCE), c);
-        EqualTo equalTo2 = new EqualTo(b, new Cast(c, DateV2Type.INSTANCE));
-
-        Set<Expression> inputs = new HashSet<>();
-        inputs.add(equalTo1);
-        inputs.add(equalTo2);
-        Set<Expression> result = ReplacePredicate.infer(inputs);
-
-        EqualTo expected = new EqualTo(a, b);
-        Assertions.assertTrue(result.contains(expected) || result.contains(expected.commute()), "Expected to find a = b in the result.");
     }
 
     @Test

@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.rules.rewrite.UnequalPredicateInfer.InferenceGraph;
 import org.apache.doris.nereids.rules.rewrite.UnequalPredicateInfer.InferenceGraph.Relation;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -29,6 +30,9 @@ import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.types.DateTimeType;
+import org.apache.doris.nereids.types.DateType;
+import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.PredicateInferUtils;
 
@@ -649,4 +653,51 @@ public class UnequalPredicateInferTest {
         }
     }
 
+    @Test
+    public void testInferWithTransitiveEqualityWithCastDateToDateTime() {
+        // cast(d_datev2 as datetime) = cast(d_datev2 as datetime)
+        SlotReference a = new SlotReference("a", DateV2Type.INSTANCE, true, ImmutableList.of("t1"));
+        SlotReference b = new SlotReference("b", DateV2Type.INSTANCE, true, ImmutableList.of("t2"));
+        SlotReference c = new SlotReference("c", DateTimeType.INSTANCE, true, ImmutableList.of("t3"));
+        EqualTo equalTo1 = new EqualTo(new Cast(a, DateTimeType.INSTANCE), c);
+        EqualTo equalTo2 = new EqualTo(new Cast(b, DateTimeType.INSTANCE), c);
+        Set<ComparisonPredicate> inputs = new HashSet<>();
+        inputs.add(equalTo1);
+        inputs.add(equalTo2);
+        Set<? extends Expression> result = UnequalPredicateInfer.inferUnequalPredicates(inputs);
+        EqualTo expected = new EqualTo(a, b);
+        Assertions.assertTrue(result.contains(expected) || result.contains(expected.commute()), "Expected to find a = b in the result.");
+    }
+
+    @Test
+    public void testInferWithTransitiveEqualityWithCastDatev2andDate() {
+        // cast(d_datev2 as date) = cast(d_date as d_datev2)
+        SlotReference a = new SlotReference("a", DateV2Type.INSTANCE, true, ImmutableList.of("t1"));
+        SlotReference b = new SlotReference("b", DateV2Type.INSTANCE, true, ImmutableList.of("t2"));
+        SlotReference c = new SlotReference("c", DateType.INSTANCE, true, ImmutableList.of("t3"));
+        EqualTo equalTo1 = new EqualTo(new Cast(a, DateType.INSTANCE), c);
+        EqualTo equalTo2 = new EqualTo(b, new Cast(c, DateV2Type.INSTANCE));
+
+        Set<ComparisonPredicate> inputs = new HashSet<>();
+        inputs.add(equalTo1);
+        inputs.add(equalTo2);
+        Set<? extends Expression> result = UnequalPredicateInfer.inferUnequalPredicates(inputs);
+        EqualTo expected = new EqualTo(a, b);
+        Assertions.assertTrue(result.contains(expected) || result.contains(expected.commute()), "Expected to find a = b in the result.");
+    }
+    @Test
+    public void testNotInferWithTransitiveEqualitySameTable() {
+        // a = b, b = c
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE, true, ImmutableList.of("t1"));
+        SlotReference b = new SlotReference("b", IntegerType.INSTANCE, true, ImmutableList.of("t1"));
+        SlotReference c = new SlotReference("c", IntegerType.INSTANCE, true, ImmutableList.of("t1"));
+        EqualTo equalTo1 = new EqualTo(a, b);
+        EqualTo equalTo2 = new EqualTo(b, c);
+        Set<Expression> inputs = new HashSet<>();
+        inputs.add(equalTo1);
+        inputs.add(equalTo2);
+        Set<Expression> result = ReplacePredicate.infer(inputs);
+
+        Assertions.assertTrue(result.isEmpty());
+    }
 }

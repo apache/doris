@@ -66,6 +66,7 @@ public class InferPredicates extends DefaultPlanRewriter<JobContext> implements 
 
     @Override
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
+        // Preparing stmt requires that the predicate cannot be changed, so no predicate inference is performed.
         if (ConnectContext.get().getCommand() == MysqlCommand.COM_STMT_PREPARE
                 || ConnectContext.get().getCommand() == MysqlCommand.COM_STMT_EXECUTE) {
             return plan;
