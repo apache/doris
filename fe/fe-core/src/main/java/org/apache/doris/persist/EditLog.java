@@ -1269,12 +1269,13 @@ public class EditLog {
     }
 
     private synchronized <T extends Writable> void logEdit(short op, List<T> entries) throws IOException {
-        JournalBatch batch = new JournalBatch(35);
+        int itemNum = Math.max(1, Math.min(Config.batch_edit_log_max_item_num, entries.size()));
+        JournalBatch batch = new JournalBatch(itemNum);
         for (T entry : entries) {
-            // the number of batch entities to less than 32 and the batch data size to less than 640KB
-            if (batch.getJournalEntities().size() >= 32 || batch.getSize() >= 640 * 1024) {
+            if (batch.getJournalEntities().size() >= Config.batch_edit_log_max_item_num
+                    || batch.getSize() >= Config.batch_edit_log_max_byte_size) {
                 journal.write(batch);
-                batch = new JournalBatch(35);
+                batch = new JournalBatch(itemNum);
             }
             batch.addJournal(op, entry);
         }
