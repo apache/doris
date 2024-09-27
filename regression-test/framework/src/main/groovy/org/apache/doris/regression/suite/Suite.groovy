@@ -290,7 +290,6 @@ class Suite implements GroovyInterceptable {
                     + "see example demo_p0/docker_action.groovy")
         }
 
-        boolean dockerIsCloud = false
         if (options.cloudMode == null) {
             if (context.config.runMode == RunMode.UNKNOWN) {
                 dockerImpl(options, false, actionSupplier)
@@ -329,7 +328,7 @@ class Suite implements GroovyInterceptable {
 
             logger.info("get fe {}", fe)
             assertNotNull(fe)
-            if (!dockerIsCloud) {
+            if (!isCloud) {
                 for (def be : cluster.getAllBackends()) {
                     be_report_disk(be.host, be.httpPort)
                 }
