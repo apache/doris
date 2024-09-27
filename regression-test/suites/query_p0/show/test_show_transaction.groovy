@@ -33,6 +33,32 @@ suite("test_show_transaction", "p0") {
             );
             """
 
+    try {
+      // not exist with id
+      sql "show transaction where id = -1"
+      assertTrue(true)
+    } catch (Exception e) {
+      assertTrue(false)
+    }
+
+    try {
+      // not exist with label
+      sql """show transaction where label = "label_not_exist"
+                """
+      assertTrue(true)
+    } catch (Exception e) {
+      assertTrue(false)
+    }
+
+    try {
+      // throw exception with message "status should be prepare/precommitted/committed/visible/aborted"
+      sql """show transaction where status="nothing"
+            """
+      assertTrue(false)
+    } catch (Exception e) {
+      assertTrue(true)
+    }
+
     def uuid = UUID.randomUUID().toString().replaceAll("-", "");
     sql """ INSERT INTO ${testTable} WITH LABEL label_test_show_transaction_${uuid} VALUES(100, 'doris')  """
     def res = sql_return_maparray """ show transaction where label = 'label_test_show_transaction_${uuid}'  """
