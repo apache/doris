@@ -241,7 +241,9 @@ public class HiveScanNode extends FileQueryScanNode {
 
     @Override
     public void startSplit() {
-        if (prunedPartitions.isEmpty()) {
+        int totalPartitions = prunedPartitions.size();
+        splitAssignment.setTotalPartitions(totalPartitions);
+        if (totalPartitions == 0) {
             splitAssignment.finishSchedule();
             return;
         }
@@ -266,6 +268,7 @@ public class HiveScanNode extends FileQueryScanNode {
                                 numSplitsPerPartition.set(allFiles.size());
                             }
                             splitAssignment.addToQueue(allFiles);
+                            splitAssignment.incrementCompletedPartition();
                         } catch (IOException e) {
                             batchException.set(new UserException(e.getMessage(), e));
                         } finally {

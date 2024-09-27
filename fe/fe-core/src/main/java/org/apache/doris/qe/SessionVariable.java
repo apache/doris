@@ -1654,6 +1654,15 @@ public class SessionVariable implements Serializable, Writable {
     public long fetchSplitsMaxWaitTime = 4000;
 
     @VariableMgr.VarAttr(
+            name = "LOAD_SPLIT_FILE_SLOW_LOG_THRESHOLD_MILLIS",
+            description = {
+                    "加载 split 打印慢日志的阈值（毫秒）",
+                    "Threshold for logging slow split loading (in milliseconds)."
+            },
+            needForward = true)
+    public long loadSplitFileSlowLogThresholdMillis = 2000;
+
+    @VariableMgr.VarAttr(
             name = ENABLE_PARQUET_LAZY_MAT,
             description = {"控制 parquet reader 是否启用延迟物化技术。默认为 true。",
                     "Controls whether to use lazy materialization technology in parquet reader. "
@@ -3116,6 +3125,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setFetchSplitsMaxWaitTime(long fetchSplitsMaxWaitTime) {
         this.fetchSplitsMaxWaitTime = fetchSplitsMaxWaitTime;
+    }
+
+    public long getLoadSplitFileSlowLogThresholdMillis() {
+        return loadSplitFileSlowLogThresholdMillis;
+    }
+
+    public void setLoadSplitFileSlowLogThresholdMillis(long loadSplitFileSlowLogThresholdMillis) {
+        this.loadSplitFileSlowLogThresholdMillis = loadSplitFileSlowLogThresholdMillis;
     }
 
     public boolean isEnableParquetLazyMat() {

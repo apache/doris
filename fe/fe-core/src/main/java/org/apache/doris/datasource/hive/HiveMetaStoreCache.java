@@ -50,6 +50,7 @@ import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.planner.ColumnBound;
 import org.apache.doris.planner.ListPartitionPrunerV2;
 import org.apache.doris.planner.PartitionPrunerV2Base.UniqueId;
+import org.apache.doris.qe.ConnectContext;
 
 import com.github.benmanes.caffeine.cache.CacheLoader;
 import com.github.benmanes.caffeine.cache.LoadingCache;
@@ -392,6 +393,7 @@ public class HiveMetaStoreCache {
     }
 
     private FileCacheValue loadFiles(FileCacheKey key) {
+        long start = System.currentTimeMillis();
         ClassLoader classLoader = Thread.currentThread().getContextClassLoader();
         try {
             Thread.currentThread().setContextClassLoader(ClassLoader.getSystemClassLoader());
@@ -426,6 +428,11 @@ public class HiveMetaStoreCache {
 
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("load #{} splits for {} in catalog {}", result.getFiles().size(), key, catalog.getName());
+                }
+                long costMillis = System.currentTimeMillis() - start;
+                if (costMillis > ConnectContext.get().getSessionVariable().getLoadSplitFileSlowLogThresholdMillis()) {
+                    LOG.info("load #{} splits for {} in catalog {}, cost: {} ms",
+                            result.getFiles().size(), key, catalog.getName(), costMillis);
                 }
                 return result;
             } catch (Exception e) {

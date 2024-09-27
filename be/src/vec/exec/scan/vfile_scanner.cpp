@@ -250,7 +250,7 @@ Status VFileScanner::open(RuntimeState* state) {
 
 Status VFileScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eof) {
     Status st = _get_block_wrapped(state, block, eof);
-    if (!st.ok()) {
+    if (!st.ok() && !get_current_scan_range_name().empty()) {
         // add cur path in error msg for easy debugging
         return std::move(st.prepend("cur path: " + get_current_scan_range_name() + ". "));
     }
@@ -706,6 +706,7 @@ Status VFileScanner::_get_next_reader() {
             RETURN_IF_ERROR(_cur_reader->close());
             _state->update_num_finished_scan_range(1);
         }
+        _current_range_path = "";
         _cur_reader.reset(nullptr);
         _src_block_init = false;
         bool has_next = _first_scan_range;

@@ -402,7 +402,9 @@ public class HudiScanNode extends HiveScanNode {
 
     @Override
     public void startSplit() {
-        if (prunedPartitions.isEmpty()) {
+        int totalPartitions = prunedPartitions.size();
+        splitAssignment.setTotalPartitions(totalPartitions);
+        if (totalPartitions == 0) {
             splitAssignment.finishSchedule();
             return;
         }
@@ -426,6 +428,7 @@ public class HudiScanNode extends HiveScanNode {
                             numSplitsPerPartition.set(allFiles.size());
                         }
                         splitAssignment.addToQueue(allFiles);
+                        splitAssignment.incrementCompletedPartition();
                     } catch (IOException e) {
                         batchException.set(new UserException(e.getMessage(), e));
                     } finally {

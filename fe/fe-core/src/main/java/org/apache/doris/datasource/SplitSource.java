@@ -99,7 +99,11 @@ public class SplitSource {
 
         if (scanRanges.isEmpty() && !isLastBatch.get()) {
             // This is timeout
-            throw new UserException("Timeout. Max wait time(ms): " + maxWaitTime);
+            throw new UserException(String.format("Timeout. Max wait time(ms): %ld."
+                    + "DB: %s, Table: %s, Total partitions num: %d, Completed partitions num: %d.",
+                    maxWaitTime, splitAssignment.getTableIf().getDatabase().getFullName(),
+                    splitAssignment.getTableIf().getName(), splitAssignment.getTotalPartitions(),
+                    splitAssignment.getCompletedPartitions()));
         }
         return scanRanges;
     }
