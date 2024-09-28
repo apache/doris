@@ -7,7 +7,7 @@ suite("test_internal_stage_http_data_api", "smoke") {
     def remoteFileName = fileName + "test_http_data_api"
 
     StringBuilder strBuilder = new StringBuilder()
-    strBuilder.append("""curl -vv -u """ + context.config.feCloudHttpUser + ":" + context.config.feCloudHttpPassword)
+    strBuilder.append("""curl -vv -u """ + context.config.feHttpUser + ":" + context.config.feHttpPassword)
     strBuilder.append(""" -H fileName:""" + remoteFileName)
     if (getS3Provider().equalsIgnoreCase("azure")) {
         strBuilder.append(""" -H x-ms-blob-type:BlockBlob """)
