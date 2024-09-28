@@ -20,7 +20,7 @@ package org.apache.doris.catalog;
 import org.apache.doris.analysis.ColumnDef;
 import org.apache.doris.analysis.TypeDef;
 import org.apache.doris.common.UserException;
-import org.apache.doris.plugin.audit.AuditLoaderPlugin;
+import org.apache.doris.plugin.audit.AuditLoader;
 import org.apache.doris.statistics.StatisticConstants;
 
 import com.google.common.collect.Lists;
@@ -99,7 +99,7 @@ public class InternalSchema {
             schema = COL_STATS_SCHEMA;
         } else if (tblName.equals(StatisticConstants.HISTOGRAM_TBL_NAME)) {
             schema = HISTO_STATS_SCHEMA;
-        } else if (tblName.equals(AuditLoaderPlugin.AUDIT_LOG_TABLE)) {
+        } else if (tblName.equals(AuditLoader.AUDIT_LOG_TABLE)) {
             schema = AUDIT_SCHEMA;
         } else {
             throw new UserException("Unknown internal table name: " + tblName);

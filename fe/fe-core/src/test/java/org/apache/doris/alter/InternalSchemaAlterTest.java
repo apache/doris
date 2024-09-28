@@ -26,7 +26,7 @@ import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.plugin.audit.AuditLoaderPlugin;
+import org.apache.doris.plugin.audit.AuditLoader;
 import org.apache.doris.statistics.StatisticConstants;
 import org.apache.doris.utframe.TestWithFeService;
 
@@ -54,11 +54,11 @@ public class InternalSchemaAlterTest extends TestWithFeService {
                 .getInternalCatalog().getDbNullable(FeConstants.INTERNAL_DB_NAME);
         InternalSchemaInitializer.modifyTblReplicaCount(db, StatisticConstants.STATISTIC_TBL_NAME);
         InternalSchemaInitializer.modifyTblReplicaCount(db, StatisticConstants.HISTOGRAM_TBL_NAME);
-        InternalSchemaInitializer.modifyTblReplicaCount(db, AuditLoaderPlugin.AUDIT_LOG_TABLE);
+        InternalSchemaInitializer.modifyTblReplicaCount(db, AuditLoader.AUDIT_LOG_TABLE);
 
         checkReplicationNum(db, StatisticConstants.STATISTIC_TBL_NAME);
         checkReplicationNum(db, StatisticConstants.HISTOGRAM_TBL_NAME);
-        checkReplicationNum(db, AuditLoaderPlugin.AUDIT_LOG_TABLE);
+        checkReplicationNum(db, AuditLoader.AUDIT_LOG_TABLE);
     }
 
     private void checkReplicationNum(Database db, String tblName) throws AnalysisException {
