@@ -89,9 +89,13 @@ suite("test_warmup_show_stmt_2") {
             org.junit.Assert.assertTrue(getLineNumber() + "cannot find expected cache hotspot ${hotTableName}", result.size() > i + 1)
             continue
         }
-        assertEquals(result[i].get("cluster_id"), "regression_cluster_id0")
-        assertEquals(result[i].get("cluster_name"), "regression_cluster_name0")
-        assertEquals(result[i].get("hot_table_name"), "regression_test_cloud_p0_cache_multi_cluster_warm_up_hotspot.customer")
+        def computeGroupId = result[i].get("cluster_id") == null ? result[i].get("ComputeGroupId") : result[i].get("cluster_id")
+        def computeGroupName = result[i].get("cluster_name") == null ? result[i].get("ComputeGroupName") : result[i].get("cluster_name")
+        def tableName = result[i].get("hot_table_name") == null ? result[i].get("TableName") : result[i].get("hot_table_name")
+
+        assertEquals(computeGroupId, "regression_cluster_id0")
+        assertEquals(computeGroupName, "regression_cluster_name0")
+        assertEquals(tableName, "regression_test_cloud_p0_cache_multi_cluster_warm_up_hotspot.customer")
     }
 
     result = sql_return_maparray """ show cache hotspot "/regression_cluster_name0" """
@@ -116,9 +120,14 @@ suite("test_warmup_show_stmt_2") {
             org.junit.Assert.assertTrue("cannot find expected cache hotspot ${hotTableName}", result.size() > i + 1)
             continue
         }
-        assertEquals(result[i].get("cluster_id"), "regression_cluster_id0")
-        assertEquals(result[i].get("cluster_name"), "regression_cluster_name0")
-        assertEquals(result[i].get("hot_table_name"), "regression_test_cloud_p0_cache_multi_cluster_warm_up_hotspot.customer")
+
+        def computeGroupId = result[i].get("cluster_id") == null ? result[i].get("ComputeGroupId") : result[i].get("cluster_id")
+        def computeGroupName = result[i].get("cluster_name") == null ? result[i].get("ComputeGroupName") : result[i].get("cluster_name")
+        def tableName = result[i].get("hot_table_name") == null ? result[i].get("TableName") : result[i].get("hot_table_name")
+
+        assertEquals(computeGroupId, "regression_cluster_id0")
+        assertEquals(computeGroupName, "regression_cluster_name0")
+        assertEquals(tableName, "regression_test_cloud_p0_cache_multi_cluster_warm_up_hotspot.customer")
         break
     }
 }
