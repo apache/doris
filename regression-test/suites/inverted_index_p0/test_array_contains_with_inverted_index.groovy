@@ -83,7 +83,7 @@ suite("test_array_contains_with_inverted_index"){
 
     // test arrays_overlap with inverted index
     // now if we use inverted index we will not eval exprs
-    def param = [["\'s\'", "\'t\'"], [], null] // null for arrays_overlap will return null which in predicate will lead to return empty set
+    def param = [["\'s\'", "\'t\'"], [], null, ["\'s\'", "\'\'", "\'t\'"], ["\'s\'", null, "\'t\'"], [null, "\'\'"], ["\'s\'", null, "\'t\'", "\'\'"]] // null for arrays_overlap will return null which in predicate will lead to return empty set
     for (i = 0 ; i < param.size(); ++i) {
         def p = param[i]
         log.info("param: ${p}")

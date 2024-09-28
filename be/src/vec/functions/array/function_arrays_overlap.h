@@ -156,7 +156,7 @@ public:
         ColumnPtr arg_column = arguments[0].column;
         DataTypePtr arg_type = arguments[0].type;
         if ((is_column_nullable(*arg_column) && !is_column_const(*remove_nullable(arg_column))) ||
-            !is_column_const(*arg_column)) {
+            (!is_column_nullable(*arg_column) && !is_column_const(*arg_column))) {
             // if not we should skip inverted index and evaluate in expression
             return Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED>(
                     "Inverted index evaluate skipped, array_overlap only support const value");
@@ -189,17 +189,9 @@ public:
             std::shared_ptr<roaring::Roaring> single_res = std::make_shared<roaring::Roaring>();
             RETURN_IF_ERROR(InvertedIndexQueryParamFactory::create_query_value(
                     nested_param_type, &nested_query_val, query_param));
-            Status st = iter->read_from_inverted_index(
+            RETURN_IF_ERROR(iter->read_from_inverted_index(
                     data_type_with_name.first, query_param->get_value(),
-                    segment_v2::InvertedIndexQueryType::EQUAL_QUERY, num_rows, single_res);
-            if (st.code() == ErrorCode::INVERTED_INDEX_NO_TERMS) {
-                // if analyzed param with no term, we do not filter any rows
-                // return all rows with OK status
-                roaring->addRange(0, num_rows);
-                break;
-            } else if (st != Status::OK()) {
-                return st;
-            }
+                    segment_v2::InvertedIndexQueryType::EQUAL_QUERY, num_rows, single_res));
             *roaring |= *single_res;
         }
 
