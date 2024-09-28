@@ -299,6 +299,8 @@ inline doris::Status ThreadMemTrackerMgr::try_reserve(int64_t size) {
             doris::GlobalMemoryArbitrator::release_process_reserved_memory(size);
             return Status::OK();
         }
+    } else {
+        _limiter_tracker->reserve(size);
     }
     if (!_limiter_tracker->try_reserve(size)) {
         auto err_msg = fmt::format(
