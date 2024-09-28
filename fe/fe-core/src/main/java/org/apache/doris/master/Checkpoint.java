@@ -104,14 +104,17 @@ public class Checkpoint extends MasterDaemon {
                 return;
             }
         } catch (Throwable e) {
-            LOG.error("Does not get storage info", e);
+            LOG.warn("Save image failed: " + e.getMessage(), e);
             if (MetricRepo.isInit) {
                 MetricRepo.COUNTER_IMAGE_WRITE_FAILED.increase(1L);
             }
             return;
         }
 
-        if (!checkMemoryEnoughToDoCheckpoint()) {
+        try {
+            checkMemoryEnoughToDoCheckpoint();
+        } catch (Throwable t) {
+            LOG.warn("Save image failed: " + t.getMessage(), t);
             if (MetricRepo.isInit) {
                 MetricRepo.COUNTER_IMAGE_WRITE_FAILED.increase(1L);
             }
@@ -155,7 +158,7 @@ public class Checkpoint extends MasterDaemon {
             LOG.info("checkpoint finished save image.{}", replayedJournalId);
         } catch (Throwable e) {
             exceptionCaught = true;
-            LOG.error("Exception when generate new image file", e);
+            LOG.warn("Save image failed: " + e.getMessage(), e);
             if (MetricRepo.isInit) {
                 MetricRepo.COUNTER_IMAGE_WRITE_FAILED.increase(1L);
             }
@@ -174,8 +177,8 @@ public class Checkpoint extends MasterDaemon {
                     if (MetricRepo.isInit) {
                         MetricRepo.COUNTER_IMAGE_CLEAN_SUCCESS.increase(1L);
                     }
-                } catch (Throwable ex) {
-                    LOG.error("Master delete latest invalid image file failed.", ex);
+                } catch (Throwable t) {
+                    LOG.warn("Delete old image failed: " + t.getMessage(), t);
                     if (MetricRepo.isInit) {
                         MetricRepo.COUNTER_IMAGE_CLEAN_FAILED.increase(1L);
                     }
@@ -210,7 +213,7 @@ public class Checkpoint extends MasterDaemon {
                         LOG.warn("Failed when pushing image file. url = {},responseBody = {}", url, responseBody);
                     }
                 } catch (IOException e) {
-                    LOG.error("Exception when pushing image file. url = {}", url, e);
+                    LOG.warn("Exception when pushing image file. url = {}", url, e);
                 }
             }
 
@@ -222,6 +225,7 @@ public class Checkpoint extends MasterDaemon {
                 MetricRepo.COUNTER_IMAGE_PUSH_SUCCESS.increase(1L);
             }
         } else {
+            LOG.warn("Push image failed: totally {} nodes, push succeeded {} nodes", otherNodesCount, successPushed);
             if (MetricRepo.isInit) {
                 MetricRepo.COUNTER_IMAGE_PUSH_FAILED.increase(1L);
             }
@@ -281,8 +285,8 @@ public class Checkpoint extends MasterDaemon {
                 }
                 LOG.info("journals <= {} are deleted. image version {}, other nodes min version {}",
                         deleteVersion, checkPointVersion, minOtherNodesJournalId);
-            } catch (Throwable e) {
-                LOG.error("failed to delete old edit log", e);
+            } catch (Throwable t) {
+                LOG.warn("Delete old edit log failed: " + t.getMessage(), t);
                 if (MetricRepo.isInit) {
                     MetricRepo.COUNTER_EDIT_LOG_CLEAN_FAILED.increase(1L);
                 }
@@ -297,7 +301,7 @@ public class Checkpoint extends MasterDaemon {
                 MetricRepo.COUNTER_IMAGE_CLEAN_SUCCESS.increase(1L);
             }
         } catch (Throwable e) {
-            LOG.error("Master delete old image file fail.", e);
+            LOG.warn("Master delete old image file fail.", e);
             if (MetricRepo.isInit) {
                 MetricRepo.COUNTER_IMAGE_CLEAN_FAILED.increase(1L);
             }
@@ -319,17 +323,15 @@ public class Checkpoint extends MasterDaemon {
     /*
      * Check whether can we do the checkpoint due to the memory used percent.
      */
-    private boolean checkMemoryEnoughToDoCheckpoint() {
+    private void checkMemoryEnoughToDoCheckpoint() throws CheckpointException {
         long memUsedPercent = getMemoryUsedPercent();
         LOG.info("get jvm memory used percent: {} %", memUsedPercent);
 
         if (memUsedPercent > Config.metadata_checkpoint_memory_threshold && !Config.force_do_metadata_checkpoint) {
-            LOG.warn("the memory used percent {} exceed the checkpoint memory threshold: {}",
-                    memUsedPercent, Config.metadata_checkpoint_memory_threshold);
-            return false;
+            throw new CheckpointException(String.format(
+                    "the memory used percent %d exceed the checkpoint memory threshold: %d",
+                    memUsedPercent, Config.metadata_checkpoint_memory_threshold));
         }
-
-        return true;
     }
 
     /*
