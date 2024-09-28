@@ -48,6 +48,7 @@ import org.apache.doris.thrift.TStorageMedium;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.commons.lang3.time.StopWatch;
 import org.apache.logging.log4j.LogManager;
@@ -55,6 +56,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
@@ -80,6 +82,7 @@ public class CloudSystemInfoService extends SystemInfoService {
 
     // for show cluster and cache user owned cluster
     // clusterId -> List<Backend>
+    // pls make sure each cluster's backend list is sorted by backendId
     protected Map<String, List<Backend>> clusterIdToBackend = new ConcurrentHashMap<>();
     // clusterName -> clusterId
     protected Map<String, String> clusterNameToId = new ConcurrentHashMap<>();
@@ -243,9 +246,12 @@ public class CloudSystemInfoService extends SystemInfoService {
                         clusterName, clusterId, be.size(), b);
                 continue;
             }
-            be.add(b);
+            List<Backend> sortBackends = Lists.newArrayList(be);
+            sortBackends.add(b);
+            Collections.sort(sortBackends, Comparator.comparing(Backend::getId));
+            clusterIdToBackend.put(clusterId, sortBackends);
             LOG.info("update (add) cloud cluster map, clusterName={} clusterId={} backendNum={} current backend={}",
-                    clusterName, clusterId, be.size(), b);
+                    clusterName, clusterId, sortBackends.size(), sortBackends);
         }
 
         for (Backend b : toDel) {
@@ -509,6 +515,13 @@ public class CloudSystemInfoService extends SystemInfoService {
     }
 
     @Override
+    public int getTabletNumByBackendId(long beId) {
+        return ((CloudEnv) Env.getCurrentEnv())
+                .getCloudTabletRebalancer()
+                .getTabletNumByBackendId(beId);
+    }
+
+    @Override
     public ImmutableMap<Long, Backend> getBackendsByCurrentCluster() throws AnalysisException {
         ConnectContext ctx = ConnectContext.get();
         if (ctx == null) {
@@ -557,7 +570,7 @@ public class CloudSystemInfoService extends SystemInfoService {
         }
     }
 
-    public String getClusterIdByBeAddr(String beEndpoint) {
+    public String getClusterNameByBeAddr(String beEndpoint) {
         rlock.lock();
         try {
             for (Map.Entry<String, List<Backend>> idBe : clusterIdToBackend.entrySet()) {
@@ -627,6 +640,10 @@ public class CloudSystemInfoService extends SystemInfoService {
         } finally {
             wlock.unlock();
         }
+    }
+
+    public String getCloudClusterIdByName(String clusterName) {
+        return clusterNameToId.get(clusterName);
     }
 
     public String getClusterNameByClusterId(final String clusterId) {
@@ -761,15 +778,6 @@ public class CloudSystemInfoService extends SystemInfoService {
         rlock.lock();
         try {
             return new ConcurrentHashMap<>(clusterIdToBackend);
-        } finally {
-            rlock.unlock();
-        }
-    }
-
-    public String getCloudClusterIdByName(String clusterName) {
-        rlock.lock();
-        try {
-            return clusterNameToId.get(clusterName);
         } finally {
             rlock.unlock();
         }

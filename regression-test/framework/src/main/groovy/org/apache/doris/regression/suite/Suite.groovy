@@ -279,6 +279,7 @@ class Suite implements GroovyInterceptable {
         )
     }
 
+    // more explaination can see example file: demo_p0/docker_action.groovy
     public void docker(ClusterOptions options = new ClusterOptions(), Closure actionSupplier) throws Exception {
         if (context.config.excludeDockerTest) {
             return
@@ -289,15 +290,25 @@ class Suite implements GroovyInterceptable {
                     + "see example demo_p0/docker_action.groovy")
         }
 
-        boolean pipelineIsCloud = isCloudMode()
+        try {
+            context.config.fetchCloudMode()
+        } catch (Exception e) {
+        }
+
         boolean dockerIsCloud = false
         if (options.cloudMode == null) {
-            dockerIsCloud = pipelineIsCloud
+            if (context.config.runMode == RunMode.UNKNOWN) {
+                throw new Exception("Bad run mode, cloud or not_cloud is unknown")
+            }
+            dockerIsCloud = context.config.runMode == RunMode.CLOUD
         } else {
-            dockerIsCloud = options.cloudMode
-            if (dockerIsCloud != pipelineIsCloud && options.skipRunWhenPipelineDiff) {
+            if (options.cloudMode == true && context.config.runMode == RunMode.NOT_CLOUD) {
                 return
             }
+            if (options.cloudMode == false && context.config.runMode == RunMode.CLOUD) {
+                return
+            }
+            dockerIsCloud = options.cloudMode
         }
 
         try {
@@ -556,6 +567,14 @@ class Suite implements GroovyInterceptable {
                 }
             }
         }
+    }
+
+    String getCurDbName() {
+        return context.dbName
+    }
+
+    String getCurDbConnectUrl() {
+        return context.config.getConnectionUrlByDbName(getCurDbName())
     }
 
     long getDbId() {
@@ -1459,7 +1478,7 @@ class Suite implements GroovyInterceptable {
     }
 
     boolean isCloudMode() {
-        return context.config.fetchRunMode()
+        return context.config.isCloudMode()
     }
 
     boolean enableStoragevault() {
