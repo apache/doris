@@ -2198,14 +2198,12 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
                         auto col_const = vectorized::ColumnConst::create(std::move(res_column),
                                                                          selected_size);
                         block->replace_by_position(0, std::move(col_const));
-                        _output_index_result_column_for_expr(_sel_rowid_idx.data(), selected_size,
-                                                             block);
+                        _output_index_result_column_for_expr(sel_rowid_idx, selected_size, block);
                         block->shrink_char_type_column_suffix_zero(_char_type_idx_no_0);
                         RETURN_IF_ERROR(_execute_common_expr(sel_rowid_idx, selected_size, block));
                         block->replace_by_position(0, std::move(col0));
                     } else {
-                        _output_index_result_column_for_expr(_sel_rowid_idx.data(), selected_size,
-                                                             block);
+                        _output_index_result_column_for_expr(sel_rowid_idx, selected_size, block);
                         block->shrink_char_type_column_suffix_zero(_char_type_idx);
                         RETURN_IF_ERROR(_execute_common_expr(sel_rowid_idx, selected_size, block));
                     }
@@ -2237,12 +2235,12 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
                 auto col_const =
                         vectorized::ColumnConst::create(std::move(res_column), selected_size);
                 block->replace_by_position(0, std::move(col_const));
-                _output_index_result_column_for_expr(_sel_rowid_idx.data(), selected_size, block);
+                _output_index_result_column_for_expr(sel_rowid_idx, selected_size, block);
                 block->shrink_char_type_column_suffix_zero(_char_type_idx_no_0);
                 RETURN_IF_ERROR(_execute_common_expr(sel_rowid_idx, selected_size, block));
                 block->replace_by_position(0, std::move(col0));
             } else {
-                _output_index_result_column_for_expr(_sel_rowid_idx.data(), selected_size, block);
+                _output_index_result_column_for_expr(sel_rowid_idx, selected_size, block);
                 block->shrink_char_type_column_suffix_zero(_char_type_idx);
                 RETURN_IF_ERROR(_execute_common_expr(sel_rowid_idx, selected_size, block));
             }
