@@ -1052,16 +1052,12 @@ Status ScanLocalState<Derived>::_init_profile() {
     _total_throughput_counter =
             profile()->add_rate_counter("TotalReadThroughput", _rows_read_counter);
     _num_scanners = ADD_COUNTER(_runtime_profile, "NumScanners", TUnit::UNIT);
+    _scanner_peak_memory_usage = _peak_memory_usage_counter;
+    //_runtime_profile->AddHighWaterMarkCounter("PeakMemoryUsage", TUnit::BYTES);
 
     // 2. counters for scanners
     _scanner_profile.reset(new RuntimeProfile("VScanner"));
     profile()->add_child(_scanner_profile.get(), true, nullptr);
-
-    _memory_usage_counter = ADD_LABEL_COUNTER_WITH_LEVEL(_scanner_profile, "MemoryUsage", 1);
-    _free_blocks_memory_usage =
-            _scanner_profile->AddHighWaterMarkCounter("FreeBlocks", TUnit::BYTES, "MemoryUsage", 1);
-    _scanner_peak_memory_usage =
-            _scanner_profile->AddHighWaterMarkCounter("PeakMemoryUsage", TUnit::BYTES);
 
     _newly_create_free_blocks_num =
             ADD_COUNTER(_scanner_profile, "NewlyCreateFreeBlocksNum", TUnit::UNIT);
