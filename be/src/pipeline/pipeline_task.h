@@ -302,6 +302,8 @@ private:
     // TODO we should calculate the time between when really runnable and runnable
     RuntimeProfile::Counter* _yield_counts = nullptr;
     RuntimeProfile::Counter* _core_change_times = nullptr;
+    RuntimeProfile::Counter* _memory_reserve_times = nullptr;
+    RuntimeProfile::Counter* _memory_reserve_failed_times = nullptr;
 
     MonotonicStopWatch _pipeline_task_watcher;
 

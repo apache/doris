@@ -195,6 +195,9 @@ void PipelineTask::_init_profile() {
     _schedule_counts = ADD_COUNTER(_task_profile, "NumScheduleTimes", TUnit::UNIT);
     _yield_counts = ADD_COUNTER(_task_profile, "NumYieldTimes", TUnit::UNIT);
     _core_change_times = ADD_COUNTER(_task_profile, "CoreChangeTimes", TUnit::UNIT);
+    _memory_reserve_times = ADD_COUNTER(_task_profile, "MemoryReserveTimes", TUnit::UNIT);
+    _memory_reserve_failed_times =
+            ADD_COUNTER(_task_profile, "MemoryReserveFailedTimes", TUnit::UNIT);
 }
 
 void PipelineTask::_fresh_profile_counter() {
@@ -385,7 +388,10 @@ Status PipelineTask::execute(bool* eos) {
             auto workload_group = _state->get_query_ctx()->workload_group();
             if (workload_group && reserve_size > 0) {
                 auto st = thread_context()->try_reserve_memory(reserve_size);
+
+                COUNTER_UPDATE(_memory_reserve_times, 1);
                 if (!st.ok()) {
+                    COUNTER_UPDATE(_memory_reserve_failed_times, 1);
                     LOG(INFO) << "query: " << print_id(query_id)
                               << ", try to reserve: " << reserve_size << "(sink reserve size:("
                               << sink_reserve_size << ")"
