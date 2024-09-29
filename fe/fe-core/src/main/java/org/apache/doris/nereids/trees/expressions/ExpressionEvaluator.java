@@ -18,7 +18,7 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.catalog.Env;
-import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeAcquire;
@@ -117,8 +117,8 @@ public enum ExpressionEvaluator {
                 }
                 return (Literal) method.invoke(null, expression.children().toArray());
             } catch (InvocationTargetException e) {
-                if (e.getTargetException() instanceof AnalysisException) {
-                    throw new AnalysisException(e.getTargetException().getMessage());
+                if (e.getTargetException() instanceof NotSupportedException) {
+                    throw new NotSupportedException(e.getTargetException().getMessage());
                 } else {
                     return expression;
                 }

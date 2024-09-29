@@ -79,7 +79,7 @@ public class MetaServiceClient {
         if (!isMetaServiceEndpointList && connectionAgeBase > 1) {
             long base = TimeUnit.MINUTES.toMillis(connectionAgeBase);
             long now = System.currentTimeMillis();
-            long rand = random.nextLong(base);
+            long rand = random.nextLong();
             return now + base + rand;
         }
         return Long.MAX_VALUE;

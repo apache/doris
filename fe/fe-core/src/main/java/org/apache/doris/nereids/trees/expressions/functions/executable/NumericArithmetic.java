@@ -17,7 +17,7 @@
 
 package org.apache.doris.nereids.trees.expressions.functions.executable;
 
-import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.nereids.trees.expressions.ExecFunction;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
@@ -680,7 +680,7 @@ public class NumericArithmetic {
             boolean upperCheck = isUpperInclusive ? (inputValue <= upperBound) : (inputValue < upperBound);
             // Return true if both checks are satisfied
             if (!lowerCheck || !upperCheck) {
-                throw new AnalysisException("input " + input.toSql() + " is out of boundary");
+                throw new NotSupportedException("input " + input.toSql() + " is out of boundary");
             }
         }
     }
@@ -688,7 +688,7 @@ public class NumericArithmetic {
     private static Expression checkOutputBoundary(Literal input) {
         if (input instanceof DoubleLiteral) {
             if (((DoubleLiteral) input).getValue().isNaN() || ((DoubleLiteral) input).getValue().isInfinite()) {
-                throw new AnalysisException(input.toSql() + " result is invalid");
+                throw new NotSupportedException(input.toSql() + " result is invalid");
             }
         }
         return input;
