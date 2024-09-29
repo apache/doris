@@ -749,7 +749,7 @@ public class SessionVariable implements Serializable, Writable {
 
     // if true, need report to coordinator when plan fragment execute successfully.
     @VariableMgr.VarAttr(name = ENABLE_PROFILE, needForward = true)
-    public boolean enableProfile = false;
+    public boolean enableProfile = true;
 
     // When enable_profile is true, profile of queries that costs more than autoProfileThresholdMs
     // will be stored to disk.
