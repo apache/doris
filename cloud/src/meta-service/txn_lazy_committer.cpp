@@ -409,7 +409,7 @@ void TxnLazyCommitTask::commit() {
                         code_ = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
                         ss << "failed to serialize version_pb when saving, txn_id=" << txn_id_;
                         msg_ = ss.str();
-                        return;
+                        break;
                     }
                     txn->put(ver_key, ver_val);
                     LOG(INFO) << "put ver_key=" << hex(ver_key) << " txn_id=" << txn_id_
@@ -436,11 +436,25 @@ void TxnLazyCommitTask::commit() {
 }
 
 std::pair<MetaServiceCode, std::string> TxnLazyCommitTask::wait() {
-    {
+    StopWatch sw;
+    uint64_t round = 0;
+
+    while (true) {
         std::unique_lock<std::mutex> lock(mutex_);
-        cond_.wait(lock, [this]() { return this->finished_ == true; });
+        if (cond_.wait_for(lock, std::chrono::seconds(5),
+                           [this]() { return this->finished_ == true; })) {
+            break;
+        }
+        LOG(INFO) << "txn_id=" << txn_id_ << " wait_for 5s timeout round=" << ++round;
     }
+
     txn_lazy_committer_->remove(txn_id_);
+
+    sw.pause();
+    if (sw.elapsed_us() > 1000000) {
+        LOG(INFO) << "txn_lazy_commit task wait more than 1000ms, cost=" << sw.elapsed_us() / 1000
+                  << " ms";
+    }
     return std::make_pair(this->code_, this->msg_);
 }
 
@@ -448,6 +462,14 @@ TxnLazyCommitter::TxnLazyCommitter(std::shared_ptr<TxnKv> txn_kv) : txn_kv_(txn_
     worker_pool_ = std::make_unique<SimpleThreadPool>(config::txn_lazy_commit_num_threads);
     worker_pool_->start();
 }
+
+/**
+ * @brief Submit a lazy commit txn task
+ * 
+ * @param instance_id
+ * @param txn_id
+ * @return std::shared_ptr<TxnLazyCommitTask>
+ */
 
 std::shared_ptr<TxnLazyCommitTask> TxnLazyCommitter::submit(const std::string& instance_id,
                                                             int64_t txn_id) {
@@ -467,6 +489,12 @@ std::shared_ptr<TxnLazyCommitTask> TxnLazyCommitter::submit(const std::string& i
     DCHECK(task != nullptr);
     return task;
 }
+
+/**
+ * @brief Remove a lazy commit txn task
+ *
+ * @param txn_id
+ */
 
 void TxnLazyCommitter::remove(int64_t txn_id) {
     std::unique_lock<std::mutex> lock(mutex_);
