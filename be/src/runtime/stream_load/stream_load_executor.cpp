@@ -83,6 +83,7 @@ Status StreamLoadExecutor::execute_plan_fragment(std::shared_ptr<StreamLoadConte
         ctx->number_loaded_rows = state->num_rows_load_success();
         ctx->number_filtered_rows = state->num_rows_load_filtered();
         ctx->number_unselected_rows = state->num_rows_load_unselected();
+        ctx->loaded_bytes = state->num_bytes_load_total();
         int64_t num_selected_rows = ctx->number_total_rows - ctx->number_unselected_rows;
         if (!ctx->group_commit && num_selected_rows > 0 &&
             (double)ctx->number_filtered_rows / num_selected_rows > ctx->max_filter_ratio) {
@@ -133,13 +134,6 @@ Status StreamLoadExecutor::execute_plan_fragment(std::shared_ptr<StreamLoadConte
                 static_cast<void>(this->commit_txn(ctx.get()));
             }
         }
-
-        LOG(INFO) << "finished to execute stream load. label=" << ctx->label
-                  << ", txn_id=" << ctx->txn_id << ", query_id=" << ctx->id
-                  << ", receive_data_cost_ms="
-                  << (ctx->receive_and_read_data_cost_nanos - ctx->read_data_cost_nanos) / 1000000
-                  << ", read_data_cost_ms=" << ctx->read_data_cost_nanos / 1000000
-                  << ", write_data_cost_ms=" << ctx->write_data_cost_nanos / 1000000;
     };
 
     // Reset thread memory tracker, otherwise SCOPED_ATTACH_TASK will be called nested, nesting is
