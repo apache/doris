@@ -40,7 +40,7 @@ import com.aliyun.odps.utils.StringUtils;
 import com.google.common.collect.ImmutableList;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
-import jdk.internal.org.jline.utils.Log;
+import org.apache.log4j.Logger;
 
 import java.time.ZoneId;
 import java.util.ArrayList;
@@ -52,6 +52,8 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 public class MaxComputeExternalCatalog extends ExternalCatalog {
+    private static final Logger LOG = Logger.getLogger(MaxComputeExternalCatalog.class);
+
     // you can ref : https://help.aliyun.com/zh/maxcompute/user-guide/endpoints
     private static final String endpointTemplate = "http://service.{}.maxcompute.aliyun-inc.com/api";
 
@@ -315,10 +317,10 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
             if (REGION_ZONE_MAP.containsKey(region)) {
                 return REGION_ZONE_MAP.get(region);
             }
-            Log.warn("Not exist region. region = " + region + ". endpoint = " + endpoint + ". use systemDefault.");
+            LOG.warn("Not exist region. region = " + region + ". endpoint = " + endpoint + ". use systemDefault.");
             return ZoneId.systemDefault();
         }
-        Log.warn("Split EndPoint " + endpoint + "fill. use systemDefault.");
+        LOG.warn("Split EndPoint " + endpoint + "fill. use systemDefault.");
         return ZoneId.systemDefault();
     }
 
