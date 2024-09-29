@@ -126,10 +126,10 @@ PhysicalResultSink
 -- !no_redundant_predicates --
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((t1.d = t2.d)) otherCondition=()
-----filter((t1.c > 1) and (t1.d < 10) and (t1.d = t1.c))
-------PhysicalOlapScan[test_like1]
+----filter((t1.c > 1) and (t1.d < 10) and (t1.d = t1.c) and (t1.d > 1))
+------PhysicalOlapScan[infer_unequal_predicates_t1]
 ----filter((t2.d < 10) and (t2.d > 1))
-------PhysicalOlapScan[test_like2]
+------PhysicalOlapScan[infer_unequal_predicates_t2]
 
 -- !expr_unequal_infer_same_table1 --
 PhysicalResultSink
