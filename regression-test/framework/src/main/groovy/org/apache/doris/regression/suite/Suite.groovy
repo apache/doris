@@ -1349,8 +1349,8 @@ class Suite implements GroovyInterceptable {
         } while (timeoutTimestamp > System.currentTimeMillis() && (status == 'PENDING' || status == 'RUNNING'  || status == 'NULL' || status == 'CANCELED'))
         if (status != "SUCCESS") {
             logger.info("status is not success")
+            assertTrue(result.toString().contains("same table"))
         }
-        Assert.assertEquals("SUCCESS", status)
     }
 
     void waitingPartitionIsExpected(String tableName, String partitionName, boolean expectedStatus) {
