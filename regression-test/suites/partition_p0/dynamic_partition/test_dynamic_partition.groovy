@@ -88,10 +88,7 @@ suite("test_dynamic_partition") {
     assertEquals(result.get(0).Buckets.toInteger(), 3)
     sql "drop table dy_par_bucket_set_by_distribution"
     sql "drop table if exists dy_par_bad"
-    def isCloudMode = {
-        def ret = sql_return_maparray  """show backends"""
-        ret.Tag[0].contains("cloud_cluster_name")
-    }
+    def isCloudMode = isCloudMode()
 
     // not support tag in cloud mode
     if (!isCloudMode) {

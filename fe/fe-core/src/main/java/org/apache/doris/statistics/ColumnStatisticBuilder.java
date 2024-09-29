@@ -56,9 +56,24 @@ public class ColumnStatisticBuilder {
         this.updatedTime = columnStatistic.updatedTime;
     }
 
-    public ColumnStatisticBuilder setCount(double count) {
+    // ATTENTION: DON'T USE FOLLOWING TWO DURING STATS DERIVING EXCEPT FOR INITIALIZATION
+    public ColumnStatisticBuilder(double count) {
         this.count = count;
-        return this;
+    }
+
+    public ColumnStatisticBuilder(ColumnStatistic columnStatistic, double count) {
+        this.count = count;
+        this.ndv = columnStatistic.ndv;
+        this.avgSizeByte = columnStatistic.avgSizeByte;
+        this.numNulls = columnStatistic.numNulls;
+        this.dataSize = columnStatistic.dataSize;
+        this.minValue = columnStatistic.minValue;
+        this.maxValue = columnStatistic.maxValue;
+        this.minExpr = columnStatistic.minExpr;
+        this.maxExpr = columnStatistic.maxExpr;
+        this.isUnknown = columnStatistic.isUnKnown;
+        this.original = columnStatistic.original;
+        this.updatedTime = columnStatistic.updatedTime;
     }
 
     public ColumnStatisticBuilder setNdv(double ndv) {
@@ -184,8 +199,7 @@ public class ColumnStatisticBuilder {
         // When defining SQL schemas, users often tend to set the length of string \
         // fields much longer than actually needed for storage.
         if (slot.getDataType() instanceof CharacterType) {
-            avgSizeByte = Math.min(avgSizeByte,
-                    CharacterType.DEFAULT_SLOT_SIZE);
+            avgSizeByte = Math.min(avgSizeByte, CharacterType.DEFAULT_WIDTH);
         }
     }
 }

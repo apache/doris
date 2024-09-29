@@ -21,8 +21,6 @@ import org.json.JSONObject;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
-import java.io.IOException;
-
 /**
  * Used for add unit test of minidump
  * Input: minidump filter which describe table information and sessionVariables which different with default
@@ -40,7 +38,7 @@ class MinidumpUtTest {
         String currentMinidumpPath = "/src/test/java/org/apache/doris/nereids/minidump/MinidumpUtTestData.json";
         try {
             minidump = MinidumpUtils.jsonMinidumpLoad(directory + currentMinidumpPath);
-        } catch (IOException e) {
+        } catch (Exception e) {
             throw new RuntimeException(e);
         }
         MinidumpUtils.setConnectContext(minidump);

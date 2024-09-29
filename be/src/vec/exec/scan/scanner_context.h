@@ -57,11 +57,13 @@ class ScanTask {
 public:
     ScanTask(std::weak_ptr<ScannerDelegate> delegate_scanner) : scanner(delegate_scanner) {
         _query_thread_context.init_unlocked();
+        DorisMetrics::instance()->scanner_task_cnt->increment(1);
     }
 
     ~ScanTask() {
         SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_query_thread_context.query_mem_tracker);
         cached_blocks.clear();
+        DorisMetrics::instance()->scanner_task_cnt->increment(-1);
     }
 
 private:
@@ -105,8 +107,9 @@ public:
                    const TupleDescriptor* output_tuple_desc,
                    const RowDescriptor* output_row_descriptor,
                    const std::list<std::shared_ptr<vectorized::ScannerDelegate>>& scanners,
-                   int64_t limit_, std::shared_ptr<pipeline::Dependency> dependency,
-                   bool ignore_data_distribution);
+                   int64_t limit_, int64_t max_bytes_in_blocks_queue,
+                   std::shared_ptr<pipeline::Dependency> dependency,
+                   const int num_parallel_instances);
 
     ~ScannerContext() override {
         SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_query_thread_context.query_mem_tracker);
@@ -116,6 +119,7 @@ public:
             // do nothing
         }
         block.reset();
+        DorisMetrics::instance()->scanner_ctx_cnt->increment(-1);
     }
     Status init();
 
@@ -154,7 +158,6 @@ public:
 
     RuntimeState* state() { return _state; }
     void incr_ctx_scheduling_time(int64_t num) { _scanner_ctx_sched_time->update(num); }
-
     std::string parent_name();
 
     bool empty_in_queue(int id);
@@ -209,7 +212,7 @@ protected:
     int64_t limit;
 
     int32_t _max_thread_num = 0;
-    int64_t _max_bytes_in_queue = 0;
+    int64_t _max_bytes_in_queue;
     doris::vectorized::ScannerScheduler* _scanner_scheduler;
     SimplifiedScanScheduler* _simple_scan_scheduler = nullptr;
     SimplifiedScanScheduler* _remote_scan_task_scheduler = nullptr;
@@ -219,15 +222,17 @@ protected:
     int32_t _num_running_scanners = 0;
     // weak pointer for _scanners, used in stop function
     std::vector<std::weak_ptr<ScannerDelegate>> _all_scanners;
+    const int _num_parallel_instances;
     std::shared_ptr<RuntimeProfile> _scanner_profile;
     RuntimeProfile::Counter* _scanner_sched_counter = nullptr;
+    // This counter refers to scan operator's local state
+    RuntimeProfile::Counter* _scanner_memory_used_counter = nullptr;
     RuntimeProfile::Counter* _newly_create_free_blocks_num = nullptr;
     RuntimeProfile::Counter* _scanner_wait_batch_timer = nullptr;
     RuntimeProfile::Counter* _scanner_ctx_sched_time = nullptr;
     RuntimeProfile::Counter* _scale_up_scanners_counter = nullptr;
     QueryThreadContext _query_thread_context;
     std::shared_ptr<pipeline::Dependency> _dependency = nullptr;
-    bool _ignore_data_distribution = false;
 
     // for scaling up the running scanners
     size_t _estimated_block_size = 0;

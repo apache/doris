@@ -295,4 +295,6 @@ suite("test_subquery") {
         contains("partitions=3/")
     }
     sql """drop table if exists scalar_subquery_t"""
+
+    sql """select e1 from (select 1) t lateral view explode((select sequence(CURRENT_DATE(), date_add(CURRENT_DATE(), interval 2 day)))) t2 as e1;"""
 }

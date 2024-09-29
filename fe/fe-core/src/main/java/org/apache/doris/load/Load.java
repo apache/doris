@@ -42,13 +42,9 @@ import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PrimitiveType;
-import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf.TableType;
-import org.apache.doris.catalog.Tablet;
-import org.apache.doris.catalog.TabletInvertedIndex;
-import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CaseSensibility;
@@ -63,7 +59,6 @@ import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.PatternMatcherWrapper;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.ExprUtil;
-import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.load.LoadJob.JobState;
@@ -85,7 +80,6 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.LinkedList;
@@ -1291,91 +1285,6 @@ public class Load {
         }
 
         return jobId;
-    }
-
-    public List<List<Comparable>> getLoadJobUnfinishedInfo(long jobId) {
-        LinkedList<List<Comparable>> infos = new LinkedList<List<Comparable>>();
-        TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
-
-        LoadJob loadJob = getLoadJob(jobId);
-        if (loadJob == null
-                || (loadJob.getState() != JobState.LOADING && loadJob.getState() != JobState.QUORUM_FINISHED)) {
-            return infos;
-        }
-
-        long dbId = loadJob.getDbId();
-        Database db = Env.getCurrentInternalCatalog().getDbNullable(dbId);
-        if (db == null) {
-            return infos;
-        }
-
-
-        readLock();
-        try {
-            Map<Long, TabletLoadInfo> tabletMap = loadJob.getIdToTabletLoadInfo();
-            for (long tabletId : tabletMap.keySet()) {
-                TabletMeta tabletMeta = invertedIndex.getTabletMeta(tabletId);
-                if (tabletMeta == null) {
-                    // tablet may be dropped during loading
-                    continue;
-                }
-
-                long tableId = tabletMeta.getTableId();
-
-                OlapTable table = (OlapTable) db.getTableNullable(tableId);
-                if (table == null) {
-                    continue;
-                }
-                table.readLock();
-                try {
-                    long partitionId = tabletMeta.getPartitionId();
-                    Partition partition = table.getPartition(partitionId);
-                    if (partition == null) {
-                        continue;
-                    }
-
-                    long indexId = tabletMeta.getIndexId();
-                    MaterializedIndex index = partition.getIndex(indexId);
-                    if (index == null) {
-                        continue;
-                    }
-
-                    Tablet tablet = index.getTablet(tabletId);
-                    if (tablet == null) {
-                        continue;
-                    }
-
-                    PartitionLoadInfo partitionLoadInfo = loadJob.getPartitionLoadInfo(tableId, partitionId);
-                    long version = partitionLoadInfo.getVersion();
-
-                    for (Replica replica : tablet.getReplicas()) {
-                        if (replica.checkVersionCatchUp(version, false)) {
-                            continue;
-                        }
-
-                        List<Comparable> info = Lists.newArrayList();
-                        info.add(replica.getBackendId());
-                        info.add(tabletId);
-                        info.add(replica.getId());
-                        info.add(replica.getVersion());
-                        info.add(partitionId);
-                        info.add(version);
-
-                        infos.add(info);
-                    }
-                } finally {
-                    table.readUnlock();
-                }
-            }
-        } finally {
-            readUnlock();
-        }
-
-        // sort by version, backendId
-        ListComparator<List<Comparable>> comparator = new ListComparator<List<Comparable>>(3, 0);
-        Collections.sort(infos, comparator);
-
-        return infos;
     }
 
     public static class JobInfo {

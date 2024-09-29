@@ -76,10 +76,17 @@ public class UserException extends Exception {
 
     @Override
     public String getMessage() {
-        return errorCode + ", detailMessage = " + super.getMessage();
+        return deleteUselessMsg(errorCode + ", detailMessage = " + super.getMessage());
     }
 
     public String getDetailMessage() {
-        return super.getMessage();
+        return deleteUselessMsg(super.getMessage());
+    }
+
+    protected String deleteUselessMsg(String msg) {
+        if (msg.contains("detailMessage = errCode = 2, ")) {
+            return msg.replace("detailMessage = errCode = 2, ", "");
+        }
+        return msg;
     }
 }

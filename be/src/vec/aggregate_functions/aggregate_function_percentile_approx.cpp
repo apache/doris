@@ -24,13 +24,16 @@ namespace doris::vectorized {
 
 void register_aggregate_function_percentile_old(AggregateFunctionSimpleFactory& factory) {
     factory.register_alternative_function(
-            "percentile", creator_without_type::creator<AggregateFunctionPercentileOld>);
+            "percentile", creator_without_type::creator<AggregateFunctionPercentileOld>, false,
+            AGG_FUNCTION_NULLABLE);
     factory.register_alternative_function(
-            "percentile", creator_without_type::creator<AggregateFunctionPercentileOld>, true);
-    factory.register_alternative_function(
-            "percentile_array", creator_without_type::creator<AggregateFunctionPercentileArrayOld>);
+            "percentile", creator_without_type::creator<AggregateFunctionPercentileOld>, true,
+            AGG_FUNCTION_NULLABLE);
     factory.register_alternative_function(
             "percentile_array", creator_without_type::creator<AggregateFunctionPercentileArrayOld>,
-            true);
+            false, AGG_FUNCTION_NULLABLE);
+    factory.register_alternative_function(
+            "percentile_array", creator_without_type::creator<AggregateFunctionPercentileArrayOld>,
+            true, AGG_FUNCTION_NULLABLE);
 }
 } // namespace doris::vectorized

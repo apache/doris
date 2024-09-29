@@ -130,7 +130,7 @@ VerticalSegmentWriter::VerticalSegmentWriter(io::FileWriter* file_writer, uint32
             _key_index_size.clear();
             _num_sort_key_columns = _tablet_schema->cluster_key_idxes().size();
             for (auto cid : _tablet_schema->cluster_key_idxes()) {
-                const auto& column = _tablet_schema->column(cid);
+                const auto& column = _tablet_schema->column_by_uid(cid);
                 _key_coders.push_back(get_key_coder(column.type()));
                 _key_index_size.push_back(column.index_length());
             }
@@ -555,7 +555,7 @@ Status VerticalSegmentWriter::batch_block(const vectorized::Block* block, size_t
         _opts.rowset_ctx->partial_update_info->is_partial_update &&
         _opts.write_type == DataWriteType::TYPE_DIRECT &&
         !_opts.rowset_ctx->is_transient_rowset_writer) {
-        if (block->columns() <= _tablet_schema->num_key_columns() ||
+        if (block->columns() < _tablet_schema->num_key_columns() ||
             block->columns() >= _tablet_schema->num_columns()) {
             return Status::InvalidArgument(fmt::format(
                     "illegal partial update block columns: {}, num key columns: {}, total "
@@ -714,6 +714,7 @@ Status VerticalSegmentWriter::write_batch() {
 
     std::vector<vectorized::IOlapColumnDataAccessor*> key_columns;
     vectorized::IOlapColumnDataAccessor* seq_column = nullptr;
+    // the key is cluster key column unique id
     std::map<uint32_t, vectorized::IOlapColumnDataAccessor*> cid_to_column;
     for (uint32_t cid = 0; cid < _tablet_schema->num_columns(); ++cid) {
         RETURN_IF_ERROR(_create_column_writer(cid, _tablet_schema->column(cid), _tablet_schema));
@@ -732,11 +733,12 @@ Status VerticalSegmentWriter::write_batch() {
             if (_tablet_schema->has_sequence_col() && cid == _tablet_schema->sequence_col_idx()) {
                 seq_column = column;
             }
+            auto column_unique_id = _tablet_schema->column(cid).unique_id();
             if (_is_mow_with_cluster_key() &&
                 std::find(_tablet_schema->cluster_key_idxes().begin(),
                           _tablet_schema->cluster_key_idxes().end(),
-                          cid) != _tablet_schema->cluster_key_idxes().end()) {
-                cid_to_column[cid] = column;
+                          column_unique_id) != _tablet_schema->cluster_key_idxes().end()) {
+                cid_to_column[column_unique_id] = column;
             }
             RETURN_IF_ERROR(_column_writers[cid]->append(column->get_nullmap(), column->get_data(),
                                                          data.num_rows));
@@ -825,7 +827,7 @@ Status VerticalSegmentWriter::_generate_primary_key_index(
             }
             DCHECK(key.compare(last_key) > 0)
                     << "found duplicate key or key is not sorted! current key: " << key
-                    << ", last key" << last_key;
+                    << ", last key: " << last_key;
             RETURN_IF_ERROR(_primary_key_index_builder->add_item(key));
             last_key = std::move(key);
         }
@@ -848,8 +850,9 @@ Status VerticalSegmentWriter::_generate_primary_key_index(
         for (const auto& key : primary_keys) {
             DCHECK(key.compare(last_key) > 0)
                     << "found duplicate key or key is not sorted! current key: " << key
-                    << ", last key" << last_key;
+                    << ", last key: " << last_key;
             RETURN_IF_ERROR(_primary_key_index_builder->add_item(key));
+            last_key = key;
         }
     }
     return Status::OK();
@@ -861,10 +864,18 @@ Status VerticalSegmentWriter::_generate_short_key_index(
     // use _key_coders
     _set_min_key(_full_encode_keys(key_columns, 0));
     _set_max_key(_full_encode_keys(key_columns, num_rows - 1));
+    DCHECK(Slice(_max_key.data(), _max_key.size())
+                   .compare(Slice(_min_key.data(), _min_key.size())) >= 0)
+            << "key is not sorted! min key: " << _min_key << ", max key: " << _max_key;
 
     key_columns.resize(_num_short_key_columns);
+    std::string last_key;
     for (const auto pos : short_key_pos) {
-        RETURN_IF_ERROR(_short_key_index_builder->add_item(_encode_keys(key_columns, pos)));
+        std::string key = _encode_keys(key_columns, pos);
+        DCHECK(key.compare(last_key) >= 0)
+                << "key is not sorted! current key: " << key << ", last key: " << last_key;
+        RETURN_IF_ERROR(_short_key_index_builder->add_item(key));
+        last_key = std::move(key);
     }
     return Status::OK();
 }

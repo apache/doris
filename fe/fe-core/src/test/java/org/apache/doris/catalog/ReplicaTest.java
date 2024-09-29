@@ -60,7 +60,7 @@ public class ReplicaTest {
     @Test
     public void getMethodTest() {
         Assert.assertEquals(replicaId, replica.getId());
-        Assert.assertEquals(backendId, replica.getBackendId());
+        Assert.assertEquals(backendId, replica.getBackendIdWithoutException());
         Assert.assertEquals(version, replica.getVersion());
         Assert.assertEquals(dataSize, replica.getDataSize());
         Assert.assertEquals(rowCount, replica.getRowCount());
