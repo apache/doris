@@ -250,7 +250,8 @@ public class MTMVTask extends AbstractTask {
 
     private String getDummyStmt(Set<String> refreshPartitionNames) {
         return String.format(
-                "Asynchronous materialized view refresh task, taskId: %s, partitions refreshed by this insert overwrite: %s",
+                "Asynchronous materialized view refresh task, "
+                        + "taskId: %s, partitions refreshed by this insert overwrite: %s",
                 super.getTaskId(), refreshPartitionNames);
     }
 
