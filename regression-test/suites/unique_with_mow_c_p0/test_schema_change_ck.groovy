@@ -47,7 +47,7 @@ suite("test_schema_change_ck") {
                 "light_schema_change" = "false"
             );
         """
-        exception "Unique merge-on-write table with cluster keys must enable light schema change"
+        exception "Unique merge-on-write tables with cluster keys require light schema change to be enabled"
     }
     }
     sql """

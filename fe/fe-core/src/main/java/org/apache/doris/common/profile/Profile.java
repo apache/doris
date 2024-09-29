@@ -17,6 +17,7 @@
 
 package org.apache.doris.common.profile;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.ProfileManager;
@@ -493,16 +494,18 @@ public class Profile {
             return false;
         }
 
+        long currentTimeMillis = System.currentTimeMillis();
         if (this.queryFinishTimestamp != Long.MAX_VALUE
-                    && (System.currentTimeMillis() - this.queryFinishTimestamp) > autoProfileDurationMs) {
+                    && (currentTimeMillis - this.queryFinishTimestamp)
+                        > Config.profile_waiting_time_for_spill_seconds * 1000) {
             LOG.warn("Profile {} should be stored to storage without waiting for incoming profile,"
-                    + " since it has been waiting for {} ms, query finished time: {}", id,
-                    System.currentTimeMillis() - this.queryFinishTimestamp, this.queryFinishTimestamp);
+                    + " since it has been waiting for {} ms, current time {} query finished time: {}",
+                    id, currentTimeMillis - this.queryFinishTimestamp, currentTimeMillis, this.queryFinishTimestamp);
 
             this.summaryProfile.setSystemMessage(
                             "This profile is not complete, since its collection does not finish in time."
-                            + " Maybe increase auto_profile_threshold_ms current val: "
-                            + String.valueOf(autoProfileDurationMs));
+                            + " Maybe increase profile_waiting_time_for_spill_secs in fe.conf current val: "
+                            + String.valueOf(Config.profile_waiting_time_for_spill_seconds));
             return true;
         }
 

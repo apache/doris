@@ -288,6 +288,14 @@ Status BaseBetaRowsetWriter::_generate_delete_bitmap(int32_t segment_id) {
     return Status::OK();
 }
 
+Status BetaRowsetWriter::init(const RowsetWriterContext& rowset_writer_context) {
+    RETURN_IF_ERROR(BaseBetaRowsetWriter::init(rowset_writer_context));
+    if (_segcompaction_worker) {
+        _segcompaction_worker->init_mem_tracker(rowset_writer_context.txn_id);
+    }
+    return Status::OK();
+}
+
 Status BetaRowsetWriter::_load_noncompacted_segment(segment_v2::SegmentSharedPtr& segment,
                                                     int32_t segment_id) {
     DCHECK(_rowset_meta->is_local());
@@ -917,7 +925,8 @@ Status BaseBetaRowsetWriter::_check_segment_number_limit(size_t segnum) {
     if (UNLIKELY(segnum > config::max_segment_num_per_rowset)) {
         return Status::Error<TOO_MANY_SEGMENTS>(
                 "too many segments in rowset. tablet_id:{}, rowset_id:{}, max:{}, "
-                "_num_segment:{}, rowset_num_rows:{}",
+                "_num_segment:{}, rowset_num_rows:{}. Please check if the bucket number is too "
+                "small or if the data is skewed.",
                 _context.tablet_id, _context.rowset_id.to_string(),
                 config::max_segment_num_per_rowset, _num_segment, get_rowset_num_rows());
     }
@@ -930,7 +939,8 @@ Status BetaRowsetWriter::_check_segment_number_limit(size_t segnum) {
     if (UNLIKELY(segnum > config::max_segment_num_per_rowset)) {
         return Status::Error<TOO_MANY_SEGMENTS>(
                 "too many segments in rowset. tablet_id:{}, rowset_id:{}, max:{}, _num_segment:{}, "
-                "_segcompacted_point:{}, _num_segcompacted:{}, rowset_num_rows:{}",
+                "_segcompacted_point:{}, _num_segcompacted:{}, rowset_num_rows:{}. Please check if "
+                "the bucket number is too small or if the data is skewed.",
                 _context.tablet_id, _context.rowset_id.to_string(),
                 config::max_segment_num_per_rowset, _num_segment, _segcompacted_point,
                 _num_segcompacted, get_rowset_num_rows());
