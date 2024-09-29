@@ -40,6 +40,7 @@ suite("query37") {
          set enable_fold_constant_by_be = false;
          set push_topn_to_agg = true;
          set TOPN_OPT_LIMIT_THRESHOLD = 1024;
+         set enable_parallel_result_sink=true;
          """
     qt_ds_shape_37 '''
     explain shape plan
