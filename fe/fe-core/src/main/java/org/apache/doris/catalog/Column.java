@@ -665,6 +665,13 @@ public class Column implements GsonPostProcessable {
         toChildrenThrift(children, childrenTColumn);
     }
 
+    private void addChildren(Column column, TColumn tColumn) {
+        List<Column> childrenColumns = column.getChildren();
+        for (Column c : childrenColumns) {
+            setChildrenTColumn(c, tColumn);
+        }
+    }
+
     private void toChildrenThrift(Column column, TColumn tColumn) {
         if (column.type.isArrayType()) {
             Column children = column.getChildren().get(0);
@@ -676,13 +683,11 @@ public class Column implements GsonPostProcessable {
             tColumn.setChildrenColumn(new ArrayList<>());
             setChildrenTColumn(k, tColumn);
             setChildrenTColumn(v, tColumn);
-        } else if (column.type.isStructType()
-                || (column.type.isVariantType() && !((VariantType) (column.type)).getPredefinedFields().isEmpty())) {
-            List<Column> childrenColumns = column.getChildren();
-            tColumn.setChildrenColumn(new ArrayList<>());
-            for (Column children : childrenColumns) {
-                setChildrenTColumn(children, tColumn);
-            }
+        } else if (column.type.isStructType()) {
+            addChildren(column, tColumn);
+        } else if (column.type.isVariantType()) {
+            // variant may contain predefined structured fields
+            addChildren(column, tColumn);
         }
     }
 
