@@ -23,7 +23,7 @@ suite("query24") {
         return
     }
     sql """
-         use ${db};
+         use dlf.tpcds10000_oss;
          set enable_nereids_planner=true;
          set enable_nereids_distribute_planner=false;
          set enable_fallback_to_original_planner=false;
@@ -37,6 +37,9 @@ suite("query24") {
          set runtime_filter_type=8;
          set dump_nereids_memo=false;
          set disable_nereids_rules='PRUNE_EMPTY_PARTITION';
+         set enable_fold_constant_by_be = false;
+         set push_topn_to_agg = true;
+         set TOPN_OPT_LIMIT_THRESHOLD = 1024;
          """
     qt_ds_shape_24 '''
     explain shape plan
@@ -51,7 +54,7 @@ suite("query24") {
       ,i_manager_id
       ,i_units
       ,i_size
-      ,sum(ss_net_paid) netpaid
+      ,sum(ss_sales_price) netpaid
 from store_sales
     ,store_returns
     ,store
@@ -66,7 +69,7 @@ where ss_ticket_number = sr_ticket_number
   and c_current_addr_sk = ca_address_sk
   and c_birth_country <> upper(ca_country)
   and s_zip = ca_zip
-and s_market_id=5
+and s_market_id=10
 group by c_last_name
         ,c_first_name
         ,s_store_name
@@ -82,7 +85,7 @@ select c_last_name
       ,s_store_name
       ,sum(netpaid) paid
 from ssales
-where i_color = 'aquamarine'
+where i_color = 'snow'
 group by c_last_name
         ,c_first_name
         ,s_store_name

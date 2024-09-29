@@ -16,11 +16,11 @@ PhysicalResultSink
 --------------------------PhysicalProject
 ----------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((web_sales.ws_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF0 i_item_sk->[ws_item_sk]
 ------------------------------PhysicalProject
---------------------------------PhysicalOlapScan[web_sales] apply RFs: RF0 RF1
+--------------------------------PhysicalFileScan[web_sales] apply RFs: RF0 RF1
 ------------------------------PhysicalProject
---------------------------------filter(i_category IN ('Books', 'Electronics', 'Men'))
-----------------------------------PhysicalOlapScan[item]
+--------------------------------filter(i_category IN ('Books', 'Electronics', 'Women'))
+----------------------------------PhysicalFileScan[item]
 --------------------------PhysicalProject
-----------------------------filter((date_dim.d_date <= '2001-07-15') and (date_dim.d_date >= '2001-06-15'))
-------------------------------PhysicalOlapScan[date_dim]
+----------------------------filter((date_dim.d_date <= '1998-02-05') and (date_dim.d_date >= '1998-01-06'))
+------------------------------PhysicalFileScan[date_dim]
 

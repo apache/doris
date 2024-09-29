@@ -14,30 +14,30 @@ PhysicalResultSink
 ----------------------PhysicalProject
 ------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF8 d_date_sk->[ss_sold_date_sk]
 --------------------------PhysicalProject
-----------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_store_sk = store.s_store_sk)) otherCondition=() build RFs:RF7 s_store_sk->[ss_store_sk]
+----------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_promo_sk = promotion.p_promo_sk)) otherCondition=() build RFs:RF7 p_promo_sk->[ss_promo_sk]
 ------------------------------PhysicalProject
---------------------------------hashJoin[INNER_JOIN shuffle] hashCondition=((store_sales.ss_customer_sk = customer.c_customer_sk)) otherCondition=() build RFs:RF6 c_customer_sk->[ss_customer_sk]
+--------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_store_sk = store.s_store_sk)) otherCondition=() build RFs:RF6 s_store_sk->[ss_store_sk]
 ----------------------------------PhysicalProject
-------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_promo_sk = promotion.p_promo_sk)) otherCondition=() build RFs:RF5 p_promo_sk->[ss_promo_sk]
+------------------------------------hashJoin[INNER_JOIN shuffle] hashCondition=((store_sales.ss_customer_sk = customer.c_customer_sk)) otherCondition=() build RFs:RF5 c_customer_sk->[ss_customer_sk]
 --------------------------------------PhysicalProject
-----------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF5 RF6 RF7 RF8 RF10
+----------------------------------------PhysicalFileScan[store_sales] apply RFs: RF5 RF6 RF7 RF8 RF10
 --------------------------------------PhysicalProject
-----------------------------------------filter((((promotion.p_channel_dmail = 'Y') OR (promotion.p_channel_email = 'Y')) OR (promotion.p_channel_tv = 'Y')))
-------------------------------------------PhysicalOlapScan[promotion]
+----------------------------------------PhysicalFileScan[customer] apply RFs: RF9
 ----------------------------------PhysicalProject
-------------------------------------PhysicalOlapScan[customer] apply RFs: RF9
+------------------------------------filter((store.s_gmt_offset = -6.00))
+--------------------------------------PhysicalFileScan[store]
 ------------------------------PhysicalProject
---------------------------------filter((store.s_gmt_offset = -7.00))
-----------------------------------PhysicalOlapScan[store]
+--------------------------------filter((((promotion.p_channel_dmail = 'Y') OR (promotion.p_channel_email = 'Y')) OR (promotion.p_channel_tv = 'Y')))
+----------------------------------PhysicalFileScan[promotion]
 --------------------------PhysicalProject
-----------------------------filter((date_dim.d_moy = 12) and (date_dim.d_year = 2000))
-------------------------------PhysicalOlapScan[date_dim]
+----------------------------filter((date_dim.d_moy = 12) and (date_dim.d_year = 2001))
+------------------------------PhysicalFileScan[date_dim]
 ----------------------PhysicalProject
-------------------------filter((customer_address.ca_gmt_offset = -7.00))
---------------------------PhysicalOlapScan[customer_address]
+------------------------filter((customer_address.ca_gmt_offset = -6.00))
+--------------------------PhysicalFileScan[customer_address]
 ------------------PhysicalProject
---------------------filter((item.i_category = 'Home'))
-----------------------PhysicalOlapScan[item]
+--------------------filter((item.i_category = 'Sports'))
+----------------------PhysicalFileScan[item]
 --------hashAgg[GLOBAL]
 ----------PhysicalDistribute[DistributionSpecGather]
 ------------hashAgg[LOCAL]
@@ -52,19 +52,19 @@ PhysicalResultSink
 ------------------------------PhysicalProject
 --------------------------------hashJoin[INNER_JOIN shuffle] hashCondition=((store_sales.ss_customer_sk = customer.c_customer_sk)) otherCondition=() build RFs:RF0 c_customer_sk->[ss_customer_sk]
 ----------------------------------PhysicalProject
-------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF0 RF1 RF2 RF4
+------------------------------------PhysicalFileScan[store_sales] apply RFs: RF0 RF1 RF2 RF4
 ----------------------------------PhysicalProject
-------------------------------------PhysicalOlapScan[customer] apply RFs: RF3
+------------------------------------PhysicalFileScan[customer] apply RFs: RF3
 ------------------------------PhysicalProject
---------------------------------filter((store.s_gmt_offset = -7.00))
-----------------------------------PhysicalOlapScan[store]
+--------------------------------filter((store.s_gmt_offset = -6.00))
+----------------------------------PhysicalFileScan[store]
 --------------------------PhysicalProject
-----------------------------filter((date_dim.d_moy = 12) and (date_dim.d_year = 2000))
-------------------------------PhysicalOlapScan[date_dim]
+----------------------------filter((date_dim.d_moy = 12) and (date_dim.d_year = 2001))
+------------------------------PhysicalFileScan[date_dim]
 ----------------------PhysicalProject
-------------------------filter((customer_address.ca_gmt_offset = -7.00))
---------------------------PhysicalOlapScan[customer_address]
+------------------------filter((customer_address.ca_gmt_offset = -6.00))
+--------------------------PhysicalFileScan[customer_address]
 ------------------PhysicalProject
---------------------filter((item.i_category = 'Home'))
-----------------------PhysicalOlapScan[item]
+--------------------filter((item.i_category = 'Sports'))
+----------------------PhysicalFileScan[item]
 

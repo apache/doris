@@ -23,7 +23,7 @@ suite("query27") {
         return
     }
     sql """
-         use ${db};
+         use dlf.tpcds10000_oss;
          set enable_nereids_planner=true;
          set enable_nereids_distribute_planner=false;
          set enable_fallback_to_original_planner=false;
@@ -37,6 +37,9 @@ suite("query27") {
          set runtime_filter_type=8;
          set dump_nereids_memo=false;
          set disable_nereids_rules='PRUNE_EMPTY_PARTITION';
+         set enable_fold_constant_by_be = false;
+         set push_topn_to_agg = true;
+         set TOPN_OPT_LIMIT_THRESHOLD = 1024;
          """
     qt_ds_shape_27 '''
     explain shape plan
@@ -51,11 +54,11 @@ suite("query27") {
        ss_item_sk = i_item_sk and
        ss_store_sk = s_store_sk and
        ss_cdemo_sk = cd_demo_sk and
-       cd_gender = 'M' and
-       cd_marital_status = 'W' and
-       cd_education_status = 'Secondary' and
-       d_year = 1999 and
-       s_state in ('TN','TN', 'TN', 'TN', 'TN', 'TN')
+       cd_gender = 'F' and
+       cd_marital_status = 'U' and
+       cd_education_status = '2 yr Degree' and
+       d_year = 2000 and
+       s_state in ('AL','IN', 'SC', 'NY', 'OH', 'FL')
  group by rollup (i_item_id, s_state)
  order by i_item_id
          ,s_state

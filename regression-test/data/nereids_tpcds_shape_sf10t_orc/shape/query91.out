@@ -21,21 +21,21 @@ PhysicalResultSink
 ------------------------------------PhysicalProject
 --------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((catalog_returns.cr_call_center_sk = call_center.cc_call_center_sk)) otherCondition=() build RFs:RF0 cc_call_center_sk->[cr_call_center_sk]
 ----------------------------------------PhysicalProject
-------------------------------------------PhysicalOlapScan[catalog_returns] apply RFs: RF0 RF1 RF2
+------------------------------------------PhysicalFileScan[catalog_returns] apply RFs: RF0 RF1 RF2
 ----------------------------------------PhysicalProject
-------------------------------------------PhysicalOlapScan[call_center]
+------------------------------------------PhysicalFileScan[call_center]
 ------------------------------------PhysicalProject
---------------------------------------PhysicalOlapScan[customer] apply RFs: RF3 RF4 RF5
+--------------------------------------PhysicalFileScan[customer] apply RFs: RF3 RF4 RF5
 --------------------------------PhysicalProject
 ----------------------------------filter((date_dim.d_moy = 12) and (date_dim.d_year = 2000))
-------------------------------------PhysicalOlapScan[date_dim]
+------------------------------------PhysicalFileScan[date_dim]
 ----------------------------PhysicalProject
 ------------------------------filter((customer_address.ca_gmt_offset = -7.00))
---------------------------------PhysicalOlapScan[customer_address]
+--------------------------------PhysicalFileScan[customer_address]
 ------------------------PhysicalProject
---------------------------filter((((customer_demographics.cd_marital_status = 'M') AND (customer_demographics.cd_education_status = 'Unknown')) OR ((customer_demographics.cd_marital_status = 'W') AND (customer_demographics.cd_education_status = 'Advanced Degree'))))
-----------------------------PhysicalOlapScan[customer_demographics]
+--------------------------filter((((customer_demographics.cd_marital_status = 'M') AND (customer_demographics.cd_education_status = 'Unknown')) OR ((customer_demographics.cd_marital_status = 'W') AND (customer_demographics.cd_education_status = 'Advanced Degree'))) and cd_education_status IN ('Advanced Degree', 'Unknown') and cd_marital_status IN ('M', 'W'))
+----------------------------PhysicalFileScan[customer_demographics]
 --------------------PhysicalProject
 ----------------------filter((hd_buy_potential like 'Unknown%'))
-------------------------PhysicalOlapScan[household_demographics]
+------------------------PhysicalFileScan[household_demographics]
 

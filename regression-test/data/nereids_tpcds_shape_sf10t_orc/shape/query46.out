@@ -11,28 +11,28 @@ PhysicalResultSink
 ----------------PhysicalProject
 ------------------hashAgg[LOCAL]
 --------------------PhysicalProject
-----------------------hashJoin[INNER_JOIN shuffle] hashCondition=((store_sales.ss_addr_sk = customer_address.ca_address_sk)) otherCondition=() build RFs:RF3 ca_address_sk->[ss_addr_sk]
+----------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_hdemo_sk = household_demographics.hd_demo_sk)) otherCondition=() build RFs:RF3 hd_demo_sk->[ss_hdemo_sk]
 ------------------------PhysicalProject
---------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_hdemo_sk = household_demographics.hd_demo_sk)) otherCondition=() build RFs:RF2 hd_demo_sk->[ss_hdemo_sk]
+--------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_store_sk = store.s_store_sk)) otherCondition=() build RFs:RF2 s_store_sk->[ss_store_sk]
 ----------------------------PhysicalProject
-------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_store_sk = store.s_store_sk)) otherCondition=() build RFs:RF1 s_store_sk->[ss_store_sk]
+------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF1 d_date_sk->[ss_sold_date_sk]
 --------------------------------PhysicalProject
-----------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF0 d_date_sk->[ss_sold_date_sk]
+----------------------------------hashJoin[INNER_JOIN shuffle] hashCondition=((store_sales.ss_addr_sk = customer_address.ca_address_sk)) otherCondition=() build RFs:RF0 ca_address_sk->[ss_addr_sk]
 ------------------------------------PhysicalProject
---------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF0 RF1 RF2 RF3 RF4
+--------------------------------------PhysicalFileScan[store_sales] apply RFs: RF0 RF1 RF2 RF3 RF4
 ------------------------------------PhysicalProject
---------------------------------------filter(d_dow IN (0, 6) and d_year IN (2000, 2001, 2002))
-----------------------------------------PhysicalOlapScan[date_dim]
+--------------------------------------PhysicalFileScan[customer_address]
 --------------------------------PhysicalProject
-----------------------------------filter(s_city IN ('Fairview', 'Midway'))
-------------------------------------PhysicalOlapScan[store]
+----------------------------------filter(d_dow IN (0, 6) and d_year IN (2000, 2001, 2002))
+------------------------------------PhysicalFileScan[date_dim]
 ----------------------------PhysicalProject
-------------------------------filter(((household_demographics.hd_dep_count = 8) OR (household_demographics.hd_vehicle_count = 0)))
---------------------------------PhysicalOlapScan[household_demographics]
+------------------------------filter(s_city IN ('Fairview', 'Farmington', 'Five Forks', 'Oakland', 'Winchester'))
+--------------------------------PhysicalFileScan[store]
 ------------------------PhysicalProject
---------------------------PhysicalOlapScan[customer_address]
+--------------------------filter(((household_demographics.hd_dep_count = 0) OR (household_demographics.hd_vehicle_count = 1)))
+----------------------------PhysicalFileScan[household_demographics]
 ----------------PhysicalProject
-------------------PhysicalOlapScan[customer] apply RFs: RF5
+------------------PhysicalFileScan[customer] apply RFs: RF5
 ------------PhysicalProject
---------------PhysicalOlapScan[customer_address]
+--------------PhysicalFileScan[customer_address]
 

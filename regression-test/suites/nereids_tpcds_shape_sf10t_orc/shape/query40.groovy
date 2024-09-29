@@ -23,7 +23,7 @@ suite("query40") {
         return
     }
     sql """
-         use ${db};
+         use dlf.tpcds10000_oss;
          set enable_nereids_planner=true;
          set enable_nereids_distribute_planner=false;
          set enable_fallback_to_original_planner=false;
@@ -37,15 +37,18 @@ suite("query40") {
          set runtime_filter_type=8;
          set dump_nereids_memo=false;
          set disable_nereids_rules='PRUNE_EMPTY_PARTITION';
+         set enable_fold_constant_by_be = false;
+         set push_topn_to_agg = true;
+         set TOPN_OPT_LIMIT_THRESHOLD = 1024;
          """
     qt_ds_shape_40 '''
     explain shape plan
     select  
    w_state
   ,i_item_id
-  ,sum(case when (cast(d_date as date) < cast ('2001-05-02' as date)) 
+  ,sum(case when (cast(d_date as date) < cast ('2000-03-18' as date)) 
  		then cs_sales_price - coalesce(cr_refunded_cash,0) else 0 end) as sales_before
-  ,sum(case when (cast(d_date as date) >= cast ('2001-05-02' as date)) 
+  ,sum(case when (cast(d_date as date) >= cast ('2000-03-18' as date)) 
  		then cs_sales_price - coalesce(cr_refunded_cash,0) else 0 end) as sales_after
  from
    catalog_sales left outer join catalog_returns on
@@ -59,8 +62,8 @@ suite("query40") {
  and i_item_sk          = cs_item_sk
  and cs_warehouse_sk    = w_warehouse_sk 
  and cs_sold_date_sk    = d_date_sk
- and d_date between (cast ('2001-05-02' as date) - interval 30 day)
-                and (cast ('2001-05-02' as date) + interval 30 day) 
+ and d_date between (cast ('2000-03-18' as date) - interval 30 day)
+                and (cast ('2000-03-18' as date) + interval 30 day) 
  group by
     w_state,i_item_id
  order by w_state,i_item_id

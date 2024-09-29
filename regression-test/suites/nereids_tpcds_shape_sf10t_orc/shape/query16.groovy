@@ -23,7 +23,7 @@ suite("query16") {
         return
     }
     sql """
-         use ${db};
+         use dlf.tpcds10000_oss;
          set enable_nereids_planner=true;
          set enable_nereids_distribute_planner=false;
          set enable_fallback_to_original_planner=false;
@@ -37,6 +37,9 @@ suite("query16") {
          set runtime_filter_type=8;
          set dump_nereids_memo=false;
          set disable_nereids_rules='PRUNE_EMPTY_PARTITION';
+         set enable_fold_constant_by_be = false;
+         set push_topn_to_agg = true;
+         set TOPN_OPT_LIMIT_THRESHOLD = 1024;
          """
     qt_ds_shape_16 '''
     explain shape plan
@@ -50,14 +53,14 @@ from
   ,customer_address
   ,call_center
 where
-    d_date between '2002-4-01' and 
-           (cast('2002-4-01' as date) + interval 60 day)
+    d_date between '1999-4-01' and 
+           (cast('1999-4-01' as date) + interval 60 day)
 and cs1.cs_ship_date_sk = d_date_sk
 and cs1.cs_ship_addr_sk = ca_address_sk
-and ca_state = 'PA'
+and ca_state = 'IL'
 and cs1.cs_call_center_sk = cc_call_center_sk
-and cc_county in ('Williamson County','Williamson County','Williamson County','Williamson County',
-                  'Williamson County'
+and cc_county in ('Richland County','Bronx County','Maverick County','Mesa County',
+                  'Raleigh County'
 )
 and exists (select *
             from catalog_sales cs2

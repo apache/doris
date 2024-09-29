@@ -23,7 +23,7 @@ suite("query1") {
         return
     }
     sql """
-         use ${db};
+         use dlf.tpcds10000_oss;
          set enable_nereids_planner=true;
          set enable_nereids_distribute_planner=false;
          set enable_fallback_to_original_planner=false;
@@ -37,30 +37,33 @@ suite("query1") {
          set runtime_filter_type=8;
          set dump_nereids_memo=false;
          set disable_nereids_rules='PRUNE_EMPTY_PARTITION';
+         set enable_fold_constant_by_be = false;
+         set push_topn_to_agg = true;
+         set TOPN_OPT_LIMIT_THRESHOLD = 1024;
          """
     qt_ds_shape_1 '''
     explain shape plan
     with customer_total_return as
-    (select sr_customer_sk as ctr_customer_sk
-    ,sr_store_sk as ctr_store_sk
-    ,sum(SR_FEE) as ctr_total_return
-    from store_returns
-    ,date_dim
-    where sr_returned_date_sk = d_date_sk
-    and d_year =2000
-    group by sr_customer_sk
-    ,sr_store_sk)
-    select  c_customer_id
-    from customer_total_return ctr1
-    ,store
-    ,customer
-    where ctr1.ctr_total_return > (select avg(ctr_total_return)*1.2
-    from customer_total_return ctr2
-    where ctr1.ctr_store_sk = ctr2.ctr_store_sk)
-    and s_store_sk = ctr1.ctr_store_sk
-    and s_state = 'TN'
-    and ctr1.ctr_customer_sk = c_customer_sk
-    order by c_customer_id
-    limit 100
+(select sr_customer_sk as ctr_customer_sk
+,sr_store_sk as ctr_store_sk
+,sum(SR_FEE) as ctr_total_return
+from store_returns
+,date_dim
+where sr_returned_date_sk = d_date_sk
+and d_year =2000
+group by sr_customer_sk
+,sr_store_sk)
+ select  c_customer_id
+from customer_total_return ctr1
+,store
+,customer
+where ctr1.ctr_total_return > (select avg(ctr_total_return)*1.2
+from customer_total_return ctr2
+where ctr1.ctr_store_sk = ctr2.ctr_store_sk)
+and s_store_sk = ctr1.ctr_store_sk
+and s_state = 'NM'
+and ctr1.ctr_customer_sk = c_customer_sk
+order by c_customer_id
+limit 100
     '''
 }

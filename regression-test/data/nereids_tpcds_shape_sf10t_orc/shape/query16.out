@@ -17,18 +17,18 @@ PhysicalResultSink
 ----------------------------PhysicalProject
 ------------------------------hashJoin[RIGHT_SEMI_JOIN shuffle] hashCondition=((cs1.cs_order_number = cs2.cs_order_number)) otherCondition=(( not (cs_warehouse_sk = cs_warehouse_sk))) build RFs:RF0 cs_order_number->[cs_order_number]
 --------------------------------PhysicalProject
-----------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF0
+----------------------------------PhysicalFileScan[catalog_sales] apply RFs: RF0
 --------------------------------PhysicalProject
-----------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF1 RF2 RF3
+----------------------------------PhysicalFileScan[catalog_sales] apply RFs: RF1 RF2 RF3
 ----------------------------PhysicalProject
-------------------------------PhysicalOlapScan[catalog_returns]
+------------------------------PhysicalFileScan[catalog_returns]
 --------------------------PhysicalProject
-----------------------------filter((date_dim.d_date <= '2002-05-31') and (date_dim.d_date >= '2002-04-01'))
-------------------------------PhysicalOlapScan[date_dim]
+----------------------------filter((date_dim.d_date <= '1999-05-31') and (date_dim.d_date >= '1999-04-01'))
+------------------------------PhysicalFileScan[date_dim]
 ----------------------PhysicalProject
-------------------------filter((customer_address.ca_state = 'PA'))
---------------------------PhysicalOlapScan[customer_address]
+------------------------filter((customer_address.ca_state = 'IL'))
+--------------------------PhysicalFileScan[customer_address]
 ------------------PhysicalProject
---------------------filter((call_center.cc_county = 'Williamson County'))
-----------------------PhysicalOlapScan[call_center]
+--------------------filter(cc_county IN ('Bronx County', 'Maverick County', 'Mesa County', 'Raleigh County', 'Richland County'))
+----------------------PhysicalFileScan[call_center]
 

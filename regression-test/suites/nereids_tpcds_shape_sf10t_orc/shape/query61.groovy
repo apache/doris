@@ -23,7 +23,7 @@ suite("query61") {
         return
     }
     sql """
-         use ${db};
+         use dlf.tpcds10000_oss;
          set enable_nereids_planner=true;
          set enable_nereids_distribute_planner=false;
          set enable_fallback_to_original_planner=false;
@@ -37,6 +37,9 @@ suite("query61") {
          set runtime_filter_type=8;
          set dump_nereids_memo=false;
          set disable_nereids_rules='PRUNE_EMPTY_PARTITION';
+         set enable_fold_constant_by_be = false;
+         set push_topn_to_agg = true;
+         set TOPN_OPT_LIMIT_THRESHOLD = 1024;
          """
     qt_ds_shape_61 '''
     explain shape plan
@@ -56,11 +59,11 @@ from
    and   ss_customer_sk= c_customer_sk
    and   ca_address_sk = c_current_addr_sk
    and   ss_item_sk = i_item_sk 
-   and   ca_gmt_offset = -7
-   and   i_category = 'Home'
+   and   ca_gmt_offset = -6
+   and   i_category = 'Sports'
    and   (p_channel_dmail = 'Y' or p_channel_email = 'Y' or p_channel_tv = 'Y')
-   and   s_gmt_offset = -7
-   and   d_year = 2000
+   and   s_gmt_offset = -6
+   and   d_year = 2001
    and   d_moy  = 12) promotional_sales,
   (select sum(ss_ext_sales_price) total
    from  store_sales
@@ -74,10 +77,10 @@ from
    and   ss_customer_sk= c_customer_sk
    and   ca_address_sk = c_current_addr_sk
    and   ss_item_sk = i_item_sk
-   and   ca_gmt_offset = -7
-   and   i_category = 'Home'
-   and   s_gmt_offset = -7
-   and   d_year = 2000
+   and   ca_gmt_offset = -6
+   and   i_category = 'Sports'
+   and   s_gmt_offset = -6
+   and   d_year = 2001
    and   d_moy  = 12) all_sales
 order by promotions, total
 limit 100

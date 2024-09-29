@@ -23,7 +23,7 @@ suite("query20") {
         return
     }
     sql """
-         use ${db};
+         use dlf.tpcds10000_oss;
          set enable_nereids_planner=true;
          set enable_nereids_distribute_planner=false;
          set enable_fallback_to_original_planner=false;
@@ -37,6 +37,9 @@ suite("query20") {
          set runtime_filter_type=8;
          set dump_nereids_memo=false;
          set disable_nereids_rules='PRUNE_EMPTY_PARTITION';
+         set enable_fold_constant_by_be = false;
+         set push_topn_to_agg = true;
+         set TOPN_OPT_LIMIT_THRESHOLD = 1024;
          """
     qt_ds_shape_20 '''
     explain shape plan
@@ -52,10 +55,10 @@ suite("query20") {
      ,item 
      ,date_dim
  where cs_item_sk = i_item_sk 
-   and i_category in ('Books', 'Music', 'Sports')
+   and i_category in ('Shoes', 'Electronics', 'Children')
    and cs_sold_date_sk = d_date_sk
- and d_date between cast('2002-06-18' as date) 
- 				and (cast('2002-06-18' as date) + interval 30 day)
+ and d_date between cast('2001-03-14' as date) 
+ 				and (cast('2001-03-14' as date) + interval 30 day)
  group by i_item_id
          ,i_item_desc 
          ,i_category

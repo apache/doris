@@ -23,7 +23,7 @@ suite("query64") {
         return
     }
     sql """
-         use ${db};
+         use dlf.tpcds10000_oss;
          set enable_nereids_planner=true;
          set enable_nereids_distribute_planner=false;
          set enable_fallback_to_original_planner=false;
@@ -37,6 +37,9 @@ suite("query64") {
          set runtime_filter_type=8;
          set dump_nereids_memo=false;
          set disable_nereids_rules='PRUNE_EMPTY_PARTITION';
+         set enable_fold_constant_by_be = false;
+         set push_topn_to_agg = true;
+         set TOPN_OPT_LIMIT_THRESHOLD = 1024;
          """
     qt_ds_shape_64 '''
     explain shape plan
@@ -106,9 +109,9 @@ cross_sales as
          hd1.hd_income_band_sk = ib1.ib_income_band_sk and
          hd2.hd_income_band_sk = ib2.ib_income_band_sk and
          cd1.cd_marital_status <> cd2.cd_marital_status and
-         i_color in ('orange','lace','lawn','misty','blush','pink') and
-         i_current_price between 48 and 48 + 10 and
-         i_current_price between 48 + 1 and 48 + 15
+         i_color in ('azure','gainsboro','misty','blush','hot','lemon') and
+         i_current_price between 80 and 80 + 10 and
+         i_current_price between 80 + 1 and 80 + 15
 group by i_product_name
        ,i_item_sk
        ,s_store_name

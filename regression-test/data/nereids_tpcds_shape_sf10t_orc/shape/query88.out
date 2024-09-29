@@ -18,16 +18,16 @@ PhysicalResultSink
 ------------------------------PhysicalProject
 --------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_hdemo_sk = household_demographics.hd_demo_sk)) otherCondition=() build RFs:RF21 hd_demo_sk->[ss_hdemo_sk]
 ----------------------------------PhysicalProject
-------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF21 RF22 RF23
+------------------------------------PhysicalFileScan[store_sales] apply RFs: RF21 RF22 RF23
 ----------------------------------PhysicalProject
-------------------------------------filter(((((household_demographics.hd_dep_count = 0) AND (household_demographics.hd_vehicle_count <= 2)) OR ((household_demographics.hd_dep_count = -1) AND (household_demographics.hd_vehicle_count <= 1))) OR ((household_demographics.hd_dep_count = 3) AND (household_demographics.hd_vehicle_count <= 5))))
---------------------------------------PhysicalOlapScan[household_demographics]
+------------------------------------filter(((((household_demographics.hd_dep_count = 2) AND (household_demographics.hd_vehicle_count <= 4)) OR ((household_demographics.hd_dep_count = 4) AND (household_demographics.hd_vehicle_count <= 6))) OR ((household_demographics.hd_dep_count = 3) AND (household_demographics.hd_vehicle_count <= 5))) and hd_dep_count IN (2, 3, 4))
+--------------------------------------PhysicalFileScan[household_demographics]
 ------------------------------PhysicalProject
 --------------------------------filter((time_dim.t_hour = 8) and (time_dim.t_minute >= 30))
-----------------------------------PhysicalOlapScan[time_dim]
+----------------------------------PhysicalFileScan[time_dim]
 --------------------------PhysicalProject
 ----------------------------filter((store.s_store_name = 'ese'))
-------------------------------PhysicalOlapScan[store]
+------------------------------PhysicalFileScan[store]
 ----------------hashAgg[GLOBAL]
 ------------------PhysicalDistribute[DistributionSpecGather]
 --------------------hashAgg[LOCAL]
@@ -38,16 +38,16 @@ PhysicalResultSink
 ------------------------------PhysicalProject
 --------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_hdemo_sk = household_demographics.hd_demo_sk)) otherCondition=() build RFs:RF18 hd_demo_sk->[ss_hdemo_sk]
 ----------------------------------PhysicalProject
-------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF18 RF19 RF20
+------------------------------------PhysicalFileScan[store_sales] apply RFs: RF18 RF19 RF20
 ----------------------------------PhysicalProject
-------------------------------------filter(((((household_demographics.hd_dep_count = 0) AND (household_demographics.hd_vehicle_count <= 2)) OR ((household_demographics.hd_dep_count = -1) AND (household_demographics.hd_vehicle_count <= 1))) OR ((household_demographics.hd_dep_count = 3) AND (household_demographics.hd_vehicle_count <= 5))))
---------------------------------------PhysicalOlapScan[household_demographics]
+------------------------------------filter(((((household_demographics.hd_dep_count = 2) AND (household_demographics.hd_vehicle_count <= 4)) OR ((household_demographics.hd_dep_count = 4) AND (household_demographics.hd_vehicle_count <= 6))) OR ((household_demographics.hd_dep_count = 3) AND (household_demographics.hd_vehicle_count <= 5))) and hd_dep_count IN (2, 3, 4))
+--------------------------------------PhysicalFileScan[household_demographics]
 ------------------------------PhysicalProject
 --------------------------------filter((time_dim.t_hour = 9) and (time_dim.t_minute < 30))
-----------------------------------PhysicalOlapScan[time_dim]
+----------------------------------PhysicalFileScan[time_dim]
 --------------------------PhysicalProject
 ----------------------------filter((store.s_store_name = 'ese'))
-------------------------------PhysicalOlapScan[store]
+------------------------------PhysicalFileScan[store]
 --------------hashAgg[GLOBAL]
 ----------------PhysicalDistribute[DistributionSpecGather]
 ------------------hashAgg[LOCAL]
@@ -58,16 +58,16 @@ PhysicalResultSink
 ----------------------------PhysicalProject
 ------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_hdemo_sk = household_demographics.hd_demo_sk)) otherCondition=() build RFs:RF15 hd_demo_sk->[ss_hdemo_sk]
 --------------------------------PhysicalProject
-----------------------------------PhysicalOlapScan[store_sales] apply RFs: RF15 RF16 RF17
+----------------------------------PhysicalFileScan[store_sales] apply RFs: RF15 RF16 RF17
 --------------------------------PhysicalProject
-----------------------------------filter(((((household_demographics.hd_dep_count = 0) AND (household_demographics.hd_vehicle_count <= 2)) OR ((household_demographics.hd_dep_count = -1) AND (household_demographics.hd_vehicle_count <= 1))) OR ((household_demographics.hd_dep_count = 3) AND (household_demographics.hd_vehicle_count <= 5))))
-------------------------------------PhysicalOlapScan[household_demographics]
+----------------------------------filter(((((household_demographics.hd_dep_count = 2) AND (household_demographics.hd_vehicle_count <= 4)) OR ((household_demographics.hd_dep_count = 4) AND (household_demographics.hd_vehicle_count <= 6))) OR ((household_demographics.hd_dep_count = 3) AND (household_demographics.hd_vehicle_count <= 5))) and hd_dep_count IN (2, 3, 4))
+------------------------------------PhysicalFileScan[household_demographics]
 ----------------------------PhysicalProject
 ------------------------------filter((time_dim.t_hour = 9) and (time_dim.t_minute >= 30))
---------------------------------PhysicalOlapScan[time_dim]
+--------------------------------PhysicalFileScan[time_dim]
 ------------------------PhysicalProject
 --------------------------filter((store.s_store_name = 'ese'))
-----------------------------PhysicalOlapScan[store]
+----------------------------PhysicalFileScan[store]
 ------------hashAgg[GLOBAL]
 --------------PhysicalDistribute[DistributionSpecGather]
 ----------------hashAgg[LOCAL]
@@ -78,16 +78,16 @@ PhysicalResultSink
 --------------------------PhysicalProject
 ----------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_hdemo_sk = household_demographics.hd_demo_sk)) otherCondition=() build RFs:RF12 hd_demo_sk->[ss_hdemo_sk]
 ------------------------------PhysicalProject
---------------------------------PhysicalOlapScan[store_sales] apply RFs: RF12 RF13 RF14
+--------------------------------PhysicalFileScan[store_sales] apply RFs: RF12 RF13 RF14
 ------------------------------PhysicalProject
---------------------------------filter(((((household_demographics.hd_dep_count = 0) AND (household_demographics.hd_vehicle_count <= 2)) OR ((household_demographics.hd_dep_count = -1) AND (household_demographics.hd_vehicle_count <= 1))) OR ((household_demographics.hd_dep_count = 3) AND (household_demographics.hd_vehicle_count <= 5))))
-----------------------------------PhysicalOlapScan[household_demographics]
+--------------------------------filter(((((household_demographics.hd_dep_count = 2) AND (household_demographics.hd_vehicle_count <= 4)) OR ((household_demographics.hd_dep_count = 4) AND (household_demographics.hd_vehicle_count <= 6))) OR ((household_demographics.hd_dep_count = 3) AND (household_demographics.hd_vehicle_count <= 5))) and hd_dep_count IN (2, 3, 4))
+----------------------------------PhysicalFileScan[household_demographics]
 --------------------------PhysicalProject
 ----------------------------filter((time_dim.t_hour = 10) and (time_dim.t_minute < 30))
-------------------------------PhysicalOlapScan[time_dim]
+------------------------------PhysicalFileScan[time_dim]
 ----------------------PhysicalProject
 ------------------------filter((store.s_store_name = 'ese'))
---------------------------PhysicalOlapScan[store]
+--------------------------PhysicalFileScan[store]
 ----------hashAgg[GLOBAL]
 ------------PhysicalDistribute[DistributionSpecGather]
 --------------hashAgg[LOCAL]
@@ -98,16 +98,16 @@ PhysicalResultSink
 ------------------------PhysicalProject
 --------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_hdemo_sk = household_demographics.hd_demo_sk)) otherCondition=() build RFs:RF9 hd_demo_sk->[ss_hdemo_sk]
 ----------------------------PhysicalProject
-------------------------------PhysicalOlapScan[store_sales] apply RFs: RF9 RF10 RF11
+------------------------------PhysicalFileScan[store_sales] apply RFs: RF9 RF10 RF11
 ----------------------------PhysicalProject
-------------------------------filter(((((household_demographics.hd_dep_count = 0) AND (household_demographics.hd_vehicle_count <= 2)) OR ((household_demographics.hd_dep_count = -1) AND (household_demographics.hd_vehicle_count <= 1))) OR ((household_demographics.hd_dep_count = 3) AND (household_demographics.hd_vehicle_count <= 5))))
---------------------------------PhysicalOlapScan[household_demographics]
+------------------------------filter(((((household_demographics.hd_dep_count = 2) AND (household_demographics.hd_vehicle_count <= 4)) OR ((household_demographics.hd_dep_count = 4) AND (household_demographics.hd_vehicle_count <= 6))) OR ((household_demographics.hd_dep_count = 3) AND (household_demographics.hd_vehicle_count <= 5))) and hd_dep_count IN (2, 3, 4))
+--------------------------------PhysicalFileScan[household_demographics]
 ------------------------PhysicalProject
 --------------------------filter((time_dim.t_hour = 10) and (time_dim.t_minute >= 30))
-----------------------------PhysicalOlapScan[time_dim]
+----------------------------PhysicalFileScan[time_dim]
 --------------------PhysicalProject
 ----------------------filter((store.s_store_name = 'ese'))
-------------------------PhysicalOlapScan[store]
+------------------------PhysicalFileScan[store]
 --------hashAgg[GLOBAL]
 ----------PhysicalDistribute[DistributionSpecGather]
 ------------hashAgg[LOCAL]
@@ -118,16 +118,16 @@ PhysicalResultSink
 ----------------------PhysicalProject
 ------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_hdemo_sk = household_demographics.hd_demo_sk)) otherCondition=() build RFs:RF6 hd_demo_sk->[ss_hdemo_sk]
 --------------------------PhysicalProject
-----------------------------PhysicalOlapScan[store_sales] apply RFs: RF6 RF7 RF8
+----------------------------PhysicalFileScan[store_sales] apply RFs: RF6 RF7 RF8
 --------------------------PhysicalProject
-----------------------------filter(((((household_demographics.hd_dep_count = 0) AND (household_demographics.hd_vehicle_count <= 2)) OR ((household_demographics.hd_dep_count = -1) AND (household_demographics.hd_vehicle_count <= 1))) OR ((household_demographics.hd_dep_count = 3) AND (household_demographics.hd_vehicle_count <= 5))))
-------------------------------PhysicalOlapScan[household_demographics]
+----------------------------filter(((((household_demographics.hd_dep_count = 2) AND (household_demographics.hd_vehicle_count <= 4)) OR ((household_demographics.hd_dep_count = 4) AND (household_demographics.hd_vehicle_count <= 6))) OR ((household_demographics.hd_dep_count = 3) AND (household_demographics.hd_vehicle_count <= 5))) and hd_dep_count IN (2, 3, 4))
+------------------------------PhysicalFileScan[household_demographics]
 ----------------------PhysicalProject
 ------------------------filter((time_dim.t_hour = 11) and (time_dim.t_minute < 30))
---------------------------PhysicalOlapScan[time_dim]
+--------------------------PhysicalFileScan[time_dim]
 ------------------PhysicalProject
 --------------------filter((store.s_store_name = 'ese'))
-----------------------PhysicalOlapScan[store]
+----------------------PhysicalFileScan[store]
 ------hashAgg[GLOBAL]
 --------PhysicalDistribute[DistributionSpecGather]
 ----------hashAgg[LOCAL]
@@ -138,16 +138,16 @@ PhysicalResultSink
 --------------------PhysicalProject
 ----------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_hdemo_sk = household_demographics.hd_demo_sk)) otherCondition=() build RFs:RF3 hd_demo_sk->[ss_hdemo_sk]
 ------------------------PhysicalProject
---------------------------PhysicalOlapScan[store_sales] apply RFs: RF3 RF4 RF5
+--------------------------PhysicalFileScan[store_sales] apply RFs: RF3 RF4 RF5
 ------------------------PhysicalProject
---------------------------filter(((((household_demographics.hd_dep_count = 0) AND (household_demographics.hd_vehicle_count <= 2)) OR ((household_demographics.hd_dep_count = -1) AND (household_demographics.hd_vehicle_count <= 1))) OR ((household_demographics.hd_dep_count = 3) AND (household_demographics.hd_vehicle_count <= 5))))
-----------------------------PhysicalOlapScan[household_demographics]
+--------------------------filter(((((household_demographics.hd_dep_count = 2) AND (household_demographics.hd_vehicle_count <= 4)) OR ((household_demographics.hd_dep_count = 4) AND (household_demographics.hd_vehicle_count <= 6))) OR ((household_demographics.hd_dep_count = 3) AND (household_demographics.hd_vehicle_count <= 5))) and hd_dep_count IN (2, 3, 4))
+----------------------------PhysicalFileScan[household_demographics]
 --------------------PhysicalProject
 ----------------------filter((time_dim.t_hour = 11) and (time_dim.t_minute >= 30))
-------------------------PhysicalOlapScan[time_dim]
+------------------------PhysicalFileScan[time_dim]
 ----------------PhysicalProject
 ------------------filter((store.s_store_name = 'ese'))
---------------------PhysicalOlapScan[store]
+--------------------PhysicalFileScan[store]
 ----hashAgg[GLOBAL]
 ------PhysicalDistribute[DistributionSpecGather]
 --------hashAgg[LOCAL]
@@ -158,14 +158,14 @@ PhysicalResultSink
 ------------------PhysicalProject
 --------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_hdemo_sk = household_demographics.hd_demo_sk)) otherCondition=() build RFs:RF0 hd_demo_sk->[ss_hdemo_sk]
 ----------------------PhysicalProject
-------------------------PhysicalOlapScan[store_sales] apply RFs: RF0 RF1 RF2
+------------------------PhysicalFileScan[store_sales] apply RFs: RF0 RF1 RF2
 ----------------------PhysicalProject
-------------------------filter(((((household_demographics.hd_dep_count = 0) AND (household_demographics.hd_vehicle_count <= 2)) OR ((household_demographics.hd_dep_count = -1) AND (household_demographics.hd_vehicle_count <= 1))) OR ((household_demographics.hd_dep_count = 3) AND (household_demographics.hd_vehicle_count <= 5))))
---------------------------PhysicalOlapScan[household_demographics]
+------------------------filter(((((household_demographics.hd_dep_count = 2) AND (household_demographics.hd_vehicle_count <= 4)) OR ((household_demographics.hd_dep_count = 4) AND (household_demographics.hd_vehicle_count <= 6))) OR ((household_demographics.hd_dep_count = 3) AND (household_demographics.hd_vehicle_count <= 5))) and hd_dep_count IN (2, 3, 4))
+--------------------------PhysicalFileScan[household_demographics]
 ------------------PhysicalProject
 --------------------filter((time_dim.t_hour = 12) and (time_dim.t_minute < 30))
-----------------------PhysicalOlapScan[time_dim]
+----------------------PhysicalFileScan[time_dim]
 --------------PhysicalProject
 ----------------filter((store.s_store_name = 'ese'))
-------------------PhysicalOlapScan[store]
+------------------PhysicalFileScan[store]
 

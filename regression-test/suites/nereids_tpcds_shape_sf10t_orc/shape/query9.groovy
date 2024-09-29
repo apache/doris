@@ -23,7 +23,7 @@ suite("query9") {
         return
     }
     sql """
-         use ${db};
+         use dlf.tpcds10000_oss;
          set enable_nereids_planner=true;
          set enable_nereids_distribute_planner=false;
          set enable_fallback_to_original_planner=false;
@@ -37,52 +37,55 @@ suite("query9") {
          set runtime_filter_type=8;
          set dump_nereids_memo=false;
          set disable_nereids_rules='PRUNE_EMPTY_PARTITION';
+         set enable_fold_constant_by_be = false;
+         set push_topn_to_agg = true;
+         set TOPN_OPT_LIMIT_THRESHOLD = 1024;
          """
     qt_ds_shape_9 '''
     explain shape plan
     select case when (select count(*) 
                   from store_sales 
-                  where ss_quantity between 1 and 20) > 1071
-            then (select avg(ss_ext_tax) 
+                  where ss_quantity between 1 and 20) > 98972190
+            then (select avg(ss_ext_discount_amt) 
                   from store_sales 
                   where ss_quantity between 1 and 20) 
-            else (select avg(ss_net_paid_inc_tax)
+            else (select avg(ss_net_profit)
                   from store_sales
                   where ss_quantity between 1 and 20) end bucket1 ,
        case when (select count(*)
                   from store_sales
-                  where ss_quantity between 21 and 40) > 39161
-            then (select avg(ss_ext_tax)
+                  where ss_quantity between 21 and 40) > 160856845
+            then (select avg(ss_ext_discount_amt)
                   from store_sales
                   where ss_quantity between 21 and 40) 
-            else (select avg(ss_net_paid_inc_tax)
+            else (select avg(ss_net_profit)
                   from store_sales
                   where ss_quantity between 21 and 40) end bucket2,
        case when (select count(*)
                   from store_sales
-                  where ss_quantity between 41 and 60) > 29434
-            then (select avg(ss_ext_tax)
+                  where ss_quantity between 41 and 60) > 12733327
+            then (select avg(ss_ext_discount_amt)
                   from store_sales
                   where ss_quantity between 41 and 60)
-            else (select avg(ss_net_paid_inc_tax)
+            else (select avg(ss_net_profit)
                   from store_sales
                   where ss_quantity between 41 and 60) end bucket3,
        case when (select count(*)
                   from store_sales
-                  where ss_quantity between 61 and 80) > 6568
-            then (select avg(ss_ext_tax)
+                  where ss_quantity between 61 and 80) > 96251173
+            then (select avg(ss_ext_discount_amt)
                   from store_sales
                   where ss_quantity between 61 and 80)
-            else (select avg(ss_net_paid_inc_tax)
+            else (select avg(ss_net_profit)
                   from store_sales
                   where ss_quantity between 61 and 80) end bucket4,
        case when (select count(*)
                   from store_sales
-                  where ss_quantity between 81 and 100) > 21216
-            then (select avg(ss_ext_tax)
+                  where ss_quantity between 81 and 100) > 80049606
+            then (select avg(ss_ext_discount_amt)
                   from store_sales
                   where ss_quantity between 81 and 100)
-            else (select avg(ss_net_paid_inc_tax)
+            else (select avg(ss_net_profit)
                   from store_sales
                   where ss_quantity between 81 and 100) end bucket5
 from reason

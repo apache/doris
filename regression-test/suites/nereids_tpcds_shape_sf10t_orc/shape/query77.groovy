@@ -23,7 +23,7 @@ suite("query77") {
         return
     }
     sql """
-         use ${db};
+         use dlf.tpcds10000_oss;
          set enable_nereids_planner=true;
          set enable_nereids_distribute_planner=false;
          set enable_fallback_to_original_planner=false;
@@ -37,6 +37,9 @@ suite("query77") {
          set runtime_filter_type=8;
          set dump_nereids_memo=false;
          set disable_nereids_rules='PRUNE_EMPTY_PARTITION';
+         set enable_fold_constant_by_be = false;
+         set push_topn_to_agg = true;
+         set TOPN_OPT_LIMIT_THRESHOLD = 1024;
          """
     qt_ds_shape_77 '''
     explain shape plan
@@ -48,8 +51,8 @@ suite("query77") {
       date_dim,
       store
  where ss_sold_date_sk = d_date_sk
-       and d_date between cast('2000-08-10' as date) 
-                  and (cast('2000-08-10' as date) +  interval 30 day) 
+       and d_date between cast('2000-08-16' as date) 
+                  and (cast('2000-08-16' as date) +  interval 30 day) 
        and ss_store_sk = s_store_sk
  group by s_store_sk)
  ,
@@ -61,8 +64,8 @@ suite("query77") {
       date_dim,
       store
  where sr_returned_date_sk = d_date_sk
-       and d_date between cast('2000-08-10' as date)
-                  and (cast('2000-08-10' as date) +  interval 30 day)
+       and d_date between cast('2000-08-16' as date)
+                  and (cast('2000-08-16' as date) +  interval 30 day)
        and sr_store_sk = s_store_sk
  group by s_store_sk), 
  cs as
@@ -72,8 +75,8 @@ suite("query77") {
  from catalog_sales,
       date_dim
  where cs_sold_date_sk = d_date_sk
-       and d_date between cast('2000-08-10' as date)
-                  and (cast('2000-08-10' as date) +  interval 30 day)
+       and d_date between cast('2000-08-16' as date)
+                  and (cast('2000-08-16' as date) +  interval 30 day)
  group by cs_call_center_sk 
  ), 
  cr as
@@ -83,8 +86,8 @@ suite("query77") {
  from catalog_returns,
       date_dim
  where cr_returned_date_sk = d_date_sk
-       and d_date between cast('2000-08-10' as date)
-                  and (cast('2000-08-10' as date) +  interval 30 day)
+       and d_date between cast('2000-08-16' as date)
+                  and (cast('2000-08-16' as date) +  interval 30 day)
  group by cr_call_center_sk
  ), 
  ws as
@@ -95,8 +98,8 @@ suite("query77") {
       date_dim,
       web_page
  where ws_sold_date_sk = d_date_sk
-       and d_date between cast('2000-08-10' as date)
-                  and (cast('2000-08-10' as date) +  interval 30 day)
+       and d_date between cast('2000-08-16' as date)
+                  and (cast('2000-08-16' as date) +  interval 30 day)
        and ws_web_page_sk = wp_web_page_sk
  group by wp_web_page_sk), 
  wr as
@@ -107,8 +110,8 @@ suite("query77") {
       date_dim,
       web_page
  where wr_returned_date_sk = d_date_sk
-       and d_date between cast('2000-08-10' as date)
-                  and (cast('2000-08-10' as date) +  interval 30 day)
+       and d_date between cast('2000-08-16' as date)
+                  and (cast('2000-08-16' as date) +  interval 30 day)
        and wr_web_page_sk = wp_web_page_sk
  group by wp_web_page_sk)
   select  channel

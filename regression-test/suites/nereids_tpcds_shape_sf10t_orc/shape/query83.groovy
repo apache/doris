@@ -23,7 +23,7 @@ suite("query83") {
         return
     }
     sql """
-         use ${db};
+         use dlf.tpcds10000_oss;
          set enable_nereids_planner=true;
          set enable_nereids_distribute_planner=false;
          set enable_fallback_to_original_planner=false;
@@ -37,6 +37,9 @@ suite("query83") {
          set runtime_filter_type=8;
          set dump_nereids_memo=false;
          set disable_nereids_rules='PRUNE_EMPTY_PARTITION';
+         set enable_fold_constant_by_be = false;
+         set push_topn_to_agg = true;
+         set TOPN_OPT_LIMIT_THRESHOLD = 1024;
          """
     qt_ds_shape_83 '''
     explain shape plan
@@ -53,7 +56,7 @@ suite("query83") {
 	where d_week_seq in 
 		(select d_week_seq
 		from date_dim
-	  where d_date in ('2001-07-13','2001-09-10','2001-11-16')))
+	  where d_date in ('2000-06-17','2000-08-22','2000-11-17')))
  and   sr_returned_date_sk   = d_date_sk
  group by i_item_id),
  cr_items as
@@ -69,7 +72,7 @@ suite("query83") {
 	where d_week_seq in 
 		(select d_week_seq
 		from date_dim
-	  where d_date in ('2001-07-13','2001-09-10','2001-11-16')))
+	  where d_date in ('2000-06-17','2000-08-22','2000-11-17')))
  and   cr_returned_date_sk   = d_date_sk
  group by i_item_id),
  wr_items as
@@ -85,7 +88,7 @@ suite("query83") {
 	where d_week_seq in 
 		(select d_week_seq
 		from date_dim
-		where d_date in ('2001-07-13','2001-09-10','2001-11-16')))
+		where d_date in ('2000-06-17','2000-08-22','2000-11-17')))
  and   wr_returned_date_sk   = d_date_sk
  group by i_item_id)
   select  sr_items.item_id

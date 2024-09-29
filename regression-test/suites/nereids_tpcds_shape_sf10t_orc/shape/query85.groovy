@@ -23,7 +23,7 @@ suite("query85") {
         return
     }
     sql """
-         use ${db};
+         use dlf.tpcds10000_oss;
          set enable_nereids_planner=true;
          set enable_nereids_distribute_planner=false;
          set enable_fallback_to_original_planner=false;
@@ -37,6 +37,9 @@ suite("query85") {
          set runtime_filter_type=8;
          set dump_nereids_memo=false;
          set disable_nereids_rules='PRUNE_EMPTY_PARTITION';
+         set enable_fold_constant_by_be = false;
+         set push_topn_to_agg = true;
+         set TOPN_OPT_LIMIT_THRESHOLD = 1024;
          """
     qt_ds_shape_85 '''
     explain shape plan
@@ -49,7 +52,7 @@ suite("query85") {
  where ws_web_page_sk = wp_web_page_sk
    and ws_item_sk = wr_item_sk
    and ws_order_number = wr_order_number
-   and ws_sold_date_sk = d_date_sk and d_year = 1998
+   and ws_sold_date_sk = d_date_sk and d_year = 2001
    and cd1.cd_demo_sk = wr_refunded_cdemo_sk 
    and cd2.cd_demo_sk = wr_returning_cdemo_sk
    and ca_address_sk = wr_refunded_addr_sk
@@ -57,11 +60,11 @@ suite("query85") {
    and
    (
     (
-     cd1.cd_marital_status = 'D'
+     cd1.cd_marital_status = 'M'
      and
      cd1.cd_marital_status = cd2.cd_marital_status
      and
-     cd1.cd_education_status = 'Primary'
+     cd1.cd_education_status = '4 yr Degree'
      and 
      cd1.cd_education_status = cd2.cd_education_status
      and
@@ -81,11 +84,11 @@ suite("query85") {
     )
    or
     (
-     cd1.cd_marital_status = 'U'
+     cd1.cd_marital_status = 'D'
      and
      cd1.cd_marital_status = cd2.cd_marital_status
      and
-     cd1.cd_education_status = 'Advanced Degree'
+     cd1.cd_education_status = 'Secondary'
      and
      cd1.cd_education_status = cd2.cd_education_status
      and
@@ -97,21 +100,21 @@ suite("query85") {
     (
      ca_country = 'United States'
      and
-     ca_state in ('NC', 'TX', 'IA')
+     ca_state in ('TX', 'VA', 'CA')
      and ws_net_profit between 100 and 200  
     )
     or
     (
      ca_country = 'United States'
      and
-     ca_state in ('WI', 'WV', 'GA')
+     ca_state in ('AR', 'NE', 'MO')
      and ws_net_profit between 150 and 300  
     )
     or
     (
      ca_country = 'United States'
      and
-     ca_state in ('OK', 'VA', 'KY')
+     ca_state in ('IA', 'MS', 'WA')
      and ws_net_profit between 50 and 250  
     )
    )

@@ -16,14 +16,14 @@ PhysicalResultSink
 --------------------------PhysicalProject
 ----------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((web_sales.ws_warehouse_sk = warehouse.w_warehouse_sk)) otherCondition=() build RFs:RF0 w_warehouse_sk->[ws_warehouse_sk]
 ------------------------------PhysicalProject
---------------------------------PhysicalOlapScan[web_sales] apply RFs: RF0 RF1 RF2 RF3
+--------------------------------PhysicalFileScan[web_sales] apply RFs: RF0 RF1 RF2 RF3
 ------------------------------PhysicalProject
---------------------------------PhysicalOlapScan[warehouse]
+--------------------------------PhysicalFileScan[warehouse]
 --------------------------PhysicalProject
-----------------------------PhysicalOlapScan[ship_mode]
+----------------------------PhysicalFileScan[ship_mode]
 ----------------------PhysicalProject
-------------------------PhysicalOlapScan[web_site]
+------------------------PhysicalFileScan[web_site]
 ------------------PhysicalProject
---------------------filter((date_dim.d_month_seq <= 1234) and (date_dim.d_month_seq >= 1223))
-----------------------PhysicalOlapScan[date_dim]
+--------------------filter((date_dim.d_month_seq <= 1226) and (date_dim.d_month_seq >= 1215))
+----------------------PhysicalFileScan[date_dim]
 

@@ -19,10 +19,10 @@ PhysicalResultSink
 --------------------------------PhysicalProject
 ----------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((item.i_item_sk = web_sales.ws_item_sk)) otherCondition=() build RFs:RF0 i_item_sk->[ws_item_sk]
 ------------------------------------PhysicalProject
---------------------------------------PhysicalOlapScan[web_sales] apply RFs: RF0 RF1
+--------------------------------------PhysicalFileScan[web_sales] apply RFs: RF0 RF1
 ------------------------------------PhysicalProject
---------------------------------------PhysicalOlapScan[item]
+--------------------------------------PhysicalFileScan[item]
 --------------------------------PhysicalProject
-----------------------------------filter((d1.d_month_seq <= 1197) and (d1.d_month_seq >= 1186))
-------------------------------------PhysicalOlapScan[date_dim]
+----------------------------------filter((d1.d_month_seq <= 1226) and (d1.d_month_seq >= 1215))
+------------------------------------PhysicalFileScan[date_dim]
 

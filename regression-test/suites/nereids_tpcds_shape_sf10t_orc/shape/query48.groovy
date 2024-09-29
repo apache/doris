@@ -23,7 +23,7 @@ suite("query48") {
         return
     }
     sql """
-         use ${db};
+         use dlf.tpcds10000_oss;
          set enable_nereids_planner=true;
          set enable_nereids_distribute_planner=false;
          set enable_fallback_to_original_planner=false;
@@ -37,21 +37,24 @@ suite("query48") {
          set runtime_filter_type=8;
          set dump_nereids_memo=false;
          set disable_nereids_rules='PRUNE_EMPTY_PARTITION';
+         set enable_fold_constant_by_be = false;
+         set push_topn_to_agg = true;
+         set TOPN_OPT_LIMIT_THRESHOLD = 1024;
          """
     qt_ds_shape_48 '''
     explain shape plan
     select sum (ss_quantity)
  from store_sales, store, customer_demographics, customer_address, date_dim
  where s_store_sk = ss_store_sk
- and  ss_sold_date_sk = d_date_sk and d_year = 2001
+ and  ss_sold_date_sk = d_date_sk and d_year = 1998
  and  
  (
   (
    cd_demo_sk = ss_cdemo_sk
    and 
-   cd_marital_status = 'S'
+   cd_marital_status = 'M'
    and 
-   cd_education_status = 'Secondary'
+   cd_education_status = 'Unknown'
    and 
    ss_sales_price between 100.00 and 150.00  
    )
@@ -59,9 +62,9 @@ suite("query48") {
   (
   cd_demo_sk = ss_cdemo_sk
    and 
-   cd_marital_status = 'M'
+   cd_marital_status = 'W'
    and 
-   cd_education_status = '2 yr Degree'
+   cd_education_status = 'College'
    and 
    ss_sales_price between 50.00 and 100.00   
   )
@@ -71,7 +74,7 @@ suite("query48") {
   and 
    cd_marital_status = 'D'
    and 
-   cd_education_status = 'Advanced Degree'
+   cd_education_status = 'Primary'
    and 
    ss_sales_price between 150.00 and 200.00  
  )
@@ -83,7 +86,7 @@ suite("query48") {
   and
   ca_country = 'United States'
   and
-  ca_state in ('ND', 'NY', 'SD')
+  ca_state in ('MI', 'GA', 'NH')
   and ss_net_profit between 0 and 2000  
   )
  or
@@ -91,7 +94,7 @@ suite("query48") {
   and
   ca_country = 'United States'
   and
-  ca_state in ('MD', 'GA', 'KS')
+  ca_state in ('TX', 'KY', 'SD')
   and ss_net_profit between 150 and 3000 
   )
  or
@@ -99,7 +102,7 @@ suite("query48") {
   and
   ca_country = 'United States'
   and
-  ca_state in ('CO', 'MN', 'NC')
+  ca_state in ('NY', 'OH', 'FL')
   and ss_net_profit between 50 and 25000 
   )
  )

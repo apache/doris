@@ -23,7 +23,7 @@ suite("query54") {
         return
     }
     sql """
-         use ${db};
+         use dlf.tpcds10000_oss;
          set enable_nereids_planner=true;
          set enable_nereids_distribute_planner=false;
          set enable_fallback_to_original_planner=false;
@@ -37,6 +37,9 @@ suite("query54") {
          set runtime_filter_type=8;
          set dump_nereids_memo=false;
          set disable_nereids_rules='PRUNE_EMPTY_PARTITION';
+         set enable_fold_constant_by_be = false;
+         set push_topn_to_agg = true;
+         set TOPN_OPT_LIMIT_THRESHOLD = 1024;
          """
     qt_ds_shape_54 '''
     explain shape plan
@@ -59,11 +62,11 @@ suite("query54") {
          customer
  where   sold_date_sk = d_date_sk
          and item_sk = i_item_sk
-         and i_category = 'Music'
-         and i_class = 'country'
+         and i_category = 'Books'
+         and i_class = 'business'
          and c_customer_sk = cs_or_ws_sales.customer_sk
-         and d_moy = 1
-         and d_year = 1999
+         and d_moy = 2
+         and d_year = 2000
  )
  , my_revenue as (
  select c_customer_sk,
@@ -79,9 +82,9 @@ suite("query54") {
         and ss_sold_date_sk = d_date_sk
         and c_customer_sk = ss_customer_sk
         and d_month_seq between (select distinct d_month_seq+1
-                                 from   date_dim where d_year = 1999 and d_moy = 1)
+                                 from   date_dim where d_year = 2000 and d_moy = 2)
                            and  (select distinct d_month_seq+3
-                                 from   date_dim where d_year = 1999 and d_moy = 1)
+                                 from   date_dim where d_year = 2000 and d_moy = 2)
  group by c_customer_sk
  )
  , segments as

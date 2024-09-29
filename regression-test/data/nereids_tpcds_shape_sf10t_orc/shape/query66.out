@@ -22,18 +22,18 @@ PhysicalResultSink
 --------------------------------------PhysicalProject
 ----------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((web_sales.ws_warehouse_sk = warehouse.w_warehouse_sk)) otherCondition=() build RFs:RF0 w_warehouse_sk->[ws_warehouse_sk]
 ------------------------------------------PhysicalProject
---------------------------------------------PhysicalOlapScan[web_sales] apply RFs: RF0 RF1 RF2 RF3
+--------------------------------------------PhysicalFileScan[web_sales] apply RFs: RF0 RF1 RF2 RF3
 ------------------------------------------PhysicalProject
---------------------------------------------PhysicalOlapScan[warehouse]
+--------------------------------------------PhysicalFileScan[warehouse]
 --------------------------------------PhysicalProject
 ----------------------------------------filter((date_dim.d_year = 2001))
-------------------------------------------PhysicalOlapScan[date_dim]
+------------------------------------------PhysicalFileScan[date_dim]
 ----------------------------------PhysicalProject
-------------------------------------filter((cast(t_time as BIGINT) <= 71770) and (time_dim.t_time >= 42970))
---------------------------------------PhysicalOlapScan[time_dim]
+------------------------------------filter((time_dim.t_time <= 38253) and (time_dim.t_time >= 9453))
+--------------------------------------PhysicalFileScan[time_dim]
 ------------------------------PhysicalProject
---------------------------------filter(sm_carrier IN ('BOXBUNDLES', 'ORIENTAL'))
-----------------------------------PhysicalOlapScan[ship_mode]
+--------------------------------filter(sm_carrier IN ('GERMA', 'MSC'))
+----------------------------------PhysicalFileScan[ship_mode]
 ------------------PhysicalProject
 --------------------hashAgg[GLOBAL]
 ----------------------PhysicalDistribute[DistributionSpecHash]
@@ -47,16 +47,16 @@ PhysicalResultSink
 --------------------------------------PhysicalProject
 ----------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((catalog_sales.cs_warehouse_sk = warehouse.w_warehouse_sk)) otherCondition=() build RFs:RF4 w_warehouse_sk->[cs_warehouse_sk]
 ------------------------------------------PhysicalProject
---------------------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF4 RF5 RF6 RF7
+--------------------------------------------PhysicalFileScan[catalog_sales] apply RFs: RF4 RF5 RF6 RF7
 ------------------------------------------PhysicalProject
---------------------------------------------PhysicalOlapScan[warehouse]
+--------------------------------------------PhysicalFileScan[warehouse]
 --------------------------------------PhysicalProject
 ----------------------------------------filter((date_dim.d_year = 2001))
-------------------------------------------PhysicalOlapScan[date_dim]
+------------------------------------------PhysicalFileScan[date_dim]
 ----------------------------------PhysicalProject
-------------------------------------filter((cast(t_time as BIGINT) <= 71770) and (time_dim.t_time >= 42970))
---------------------------------------PhysicalOlapScan[time_dim]
+------------------------------------filter((time_dim.t_time <= 38253) and (time_dim.t_time >= 9453))
+--------------------------------------PhysicalFileScan[time_dim]
 ------------------------------PhysicalProject
---------------------------------filter(sm_carrier IN ('BOXBUNDLES', 'ORIENTAL'))
-----------------------------------PhysicalOlapScan[ship_mode]
+--------------------------------filter(sm_carrier IN ('GERMA', 'MSC'))
+----------------------------------PhysicalFileScan[ship_mode]
 

@@ -23,7 +23,7 @@ suite("query80") {
         return
     }
     sql """
-         use ${db};
+         use dlf.tpcds10000_oss;
          set enable_nereids_planner=true;
          set enable_nereids_distribute_planner=false;
          set enable_fallback_to_original_planner=false;
@@ -37,6 +37,9 @@ suite("query80") {
          set runtime_filter_type=8;
          set dump_nereids_memo=false;
          set disable_nereids_rules='PRUNE_EMPTY_PARTITION';
+         set enable_fold_constant_by_be = false;
+         set push_topn_to_agg = true;
+         set TOPN_OPT_LIMIT_THRESHOLD = 1024;
          """
     qt_ds_shape_80 '''
     explain shape plan
@@ -52,8 +55,8 @@ suite("query80") {
      item,
      promotion
  where ss_sold_date_sk = d_date_sk
-       and d_date between cast('2002-08-14' as date) 
-                  and (cast('2002-08-14' as date) +  interval 30 day)
+       and d_date between cast('2002-08-06' as date) 
+                  and (cast('2002-08-06' as date) +  interval 30 day)
        and ss_store_sk = s_store_sk
        and ss_item_sk = i_item_sk
        and i_current_price > 50
@@ -73,8 +76,8 @@ suite("query80") {
      item,
      promotion
  where cs_sold_date_sk = d_date_sk
-       and d_date between cast('2002-08-14' as date)
-                  and (cast('2002-08-14' as date) +  interval 30 day)
+       and d_date between cast('2002-08-06' as date)
+                  and (cast('2002-08-06' as date) +  interval 30 day)
         and cs_catalog_page_sk = cp_catalog_page_sk
        and cs_item_sk = i_item_sk
        and i_current_price > 50
@@ -94,8 +97,8 @@ group by cp_catalog_page_id)
      item,
      promotion
  where ws_sold_date_sk = d_date_sk
-       and d_date between cast('2002-08-14' as date)
-                  and (cast('2002-08-14' as date) +  interval 30 day)
+       and d_date between cast('2002-08-06' as date)
+                  and (cast('2002-08-06' as date) +  interval 30 day)
         and ws_web_site_sk = web_site_sk
        and ws_item_sk = i_item_sk
        and i_current_price > 50

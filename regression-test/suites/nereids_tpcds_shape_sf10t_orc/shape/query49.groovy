@@ -23,7 +23,7 @@ suite("query49") {
         return
     }
     sql """
-         use ${db};
+         use dlf.tpcds10000_oss;
          set enable_nereids_planner=true;
          set enable_nereids_distribute_planner=false;
          set enable_fallback_to_original_planner=false;
@@ -37,6 +37,9 @@ suite("query49") {
          set runtime_filter_type=8;
          set dump_nereids_memo=false;
          set disable_nereids_rules='PRUNE_EMPTY_PARTITION';
+         set enable_fold_constant_by_be = false;
+         set push_topn_to_agg = true;
+         set TOPN_OPT_LIMIT_THRESHOLD = 1024;
          """
     qt_ds_shape_49 '''
     explain shape plan
@@ -71,8 +74,8 @@ suite("query49") {
                          and ws.ws_net_paid > 0
                          and ws.ws_quantity > 0
                          and ws_sold_date_sk = d_date_sk
-                         and d_year = 1998
-                         and d_moy = 11
+                         and d_year = 2000
+                         and d_moy = 12
  		group by ws.ws_item_sk
  	) in_web
  ) web
@@ -114,8 +117,8 @@ suite("query49") {
                          and cs.cs_net_paid > 0
                          and cs.cs_quantity > 0
                          and cs_sold_date_sk = d_date_sk
-                         and d_year = 1998
-                         and d_moy = 11
+                         and d_year = 2000
+                         and d_moy = 12
                  group by cs.cs_item_sk
  	) in_cat
  ) catalog
@@ -153,8 +156,8 @@ suite("query49") {
                          and sts.ss_net_paid > 0 
                          and sts.ss_quantity > 0
                          and ss_sold_date_sk = d_date_sk
-                         and d_year = 1998
-                         and d_moy = 11
+                         and d_year = 2000
+                         and d_moy = 12
  		group by sts.ss_item_sk
  	) in_store
  ) store

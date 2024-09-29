@@ -23,7 +23,7 @@ suite("query92") {
         return
     }
     sql """
-         use ${db};
+         use dlf.tpcds10000_oss;
          set enable_nereids_planner=true;
          set enable_nereids_distribute_planner=false;
          set enable_fallback_to_original_planner=false;
@@ -37,6 +37,9 @@ suite("query92") {
          set runtime_filter_type=8;
          set dump_nereids_memo=false;
          set disable_nereids_rules='PRUNE_EMPTY_PARTITION';
+         set enable_fold_constant_by_be = false;
+         set push_topn_to_agg = true;
+         set TOPN_OPT_LIMIT_THRESHOLD = 1024;
          """
     qt_ds_shape_92 '''
     explain shape plan
@@ -47,10 +50,10 @@ from
    ,item 
    ,date_dim
 where
-i_manufact_id = 714
+i_manufact_id = 356
 and i_item_sk = ws_item_sk 
-and d_date between '2000-02-01' and 
-        (cast('2000-02-01' as date) + interval 90 day)
+and d_date between '2001-03-12' and 
+        (cast('2001-03-12' as date) + interval 90 day)
 and d_date_sk = ws_sold_date_sk 
 and ws_ext_discount_amt  
      > ( 
@@ -61,8 +64,8 @@ and ws_ext_discount_amt
            ,date_dim
          WHERE 
               ws_item_sk = i_item_sk 
-          and d_date between '2000-02-01' and
-                             (cast('2000-02-01' as date) + interval 90 day)
+          and d_date between '2001-03-12' and
+                             (cast('2001-03-12' as date) + interval 90 day)
           and d_date_sk = ws_sold_date_sk 
       ) 
 order by sum(ws_ext_discount_amt)

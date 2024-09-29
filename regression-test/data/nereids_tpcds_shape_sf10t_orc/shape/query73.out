@@ -17,16 +17,16 @@ PhysicalResultSink
 ----------------------------PhysicalProject
 ------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF0 d_date_sk->[ss_sold_date_sk]
 --------------------------------PhysicalProject
-----------------------------------PhysicalOlapScan[store_sales] apply RFs: RF0 RF1 RF2 RF3
+----------------------------------PhysicalFileScan[store_sales] apply RFs: RF0 RF1 RF2 RF3
 --------------------------------PhysicalProject
 ----------------------------------filter((date_dim.d_dom <= 2) and (date_dim.d_dom >= 1) and d_year IN (2000, 2001, 2002))
-------------------------------------PhysicalOlapScan[date_dim]
+------------------------------------PhysicalFileScan[date_dim]
 ----------------------------PhysicalProject
-------------------------------filter((store.s_county = 'Williamson County'))
---------------------------------PhysicalOlapScan[store]
+------------------------------filter(s_county IN ('Bronx County', 'Furnas County', 'Lea County', 'Pennington County'))
+--------------------------------PhysicalFileScan[store]
 ------------------------PhysicalProject
---------------------------filter((household_demographics.hd_vehicle_count > 0) and (if((hd_vehicle_count > 0), (cast(hd_dep_count as DOUBLE) / cast(hd_vehicle_count as DOUBLE)), NULL) > 1.0) and hd_buy_potential IN ('1001-5000', '5001-10000'))
-----------------------------PhysicalOlapScan[household_demographics]
+--------------------------filter((household_demographics.hd_vehicle_count > 0) and (if((hd_vehicle_count > 0), (cast(hd_dep_count as DOUBLE) / cast(hd_vehicle_count as DOUBLE)), NULL) > 1.0) and hd_buy_potential IN ('5001-10000', '>10000'))
+----------------------------PhysicalFileScan[household_demographics]
 ------------PhysicalProject
---------------PhysicalOlapScan[customer]
+--------------PhysicalFileScan[customer]
 

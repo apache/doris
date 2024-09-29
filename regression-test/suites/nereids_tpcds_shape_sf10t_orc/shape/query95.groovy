@@ -23,7 +23,7 @@ suite("query95") {
         return
     }
     sql """
-         use ${db};
+         use dlf.tpcds10000_oss;
          set enable_nereids_planner=true;
          set enable_nereids_distribute_planner=false;
          set enable_fallback_to_original_planner=false;
@@ -37,6 +37,9 @@ suite("query95") {
          set runtime_filter_type=8;
          set dump_nereids_memo=false;
          set disable_nereids_rules='PRUNE_EMPTY_PARTITION';
+         set enable_fold_constant_by_be = false;
+         set push_topn_to_agg = true;
+         set TOPN_OPT_LIMIT_THRESHOLD = 1024;
          """
     qt_ds_shape_95 '''
     explain shape plan
@@ -55,11 +58,11 @@ from
   ,customer_address
   ,web_site
 where
-    d_date between '2001-4-01' and 
-           (cast('2001-4-01' as date) + interval 60 day)
+    d_date between '2002-4-01' and 
+           (cast('2002-4-01' as date) + interval 60 day)
 and ws1.ws_ship_date_sk = d_date_sk
 and ws1.ws_ship_addr_sk = ca_address_sk
-and ca_state = 'VA'
+and ca_state = 'AL'
 and ws1.ws_web_site_sk = web_site_sk
 and web_company_name = 'pri'
 and ws1.ws_order_number in (select ws_order_number

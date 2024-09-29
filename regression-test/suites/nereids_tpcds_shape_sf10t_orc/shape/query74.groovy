@@ -23,7 +23,7 @@ suite("query74") {
         return
     }
     sql """
-         use ${db};
+         use dlf.tpcds10000_oss;
          set enable_nereids_planner=true;
          set enable_nereids_distribute_planner=false;
          set enable_fallback_to_original_planner=false;
@@ -37,6 +37,9 @@ suite("query74") {
          set runtime_filter_type=8;
          set dump_nereids_memo=false;
          set disable_nereids_rules='PRUNE_EMPTY_PARTITION';
+         set enable_fold_constant_by_be = false;
+         set push_topn_to_agg = true;
+         set TOPN_OPT_LIMIT_THRESHOLD = 1024;
          """
     qt_ds_shape_74 '''
     explain shape plan
@@ -45,14 +48,14 @@ suite("query74") {
        ,c_first_name customer_first_name
        ,c_last_name customer_last_name
        ,d_year as year
-       ,max(ss_net_paid) year_total
+       ,sum(ss_net_paid) year_total
        ,'s' sale_type
  from customer
      ,store_sales
      ,date_dim
  where c_customer_sk = ss_customer_sk
    and ss_sold_date_sk = d_date_sk
-   and d_year in (1999,1999+1)
+   and d_year in (1998,1998+1)
  group by c_customer_id
          ,c_first_name
          ,c_last_name
@@ -62,14 +65,14 @@ suite("query74") {
        ,c_first_name customer_first_name
        ,c_last_name customer_last_name
        ,d_year as year
-       ,max(ws_net_paid) year_total
+       ,sum(ws_net_paid) year_total
        ,'w' sale_type
  from customer
      ,web_sales
      ,date_dim
  where c_customer_sk = ws_bill_customer_sk
    and ws_sold_date_sk = d_date_sk
-   and d_year in (1999,1999+1)
+   and d_year in (1998,1998+1)
  group by c_customer_id
          ,c_first_name
          ,c_last_name
@@ -88,15 +91,15 @@ suite("query74") {
          and t_w_firstyear.sale_type = 'w'
          and t_s_secyear.sale_type = 's'
          and t_w_secyear.sale_type = 'w'
-         and t_s_firstyear.year = 1999
-         and t_s_secyear.year = 1999+1
-         and t_w_firstyear.year = 1999
-         and t_w_secyear.year = 1999+1
+         and t_s_firstyear.year = 1998
+         and t_s_secyear.year = 1998+1
+         and t_w_firstyear.year = 1998
+         and t_w_secyear.year = 1998+1
          and t_s_firstyear.year_total > 0
          and t_w_firstyear.year_total > 0
          and case when t_w_firstyear.year_total > 0 then t_w_secyear.year_total / t_w_firstyear.year_total else null end
            > case when t_s_firstyear.year_total > 0 then t_s_secyear.year_total / t_s_firstyear.year_total else null end
- order by 1,3,2
+ order by 3,1,2
 limit 100
     '''
 }

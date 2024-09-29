@@ -23,7 +23,7 @@ suite("query41") {
         return
     }
     sql """
-         use ${db};
+         use dlf.tpcds10000_oss;
          set enable_nereids_planner=true;
          set enable_nereids_distribute_planner=false;
          set enable_fallback_to_original_planner=false;
@@ -37,55 +37,58 @@ suite("query41") {
          set runtime_filter_type=8;
          set dump_nereids_memo=false;
          set disable_nereids_rules='PRUNE_EMPTY_PARTITION';
+         set enable_fold_constant_by_be = false;
+         set push_topn_to_agg = true;
+         set TOPN_OPT_LIMIT_THRESHOLD = 1024;
          """
     qt_ds_shape_41 '''
     explain shape plan
     select  distinct(i_product_name)
  from item i1
- where i_manufact_id between 704 and 704+40 
+ where i_manufact_id between 970 and 970+40 
    and (select count(*) as item_cnt
         from item
         where (i_manufact = i1.i_manufact and
         ((i_category = 'Women' and 
-        (i_color = 'forest' or i_color = 'lime') and 
-        (i_units = 'Pallet' or i_units = 'Pound') and
-        (i_size = 'economy' or i_size = 'small')
+        (i_color = 'frosted' or i_color = 'rose') and 
+        (i_units = 'Lb' or i_units = 'Gross') and
+        (i_size = 'medium' or i_size = 'large')
         ) or
         (i_category = 'Women' and
-        (i_color = 'navy' or i_color = 'slate') and
-        (i_units = 'Gross' or i_units = 'Bunch') and
-        (i_size = 'extra large' or i_size = 'petite')
+        (i_color = 'chocolate' or i_color = 'black') and
+        (i_units = 'Box' or i_units = 'Dram') and
+        (i_size = 'economy' or i_size = 'petite')
         ) or
         (i_category = 'Men' and
-        (i_color = 'powder' or i_color = 'sky') and
-        (i_units = 'Dozen' or i_units = 'Lb') and
-        (i_size = 'N/A' or i_size = 'large')
+        (i_color = 'slate' or i_color = 'magenta') and
+        (i_units = 'Carton' or i_units = 'Bundle') and
+        (i_size = 'N/A' or i_size = 'small')
         ) or
         (i_category = 'Men' and
-        (i_color = 'maroon' or i_color = 'smoke') and
-        (i_units = 'Ounce' or i_units = 'Case') and
-        (i_size = 'economy' or i_size = 'small')
+        (i_color = 'cornflower' or i_color = 'firebrick') and
+        (i_units = 'Pound' or i_units = 'Oz') and
+        (i_size = 'medium' or i_size = 'large')
         ))) or
        (i_manufact = i1.i_manufact and
         ((i_category = 'Women' and 
-        (i_color = 'dark' or i_color = 'aquamarine') and 
-        (i_units = 'Ton' or i_units = 'Tbl') and
-        (i_size = 'economy' or i_size = 'small')
+        (i_color = 'almond' or i_color = 'steel') and 
+        (i_units = 'Tsp' or i_units = 'Case') and
+        (i_size = 'medium' or i_size = 'large')
         ) or
         (i_category = 'Women' and
-        (i_color = 'frosted' or i_color = 'plum') and
-        (i_units = 'Dram' or i_units = 'Box') and
-        (i_size = 'extra large' or i_size = 'petite')
+        (i_color = 'purple' or i_color = 'aquamarine') and
+        (i_units = 'Bunch' or i_units = 'Gram') and
+        (i_size = 'economy' or i_size = 'petite')
         ) or
         (i_category = 'Men' and
-        (i_color = 'papaya' or i_color = 'peach') and
-        (i_units = 'Bundle' or i_units = 'Carton') and
-        (i_size = 'N/A' or i_size = 'large')
+        (i_color = 'lavender' or i_color = 'papaya') and
+        (i_units = 'Pallet' or i_units = 'Cup') and
+        (i_size = 'N/A' or i_size = 'small')
         ) or
         (i_category = 'Men' and
-        (i_color = 'firebrick' or i_color = 'sienna') and
-        (i_units = 'Cup' or i_units = 'Each') and
-        (i_size = 'economy' or i_size = 'small')
+        (i_color = 'maroon' or i_color = 'cyan') and
+        (i_units = 'Each' or i_units = 'N/A') and
+        (i_size = 'medium' or i_size = 'large')
         )))) > 0
  order by i_product_name
  limit 100
