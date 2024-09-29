@@ -33,6 +33,7 @@
 #include <utility>
 
 #include "cloud/config.h"
+#include "common/cast_set.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
@@ -112,6 +113,8 @@
 #include "vec/runtime/vdata_stream_mgr.h"
 
 namespace doris::pipeline {
+#include "common/compile_check_begin.h"
+bvar::Adder<int64_t> g_pipeline_tasks_count("doris_pipeline_tasks_count");
 
 PipelineFragmentContext::PipelineFragmentContext(
         const TUniqueId& query_id, const int fragment_id, std::shared_ptr<QueryContext> query_ctx,
@@ -243,7 +246,7 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
     _prepare_all_pipelines_timer = ADD_TIMER(_fragment_level_profile, "PrepareAllPipelinesTime");
     {
         SCOPED_TIMER(_init_context_timer);
-        _num_instances = request.local_params.size();
+        cast_set(_num_instances, request.local_params.size());
         _total_instances =
                 request.__isset.total_instances ? request.total_instances : _num_instances;
 
@@ -365,7 +368,7 @@ Status PipelineFragmentContext::_build_pipeline_tasks(const doris::TPipelineFrag
     }
     auto pipeline_id_to_profile = _runtime_state->build_pipeline_profile(_pipelines.size());
 
-    auto pre_and_submit = [&](int i, PipelineFragmentContext* ctx) {
+    auto pre_and_submit = [&](int64_t i, PipelineFragmentContext* ctx) {
         const auto& local_params = request.local_params[i];
         auto fragment_instance_id = local_params.fragment_instance_id;
         _fragment_instance_ids[i] = fragment_instance_id;
@@ -941,9 +944,10 @@ Status PipelineFragmentContext::_add_local_exchange(
     if (cur_pipe->num_tasks() > 1 && new_pip->num_tasks() == 1 &&
         Pipeline::is_hash_exchange(data_distribution.distribution_type)) {
         RETURN_IF_ERROR(_add_local_exchange_impl(
-                new_pip->operators().size(), pool, new_pip, add_pipeline(new_pip, pip_idx + 2),
-                DataDistribution(ExchangeType::PASSTHROUGH), do_local_exchange, num_buckets,
-                bucket_seq_to_instance_idx, shuffle_idx_to_instance_idx, ignore_data_distribution));
+                cast_set<int>(new_pip->operators().size()), pool, new_pip,
+                add_pipeline(new_pip, pip_idx + 2), DataDistribution(ExchangeType::PASSTHROUGH),
+                do_local_exchange, num_buckets, bucket_seq_to_instance_idx,
+                shuffle_idx_to_instance_idx, ignore_data_distribution));
     }
     return Status::OK();
 }
@@ -951,7 +955,7 @@ Status PipelineFragmentContext::_add_local_exchange(
 Status PipelineFragmentContext::_plan_local_exchange(
         int num_buckets, const std::map<int, int>& bucket_seq_to_instance_idx,
         const std::map<int, int>& shuffle_idx_to_instance_idx) {
-    for (int pip_idx = _pipelines.size() - 1; pip_idx >= 0; pip_idx--) {
+    for (int pip_idx = cast_set<int>(_pipelines.size()) - 1; pip_idx >= 0; pip_idx--) {
         _pipelines[pip_idx]->init_data_distribution();
         // Set property if child pipeline is not join operator's child.
         if (!_pipelines[pip_idx]->children().empty()) {
@@ -1135,8 +1139,8 @@ Status PipelineFragmentContext::_create_data_sink(ObjectPool* pool, const TDataS
         }
 
         _sink.reset(new MultiCastDataStreamSinkOperatorX(
-                sink_id, sources, thrift_sink.multi_cast_stream_sink.sinks.size(), pool,
-                thrift_sink.multi_cast_stream_sink, row_desc));
+                sink_id, sources, cast_set<int>(thrift_sink.multi_cast_stream_sink.sinks.size()),
+                pool, thrift_sink.multi_cast_stream_sink, row_desc));
         for (int i = 0; i < sender_size; ++i) {
             auto new_pipeline = add_pipeline();
             RowDescriptor* _row_desc = nullptr;
@@ -1870,5 +1874,5 @@ PipelineFragmentContext::collect_realtime_load_channel_profile() const {
     _runtime_state->load_channel_profile()->to_thrift(load_channel_profile.get());
     return load_channel_profile;
 }
-
+#include "common/compile_check_end.h"
 } // namespace doris::pipeline
