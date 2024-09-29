@@ -126,7 +126,7 @@ SegmentWriter::SegmentWriter(io::FileWriter* file_writer, uint32_t segment_id,
             _key_index_size.clear();
             _num_sort_key_columns = _tablet_schema->cluster_key_idxes().size();
             for (auto cid : _tablet_schema->cluster_key_idxes()) {
-                const auto& column = _tablet_schema->column(cid);
+                const auto& column = _tablet_schema->column_by_uid(cid);
                 _key_coders.push_back(get_key_coder(column.type()));
                 _key_index_size.push_back(column.index_length());
             }
@@ -535,7 +535,7 @@ Status SegmentWriter::probe_key_for_mow(
 // 3. set columns to data convertor and then write all columns
 Status SegmentWriter::append_block_with_partial_content(const vectorized::Block* block,
                                                         size_t row_pos, size_t num_rows) {
-    if (block->columns() <= _tablet_schema->num_key_columns() ||
+    if (block->columns() < _tablet_schema->num_key_columns() ||
         block->columns() >= _tablet_schema->num_columns()) {
         return Status::InvalidArgument(
                 fmt::format("illegal partial update block columns: {}, num key columns: {}, total "
@@ -755,16 +755,30 @@ Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_po
             // 2. generate short key index (use cluster key)
             key_columns.clear();
             for (const auto& cid : _tablet_schema->cluster_key_idxes()) {
-                for (size_t id = 0; id < _column_writers.size(); ++id) {
-                    // olap data convertor always start from id = 0
-                    if (cid == _column_ids[id]) {
-                        auto converted_result = _olap_data_convertor->convert_column_data(id);
+                // find cluster key index in tablet schema
+                auto cluster_key_index = _tablet_schema->field_index(cid);
+                if (cluster_key_index == -1) {
+                    return Status::InternalError(
+                            "could not find cluster key column with unique_id=" +
+                            std::to_string(cid) + " in tablet schema");
+                }
+                bool found = false;
+                for (auto i = 0; i < _column_ids.size(); ++i) {
+                    if (_column_ids[i] == cluster_key_index) {
+                        auto converted_result = _olap_data_convertor->convert_column_data(i);
                         if (!converted_result.first.ok()) {
                             return converted_result.first;
                         }
                         key_columns.push_back(converted_result.second);
+                        found = true;
                         break;
                     }
+                }
+                if (!found) {
+                    return Status::InternalError(
+                            "could not found cluster key column with unique_id=" +
+                            std::to_string(cid) +
+                            ", tablet schema index=" + std::to_string(cluster_key_index));
                 }
             }
             RETURN_IF_ERROR(_generate_short_key_index(key_columns, num_rows, short_key_pos));
@@ -1187,7 +1201,7 @@ Status SegmentWriter::_generate_primary_key_index(
             }
             DCHECK(key.compare(last_key) > 0)
                     << "found duplicate key or key is not sorted! current key: " << key
-                    << ", last key" << last_key;
+                    << ", last key: " << last_key;
             RETURN_IF_ERROR(_primary_key_index_builder->add_item(key));
             last_key = std::move(key);
         }
@@ -1210,8 +1224,9 @@ Status SegmentWriter::_generate_primary_key_index(
         for (const auto& key : primary_keys) {
             DCHECK(key.compare(last_key) > 0)
                     << "found duplicate key or key is not sorted! current key: " << key
-                    << ", last key" << last_key;
+                    << ", last key: " << last_key;
             RETURN_IF_ERROR(_primary_key_index_builder->add_item(key));
+            last_key = key;
         }
     }
     return Status::OK();
@@ -1223,10 +1238,18 @@ Status SegmentWriter::_generate_short_key_index(
     // use _key_coders
     set_min_key(_full_encode_keys(key_columns, 0));
     set_max_key(_full_encode_keys(key_columns, num_rows - 1));
+    DCHECK(Slice(_max_key.data(), _max_key.size())
+                   .compare(Slice(_min_key.data(), _min_key.size())) >= 0)
+            << "key is not sorted! min key: " << _min_key << ", max key: " << _max_key;
 
     key_columns.resize(_num_short_key_columns);
+    std::string last_key;
     for (const auto pos : short_key_pos) {
-        RETURN_IF_ERROR(_short_key_index_builder->add_item(_encode_keys(key_columns, pos)));
+        std::string key = _encode_keys(key_columns, pos);
+        DCHECK(key.compare(last_key) >= 0)
+                << "key is not sorted! current key: " << key << ", last key: " << last_key;
+        RETURN_IF_ERROR(_short_key_index_builder->add_item(key));
+        last_key = std::move(key);
     }
     return Status::OK();
 }

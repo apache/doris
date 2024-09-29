@@ -233,8 +233,8 @@ public:
     // to nullptr, but the object it points to is not initialized. At this time, when the memory
     // is released somewhere, the hook is triggered to cause the crash.
     std::unique_ptr<ThreadMemTrackerMgr> thread_mem_tracker_mgr;
-    [[nodiscard]] MemTrackerLimiter* thread_mem_tracker() const {
-        return thread_mem_tracker_mgr->limiter_mem_tracker().get();
+    [[nodiscard]] std::shared_ptr<MemTrackerLimiter> thread_mem_tracker() const {
+        return thread_mem_tracker_mgr->limiter_mem_tracker();
     }
 
     QueryThreadContext query_thread_context();
@@ -401,6 +401,10 @@ public:
         query_mem_tracker = doris::ExecEnv::GetInstance()->orphan_mem_tracker();
 #endif
     }
+
+    std::shared_ptr<MemTrackerLimiter> get_memory_tracker() { return query_mem_tracker; }
+
+    WorkloadGroupPtr get_workload_group_ptr() { return wg_wptr.lock(); }
 
     TUniqueId query_id;
     std::shared_ptr<MemTrackerLimiter> query_mem_tracker;

@@ -146,6 +146,18 @@ struct ArrayAggregateImpl {
         using Function = AggregateFunction<AggregateFunctionImpl<operation>>;
         const DataTypeArray* data_type_array =
                 static_cast<const DataTypeArray*>(remove_nullable(arguments[0]).get());
+        if constexpr (operation != AggregateOperation::MIN &&
+                      operation != AggregateOperation::MAX) {
+            // only array_min and array_max support decimal256 type
+            if (is_decimal(remove_nullable(data_type_array->get_nested_type()))) {
+                const auto decimal_type = remove_nullable(data_type_array->get_nested_type());
+                if (check_decimal<Decimal256>(*decimal_type)) {
+                    throw doris::Exception(
+                            ErrorCode::INVALID_ARGUMENT, "Unexpected type {} for aggregation {}",
+                            data_type_array->get_nested_type()->get_name(), operation);
+                }
+            }
+        }
         auto function = Function::create(data_type_array->get_nested_type());
         if (function) {
             return function->get_return_type();
@@ -175,6 +187,7 @@ struct ArrayAggregateImpl {
             execute_type<Decimal64>(res, type, data, offsets) ||
             execute_type<Decimal128V2>(res, type, data, offsets) ||
             execute_type<Decimal128V3>(res, type, data, offsets) ||
+            execute_type<Decimal256>(res, type, data, offsets) ||
             execute_type<Date>(res, type, data, offsets) ||
             execute_type<DateTime>(res, type, data, offsets) ||
             execute_type<DateV2>(res, type, data, offsets) ||

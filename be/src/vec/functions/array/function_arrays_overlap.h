@@ -45,6 +45,7 @@
 #include "vec/data_types/data_type_number.h"
 #include "vec/functions/array/function_array_utils.h"
 #include "vec/functions/function.h"
+#include "vec/functions/function_helpers.h"
 
 namespace doris {
 class FunctionContext;
@@ -126,6 +127,87 @@ public:
                 << "data type " << arguments[0]->get_name() << " not equal with "
                 << arguments[1]->get_name();
         return make_nullable(std::make_shared<DataTypeUInt8>());
+    }
+
+    /**
+     * eval inverted index. we can filter array rows with inverted index iter
+     * array_overlap(array, []) -> array_overlap(array, const value)
+     */
+    Status evaluate_inverted_index(
+            const ColumnsWithTypeAndName& arguments,
+            const std::vector<vectorized::IndexFieldNameAndTypePair>& data_type_with_names,
+            std::vector<segment_v2::InvertedIndexIterator*> iterators, uint32_t num_rows,
+            segment_v2::InvertedIndexResultBitmap& bitmap_result) const override {
+        DCHECK(arguments.size() == 1);
+        DCHECK(data_type_with_names.size() == 1);
+        DCHECK(iterators.size() == 1);
+        auto* iter = iterators[0];
+        if (iter == nullptr) {
+            return Status::OK();
+        }
+        auto data_type_with_name = data_type_with_names[0];
+        if (iter->get_inverted_index_reader_type() ==
+            segment_v2::InvertedIndexReaderType::FULLTEXT) {
+            return Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED>(
+                    "Inverted index evaluate skipped, FULLTEXT reader can not support "
+                    "array_overlap");
+        }
+        // in arrays_overlap param is array Field and const Field
+        ColumnPtr arg_column = arguments[0].column;
+        DataTypePtr arg_type = arguments[0].type;
+        if ((is_column_nullable(*arg_column) && !is_column_const(*remove_nullable(arg_column))) ||
+            !is_column_const(*arg_column)) {
+            // if not we should skip inverted index and evaluate in expression
+            return Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED>(
+                    "Inverted index evaluate skipped, array_overlap only support const value");
+        }
+
+        Field param_value;
+        arguments[0].column->get(0, param_value);
+        DCHECK(is_array(remove_nullable(arguments[0].type)));
+        auto nested_param_type =
+                check_and_get_data_type<DataTypeArray>(remove_nullable(arguments[0].type).get())
+                        ->get_nested_type()
+                        ->get_type_as_type_descriptor()
+                        .type;
+        // The current implementation for the inverted index of arrays cannot handle cases where the array contains null values,
+        // meaning an item in the array is null.
+        if (param_value.is_null()) {
+            return Status::OK();
+        }
+        std::shared_ptr<roaring::Roaring> roaring = std::make_shared<roaring::Roaring>();
+        std::shared_ptr<roaring::Roaring> null_bitmap = std::make_shared<roaring::Roaring>();
+        if (iter->has_null()) {
+            segment_v2::InvertedIndexQueryCacheHandle null_bitmap_cache_handle;
+            RETURN_IF_ERROR(iter->read_null_bitmap(&null_bitmap_cache_handle));
+            null_bitmap = null_bitmap_cache_handle.get_bitmap();
+        }
+        std::unique_ptr<InvertedIndexQueryParamFactory> query_param = nullptr;
+        const Array& query_val = param_value.get<Array>();
+        for (size_t i = 0; i < query_val.size(); ++i) {
+            Field nested_query_val = query_val[i];
+            std::shared_ptr<roaring::Roaring> single_res = std::make_shared<roaring::Roaring>();
+            RETURN_IF_ERROR(InvertedIndexQueryParamFactory::create_query_value(
+                    nested_param_type, &nested_query_val, query_param));
+            Status st = iter->read_from_inverted_index(
+                    data_type_with_name.first, query_param->get_value(),
+                    segment_v2::InvertedIndexQueryType::EQUAL_QUERY, num_rows, single_res);
+            if (st.code() == ErrorCode::INVERTED_INDEX_NO_TERMS) {
+                // if analyzed param with no term, we do not filter any rows
+                // return all rows with OK status
+                roaring->addRange(0, num_rows);
+                break;
+            } else if (st != Status::OK()) {
+                return st;
+            }
+            *roaring |= *single_res;
+        }
+
+        segment_v2::InvertedIndexResultBitmap result(roaring, null_bitmap);
+        bitmap_result = result;
+        bitmap_result.mask_out_null();
+
+        return Status::OK();
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,

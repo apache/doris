@@ -25,6 +25,7 @@ import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Writable;
 
 import com.google.common.collect.Lists;
+import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -37,9 +38,13 @@ import java.util.stream.Collectors;
  * This class saves the schema of a colocation group
  */
 public class ColocateGroupSchema implements Writable {
+    @SerializedName(value = "groupId")
     private GroupId groupId;
+    @SerializedName(value = "distributionColTypes")
     private List<Type> distributionColTypes = Lists.newArrayList();
+    @SerializedName(value = "bucketsNum")
     private int bucketsNum;
+    @SerializedName(value = "replicaAlloc")
     private ReplicaAllocation replicaAlloc;
 
     private ColocateGroupSchema() {

@@ -127,8 +127,14 @@ public class MetaLockUtils {
     }
 
     public static void commitLockTables(List<Table> tableList) {
-        for (Table table : tableList) {
-            table.commitLock();
+        for (int i = 0; i < tableList.size(); i++) {
+            try {
+                tableList.get(i).commitLock();
+            } catch (Exception e) {
+                for (int j = i - 1; j >= 0; j--) {
+                    tableList.get(i).commitUnlock();
+                }
+            }
         }
     }
 

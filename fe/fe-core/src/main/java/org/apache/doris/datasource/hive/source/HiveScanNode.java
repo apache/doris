@@ -257,30 +257,32 @@ public class HiveScanNode extends FileQueryScanNode {
                 }
                 try {
                     splittersOnFlight.acquire();
-                } catch (InterruptedException e) {
+                    CompletableFuture.runAsync(() -> {
+                        try {
+                            List<Split> allFiles = Lists.newArrayList();
+                            getFileSplitByPartitions(
+                                    cache, Collections.singletonList(partition), allFiles, bindBrokerName);
+                            if (allFiles.size() > numSplitsPerPartition.get()) {
+                                numSplitsPerPartition.set(allFiles.size());
+                            }
+                            splitAssignment.addToQueue(allFiles);
+                        } catch (IOException e) {
+                            batchException.set(new UserException(e.getMessage(), e));
+                        } finally {
+                            splittersOnFlight.release();
+                            if (batchException.get() != null) {
+                                splitAssignment.setException(batchException.get());
+                            }
+                            if (numFinishedPartitions.incrementAndGet() == prunedPartitions.size()) {
+                                splitAssignment.finishSchedule();
+                            }
+                        }
+                    }, scheduleExecutor);
+                } catch (Exception e) {
+                    // When submitting a task, an exception will be thrown if the task pool(scheduleExecutor) is full
                     batchException.set(new UserException(e.getMessage(), e));
                     break;
                 }
-                CompletableFuture.runAsync(() -> {
-                    try {
-                        List<Split> allFiles = Lists.newArrayList();
-                        getFileSplitByPartitions(cache, Collections.singletonList(partition), allFiles, bindBrokerName);
-                        if (allFiles.size() > numSplitsPerPartition.get()) {
-                            numSplitsPerPartition.set(allFiles.size());
-                        }
-                        splitAssignment.addToQueue(allFiles);
-                    } catch (IOException e) {
-                        batchException.set(new UserException(e.getMessage(), e));
-                    } finally {
-                        splittersOnFlight.release();
-                        if (batchException.get() != null) {
-                            splitAssignment.setException(batchException.get());
-                        }
-                        if (numFinishedPartitions.incrementAndGet() == prunedPartitions.size()) {
-                            splitAssignment.finishSchedule();
-                        }
-                    }
-                }, scheduleExecutor);
             }
             if (batchException.get() != null) {
                 splitAssignment.setException(batchException.get());
@@ -462,21 +464,24 @@ public class HiveScanNode extends FileQueryScanNode {
         if (serdeParams.containsKey(PROP_QUOTE_CHAR)) {
             textParams.setEnclose(serdeParams.get(PROP_QUOTE_CHAR).getBytes()[0]);
         }
-
-        // TODO: support escape char and null format in csv_reader
-        Optional<String> escapeChar = HiveMetaStoreClientHelper.getSerdeProperty(hmsTable.getRemoteTable(),
+        // 6. set escape delimiter
+        Optional<String> escapeDelim = HiveMetaStoreClientHelper.getSerdeProperty(hmsTable.getRemoteTable(),
                 PROP_ESCAPE_DELIMITER);
-        if (escapeChar.isPresent() && !escapeChar.get().equals(DEFAULT_ESCAPE_DELIMIER)) {
-            throw new UserException(
-                    "not support serde prop " + PROP_ESCAPE_DELIMITER + " in hive text reading");
+        if (escapeDelim.isPresent()) {
+            String escape = HiveMetaStoreClientHelper.getByte(
+                    escapeDelim.get());
+            if (escape != null) {
+                textParams
+                        .setEscape(escape.getBytes()[0]);
+            } else {
+                textParams.setEscape(DEFAULT_ESCAPE_DELIMIER.getBytes()[0]);
+            }
         }
-
+        // 7. set null format
         Optional<String> nullFormat = HiveMetaStoreClientHelper.getSerdeProperty(hmsTable.getRemoteTable(),
                 PROP_NULL_FORMAT);
-        if (nullFormat.isPresent() && !nullFormat.get().equals(DEFAULT_NULL_FORMAT)) {
-            throw new UserException(
-                    "not support serde prop " + PROP_NULL_FORMAT + " in hive text reading");
-        }
+        textParams.setNullFormat(HiveMetaStoreClientHelper.firstPresentOrDefault(
+                DEFAULT_NULL_FORMAT, nullFormat));
 
         TFileAttributes fileAttributes = new TFileAttributes();
         fileAttributes.setTextParams(textParams);

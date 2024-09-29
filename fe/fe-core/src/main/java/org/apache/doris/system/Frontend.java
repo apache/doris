@@ -47,6 +47,9 @@ public class Frontend implements Writable {
     // used for getIpByHostname
     @SerializedName("editLogPort")
     private int editLogPort;
+    @SerializedName("cloudUniqueId")
+    private String cloudUniqueId;
+
     private String version;
 
     private int queryPort;
@@ -139,6 +142,14 @@ public class Frontend implements Writable {
 
     public List<FeDiskInfo> getDiskInfos() {
         return diskInfos;
+    }
+
+    public void setCloudUniqueId(String cloudUniqueId) {
+        this.cloudUniqueId = cloudUniqueId;
+    }
+
+    public String getCloudUniqueId() {
+        return cloudUniqueId;
     }
 
     /**

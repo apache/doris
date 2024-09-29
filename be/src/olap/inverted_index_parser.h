@@ -46,6 +46,8 @@ struct InvertedIndexCtx {
     InvertedIndexParserType parser_type;
     std::string parser_mode;
     CharFilterMap char_filter_map;
+    std::string lower_case;
+    std::string stop_words;
     lucene::analysis::Analyzer* analyzer = nullptr;
 };
 
