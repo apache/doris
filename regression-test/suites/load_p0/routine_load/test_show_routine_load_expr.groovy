@@ -89,6 +89,10 @@ suite("test_show_routine_load_expr", "p0") {
     log.info("SHOW ROUTINE LOAD LIMIT 1 result: ${res}")
     assertTrue(res.size() == 1)  // Ensure only one result is returned
 
+    res = sql """SHOW variables"""
+    log.info("SHOW variables + ${res}")
+    assertTrue(res.size() == 1)  // Ensure only one result is returned
+
     sql """ DROP TABLE IF EXISTS ${tableName} """
 
 
