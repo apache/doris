@@ -553,7 +553,6 @@ public class Alter {
         switch (tableIf.getType()) {
             case MATERIALIZED_VIEW:
             case OLAP:
-            case TEMP:
                 OlapTable olapTable = (OlapTable) tableIf;
                 needProcessOutsideTableLock = processAlterOlapTable(stmt, olapTable, alterClauses, (Database) dbIf);
                 break;

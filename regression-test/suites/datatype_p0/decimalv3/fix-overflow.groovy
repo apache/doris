@@ -71,7 +71,7 @@ suite("fix-overflow") {
             *
         from
             (
-                with temp1 as (
+                with temp as (
                     select
                         sum(financing_amount) / 100000000 as amount,
                         country
@@ -96,8 +96,8 @@ suite("fix-overflow") {
                         ) - 1
                     ) as past_5_cagr
                 from
-                    temp1 t1
-                    left join temp1 t2 on
+                    temp t1
+                    left join temp t2 on
                     t2.country = t1.country
             ) as ret;
     """

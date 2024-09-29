@@ -43,6 +43,7 @@ import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.SessionContext;
@@ -309,7 +310,8 @@ public class ConnectContext {
         if (isTxnModel() && insertResult != null) {
             insertResult.updateResult(txnStatus, loadedRows, filteredRows);
         } else {
-            insertResult = new InsertResult(txnId, label, db, tbl, txnStatus, loadedRows, filteredRows);
+            insertResult = new InsertResult(txnId, label, db, Util.getTempTableOuterName(tbl),
+                txnStatus, loadedRows, filteredRows);
         }
     }
 
@@ -856,7 +858,6 @@ public class ConnectContext {
             Database db = Env.getCurrentEnv().getInternalCatalog().getDb(dbName).get();
             for (String tableName : dbToTempTableNamesMap.get(dbName)) {
                 try {
-                    //Env.getCurrentEnv().unprotectDropTable(db, db.getTable(tableName).get(), true, false, 0L);
                     Env.getCurrentEnv().getInternalCatalog()
                         .dropTableWithoutCheck(db, db.getTable(tableName).get(), true);
                 } catch (DdlException e) {

@@ -95,54 +95,54 @@
      """
 
      order_qt_select """
-        with temp1 as (select 
+        with temp as (select 
         t2.data_time
         from dim_comp_tags t1
         left join ods_comp_info_q t2 on t2.stock_code = t1.stock_code
         group by t2.data_time)
         select tt1.data_time
-        from temp1 tt1
-        left join temp1 tt2 on tt2.data_time = tt1.data_time order by tt1.data_time;
+        from temp tt1
+        left join temp tt2 on tt2.data_time = tt1.data_time order by tt1.data_time;
      """
      order_qt_select """
-        with temp1 as (select
+        with temp as (select
         t2.`datev2`
         from dim_comp_tags t1
         left join ods_comp_info_q t2 on t2.stock_code = t1.stock_code
         group by t2.`datev2`)
         select tt1.`datev2`
-        from temp1 tt1
-        left join temp1 tt2 on tt2.`datev2` = tt1.`datev2` order by tt1.`datev2`;
+        from temp tt1
+        left join temp tt2 on tt2.`datev2` = tt1.`datev2` order by tt1.`datev2`;
      """
      order_qt_select """
-        with temp1 as (select
+        with temp as (select
         t2.`datatimev2_1`
         from dim_comp_tags t1
         left join ods_comp_info_q t2 on t2.stock_code = t1.stock_code
         group by t2.`datatimev2_1`)
         select tt1.`datatimev2_1`
-        from temp1 tt1
-        left join temp1 tt2 on tt2.`datatimev2_1` = tt1.`datatimev2_1` order by tt1.`datatimev2_1`;
+        from temp tt1
+        left join temp tt2 on tt2.`datatimev2_1` = tt1.`datatimev2_1` order by tt1.`datatimev2_1`;
      """
      order_qt_select """
-        with temp1 as (select
+        with temp as (select
         t2.`datatimev2_2`
         from dim_comp_tags t1
         left join ods_comp_info_q t2 on t2.stock_code = t1.stock_code
         group by t2.`datatimev2_2`)
         select tt1.`datatimev2_2`
-        from temp1 tt1
-        left join temp1 tt2 on tt2.`datatimev2_2` = tt1.`datatimev2_2` order by tt1.`datatimev2_2`;
+        from temp tt1
+        left join temp tt2 on tt2.`datatimev2_2` = tt1.`datatimev2_2` order by tt1.`datatimev2_2`;
      """
      order_qt_select """
-        with temp1 as (select
+        with temp as (select
         t2.`datatimev2_3`
         from dim_comp_tags t1
         left join ods_comp_info_q t2 on t2.stock_code = t1.stock_code
         group by t2.`datatimev2_3`)
         select tt1.`datatimev2_3`
-        from temp1 tt1
-        left join temp1 tt2 on tt2.`datatimev2_3` = tt1.`datatimev2_3` order by tt1.`datatimev2_3`;
+        from temp tt1
+        left join temp tt2 on tt2.`datatimev2_3` = tt1.`datatimev2_3` order by tt1.`datatimev2_3`;
      """
  }
 
