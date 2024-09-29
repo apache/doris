@@ -78,10 +78,10 @@ public class DecimalV3Literal extends FractionalLiteral {
      * @return new decimal v3 literal with new scalar
      */
     public DecimalV3Literal roundCeiling(int newScale) {
-	if (newScale >= this.getValue().scale()) {
+        if (newScale >= this.getValue().scale()) {
             return this;
         }
-	return new DecimalV3Literal(value.setScale(newScale, RoundingMode.CEILING));
+        return new DecimalV3Literal(value.setScale(newScale, RoundingMode.CEILING));
     }
 
     /**
@@ -93,7 +93,7 @@ public class DecimalV3Literal extends FractionalLiteral {
         if (newScale >= this.getValue().scale()) {
             return this;
         }
-	return new DecimalV3Literal(value.setScale(newScale, RoundingMode.FLOOR));
+        return new DecimalV3Literal(value.setScale(newScale, RoundingMode.FLOOR));
     }
 
     /**

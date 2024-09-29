@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeAcquire;
@@ -115,7 +116,13 @@ public enum ExpressionEvaluator {
                     return (Literal) method.invoke(null, objects);
                 }
                 return (Literal) method.invoke(null, expression.children().toArray());
-            } catch (InvocationTargetException | IllegalAccessException | IllegalArgumentException e) {
+            } catch (InvocationTargetException e) {
+                if (e.getTargetException() instanceof AnalysisException) {
+                    throw new AnalysisException(e.getTargetException().getMessage());
+                } else {
+                    return expression;
+                }
+            } catch (IllegalAccessException | IllegalArgumentException e) {
                 return expression;
             }
         }

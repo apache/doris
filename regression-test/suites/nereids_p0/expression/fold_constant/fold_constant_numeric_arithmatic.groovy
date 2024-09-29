@@ -201,17 +201,11 @@ suite("fold_constant_numeric_arithmatic") {
     testFoldConst("SELECT LN(1) AS ln_case_1") //ln(1) = 0
     testFoldConst("SELECT LN(EXP(1)) AS ln_case_2") //ln(e) = 1
     testFoldConst("SELECT LN(0.5) AS ln_case_3") //ln(0.5)
-//Exception: Ln of negative and zero values (undefined)
-    testFoldConst("SELECT LN(-1) AS ln_case_exception_1")
-    testFoldConst("SELECT LN(0) AS ln_case_exception_2")
 
 //Log10 function cases
     testFoldConst("SELECT LOG10(100) AS log10_case_1") //log10(100) = 2
     testFoldConst("SELECT LOG10(1) AS log10_case_2") //log10(1) = 0
     testFoldConst("SELECT LOG10(1000) AS log10_case_3") //log10(1000) = 3
-//Exception: Log10 of negative and zero values (undefined)
-    testFoldConst("SELECT LOG10(-100) AS log10_case_exception_1") //undefined (returns NULL or error)
-    testFoldConst("SELECT LOG10(0) AS log10_case_exception_2") //undefined (returns NULL or error)
 
 //Sqrt function cases
     testFoldConst("SELECT SQRT(16) AS sqrt_case_1") //sqrt(16) = 4

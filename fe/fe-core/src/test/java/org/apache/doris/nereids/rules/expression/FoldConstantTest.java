@@ -34,6 +34,7 @@ import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
 import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeArithmetic;
 import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeExtractAndTransform;
 import org.apache.doris.nereids.trees.expressions.functions.executable.TimeRoundSeries;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Acos;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.AppendTrailingCharIfAbsent;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Asin;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Bin;
@@ -41,21 +42,23 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.BitCount;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ceil;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Coalesce;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ConvertTz;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Cos;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DateFormat;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DateTrunc;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Exp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Floor;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FromUnixtime;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursAdd;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.MinutesAdd;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondsAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ln;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MinutesAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Power;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Round;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondsAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sign;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sin;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sqrt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StrToDate;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Tan;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToDays;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UnixTimestamp;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
@@ -333,7 +336,7 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
     }
 
     @Test
-    void testFoldNumeric() {
+    void testleFoldNumeric() {
         executor = new ExpressionRuleExecutor(ImmutableList.of(
             bottomUp(FoldConstantRuleOnFE.VISITOR_INSTANCE)
         ));
@@ -374,19 +377,22 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
         Exp exp = new Exp(new DoubleLiteral(1d));
         rewritten = executor.rewrite(exp, context);
         Assertions.assertTrue(new DoubleLiteral(Math.E).compareTo((Literal) rewritten) == 0);
-        exp = new Exp(new DoubleLiteral(1000d));
-        rewritten = executor.rewrite(exp, context);
-        Assertions.assertTrue(new DoubleLiteral(Double.POSITIVE_INFINITY).compareTo((Literal) rewritten) == 0);
+        Assertions.assertThrows(AnalysisException.class, () -> {
+            Exp exExp = new Exp(new DoubleLiteral(1000d));
+            executor.rewrite(exExp, context);
+        }, "infinite result is invalid");
 
         Ln ln = new Ln(new DoubleLiteral(1d));
         rewritten = executor.rewrite(ln, context);
         Assertions.assertTrue(new DoubleLiteral(0.0).compareTo((Literal) rewritten) == 0);
-        ln = new Ln(new DoubleLiteral(0d));
-        rewritten = executor.rewrite(ln, context);
-        Assertions.assertTrue(new NullLiteral().compareTo((Literal) rewritten) == 0);
-        ln = new Ln(new DoubleLiteral(-1d));
-        rewritten = executor.rewrite(ln, context);
-        Assertions.assertTrue(new NullLiteral().compareTo((Literal) rewritten) == 0);
+        Assertions.assertThrows(AnalysisException.class, () -> {
+            Ln exExp = new Ln(new DoubleLiteral(0.0d));
+            executor.rewrite(exExp, context);
+        }, "input 0.0 is out of boundary");
+        Assertions.assertThrows(AnalysisException.class, () -> {
+            Ln exExp = new Ln(new DoubleLiteral(-1d));
+            executor.rewrite(exExp, context);
+        }, "input -1 is out of boundary");
 
         Sqrt sqrt = new Sqrt(new DoubleLiteral(16d));
         rewritten = executor.rewrite(sqrt, context);
@@ -394,16 +400,18 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
         sqrt = new Sqrt(new DoubleLiteral(0d));
         rewritten = executor.rewrite(sqrt, context);
         Assertions.assertTrue(new DoubleLiteral(0d).compareTo((Literal) rewritten) == 0);
-        sqrt = new Sqrt(new DoubleLiteral(-1d));
-        rewritten = executor.rewrite(sqrt, context);
-        Assertions.assertTrue(new NullLiteral().compareTo((Literal) rewritten) == 0);
+        Assertions.assertThrows(AnalysisException.class, () -> {
+            Sqrt exExp = new Sqrt(new DoubleLiteral(-1d));
+            executor.rewrite(exExp, context);
+        }, "input -1 is out of boundary");
 
         Power power = new Power(new DoubleLiteral(2d), new DoubleLiteral(3));
         rewritten = executor.rewrite(power, context);
         Assertions.assertTrue(new DoubleLiteral(8d).compareTo((Literal) rewritten) == 0);
-        power = new Power(new DoubleLiteral(2d), new DoubleLiteral(10000d));
-        rewritten = executor.rewrite(power, context);
-        Assertions.assertTrue(new DoubleLiteral(Double.POSITIVE_INFINITY).compareTo((Literal) rewritten) == 0);
+        Assertions.assertThrows(AnalysisException.class, () -> {
+            Power exExp = new Power(new DoubleLiteral(2d), new DoubleLiteral(10000d));
+            executor.rewrite(exExp, context);
+        }, "infinite result is invalid");
 
         Sin sin = new Sin(new DoubleLiteral(Math.PI / 2));
         rewritten = executor.rewrite(sin, context);
@@ -411,13 +419,42 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
         sin = new Sin(new DoubleLiteral(0d));
         rewritten = executor.rewrite(sin, context);
         Assertions.assertTrue(new DoubleLiteral(0d).compareTo((Literal) rewritten) == 0);
+        Assertions.assertThrows(AnalysisException.class, () -> {
+            Sin exExp = new Sin(new DoubleLiteral(Double.POSITIVE_INFINITY));
+            executor.rewrite(exExp, context);
+        }, "input infinity is out of boundary");
+
+        Cos cos = new Cos(new DoubleLiteral(0d));
+        rewritten = executor.rewrite(cos, context);
+        Assertions.assertTrue(new DoubleLiteral(1d).compareTo((Literal) rewritten) == 0);
+        Assertions.assertThrows(AnalysisException.class, () -> {
+            Cos exExp = new Cos(new DoubleLiteral(Double.POSITIVE_INFINITY));
+            executor.rewrite(exExp, context);
+        }, "input infinity is out of boundary");
+
+        Tan tan = new Tan(new DoubleLiteral(0d));
+        rewritten = executor.rewrite(tan, context);
+        Assertions.assertTrue(new DoubleLiteral(0d).compareTo((Literal) rewritten) == 0);
+        Assertions.assertThrows(AnalysisException.class, () -> {
+            Tan exExp = new Tan(new DoubleLiteral(Double.POSITIVE_INFINITY));
+            executor.rewrite(exExp, context);
+        }, "input infinity is out of boundary");
 
         Asin asin = new Asin(new DoubleLiteral(1d));
         rewritten = executor.rewrite(asin, context);
         Assertions.assertTrue(new DoubleLiteral(Math.PI / 2).compareTo((Literal) rewritten) == 0);
-        asin = new Asin(new DoubleLiteral(2d));
-        rewritten = executor.rewrite(asin, context);
-        Assertions.assertTrue(new NullLiteral().compareTo((Literal) rewritten) == 0);
+        Assertions.assertThrows(AnalysisException.class, () -> {
+            Asin exExp = new Asin(new DoubleLiteral(2d));
+            executor.rewrite(exExp, context);
+        }, "input 2.0 is out of boundary");
+
+        Acos acos = new Acos(new DoubleLiteral(1d));
+        rewritten = executor.rewrite(acos, context);
+        Assertions.assertTrue(new DoubleLiteral(0).compareTo((Literal) rewritten) == 0);
+        Assertions.assertThrows(AnalysisException.class, () -> {
+            Acos exExp = new Acos(new DoubleLiteral(2d));
+            executor.rewrite(exExp, context);
+        }, "input 2.0 is out of boundary");
 
         Sign sign = new Sign(new DoubleLiteral(1d));
         rewritten = executor.rewrite(sign, context);
