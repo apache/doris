@@ -749,6 +749,15 @@ void Block::erase_tmp_columns() noexcept {
     }
 }
 
+void Block::clear_column_mem_not_keep(const std::vector<bool>& column_keep_flags) {
+    DCHECK_LE(column_keep_flags.size(), data.size());
+    for (int i = 0; i < column_keep_flags.size(); ++i) {
+        if (!column_keep_flags[i]) {
+            data[i].column = data[i].column->clone_empty();
+        }
+    }
+}
+
 void Block::swap(Block& other) noexcept {
     SCOPED_SKIP_MEMORY_CHECK();
     data.swap(other.data);
