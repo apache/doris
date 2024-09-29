@@ -46,6 +46,7 @@ import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.plans.commands.UpdateMvByPartitionCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
+import org.apache.doris.qe.AuditLogHelper;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.StmtExecutor;
@@ -226,17 +227,24 @@ public class MTMVTask extends AbstractTask {
         UpdateMvByPartitionCommand command = UpdateMvByPartitionCommand
                 .from(mtmv, mtmv.getMvPartitionInfo().getPartitionType() != MTMVPartitionType.SELF_MANAGE
                         ? refreshPartitionNames : Sets.newHashSet(), tableWithPartKey);
-        executor = new StmtExecutor(ctx, new LogicalPlanAdapter(command, ctx.getStatementContext()));
-        ctx.setExecutor(executor);
-        ctx.setQueryId(queryId);
-        ctx.getState().setNereids(true);
-        command.run(ctx, executor);
-        if (getStatus() == TaskStatus.CANCELED) {
-            // Throwing an exception to interrupt subsequent partition update tasks
-            throw new JobException("task is CANCELED");
-        }
-        if (ctx.getState().getStateType() != MysqlStateType.OK) {
-            throw new JobException(ctx.getState().getErrorMessage());
+        try {
+            executor = new StmtExecutor(ctx, new LogicalPlanAdapter(command, ctx.getStatementContext()));
+            ctx.setExecutor(executor);
+            ctx.setQueryId(queryId);
+            ctx.getState().setNereids(true);
+            command.run(ctx, executor);
+            if (getStatus() == TaskStatus.CANCELED) {
+                // Throwing an exception to interrupt subsequent partition update tasks
+                throw new JobException("task is CANCELED");
+            }
+            if (ctx.getState().getStateType() != MysqlStateType.OK) {
+                throw new JobException(ctx.getState().getErrorMessage());
+            }
+        } finally {
+            if (executor != null) {
+                AuditLogHelper.logAuditLog(ctx, executor.getOriginStmt().originStmt,
+                        executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog(), true);
+            }
         }
     }
 
