@@ -898,7 +898,7 @@ DEFINE_mInt32(orc_natural_read_size_mb, "8");
 DEFINE_mInt64(big_column_size_buffer, "65535");
 DEFINE_mInt64(small_column_size_buffer, "100");
 
-// rf will decide whether the next sampling_frequency blocks need to be filtered based on the filtering rate of the current block.
+// Perform the always_true check at intervals determined by runtime_filter_sampling_frequency
 DEFINE_mInt32(runtime_filter_sampling_frequency, "64");
 
 // cooldown task configs

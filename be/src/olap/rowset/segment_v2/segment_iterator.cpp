@@ -1761,14 +1761,14 @@ uint16_t SegmentIterator::_evaluate_vectorization_predicate(uint16_t* sel_rowid_
     SCOPED_RAW_TIMER(&_opts.stats->vec_cond_ns);
     bool all_pred_always_true = true;
     for (const auto& pred : _pre_eval_block_predicate) {
-        if (!pred->always_true(false)) {
+        if (!pred->always_true()) {
             all_pred_always_true = false;
             break;
         }
     }
     if (all_pred_always_true) {
         for (const auto& pred : _pre_eval_block_predicate) {
-            pred->always_true(true);
+            pred->always_true();
         }
     }
 
@@ -1785,7 +1785,7 @@ uint16_t SegmentIterator::_evaluate_vectorization_predicate(uint16_t* sel_rowid_
     DCHECK(!_pre_eval_block_predicate.empty());
     bool is_first = true;
     for (auto& pred : _pre_eval_block_predicate) {
-        if (pred->always_true(true)) {
+        if (pred->always_true()) {
             continue;
         }
         auto column_id = pred->column_id();

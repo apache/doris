@@ -155,9 +155,9 @@ public:
     VExprSPtr get_child(int i) const { return _children[i]; }
     int get_num_children() const { return _children.size(); }
 
-    virtual bool need_judge_selectivity() {
+    virtual bool is_rf_wrapper() const {
         return std::ranges::any_of(_children.begin(), _children.end(),
-                                   [](VExprSPtr child) { return child->need_judge_selectivity(); });
+                                   [](VExprSPtr child) { return child->is_rf_wrapper(); });
     }
 
     virtual void do_judge_selectivity(int64_t filter_rows, int64_t input_rows) {
