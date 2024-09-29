@@ -68,8 +68,12 @@ suite("test_show_routine_load_expr", "p0") {
         );
     """
 
+    def res = sql """SHOW variables"""
+    log.info("SHOW variables,this is toms + ${res}")
+    assertTrue(res.size() == 1)  // Ensure only one result is returned
+
     // Order by name descending
-    def res = sql """SHOW ROUTINE LOAD ORDER BY Name DESC"""
+    res = sql """SHOW ROUTINE LOAD ORDER BY Name DESC"""
     log.info("SHOW ROUTINE LOAD result: ${res[0][1]}")
     // Expect the first job to be testshow002
     assertTrue(res[0][1] == "testshow002")
