@@ -81,6 +81,7 @@ public class DorisFE {
     private static FileLock processFileLock;
 
     public static void main(String[] args) {
+        System.setProperty("sun.security.krb5.debug", "true");
         // Every doris version should have a final meta version, it should not change
         // between small releases. Add a check here to avoid mistake.
         if (Version.DORIS_FE_META_VERSION > 0
