@@ -268,7 +268,8 @@ void MetaServiceImpl::begin_txn(::google::protobuf::RpcController* controller,
             }
             code = MetaServiceCode::TXN_LABEL_ALREADY_USED;
             ss << "Label [" << label << "] has already been used, relate to txn ["
-               << cur_txn_info.txn_id() << "]";
+               << cur_txn_info.txn_id() << "], status=[" << TxnStatusPB_Name(cur_txn_info.status())
+               << "]";
             msg = ss.str();
             return;
         }
