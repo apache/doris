@@ -18,8 +18,23 @@ import groovyjarjarantlr4.v4.codegen.model.ExceptionClause
 // under the License.
 
 import org.junit.Assert;
-
+import java.net.Socket
 suite("test_two_hive_kerberos", "p0,external,kerberos,external_docker,external_docker_kerberos") {
+    def kdcServers = [
+            [host: 'hadoop-master', port: 88],
+            [host: 'hadoop-master-2', port: 88],
+            [host: 'hadoop-master', port: 89]
+    ]
+
+    kdcServers.each { server ->
+        try {
+            def socket = new Socket(server.host, server.port)
+            socket.close()
+            println "KDC server at ${server.host}:${server.port} is reachable"
+        } catch (Exception e) {
+            println "Failed to reach KDC server at ${server.host}:${server.port}: ${e.message}"
+        }
+    }
     String enabled = context.config.otherConfigs.get("enableKerberosTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String hms_catalog_name = "test_two_hive_kerberos"
