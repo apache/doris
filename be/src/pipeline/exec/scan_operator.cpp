@@ -45,6 +45,7 @@
 
 namespace doris::pipeline {
 
+#include "common/compile_check_begin.h"
 const static int32_t ADAPTIVE_PIPELINE_TASK_SERIAL_READ_ON_LIMIT_DEFAULT = 10000;
 
 #define RETURN_IF_PUSH_DOWN(stmt, status)    \
@@ -682,7 +683,7 @@ Status ScanLocalState<Derived>::_should_push_down_binary_predicate(
     DCHECK(constant_val->data == nullptr) << "constant_val should not have a value";
     const auto& children = fn_call->children();
     DCHECK(children.size() == 2);
-    for (size_t i = 0; i < children.size(); i++) {
+    for (int i = 0; i < 2; i++) {
         if (vectorized::VExpr::expr_without_cast(children[i])->node_type() !=
             TExprNodeType::SLOT_REF) {
             // not a slot ref(column)

@@ -24,6 +24,7 @@
 #include "vec/exprs/vectorized_agg_fn.h"
 
 namespace doris::pipeline {
+#include "common/compile_check_begin.h"
 
 AnalyticLocalState::AnalyticLocalState(RuntimeState* state, OperatorXBase* parent)
         : PipelineXLocalState<AnalyticSharedState>(state, parent),
@@ -38,7 +39,7 @@ AnalyticLocalState::AnalyticLocalState(RuntimeState* state, OperatorXBase* paren
           _agg_arena_pool(std::make_unique<vectorized::Arena>()) {}
 
 //_partition_by_columns,_order_by_columns save in blocks, so if need to calculate the boundary, may find in which blocks firstly
-BlockRowPos AnalyticLocalState::_compare_row_to_find_end(int idx, BlockRowPos start,
+BlockRowPos AnalyticLocalState::_compare_row_to_find_end(int64_t idx, BlockRowPos start,
                                                          BlockRowPos end, bool need_check_first) {
     auto& shared_state = *_shared_state;
     int64_t start_init_row_num = start.row_num;
@@ -320,8 +321,8 @@ void AnalyticLocalState::_insert_result_info(int64_t current_block_rows) {
 
     const auto& offsets_of_aggregate_states =
             _parent->cast<AnalyticSourceOperatorX>()._offsets_of_aggregate_states;
-    for (int i = 0; i < _agg_functions_size; ++i) {
-        for (int j = get_result_start; j < _window_end_position; ++j) {
+    for (size_t i = 0; i < _agg_functions_size; ++i) {
+        for (size_t j = get_result_start; j < _window_end_position; ++j) {
             if (!_agg_functions[i]->function()->get_return_type()->is_nullable() &&
                 _result_window_columns[i]->is_nullable()) {
                 if (_current_window_empty) {
