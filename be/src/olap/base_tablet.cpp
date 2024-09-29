@@ -1070,6 +1070,33 @@ Status BaseTablet::generate_new_block_for_flexible_partial_update(
             &(assert_cast<const vectorized::ColumnBitmap*, TypeCheckOnRelease::DISABLE>(
                       update_block.get_by_position(skip_bitmap_col_idx).column->get_ptr().get())
                       ->get_data());
+
+    auto fill_one_cell = [&read_index_old](const TabletColumn& tablet_column, std::size_t idx,
+                                           vectorized::MutableColumnPtr& new_col,
+                                           const vectorized::IColumn& default_value_col,
+                                           const vectorized::IColumn& old_value_col,
+                                           const vectorized::IColumn& cur_col, bool skipped,
+                                           const signed char* delete_sign_column_data) {
+        if (skipped) {
+            if (delete_sign_column_data != nullptr &&
+                delete_sign_column_data[read_index_old[idx]] != 0) {
+                if (tablet_column.has_default_value()) {
+                    new_col->insert_from(default_value_col, 0);
+                } else if (tablet_column.is_nullable()) {
+                    assert_cast<vectorized::ColumnNullable*, TypeCheckOnRelease::DISABLE>(
+                            new_col.get())
+                            ->insert_null_elements(1);
+                } else {
+                    new_col->insert_default();
+                }
+            } else {
+                new_col->insert_from(old_value_col, idx);
+            }
+        } else {
+            new_col->insert_from(cur_col, idx);
+        }
+    };
+
     for (std::size_t cid {0}; cid < rowset_schema->num_columns(); cid++) {
         if (cid < rowset_schema->num_key_columns()) {
             full_mutable_columns[cid] =
@@ -1077,34 +1104,15 @@ Status BaseTablet::generate_new_block_for_flexible_partial_update(
         } else {
             const auto& rs_column = rowset_schema->column(cid);
             auto col_uid = rs_column.unique_id();
-            auto& cur_col = full_mutable_columns[cid];
+
             for (auto idx = 0; idx < update_rows; ++idx) {
-                if (skip_bitmaps->at(idx).contains(col_uid)) {
-                    if (old_block_delete_signs != nullptr &&
-                        old_block_delete_signs[read_index_old[idx]] != 0) {
-                        if (rs_column.has_default_value()) {
-                            const auto& src_column =
-                                    *default_value_block
-                                             .get_by_position(cid -
-                                                              rowset_schema->num_key_columns())
-                                             .column;
-                            cur_col->insert_from(src_column, 0);
-                        } else if (rs_column.is_nullable()) {
-                            assert_cast<vectorized::ColumnNullable*, TypeCheckOnRelease::DISABLE>(
-                                    cur_col.get())
-                                    ->insert_null_elements(1);
-                        } else {
-                            cur_col->insert_default();
-                        }
-                    } else {
-                        const auto& src_column =
-                                *old_block.get_by_position(cid - rowset_schema->num_key_columns())
-                                         .column;
-                        cur_col->insert_from(src_column, idx);
-                    }
-                } else {
-                    cur_col->insert_from(*update_block.get_by_position(cid).column, idx);
-                }
+                fill_one_cell(
+                        rs_column, idx, full_mutable_columns[cid],
+                        *default_value_block.get_by_position(cid - rowset_schema->num_key_columns())
+                                 .column,
+                        *old_block.get_by_position(cid - rowset_schema->num_key_columns()).column,
+                        *update_block.get_by_position(cid).column,
+                        skip_bitmaps->at(idx).contains(col_uid), old_block_delete_signs);
             }
         }
         DCHECK(full_mutable_columns[cid]->size() == update_rows);

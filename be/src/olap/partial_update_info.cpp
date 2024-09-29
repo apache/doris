@@ -169,43 +169,55 @@ std::string PartialUpdateInfo::summary() const {
             max_version_in_flush_phase);
 }
 
-Status PartialUpdateInfo::handle_non_strict_mode_not_found_error(const TabletSchema& tablet_schema,
-                                                                 BitmapValue* skip_bitmap) {
-    if (partial_update_mode == UniqueKeyUpdateModePB::UPDATE_FIXED_COLUMNS) {
-        if (!can_insert_new_rows_in_partial_update) {
-            std::string error_column;
-            for (auto cid : missing_cids) {
-                const TabletColumn& col = tablet_schema.column(cid);
-                if (!col.has_default_value() && !col.is_nullable() &&
-                    !(tablet_schema.auto_increment_column() == col.name())) {
-                    error_column = col.name();
-                    break;
-                }
-            }
-            return Status::Error<ErrorCode::INVALID_SCHEMA, false>(
-                    "the unmentioned column `{}` should have default value or be nullable "
-                    "for newly inserted rows in non-strict mode partial update",
-                    error_column);
-        }
-    } else if (partial_update_mode == UniqueKeyUpdateModePB::UPDATE_FLEXIBLE_COLUMNS) {
-        DCHECK(skip_bitmap != nullptr);
-        bool can_insert_new_rows_in_partial_update = true;
+Status PartialUpdateInfo::handle_not_found_error_for_fixed_partial_update(
+        const TabletSchema& tablet_schema) const {
+    if (!can_insert_new_rows_in_partial_update) {
         std::string error_column;
         for (auto cid : missing_cids) {
             const TabletColumn& col = tablet_schema.column(cid);
-            if (skip_bitmap->contains(col.unique_id()) && !col.has_default_value() &&
-                !col.is_nullable() && col.is_auto_increment()) {
+            if (!col.has_default_value() && !col.is_nullable() &&
+                !(tablet_schema.auto_increment_column() == col.name())) {
                 error_column = col.name();
-                can_insert_new_rows_in_partial_update = false;
                 break;
             }
         }
-        if (!can_insert_new_rows_in_partial_update) {
-            return Status::Error<ErrorCode::INVALID_SCHEMA, false>(
-                    "the unmentioned column `{}` should have default value or be "
-                    "nullable for newly inserted rows in non-strict mode flexible partial update",
-                    error_column);
+        return Status::Error<ErrorCode::INVALID_SCHEMA, false>(
+                "the unmentioned column `{}` should have default value or be nullable "
+                "for newly inserted rows in non-strict mode partial update",
+                error_column);
+    }
+    return Status::OK();
+}
+Status PartialUpdateInfo::handle_not_found_error_for_flexible_partial_update(
+        const TabletSchema& tablet_schema, BitmapValue* skip_bitmap) const {
+    DCHECK(skip_bitmap != nullptr);
+    bool can_insert_new_rows_in_partial_update = true;
+    std::string error_column;
+    for (auto cid : missing_cids) {
+        const TabletColumn& col = tablet_schema.column(cid);
+        if (skip_bitmap->contains(col.unique_id()) && !col.has_default_value() &&
+            !col.is_nullable() && col.is_auto_increment()) {
+            error_column = col.name();
+            can_insert_new_rows_in_partial_update = false;
+            break;
         }
+    }
+    if (!can_insert_new_rows_in_partial_update) {
+        return Status::Error<ErrorCode::INVALID_SCHEMA, false>(
+                "the unmentioned column `{}` should have default value or be "
+                "nullable for newly inserted rows in non-strict mode flexible partial update",
+                error_column);
+    }
+    return Status::OK();
+}
+
+Status PartialUpdateInfo::handle_non_strict_mode_not_found_error(const TabletSchema& tablet_schema,
+                                                                 BitmapValue* skip_bitmap) const {
+    if (partial_update_mode == UniqueKeyUpdateModePB::UPDATE_FIXED_COLUMNS) {
+        RETURN_IF_ERROR(handle_not_found_error_for_fixed_partial_update(tablet_schema));
+    } else if (partial_update_mode == UniqueKeyUpdateModePB::UPDATE_FLEXIBLE_COLUMNS) {
+        RETURN_IF_ERROR(
+                handle_not_found_error_for_flexible_partial_update(tablet_schema, skip_bitmap));
     }
     return Status::OK();
 }
@@ -487,115 +499,167 @@ Status FlexibleReadPlan::fill_non_primary_key_columns(
     CHECK_EQ(non_sort_key_cids.size(), old_value_block.columns());
 
     if (!has_row_column) {
-        // cid -> segment pos to write -> rowid to read in old_value_block
-        std::map<uint32_t, std::map<uint32_t, uint32_t>> read_index;
-        RETURN_IF_ERROR(
-                read_columns_by_plan(tablet_schema, rsid_to_rowset, old_value_block, &read_index));
-        // !!!ATTENTION!!!: columns in old_value_block may have different size because every row has different columns to update
-
-        const auto* delete_sign_column_data =
-                BaseTablet::get_delete_sign_column_data(old_value_block);
-        // build default value columns
-        auto default_value_block = old_value_block.clone_empty();
-        if (has_default_or_nullable || delete_sign_column_data != nullptr) {
-            RETURN_IF_ERROR(BaseTablet::generate_default_value_block(
-                    tablet_schema, non_sort_key_cids,
-                    rowset_ctx->partial_update_info->default_values, old_value_block,
-                    default_value_block));
-        }
-
-        // fill all non sort key columns from mutable_old_columns, need to consider default value and null value
-        for (std::size_t i {0}; i < non_sort_key_cids.size(); i++) {
-            auto cid = non_sort_key_cids[i];
-            const auto& tablet_column = tablet_schema.column(cid);
-            auto col_uid = tablet_column.unique_id();
-            auto& cur_col = mutable_full_columns[cid];
-            for (auto idx = 0; idx < use_default_or_null_flag.size(); idx++) {
-                auto segment_pos = segment_start_pos + idx;
-                auto block_pos = block_start_pos + idx;
-                if (skip_bitmaps->at(block_pos).contains(col_uid)) {
-                    DCHECK(cid != tablet_schema.skip_bitmap_col_idx());
-                    DCHECK(cid != tablet_schema.version_col_idx());
-                    DCHECK(!tablet_column.is_row_store_column());
-
-                    auto delete_sign_pos = read_index[tablet_schema.delete_sign_idx()][segment_pos];
-                    if (use_default_or_null_flag[idx] ||
-                        (delete_sign_column_data != nullptr &&
-                         delete_sign_column_data[delete_sign_pos] != 0)) {
-                        if (tablet_column.has_default_value()) {
-                            cur_col->insert_from(*default_value_block.get_by_position(i).column, 0);
-                        } else if (tablet_column.is_nullable()) {
-                            assert_cast<vectorized::ColumnNullable*, TypeCheckOnRelease::DISABLE>(
-                                    cur_col.get())
-                                    ->insert_null_elements(1);
-                        } else {
-                            cur_col->insert_default();
-                        }
-                    } else {
-                        auto pos_in_old_block = read_index.at(cid).at(segment_pos);
-                        cur_col->insert_from(*old_value_block.get_by_position(i).column,
-                                             pos_in_old_block);
-                    }
-                } else {
-                    cur_col->insert_from(*block->get_by_position(cid).column, block_pos);
-                }
-            }
-        }
+        RETURN_IF_ERROR(fill_non_primary_key_columns_for_column_store(
+                rowset_ctx, rsid_to_rowset, tablet_schema, non_sort_key_cids, old_value_block,
+                mutable_full_columns, use_default_or_null_flag, has_default_or_nullable,
+                segment_start_pos, block_start_pos, block, skip_bitmaps));
     } else {
-        // segment pos to write -> rowid to read in old_value_block
-        std::map<uint32_t, uint32_t> read_index;
-        RETURN_IF_ERROR(read_columns_by_plan(tablet_schema, non_sort_key_cids, rsid_to_rowset,
-                                             old_value_block, &read_index));
-
-        const auto* delete_sign_column_data =
-                BaseTablet::get_delete_sign_column_data(old_value_block);
-        // build default value columns
-        auto default_value_block = old_value_block.clone_empty();
-        if (has_default_or_nullable || delete_sign_column_data != nullptr) {
-            RETURN_IF_ERROR(BaseTablet::generate_default_value_block(
-                    tablet_schema, non_sort_key_cids,
-                    rowset_ctx->partial_update_info->default_values, old_value_block,
-                    default_value_block));
-        }
-
-        // fill all non sort key columns from mutable_old_columns, need to consider default value and null value
-        for (std::size_t i {0}; i < non_sort_key_cids.size(); i++) {
-            auto cid = non_sort_key_cids[i];
-            const auto& tablet_column = tablet_schema.column(cid);
-            auto col_uid = tablet_column.unique_id();
-            auto& cur_col = mutable_full_columns[cid];
-            for (auto idx = 0; idx < use_default_or_null_flag.size(); idx++) {
-                auto segment_pos = segment_start_pos + idx;
-                auto block_pos = block_start_pos + idx;
-                auto pos_in_old_block = read_index[segment_pos];
-                if (skip_bitmaps->at(block_pos).contains(col_uid)) {
-                    DCHECK(cid != tablet_schema.skip_bitmap_col_idx());
-                    DCHECK(cid != tablet_schema.version_col_idx());
-                    DCHECK(!tablet_column.is_row_store_column());
-
-                    if (use_default_or_null_flag[idx] ||
-                        (delete_sign_column_data != nullptr &&
-                         delete_sign_column_data[pos_in_old_block] != 0)) {
-                        if (tablet_column.has_default_value()) {
-                            cur_col->insert_from(*default_value_block.get_by_position(i).column, 0);
-                        } else if (tablet_column.is_nullable()) {
-                            assert_cast<vectorized::ColumnNullable*, TypeCheckOnRelease::DISABLE>(
-                                    cur_col.get())
-                                    ->insert_null_elements(1);
-                        } else {
-                            cur_col->insert_default();
-                        }
-                    } else {
-                        cur_col->insert_from(*old_value_block.get_by_position(i).column,
-                                             pos_in_old_block);
-                    }
-                } else {
-                    cur_col->insert_from(*block->get_by_position(cid).column, block_pos);
-                }
-            }
-        }
+        RETURN_IF_ERROR(fill_non_primary_key_columns_for_row_store(
+                rowset_ctx, rsid_to_rowset, tablet_schema, non_sort_key_cids, old_value_block,
+                mutable_full_columns, use_default_or_null_flag, has_default_or_nullable,
+                segment_start_pos, block_start_pos, block, skip_bitmaps));
     }
     full_block.set_columns(std::move(mutable_full_columns));
+    return Status::OK();
+}
+
+Status FlexibleReadPlan::fill_non_primary_key_columns_for_column_store(
+        RowsetWriterContext* rowset_ctx, const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
+        const TabletSchema& tablet_schema, const std::vector<uint32_t>& non_sort_key_cids,
+        vectorized::Block& old_value_block, vectorized::MutableColumns& mutable_full_columns,
+        const std::vector<bool>& use_default_or_null_flag, bool has_default_or_nullable,
+        const std::size_t segment_start_pos, const std::size_t block_start_pos,
+        const vectorized::Block* block, std::vector<BitmapValue>* skip_bitmaps) const {
+    // cid -> segment pos to write -> rowid to read in old_value_block
+    std::map<uint32_t, std::map<uint32_t, uint32_t>> read_index;
+    RETURN_IF_ERROR(
+            read_columns_by_plan(tablet_schema, rsid_to_rowset, old_value_block, &read_index));
+    // !!!ATTENTION!!!: columns in old_value_block may have different size because every row has different columns to update
+
+    const auto* delete_sign_column_data = BaseTablet::get_delete_sign_column_data(old_value_block);
+    // build default value columns
+    auto default_value_block = old_value_block.clone_empty();
+    if (has_default_or_nullable || delete_sign_column_data != nullptr) {
+        RETURN_IF_ERROR(BaseTablet::generate_default_value_block(
+                tablet_schema, non_sort_key_cids, rowset_ctx->partial_update_info->default_values,
+                old_value_block, default_value_block));
+    }
+
+    auto fill_one_cell = [&tablet_schema, &read_index](
+                                 const TabletColumn& tablet_column, uint32_t cid,
+                                 vectorized::MutableColumnPtr& new_col,
+                                 const vectorized::IColumn& default_value_col,
+                                 const vectorized::IColumn& old_value_col,
+                                 const vectorized::IColumn& cur_col, std::size_t block_pos,
+                                 std::size_t segment_pos, bool skipped, bool use_default,
+                                 const signed char* delete_sign_column_data) {
+        if (skipped) {
+            DCHECK(cid != tablet_schema.skip_bitmap_col_idx());
+            DCHECK(cid != tablet_schema.version_col_idx());
+            DCHECK(!tablet_column.is_row_store_column());
+
+            auto delete_sign_pos = read_index[tablet_schema.delete_sign_idx()][segment_pos];
+            if (use_default || (delete_sign_column_data != nullptr &&
+                                delete_sign_column_data[delete_sign_pos] != 0)) {
+                if (tablet_column.has_default_value()) {
+                    new_col->insert_from(default_value_col, 0);
+                } else if (tablet_column.is_nullable()) {
+                    assert_cast<vectorized::ColumnNullable*, TypeCheckOnRelease::DISABLE>(
+                            new_col.get())
+                            ->insert_null_elements(1);
+                } else {
+                    new_col->insert_default();
+                }
+            } else {
+                auto pos_in_old_block = read_index.at(cid).at(segment_pos);
+                new_col->insert_from(old_value_col, pos_in_old_block);
+            }
+        } else {
+            new_col->insert_from(cur_col, block_pos);
+        }
+    };
+
+    // fill all non sort key columns from mutable_old_columns, need to consider default value and null value
+    for (std::size_t i {0}; i < non_sort_key_cids.size(); i++) {
+        auto cid = non_sort_key_cids[i];
+        const auto& tablet_column = tablet_schema.column(cid);
+        auto col_uid = tablet_column.unique_id();
+        for (auto idx = 0; idx < use_default_or_null_flag.size(); idx++) {
+            auto segment_pos = segment_start_pos + idx;
+            auto block_pos = block_start_pos + idx;
+
+            fill_one_cell(tablet_column, cid, mutable_full_columns[cid],
+                          *default_value_block.get_by_position(i).column,
+                          *old_value_block.get_by_position(i).column,
+                          *block->get_by_position(cid).column, block_pos, segment_pos,
+                          skip_bitmaps->at(block_pos).contains(col_uid),
+                          use_default_or_null_flag[idx], delete_sign_column_data);
+        }
+    }
+    return Status::OK();
+}
+
+Status FlexibleReadPlan::fill_non_primary_key_columns_for_row_store(
+        RowsetWriterContext* rowset_ctx, const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
+        const TabletSchema& tablet_schema, const std::vector<uint32_t>& non_sort_key_cids,
+        vectorized::Block& old_value_block, vectorized::MutableColumns& mutable_full_columns,
+        const std::vector<bool>& use_default_or_null_flag, bool has_default_or_nullable,
+        const std::size_t segment_start_pos, const std::size_t block_start_pos,
+        const vectorized::Block* block, std::vector<BitmapValue>* skip_bitmaps) const {
+    // segment pos to write -> rowid to read in old_value_block
+    std::map<uint32_t, uint32_t> read_index;
+    RETURN_IF_ERROR(read_columns_by_plan(tablet_schema, non_sort_key_cids, rsid_to_rowset,
+                                         old_value_block, &read_index));
+
+    const auto* delete_sign_column_data = BaseTablet::get_delete_sign_column_data(old_value_block);
+    // build default value columns
+    auto default_value_block = old_value_block.clone_empty();
+    if (has_default_or_nullable || delete_sign_column_data != nullptr) {
+        RETURN_IF_ERROR(BaseTablet::generate_default_value_block(
+                tablet_schema, non_sort_key_cids, rowset_ctx->partial_update_info->default_values,
+                old_value_block, default_value_block));
+    }
+
+    auto fill_one_cell = [&tablet_schema](const TabletColumn& tablet_column, uint32_t cid,
+                                          vectorized::MutableColumnPtr& new_col,
+                                          const vectorized::IColumn& default_value_col,
+                                          const vectorized::IColumn& old_value_col,
+                                          const vectorized::IColumn& cur_col, std::size_t block_pos,
+                                          bool skipped, bool use_default,
+                                          const signed char* delete_sign_column_data,
+                                          uint32_t pos_in_old_block) {
+        if (skipped) {
+            DCHECK(cid != tablet_schema.skip_bitmap_col_idx());
+            DCHECK(cid != tablet_schema.version_col_idx());
+            DCHECK(!tablet_column.is_row_store_column());
+
+            if (use_default || (delete_sign_column_data != nullptr &&
+                                delete_sign_column_data[pos_in_old_block] != 0)) {
+                if (tablet_column.has_default_value()) {
+                    new_col->insert_from(default_value_col, 0);
+                } else if (tablet_column.is_nullable()) {
+                    assert_cast<vectorized::ColumnNullable*, TypeCheckOnRelease::DISABLE>(
+                            new_col.get())
+                            ->insert_null_elements(1);
+                } else {
+                    new_col->insert_default();
+                }
+            } else {
+                new_col->insert_from(old_value_col, pos_in_old_block);
+            }
+        } else {
+            new_col->insert_from(cur_col, block_pos);
+        }
+    };
+
+    // fill all non sort key columns from mutable_old_columns, need to consider default value and null value
+    for (std::size_t i {0}; i < non_sort_key_cids.size(); i++) {
+        auto cid = non_sort_key_cids[i];
+        const auto& tablet_column = tablet_schema.column(cid);
+        auto col_uid = tablet_column.unique_id();
+        for (auto idx = 0; idx < use_default_or_null_flag.size(); idx++) {
+            auto segment_pos = segment_start_pos + idx;
+            auto block_pos = block_start_pos + idx;
+            auto pos_in_old_block = read_index[segment_pos];
+
+            fill_one_cell(tablet_column, cid, mutable_full_columns[cid],
+                          *default_value_block.get_by_position(i).column,
+                          *old_value_block.get_by_position(i).column,
+                          *block->get_by_position(cid).column, block_pos,
+                          skip_bitmaps->at(block_pos).contains(col_uid),
+                          use_default_or_null_flag[idx], delete_sign_column_data, pos_in_old_block);
+        }
+    }
     return Status::OK();
 }
 

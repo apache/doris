@@ -621,7 +621,7 @@ Status MemTable::_to_block(std::unique_ptr<vectorized::Block>* res) {
     }
     if (_keys_type == KeysType::UNIQUE_KEYS && _enable_unique_key_mow &&
         !_tablet_schema->cluster_key_idxes().empty()) {
-        if (_is_partial_update) {
+        if (_partial_update_mode != UniqueKeyUpdateModePB::UPSERT) {
             return Status::InternalError(
                     "Partial update for mow with cluster keys is not supported");
         }

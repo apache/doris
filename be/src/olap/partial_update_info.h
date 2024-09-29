@@ -27,6 +27,7 @@
 #include "common/status.h"
 #include "olap/rowset/rowset_fwd.h"
 #include "olap/tablet_fwd.h"
+#include "vec/columns/column.h"
 
 namespace doris {
 class TabletSchema;
@@ -49,7 +50,11 @@ struct PartialUpdateInfo {
     void to_pb(PartialUpdateInfoPB* partial_update_info) const;
     void from_pb(PartialUpdateInfoPB* partial_update_info);
     Status handle_non_strict_mode_not_found_error(const TabletSchema& tablet_schema,
-                                                  BitmapValue* skip_bitmap = nullptr);
+                                                  BitmapValue* skip_bitmap = nullptr) const;
+
+    Status handle_not_found_error_for_fixed_partial_update(const TabletSchema& tablet_schema) const;
+    Status handle_not_found_error_for_flexible_partial_update(const TabletSchema& tablet_schema,
+                                                              BitmapValue* skip_bitmap) const;
     std::string summary() const;
 
     bool is_partial_update() const { return partial_update_mode != UniqueKeyUpdateModePB::UPSERT; }
@@ -134,6 +139,23 @@ public:
             RowsetWriterContext* rowset_ctx,
             const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
             const TabletSchema& tablet_schema, vectorized::Block& full_block,
+            const std::vector<bool>& use_default_or_null_flag, bool has_default_or_nullable,
+            const std::size_t segment_start_pos, const std::size_t block_start_pos,
+            const vectorized::Block* block, std::vector<BitmapValue>* skip_bitmaps) const;
+
+    Status fill_non_primary_key_columns_for_column_store(
+            RowsetWriterContext* rowset_ctx,
+            const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
+            const TabletSchema& tablet_schema, const std::vector<uint32_t>& non_sort_key_cids,
+            vectorized::Block& old_value_block, vectorized::MutableColumns& mutable_full_columns,
+            const std::vector<bool>& use_default_or_null_flag, bool has_default_or_nullable,
+            const std::size_t segment_start_pos, const std::size_t block_start_pos,
+            const vectorized::Block* block, std::vector<BitmapValue>* skip_bitmaps) const;
+    Status fill_non_primary_key_columns_for_row_store(
+            RowsetWriterContext* rowset_ctx,
+            const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
+            const TabletSchema& tablet_schema, const std::vector<uint32_t>& non_sort_key_cids,
+            vectorized::Block& old_value_block, vectorized::MutableColumns& mutable_full_columns,
             const std::vector<bool>& use_default_or_null_flag, bool has_default_or_nullable,
             const std::size_t segment_start_pos, const std::size_t block_start_pos,
             const vectorized::Block* block, std::vector<BitmapValue>* skip_bitmaps) const;
