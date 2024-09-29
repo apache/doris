@@ -25,6 +25,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.planner.GroupCommitScanNode;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
@@ -67,9 +68,12 @@ public class GroupCommitTableValuedFunction extends ExternalFileTableValuedFunct
             throw new AnalysisException("Only support OLAP table, but table type of table_id "
                     + tableId + " is " + table.getType());
         }
-        // set timeout to max(group_commit_interval * 2, 600s)
-        int timeoutS = (int) Math.max(((OlapTable) table).getGroupCommitIntervalMs() / 1000.0 * 2, 600);
-        ConnectContext.get().getSessionVariable().setInsertTimeoutS(timeoutS);
+        if (Config.group_commit_timeout_multiple > 0) {
+            int timeoutS = (int) (((OlapTable) table).getGroupCommitIntervalMs() / 1000.0
+                    * Config.group_commit_timeout_multiple);
+            ConnectContext.get().getSessionVariable().setInsertTimeoutS(timeoutS);
+            ConnectContext.get().getSessionVariable().setQueryTimeoutS(timeoutS);
+        }
 
         List<Column> tableColumns = table.getBaseSchema(true);
         for (int i = 1; i <= tableColumns.size(); i++) {
