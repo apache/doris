@@ -242,10 +242,16 @@ public class MTMVTask extends AbstractTask {
             }
         } finally {
             if (executor != null) {
-                AuditLogHelper.logAuditLog(ctx, executor.getOriginStmt().originStmt,
+                AuditLogHelper.logAuditLog(ctx, getDummyStmt(refreshPartitionNames),
                         executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog(), true);
             }
         }
+    }
+
+    private String getDummyStmt(Set<String> refreshPartitionNames) {
+        return String.format(
+                "Asynchronous materialized view refresh task, taskId: %s, partitions refreshed by this insert overwrite: %s",
+                super.getTaskId(), refreshPartitionNames);
     }
 
     @Override
