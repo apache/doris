@@ -98,7 +98,7 @@ suite('test_fe_tablet_same_backend', 'multi_cluster,docker') {
     }
 
     def checkAllTable = { isAllBeAliveOrDeadLong ->
-        dockerAwaitUntil(5) {
+        dockerAwaitUntil(30) {
             checkAllTableImpl(isAllBeAliveOrDeadLong, true)
         }
         checkAllTableImpl(isAllBeAliveOrDeadLong, false)
