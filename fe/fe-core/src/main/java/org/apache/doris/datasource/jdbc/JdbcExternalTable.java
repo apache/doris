@@ -32,7 +32,6 @@ import org.apache.doris.statistics.ResultRow;
 import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.thrift.TTableDescriptor;
 
-import com.google.common.collect.Maps;
 import org.apache.commons.text.StringSubstitutor;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -87,29 +86,21 @@ public class JdbcExternalTable extends ExternalTable {
 
     @Override
     public Optional<SchemaCacheValue> initSchema() {
-        return Optional.of(new SchemaCacheValue(((JdbcExternalCatalog) catalog).listColumns(dbName, name)));
+        return Optional.of(new SchemaCacheValue(((JdbcExternalCatalog) catalog).getJdbcClient()
+                .getColumnsFromJdbc(dbName, name)));
     }
 
     private JdbcTable toJdbcTable() {
         List<Column> schema = getFullSchema();
         JdbcExternalCatalog jdbcCatalog = (JdbcExternalCatalog) catalog;
-        String fullTableName = this.dbName + "." + this.name;
-        JdbcTable jdbcTable = new JdbcTable(this.id, fullTableName, schema, TableType.JDBC_EXTERNAL_TABLE);
-        jdbcCatalog.configureJdbcTable(jdbcTable, fullTableName);
+        String fullDbName = this.dbName + "." + this.name;
+        JdbcTable jdbcTable = new JdbcTable(this.id, fullDbName, schema, TableType.JDBC_EXTERNAL_TABLE);
+        jdbcCatalog.configureJdbcTable(jdbcTable, fullDbName);
 
         // Set remote properties
-        jdbcTable.setRemoteDatabaseName(jdbcCatalog.getRemoteDatabaseName(this.dbName));
-        jdbcTable.setRemoteTableName(jdbcCatalog.getRemoteTableName(this.dbName, this.name));
-        Map<String, String> remoteColumnNames = jdbcCatalog.getRemoteColumnNames(this.dbName, this.name);
-        if (!remoteColumnNames.isEmpty()) {
-            jdbcTable.setRemoteColumnNames(remoteColumnNames);
-        } else {
-            remoteColumnNames = Maps.newHashMap();
-            for (Column column : schema) {
-                remoteColumnNames.put(column.getName(), column.getName());
-            }
-            jdbcTable.setRemoteColumnNames(remoteColumnNames);
-        }
+        jdbcTable.setRemoteDatabaseName(jdbcCatalog.getJdbcClient().getRemoteDatabaseName(this.dbName));
+        jdbcTable.setRemoteTableName(jdbcCatalog.getJdbcClient().getRemoteTableName(this.dbName, this.name));
+        jdbcTable.setRemoteColumnNames(jdbcCatalog.getJdbcClient().getRemoteColumnNames(this.dbName, this.name));
 
         return jdbcTable;
     }
