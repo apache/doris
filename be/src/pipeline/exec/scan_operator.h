@@ -275,44 +275,10 @@ protected:
                                              SlotDescriptor* slot, ColumnValueRange<T>& range,
                                              vectorized::VScanNode::PushDownType* pdt);
 
-    void _normalize_compound_predicate(
-            vectorized::VExpr* expr, vectorized::VExprContext* expr_ctx,
-            vectorized::VScanNode::PushDownType* pdt, bool is_runtimer_filter_predicate,
-            const std::function<bool(const vectorized::VExprSPtrs&,
-                                     std::shared_ptr<vectorized::VSlotRef>&,
-                                     vectorized::VExprSPtr&)>& in_predicate_checker,
-            const std::function<bool(const vectorized::VExprSPtrs&,
-                                     std::shared_ptr<vectorized::VSlotRef>&,
-                                     vectorized::VExprSPtr&)>& eq_predicate_checker);
-
-    template <PrimitiveType T>
-    Status _normalize_binary_compound_predicate(vectorized::VExpr* expr,
-                                                vectorized::VExprContext* expr_ctx,
-                                                SlotDescriptor* slot, ColumnValueRange<T>& range,
-                                                vectorized::VScanNode::PushDownType* pdt);
-
-    template <PrimitiveType T>
-    Status _normalize_in_and_not_in_compound_predicate(vectorized::VExpr* expr,
-                                                       vectorized::VExprContext* expr_ctx,
-                                                       SlotDescriptor* slot,
-                                                       ColumnValueRange<T>& range,
-                                                       vectorized::VScanNode::PushDownType* pdt);
-
-    template <PrimitiveType T>
-    Status _normalize_match_compound_predicate(vectorized::VExpr* expr,
-                                               vectorized::VExprContext* expr_ctx,
-                                               SlotDescriptor* slot, ColumnValueRange<T>& range,
-                                               vectorized::VScanNode::PushDownType* pdt);
-
     template <PrimitiveType T>
     Status _normalize_is_null_predicate(vectorized::VExpr* expr, vectorized::VExprContext* expr_ctx,
                                         SlotDescriptor* slot, ColumnValueRange<T>& range,
                                         vectorized::VScanNode::PushDownType* pdt);
-
-    template <PrimitiveType T>
-    Status _normalize_match_predicate(vectorized::VExpr* expr, vectorized::VExprContext* expr_ctx,
-                                      SlotDescriptor* slot, ColumnValueRange<T>& range,
-                                      vectorized::VScanNode::PushDownType* pdt);
 
     bool _ignore_cast(SlotDescriptor* slot, vectorized::VExpr* expr);
 
