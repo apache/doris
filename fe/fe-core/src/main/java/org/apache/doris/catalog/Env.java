@@ -3370,17 +3370,17 @@ public class Env {
     }
 
     public static void getDdlStmt(TableIf table, List<String> createTableStmt, List<String> addPartitionStmt,
-                                  List<String> createRollupStmt, boolean separatePartition, boolean hidePassword,
-                                  long specificVersion) {
+            List<String> createRollupStmt, boolean separatePartition, boolean hidePassword,
+            long specificVersion) {
         getDdlStmt(null, null, table, createTableStmt, addPartitionStmt, createRollupStmt, separatePartition,
-                hidePassword, false, specificVersion, false, false);
+                hidePassword, false, specificVersion, false, false, null);
     }
 
     public static void getSyncedDdlStmt(TableIf table, List<String> createTableStmt, List<String> addPartitionStmt,
-                                  List<String> createRollupStmt, boolean separatePartition, boolean hidePassword,
-                                  long specificVersion) {
+            List<String> createRollupStmt, boolean separatePartition, boolean hidePassword,
+            long specificVersion) {
         getDdlStmt(null, null, table, createTableStmt, addPartitionStmt, createRollupStmt, separatePartition,
-                hidePassword, false, specificVersion, false, true);
+                hidePassword, false, specificVersion, false, true, null);
     }
 
     public static String getMTMVDdl(MTMV mtmv) {
@@ -3396,7 +3396,7 @@ public class Env {
         sb.append("\n").append(distributionInfo.toSql());
         // properties
         sb.append("\nPROPERTIES (\n");
-        addOlapTablePropertyInfo(mtmv, sb, false, false, null);
+        addOlapTablePropertyInfo(mtmv, sb, false, false, null, null);
         addMTMVPropertyInfo(mtmv, sb);
         sb.append("\n)");
         sb.append("\nAS ");
@@ -3459,7 +3459,7 @@ public class Env {
     }
 
     private static void addOlapTablePropertyInfo(OlapTable olapTable, StringBuilder sb, boolean separatePartition,
-            boolean getDdlForSync, List<Long> partitionId) {
+            boolean getDdlForSync, List<Long> partitionId, ConnectContext ctx) {
         // replicationNum
         ReplicaAllocation replicaAlloc = olapTable.getDefaultReplicaAllocation();
         if (Config.isCloudMode() && olapTable.getTTLSeconds() != 0) {
@@ -3684,13 +3684,15 @@ public class Env {
             sb.append(olapTable.enableSingleReplicaCompaction()).append("\"");
         }
 
-        // group commit interval ms
-        sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_INTERVAL_MS).append("\" = \"");
-        sb.append(olapTable.getGroupCommitIntervalMs()).append("\"");
+        if (ctx == null || !ctx.getSessionVariable().getGroupCommit().equalsIgnoreCase("off_mode")) {
+            // group commit interval ms
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_INTERVAL_MS).append("\" = \"");
+            sb.append(olapTable.getGroupCommitIntervalMs()).append("\"");
 
-        // group commit data bytes
-        sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_DATA_BYTES).append("\" = \"");
-        sb.append(olapTable.getGroupCommitDataBytes()).append("\"");
+            // group commit data bytes
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_DATA_BYTES).append("\" = \"");
+            sb.append(olapTable.getGroupCommitDataBytes()).append("\"");
+        }
 
         // enable delete on delete predicate
         if (olapTable.getKeysType() == KeysType.UNIQUE_KEYS && olapTable.getEnableUniqueKeyMergeOnWrite()) {
@@ -3718,10 +3720,10 @@ public class Env {
      * @param getDdlForLike Get schema for 'create table like' or not. when true, without hidden columns.
      */
     public static void getDdlStmt(DdlStmt ddlStmt, String dbName, TableIf table, List<String> createTableStmt,
-                                  List<String> addPartitionStmt, List<String> createRollupStmt,
-                                  boolean separatePartition,
-                                  boolean hidePassword, boolean getDdlForLike, long specificVersion,
-                                  boolean getBriefDdl, boolean getDdlForSync) {
+            List<String> addPartitionStmt, List<String> createRollupStmt,
+            boolean separatePartition,
+            boolean hidePassword, boolean getDdlForLike, long specificVersion,
+            boolean getBriefDdl, boolean getDdlForSync, ConnectContext ctx) {
         StringBuilder sb = new StringBuilder();
 
         // 1. create table
@@ -3881,7 +3883,7 @@ public class Env {
 
             // properties
             sb.append("\nPROPERTIES (\n");
-            addOlapTablePropertyInfo(olapTable, sb, separatePartition, getDdlForSync, partitionId);
+            addOlapTablePropertyInfo(olapTable, sb, separatePartition, getDdlForSync, partitionId, ctx);
             sb.append("\n)");
         } else if (table.getType() == TableType.MYSQL) {
             MysqlTable mysqlTable = (MysqlTable) table;
