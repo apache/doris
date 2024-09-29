@@ -6380,7 +6380,7 @@ public class Env {
                         for (Replica replica : tablet.getReplicas()) {
                             TGetMetaReplicaMeta replicaMeta = new TGetMetaReplicaMeta();
                             replicaMeta.setId(replica.getId());
-                            replicaMeta.setBackendId(replica.getBackendId());
+                            replicaMeta.setBackendId(replica.getBackendIdWithoutException());
                             replicaMeta.setVersion(replica.getVersion());
                             tabletMeta.addToReplicas(replicaMeta);
                         }
@@ -6454,8 +6454,8 @@ public class Env {
                 for (MaterializedIndex idx : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
                     for (Tablet tablet : idx.getTablets()) {
                         for (Replica replica : tablet.getReplicas()) {
-                            CompactionTask compactionTask = new CompactionTask(replica.getBackendId(), db.getId(),
-                                    olapTable.getId(), partition.getId(), idx.getId(), tablet.getId(),
+                            CompactionTask compactionTask = new CompactionTask(replica.getBackendIdWithoutException(),
+                                    db.getId(), olapTable.getId(), partition.getId(), idx.getId(), tablet.getId(),
                                     olapTable.getSchemaHashByIndexId(idx.getId()), type);
                             batchTask.addTask(compactionTask);
                         }

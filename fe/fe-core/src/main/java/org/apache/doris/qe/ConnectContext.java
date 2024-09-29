@@ -34,7 +34,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionRegistry;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.cloud.proto.Cloud;
+import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
@@ -1112,7 +1112,7 @@ public class ConnectContext {
 
     // maybe user set cluster by SQL hint of session variable: cloud_cluster
     // so first check it and then get from connect context.
-    public String getCurrentCloudCluster() {
+    public String getCurrentCloudCluster() throws ComputeGroupException {
         String cluster = getSessionVariable().getCloudCluster();
         if (Strings.isNullOrEmpty(cluster)) {
             cluster = getCloudCluster();
@@ -1124,7 +1124,7 @@ public class ConnectContext {
         this.cloudCluster = cluster;
     }
 
-    public String getCloudCluster() {
+    public String getCloudCluster() throws ComputeGroupException {
         return getCloudCluster(true);
     }
 
@@ -1151,30 +1151,6 @@ public class ConnectContext {
                 + ", comment=" + comment
                 + '}';
         }
-    }
-
-    public static String cloudNoBackendsReason() {
-        StringBuilder sb = new StringBuilder();
-        if (ConnectContext.get() != null) {
-            String clusterName = ConnectContext.get().getCloudCluster();
-            String hits = "or you may not have permission to access the current compute group = ";
-            sb.append(" ");
-            if (Strings.isNullOrEmpty(clusterName)) {
-                return sb.append(hits).append("compute group name empty").toString();
-            }
-            String clusterStatus = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
-                    .getCloudStatusByName(clusterName);
-            if (!Strings.isNullOrEmpty(clusterStatus)
-                    && Cloud.ClusterStatus.valueOf(clusterStatus)
-                        == Cloud.ClusterStatus.MANUAL_SHUTDOWN) {
-                LOG.warn("auto start cluster {} in manual shutdown status", clusterName);
-                sb.append("cluster ").append(clusterName)
-                    .append(" is shutdown manually, please start it first");
-            } else {
-                sb.append(hits).append(clusterName);
-            }
-        }
-        return sb.toString();
     }
 
     // can't get cluster from context, use the following strategy to obtain the cluster name
@@ -1239,10 +1215,11 @@ public class ConnectContext {
      *
      * @param updateErr whether set the connect state to error if the returned cluster is null or empty
      * @return non-empty cluster name if a cluster has been chosen otherwise null or empty string
+     * @throws ComputeGroupException, outer get reason by exception
      */
-    public String getCloudCluster(boolean updateErr) {
+    public String getCloudCluster(boolean updateErr) throws ComputeGroupException {
         if (!Config.isCloudMode()) {
-            return null;
+            throw new ComputeGroupException("not cloud mode", ComputeGroupException.FailedTypeEnum.NOT_CLOUD_MODE);
         }
 
         String cluster = null;
@@ -1250,7 +1227,7 @@ public class ConnectContext {
         if (!Strings.isNullOrEmpty(this.cloudCluster)) {
             cluster = this.cloudCluster;
             choseWay = "use context cluster";
-            LOG.debug("finally set context cluster name {} for user {} with chose way '{}'",
+            LOG.debug("finally set context compute group name {} for user {} with chose way '{}'",
                     cloudCluster, getCurrentUserIdentity(), choseWay);
             return cluster;
         }
@@ -1258,7 +1235,12 @@ public class ConnectContext {
         String defaultCluster = getDefaultCloudCluster();
         if (!Strings.isNullOrEmpty(defaultCluster)) {
             cluster = defaultCluster;
-            choseWay = "default cluster";
+            choseWay = "default compute group";
+            if (!Env.getCurrentEnv().getAuth().checkCloudPriv(getCurrentUserIdentity(),
+                    cluster, PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER)) {
+                throw new ComputeGroupException(String.format("default compute group %s check auth failed", cluster),
+                    ComputeGroupException.FailedTypeEnum.CURRENT_USER_NO_AUTH_TO_USE_DEFAULT_COMPUTE_GROUP);
+            }
         } else {
             CloudClusterResult cloudClusterTypeAndName = getCloudClusterByPolicy();
             if (cloudClusterTypeAndName != null && !Strings.isNullOrEmpty(cloudClusterTypeAndName.clusterName)) {
@@ -1268,14 +1250,17 @@ public class ConnectContext {
         }
 
         if (Strings.isNullOrEmpty(cluster)) {
-            LOG.warn("cant get a valid cluster for user {} to use", getCurrentUserIdentity());
+            LOG.warn("cant get a valid compute group for user {} to use", getCurrentUserIdentity());
+            ComputeGroupException exception = new ComputeGroupException(
+                    "the user is not granted permission to the compute group",
+                    ComputeGroupException.FailedTypeEnum.CURRENT_USER_NO_AUTH_TO_USE_ANY_COMPUTE_GROUP);
             if (updateErr) {
-                getState().setError(ErrorCode.ERR_NO_CLUSTER_ERROR,
-                        "Cant get a Valid cluster for you to use, plz connect admin");
+                getState().setError(ErrorCode.ERR_CLOUD_CLUSTER_ERROR, exception.getMessage());
             }
+            throw exception;
         } else {
             this.cloudCluster = cluster;
-            LOG.info("finally set context cluster name {} for user {} with chose way '{}'",
+            LOG.info("finally set context compute group name {} for user {} with chose way '{}'",
                     cloudCluster, getCurrentUserIdentity(), choseWay);
         }
 
