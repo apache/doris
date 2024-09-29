@@ -295,7 +295,7 @@ public class CreateTableTest extends TestWithFeService {
                 .expectThrowsWithMsg(DdlException.class,
                         "Failed to find enough backend, please check the replication num,replication tag and storage medium and avail capacity of backends "
                                 + "or maybe all be on same host."
-                                + Env.getCurrentSystemInfo().getDetailsForCreateReplica(new ReplicaAllocation((short)1)) + "\n"
+                                + Env.getCurrentSystemInfo().getDetailsForCreateReplica(new ReplicaAllocation((short) 1)) + "\n"
                                 + "Create failed replications:\n"
                                 + "replication tag: {\"location\" : \"default\"}, replication num: 1, storage medium: SSD",
                         () -> createTable(
@@ -306,7 +306,7 @@ public class CreateTableTest extends TestWithFeService {
                 .expectThrowsWithMsg(DdlException.class,
                         "Failed to find enough backend, please check the replication num,replication tag and storage medium and avail capacity of backends "
                                 + "or maybe all be on same host."
-                                + Env.getCurrentSystemInfo().getDetailsForCreateReplica(new ReplicaAllocation((short)1)) + "\n"
+                                + Env.getCurrentSystemInfo().getDetailsForCreateReplica(new ReplicaAllocation((short) 1)) + "\n"
                                 + "Create failed replications:\n"
                                 + "replication tag: {\"location\" : \"default\"}, replication num: 1, storage medium: SSD",
                         () -> createTable("create table test.tb7_1(key1 int, key2 varchar(10))\n"

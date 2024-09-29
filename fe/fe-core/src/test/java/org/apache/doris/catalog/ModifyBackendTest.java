@@ -87,7 +87,7 @@ public class ModifyBackendTest {
         ExceptionChecker.expectThrowsWithMsg(DdlException.class,
                 "Failed to find enough backend, please check the replication num,replication tag and storage medium and avail capacity of backends "
                         + "or maybe all be on same host."
-                        + Env.getCurrentSystemInfo().getDetailsForCreateReplica(new ReplicaAllocation((short)1)) + "\n"
+                        + Env.getCurrentSystemInfo().getDetailsForCreateReplica(new ReplicaAllocation((short) 1)) + "\n"
                         + "Create failed replications:\n"
                         + "replication tag: {\"location\" : \"default\"}, replication num: 1, storage medium: HDD",
                 () -> DdlExecutor.execute(Env.getCurrentEnv(), createStmt));
@@ -157,7 +157,7 @@ public class ModifyBackendTest {
         String wrongAlterStr = "alter table test.tbl4 modify partition " + partName
                 + " set ('replication_allocation' = 'tag.location.zonex:1')";
         Map<Tag, Short> allocMap = Maps.newHashMap();
-        allocMap.put(Tag.create(Tag.TYPE_LOCATION, "zonex"), (short)1);
+        allocMap.put(Tag.create(Tag.TYPE_LOCATION, "zonex"), (short) 1);
         ExceptionChecker.expectThrowsWithMsg(AnalysisException.class, "errCode = 2,"
                         + " detailMessage = Failed to find enough backend, "
                         + "please check the replication num,replication tag and storage medium and avail capacity of backends "
