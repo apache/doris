@@ -275,6 +275,7 @@ protected:
                                              SlotDescriptor* slot, ColumnValueRange<T>& range,
                                              vectorized::VScanNode::PushDownType* pdt);
 
+    template <PrimitiveType T>
     Status _normalize_is_null_predicate(vectorized::VExpr* expr, vectorized::VExprContext* expr_ctx,
                                         SlotDescriptor* slot, ColumnValueRange<T>& range,
                                         vectorized::VScanNode::PushDownType* pdt);
