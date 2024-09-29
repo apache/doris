@@ -356,8 +356,8 @@ public class Backend implements Writable {
             if (ssdExceedLimit > 0) {
                 sb.append("capExceedLimit=").append(ssdExceedLimit).append(",");
             }
+            sb.append("}");
         }
-        sb.append("}");
         sb.append("]");
 
         return sb.toString();
