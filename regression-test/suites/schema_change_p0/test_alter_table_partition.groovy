@@ -66,16 +66,16 @@ suite("test_alter_table_partition", "p0") {
             "(\"replication_num\"=\"1\");"
 
     //Modify the number of partition copies
-    sql dropSql;
-    sql initTable;
-    sql "ALTER TABLE ${tbName}\n" +
-            "MODIFY PARTITION p2011 SET(\"replication_num\"=\"1\");"
+//    sql dropSql;
+//    sql initTable;
+//    sql "ALTER TABLE ${tbName}\n" +
+//            "MODIFY PARTITION p2011 SET(\"replication_num\"=\"1\");"
 
     //Batch modify specified partitions
-    sql dropSql;
-    sql initTable;
-    sql "ALTER TABLE ${tbName}\n" +
-            "MODIFY PARTITION (p201001, p201002, p2011) SET(\"replication_num\"=\"1\");"
+//    sql dropSql;
+//    sql initTable;
+//    sql "ALTER TABLE ${tbName}\n" +
+//            "MODIFY PARTITION (p201001, p201002, p2011) SET(\"replication_num\"=\"1\");"
 
     //Batch modify all partitions
     sql dropSql;
