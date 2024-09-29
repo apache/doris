@@ -1277,6 +1277,9 @@ public class OlapTable extends Table {
         return getRowCountForIndex(baseIndexId, false);
     }
 
+    /**
+     * @return -1 if there are some tablets whose row count is not reported to FE
+     */
     public long getRowCountForIndex(long indexId, boolean strict) {
         long rowCount = 0;
         for (Map.Entry<Long, Partition> entry : idToPartition.entrySet()) {
