@@ -29,6 +29,7 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -264,15 +265,23 @@ public class DeleteHandler implements Writable {
             }
 
             for (DeleteInfo deleteInfo : deleteInfoList) {
+                String tableName = deleteInfo.getTableName();
                 if (!Env.getCurrentEnv().getAccessManager()
                         .checkTblPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, dbName,
-                                deleteInfo.getTableName(),
-                                PrivPredicate.LOAD)) {
+                            tableName, PrivPredicate.LOAD)) {
                     continue;
                 }
 
                 List<Comparable> info = Lists.newArrayList();
-                info.add(deleteInfo.getTableName());
+                if (Util.isTempTable(tableName)) {
+                    info.add(Util.getTempTableOuterName(tableName));
+                    if (!Util.isTempTableInCurrentSession(tableName)) {
+                        continue;
+                    }
+                } else {
+                    info.add(deleteInfo.getTableName());
+                }
+
                 if (deleteInfo.isNoPartitionSpecified()) {
                     info.add("*");
                 } else {

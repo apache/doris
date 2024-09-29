@@ -36,7 +36,7 @@ suite("test_union_has_in_predicate") {
     """
 
     qt_select """
-        with temp1 as(
+        with temp as(
         select 
             a as a 
         from 
@@ -63,7 +63,7 @@ suite("test_union_has_in_predicate") {
         select 
         a 
         from 
-        temp1 
+        temp 
         where 
         a in ('1');
     """

@@ -66,7 +66,7 @@ suite("test_domain_connection_and_ak_sk_correction",  "load_p0") {
             DATA INFILE("s3://${getS3BucketName()}/regression/tpch/sf1/part.tbl")
             INTO TABLE ${tableName}
             COLUMNS TERMINATED BY "|"
-            (p_partkey, p_name, p_mfgr, p_brand, p_type, p_size, p_container, p_retailprice, p_comment, temp1)
+            (p_partkey, p_name, p_mfgr, p_brand, p_type, p_size, p_container, p_retailprice, p_comment, temp)
         )
         WITH S3
         (
@@ -86,7 +86,7 @@ suite("test_domain_connection_and_ak_sk_correction",  "load_p0") {
                 DATA INFILE("s3://${getS3BucketName()}/regression/tpch/sf1/part.tbl")
                 INTO TABLE ${tableName}
                 COLUMNS TERMINATED BY "|"
-                (p_partkey, p_name, p_mfgr, p_brand, p_type, p_size, p_container, p_retailprice, p_comment, temp1)
+                (p_partkey, p_name, p_mfgr, p_brand, p_type, p_size, p_container, p_retailprice, p_comment, temp)
             )
             WITH S3
             (
@@ -111,7 +111,7 @@ suite("test_domain_connection_and_ak_sk_correction",  "load_p0") {
                 DATA INFILE("s3://${getS3BucketName()}/regression/tpch/sf1/part.tbl")
                 INTO TABLE ${tableName}
                 COLUMNS TERMINATED BY "|"
-                (p_partkey, p_name, p_mfgr, p_brand, p_type, p_size, p_container, p_retailprice, p_comment, temp1
+                (p_partkey, p_name, p_mfgr, p_brand, p_type, p_size, p_container, p_retailprice, p_comment, temp
 )
             )
             WITH S3
@@ -137,11 +137,11 @@ suite("test_domain_connection_and_ak_sk_correction",  "load_p0") {
                 DATA INFILE("s3://${getS3BucketName()}/regression/tpch/sf1/part.tbl")
                 INTO TABLE ${tableName}
                 COLUMNS TERMINATED BY "|"
-                (p_partkey, p_name, p_mfgr, p_brand, p_type, p_size, p_container, p_retailprice, p_comment, temp1),
+                (p_partkey, p_name, p_mfgr, p_brand, p_type, p_size, p_container, p_retailprice, p_comment, temp),
                 DATA INFILE("s3://${getS3BucketName()}1/regression/tpch/sf1/orders.tbl.1", "s3://${getS3BucketName()}/regression/tpch/sf1/orders.tbl.2")
                 INTO TABLE ${tableNameOrders}
                 COLUMNS TERMINATED BY "|"
-                (o_orderkey, o_custkey, o_orderstatus, o_totalprice, o_orderdate, o_orderpriority, o_clerk, o_shippriority, o_comment, temp1)
+                (o_orderkey, o_custkey, o_orderstatus, o_totalprice, o_orderdate, o_orderpriority, o_clerk, o_shippriority, o_comment, temp)
             )
             WITH S3
             (

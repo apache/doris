@@ -3879,7 +3879,11 @@ public class Env {
             }
         }
         sb.append("\n) ENGINE=");
-        sb.append(table.getType().name());
+        if (table.getType() == TableType.TEMP) {
+            sb.append("OLAP");
+        } else {
+            sb.append(table.getType().name());
+        }
 
         if (table instanceof OlapTable) {
             OlapTable olapTable = (OlapTable) table;

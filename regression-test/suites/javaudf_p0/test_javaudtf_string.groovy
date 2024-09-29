@@ -66,7 +66,7 @@ suite("test_javaudtf_string") {
             "type"="JAVA_UDF"
         ); """
 
-        qt_select1 """ SELECT user_id, varchar_col, e1 FROM ${tableName} lateral view  udtf_string_split(varchar_col, ",") `temp` as e1 order by user_id; """
+        qt_select1 """ SELECT user_id, varchar_col, e1 FROM ${tableName} lateral view  udtf_string_split(varchar_col, ",") temp as e1 order by user_id; """
         
         sql """DROP FUNCTION IF EXISTS udtf_null_outer(string, string);"""
         sql """ CREATE TABLES FUNCTION udtf_null(string, string) RETURNS array<string> PROPERTIES (
@@ -76,7 +76,7 @@ suite("test_javaudtf_string") {
             "type"="JAVA_UDF"
         ); """
 
-        qt_select2 """ SELECT user_id, varchar_col, e1 FROM ${tableName} lateral view  udtf_null(varchar_col, ",") `temp` as e1 order by user_id; """
+        qt_select2 """ SELECT user_id, varchar_col, e1 FROM ${tableName} lateral view  udtf_null(varchar_col, ",") temp as e1 order by user_id; """
 
     } finally {
         try_sql("DROP FUNCTION IF EXISTS udtf_string_split(string, string);")
