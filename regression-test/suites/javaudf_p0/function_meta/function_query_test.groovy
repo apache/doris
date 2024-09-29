@@ -21,6 +21,6 @@
 
      qt_select1 ''' SELECT java_udf_int_test(1) result; '''
      qt_select2 """ SELECT udaf_my_sum_int(user_id) result FROM ${tableName} ORDER BY result; """
-     qt_select3 """ SELECT user_id, e1 FROM ${tableName} lateral view  udtf_int(user_id) temp1 as e1 order by user_id; """
+     qt_select3 """ SELECT user_id, e1 FROM ${tableName} lateral view  udtf_int(user_id) temp as e1 order by user_id; """
      qt_select4 """ SELECT java_udf_int_test_global_2(user_id) result FROM ${tableName} ORDER BY result; """
  }

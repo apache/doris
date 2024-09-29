@@ -877,7 +877,14 @@ public class ShowExecutor {
             if (table != null) {
                 List<String> row = new ArrayList<>();
                 row.add(database.getFullName());
-                row.add(table.getName());
+                if (table.getType() == TableType.TEMP) {
+                    if (!Util.isTempTableInCurrentSession(table.getName())) {
+                        continue;
+                    }
+                    row.add(Util.getTempTableOuterName(table.getName()));
+                } else {
+                    row.add(table.getName());
+                }
                 row.add(String.valueOf(database.getId()));
                 rows.add(row);
                 break;
@@ -907,7 +914,14 @@ public class ShowExecutor {
                         if (partition != null) {
                             List<String> row = new ArrayList<>();
                             row.add(database.getFullName());
-                            row.add(tbl.getName());
+                            if (tbl.getType() == TableType.TEMP) {
+                                if (!Util.isTempTableInCurrentSession(tbl.getName())) {
+                                    continue;
+                                }
+                                row.add(Util.getTempTableOuterName(tbl.getName()));
+                            } else {
+                                row.add(tbl.getName());
+                            }
                             row.add(partition.getName());
                             row.add(String.valueOf(database.getId()));
                             row.add(String.valueOf(tbl.getId()));
@@ -1044,7 +1058,14 @@ public class ShowExecutor {
                 }
                 List<String> row = Lists.newArrayList();
                 // Name
-                row.add(table.getName());
+                if (table.getType() == TableType.TEMP) {
+                    if (!Util.isTempTableInCurrentSession(table.getName())) {
+                        continue;
+                    }
+                    row.add(Util.getTempTableOuterName(table.getName()));
+                } else {
+                    row.add(table.getName());
+                }
                 // Engine
                 row.add(table.getEngine());
                 // version
@@ -2072,6 +2093,12 @@ public class ShowExecutor {
                 table.readLock();
                 try {
                     tableName = table.getName();
+                    if (table.getType() == TableType.TEMP) {
+                        if (!Util.isTempTableInCurrentSession(table.getName())) {
+                            throw new AnalysisException("Unknown tablet: " + tabletId);
+                        }
+                        tableName = Util.getTempTableOuterName(tableName);
+                    }
                     OlapTable olapTable = (OlapTable) table;
                     Partition partition = olapTable.getPartition(partitionId);
                     if (partition == null) {
@@ -2578,6 +2605,12 @@ public class ShowExecutor {
                     DynamicPartitionProperty dynamicPartitionProperty
                             = olapTable.getTableProperty().getDynamicPartitionProperty();
                     String tableName = olapTable.getName();
+                    if (olapTable.getType() == TableType.TEMP) {
+                        if (!Util.isTempTableInCurrentSession(tableName)) {
+                            continue;
+                        }
+                        tableName = Util.getTempTableOuterName(tableName);
+                    }
                     ReplicaAllocation replicaAlloc = dynamicPartitionProperty.getReplicaAllocation();
                     if (replicaAlloc.isNotSet()) {
                         replicaAlloc = olapTable.getDefaultReplicaAllocation();

@@ -597,6 +597,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
         if (table == null) {
             table = nameToTable.get(tableName);
         }
+
         return table;
     }
 

@@ -50,7 +50,7 @@ suite("test_distinct_agg") {
                 from test_distinct_agg_t 
                 where 1=1 
                 group by k5, k6
-            ) AS temp1 where 1=1
+            ) AS temp where 1=1
             group by k5, k6;
         '''
         result([['1', '2023-01-10', 1L]])

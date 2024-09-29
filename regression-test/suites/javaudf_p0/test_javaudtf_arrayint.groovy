@@ -67,7 +67,7 @@ suite("test_javaudtf_arrayint") {
             "type"="JAVA_UDF"
         ); """
 
-        qt_select1 """ SELECT user_id, string_col, e1 FROM ${tableName} lateral view  udtf_arrayint(array(user_id)) `temp` as e1 order by user_id; """
+        qt_select1 """ SELECT user_id, string_col, e1 FROM ${tableName} lateral view  udtf_arrayint(array(user_id)) temp as e1 order by user_id; """
 
     } finally {
         try_sql("DROP FUNCTION IF EXISTS udtf_arrayint(array<int>);")

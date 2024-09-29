@@ -65,7 +65,7 @@ suite("test_javaudtf_int") {
             "type"="JAVA_UDF"
         ); """
 
-        qt_select1 """ SELECT user_id, varchar_col, e1 FROM ${tableName} lateral view  udtf_int(user_id) `temp` as e1 order by user_id; """
+        qt_select1 """ SELECT user_id, varchar_col, e1 FROM ${tableName} lateral view  udtf_int(user_id) temp as e1 order by user_id; """
 
         test {
             sql """ select udtf_int(1); """
