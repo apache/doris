@@ -546,14 +546,6 @@ bool WorkloadGroupMgr::handle_single_query(std::shared_ptr<QueryContext> query_c
         return false;
     }
 
-    // During waiting all task not running, may release some memory and the memory is enough now
-    // should resume the query.
-    if (query_ctx->get_mem_tracker()->limit() >
-        query_ctx->get_mem_tracker()->consumption() + size_to_reserve) {
-        query_ctx->set_memory_sufficient(true);
-        return true;
-    }
-
     auto revocable_tasks = query_ctx->get_revocable_tasks();
     if (revocable_tasks.empty()) {
         if (paused_reason.is<ErrorCode::QUERY_MEMORY_EXCEEDED>()) {

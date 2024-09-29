@@ -302,24 +302,25 @@ inline doris::Status ThreadMemTrackerMgr::try_reserve(int64_t size) {
     }
     if (!_limiter_tracker->try_reserve(size)) {
         auto err_msg = fmt::format(
-                "reserve memory failed, size: {}, because memory tracker consumption: {}, "
-                "limit: "
-                "{}",
+                "reserve memory failed, size: {}, because query memory exceeded, memory tracker "
+                "consumption: {}, limit: {}",
                 size, _limiter_tracker->consumption(), _limiter_tracker->limit());
         return doris::Status::Error<ErrorCode::QUERY_MEMORY_EXCEEDED>(err_msg);
     }
     if (wg_ptr) {
         if (!wg_ptr->add_wg_refresh_interval_memory_growth(size)) {
-            auto err_msg = fmt::format("reserve memory failed, size: {}, because {}", size,
-                                       wg_ptr->memory_debug_string());
+            auto err_msg = fmt::format(
+                    "reserve memory failed, size: {}, because wg memory exceeded, wg info: {}",
+                    size, wg_ptr->memory_debug_string());
             _limiter_tracker->release(size);          // rollback
             _limiter_tracker->release_reserved(size); // rollback
             return doris::Status::Error<ErrorCode::WORKLOAD_GROUP_MEMORY_EXCEEDED>(err_msg);
         }
     }
     if (!doris::GlobalMemoryArbitrator::try_reserve_process_memory(size)) {
-        auto err_msg = fmt::format("reserve memory failed, size: {}, because {}", size,
-                                   GlobalMemoryArbitrator::process_mem_log_str());
+        auto err_msg =
+                fmt::format("reserve memory failed, size: {}, because proccess memory exceeded, {}",
+                            size, GlobalMemoryArbitrator::process_mem_log_str());
         _limiter_tracker->release(size);          // rollback
         _limiter_tracker->release_reserved(size); // rollback
         if (wg_ptr) {

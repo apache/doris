@@ -194,7 +194,7 @@ public:
     std::shared_ptr<QueryStatistics> get_query_statistics_ptr() { return _query_statistics; }
 
     Status filter_block(const vectorized::VExprContextSPtrs& expr_contexts,
-                        vectorized::Block* block, int column_to_keep);
+                        vectorized::Block* block, size_t column_to_keep);
 
     void update_estimate_memory_usage(size_t usage) { _estimate_memory_usage += usage; }
 

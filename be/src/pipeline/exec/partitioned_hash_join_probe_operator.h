@@ -48,8 +48,7 @@ public:
     Status close(RuntimeState* state) override;
 
     Status spill_probe_blocks(RuntimeState* state,
-                              const std::shared_ptr<SpillContext>& spill_context = nullptr,
-                              bool force = false);
+                              const std::shared_ptr<SpillContext>& spill_context = nullptr);
 
     Status recovery_build_blocks_from_disk(RuntimeState* state, uint32_t partition_index,
                                            bool& has_data);

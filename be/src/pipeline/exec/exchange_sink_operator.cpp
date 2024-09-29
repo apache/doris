@@ -380,7 +380,8 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
         return Status::EndOfFile("all data stream channels EOF");
     }
 
-    if (state->get_query_ctx()->low_memory_mode()) {
+    // When `local_state.only_local_exchange` the `sink_buffer` is nullptr.
+    if (state->get_query_ctx()->low_memory_mode() && local_state._sink_buffer != nullptr) {
         local_state._sink_buffer->set_low_memory_mode();
     }
 
