@@ -297,6 +297,15 @@ void write_schema_dict(MetaServiceCode& code, std::string& msg, const std::strin
                << ", reached the limited size threshold of SchemaDictKeyList "
                << config::schema_dict_kv_size_limit;
             msg = ss.str();
+            return;
+        }
+        // Limit the count of dict keys
+        if (dict.column_dict_size() > config::schema_dict_key_count_limit) {
+            code = MetaServiceCode::KV_TXN_COMMIT_ERR;
+            ss << "Reached max column size limit " << config::schema_dict_key_count_limit
+               << ", txn_id=" << rowset_meta->txn_id();
+            msg = ss.str();
+            return;
         }
         // splitting large values (>90*1000) into multiple KVs
         cloud::put(txn, dict_key, dict_val, 0);
