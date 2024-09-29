@@ -21,12 +21,12 @@ PhysicalResultSink
 ------------------------------------PhysicalProject
 --------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF0 d_date_sk->[ss_sold_date_sk]
 ----------------------------------------PhysicalProject
-------------------------------------------PhysicalFileScan[store_sales] apply RFs: RF0 RF1 RF2
+------------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF0 RF1 RF2
 ----------------------------------------PhysicalProject
 ------------------------------------------filter((date_dim.d_month_seq <= 1196) and (date_dim.d_month_seq >= 1185))
---------------------------------------------PhysicalFileScan[date_dim]
+--------------------------------------------PhysicalOlapScan[date_dim]
 ------------------------------------PhysicalProject
---------------------------------------PhysicalFileScan[store]
+--------------------------------------PhysicalOlapScan[store]
 --------------------------------PhysicalProject
-----------------------------------PhysicalFileScan[item]
+----------------------------------PhysicalOlapScan[item]
 

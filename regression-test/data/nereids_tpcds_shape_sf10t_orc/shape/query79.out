@@ -17,16 +17,16 @@ PhysicalResultSink
 ----------------------------PhysicalProject
 ------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF0 d_date_sk->[ss_sold_date_sk]
 --------------------------------PhysicalProject
-----------------------------------PhysicalFileScan[store_sales] apply RFs: RF0 RF1 RF2 RF3
+----------------------------------PhysicalOlapScan[store_sales] apply RFs: RF0 RF1 RF2 RF3
 --------------------------------PhysicalProject
 ----------------------------------filter((date_dim.d_dow = 1) and d_year IN (1998, 1999, 2000))
-------------------------------------PhysicalFileScan[date_dim]
+------------------------------------PhysicalOlapScan[date_dim]
 ----------------------------PhysicalProject
 ------------------------------filter((store.s_number_employees <= 295) and (store.s_number_employees >= 200))
---------------------------------PhysicalFileScan[store]
+--------------------------------PhysicalOlapScan[store]
 ------------------------PhysicalProject
 --------------------------filter(((household_demographics.hd_dep_count = 0) OR (household_demographics.hd_vehicle_count > 3)))
-----------------------------PhysicalFileScan[household_demographics]
+----------------------------PhysicalOlapScan[household_demographics]
 ------------PhysicalProject
---------------PhysicalFileScan[customer]
+--------------PhysicalOlapScan[customer]
 

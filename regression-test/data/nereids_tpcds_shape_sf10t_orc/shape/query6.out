@@ -20,17 +20,17 @@ PhysicalResultSink
 ----------------------------------PhysicalProject
 ------------------------------------hashJoin[INNER_JOIN shuffle] hashCondition=((c.c_customer_sk = s.ss_customer_sk)) otherCondition=() build RFs:RF1 c_customer_sk->[ss_customer_sk]
 --------------------------------------PhysicalProject
-----------------------------------------PhysicalFileScan[store_sales] apply RFs: RF1 RF2 RF3
+----------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF1 RF2 RF3
 --------------------------------------PhysicalProject
 ----------------------------------------hashJoin[INNER_JOIN shuffle] hashCondition=((a.ca_address_sk = c.c_current_addr_sk)) otherCondition=() build RFs:RF0 ca_address_sk->[c_current_addr_sk]
 ------------------------------------------PhysicalProject
---------------------------------------------PhysicalFileScan[customer] apply RFs: RF0
+--------------------------------------------PhysicalOlapScan[customer] apply RFs: RF0
 ------------------------------------------PhysicalProject
---------------------------------------------PhysicalFileScan[customer_address]
+--------------------------------------------PhysicalOlapScan[customer_address]
 ----------------------------------PhysicalProject
-------------------------------------PhysicalFileScan[date_dim] apply RFs: RF4
+------------------------------------PhysicalOlapScan[date_dim] apply RFs: RF4
 ------------------------------PhysicalProject
---------------------------------PhysicalFileScan[item] apply RFs: RF5
+--------------------------------PhysicalOlapScan[item] apply RFs: RF5
 --------------------------PhysicalAssertNumRows
 ----------------------------PhysicalDistribute[DistributionSpecGather]
 ------------------------------hashAgg[GLOBAL]
@@ -38,10 +38,10 @@ PhysicalResultSink
 ----------------------------------hashAgg[LOCAL]
 ------------------------------------PhysicalProject
 --------------------------------------filter((date_dim.d_moy = 3) and (date_dim.d_year = 2002))
-----------------------------------------PhysicalFileScan[date_dim]
+----------------------------------------PhysicalOlapScan[date_dim]
 ----------------------hashAgg[GLOBAL]
 ------------------------PhysicalDistribute[DistributionSpecHash]
 --------------------------hashAgg[LOCAL]
 ----------------------------PhysicalProject
-------------------------------PhysicalFileScan[item]
+------------------------------PhysicalOlapScan[item]
 

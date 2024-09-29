@@ -28,27 +28,27 @@ PhysicalResultSink
 --------------------------------------------------PhysicalProject
 ----------------------------------------------------hashJoin[INNER_JOIN shuffle] hashCondition=((catalog_sales.cs_item_sk = inventory.inv_item_sk)) otherCondition=((inventory.inv_quantity_on_hand < catalog_sales.cs_quantity)) build RFs:RF0 inv_item_sk->[cs_item_sk]
 ------------------------------------------------------PhysicalProject
---------------------------------------------------------PhysicalFileScan[catalog_sales] apply RFs: RF0 RF2 RF3 RF5 RF6 RF8
-------------------------------------------------------PhysicalFileScan[inventory] apply RFs: RF1 RF2 RF4
+--------------------------------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF0 RF2 RF3 RF5 RF6 RF8
+------------------------------------------------------PhysicalOlapScan[inventory] apply RFs: RF1 RF2 RF4
 --------------------------------------------------PhysicalProject
-----------------------------------------------------PhysicalFileScan[warehouse]
+----------------------------------------------------PhysicalOlapScan[warehouse]
 ----------------------------------------------PhysicalProject
-------------------------------------------------PhysicalFileScan[item]
+------------------------------------------------PhysicalOlapScan[item]
 ------------------------------------------PhysicalProject
 --------------------------------------------filter((customer_demographics.cd_marital_status = 'D'))
-----------------------------------------------PhysicalFileScan[customer_demographics]
+----------------------------------------------PhysicalOlapScan[customer_demographics]
 --------------------------------------PhysicalProject
-----------------------------------------PhysicalFileScan[date_dim] apply RFs: RF7
+----------------------------------------PhysicalOlapScan[date_dim] apply RFs: RF7
 ----------------------------------PhysicalProject
-------------------------------------PhysicalFileScan[date_dim]
+------------------------------------PhysicalOlapScan[date_dim]
 ------------------------------PhysicalProject
---------------------------------PhysicalFileScan[promotion]
+--------------------------------PhysicalOlapScan[promotion]
 --------------------------PhysicalProject
-----------------------------PhysicalFileScan[catalog_returns]
+----------------------------PhysicalOlapScan[catalog_returns]
 ----------------------PhysicalProject
 ------------------------filter((household_demographics.hd_buy_potential = '1001-5000'))
---------------------------PhysicalFileScan[household_demographics]
+--------------------------PhysicalOlapScan[household_demographics]
 ------------------PhysicalProject
 --------------------filter((d1.d_year = 2000))
-----------------------PhysicalFileScan[date_dim]
+----------------------PhysicalOlapScan[date_dim]
 

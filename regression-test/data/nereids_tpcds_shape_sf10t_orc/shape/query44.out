@@ -9,7 +9,7 @@ PhysicalResultSink
 ------------PhysicalProject
 --------------hashJoin[INNER_JOIN broadcast] hashCondition=((i1.i_item_sk = asceding.item_sk)) otherCondition=() build RFs:RF0 item_sk->[i_item_sk]
 ----------------PhysicalProject
-------------------PhysicalFileScan[item] apply RFs: RF0
+------------------PhysicalOlapScan[item] apply RFs: RF0
 ----------------PhysicalProject
 ------------------hashJoin[INNER_JOIN broadcast] hashCondition=((asceding.rnk = descending.rnk)) otherCondition=()
 --------------------PhysicalProject
@@ -27,7 +27,7 @@ PhysicalResultSink
 --------------------------------------------hashAgg[LOCAL]
 ----------------------------------------------PhysicalProject
 ------------------------------------------------filter((ss1.ss_store_sk = 366))
---------------------------------------------------PhysicalFileScan[store_sales]
+--------------------------------------------------PhysicalOlapScan[store_sales]
 --------------------------------------PhysicalProject
 ----------------------------------------PhysicalAssertNumRows
 ------------------------------------------PhysicalDistribute[DistributionSpecGather]
@@ -37,7 +37,7 @@ PhysicalResultSink
 --------------------------------------------------hashAgg[LOCAL]
 ----------------------------------------------------PhysicalProject
 ------------------------------------------------------filter((store_sales.ss_store_sk = 366) and ss_cdemo_sk IS NULL)
---------------------------------------------------------PhysicalFileScan[store_sales]
+--------------------------------------------------------PhysicalOlapScan[store_sales]
 --------------------PhysicalProject
 ----------------------filter((rnk < 11))
 ------------------------PhysicalWindow
@@ -53,7 +53,7 @@ PhysicalResultSink
 --------------------------------------------hashAgg[LOCAL]
 ----------------------------------------------PhysicalProject
 ------------------------------------------------filter((ss1.ss_store_sk = 366))
---------------------------------------------------PhysicalFileScan[store_sales]
+--------------------------------------------------PhysicalOlapScan[store_sales]
 --------------------------------------PhysicalProject
 ----------------------------------------PhysicalAssertNumRows
 ------------------------------------------PhysicalDistribute[DistributionSpecGather]
@@ -63,7 +63,7 @@ PhysicalResultSink
 --------------------------------------------------hashAgg[LOCAL]
 ----------------------------------------------------PhysicalProject
 ------------------------------------------------------filter((store_sales.ss_store_sk = 366) and ss_cdemo_sk IS NULL)
---------------------------------------------------------PhysicalFileScan[store_sales]
+--------------------------------------------------------PhysicalOlapScan[store_sales]
 ------------PhysicalProject
---------------PhysicalFileScan[item]
+--------------PhysicalOlapScan[item]
 

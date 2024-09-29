@@ -16,16 +16,16 @@ PhysicalResultSink
 --------------------------PhysicalProject
 ----------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF0 i_item_sk->[ss_item_sk]
 ------------------------------PhysicalProject
---------------------------------PhysicalFileScan[store_sales] apply RFs: RF0 RF1 RF2 RF3
+--------------------------------PhysicalOlapScan[store_sales] apply RFs: RF0 RF1 RF2 RF3
 ------------------------------PhysicalProject
---------------------------------PhysicalFileScan[item]
+--------------------------------PhysicalOlapScan[item]
 --------------------------PhysicalProject
 ----------------------------filter((customer_demographics.cd_education_status = 'College') and (customer_demographics.cd_gender = 'F') and (customer_demographics.cd_marital_status = 'W'))
-------------------------------PhysicalFileScan[customer_demographics]
+------------------------------PhysicalOlapScan[customer_demographics]
 ----------------------PhysicalProject
 ------------------------filter((date_dim.d_year = 2001))
---------------------------PhysicalFileScan[date_dim]
+--------------------------PhysicalOlapScan[date_dim]
 ------------------PhysicalProject
 --------------------filter(((promotion.p_channel_email = 'N') OR (promotion.p_channel_event = 'N')))
-----------------------PhysicalFileScan[promotion]
+----------------------PhysicalOlapScan[promotion]
 

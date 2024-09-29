@@ -15,30 +15,30 @@ PhysicalResultSink
 ------------------------PhysicalDistribute[DistributionSpecHash]
 --------------------------hashAgg[LOCAL]
 ----------------------------PhysicalProject
-------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_promo_sk = promotion.p_promo_sk)) otherCondition=() build RFs:RF3 p_promo_sk->[ss_promo_sk]
+------------------------------hashJoin[LEFT_OUTER_JOIN shuffle] hashCondition=((store_sales.ss_item_sk = store_returns.sr_item_sk) and (store_sales.ss_ticket_number = store_returns.sr_ticket_number)) otherCondition=()
 --------------------------------PhysicalProject
-----------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF2 i_item_sk->[ss_item_sk]
+----------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_promo_sk = promotion.p_promo_sk)) otherCondition=() build RFs:RF3 p_promo_sk->[ss_promo_sk]
 ------------------------------------PhysicalProject
---------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_store_sk = store.s_store_sk)) otherCondition=() build RFs:RF1 s_store_sk->[ss_store_sk]
+--------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF2 i_item_sk->[ss_item_sk]
 ----------------------------------------PhysicalProject
-------------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF0 d_date_sk->[ss_sold_date_sk]
+------------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_store_sk = store.s_store_sk)) otherCondition=() build RFs:RF1 s_store_sk->[ss_store_sk]
 --------------------------------------------PhysicalProject
-----------------------------------------------hashJoin[LEFT_OUTER_JOIN shuffle] hashCondition=((store_sales.ss_item_sk = store_returns.sr_item_sk) and (store_sales.ss_ticket_number = store_returns.sr_ticket_number)) otherCondition=()
+----------------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF0 d_date_sk->[ss_sold_date_sk]
 ------------------------------------------------PhysicalProject
---------------------------------------------------PhysicalFileScan[store_sales] apply RFs: RF0 RF1 RF2 RF3
+--------------------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF0 RF1 RF2 RF3
 ------------------------------------------------PhysicalProject
---------------------------------------------------PhysicalFileScan[store_returns]
+--------------------------------------------------filter((date_dim.d_date <= '2002-09-05') and (date_dim.d_date >= '2002-08-06'))
+----------------------------------------------------PhysicalOlapScan[date_dim]
 --------------------------------------------PhysicalProject
-----------------------------------------------filter((date_dim.d_date <= '2002-09-05') and (date_dim.d_date >= '2002-08-06'))
-------------------------------------------------PhysicalFileScan[date_dim]
+----------------------------------------------PhysicalOlapScan[store]
 ----------------------------------------PhysicalProject
-------------------------------------------PhysicalFileScan[store]
+------------------------------------------filter((item.i_current_price > 50.00))
+--------------------------------------------PhysicalOlapScan[item]
 ------------------------------------PhysicalProject
---------------------------------------filter((item.i_current_price > 50.00))
-----------------------------------------PhysicalFileScan[item]
+--------------------------------------filter((promotion.p_channel_tv = 'N'))
+----------------------------------------PhysicalOlapScan[promotion]
 --------------------------------PhysicalProject
-----------------------------------filter((promotion.p_channel_tv = 'N'))
-------------------------------------PhysicalFileScan[promotion]
+----------------------------------PhysicalOlapScan[store_returns]
 --------------------PhysicalProject
 ----------------------hashAgg[GLOBAL]
 ------------------------PhysicalDistribute[DistributionSpecHash]
@@ -54,20 +54,20 @@ PhysicalResultSink
 --------------------------------------------PhysicalProject
 ----------------------------------------------hashJoin[LEFT_OUTER_JOIN shuffle] hashCondition=((catalog_sales.cs_item_sk = catalog_returns.cr_item_sk) and (catalog_sales.cs_order_number = catalog_returns.cr_order_number)) otherCondition=()
 ------------------------------------------------PhysicalProject
---------------------------------------------------PhysicalFileScan[catalog_sales] apply RFs: RF4 RF5 RF6 RF7
+--------------------------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF4 RF5 RF6 RF7
 ------------------------------------------------PhysicalProject
---------------------------------------------------PhysicalFileScan[catalog_returns]
+--------------------------------------------------PhysicalOlapScan[catalog_returns]
 --------------------------------------------PhysicalProject
-----------------------------------------------PhysicalFileScan[catalog_page]
+----------------------------------------------PhysicalOlapScan[catalog_page]
 ----------------------------------------PhysicalProject
 ------------------------------------------filter((date_dim.d_date <= '2002-09-05') and (date_dim.d_date >= '2002-08-06'))
---------------------------------------------PhysicalFileScan[date_dim]
+--------------------------------------------PhysicalOlapScan[date_dim]
 ------------------------------------PhysicalProject
 --------------------------------------filter((item.i_current_price > 50.00))
-----------------------------------------PhysicalFileScan[item]
+----------------------------------------PhysicalOlapScan[item]
 --------------------------------PhysicalProject
 ----------------------------------filter((promotion.p_channel_tv = 'N'))
-------------------------------------PhysicalFileScan[promotion]
+------------------------------------PhysicalOlapScan[promotion]
 --------------------PhysicalProject
 ----------------------hashAgg[GLOBAL]
 ------------------------PhysicalDistribute[DistributionSpecHash]
@@ -77,24 +77,24 @@ PhysicalResultSink
 --------------------------------PhysicalProject
 ----------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((web_sales.ws_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF10 i_item_sk->[ws_item_sk]
 ------------------------------------PhysicalProject
---------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((web_sales.ws_web_site_sk = web_site.web_site_sk)) otherCondition=() build RFs:RF9 web_site_sk->[ws_web_site_sk]
+--------------------------------------hashJoin[LEFT_OUTER_JOIN shuffle] hashCondition=((web_sales.ws_item_sk = web_returns.wr_item_sk) and (web_sales.ws_order_number = web_returns.wr_order_number)) otherCondition=()
 ----------------------------------------PhysicalProject
-------------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((web_sales.ws_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF8 d_date_sk->[ws_sold_date_sk]
+------------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((web_sales.ws_web_site_sk = web_site.web_site_sk)) otherCondition=() build RFs:RF9 web_site_sk->[ws_web_site_sk]
 --------------------------------------------PhysicalProject
-----------------------------------------------hashJoin[LEFT_OUTER_JOIN shuffle] hashCondition=((web_sales.ws_item_sk = web_returns.wr_item_sk) and (web_sales.ws_order_number = web_returns.wr_order_number)) otherCondition=()
+----------------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((web_sales.ws_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF8 d_date_sk->[ws_sold_date_sk]
 ------------------------------------------------PhysicalProject
---------------------------------------------------PhysicalFileScan[web_sales] apply RFs: RF8 RF9 RF10 RF11
+--------------------------------------------------PhysicalOlapScan[web_sales] apply RFs: RF8 RF9 RF10 RF11
 ------------------------------------------------PhysicalProject
---------------------------------------------------PhysicalFileScan[web_returns]
+--------------------------------------------------filter((date_dim.d_date <= '2002-09-05') and (date_dim.d_date >= '2002-08-06'))
+----------------------------------------------------PhysicalOlapScan[date_dim]
 --------------------------------------------PhysicalProject
-----------------------------------------------filter((date_dim.d_date <= '2002-09-05') and (date_dim.d_date >= '2002-08-06'))
-------------------------------------------------PhysicalFileScan[date_dim]
+----------------------------------------------PhysicalOlapScan[web_site]
 ----------------------------------------PhysicalProject
-------------------------------------------PhysicalFileScan[web_site]
+------------------------------------------PhysicalOlapScan[web_returns]
 ------------------------------------PhysicalProject
 --------------------------------------filter((item.i_current_price > 50.00))
-----------------------------------------PhysicalFileScan[item]
+----------------------------------------PhysicalOlapScan[item]
 --------------------------------PhysicalProject
 ----------------------------------filter((promotion.p_channel_tv = 'N'))
-------------------------------------PhysicalFileScan[promotion]
+------------------------------------PhysicalOlapScan[promotion]
 

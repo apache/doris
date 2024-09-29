@@ -21,15 +21,15 @@ PhysicalResultSink
 ------------------------------------PhysicalUnion
 --------------------------------------PhysicalDistribute[DistributionSpecHash]
 ----------------------------------------PhysicalProject
-------------------------------------------PhysicalFileScan[store_sales] apply RFs: RF0 RF1
+------------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF0 RF1
 --------------------------------------PhysicalDistribute[DistributionSpecHash]
 ----------------------------------------PhysicalProject
-------------------------------------------PhysicalFileScan[store_returns] apply RFs: RF0 RF1
+------------------------------------------PhysicalOlapScan[store_returns] apply RFs: RF0 RF1
 ------------------------------------PhysicalProject
 --------------------------------------filter((date_dim.d_date <= '2000-09-02') and (date_dim.d_date >= '2000-08-19'))
-----------------------------------------PhysicalFileScan[date_dim]
+----------------------------------------PhysicalOlapScan[date_dim]
 --------------------------------PhysicalProject
-----------------------------------PhysicalFileScan[store]
+----------------------------------PhysicalOlapScan[store]
 --------------------PhysicalProject
 ----------------------hashAgg[GLOBAL]
 ------------------------PhysicalDistribute[DistributionSpecHash]
@@ -41,15 +41,15 @@ PhysicalResultSink
 ------------------------------------PhysicalUnion
 --------------------------------------PhysicalDistribute[DistributionSpecHash]
 ----------------------------------------PhysicalProject
-------------------------------------------PhysicalFileScan[catalog_sales] apply RFs: RF2 RF3
+------------------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF2 RF3
 --------------------------------------PhysicalDistribute[DistributionSpecHash]
 ----------------------------------------PhysicalProject
-------------------------------------------PhysicalFileScan[catalog_returns] apply RFs: RF2 RF3
+------------------------------------------PhysicalOlapScan[catalog_returns] apply RFs: RF2 RF3
 ------------------------------------PhysicalProject
---------------------------------------PhysicalFileScan[catalog_page]
+--------------------------------------PhysicalOlapScan[catalog_page]
 --------------------------------PhysicalProject
 ----------------------------------filter((date_dim.d_date <= '2000-09-02') and (date_dim.d_date >= '2000-08-19'))
-------------------------------------PhysicalFileScan[date_dim]
+------------------------------------PhysicalOlapScan[date_dim]
 --------------------PhysicalProject
 ----------------------hashAgg[GLOBAL]
 ------------------------PhysicalDistribute[DistributionSpecHash]
@@ -61,17 +61,17 @@ PhysicalResultSink
 ------------------------------------PhysicalUnion
 --------------------------------------PhysicalDistribute[DistributionSpecHash]
 ----------------------------------------PhysicalProject
-------------------------------------------PhysicalFileScan[web_sales] apply RFs: RF6 RF7
+------------------------------------------PhysicalOlapScan[web_sales] apply RFs: RF6 RF7
 --------------------------------------PhysicalDistribute[DistributionSpecHash]
 ----------------------------------------PhysicalProject
 ------------------------------------------hashJoin[INNER_JOIN shuffle] hashCondition=((web_returns.wr_item_sk = web_sales.ws_item_sk) and (web_returns.wr_order_number = web_sales.ws_order_number)) otherCondition=() build RFs:RF4 wr_item_sk->[ws_item_sk];RF5 wr_order_number->[ws_order_number]
 --------------------------------------------PhysicalProject
-----------------------------------------------PhysicalFileScan[web_sales] apply RFs: RF4 RF5 RF7
+----------------------------------------------PhysicalOlapScan[web_sales] apply RFs: RF4 RF5 RF7
 --------------------------------------------PhysicalProject
-----------------------------------------------PhysicalFileScan[web_returns] apply RFs: RF6
+----------------------------------------------PhysicalOlapScan[web_returns] apply RFs: RF6
 ------------------------------------PhysicalProject
 --------------------------------------filter((date_dim.d_date <= '2000-09-02') and (date_dim.d_date >= '2000-08-19'))
-----------------------------------------PhysicalFileScan[date_dim]
+----------------------------------------PhysicalOlapScan[date_dim]
 --------------------------------PhysicalProject
-----------------------------------PhysicalFileScan[web_site]
+----------------------------------PhysicalOlapScan[web_site]
 

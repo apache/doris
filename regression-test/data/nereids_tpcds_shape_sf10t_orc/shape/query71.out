@@ -17,30 +17,30 @@ PhysicalResultSink
 ----------------------------PhysicalProject
 ------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((date_dim.d_date_sk = web_sales.ws_sold_date_sk)) otherCondition=() build RFs:RF0 d_date_sk->[ws_sold_date_sk]
 --------------------------------PhysicalProject
-----------------------------------PhysicalFileScan[web_sales] apply RFs: RF0 RF3 RF4
+----------------------------------PhysicalOlapScan[web_sales] apply RFs: RF0 RF3 RF4
 --------------------------------PhysicalProject
 ----------------------------------filter((date_dim.d_moy = 12) and (date_dim.d_year = 2000))
-------------------------------------PhysicalFileScan[date_dim]
+------------------------------------PhysicalOlapScan[date_dim]
 --------------------------PhysicalDistribute[DistributionSpecHash]
 ----------------------------PhysicalProject
 ------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((date_dim.d_date_sk = catalog_sales.cs_sold_date_sk)) otherCondition=() build RFs:RF1 d_date_sk->[cs_sold_date_sk]
 --------------------------------PhysicalProject
-----------------------------------PhysicalFileScan[catalog_sales] apply RFs: RF1 RF3 RF4
+----------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF1 RF3 RF4
 --------------------------------PhysicalProject
 ----------------------------------filter((date_dim.d_moy = 12) and (date_dim.d_year = 2000))
-------------------------------------PhysicalFileScan[date_dim]
+------------------------------------PhysicalOlapScan[date_dim]
 --------------------------PhysicalDistribute[DistributionSpecHash]
 ----------------------------PhysicalProject
 ------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((date_dim.d_date_sk = store_sales.ss_sold_date_sk)) otherCondition=() build RFs:RF2 d_date_sk->[ss_sold_date_sk]
 --------------------------------PhysicalProject
-----------------------------------PhysicalFileScan[store_sales] apply RFs: RF2 RF3 RF4
+----------------------------------PhysicalOlapScan[store_sales] apply RFs: RF2 RF3 RF4
 --------------------------------PhysicalProject
 ----------------------------------filter((date_dim.d_moy = 12) and (date_dim.d_year = 2000))
-------------------------------------PhysicalFileScan[date_dim]
+------------------------------------PhysicalOlapScan[date_dim]
 ------------------------PhysicalProject
 --------------------------filter((item.i_manager_id = 1))
-----------------------------PhysicalFileScan[item]
+----------------------------PhysicalOlapScan[item]
 --------------------PhysicalProject
 ----------------------filter(t_meal_time IN ('breakfast', 'dinner'))
-------------------------PhysicalFileScan[time_dim]
+------------------------PhysicalOlapScan[time_dim]
 

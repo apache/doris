@@ -23,7 +23,7 @@ suite("query12") {
         return
     }
     sql """
-         use dlf.tpcds10000_oss;
+         use ${db};
          set enable_nereids_planner=true;
          set enable_nereids_distribute_planner=false;
          set enable_fallback_to_original_planner=false;

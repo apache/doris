@@ -17,18 +17,18 @@ PhysicalResultSink
 ----------------------------PhysicalProject
 ------------------------------hashJoin[RIGHT_SEMI_JOIN shuffle] hashCondition=((cs1.cs_order_number = cs2.cs_order_number)) otherCondition=(( not (cs_warehouse_sk = cs_warehouse_sk))) build RFs:RF0 cs_order_number->[cs_order_number]
 --------------------------------PhysicalProject
-----------------------------------PhysicalFileScan[catalog_sales] apply RFs: RF0
+----------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF0
 --------------------------------PhysicalProject
-----------------------------------PhysicalFileScan[catalog_sales] apply RFs: RF1 RF2 RF3
+----------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF1 RF2 RF3
 ----------------------------PhysicalProject
-------------------------------PhysicalFileScan[catalog_returns]
+------------------------------PhysicalOlapScan[catalog_returns]
 --------------------------PhysicalProject
 ----------------------------filter((date_dim.d_date <= '1999-05-31') and (date_dim.d_date >= '1999-04-01'))
-------------------------------PhysicalFileScan[date_dim]
+------------------------------PhysicalOlapScan[date_dim]
 ----------------------PhysicalProject
 ------------------------filter((customer_address.ca_state = 'IL'))
---------------------------PhysicalFileScan[customer_address]
+--------------------------PhysicalOlapScan[customer_address]
 ------------------PhysicalProject
 --------------------filter(cc_county IN ('Bronx County', 'Maverick County', 'Mesa County', 'Raleigh County', 'Richland County'))
-----------------------PhysicalFileScan[call_center]
+----------------------PhysicalOlapScan[call_center]
 

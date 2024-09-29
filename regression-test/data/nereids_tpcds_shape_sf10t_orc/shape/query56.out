@@ -19,19 +19,19 @@ PhysicalResultSink
 --------------------------------PhysicalProject
 ----------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_addr_sk = customer_address.ca_address_sk)) otherCondition=() build RFs:RF1 ca_address_sk->[ss_addr_sk]
 ------------------------------------PhysicalProject
---------------------------------------PhysicalFileScan[store_sales] apply RFs: RF1 RF2 RF3
+--------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF1 RF2 RF3
 ------------------------------------PhysicalProject
 --------------------------------------filter((customer_address.ca_gmt_offset = -6.00))
-----------------------------------------PhysicalFileScan[customer_address]
+----------------------------------------PhysicalOlapScan[customer_address]
 --------------------------------hashJoin[LEFT_SEMI_JOIN broadcast] hashCondition=((item.i_item_id = item.i_item_id)) otherCondition=() build RFs:RF0 i_item_id->[i_item_id]
 ----------------------------------PhysicalProject
-------------------------------------PhysicalFileScan[item] apply RFs: RF0
+------------------------------------PhysicalOlapScan[item] apply RFs: RF0
 ----------------------------------PhysicalProject
 ------------------------------------filter(i_color IN ('chiffon', 'lace', 'smoke'))
---------------------------------------PhysicalFileScan[item]
+--------------------------------------PhysicalOlapScan[item]
 ----------------------------PhysicalProject
 ------------------------------filter((date_dim.d_moy = 5) and (date_dim.d_year = 2001))
---------------------------------PhysicalFileScan[date_dim]
+--------------------------------PhysicalOlapScan[date_dim]
 ----------------PhysicalProject
 ------------------hashAgg[GLOBAL]
 --------------------PhysicalDistribute[DistributionSpecHash]
@@ -43,19 +43,19 @@ PhysicalResultSink
 --------------------------------PhysicalProject
 ----------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((catalog_sales.cs_bill_addr_sk = customer_address.ca_address_sk)) otherCondition=() build RFs:RF5 ca_address_sk->[cs_bill_addr_sk]
 ------------------------------------PhysicalProject
---------------------------------------PhysicalFileScan[catalog_sales] apply RFs: RF5 RF6 RF7
+--------------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF5 RF6 RF7
 ------------------------------------PhysicalProject
 --------------------------------------filter((customer_address.ca_gmt_offset = -6.00))
-----------------------------------------PhysicalFileScan[customer_address]
+----------------------------------------PhysicalOlapScan[customer_address]
 --------------------------------hashJoin[LEFT_SEMI_JOIN broadcast] hashCondition=((item.i_item_id = item.i_item_id)) otherCondition=() build RFs:RF4 i_item_id->[i_item_id]
 ----------------------------------PhysicalProject
-------------------------------------PhysicalFileScan[item] apply RFs: RF4
+------------------------------------PhysicalOlapScan[item] apply RFs: RF4
 ----------------------------------PhysicalProject
 ------------------------------------filter(i_color IN ('chiffon', 'lace', 'smoke'))
---------------------------------------PhysicalFileScan[item]
+--------------------------------------PhysicalOlapScan[item]
 ----------------------------PhysicalProject
 ------------------------------filter((date_dim.d_moy = 5) and (date_dim.d_year = 2001))
---------------------------------PhysicalFileScan[date_dim]
+--------------------------------PhysicalOlapScan[date_dim]
 ----------------PhysicalProject
 ------------------hashAgg[GLOBAL]
 --------------------PhysicalDistribute[DistributionSpecHash]
@@ -67,17 +67,17 @@ PhysicalResultSink
 --------------------------------PhysicalProject
 ----------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((web_sales.ws_bill_addr_sk = customer_address.ca_address_sk)) otherCondition=() build RFs:RF9 ca_address_sk->[ws_bill_addr_sk]
 ------------------------------------PhysicalProject
---------------------------------------PhysicalFileScan[web_sales] apply RFs: RF9 RF10 RF11
+--------------------------------------PhysicalOlapScan[web_sales] apply RFs: RF9 RF10 RF11
 ------------------------------------PhysicalProject
 --------------------------------------filter((customer_address.ca_gmt_offset = -6.00))
-----------------------------------------PhysicalFileScan[customer_address]
+----------------------------------------PhysicalOlapScan[customer_address]
 --------------------------------hashJoin[LEFT_SEMI_JOIN broadcast] hashCondition=((item.i_item_id = item.i_item_id)) otherCondition=() build RFs:RF8 i_item_id->[i_item_id]
 ----------------------------------PhysicalProject
-------------------------------------PhysicalFileScan[item] apply RFs: RF8
+------------------------------------PhysicalOlapScan[item] apply RFs: RF8
 ----------------------------------PhysicalProject
 ------------------------------------filter(i_color IN ('chiffon', 'lace', 'smoke'))
---------------------------------------PhysicalFileScan[item]
+--------------------------------------PhysicalOlapScan[item]
 ----------------------------PhysicalProject
 ------------------------------filter((date_dim.d_moy = 5) and (date_dim.d_year = 2001))
---------------------------------PhysicalFileScan[date_dim]
+--------------------------------PhysicalOlapScan[date_dim]
 

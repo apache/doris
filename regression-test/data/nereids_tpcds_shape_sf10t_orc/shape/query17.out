@@ -23,22 +23,22 @@ PhysicalResultSink
 ----------------------------------------PhysicalProject
 ------------------------------------------hashJoin[INNER_JOIN shuffle] hashCondition=((store_sales.ss_customer_sk = store_returns.sr_customer_sk) and (store_sales.ss_item_sk = store_returns.sr_item_sk) and (store_sales.ss_ticket_number = store_returns.sr_ticket_number)) otherCondition=() build RFs:RF0 sr_customer_sk->[ss_customer_sk];RF1 sr_item_sk->[ss_item_sk];RF2 sr_ticket_number->[ss_ticket_number]
 --------------------------------------------PhysicalProject
-----------------------------------------------PhysicalFileScan[store_sales] apply RFs: RF0 RF1 RF2 RF3 RF4 RF5 RF6 RF9
+----------------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF0 RF1 RF2 RF3 RF4 RF5 RF6 RF9
 --------------------------------------------PhysicalProject
-----------------------------------------------PhysicalFileScan[store_returns] apply RFs: RF3 RF4 RF5 RF7
+----------------------------------------------PhysicalOlapScan[store_returns] apply RFs: RF3 RF4 RF5 RF7
 ----------------------------------------PhysicalProject
-------------------------------------------PhysicalFileScan[catalog_sales] apply RFs: RF8
+------------------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF8
 ------------------------------------PhysicalProject
---------------------------------------PhysicalFileScan[item]
+--------------------------------------PhysicalOlapScan[item]
 --------------------------------PhysicalProject
 ----------------------------------filter((d1.d_quarter_name = '2000Q1'))
-------------------------------------PhysicalFileScan[date_dim]
+------------------------------------PhysicalOlapScan[date_dim]
 ----------------------------PhysicalProject
 ------------------------------filter(d_quarter_name IN ('2000Q1', '2000Q2', '2000Q3'))
---------------------------------PhysicalFileScan[date_dim]
+--------------------------------PhysicalOlapScan[date_dim]
 ------------------------PhysicalProject
 --------------------------filter(d_quarter_name IN ('2000Q1', '2000Q2', '2000Q3'))
-----------------------------PhysicalFileScan[date_dim]
+----------------------------PhysicalOlapScan[date_dim]
 --------------------PhysicalProject
-----------------------PhysicalFileScan[store]
+----------------------PhysicalOlapScan[store]
 

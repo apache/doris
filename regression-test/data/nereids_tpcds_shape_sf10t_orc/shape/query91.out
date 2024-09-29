@@ -21,21 +21,21 @@ PhysicalResultSink
 ------------------------------------PhysicalProject
 --------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((catalog_returns.cr_call_center_sk = call_center.cc_call_center_sk)) otherCondition=() build RFs:RF0 cc_call_center_sk->[cr_call_center_sk]
 ----------------------------------------PhysicalProject
-------------------------------------------PhysicalFileScan[catalog_returns] apply RFs: RF0 RF1 RF2
+------------------------------------------PhysicalOlapScan[catalog_returns] apply RFs: RF0 RF1 RF2
 ----------------------------------------PhysicalProject
-------------------------------------------PhysicalFileScan[call_center]
+------------------------------------------PhysicalOlapScan[call_center]
 ------------------------------------PhysicalProject
---------------------------------------PhysicalFileScan[customer] apply RFs: RF3 RF4 RF5
+--------------------------------------PhysicalOlapScan[customer] apply RFs: RF3 RF4 RF5
 --------------------------------PhysicalProject
 ----------------------------------filter((date_dim.d_moy = 12) and (date_dim.d_year = 2000))
-------------------------------------PhysicalFileScan[date_dim]
+------------------------------------PhysicalOlapScan[date_dim]
 ----------------------------PhysicalProject
 ------------------------------filter((customer_address.ca_gmt_offset = -7.00))
---------------------------------PhysicalFileScan[customer_address]
+--------------------------------PhysicalOlapScan[customer_address]
 ------------------------PhysicalProject
 --------------------------filter((((customer_demographics.cd_marital_status = 'M') AND (customer_demographics.cd_education_status = 'Unknown')) OR ((customer_demographics.cd_marital_status = 'W') AND (customer_demographics.cd_education_status = 'Advanced Degree'))) and cd_education_status IN ('Advanced Degree', 'Unknown') and cd_marital_status IN ('M', 'W'))
-----------------------------PhysicalFileScan[customer_demographics]
+----------------------------PhysicalOlapScan[customer_demographics]
 --------------------PhysicalProject
 ----------------------filter((hd_buy_potential like 'Unknown%'))
-------------------------PhysicalFileScan[household_demographics]
+------------------------PhysicalOlapScan[household_demographics]
 

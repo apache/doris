@@ -5,9 +5,9 @@ PhysicalResultSink
 ----PhysicalDistribute[DistributionSpecGather]
 ------PhysicalTopN[LOCAL_SORT]
 --------PhysicalProject
-----------hashJoin[INNER_JOIN shuffle] hashCondition=((store_returns.sr_cdemo_sk = customer_demographics.cd_demo_sk)) otherCondition=() build RFs:RF4 cd_demo_sk->[sr_cdemo_sk]
+----------hashJoin[INNER_JOIN broadcast] hashCondition=((store_returns.sr_cdemo_sk = customer_demographics.cd_demo_sk)) otherCondition=() build RFs:RF4 cd_demo_sk->[sr_cdemo_sk]
 ------------PhysicalProject
---------------PhysicalFileScan[store_returns] apply RFs: RF4
+--------------PhysicalOlapScan[store_returns] apply RFs: RF4
 ------------PhysicalProject
 --------------hashJoin[INNER_JOIN broadcast] hashCondition=((income_band.ib_income_band_sk = household_demographics.hd_income_band_sk)) otherCondition=() build RFs:RF3 ib_income_band_sk->[hd_income_band_sk]
 ----------------PhysicalProject
@@ -17,15 +17,15 @@ PhysicalResultSink
 ------------------------PhysicalProject
 --------------------------hashJoin[INNER_JOIN shuffle] hashCondition=((customer.c_current_addr_sk = customer_address.ca_address_sk)) otherCondition=() build RFs:RF0 ca_address_sk->[c_current_addr_sk]
 ----------------------------PhysicalProject
-------------------------------PhysicalFileScan[customer] apply RFs: RF0 RF1 RF2
+------------------------------PhysicalOlapScan[customer] apply RFs: RF0 RF1 RF2
 ----------------------------PhysicalProject
 ------------------------------filter((customer_address.ca_city = 'Hopewell'))
---------------------------------PhysicalFileScan[customer_address]
+--------------------------------PhysicalOlapScan[customer_address]
 ------------------------PhysicalProject
---------------------------PhysicalFileScan[customer_demographics]
+--------------------------PhysicalOlapScan[customer_demographics]
 --------------------PhysicalProject
-----------------------PhysicalFileScan[household_demographics] apply RFs: RF3
+----------------------PhysicalOlapScan[household_demographics] apply RFs: RF3
 ----------------PhysicalProject
 ------------------filter((cast(ib_upper_bound as BIGINT) <= 87855) and (income_band.ib_lower_bound >= 37855))
---------------------PhysicalFileScan[income_band]
+--------------------PhysicalOlapScan[income_band]
 

@@ -19,17 +19,17 @@ PhysicalResultSink
 --------------------------------PhysicalProject
 ----------------------------------hashJoin[INNER_JOIN shuffle] hashCondition=((store_sales.ss_customer_sk = customer.c_customer_sk)) otherCondition=() build RFs:RF0 c_customer_sk->[ss_customer_sk]
 ------------------------------------PhysicalProject
---------------------------------------PhysicalFileScan[store_sales] apply RFs: RF0 RF2 RF3 RF4
+--------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF0 RF2 RF3 RF4
 ------------------------------------PhysicalProject
---------------------------------------PhysicalFileScan[customer] apply RFs: RF1
+--------------------------------------PhysicalOlapScan[customer] apply RFs: RF1
 --------------------------------PhysicalProject
-----------------------------------PhysicalFileScan[customer_address]
+----------------------------------PhysicalOlapScan[customer_address]
 ----------------------------PhysicalProject
 ------------------------------filter((date_dim.d_moy = 12) and (date_dim.d_year = 1998))
---------------------------------PhysicalFileScan[date_dim]
+--------------------------------PhysicalOlapScan[date_dim]
 ------------------------PhysicalProject
 --------------------------filter((item.i_manager_id = 16))
-----------------------------PhysicalFileScan[item]
+----------------------------PhysicalOlapScan[item]
 --------------------PhysicalProject
-----------------------PhysicalFileScan[store]
+----------------------PhysicalOlapScan[store]
 

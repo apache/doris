@@ -18,15 +18,15 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------------------------------PhysicalProject
 --------------------------------hashJoin[LEFT_OUTER_JOIN shuffle] hashCondition=((catalog_sales.cs_item_sk = catalog_returns.cr_item_sk) and (catalog_sales.cs_order_number = catalog_returns.cr_order_number)) otherCondition=()
 ----------------------------------PhysicalProject
-------------------------------------PhysicalFileScan[catalog_sales] apply RFs: RF0 RF1
+------------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF0 RF1
 ----------------------------------PhysicalProject
-------------------------------------PhysicalFileScan[catalog_returns]
+------------------------------------PhysicalOlapScan[catalog_returns]
 ------------------------------PhysicalProject
 --------------------------------filter((item.i_category = 'Sports'))
-----------------------------------PhysicalFileScan[item]
+----------------------------------PhysicalOlapScan[item]
 --------------------------PhysicalProject
 ----------------------------filter(d_year IN (2000, 2001))
-------------------------------PhysicalFileScan[date_dim]
+------------------------------PhysicalOlapScan[date_dim]
 ----------------hashAgg[GLOBAL]
 ------------------PhysicalDistribute[DistributionSpecHash]
 --------------------hashAgg[LOCAL]
@@ -37,15 +37,15 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------------------------------PhysicalProject
 --------------------------------hashJoin[LEFT_OUTER_JOIN shuffle] hashCondition=((store_sales.ss_item_sk = store_returns.sr_item_sk) and (store_sales.ss_ticket_number = store_returns.sr_ticket_number)) otherCondition=()
 ----------------------------------PhysicalProject
-------------------------------------PhysicalFileScan[store_sales] apply RFs: RF2 RF3
+------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF2 RF3
 ----------------------------------PhysicalProject
-------------------------------------PhysicalFileScan[store_returns]
+------------------------------------PhysicalOlapScan[store_returns]
 ------------------------------PhysicalProject
 --------------------------------filter((item.i_category = 'Sports'))
-----------------------------------PhysicalFileScan[item]
+----------------------------------PhysicalOlapScan[item]
 --------------------------PhysicalProject
 ----------------------------filter(d_year IN (2000, 2001))
-------------------------------PhysicalFileScan[date_dim]
+------------------------------PhysicalOlapScan[date_dim]
 ----------------hashAgg[GLOBAL]
 ------------------PhysicalDistribute[DistributionSpecHash]
 --------------------hashAgg[LOCAL]
@@ -56,15 +56,15 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------------------------------PhysicalProject
 --------------------------------hashJoin[LEFT_OUTER_JOIN shuffle] hashCondition=((web_sales.ws_item_sk = web_returns.wr_item_sk) and (web_sales.ws_order_number = web_returns.wr_order_number)) otherCondition=()
 ----------------------------------PhysicalProject
-------------------------------------PhysicalFileScan[web_sales] apply RFs: RF4 RF5
+------------------------------------PhysicalOlapScan[web_sales] apply RFs: RF4 RF5
 ----------------------------------PhysicalProject
-------------------------------------PhysicalFileScan[web_returns]
+------------------------------------PhysicalOlapScan[web_returns]
 ------------------------------PhysicalProject
 --------------------------------filter((item.i_category = 'Sports'))
-----------------------------------PhysicalFileScan[item]
+----------------------------------PhysicalOlapScan[item]
 --------------------------PhysicalProject
 ----------------------------filter(d_year IN (2000, 2001))
-------------------------------PhysicalFileScan[date_dim]
+------------------------------PhysicalOlapScan[date_dim]
 --PhysicalResultSink
 ----PhysicalTopN[MERGE_SORT]
 ------PhysicalDistribute[DistributionSpecGather]

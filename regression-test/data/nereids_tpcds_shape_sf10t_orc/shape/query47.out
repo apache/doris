@@ -19,14 +19,14 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --------------------------------PhysicalProject
 ----------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF0 i_item_sk->[ss_item_sk]
 ------------------------------------PhysicalProject
---------------------------------------PhysicalFileScan[store_sales] apply RFs: RF0 RF1 RF2
+--------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF0 RF1 RF2
 ------------------------------------PhysicalProject
---------------------------------------PhysicalFileScan[item]
+--------------------------------------PhysicalOlapScan[item]
 --------------------------------PhysicalProject
 ----------------------------------filter((((date_dim.d_year = 1999) OR ((date_dim.d_year = 1998) AND (date_dim.d_moy = 12))) OR ((date_dim.d_year = 2000) AND (date_dim.d_moy = 1))) and d_year IN (1998, 1999, 2000) and d_year IN (1998, 1999, 2000))
-------------------------------------PhysicalFileScan[date_dim]
+------------------------------------PhysicalOlapScan[date_dim]
 ----------------------------PhysicalProject
-------------------------------PhysicalFileScan[store]
+------------------------------PhysicalOlapScan[store]
 --PhysicalResultSink
 ----PhysicalProject
 ------PhysicalTopN[MERGE_SORT]

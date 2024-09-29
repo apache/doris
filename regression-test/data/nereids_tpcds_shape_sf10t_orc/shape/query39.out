@@ -13,14 +13,14 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --------------------hashJoin[INNER_JOIN broadcast] hashCondition=((inventory.inv_warehouse_sk = warehouse.w_warehouse_sk)) otherCondition=() build RFs:RF1 w_warehouse_sk->[inv_warehouse_sk]
 ----------------------PhysicalProject
 ------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((inventory.inv_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF0 i_item_sk->[inv_item_sk]
---------------------------PhysicalFileScan[inventory] apply RFs: RF0 RF1 RF2
+--------------------------PhysicalOlapScan[inventory] apply RFs: RF0 RF1 RF2
 --------------------------PhysicalProject
-----------------------------PhysicalFileScan[item]
+----------------------------PhysicalOlapScan[item]
 ----------------------PhysicalProject
-------------------------PhysicalFileScan[warehouse]
+------------------------PhysicalOlapScan[warehouse]
 ------------------PhysicalProject
 --------------------filter((date_dim.d_year = 2000) and d_moy IN (2, 3))
-----------------------PhysicalFileScan[date_dim]
+----------------------PhysicalOlapScan[date_dim]
 --PhysicalResultSink
 ----PhysicalQuickSort[MERGE_SORT]
 ------PhysicalDistribute[DistributionSpecGather]

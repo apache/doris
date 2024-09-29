@@ -21,11 +21,10 @@ PhysicalResultSink
 ------------------------------------PhysicalProject
 --------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF1 d_date_sk->[ss_sold_date_sk]
 ----------------------------------------PhysicalProject
-------------------------------------------filter(( not ss_item_sk IS NULL))
---------------------------------------------PhysicalFileScan[store_sales] apply RFs: RF1
+------------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF1
 ----------------------------------------PhysicalProject
 ------------------------------------------filter((date_dim.d_month_seq <= 1225) and (date_dim.d_month_seq >= 1214))
---------------------------------------------PhysicalFileScan[date_dim]
+--------------------------------------------PhysicalOlapScan[date_dim]
 --------------------PhysicalProject
 ----------------------PhysicalWindow
 ------------------------PhysicalQuickSort[LOCAL_SORT]
@@ -37,9 +36,8 @@ PhysicalResultSink
 ------------------------------------PhysicalProject
 --------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((web_sales.ws_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF0 d_date_sk->[ws_sold_date_sk]
 ----------------------------------------PhysicalProject
-------------------------------------------filter(( not ws_item_sk IS NULL))
---------------------------------------------PhysicalFileScan[web_sales] apply RFs: RF0
+------------------------------------------PhysicalOlapScan[web_sales] apply RFs: RF0
 ----------------------------------------PhysicalProject
 ------------------------------------------filter((date_dim.d_month_seq <= 1225) and (date_dim.d_month_seq >= 1214))
---------------------------------------------PhysicalFileScan[date_dim]
+--------------------------------------------PhysicalOlapScan[date_dim]
 

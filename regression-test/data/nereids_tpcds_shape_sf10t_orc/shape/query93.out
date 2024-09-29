@@ -12,10 +12,10 @@ PhysicalResultSink
 ------------------PhysicalProject
 --------------------hashJoin[INNER_JOIN shuffle] hashCondition=((store_returns.sr_item_sk = store_sales.ss_item_sk) and (store_returns.sr_ticket_number = store_sales.ss_ticket_number)) otherCondition=() build RFs:RF0 sr_item_sk->[ss_item_sk];RF1 sr_ticket_number->[ss_ticket_number]
 ----------------------PhysicalProject
-------------------------PhysicalFileScan[store_sales] apply RFs: RF0 RF1
+------------------------PhysicalOlapScan[store_sales] apply RFs: RF0 RF1
 ----------------------PhysicalProject
-------------------------PhysicalFileScan[store_returns] apply RFs: RF2
+------------------------PhysicalOlapScan[store_returns] apply RFs: RF2
 ------------------PhysicalProject
 --------------------filter((reason.r_reason_desc = 'reason 66'))
-----------------------PhysicalFileScan[reason]
+----------------------PhysicalOlapScan[reason]
 

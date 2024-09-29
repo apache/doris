@@ -12,14 +12,14 @@ PhysicalResultSink
 ------------------PhysicalProject
 --------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_hdemo_sk = household_demographics.hd_demo_sk)) otherCondition=() build RFs:RF0 hd_demo_sk->[ss_hdemo_sk]
 ----------------------PhysicalProject
-------------------------PhysicalFileScan[store_sales] apply RFs: RF0 RF1 RF2
+------------------------PhysicalOlapScan[store_sales] apply RFs: RF0 RF1 RF2
 ----------------------PhysicalProject
 ------------------------filter((household_demographics.hd_dep_count = 6))
---------------------------PhysicalFileScan[household_demographics]
+--------------------------PhysicalOlapScan[household_demographics]
 ------------------PhysicalProject
 --------------------filter((time_dim.t_hour = 16) and (time_dim.t_minute >= 30))
-----------------------PhysicalFileScan[time_dim]
+----------------------PhysicalOlapScan[time_dim]
 --------------PhysicalProject
 ----------------filter((store.s_store_name = 'ese'))
-------------------PhysicalFileScan[store]
+------------------PhysicalOlapScan[store]
 

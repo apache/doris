@@ -21,13 +21,13 @@ PhysicalResultSink
 ------------------------------------PhysicalProject
 --------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((item.i_item_sk = store_sales.ss_item_sk)) otherCondition=() build RFs:RF0 i_item_sk->[ss_item_sk]
 ----------------------------------------PhysicalProject
-------------------------------------------PhysicalFileScan[store_sales] apply RFs: RF0 RF1 RF2
+------------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF0 RF1 RF2
 ----------------------------------------PhysicalProject
-------------------------------------------PhysicalFileScan[item]
+------------------------------------------PhysicalOlapScan[item]
 ------------------------------------PhysicalProject
 --------------------------------------filter((d1.d_year = 1999))
-----------------------------------------PhysicalFileScan[date_dim]
+----------------------------------------PhysicalOlapScan[date_dim]
 --------------------------------PhysicalProject
 ----------------------------------filter(s_state IN ('AL', 'FL', 'IN', 'LA', 'MI', 'MN', 'NM', 'TN'))
-------------------------------------PhysicalFileScan[store]
+------------------------------------PhysicalOlapScan[store]
 
