@@ -139,7 +139,7 @@ Status BlockReader::_init_collect_iter(const ReaderParams& read_params) {
 
     for (int i = 0; i < read_params.rs_splits.size(); ++i) {
         if (runtime_state != nullptr && runtime_state->is_cancelled()) {
-            return runtime_state->cancel_reason();
+            return Status::Cancelled(runtime_state->cancel_reason());
         }
 
         auto& rs_split = read_params.rs_splits[i];

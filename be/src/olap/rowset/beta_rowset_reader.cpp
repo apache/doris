@@ -368,7 +368,7 @@ Status BetaRowsetReader::next_block(vectorized::Block* block) {
         }
 
         if (runtime_state != nullptr && runtime_state->is_cancelled()) [[unlikely]] {
-            return runtime_state->cancel_reason();
+            return Status::Cancelled(runtime_state->cancel_reason());
         }
     } while (block->empty());
 
@@ -394,7 +394,7 @@ Status BetaRowsetReader::next_block_view(vectorized::BlockView* block_view) {
         }
 
         if (runtime_state != nullptr && runtime_state->is_cancelled()) [[unlikely]] {
-            return runtime_state->cancel_reason();
+            return Status::Cancelled(runtime_state->cancel_reason());
         }
     } while (block_view->empty());
 

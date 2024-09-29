@@ -508,7 +508,7 @@ Status VCollectIterator::Level0Iterator::refresh_current_row() {
             auto res = _refresh();
 
             if (runtime_state != nullptr && runtime_state->is_cancelled()) [[unlikely]] {
-                return runtime_state->cancel_reason();
+                return Status::Cancelled(runtime_state->cancel_reason());
             }
             if (!res.ok() && !res.is<END_OF_FILE>()) {
                 return res;
@@ -694,7 +694,7 @@ Status VCollectIterator::Level1Iterator::ensure_first_row_ref() {
     for (auto iter = _children.begin(); iter != _children.end();) {
         auto s = (*iter)->ensure_first_row_ref();
         if (runtime_state != nullptr && runtime_state->is_cancelled()) {
-            return runtime_state->cancel_reason();
+            return Status::Cancelled(runtime_state->cancel_reason());
         }
 
         if (!s.ok()) {
