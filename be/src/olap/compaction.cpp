@@ -423,7 +423,7 @@ Status Compaction::do_compaction_impl(int64_t permits) {
         _tablet->calc_compaction_output_rowset_delete_bitmap(
                 _input_rowsets, _rowid_conversion, 0, version.second + 1, &missed_rows,
                 &location_map, _tablet->tablet_meta()->delete_bitmap(),
-                &output_rowset_delete_bitmap);
+                &output_rowset_delete_bitmap, _output_version.second);
         if (!allow_delete_in_cumu_compaction()) {
             missed_rows_size = missed_rows.size();
             if (compaction_type() == ReaderType::READER_CUMULATIVE_COMPACTION &&
@@ -830,7 +830,7 @@ Status Compaction::modify_rowsets(const Merger::Statistics* stats) {
         _tablet->calc_compaction_output_rowset_delete_bitmap(
                 _input_rowsets, _rowid_conversion, 0, version.second + 1, missed_rows.get(),
                 location_map.get(), _tablet->tablet_meta()->delete_bitmap(),
-                &output_rowset_delete_bitmap);
+                &output_rowset_delete_bitmap, _output_version.second);
         if (missed_rows) {
             missed_rows_size = missed_rows->size();
             if (stats != nullptr && stats->merged_rows != missed_rows_size &&
@@ -876,7 +876,8 @@ Status Compaction::modify_rowsets(const Merger::Statistics* stats) {
                 DeleteBitmap txn_output_delete_bitmap(_tablet->tablet_id());
                 _tablet->calc_compaction_output_rowset_delete_bitmap(
                         _input_rowsets, _rowid_conversion, 0, UINT64_MAX, missed_rows.get(),
-                        location_map.get(), *it.delete_bitmap.get(), &txn_output_delete_bitmap);
+                        location_map.get(), *it.delete_bitmap.get(), &txn_output_delete_bitmap,
+                        _output_version.second);
                 if (config::enable_merge_on_write_correctness_check) {
                     RowsetIdUnorderedSet rowsetids;
                     rowsetids.insert(_output_rowset->rowset_id());
@@ -897,7 +898,7 @@ Status Compaction::modify_rowsets(const Merger::Statistics* stats) {
             _tablet->calc_compaction_output_rowset_delete_bitmap(
                     _input_rowsets, _rowid_conversion, version.second, UINT64_MAX,
                     missed_rows.get(), location_map.get(), _tablet->tablet_meta()->delete_bitmap(),
-                    &output_rowset_delete_bitmap);
+                    &output_rowset_delete_bitmap, _output_version.second);
 
             if (missed_rows) {
                 DCHECK_EQ(missed_rows->size(), missed_rows_size);
