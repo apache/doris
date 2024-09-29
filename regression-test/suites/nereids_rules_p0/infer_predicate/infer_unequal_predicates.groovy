@@ -157,6 +157,12 @@ suite("infer_unequal_predicates") {
 
     qt_multi_slot_equal """explain shape plan select * from infer_unequal_predicates_t1 where a=c and c=d"""
 
+    qt_no_redundant_predicates """
+    explain shape plan
+    SELECT t1.a FROM (select * from test_like1 t1 where t1.d<10 and t1.d=t1.c and t1.c<10) t1 inner join
+    test_like2 t2 on t1.d=t2.d where t2.d>1
+    """
+
     // TODO
     // Non equivalent transfer relation derivation, expression is not supported temporarily
     qt_expr_unequal_infer_same_table1 """explain shape plan

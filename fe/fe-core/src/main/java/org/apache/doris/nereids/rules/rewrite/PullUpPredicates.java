@@ -60,6 +60,11 @@ import java.util.function.Supplier;
 public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void> {
 
     Map<Plan, ImmutableSet<Expression>> cache = new IdentityHashMap<>();
+    boolean getAllPredicates;
+
+    public PullUpPredicates(boolean all) {
+        getAllPredicates = all;
+    }
 
     @Override
     public ImmutableSet<Expression> visit(Plan plan, Void context) {
@@ -249,7 +254,12 @@ public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void
         if (predicates.isEmpty()) {
             return ImmutableSet.of();
         }
-        Set<Expression> inferPredicates = PredicateInferUtils.inferPredicate(predicates);
+        Set<Expression> inferPredicates = new LinkedHashSet<>();
+        if (getAllPredicates) {
+            inferPredicates.addAll(PredicateInferUtils.inferAllPredicate(predicates));
+        } else {
+            inferPredicates.addAll(PredicateInferUtils.inferPredicate(predicates));
+        }
         Set<Expression> newPredicates = new LinkedHashSet<>(inferPredicates.size());
         Set<Slot> outputSet = plan.getOutputSet();
 

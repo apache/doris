@@ -62,7 +62,9 @@ import java.util.Set;
  * </pre>
  */
 public class InferPredicates extends DefaultPlanRewriter<JobContext> implements CustomRewriter {
-    private final PullUpPredicates pollUpPredicates = new PullUpPredicates();
+    private final PullUpPredicates pullUpPredicates = new PullUpPredicates(false);
+    // The role of pullUpAllPredicates is to prevent inference of redundant predicates
+    private final PullUpPredicates pullUpAllPredicates = new PullUpPredicates(true);
 
     @Override
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
@@ -113,7 +115,7 @@ public class InferPredicates extends DefaultPlanRewriter<JobContext> implements 
     public Plan visitLogicalFilter(LogicalFilter<? extends Plan> filter, JobContext context) {
         filter = visitChildren(this, filter, context);
         Set<Expression> filterPredicates = pullUpPredicates(filter);
-        filterPredicates.removeAll(pullUpPredicates(filter.child()));
+        filterPredicates.removeAll(pullUpAllPredicates(filter.child()));
         return new LogicalFilter<>(ImmutableSet.copyOf(filterPredicates), filter.child());
     }
 
@@ -164,7 +166,11 @@ public class InferPredicates extends DefaultPlanRewriter<JobContext> implements 
     }
 
     private Set<Expression> pullUpPredicates(Plan plan) {
-        return Sets.newLinkedHashSet(plan.accept(pollUpPredicates, null));
+        return Sets.newLinkedHashSet(plan.accept(pullUpPredicates, null));
+    }
+
+    private Set<Expression> pullUpAllPredicates(Plan plan) {
+        return Sets.newLinkedHashSet(plan.accept(pullUpAllPredicates, null));
     }
 
     private Plan inferNewPredicate(Plan plan, Set<Expression> expressions) {
@@ -176,7 +182,7 @@ public class InferPredicates extends DefaultPlanRewriter<JobContext> implements 
                 predicates.add(expr);
             }
         }
-        predicates.removeAll(plan.accept(pollUpPredicates, null));
+        predicates.removeAll(plan.accept(pullUpAllPredicates, null));
         return PlanUtils.filterOrSelf(predicates, plan);
     }
 }

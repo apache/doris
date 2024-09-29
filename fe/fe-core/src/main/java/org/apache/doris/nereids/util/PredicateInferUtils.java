@@ -96,6 +96,33 @@ public class PredicateInferUtils {
                 simplePredicates);
         inferPredicates.addAll(UnequalPredicateInfer.inferUnequalPredicates(simplePredicates));
         inferPredicates.addAll(complexPredicates);
+        // Keep the order of predicates. The input predicates are in the front
+        // and the derived predicates are in the rear
+        Set<Expression> res = new LinkedHashSet<>();
+        for (Expression pred : predicates) {
+            if (inferPredicates.contains(pred)) {
+                res.add(pred);
+                inferPredicates.remove(pred);
+            }
+        }
+        res.addAll(inferPredicates);
+        return res;
+    }
+
+    /** get all predicates(with redundant predicates), e.g. b>1 a>b -> a>1 a>b b>1*/
+    public static Set<Expression> inferAllPredicate(Set<Expression> predicates) {
+        if (predicates.size() < 2) {
+            return predicates;
+        }
+        Set<Expression> inferPredicates = new LinkedHashSet<>();
+        Set<Expression> complexPredicates = new LinkedHashSet<>();
+        Set<ComparisonPredicate> simplePredicates = new LinkedHashSet<>();
+        Set<Expression> inferAndOriginPredicates = ReplacePredicate.infer(predicates);
+        inferAndOriginPredicates.addAll(predicates);
+        PredicateInferUtils.getComplexAndSimplePredicates(inferAndOriginPredicates, complexPredicates,
+                simplePredicates);
+        inferPredicates.addAll(UnequalPredicateInfer.inferAllPredicates(simplePredicates));
+        inferPredicates.addAll(complexPredicates);
         return inferPredicates;
     }
 

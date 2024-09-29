@@ -47,10 +47,11 @@ import java.util.Set;
 
 /**
  * this class do these things:
+ * {@code
  * 1. t1.a=t2.b t2.b=t3.c -> t1.a=t2.b t2.b=t3.c (reserve all three condition)
  * 2. remove useless equal predicates(e.g. t1.a=t1.b t1.a=1 t1.b=1 -> t1.a=1 t1.b=1. t1.a=t1.b is removed)
- * 3. do unequalPredicateInfer(e.g. t1.a<t2.b and t2.b<1 -> t1.a<1 t1.a<t2.b and t2.b<1)
- * 4. remove useless unequal predicates(e.g. t1.a<t1.b t1.a<1 t1.b<1 -> t1.a<t1.b t1.b<1)
+ * 3. do unequalPredicateInfer(e.g. t1.a<t2.b and t2.b<1 -> t1.a<1 and t1.a<t2.b and t2.b<1)
+ * 4. remove useless unequal predicates(e.g. t1.a<t1.b t1.a<1 t1.b<1 -> t1.a<t1.b t1.b<1)}
  * */
 public class UnequalPredicateInfer {
     /**InferenceGraph*/
@@ -64,8 +65,8 @@ public class UnequalPredicateInfer {
         }
 
         private static class PairAndRelation {
-            private Pair<Expression, Expression> pair;
-            private Relation relation;
+            private final Pair<Expression, Expression> pair;
+            private final Relation relation;
 
             private PairAndRelation(Pair<Expression, Expression> p, Relation r) {
                 pair = p;
@@ -344,6 +345,9 @@ public class UnequalPredicateInfer {
             Set<Expression> newPredicates = new LinkedHashSet<>();
             for (int i = 0; i < size; ++i) {
                 for (int j = 0; j < size; ++j) {
+                    if (i == j) {
+                        continue;
+                    }
                     if (chosen[i][j] == Relation.GT) {
                         newPredicates.add(normalize(new GreaterThan(inputExprs.get(i), inputExprs.get(j))));
                     } else if (chosen[i][j] == Relation.GTE) {
@@ -526,6 +530,22 @@ public class UnequalPredicateInfer {
         inferGraph.chooseUnequalPredicates(chosen, equalWithConstant);
         Set<Expression> newPredicates = inferGraph.chooseInputPredicates(chosen);
         newPredicates.addAll(inferGraph.generatePredicates(chosen));
+        newPredicates.addAll(inferGraph.otherPredicates);
+        return newPredicates;
+    }
+
+    /** deduce predicates and generate all predicates without choosing*/
+    public static Set<? extends Expression> inferAllPredicates(Set<ComparisonPredicate> inputs) {
+        if (inputs.size() < 2) {
+            return inputs;
+        }
+        InferenceGraph inferGraph = new InferenceGraph(inputs);
+        if (inferGraph.inputExprs.isEmpty()) {
+            return inputs;
+        }
+        inferGraph.deduce(inferGraph.graph);
+        Set<Expression> newPredicates = new LinkedHashSet<>();
+        newPredicates.addAll(inferGraph.generatePredicates(inferGraph.graph));
         newPredicates.addAll(inferGraph.otherPredicates);
         return newPredicates;
     }
