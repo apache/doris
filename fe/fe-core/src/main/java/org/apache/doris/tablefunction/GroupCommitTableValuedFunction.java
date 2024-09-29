@@ -69,8 +69,8 @@ public class GroupCommitTableValuedFunction extends ExternalFileTableValuedFunct
                     + tableId + " is " + table.getType());
         }
         if (Config.group_commit_timeout_multiple > 0) {
-            int timeoutS = (int) (((OlapTable) table).getGroupCommitIntervalMs() / 1000.0
-                    * Config.group_commit_timeout_multiple);
+            int timeoutS = Math.max((int) (((OlapTable) table).getGroupCommitIntervalMs() / 1000.0
+                    * Config.group_commit_timeout_multiple), 600);
             ConnectContext.get().getSessionVariable().setInsertTimeoutS(timeoutS);
             ConnectContext.get().getSessionVariable().setQueryTimeoutS(timeoutS);
         }
