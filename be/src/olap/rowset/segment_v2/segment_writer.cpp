@@ -813,44 +813,11 @@ Status SegmentWriter::append_block_with_flexible_partial_content(const vectorize
     read_plan.set_row_store(has_row_column);
 
     PartialUpdateStats stats;
-    for (size_t block_pos = row_pos; block_pos < row_pos + num_rows; block_pos++) {
-        size_t delta_pos = block_pos - row_pos;
-        size_t segment_pos = segment_start_pos + delta_pos;
-        auto& skip_bitmap = skip_bitmaps->at(block_pos);
-
-        // the hidden sequence column should have the same mark with sequence map column
-        if (seq_map_col_unique_id != -1) {
-            DCHECK(schema_has_sequence_col);
-            if (skip_bitmap.contains(seq_map_col_unique_id)) {
-                skip_bitmap.add(seq_col_unique_id);
-            }
-        }
-
-        std::string key = _full_encode_keys(key_columns, delta_pos);
-        _maybe_invalid_row_cache(key);
-        bool row_has_sequence_col =
-                (schema_has_sequence_col && !skip_bitmap.contains(seq_col_unique_id));
-        if (row_has_sequence_col) {
-            _encode_seq_column(seq_column, delta_pos, &key);
-        }
-
-        // mark key with delete sign as deleted.
-        bool have_delete_sign = (!skip_bitmap.contains(delete_sign_col_unique_id) &&
-                                 delete_sign_column_data[block_pos] != 0);
-
-        auto not_found_cb = [&]() {
-            return _opts.rowset_ctx->partial_update_info->handle_non_strict_mode_not_found_error(
-                    *_tablet_schema, &skip_bitmap);
-        };
-        auto update_read_plan = [&](const RowLocation& loc) {
-            read_plan.prepare_to_read(loc, segment_pos, skip_bitmap);
-        };
-
-        RETURN_IF_ERROR(probe_key_for_mow(std::move(key), segment_pos, row_has_sequence_col,
-                                          have_delete_sign, specified_rowsets, segment_caches,
-                                          has_default_or_nullable, use_default_or_null_flag,
-                                          update_read_plan, not_found_cb, stats));
-    }
+    RETURN_IF_ERROR(generate_flexible_read_plan(
+            read_plan, row_pos, num_rows, segment_start_pos, schema_has_sequence_col,
+            seq_col_unique_id, seq_map_col_unique_id, delete_sign_col_unique_id, skip_bitmaps,
+            key_columns, seq_column, delete_sign_column_data, specified_rowsets, segment_caches,
+            has_default_or_nullable, use_default_or_null_flag, stats));
     CHECK_EQ(use_default_or_null_flag.size(), num_rows);
 
     if (config::enable_merge_on_write_correctness_check) {
@@ -911,6 +878,57 @@ Status SegmentWriter::append_block_with_flexible_partial_content(const vectorize
             << "primary key index builder num rows(" << _primary_key_index_builder->num_rows()
             << ") not equal to segment writer's num rows written(" << _num_rows_written << ")";
     _olap_data_convertor->clear_source_content();
+    return Status::OK();
+}
+
+Status SegmentWriter::generate_flexible_read_plan(
+        FlexibleReadPlan& read_plan, size_t row_pos, size_t num_rows, size_t segment_start_pos,
+        bool schema_has_sequence_col, int32_t seq_col_unique_id, int32_t seq_map_col_unique_id,
+        int32_t delete_sign_col_unique_id, std::vector<BitmapValue>* skip_bitmaps,
+        const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns,
+        vectorized::IOlapColumnDataAccessor* seq_column, const signed char* delete_sign_column_data,
+        const std::vector<RowsetSharedPtr>& specified_rowsets,
+        std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
+        bool& has_default_or_nullable, std::vector<bool>& use_default_or_null_flag,
+        PartialUpdateStats& stats) {
+    for (size_t block_pos = row_pos; block_pos < row_pos + num_rows; block_pos++) {
+        size_t delta_pos = block_pos - row_pos;
+        size_t segment_pos = segment_start_pos + delta_pos;
+        auto& skip_bitmap = skip_bitmaps->at(block_pos);
+
+        // the hidden sequence column should have the same mark with sequence map column
+        if (seq_map_col_unique_id != -1) {
+            DCHECK(schema_has_sequence_col);
+            if (skip_bitmap.contains(seq_map_col_unique_id)) {
+                skip_bitmap.add(seq_col_unique_id);
+            }
+        }
+
+        std::string key = _full_encode_keys(key_columns, delta_pos);
+        _maybe_invalid_row_cache(key);
+        bool row_has_sequence_col =
+                (schema_has_sequence_col && !skip_bitmap.contains(seq_col_unique_id));
+        if (row_has_sequence_col) {
+            _encode_seq_column(seq_column, delta_pos, &key);
+        }
+
+        // mark key with delete sign as deleted.
+        bool have_delete_sign = (!skip_bitmap.contains(delete_sign_col_unique_id) &&
+                                 delete_sign_column_data[block_pos] != 0);
+
+        auto not_found_cb = [&]() {
+            return _opts.rowset_ctx->partial_update_info->handle_non_strict_mode_not_found_error(
+                    *_tablet_schema, &skip_bitmap);
+        };
+        auto update_read_plan = [&](const RowLocation& loc) {
+            read_plan.prepare_to_read(loc, segment_pos, skip_bitmap);
+        };
+
+        RETURN_IF_ERROR(probe_key_for_mow(std::move(key), segment_pos, row_has_sequence_col,
+                                          have_delete_sign, specified_rowsets, segment_caches,
+                                          has_default_or_nullable, use_default_or_null_flag,
+                                          update_read_plan, not_found_cb, stats));
+    }
     return Status::OK();
 }
 
