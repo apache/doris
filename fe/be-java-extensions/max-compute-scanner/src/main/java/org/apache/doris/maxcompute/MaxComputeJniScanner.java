@@ -122,8 +122,7 @@ public class MaxComputeJniScanner extends JniScanner {
         try {
             timeZone = ZoneId.of(timeZoneName);
         } catch (Exception e) {
-            LOG.info(e.getMessage());
-            LOG.info("set timeZoneName = " + timeZoneName + "fail, use systemDefault.");
+            LOG.warn(e.getMessage() + " Set timeZoneName = " + timeZoneName + "fail, use systemDefault.");
             timeZone = ZoneId.systemDefault();
         }
 

@@ -40,14 +40,19 @@ import com.aliyun.odps.utils.StringUtils;
 import com.google.common.collect.ImmutableList;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import jdk.internal.org.jline.utils.Log;
 
+import java.time.ZoneId;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
 public class MaxComputeExternalCatalog extends ExternalCatalog {
+    // you can ref : https://help.aliyun.com/zh/maxcompute/user-guide/endpoints
     private static final String endpointTemplate = "http://service.{}.maxcompute.aliyun-inc.com/api";
 
     private Odps odps;
@@ -64,10 +69,40 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
     private long splitRowCount;
     private long splitByteSize;
 
+    private static final Map<String, ZoneId> REGION_ZONE_MAP;
     private static final List<String> REQUIRED_PROPERTIES = ImmutableList.of(
             MCProperties.PROJECT,
             MCProperties.ENDPOINT
     );
+
+    static {
+        Map<String, ZoneId> map = new HashMap<>();
+
+        map.put("cn-hangzhou", ZoneId.of("Asia/Shanghai"));
+        map.put("cn-shanghai", ZoneId.of("Asia/Shanghai"));
+        map.put("cn-shanghai-finance-1", ZoneId.of("Asia/Shanghai"));
+        map.put("cn-beijing", ZoneId.of("Asia/Shanghai"));
+        map.put("cn-north-2-gov-1", ZoneId.of("Asia/Shanghai"));
+        map.put("cn-zhangjiakou", ZoneId.of("Asia/Shanghai"));
+        map.put("cn-wulanchabu", ZoneId.of("Asia/Shanghai"));
+        map.put("cn-shenzhen", ZoneId.of("Asia/Shanghai"));
+        map.put("cn-shenzhen-finance-1", ZoneId.of("Asia/Shanghai"));
+        map.put("cn-chengdu", ZoneId.of("Asia/Shanghai"));
+        map.put("cn-hongkong", ZoneId.of("Asia/Shanghai"));
+        map.put("ap-southeast-1", ZoneId.of("Asia/Singapore"));
+        map.put("ap-southeast-2", ZoneId.of("Australia/Sydney"));
+        map.put("ap-southeast-3", ZoneId.of("Asia/Kuala_Lumpur"));
+        map.put("ap-southeast-5", ZoneId.of("Asia/Jakarta"));
+        map.put("ap-northeast-1", ZoneId.of("Asia/Tokyo"));
+        map.put("eu-central-1", ZoneId.of("Europe/Berlin"));
+        map.put("eu-west-1", ZoneId.of("Europe/London"));
+        map.put("us-west-1", ZoneId.of("America/Los_Angeles"));
+        map.put("us-east-1", ZoneId.of("America/New_York"));
+        map.put("me-east-1", ZoneId.of("Asia/Dubai"));
+
+        REGION_ZONE_MAP = Collections.unmodifiableMap(map);
+    }
+
 
     public MaxComputeExternalCatalog(long catalogId, String name, String resource, Map<String, String> props,
                                      String comment) {
@@ -80,15 +115,19 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
         Map<String, String> props = catalogProperty.getProperties();
 
         if (props.containsKey(MCProperties.ENDPOINT)) {
+            // This is a new version of the property, so no parsing conversion is required.
             endpoint = props.get(MCProperties.ENDPOINT);
-            return;
         } else if (props.containsKey(MCProperties.TUNNEL_SDK_ENDPOINT)) {
+            // If customized `mc.tunnel_endpoint` before,
+            // need to convert the value of this property because used the `tunnel API` before.
             String tunnelEndpoint = props.get(MCProperties.TUNNEL_SDK_ENDPOINT);
             endpoint = tunnelEndpoint.replace("//dt", "//service") + "/api";
         } else if (props.containsKey(MCProperties.ODPS_ENDPOINT)) {
+            // If you customized `mc.odps_endpoint` before,
+            // this value is equivalent to the new version of `mc.endpoint`, so you can use it directly
             endpoint = props.get(MCProperties.ODPS_ENDPOINT);
         } else if (props.containsKey(MCProperties.REGION)) {
-            //Copied from original logic
+            //Copied from original logic.
             String region = props.get(MCProperties.REGION);
             if (region.startsWith("oss-")) {
                 // may use oss-cn-beijing, ensure compatible
@@ -261,6 +300,26 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
     public String getDefaultProject() {
         makeSureInitialized();
         return defaultProject;
+    }
+
+    public ZoneId getProjectDateTimeZone() {
+        makeSureInitialized();
+
+        String[] endpointSplit = endpoint.split("\\.");
+        if (endpointSplit.length >= 2) {
+            // http://service.cn-hangzhou-vpc.maxcompute.aliyun-inc.com/api => cn-hangzhou-vpc
+            String regionAndSuffix = endpointSplit[1];
+
+            //remove `-vpc` and `-intranet` suffix.
+            String region = regionAndSuffix.replace("-vpc", "").replace("-intranet", "");
+            if (REGION_ZONE_MAP.containsKey(region)) {
+                return REGION_ZONE_MAP.get(region);
+            }
+            Log.warn("Not exist region. region = " + region + ". endpoint = " + endpoint + ". use systemDefault.");
+            return ZoneId.systemDefault();
+        }
+        Log.warn("Split EndPoint " + endpoint + "fill. use systemDefault.");
+        return ZoneId.systemDefault();
     }
 
     public String getQuota() {

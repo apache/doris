@@ -74,6 +74,12 @@ public class MaxComputeColumnValue implements ColumnValue {
         this.idx = i;
     }
 
+    public MaxComputeColumnValue(ValueVector valueVector, int i, ZoneId timeZone) {
+        this.column = valueVector;
+        this.idx = i;
+        this.timeZone = timeZone;
+    }
+
     public void reset(ValueVector column) {
         this.column = column;
         this.idx = 0;
@@ -286,7 +292,7 @@ public class MaxComputeColumnValue implements ColumnValue {
         int elemSize = listCol.getElementEndIndex(idx) - listCol.getElementStartIndex(idx);
         int offset = listCol.getElementStartIndex(idx);
         for (int i = 0; i < elemSize; i++) {
-            MaxComputeColumnValue val = new MaxComputeColumnValue(listCol.getDataVector(), offset);
+            MaxComputeColumnValue val = new MaxComputeColumnValue(listCol.getDataVector(), offset, timeZone);
             values.add(val);
             offset++;
         }
@@ -301,9 +307,9 @@ public class MaxComputeColumnValue implements ColumnValue {
         FieldVector keyList = innerCols.get(0);
         FieldVector valList = innerCols.get(1);
         for (int i = 0; i < elemSize; i++) {
-            MaxComputeColumnValue key = new MaxComputeColumnValue(keyList, offset);
+            MaxComputeColumnValue key = new MaxComputeColumnValue(keyList, offset, timeZone);
             keys.add(key);
-            MaxComputeColumnValue val = new MaxComputeColumnValue(valList, offset);
+            MaxComputeColumnValue val = new MaxComputeColumnValue(valList, offset, timeZone);
             values.add(val);
             offset++;
         }
@@ -314,7 +320,7 @@ public class MaxComputeColumnValue implements ColumnValue {
         StructVector structCol = (StructVector) column;
         List<FieldVector> innerCols = structCol.getChildrenFromFields();
         for (Integer fieldIndex : structFieldIndex) {
-            MaxComputeColumnValue val = new MaxComputeColumnValue(innerCols.get(fieldIndex), idx);
+            MaxComputeColumnValue val = new MaxComputeColumnValue(innerCols.get(fieldIndex), idx, timeZone);
             values.add(val);
         }
     }
