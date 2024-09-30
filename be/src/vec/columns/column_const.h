@@ -105,6 +105,7 @@ private:
     size_t s;
 
     ColumnConst(const ColumnPtr& data, size_t s_);
+    ColumnConst(const ColumnPtr& data, size_t s_, bool create_with_empty);
     ColumnConst(const ColumnConst& src) = default;
 
 public:

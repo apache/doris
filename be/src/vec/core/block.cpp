@@ -125,7 +125,7 @@ Status Block::deserialize(const PBlock& pblock) {
         MutableColumnPtr data_column = type->create_column();
         // Here will try to allocate large memory, should return error if failed.
         RETURN_IF_CATCH_EXCEPTION(
-                buf = type->deserialize(buf, data_column.get(), pblock.be_exec_version()));
+                buf = type->deserialize(buf, &data_column, pblock.be_exec_version()));
         data.emplace_back(data_column->get_ptr(), type, pcol_meta.name());
     }
     initialize_index_by_name();
@@ -511,10 +511,14 @@ std::string Block::dump_data(size_t begin, size_t row_limit, bool allow_null_mis
             std::string s;
             if (data[i].column) {
                 if (data[i].type->is_nullable() && !data[i].column->is_nullable()) {
-                    assert(allow_null_mismatch);
-                    s = assert_cast<const DataTypeNullable*>(data[i].type.get())
-                                ->get_nested_type()
-                                ->to_string(*data[i].column, row_num);
+                    if (is_column_const(*data[i].column)) {
+                        s = data[i].to_string(0);
+                    } else {
+                        assert(allow_null_mismatch);
+                        s = assert_cast<const DataTypeNullable*>(data[i].type.get())
+                                    ->get_nested_type()
+                                    ->to_string(*data[i].column, row_num);
+                    }
                 } else {
                     s = data[i].to_string(row_num);
                 }
