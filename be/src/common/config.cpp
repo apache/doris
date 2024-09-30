@@ -1007,7 +1007,7 @@ DEFINE_Bool(enable_file_cache, "false");
 // or use the default storage value:
 //     {"path": "memory", "total_size":53687091200}
 // Both will use the directory "memory" on the disk instead of the real RAM.
-DEFINE_String(file_cache_path, "");
+DEFINE_String(file_cache_path, "[{\"path\":\"${DORIS_HOME}/file_cache\"}]");
 DEFINE_Int64(file_cache_each_block_size, "1048576"); // 1MB
 
 DEFINE_Bool(clear_file_cache, "false");
