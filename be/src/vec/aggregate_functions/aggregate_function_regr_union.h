@@ -99,7 +99,8 @@ struct RegrSlopeFunc : AggregateFunctionRegrData<T> {
         if (this->count < 2 || denominator == 0.0) {
             return std::numeric_limits<Float64>::quiet_NaN();
         }
-        Float64 slope = (this->count * this->sum_of_x_mul_y - this->sum_x * this->sum_y) / denominator;
+        Float64 slope =
+                (this->count * this->sum_of_x_mul_y - this->sum_x * this->sum_y) / denominator;
         return slope;
     }
 };
@@ -114,7 +115,8 @@ struct RegrInterceptFunc : AggregateFunctionRegrData<T> {
         if (this->count < 2 || denominator == 0.0) {
             return std::numeric_limits<Float64>::quiet_NaN();
         }
-        Float64 slope = (this->count * this->sum_of_x_mul_y - this->sum_x * this->sum_y) / denominator;
+        Float64 slope =
+                (this->count * this->sum_of_x_mul_y - this->sum_x * this->sum_y) / denominator;
         Float64 intercept = (this->sum_y - slope * this->sum_x) / this->count;
         return intercept;
     }
@@ -123,8 +125,7 @@ struct RegrInterceptFunc : AggregateFunctionRegrData<T> {
 template <typename RegrFunc, bool y_nullable, bool x_nullable>
 class AggregateFunctionRegrSimple
         : public IAggregateFunctionDataHelper<
-                  RegrFunc,
-                  AggregateFunctionRegrSimple<RegrFunc, y_nullable, x_nullable>> {
+                  RegrFunc, AggregateFunctionRegrSimple<RegrFunc, y_nullable, x_nullable>> {
 public:
     using Type = typename RegrFunc::Type;
     using XInputCol = ColumnVector<Type>;
@@ -133,8 +134,7 @@ public:
 
     explicit AggregateFunctionRegrSimple(const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper<
-                      RegrFunc,
-                      AggregateFunctionRegrSimple<RegrFunc, y_nullable, x_nullable>>(
+                      RegrFunc, AggregateFunctionRegrSimple<RegrFunc, y_nullable, x_nullable>>(
                       argument_types_) {
         DCHECK(!argument_types_.empty());
     }
