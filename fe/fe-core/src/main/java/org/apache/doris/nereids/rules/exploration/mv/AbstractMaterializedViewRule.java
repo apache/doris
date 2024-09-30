@@ -37,6 +37,7 @@ import org.apache.doris.nereids.rules.exploration.mv.StructInfo.PartitionRemover
 import org.apache.doris.nereids.rules.exploration.mv.mapping.ExpressionMapping;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.RelationMapping;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.SlotMapping;
+import org.apache.doris.nereids.rules.rewrite.MergeProjects;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -354,6 +355,13 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                                 rewrittenPlanOutput, queryPlan.getOutput()));
                 continue;
             }
+            // Merge project
+            rewrittenPlan = MaterializedViewUtils.rewriteByRules(cascadesContext,
+                    childContext -> {
+                        Rewriter.getCteChildrenRewriter(childContext,
+                                ImmutableList.of(Rewriter.bottomUp(new MergeProjects()))).execute();
+                        return childContext.getRewritePlan();
+                    }, rewrittenPlan, queryPlan);
             if (!isOutputValid(queryPlan, rewrittenPlan)) {
                 LogicalProperties logicalProperties = rewrittenPlan.getLogicalProperties();
                 materializationContext.recordFailReason(queryStructInfo,
