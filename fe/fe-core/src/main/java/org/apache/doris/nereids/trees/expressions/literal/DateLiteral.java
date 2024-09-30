@@ -220,7 +220,11 @@ public class DateLiteral extends Literal {
                     while (i < s.length() && (isPunctuation(s.charAt(i)) || s.charAt(i) == ' ' || s.charAt(i) == 'T')) {
                         i += 1;
                     }
-                    sb.append(' ');
+                    // avoid add blank before zone-id, for example 2008-08-08 +08:00
+                    // should be normalized to 2008-08-08+08:00
+                    if (i >= s.length() || Character.isDigit(s.charAt(i))) {
+                        sb.append(' ');
+                    }
                 } else if (partNumber > 3 && isPunctuation(c)) {
                     sb.append(':');
                 } else {
@@ -240,18 +244,20 @@ public class DateLiteral extends Literal {
 
         // parse MicroSecond
         // Keep up to 7 digits at most, 7th digit is use for overflow.
+        int j = i;
         if (partNumber == 6 && i < s.length() && s.charAt(i) == '.') {
             sb.append(s.charAt(i));
             i += 1;
             while (i < s.length() && Character.isDigit(s.charAt(i))) {
-                if (i - 19 <= 7) {
+                if (i - j <= 7) {
                     sb.append(s.charAt(i));
                 }
                 i += 1;
             }
         }
 
-        sb.append(s.substring(i));
+        // trim use to remove any blank before zone id or zone offset
+        sb.append(s.substring(i).trim());
 
         return sb.toString();
     }
