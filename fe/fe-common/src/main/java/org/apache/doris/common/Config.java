@@ -2467,4 +2467,8 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true)
     public static boolean enable_cooldown_replica_affinity = true;
+
+    @ConfField(mutable = true, description = {
+            "设置为 true，root 和 admin 将跳过 sql block rule", "Set to true, root and admin will skip SQL block rule"})
+    public static boolean sql_block_rule_ignore_admin = false;
 }
