@@ -111,8 +111,7 @@ suite("test_domain_connection_and_ak_sk_correction",  "load_p0") {
                 DATA INFILE("s3://${getS3BucketName()}/regression/tpch/sf1/part.tbl")
                 INTO TABLE ${tableName}
                 COLUMNS TERMINATED BY "|"
-                (p_partkey, p_name, p_mfgr, p_brand, p_type, p_size, p_container, p_retailprice, p_comment, temp
-)
+                (p_partkey, p_name, p_mfgr, p_brand, p_type, p_size, p_container, p_retailprice, p_comment, temp)
             )
             WITH S3
             (

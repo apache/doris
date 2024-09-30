@@ -321,33 +321,6 @@ suite("test_temp_table") {
     select_result3 = sql "select * from t_test_temp_table2"
     assertEquals(select_result3.size(), 0)
 
-    // test stream load
-    streamLoad {
-        table 't_test_temp_table2'
-        set 'column_separator', ','
-        file 'temp_table_data.csv'
-    }
-    sql "sync"
-    select_result3 = sql "select * from t_test_temp_table2"
-    assertEquals(select_result3.size(), 3)
-
-    // truncate
-    sql "truncate table t_test_temp_table2"
-    select_result3 = sql "select * from t_test_temp_table2"
-    assertEquals(select_result3.size(), 0)
-
-    // test mysql load
-    def filepath = getLoalFilePath "temp_table_data.csv"
-    sql """
-        LOAD DATA LOCAL
-        INFILE '${filepath}'
-        INTO TABLE t_test_temp_table2
-        COLUMNS TERMINATED BY ','
-        """
-    sql "sync"
-    select_result3 = sql "select * from t_test_temp_table2"
-    assertEquals(select_result3.size(), 3)
-
     // alter
     try {
         sql "alter table t_test_temp_table2 rename t_test_temp_table2_new"

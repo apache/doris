@@ -137,7 +137,6 @@ public class AnalyzeTblStmt extends AnalyzeStmt implements NotFallbackInParser {
         DatabaseIf db = catalog.getDbOrAnalysisException(dbName);
         dbId = db.getId();
         table = db.getTableOrAnalysisException(tblName);
-
         isAllColumns = columnNames == null;
         check();
     }
@@ -146,9 +145,6 @@ public class AnalyzeTblStmt extends AnalyzeStmt implements NotFallbackInParser {
         if (table instanceof View) {
             throw new AnalysisException("Analyze view is not allowed");
         }
-        //if (table.getType() == TableType.TEMP) {
-        //    throw new AnalysisException("Analyze temporary table is not supported");
-        //}
         checkAnalyzePriv(tableName.getCtl(), tableName.getDb(), tableName.getTbl());
         if (columnNames == null) {
             columnNames = table.getSchemaAllIndexes(false).stream()
