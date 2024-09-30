@@ -98,6 +98,7 @@ void BeExecVersionManager::check_function_compatibility(int current_be_exec_vers
  *    c. change FunctionIsIPAddressInRange from AlwaysNotNullable to DependOnArguments
  *    d. change some agg function nullable property: PR #37215
  *    e. change variant serde to fix PR #38413
+ *    f. support const column in serialize/deserialize function: PR #41175
  */
 const int BeExecVersionManager::max_be_exec_version = 7;
 const int BeExecVersionManager::min_be_exec_version = 0;
