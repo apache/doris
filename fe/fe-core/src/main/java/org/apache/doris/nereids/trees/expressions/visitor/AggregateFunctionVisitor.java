@@ -219,6 +219,7 @@ public interface AggregateFunctionVisitor<R, C> {
 
     default R visitLinearHistogram(LinearHistogram linearHistogram, C context) {
         return visitAggregateFunction(linearHistogram, context);
+    }
 
     default R visitMapAgg(MapAgg mapAgg, C context) {
         return visitAggregateFunction(mapAgg, context);
