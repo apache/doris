@@ -351,7 +351,7 @@ public class UnequalPredicateInfer {
             Set<Expression> newPredicates = new LinkedHashSet<>();
             for (int i = 0; i < size; ++i) {
                 for (int j = 0; j < size; ++j) {
-                    if (i == j) {
+                    if (i == j || isAllLiteral(i, j)) {
                         continue;
                     }
                     try {
@@ -517,6 +517,12 @@ public class UnequalPredicateInfer {
 
         private Expression normalize(ComparisonPredicate cmp) {
             return TypeCoercionUtils.processComparisonPredicate(normalizePredicate(cmp)).withInferred(true);
+        }
+
+        private boolean isAllLiteral(int i, int j) {
+            Expression left = inputExprs.get(i);
+            Expression right = inputExprs.get(j);
+            return left instanceof Literal && right instanceof Literal;
         }
 
         /** for test */
