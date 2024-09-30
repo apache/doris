@@ -204,14 +204,6 @@ public class OlapTableSink extends DataSink {
             long txnExpirationS, OlapInsertCommandContext olapInsertCtx) throws UserException {
         init(loadId, txnId, dbId, loadChannelTimeoutS, sendBatchParallelism, loadToSingleTablet,
                 isStrictMode, txnExpirationS);
-        if (!olapInsertCtx.isAllowAutoPartition()) {
-            setAutoPartition(false);
-        }
-        if (olapInsertCtx.isAutoDetectOverwrite()) {
-            setAutoDetectOverwite(true);
-            setOverwriteGroupId(olapInsertCtx.getOverwriteGroupId());
-        }
-
         for (Long partitionId : partitionIds) {
             Partition partition = dstTable.getPartition(partitionId);
             if (dstTable.getIndexNumber() != partition.getMaterializedIndices(IndexExtState.ALL).size()) {
@@ -240,6 +232,14 @@ public class OlapTableSink extends DataSink {
         }
         tSink.setWriteSingleReplica(singleReplicaLoad);
         tSink.setNodesInfo(createPaloNodesInfo());
+
+        if (!olapInsertCtx.isAllowAutoPartition()) {
+            setAutoPartition(false);
+        }
+        if (olapInsertCtx.isAutoDetectOverwrite()) {
+            setAutoDetectOverwite(true);
+            setOverwriteGroupId(olapInsertCtx.getOverwriteGroupId());
+        }
     }
 
     public TOlapTableSchemaParam getOlapTableSchemaParam() {
