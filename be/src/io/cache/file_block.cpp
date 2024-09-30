@@ -272,6 +272,10 @@ std::string FileBlock::state_to_string(FileBlock::State state) {
     }
 }
 
+std::string FileBlock::get_cache_file() const {
+    return _mgr->_storage->get_local_file(this->_key);
+}
+
 FileBlocksHolder::~FileBlocksHolder() {
     for (auto file_block_it = file_blocks.begin(); file_block_it != file_blocks.end();) {
         auto current_file_block_it = file_block_it;

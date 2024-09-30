@@ -128,4 +128,8 @@ Status MemFileCacheStorage::clear(std::string& msg) {
     return Status::OK();
 }
 
+std::string MemFileCacheStorage::get_local_file(const FileCacheKey& key) {
+    return "";
+}
+
 } // namespace doris::io
