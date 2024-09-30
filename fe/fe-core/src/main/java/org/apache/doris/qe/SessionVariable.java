@@ -375,6 +375,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String SKIP_DELETE_BITMAP = "skip_delete_bitmap";
 
+    public static final String QUERY_MOW_IN_MOR = "query_mow_in_mor";
+
     public static final String SKIP_MISSING_VERSION = "skip_missing_version";
 
     public static final String SKIP_BAD_TABLET = "skip_bad_tablet";
@@ -1445,6 +1447,12 @@ public class SessionVariable implements Serializable, Writable {
      */
     @VariableMgr.VarAttr(name = SKIP_DELETE_BITMAP)
     public boolean skipDeleteBitmap = false;
+
+    /**
+     * Query mow table in mor way.
+     */
+    @VariableMgr.VarAttr(name = QUERY_MOW_IN_MOR)
+    public boolean queryMowInMor = false;
 
     // This variable replace the original FE config `recover_with_skip_missing_version`.
     // In some scenarios, all replicas of tablet are having missing versions, and the tablet is unable to recover.
@@ -3737,9 +3745,10 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setSkipDeletePredicate(skipDeletePredicate);
 
         tResult.setSkipDeleteBitmap(skipDeleteBitmap);
+        tResult.setQueryMowInMor(queryMowInMor);
         if (ConnectContext.get() != null && ConnectContext.get().isTxnModel()) {
             // TODO set to true only if the sub txn ids are not empty
-            tResult.setSkipDeleteBitmap(true);
+            tResult.setQueryMowInMor(true);
         }
 
         tResult.setPartitionedHashJoinRowsThreshold(partitionedHashJoinRowsThreshold);
