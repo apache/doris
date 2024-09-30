@@ -15,11 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.transaction;
+package org.apache.doris.nereids.trees.plans.commands.insert;
 
-public enum TransactionType {
-    UNKNOWN,
-    HMS,
-    ICEBERG,
-    JDBC
+/**
+ * For iceberg External Table
+ */
+public class JdbcInsertCommandContext extends BaseExternalTableInsertCommandContext {
 }
