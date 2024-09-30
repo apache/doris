@@ -861,7 +861,7 @@ public class ConnectContext {
                     Env.getCurrentEnv().getInternalCatalog()
                         .dropTableWithoutCheck(db, db.getTable(tableName).get(), true);
                 } catch (DdlException e) {
-                    LOG.error("drop temp table error: db: {}, table: {}", dbName, tableName, e);
+                    LOG.error("drop temporary table error: db: {}, table: {}", dbName, tableName, e);
                 }
             }
         }

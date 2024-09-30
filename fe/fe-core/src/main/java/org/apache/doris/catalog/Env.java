@@ -851,7 +851,7 @@ public class Env {
                 getInternalCatalog().dropTableWithoutCheck(getInternalCatalog().getDb(table.getDBName()).get(),
                         table, true);
             } catch (DdlException e) {
-                LOG.error("drop temp table error: db: {}, table: {}", table.getDBName(), table.getName(), e);
+                LOG.error("drop temporary table error: db: {}, table: {}", table.getDBName(), table.getName(), e);
             }
         }
         phantomTempTableList.clear();
