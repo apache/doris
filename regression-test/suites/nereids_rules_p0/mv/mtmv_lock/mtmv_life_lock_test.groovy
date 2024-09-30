@@ -290,6 +290,8 @@ suite("mtmv_life_lock_test") {
     def mtmv_pause_job = """PAUSE MATERIALIZED VIEW JOB ON ${db}.${mv_name};"""
     def mtmv_resume_job = """RESUME MATERIALIZED VIEW JOB ON ${db}.${mv_name};"""
     def mtmv_cancel_job = """CANCEL MATERIALIZED VIEW TASK 1 on ${db}.${mv_name};"""
+    def mtmv_select1 = """select * from ${db}.${mv_name}"""
+    def mtmv_select2 = """select * from ${db}.${mv_name2}"""
 
     // 给基表更改名称，然后基表创建mtmv
     def judge_table_res = true
@@ -504,6 +506,22 @@ suite("mtmv_life_lock_test") {
         }
         logger.info("mtmv_cancel_thread7 end")
     }
+    def mtmv_select_func = {
+        logger.info("table_select_thread10 start")
+        while (judge_mtmv_res) {
+            try {
+                sql mtmv_select1
+                sql mtmv_select2
+            } catch (Exception e) {
+                log.info(e.getMessage())
+                assertTrue(e.getMessage().contains("does not exist"))
+                if (!e.getMessage().contains("does not exist")) {
+                    judge_table_res = false
+                }
+            }
+            sleep(1000)
+        }
+    }
 
     def init_environment = {
         judge_table_res = true
@@ -536,12 +554,17 @@ suite("mtmv_life_lock_test") {
     def mtmv_create_thread = Thread.start{
         mtmv_create_func()
     }
+    def mtmv_select_thread = Thread.start {
+        mtmv_select_func()
+    }
     table_alter_col_thread.join(thread_timeout)
     table_select_thread.join(thread_timeout)
     mtmv_create_thread.join(thread_timeout)
+    mtmv_select_thread.join(thread_timeout)
     threadTimeout(table_alter_col_thread)
     threadTimeout(table_select_thread)
     threadTimeout(mtmv_create_thread)
+    threadTimeout(mtmv_select_thread)
     assertTrue(judge_table_res == true)
 
 
@@ -561,14 +584,19 @@ suite("mtmv_life_lock_test") {
     mtmv_create_thread = Thread.start{
         mtmv_create_func()
     }
+    mtmv_select_thread = Thread.start {
+        mtmv_select_func()
+    }
     table_part_thread.join(thread_timeout)
     table_data_change_thread.join(thread_timeout)
     table_select_thread.join(thread_timeout)
     mtmv_create_thread.join(thread_timeout)
+    mtmv_select_thread.join(thread_timeout)
     threadTimeout(table_part_thread)
     threadTimeout(table_data_change_thread)
     threadTimeout(table_select_thread)
     threadTimeout(mtmv_create_thread)
+    threadTimeout(mtmv_select_thread)
     assertTrue(judge_table_res == true)
 
     logger.info("table alter rollup + mtmv create")
@@ -584,12 +612,17 @@ suite("mtmv_life_lock_test") {
     mtmv_create_thread = Thread.start{
         mtmv_create_func()
     }
+    mtmv_select_thread = Thread.start {
+        mtmv_select_func()
+    }
     table_rollup_thread.join(thread_timeout)
     table_select_thread.join(thread_timeout)
     mtmv_create_thread.join(thread_timeout)
+    mtmv_select_thread.join(thread_timeout)
     threadTimeout(table_rollup_thread)
     threadTimeout(table_select_thread)
     threadTimeout(mtmv_create_thread)
+    threadTimeout(mtmv_select_thread)
     assertTrue(judge_table_res == true)
 
     logger.info("table alter mv + mtmv create")
@@ -605,12 +638,17 @@ suite("mtmv_life_lock_test") {
     mtmv_create_thread = Thread.start{
         mtmv_create_func()
     }
+    mtmv_select_thread = Thread.start {
+        mtmv_select_func()
+    }
     table_mv_thread.join(thread_timeout)
     table_select_thread.join(thread_timeout)
     mtmv_create_thread.join(thread_timeout)
+    mtmv_select_thread.join(thread_timeout)
     threadTimeout(table_mv_thread)
     threadTimeout(table_select_thread)
     threadTimeout(mtmv_create_thread)
+    threadTimeout(mtmv_select_thread)
     assertTrue(judge_table_res == true)
 
 
@@ -627,12 +665,17 @@ suite("mtmv_life_lock_test") {
     mtmv_create_thread = Thread.start{
         mtmv_create_func()
     }
+    mtmv_select_thread = Thread.start {
+        mtmv_select_func()
+    }
     table_index_thread.join(thread_timeout)
     table_select_thread.join(thread_timeout)
     mtmv_create_thread.join(thread_timeout)
+    mtmv_select_thread.join(thread_timeout)
     threadTimeout(table_index_thread)
     threadTimeout(table_select_thread)
     threadTimeout(mtmv_create_thread)
+    threadTimeout(mtmv_select_thread)
     assertTrue(judge_table_res == true)
 
 
@@ -649,12 +692,17 @@ suite("mtmv_life_lock_test") {
     mtmv_create_thread = Thread.start{
         mtmv_create_func()
     }
+    mtmv_select_thread = Thread.start {
+        mtmv_select_func()
+    }
     table_data_change_thread.join(thread_timeout)
     table_select_thread.join(thread_timeout)
     mtmv_create_thread.join(thread_timeout)
+    mtmv_select_thread.join(thread_timeout)
     threadTimeout(table_data_change_thread)
     threadTimeout(table_select_thread)
     threadTimeout(mtmv_create_thread)
+    threadTimeout(mtmv_select_thread)
     assertTrue(judge_table_res == true)
 
 
@@ -672,12 +720,17 @@ suite("mtmv_life_lock_test") {
     def mtmv_refresh_thread = Thread.start{
         mtmv_refresh_func()
     }
+    mtmv_select_thread = Thread.start {
+        mtmv_select_func()
+    }
     table_alter_col_thread.join(thread_timeout)
     table_select_thread.join(thread_timeout)
     mtmv_refresh_thread.join(thread_timeout)
+    mtmv_select_thread.join(thread_timeout)
     threadTimeout(table_alter_col_thread)
     threadTimeout(table_select_thread)
     threadTimeout(mtmv_refresh_thread)
+    threadTimeout(mtmv_select_thread)
     assertTrue(judge_table_res == true)
 
 
@@ -697,14 +750,19 @@ suite("mtmv_life_lock_test") {
     mtmv_refresh_thread = Thread.start{
         mtmv_refresh_func()
     }
+    mtmv_select_thread = Thread.start {
+        mtmv_select_func()
+    }
     table_part_thread.join(thread_timeout)
     table_data_change_thread.join(thread_timeout)
     table_select_thread.join(thread_timeout)
     mtmv_refresh_thread.join(thread_timeout)
+    mtmv_select_thread.join(thread_timeout)
     threadTimeout(table_part_thread)
     threadTimeout(table_data_change_thread)
     threadTimeout(table_select_thread)
     threadTimeout(mtmv_refresh_thread)
+    threadTimeout(mtmv_select_thread)
     assertTrue(judge_table_res == true)
 
     logger.info("table alter rollup + mtmv refresh")
@@ -720,12 +778,17 @@ suite("mtmv_life_lock_test") {
     mtmv_refresh_thread = Thread.start{
         mtmv_refresh_func()
     }
+    mtmv_select_thread = Thread.start {
+        mtmv_select_func()
+    }
     table_rollup_thread.join(thread_timeout)
     table_select_thread.join(thread_timeout)
     mtmv_refresh_thread.join(thread_timeout)
+    mtmv_select_thread.join(thread_timeout)
     threadTimeout(table_rollup_thread)
     threadTimeout(table_select_thread)
     threadTimeout(mtmv_refresh_thread)
+    threadTimeout(mtmv_select_thread)
     assertTrue(judge_table_res == true)
 
     logger.info("table alter mv + mtmv refresh")
@@ -741,12 +804,17 @@ suite("mtmv_life_lock_test") {
     mtmv_refresh_thread = Thread.start{
         mtmv_refresh_func()
     }
+    mtmv_select_thread = Thread.start {
+        mtmv_select_func()
+    }
     table_mv_thread.join(thread_timeout)
     table_select_thread.join(thread_timeout)
     mtmv_refresh_thread.join(thread_timeout)
+    mtmv_select_thread.join(thread_timeout)
     threadTimeout(table_mv_thread)
     threadTimeout(table_select_thread)
     threadTimeout(mtmv_refresh_thread)
+    threadTimeout(mtmv_select_thread)
     assertTrue(judge_table_res == true)
 
 
@@ -763,12 +831,17 @@ suite("mtmv_life_lock_test") {
     mtmv_refresh_thread = Thread.start{
         mtmv_refresh_func()
     }
+    mtmv_select_thread = Thread.start {
+        mtmv_select_func()
+    }
     table_index_thread.join(thread_timeout)
     table_select_thread.join(thread_timeout)
     mtmv_refresh_thread.join(thread_timeout)
+    mtmv_select_thread.join(thread_timeout)
     threadTimeout(table_index_thread)
     threadTimeout(table_select_thread)
     threadTimeout(mtmv_refresh_thread)
+    threadTimeout(mtmv_select_thread)
     assertTrue(judge_table_res == true)
 
 
@@ -785,12 +858,17 @@ suite("mtmv_life_lock_test") {
     mtmv_refresh_thread = Thread.start{
         mtmv_refresh_func()
     }
+    mtmv_select_thread = Thread.start {
+        mtmv_select_func()
+    }
     table_data_change_thread.join(thread_timeout)
     table_select_thread.join(thread_timeout)
     mtmv_refresh_thread.join(thread_timeout)
+    mtmv_select_thread.join(thread_timeout)
     threadTimeout(table_data_change_thread)
     threadTimeout(table_select_thread)
     threadTimeout(mtmv_refresh_thread)
+    threadTimeout(mtmv_select_thread)
     assertTrue(judge_table_res == true)
 
 
@@ -808,12 +886,17 @@ suite("mtmv_life_lock_test") {
     def mtmv_rename_thread = Thread.start{
         mtmv_rename_func()
     }
+    mtmv_select_thread = Thread.start {
+        mtmv_select_func()
+    }
     table_alter_col_thread.join(thread_timeout)
     table_select_thread.join(thread_timeout)
     mtmv_rename_thread.join(thread_timeout)
+    mtmv_select_thread.join(thread_timeout)
     threadTimeout(table_alter_col_thread)
     threadTimeout(table_select_thread)
     threadTimeout(mtmv_rename_thread)
+    threadTimeout(mtmv_select_thread)
     assertTrue(judge_table_res == true)
 
 
@@ -833,14 +916,19 @@ suite("mtmv_life_lock_test") {
     mtmv_rename_thread = Thread.start{
         mtmv_rename_func()
     }
+    mtmv_select_thread = Thread.start {
+        mtmv_select_func()
+    }
     table_part_thread.join(thread_timeout)
     table_data_change_thread.join(thread_timeout)
     table_select_thread.join(thread_timeout)
     mtmv_rename_thread.join(thread_timeout)
+    mtmv_select_thread.join(thread_timeout)
     threadTimeout(table_part_thread)
     threadTimeout(table_data_change_thread)
     threadTimeout(table_select_thread)
     threadTimeout(mtmv_rename_thread)
+    threadTimeout(mtmv_select_thread)
     assertTrue(judge_table_res == true)
 
     logger.info("table alter rollup + mtmv rename")
@@ -856,12 +944,17 @@ suite("mtmv_life_lock_test") {
     mtmv_rename_thread = Thread.start{
         mtmv_rename_func()
     }
+    mtmv_select_thread = Thread.start {
+        mtmv_select_func()
+    }
     table_rollup_thread.join(thread_timeout)
     table_select_thread.join(thread_timeout)
     mtmv_rename_thread.join(thread_timeout)
+    mtmv_select_thread.join(thread_timeout)
     threadTimeout(table_rollup_thread)
     threadTimeout(table_select_thread)
     threadTimeout(mtmv_rename_thread)
+    threadTimeout(mtmv_select_thread)
     assertTrue(judge_table_res == true)
 
     logger.info("table alter mv + mtmv rename")
@@ -877,12 +970,17 @@ suite("mtmv_life_lock_test") {
     mtmv_rename_thread = Thread.start{
         mtmv_rename_func()
     }
+    mtmv_select_thread = Thread.start {
+        mtmv_select_func()
+    }
     table_mv_thread.join(thread_timeout)
     table_select_thread.join(thread_timeout)
     mtmv_rename_thread.join(thread_timeout)
+    mtmv_select_thread.join(thread_timeout)
     threadTimeout(table_mv_thread)
     threadTimeout(table_select_thread)
     threadTimeout(mtmv_rename_thread)
+    threadTimeout(mtmv_select_thread)
     assertTrue(judge_table_res == true)
 
 
@@ -899,12 +997,17 @@ suite("mtmv_life_lock_test") {
     mtmv_rename_thread = Thread.start{
         mtmv_rename_func()
     }
+    mtmv_select_thread = Thread.start {
+        mtmv_select_func()
+    }
     table_index_thread.join(thread_timeout)
     table_select_thread.join(thread_timeout)
     mtmv_rename_thread.join(thread_timeout)
+    mtmv_select_thread.join(thread_timeout)
     threadTimeout(table_index_thread)
     threadTimeout(table_select_thread)
     threadTimeout(mtmv_rename_thread)
+    threadTimeout(mtmv_select_thread)
     assertTrue(judge_table_res == true)
 
 
@@ -921,12 +1024,17 @@ suite("mtmv_life_lock_test") {
     mtmv_rename_thread = Thread.start{
         mtmv_rename_func()
     }
+    mtmv_select_thread = Thread.start {
+        mtmv_select_func()
+    }
     table_data_change_thread.join(thread_timeout)
     table_select_thread.join(thread_timeout)
     mtmv_rename_thread.join(thread_timeout)
+    mtmv_select_thread.join(thread_timeout)
     threadTimeout(table_data_change_thread)
     threadTimeout(table_select_thread)
     threadTimeout(mtmv_rename_thread)
+    threadTimeout(mtmv_select_thread)
     assertTrue(judge_table_res == true)
 
 
@@ -944,12 +1052,17 @@ suite("mtmv_life_lock_test") {
     def mtmv_alter_property_thread = Thread.start{
         mtmv_alter_property_func()
     }
+    mtmv_select_thread = Thread.start {
+        mtmv_select_func()
+    }
     table_alter_col_thread.join(thread_timeout)
     table_select_thread.join(thread_timeout)
     mtmv_alter_property_thread.join(thread_timeout)
+    mtmv_select_thread.join(thread_timeout)
     threadTimeout(table_alter_col_thread)
     threadTimeout(table_select_thread)
     threadTimeout(mtmv_alter_property_thread)
+    threadTimeout(mtmv_select_thread)
     assertTrue(judge_table_res == true)
 
 
@@ -969,14 +1082,19 @@ suite("mtmv_life_lock_test") {
     mtmv_alter_property_thread = Thread.start{
         mtmv_alter_property_func()
     }
+    mtmv_select_thread = Thread.start {
+        mtmv_select_func()
+    }
     table_part_thread.join(thread_timeout)
     table_data_change_thread.join(thread_timeout)
     table_select_thread.join(thread_timeout)
     mtmv_alter_property_thread.join(thread_timeout)
+    mtmv_select_thread.join(thread_timeout)
     threadTimeout(table_part_thread)
     threadTimeout(table_data_change_thread)
     threadTimeout(table_select_thread)
     threadTimeout(mtmv_alter_property_thread)
+    threadTimeout(mtmv_select_thread)
     assertTrue(judge_table_res == true)
 
     logger.info("table alter rollup + mtmv alter property")
@@ -992,12 +1110,17 @@ suite("mtmv_life_lock_test") {
     mtmv_alter_property_thread = Thread.start{
         mtmv_alter_property_func()
     }
+    mtmv_select_thread = Thread.start {
+        mtmv_select_func()
+    }
     table_rollup_thread.join(thread_timeout)
     table_select_thread.join(thread_timeout)
     mtmv_alter_property_thread.join(thread_timeout)
+    mtmv_select_thread.join(thread_timeout)
     threadTimeout(table_rollup_thread)
     threadTimeout(table_select_thread)
     threadTimeout(mtmv_alter_property_thread)
+    threadTimeout(mtmv_select_thread)
     assertTrue(judge_table_res == true)
 
     logger.info("table alter mv + mtmv alter property")
@@ -1013,12 +1136,17 @@ suite("mtmv_life_lock_test") {
     mtmv_alter_property_thread = Thread.start{
         mtmv_alter_property_func()
     }
+    mtmv_select_thread = Thread.start {
+        mtmv_select_func()
+    }
     table_mv_thread.join(thread_timeout)
     table_select_thread.join(thread_timeout)
     mtmv_alter_property_thread.join(thread_timeout)
+    mtmv_select_thread.join(thread_timeout)
     threadTimeout(table_mv_thread)
     threadTimeout(table_select_thread)
     threadTimeout(mtmv_alter_property_thread)
+    threadTimeout(mtmv_select_thread)
     assertTrue(judge_table_res == true)
 
 
@@ -1035,12 +1163,17 @@ suite("mtmv_life_lock_test") {
     mtmv_alter_property_thread = Thread.start{
         mtmv_alter_property_func()
     }
+    mtmv_select_thread = Thread.start {
+        mtmv_select_func()
+    }
     table_index_thread.join(thread_timeout)
     table_select_thread.join(thread_timeout)
     mtmv_alter_property_thread.join(thread_timeout)
+    mtmv_select_thread.join(thread_timeout)
     threadTimeout(table_index_thread)
     threadTimeout(table_select_thread)
     threadTimeout(mtmv_alter_property_thread)
+    threadTimeout(mtmv_select_thread)
     assertTrue(judge_table_res == true)
 
 
@@ -1057,12 +1190,17 @@ suite("mtmv_life_lock_test") {
     mtmv_alter_property_thread = Thread.start{
         mtmv_alter_property_func()
     }
+    mtmv_select_thread = Thread.start {
+        mtmv_select_func()
+    }
     table_data_change_thread.join(thread_timeout)
     table_select_thread.join(thread_timeout)
     mtmv_alter_property_thread.join(thread_timeout)
+    mtmv_select_thread.join(thread_timeout)
     threadTimeout(table_data_change_thread)
     threadTimeout(table_select_thread)
     threadTimeout(mtmv_alter_property_thread)
+    threadTimeout(mtmv_select_thread)
     assertTrue(judge_table_res == true)
 
 
@@ -1080,12 +1218,17 @@ suite("mtmv_life_lock_test") {
     def mtmv_pause_resume_thread = Thread.start{
         mtmv_pause_resume_func()
     }
+    mtmv_select_thread = Thread.start {
+        mtmv_select_func()
+    }
     table_alter_col_thread.join(thread_timeout)
     table_select_thread.join(thread_timeout)
     mtmv_pause_resume_thread.join(thread_timeout)
+    mtmv_select_thread.join(thread_timeout)
     threadTimeout(table_alter_col_thread)
     threadTimeout(table_select_thread)
     threadTimeout(mtmv_pause_resume_thread)
+    threadTimeout(mtmv_select_thread)
     assertTrue(judge_table_res == true)
 
 
@@ -1105,14 +1248,19 @@ suite("mtmv_life_lock_test") {
     mtmv_pause_resume_thread = Thread.start{
         mtmv_pause_resume_func()
     }
+    mtmv_select_thread = Thread.start {
+        mtmv_select_func()
+    }
     table_part_thread.join(thread_timeout)
     table_data_change_thread.join(thread_timeout)
     table_select_thread.join(thread_timeout)
     mtmv_pause_resume_thread.join(thread_timeout)
+    mtmv_select_thread.join(thread_timeout)
     threadTimeout(table_part_thread)
     threadTimeout(table_data_change_thread)
     threadTimeout(table_select_thread)
     threadTimeout(mtmv_pause_resume_thread)
+    threadTimeout(mtmv_select_thread)
     assertTrue(judge_table_res == true)
 
     logger.info("table alter rollup + mtmv pause resume")
@@ -1128,12 +1276,17 @@ suite("mtmv_life_lock_test") {
     mtmv_pause_resume_thread = Thread.start{
         mtmv_pause_resume_func()
     }
+    mtmv_select_thread = Thread.start {
+        mtmv_select_func()
+    }
     table_rollup_thread.join(thread_timeout)
     table_select_thread.join(thread_timeout)
     mtmv_alter_property_thread.join(thread_timeout)
+    mtmv_select_thread.join(thread_timeout)
     threadTimeout(table_rollup_thread)
     threadTimeout(table_select_thread)
     threadTimeout(mtmv_pause_resume_thread)
+    threadTimeout(mtmv_select_thread)
     assertTrue(judge_table_res == true)
 
     logger.info("table alter mv + mtmv pause resume")
@@ -1149,12 +1302,17 @@ suite("mtmv_life_lock_test") {
     mtmv_pause_resume_thread = Thread.start{
         mtmv_pause_resume_func()
     }
+    mtmv_select_thread = Thread.start {
+        mtmv_select_func()
+    }
     table_mv_thread.join(thread_timeout)
     table_select_thread.join(thread_timeout)
     mtmv_pause_resume_thread.join(thread_timeout)
+    mtmv_select_thread.join(thread_timeout)
     threadTimeout(table_mv_thread)
     threadTimeout(table_select_thread)
     threadTimeout(mtmv_pause_resume_thread)
+    threadTimeout(mtmv_select_thread)
     assertTrue(judge_table_res == true)
 
 
@@ -1171,12 +1329,17 @@ suite("mtmv_life_lock_test") {
     mtmv_pause_resume_thread = Thread.start{
         mtmv_pause_resume_func()
     }
+    mtmv_select_thread = Thread.start {
+        mtmv_select_func()
+    }
     table_index_thread.join(thread_timeout)
     table_select_thread.join(thread_timeout)
     mtmv_pause_resume_thread.join(thread_timeout)
+    mtmv_select_thread.join(thread_timeout)
     threadTimeout(table_index_thread)
     threadTimeout(table_select_thread)
     threadTimeout(mtmv_pause_resume_thread)
+    threadTimeout(mtmv_select_thread)
     assertTrue(judge_table_res == true)
 
 
@@ -1193,12 +1356,17 @@ suite("mtmv_life_lock_test") {
     mtmv_pause_resume_thread = Thread.start{
         mtmv_pause_resume_func()
     }
+    mtmv_select_thread = Thread.start {
+        mtmv_select_func()
+    }
     table_data_change_thread.join(thread_timeout)
     table_select_thread.join(thread_timeout)
     mtmv_pause_resume_thread.join(thread_timeout)
+    mtmv_select_thread.join(thread_timeout)
     threadTimeout(table_data_change_thread)
     threadTimeout(table_select_thread)
     threadTimeout(mtmv_pause_resume_thread)
+    threadTimeout(mtmv_select_thread)
     assertTrue(judge_table_res == true)
 
 
@@ -1216,12 +1384,17 @@ suite("mtmv_life_lock_test") {
     def mtmv_cancel_thread = Thread.start{
         mtmv_cancel_func()
     }
+    mtmv_select_thread = Thread.start {
+        mtmv_select_func()
+    }
     table_alter_col_thread.join(thread_timeout)
     table_select_thread.join(thread_timeout)
     mtmv_cancel_thread.join(thread_timeout)
+    mtmv_select_thread.join(thread_timeout)
     threadTimeout(table_alter_col_thread)
     threadTimeout(table_select_thread)
     threadTimeout(mtmv_cancel_thread)
+    threadTimeout(mtmv_select_thread)
     assertTrue(judge_table_res == true)
 
 
@@ -1241,14 +1414,19 @@ suite("mtmv_life_lock_test") {
     mtmv_cancel_thread = Thread.start{
         mtmv_cancel_func()
     }
+    mtmv_select_thread = Thread.start {
+        mtmv_select_func()
+    }
     table_part_thread.join(thread_timeout)
     table_data_change_thread.join(thread_timeout)
     table_select_thread.join(thread_timeout)
     mtmv_cancel_thread.join(thread_timeout)
+    mtmv_select_thread.join(thread_timeout)
     threadTimeout(table_part_thread)
     threadTimeout(table_data_change_thread)
     threadTimeout(table_select_thread)
     threadTimeout(mtmv_cancel_thread)
+    threadTimeout(mtmv_select_thread)
     assertTrue(judge_table_res == true)
 
     logger.info("table alter rollup + mtmv cancel")
@@ -1264,12 +1442,17 @@ suite("mtmv_life_lock_test") {
     mtmv_cancel_thread = Thread.start{
         mtmv_cancel_func()
     }
+    mtmv_select_thread = Thread.start {
+        mtmv_select_func()
+    }
     table_rollup_thread.join(thread_timeout)
     table_select_thread.join(thread_timeout)
     mtmv_cancel_thread.join(thread_timeout)
+    mtmv_select_thread.join(thread_timeout)
     threadTimeout(table_rollup_thread)
     threadTimeout(table_select_thread)
     threadTimeout(mtmv_cancel_thread)
+    threadTimeout(mtmv_select_thread)
     assertTrue(judge_table_res == true)
 
     logger.info("table alter mv + mtmv cancel")
@@ -1285,12 +1468,17 @@ suite("mtmv_life_lock_test") {
     mtmv_cancel_thread = Thread.start{
         mtmv_cancel_func()
     }
+    mtmv_select_thread = Thread.start {
+        mtmv_select_func()
+    }
     table_mv_thread.join(thread_timeout)
     table_select_thread.join(thread_timeout)
     mtmv_cancel_thread.join(thread_timeout)
+    mtmv_select_thread.join(thread_timeout)
     threadTimeout(table_mv_thread)
     threadTimeout(table_select_thread)
     threadTimeout(mtmv_cancel_thread)
+    threadTimeout(mtmv_select_thread)
     assertTrue(judge_table_res == true)
 
 
@@ -1307,12 +1495,17 @@ suite("mtmv_life_lock_test") {
     mtmv_cancel_thread = Thread.start{
         mtmv_cancel_func()
     }
+    mtmv_select_thread = Thread.start {
+        mtmv_select_func()
+    }
     table_index_thread.join(thread_timeout)
     table_select_thread.join(thread_timeout)
     mtmv_cancel_thread.join(thread_timeout)
+    mtmv_select_thread.join(thread_timeout)
     threadTimeout(table_index_thread)
     threadTimeout(table_select_thread)
     threadTimeout(mtmv_cancel_thread)
+    threadTimeout(mtmv_select_thread)
     assertTrue(judge_table_res == true)
 
 
@@ -1329,12 +1522,17 @@ suite("mtmv_life_lock_test") {
     mtmv_cancel_thread = Thread.start{
         mtmv_cancel_func()
     }
+    mtmv_select_thread = Thread.start {
+        mtmv_select_func()
+    }
     table_data_change_thread.join(thread_timeout)
     table_select_thread.join(thread_timeout)
     mtmv_cancel_thread.join(thread_timeout)
+    mtmv_select_thread.join(thread_timeout)
     threadTimeout(table_data_change_thread)
     threadTimeout(table_select_thread)
     threadTimeout(mtmv_cancel_thread)
+    threadTimeout(mtmv_select_thread)
     assertTrue(judge_table_res == true)
 
 }
