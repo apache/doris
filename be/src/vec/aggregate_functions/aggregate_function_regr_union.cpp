@@ -27,10 +27,11 @@
 
 namespace doris::vectorized {
 
-template <typename T, template<typename> class StatFunctionTemplate>
-AggregateFunctionPtr type_dispatch_for_aggregate_function_regr(
-        const DataTypes& argument_types, const bool& result_is_nullable, bool y_nullable_input,
-        bool x_nullable_input) {
+template <typename T, template <typename> class StatFunctionTemplate>
+AggregateFunctionPtr type_dispatch_for_aggregate_function_regr(const DataTypes& argument_types,
+                                                               const bool& result_is_nullable,
+                                                               bool y_nullable_input,
+                                                               bool x_nullable_input) {
     if (y_nullable_input) {
         if (x_nullable_input) {
             return creator_without_type::create_ignore_nullable<
@@ -54,7 +55,7 @@ AggregateFunctionPtr type_dispatch_for_aggregate_function_regr(
     }
 }
 
-template <template<typename> class StatFunctionTemplate>
+template <template <typename> class StatFunctionTemplate>
 AggregateFunctionPtr create_aggregate_function_regr(const std::string& name,
                                                     const DataTypes& argument_types,
                                                     const bool result_is_nullable) {
@@ -72,8 +73,8 @@ AggregateFunctionPtr create_aggregate_function_regr(const std::string& name,
     WhichDataType y_type(remove_nullable(argument_types[0]));
     WhichDataType x_type(remove_nullable(argument_types[1]));
 
-#define DISPATCH(TYPE)                                                    \
-    if (x_type.idx == TypeIndex::TYPE && y_type.idx == TypeIndex::TYPE)   \
+#define DISPATCH(TYPE)                                                                \
+    if (x_type.idx == TypeIndex::TYPE && y_type.idx == TypeIndex::TYPE)               \
         return type_dispatch_for_aggregate_function_regr<TYPE, StatFunctionTemplate>( \
                 argument_types, result_is_nullable, y_nullable_input, x_nullable_input);
     FOR_NUMERIC_TYPES(DISPATCH)

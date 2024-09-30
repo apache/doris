@@ -40,10 +40,10 @@ namespace doris::vectorized {
 template <typename T>
 struct AggregateFunctionRegrData {
     UInt64 count = 0;
-    Float64 sum_x{};
-    Float64 sum_y{};
-    Float64 sum_of_x_mul_y{};
-    Float64 sum_of_x_squared{};
+    Float64 sum_x {};
+    Float64 sum_y {};
+    Float64 sum_of_x_mul_y {};
+    Float64 sum_of_x_squared {};
 
     void write(BufferWritable& buf) const {
         write_binary(sum_x, buf);
@@ -90,36 +90,32 @@ struct AggregateFunctionRegrData {
 };
 
 template <typename T>
-struct RegrSlopeFunc {
+struct RegrSlopeFunc : AggregateFunctionRegrData<T> {
     using Type = T;
-    using Data = AggregateFunctionRegrData<Type>;
     static constexpr const char* name = "regr_slope";
 
-    template <typename Data>
-    static Float64 get_result(const Data& data) {
-        Float64 denominator = data.count * data.sum_of_x_squared - data.sum_x * data.sum_x;
-        if (data.count < 2 || denominator == 0.0) {
+    Float64 get_result() const {
+        Float64 denominator = this->count * this->sum_of_x_squared - this->sum_x * this->sum_x;
+        if (this->count < 2 || denominator == 0.0) {
             return std::numeric_limits<Float64>::quiet_NaN();
         }
-        Float64 slope = (data.count * data.sum_of_x_mul_y - data.sum_x * data.sum_y) / denominator;
+        Float64 slope = (this->count * this->sum_of_x_mul_y - this->sum_x * this->sum_y) / denominator;
         return slope;
     }
 };
 
 template <typename T>
-struct RegrInterceptFunc {
+struct RegrInterceptFunc : AggregateFunctionRegrData<T> {
     using Type = T;
-    using Data = AggregateFunctionRegrData<Type>;
     static constexpr const char* name = "regr_intercept";
 
-    template <typename Data>
-    static Float64 get_result(const Data& data) {
-        Float64 denominator = data.count * data.sum_of_x_squared - data.sum_x * data.sum_x;
-        if (data.count < 2 || denominator == 0.0) {
+    Float64 get_result() const {
+        Float64 denominator = this->count * this->sum_of_x_squared - this->sum_x * this->sum_x;
+        if (this->count < 2 || denominator == 0.0) {
             return std::numeric_limits<Float64>::quiet_NaN();
         }
-        Float64 slope = (data.count * data.sum_of_x_mul_y - data.sum_x * data.sum_y) / denominator;
-        Float64 intercept = (data.sum_y - slope * data.sum_x) / data.count;
+        Float64 slope = (this->count * this->sum_of_x_mul_y - this->sum_x * this->sum_y) / denominator;
+        Float64 intercept = (this->sum_y - slope * this->sum_x) / this->count;
         return intercept;
     }
 };
@@ -127,7 +123,7 @@ struct RegrInterceptFunc {
 template <typename RegrFunc, bool y_nullable, bool x_nullable>
 class AggregateFunctionRegrSimple
         : public IAggregateFunctionDataHelper<
-                  typename RegrFunc::Data,
+                  RegrFunc,
                   AggregateFunctionRegrSimple<RegrFunc, y_nullable, x_nullable>> {
 public:
     using Type = typename RegrFunc::Type;
@@ -137,7 +133,7 @@ public:
 
     explicit AggregateFunctionRegrSimple(const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper<
-                      typename RegrFunc::Data,
+                      RegrFunc,
                       AggregateFunctionRegrSimple<RegrFunc, y_nullable, x_nullable>>(
                       argument_types_) {
         DCHECK(!argument_types_.empty());
@@ -208,7 +204,7 @@ public:
         const auto& data = this->data(place);
         auto& dst_column_with_nullable = assert_cast<ColumnNullable&>(to);
         auto& dst_column = assert_cast<ResultCol&>(dst_column_with_nullable.get_nested_column());
-        Float64 result = RegrFunc::get_result(data);
+        Float64 result = data.get_result();
         if (std::isnan(result)) {
             dst_column_with_nullable.get_null_map_data().push_back(1);
             dst_column.insert_default();
