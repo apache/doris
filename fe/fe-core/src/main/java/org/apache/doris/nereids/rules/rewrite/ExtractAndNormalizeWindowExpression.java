@@ -25,11 +25,7 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
-import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
-import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
-import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.agg.NullableAggregateFunction;
-import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
@@ -64,13 +60,11 @@ public class ExtractAndNormalizeWindowExpression extends OneRewriteRuleFactory i
                     if (output instanceof WindowExpression) {
                         WindowExpression windowExpression = (WindowExpression) output;
                         Expression expression = ((WindowExpression) output).getFunction();
-                        if (expression instanceof Sum || expression instanceof Max
-                                || expression instanceof Min || expression instanceof Avg) {
-                            // sum, max, min and avg in window function should be always nullable
-                            windowExpression = ((WindowExpression) output)
-                                    .withFunction(
-                                            ((NullableAggregateFunction) expression).withAlwaysNullable(true)
-                                    );
+                        if (expression instanceof NullableAggregateFunction) {
+                            // NullableAggregateFunction in window function should be always nullable
+                            // Because there may be no data in the window frame, null values will be generated.
+                            windowExpression = ((WindowExpression) output).withFunction(
+                                    ((NullableAggregateFunction) expression).withAlwaysNullable(true));
                         }
 
                         ImmutableList.Builder<Expression> nonLiteralPartitionKeys =

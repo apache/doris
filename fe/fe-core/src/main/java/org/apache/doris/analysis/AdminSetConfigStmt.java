@@ -26,26 +26,22 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
+import org.apache.doris.system.NodeType;
 
 import com.google.common.collect.Maps;
 
 import java.util.Map;
 
 // admin set frontend config ("key" = "value");
-public class AdminSetConfigStmt extends DdlStmt {
-
-    public enum ConfigType {
-        FRONTEND,
-        BACKEND
-    }
+public class AdminSetConfigStmt extends DdlStmt implements NotFallbackInParser {
 
     private boolean applyToAll;
-    private ConfigType type;
+    private NodeType type;
     private Map<String, String> configs;
 
     private RedirectStatus redirectStatus = RedirectStatus.NO_FORWARD;
 
-    public AdminSetConfigStmt(ConfigType type, Map<String, String> configs, boolean applyToAll) {
+    public AdminSetConfigStmt(NodeType type, Map<String, String> configs, boolean applyToAll) {
         this.type = type;
         this.configs = configs;
         if (this.configs == null) {
@@ -62,7 +58,7 @@ public class AdminSetConfigStmt extends DdlStmt {
         }
     }
 
-    public ConfigType getType() {
+    public NodeType getType() {
         return type;
     }
 
@@ -86,7 +82,7 @@ public class AdminSetConfigStmt extends DdlStmt {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
         }
 
-        if (type != ConfigType.FRONTEND) {
+        if (type != NodeType.FRONTEND) {
             throw new AnalysisException("Only support setting Frontend configs now");
         }
     }

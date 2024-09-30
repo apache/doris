@@ -100,6 +100,9 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
     }
 
     public void close() throws Exception {
+        if (outputTable != null) {
+            outputTable.close();
+        }
         try {
             if (stmt != null && !stmt.isClosed()) {
                 try {
@@ -112,8 +115,8 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
             if (conn != null && resultSet != null) {
                 abortReadConnection(conn, resultSet);
             }
-            closeResources(resultSet, stmt, conn);
         } finally {
+            closeResources(resultSet, stmt, conn);
             if (config.getConnectionPoolMinSize() == 0 && hikariDataSource != null) {
                 hikariDataSource.close();
                 JdbcDataSource.getDataSource().getSourcesMap().remove(config.createCacheKey());

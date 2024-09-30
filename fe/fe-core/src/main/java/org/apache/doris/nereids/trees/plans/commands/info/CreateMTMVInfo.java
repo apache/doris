@@ -33,8 +33,10 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.View;
 import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeNameFormat;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.mtmv.MTMVPartitionInfo;
@@ -58,7 +60,6 @@ import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewUtils;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.algebra.OneRowRelation;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.commands.info.BaseViewInfo.AnalyzerForCreateView;
 import org.apache.doris.nereids.trees.plans.commands.info.BaseViewInfo.PlanSlotFinder;
@@ -162,8 +163,7 @@ public class CreateMTMVInfo {
         final boolean finalEnableMergeOnWrite = false;
         Set<String> keysSet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
         keysSet.addAll(keys);
-        columns.forEach(c -> c.validate(true, keysSet, Sets.newHashSet(), finalEnableMergeOnWrite, KeysType.DUP_KEYS));
-
+        validateColumns(this.columns, keysSet, finalEnableMergeOnWrite);
         if (distribution == null) {
             throw new AnalysisException("Create async materialized view should contain distribution desc");
         }
@@ -183,6 +183,18 @@ public class CreateMTMVInfo {
 
         analyzeProperties();
         rewriteQuerySql(ctx);
+    }
+
+    /**validate column name*/
+    public void validateColumns(List<ColumnDefinition> columns, Set<String> keysSet,
+            boolean finalEnableMergeOnWrite) throws UserException {
+        Set<String> colSets = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
+        for (ColumnDefinition col : columns) {
+            if (!colSets.add(col.getName())) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_DUP_FIELDNAME, col.getName());
+            }
+            col.validate(true, keysSet, Sets.newHashSet(), finalEnableMergeOnWrite, KeysType.DUP_KEYS);
+        }
     }
 
     private void rewriteQuerySql(ConnectContext ctx) {
@@ -232,9 +244,6 @@ public class CreateMTMVInfo {
         // must disable constant folding by be, because be constant folding may return wrong type
         ctx.getSessionVariable().disableConstantFoldingByBEOnce();
         Plan plan = planner.planWithLock(logicalSink, PhysicalProperties.ANY, ExplainLevel.ALL_PLAN);
-        if (plan.anyMatch(node -> node instanceof OneRowRelation)) {
-            throw new AnalysisException("at least contain one table");
-        }
         // can not contain VIEW or MTMV
         analyzeBaseTables(planner.getAnalyzedPlan());
         // can not contain Random function
@@ -373,7 +382,9 @@ public class CreateMTMVInfo {
         List<Expression> functionCollectResult = MaterializedViewUtils.extractNondeterministicFunction(plan);
         if (!CollectionUtils.isEmpty(functionCollectResult)) {
             throw new AnalysisException(String.format(
-                    "can not contain invalid expression, the expression is %s",
+                    "can not contain nonDeterministic expression, the expression is %s. "
+                            + "Should add 'enable_nondeterministic_function'  = 'true' property "
+                            + "when create materialized view if you know the property real meaning entirely",
                     functionCollectResult.stream().map(Expression::toString).collect(Collectors.joining(","))));
         }
     }

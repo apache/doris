@@ -290,6 +290,15 @@ public class SystemInfoService {
         MetricRepo.generateBackendsTabletMetrics();
     }
 
+    public void decommissionBackend(Backend backend) throws UserException {
+        // set backend's state as 'decommissioned'
+        // for decommission operation, here is no decommission job. the system handler will check
+        // all backend in decommission state
+        backend.setDecommissioned(true);
+        Env.getCurrentEnv().getEditLog().logBackendStateChange(backend);
+        LOG.info("set backend {} to decommission", backend.getId());
+    }
+
     // only for test
     public void dropAllBackend() {
         // update idToBackend
@@ -1009,4 +1018,10 @@ public class SystemInfoService {
         }
         return minPipelineExecutorSize;
     }
+
+    // CloudSystemInfoService override
+    public int getTabletNumByBackendId(long beId) {
+        return Env.getCurrentInvertedIndex().getTabletNumByBackendId(beId);
+    }
+
 }

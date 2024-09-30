@@ -505,12 +505,35 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         }
 
         final CommitTxnRequest commitTxnRequest = builder.build();
-        commitTxn(commitTxnRequest, transactionId, is2PC, dbId, tableList);
+        boolean txnOperated = false;
+        TransactionState txnState = null;
+        TxnStateChangeCallback cb = null;
+        long callbackId = 0L;
+        try {
+            txnState = commitTxn(commitTxnRequest, transactionId, is2PC, dbId, tableList);
+            txnOperated = true;
+        } finally {
+            if (txnCommitAttachment != null && txnCommitAttachment instanceof RLTaskTxnCommitAttachment) {
+                RLTaskTxnCommitAttachment rlTaskTxnCommitAttachment = (RLTaskTxnCommitAttachment) txnCommitAttachment;
+                callbackId = rlTaskTxnCommitAttachment.getJobId();
+            } else if (txnState != null) {
+                callbackId = txnState.getCallbackId();
+            }
+
+            cb = callbackFactory.getCallback(callbackId);
+            if (cb != null) {
+                LOG.info("commitTxn, run txn callback, transactionId:{} callbackId:{}, txnState:{}",
+                        transactionId, callbackId, txnState);
+                cb.afterCommitted(txnState, txnOperated);
+                cb.afterVisible(txnState, txnOperated);
+            }
+        }
     }
 
-    private void commitTxn(CommitTxnRequest commitTxnRequest, long transactionId, boolean is2PC, long dbId,
+    private TransactionState commitTxn(CommitTxnRequest commitTxnRequest, long transactionId, boolean is2PC, long dbId,
             List<Table> tableList) throws UserException {
         CommitTxnResponse commitTxnResponse = null;
+        TransactionState txnState = null;
         int retryTime = 0;
 
         try {
@@ -554,24 +577,20 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             StringBuilder internalMsgBuilder =
                     new StringBuilder("commitTxn failed, transactionId:");
             internalMsgBuilder.append(transactionId);
-            internalMsgBuilder.append(" code:");
+            internalMsgBuilder.append(", code:");
             internalMsgBuilder.append(commitTxnResponse.getStatus().getCode());
+            internalMsgBuilder.append(", msg:");
+            internalMsgBuilder.append(commitTxnResponse.getStatus().getMsg());
             throw new UserException("internal error, " + internalMsgBuilder.toString());
         }
 
-        TransactionState txnState = TxnUtil.transactionStateFromPb(commitTxnResponse.getTxnInfo());
-        TxnStateChangeCallback cb = callbackFactory.getCallback(txnState.getCallbackId());
-        if (cb != null) {
-            LOG.info("commitTxn, run txn callback, transactionId:{} callbackId:{}, txnState:{}",
-                    txnState.getTransactionId(), txnState.getCallbackId(), txnState);
-            cb.afterCommitted(txnState, true);
-            cb.afterVisible(txnState, true);
-        }
+        txnState = TxnUtil.transactionStateFromPb(commitTxnResponse.getTxnInfo());
         if (MetricRepo.isInit) {
             MetricRepo.COUNTER_TXN_SUCCESS.increase(1L);
             MetricRepo.HISTO_TXN_EXEC_LATENCY.update(txnState.getCommitTime() - txnState.getPrepareTime());
         }
         afterCommitTxnResp(commitTxnResponse);
+        return txnState;
     }
 
     private List<OlapTable> getMowTableList(List<Table> tableList) {
@@ -782,8 +801,8 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                     LOG.warn("ignore get delete bitmap lock exception, transactionId={}, retryTime={}",
                             transactionId, retryTime, e);
                 }
-                // sleep random millis [20, 200] ms, avoid txn conflict
-                int randomMillis = 20 + (int) (Math.random() * (200 - 20));
+                // sleep random millis [20, 300] ms, avoid txn conflict
+                int randomMillis = 20 + (int) (Math.random() * (300 - 20));
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("randomMillis:{}", randomMillis);
                 }
@@ -855,6 +874,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             // not check return value, because the add will success
             AgentTaskQueue.addTask(task);
             batchTask.addTask(task);
+            LOG.info("send calculate delete bitmap task to be {}, txn_id {}", entry.getKey(), transactionId);
         }
         AgentTaskExecutor.submit(batchTask);
 
@@ -917,7 +937,28 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     public boolean commitAndPublishTransaction(DatabaseIf db, List<Table> tableList, long transactionId,
                                                List<TabletCommitInfo> tabletCommitInfos, long timeoutMillis)
             throws UserException {
-        return commitAndPublishTransaction(db, tableList, transactionId, tabletCommitInfos, timeoutMillis, null);
+        int retryTimes = 0;
+        boolean res = false;
+        while (true) {
+            try {
+                res = commitAndPublishTransaction(db, tableList, transactionId, tabletCommitInfos, timeoutMillis, null);
+                break;
+            } catch (UserException e) {
+                LOG.warn("failed to commit txn, txnId={},retryTimes={},exception={}",
+                        transactionId, retryTimes, e);
+                // only mow table will catch DELETE_BITMAP_LOCK_ERR and need to retry
+                if (e.getErrorCode() == InternalErrorCode.DELETE_BITMAP_LOCK_ERR) {
+                    retryTimes++;
+                    if (retryTimes >= Config.mow_calculate_delete_bitmap_retry_times) {
+                        // should throw exception after running out of retry times
+                        throw e;
+                    }
+                } else {
+                    throw e;
+                }
+            }
+        }
+        return res;
     }
 
     @Override
@@ -949,9 +990,24 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         }
 
         final CommitTxnRequest commitTxnRequest = builder.build();
-        commitTxn(commitTxnRequest, transactionId, false, db.getId(),
-                subTransactionStates.stream().map(SubTransactionState::getTable)
+        TransactionState txnState = null;
+        boolean txnOperated = false;
+        try {
+            txnState = commitTxn(commitTxnRequest, transactionId, false, db.getId(),
+                    subTransactionStates.stream().map(SubTransactionState::getTable)
                         .collect(Collectors.toList()));
+            txnOperated = true;
+        } finally {
+            if (txnState != null) {
+                TxnStateChangeCallback cb = callbackFactory.getCallback(txnState.getCallbackId());
+                if (cb != null) {
+                    LOG.info("commitTxn, run txn callback, transactionId:{} callbackId:{}, txnState:{}",
+                            txnState.getTransactionId(), txnState.getCallbackId(), txnState);
+                    cb.afterCommitted(txnState, txnOperated);
+                    cb.afterVisible(txnState, txnOperated);
+                }
+            }
+        }
         return true;
     }
 
@@ -988,8 +1044,6 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     @Override
     public void abortTransaction(Long dbId, Long transactionId, String reason,
             TxnCommitAttachment txnCommitAttachment, List<Table> tableList) throws UserException {
-        LOG.info("try to abort transaction, dbId:{}, transactionId:{}", dbId, transactionId);
-
         if (txnCommitAttachment != null) {
             if (txnCommitAttachment instanceof RLTaskTxnCommitAttachment) {
                 RLTaskTxnCommitAttachment rlTaskTxnCommitAttachment = (RLTaskTxnCommitAttachment) txnCommitAttachment;
@@ -1003,6 +1057,18 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                 }
             }
         }
+
+        AbortTxnResponse abortTxnResponse = null;
+        try {
+            abortTxnResponse = abortTransactionImpl(dbId, transactionId, reason, null, null);
+        } finally {
+            handleAfterAbort(abortTxnResponse, txnCommitAttachment, transactionId);
+        }
+    }
+
+    private AbortTxnResponse abortTransactionImpl(Long dbId, Long transactionId, String reason,
+            TxnCommitAttachment txnCommitAttachment, List<Table> tableList) throws UserException {
+        LOG.info("try to abort transaction, dbId:{}, transactionId:{}", dbId, transactionId);
 
         AbortTxnRequest.Builder builder = AbortTxnRequest.newBuilder();
         builder.setDbId(dbId);
@@ -1037,14 +1103,56 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             LOG.warn("abortTxn failed, transactionId:{}, Exception", transactionId, e);
             throw new UserException("abortTxn failed, errMsg:" + e.getMessage());
         }
+        afterAbortTxnResp(abortTxnResponse, String.valueOf(transactionId), txnCommitAttachment);
+        return abortTxnResponse;
+    }
 
-        TransactionState txnState = TxnUtil.transactionStateFromPb(abortTxnResponse.getTxnInfo());
-        TxnStateChangeCallback cb = callbackFactory.getCallback(txnState.getCallbackId());
-        if (cb != null) {
-            LOG.info("run txn callback, txnId:{} callbackId:{}", txnState.getTransactionId(),
-                    txnState.getCallbackId());
-            cb.afterAborted(txnState, true, txnState.getReason());
+    private void handleAfterAbort(AbortTxnResponse abortTxnResponse, TxnCommitAttachment txnCommitAttachment,
+                                long transactionId) throws UserException {
+        TransactionState txnState = new TransactionState();
+        boolean txnOperated = false;
+        long callbackId = 0L;
+        TxnStateChangeCallback cb = null;
+        String abortReason = "";
+
+        if (abortTxnResponse != null) {
+            txnState = TxnUtil.transactionStateFromPb(abortTxnResponse.getTxnInfo());
+            txnOperated = abortTxnResponse.getStatus().getCode() == MetaServiceCode.OK;
+            callbackId = txnState.getCallbackId();
+            abortReason = txnState.getReason();
         }
+        if (txnCommitAttachment != null && txnCommitAttachment instanceof RLTaskTxnCommitAttachment) {
+            RLTaskTxnCommitAttachment rlTaskTxnCommitAttachment = (RLTaskTxnCommitAttachment) txnCommitAttachment;
+            callbackId = rlTaskTxnCommitAttachment.getJobId();
+        }
+
+        cb = callbackFactory.getCallback(callbackId);
+        if (cb != null) {
+            LOG.info("run txn callback, txnId:{} callbackId:{}, txnState:{}",
+                    transactionId, callbackId, txnState);
+            cb.afterAborted(txnState, txnOperated, abortReason);
+        }
+    }
+
+    private void afterAbortTxnResp(AbortTxnResponse abortTxnResponse, String txnIdOrLabel,
+            TxnCommitAttachment txnCommitAttachment) throws UserException {
+        if (abortTxnResponse.getStatus().getCode() != MetaServiceCode.OK) {
+            LOG.warn("abortTxn failed, transaction:{}, response:{}", txnIdOrLabel, abortTxnResponse);
+            switch (abortTxnResponse.getStatus().getCode()) {
+                case TXN_ID_NOT_FOUND:
+                case TXN_LABEL_NOT_FOUND:
+                case TXN_INVALID_STATUS:
+                    throw new TransactionNotFoundException("transaction [" + txnIdOrLabel + "] not found");
+                case TXN_ALREADY_ABORTED:
+                    throw new TransactionNotFoundException("transaction [" + txnIdOrLabel + "] is already aborted");
+                case TXN_ALREADY_VISIBLE:
+                    throw new UserException(
+                            "transaction [" + txnIdOrLabel + "] is already visible, " + ", could not abort");
+                default:
+                    throw new UserException(abortTxnResponse.getStatus().getMsg());
+            }
+        }
+
         if (MetricRepo.isInit) {
             MetricRepo.COUNTER_TXN_FAILED.increase(1L);
         }
@@ -1089,20 +1197,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             LOG.warn("abortTxn failed, label:{}, exception:", label, e);
             throw new UserException("abortTxn failed, errMsg:" + e.getMessage());
         }
-
-        TransactionState txnState = TxnUtil.transactionStateFromPb(abortTxnResponse.getTxnInfo());
-        TxnStateChangeCallback cb = callbackFactory.getCallback(txnState.getCallbackId());
-        if (cb == null) {
-            LOG.info("no callback to run for this txn, txnId:{} callbackId:{}", txnState.getTransactionId(),
-                        txnState.getCallbackId());
-            return;
-        }
-
-        LOG.info("run txn callback, txnId:{} callbackId:{}", txnState.getTransactionId(), txnState.getCallbackId());
-        cb.afterAborted(txnState, true, txnState.getReason());
-        if (MetricRepo.isInit) {
-            MetricRepo.COUNTER_TXN_FAILED.increase(1L);
-        }
+        afterAbortTxnResp(abortTxnResponse, label, null);
     }
 
     @Override

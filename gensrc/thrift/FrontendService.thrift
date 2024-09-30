@@ -437,6 +437,8 @@ struct TQueryProfile {
 struct TFragmentInstanceReport {
   1: optional Types.TUniqueId fragment_instance_id;
   2: optional i32 num_finished_range;
+  3: optional i64 loaded_rows
+  4: optional i64 loaded_bytes
 }
 
 
@@ -1013,6 +1015,7 @@ enum TSchemaTableName {
   WORKLOAD_GROUP_PRIVILEGES = 7,
   TABLE_PROPERTIES = 8,
   CATALOG_META_CACHE_STATS = 9,
+  PARTITIONS = 10,
 }
 
 struct TMetadataTableRequestParams {
@@ -1529,6 +1532,7 @@ struct TGetColumnInfoResult {
 
 struct TShowProcessListRequest {
     1: optional bool show_full_sql
+    2: optional Types.TUserIdentity current_user_ident
 }
 
 struct TShowProcessListResult {

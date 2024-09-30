@@ -56,7 +56,7 @@ import java.util.SortedSet;
 import java.util.TreeMap;
 import java.util.TreeSet;
 
-public class ShowDataStmt extends ShowStmt {
+public class ShowDataStmt extends ShowStmt implements NotFallbackInParser {
     private static final ShowResultSetMetaData SHOW_DATABASE_DATA_META_DATA =
             ShowResultSetMetaData.builder()
                     .addColumn(new Column("DbId", ScalarType.createVarchar(20)))

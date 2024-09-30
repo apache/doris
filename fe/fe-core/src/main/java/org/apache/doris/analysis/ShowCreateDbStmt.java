@@ -33,7 +33,7 @@ import com.google.common.base.Strings;
 // Show create database statement
 //  Syntax:
 //      SHOW CREATE DATABASE db
-public class ShowCreateDbStmt extends ShowStmt {
+public class ShowCreateDbStmt extends ShowStmt implements NotFallbackInParser {
     private static final ShowResultSetMetaData META_DATA =
             ShowResultSetMetaData.builder()
                     .addColumn(new Column("Database", ScalarType.createVarchar(20)))

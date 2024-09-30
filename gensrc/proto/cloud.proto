@@ -542,6 +542,7 @@ message TabletCompactionJobPB {
     optional int64 lease = 23; // prepare
     optional int64 delete_bitmap_lock_initiator = 24;
     optional int64 full_compaction_cnt = 25;  // prepare
+    optional bool check_input_versions_range = 26;
 }
 
 message TabletSchemaChangeJobPB {
@@ -894,6 +895,7 @@ message GetObjStoreInfoResponse {
     repeated StorageVaultPB storage_vault = 3;
     optional string default_storage_vault_id = 4;
     optional string default_storage_vault_name = 5;
+    optional bool enable_storage_vault = 6;
 };
 
 message CreateTabletsRequest {
@@ -1191,6 +1193,7 @@ message StartTabletJobRequest {
 message StartTabletJobResponse {
     optional MetaServiceResponseStatus status = 1;
     repeated int64 version_in_compaction = 2;
+    optional int64 alter_version = 3;
 }
 
 message FinishTabletJobRequest {
@@ -1208,6 +1211,7 @@ message FinishTabletJobRequest {
 message FinishTabletJobResponse {
     optional MetaServiceResponseStatus status = 1;
     optional TabletStatsPB stats = 2;
+    optional int64 alter_version = 3;
 }
 
 message BeginCopyRequest {
@@ -1346,6 +1350,7 @@ enum MetaServiceCode {
     JOB_ALREADY_SUCCESS = 5002;
     ROUTINE_LOAD_DATA_INCONSISTENT = 5003;
     ROUTINE_LOAD_PROGRESS_NOT_FOUND = 5004;
+    JOB_CHECK_ALTER_VERSION = 5005;
 
     // Rate limit
     MAX_QPS_LIMIT = 6001;
@@ -1379,6 +1384,7 @@ message UpdateDeleteBitmapRequest {
     repeated int64 versions = 9;
     // Serialized roaring bitmaps indexed with {rowset_id, segment_id, version}
     repeated bytes segment_delete_bitmaps = 10;
+    optional bool unlock = 11;
 }
 
 message UpdateDeleteBitmapResponse {
@@ -1404,6 +1410,18 @@ message GetDeleteBitmapResponse {
     repeated int64 versions = 4;
     // Serialized roaring bitmaps indexed with {rowset_id, segment_id, version}
     repeated bytes segment_delete_bitmaps = 5;
+}
+
+message RemoveDeleteBitmapRequest {
+    optional string cloud_unique_id = 1; // For auth
+    optional int64 tablet_id = 2;
+    repeated string rowset_ids = 3;
+    repeated int64 begin_versions = 4;
+    repeated int64 end_versions = 5;
+}
+
+message RemoveDeleteBitmapResponse {
+    optional MetaServiceResponseStatus status = 1;
 }
 
 message PendingDeleteBitmapPB {
@@ -1545,6 +1563,7 @@ service MetaService {
     rpc update_delete_bitmap(UpdateDeleteBitmapRequest) returns(UpdateDeleteBitmapResponse);
     rpc get_delete_bitmap(GetDeleteBitmapRequest) returns(GetDeleteBitmapResponse);
     rpc get_delete_bitmap_update_lock(GetDeleteBitmapUpdateLockRequest) returns(GetDeleteBitmapUpdateLockResponse);
+    rpc remove_delete_bitmap(RemoveDeleteBitmapRequest) returns(RemoveDeleteBitmapResponse);
 
     // routine load progress
     rpc get_rl_task_commit_attach(GetRLTaskCommitAttachRequest) returns (GetRLTaskCommitAttachResponse);

@@ -416,6 +416,11 @@ Status AggLocalState::_get_without_key_result(RuntimeState* state, vectorized::B
                 }
             }
 
+            // Result of operator is nullable, but aggregate function result is not nullable
+            // this happens when:
+            // 1. no group by
+            // 2. input of aggregate function is empty
+            // 3. all of input columns are not nullable
             if (column_type->is_nullable() && !data_types[i]->is_nullable()) {
                 vectorized::ColumnPtr ptr = std::move(columns[i]);
                 // unless `count`, other aggregate function dispose empty set should be null
@@ -443,7 +448,8 @@ Status AggSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* blo
     RETURN_IF_ERROR(local_state._executor.get_result(state, block, eos));
     local_state.make_nullable_output_key(block);
     // dispose the having clause, should not be execute in prestreaming agg
-    RETURN_IF_ERROR(vectorized::VExprContext::filter_block(_conjuncts, block, block->columns()));
+    RETURN_IF_ERROR(vectorized::VExprContext::filter_block(local_state._conjuncts, block,
+                                                           block->columns()));
     local_state.do_agg_limit(block, eos);
     return Status::OK();
 }

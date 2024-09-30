@@ -95,6 +95,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.cloud.analysis.UseCloudClusterStmt;
 import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cloud.proto.Cloud.ClusterStatus;
+import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.AuditLog;
@@ -149,12 +150,14 @@ import org.apache.doris.nereids.minidump.MinidumpUtils;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.rules.exploration.mv.InitMaterializationContextHook;
 import org.apache.doris.nereids.trees.plans.commands.Command;
+import org.apache.doris.nereids.trees.plans.commands.CreatePolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.DeleteFromCommand;
 import org.apache.doris.nereids.trees.plans.commands.DeleteFromUsingCommand;
 import org.apache.doris.nereids.trees.plans.commands.Forward;
 import org.apache.doris.nereids.trees.plans.commands.NotAllowFallback;
 import org.apache.doris.nereids.trees.plans.commands.PrepareCommand;
+import org.apache.doris.nereids.trees.plans.commands.UnsupportedCommand;
 import org.apache.doris.nereids.trees.plans.commands.UpdateCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.BatchInsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
@@ -399,7 +402,7 @@ public class StmtExecutor {
         builder.defaultCatalog(context.getCurrentCatalog().getName());
         builder.defaultDb(context.getDatabase());
         builder.workloadGroup(context.getWorkloadGroupName());
-        builder.sqlStatement(originStmt.originStmt);
+        builder.sqlStatement(originStmt == null ? "" : originStmt.originStmt);
         builder.isCached(isCached ? "Yes" : "No");
 
         Map<String, Integer> beToInstancesNum = coord == null ? Maps.newTreeMap() : coord.getBeToInstancesNum();
@@ -700,6 +703,9 @@ public class StmtExecutor {
             if (isForwardToMaster()) {
                 throw new UserException("Forward master command is not supported for prepare statement");
             }
+            if (logicalPlan instanceof UnsupportedCommand || logicalPlan instanceof CreatePolicyCommand) {
+                throw new MustFallbackException("cannot prepare command " + logicalPlan.getClass().getSimpleName());
+            }
             logicalPlan = new PrepareCommand(String.valueOf(context.getStmtId()),
                     logicalPlan, statementContext.getPlaceholders(), originStmt);
 
@@ -708,7 +714,7 @@ public class StmtExecutor {
         if (context.isTxnModel()) {
             if (!(logicalPlan instanceof BatchInsertIntoTableCommand || logicalPlan instanceof InsertIntoTableCommand
                     || logicalPlan instanceof UpdateCommand || logicalPlan instanceof DeleteFromUsingCommand
-                    || logicalPlan instanceof DeleteFromCommand)) {
+                    || logicalPlan instanceof DeleteFromCommand || logicalPlan instanceof UnsupportedCommand)) {
                 String errMsg = "This is in a transaction, only insert, update, delete, "
                         + "commit, rollback is acceptable.";
                 throw new NereidsException(errMsg, new AnalysisException(errMsg));
@@ -950,7 +956,8 @@ public class StmtExecutor {
             parseByLegacy();
             if (context.isTxnModel() && !(parsedStmt instanceof InsertStmt)
                     && !(parsedStmt instanceof TransactionStmt)) {
-                throw new TException("This is in a transaction, only insert, commit, rollback is acceptable.");
+                throw new TException("This is in a transaction, only insert, update, delete, "
+                        + "commit, rollback is acceptable.");
             }
             // support select hint e.g. select /*+ SET_VAR(query_timeout=1) */ sleep(3);
             analyzeVariablesInStmt();
@@ -1200,11 +1207,18 @@ public class StmtExecutor {
     }
 
     private boolean hasCloudClusterPriv() {
-        if (ConnectContext.get() == null || Strings.isNullOrEmpty(ConnectContext.get().getCloudCluster())) {
+        String clusterName = "";
+        try {
+            clusterName = ConnectContext.get().getCloudCluster();
+        } catch (ComputeGroupException e) {
+            LOG.warn("failed to get cloud cluster", e);
+            return false;
+        }
+        if (ConnectContext.get() == null || Strings.isNullOrEmpty(clusterName)) {
             return false;
         }
         return Env.getCurrentEnv().getAuth().checkCloudPriv(ConnectContext.get().getCurrentUserIdentity(),
-            ConnectContext.get().getCloudCluster(), PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER);
+            clusterName, PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER);
     }
 
     // Analyze one statement to structure in memory.
@@ -1510,6 +1524,11 @@ public class StmtExecutor {
             }
             return;
         }
+        Optional<InsertOverwriteTableCommand> insertOverwriteTableCommand = getInsertOverwriteTableCommand();
+        if (insertOverwriteTableCommand.isPresent()) {
+            // If the be scheduling has not been triggered yet, cancel the scheduling first
+            insertOverwriteTableCommand.get().cancel();
+        }
         Coordinator coordRef = coord;
         if (coordRef != null) {
             coordRef.cancel();
@@ -1520,6 +1539,22 @@ public class StmtExecutor {
         if (parsedStmt instanceof AnalyzeTblStmt || parsedStmt instanceof AnalyzeDBStmt) {
             Env.getCurrentEnv().getAnalysisManager().cancelSyncTask(context);
         }
+        if (insertOverwriteTableCommand.isPresent()) {
+            // Wait for the command to run or cancel completion
+            insertOverwriteTableCommand.get().waitNotRunning();
+        }
+    }
+
+    private Optional<InsertOverwriteTableCommand> getInsertOverwriteTableCommand() {
+        if (parsedStmt instanceof LogicalPlanAdapter) {
+            LogicalPlanAdapter logicalPlanAdapter = (LogicalPlanAdapter) parsedStmt;
+            LogicalPlan logicalPlan = logicalPlanAdapter.getLogicalPlan();
+            if (logicalPlan instanceof InsertOverwriteTableCommand) {
+                InsertOverwriteTableCommand insertOverwriteTableCommand = (InsertOverwriteTableCommand) logicalPlan;
+                return Optional.of(insertOverwriteTableCommand);
+            }
+        }
+        return Optional.empty();
     }
 
     // Because this is called by other thread
@@ -1844,14 +1879,14 @@ public class StmtExecutor {
                     (NereidsPlanner) planner);
             profile.addExecutionProfile(coord.getExecutionProfile());
             QeProcessorImpl.INSTANCE.registerQuery(context.queryId(),
-                    new QeProcessorImpl.QueryInfo(context, originStmt.originStmt, coord));
+                    new QueryInfo(context, originStmt.originStmt, coord));
             coordBase = coord;
         } else {
             coord = EnvFactory.getInstance().createCoordinator(
                     context, analyzer, planner, context.getStatsErrorEstimator());
             profile.addExecutionProfile(coord.getExecutionProfile());
             QeProcessorImpl.INSTANCE.registerQuery(context.queryId(),
-                    new QeProcessorImpl.QueryInfo(context, originStmt.originStmt, coord));
+                    new QueryInfo(context, originStmt.originStmt, coord));
             coordBase = coord;
         }
 
@@ -2006,7 +2041,7 @@ public class StmtExecutor {
                 .setResultFileSink(ByteString.copyFrom(new TSerializer().serialize(sink))).build();
         Future<POutfileWriteSuccessResult> future = BackendServiceProxy.getInstance()
                 .outfileWriteSuccessAsync(address, request);
-        InternalService.POutfileWriteSuccessResult result = future.get();
+        POutfileWriteSuccessResult result = future.get();
         TStatusCode code = TStatusCode.findByValue(result.getStatus().getStatusCode());
         String errMsg;
         if (code != TStatusCode.OK) {
@@ -3311,7 +3346,7 @@ public class StmtExecutor {
             profile.addExecutionProfile(coord.getExecutionProfile());
             try {
                 QeProcessorImpl.INSTANCE.registerQuery(context.queryId(),
-                        new QeProcessorImpl.QueryInfo(context, originStmt.originStmt, coord));
+                        new QueryInfo(context, originStmt.originStmt, coord));
             } catch (UserException e) {
                 throw new RuntimeException("Failed to execute internal SQL. " + Util.getRootCauseMessage(e), e);
             }
@@ -3406,8 +3441,16 @@ public class StmtExecutor {
             httpStreamParams.setLabel(insertExecutor.getLabelName());
 
             PlanNode planRoot = planner.getFragments().get(0).getPlanRoot();
-            Preconditions.checkState(planRoot instanceof TVFScanNode || planRoot instanceof GroupCommitScanNode,
-                    "Nereids' planNode cannot be converted to " + planRoot.getClass().getName());
+            boolean isValidPlan = !planner.getScanNodes().isEmpty();
+            for (ScanNode scanNode : planner.getScanNodes()) {
+                if (!(scanNode instanceof TVFScanNode || planRoot instanceof GroupCommitScanNode)) {
+                    isValidPlan = false;
+                    break;
+                }
+            }
+            if (!isValidPlan) {
+                throw new AnalysisException("plan is invalid: " + planRoot.getExplainString());
+            }
         } catch (QueryStateException e) {
             LOG.debug("Command(" + originStmt.originStmt + ") process failed.", e);
             context.setState(e.getQueryState());
@@ -3478,11 +3521,8 @@ public class StmtExecutor {
                         LOG.warn("Analyze failed. {}", context.getQueryIdentifier(), e);
                         throw ((NereidsException) e).getException();
                     }
-                    boolean isInsertIntoCommand = parsedStmt != null && parsedStmt instanceof LogicalPlanAdapter
-                            && ((LogicalPlanAdapter) parsedStmt).getLogicalPlan() instanceof InsertIntoTableCommand;
                     if (e instanceof NereidsException
-                                && !context.getSessionVariable().enableFallbackToOriginalPlanner
-                                && !isInsertIntoCommand) {
+                            && !context.getSessionVariable().enableFallbackToOriginalPlanner) {
                         LOG.warn("Analyze failed. {}", context.getQueryIdentifier(), e);
                         throw ((NereidsException) e).getException();
                     }

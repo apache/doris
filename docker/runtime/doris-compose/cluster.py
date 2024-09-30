@@ -49,11 +49,22 @@ ID_LIMIT = 10000
 
 IP_PART4_SIZE = 200
 
+CLUSTER_ID = "12345678"
+
 LOG = utils.get_logger()
 
 
 def get_cluster_path(cluster_name):
     return os.path.join(LOCAL_DORIS_PATH, cluster_name)
+
+
+def get_node_name(node_type, id):
+    return "{}-{}".format(node_type, id)
+
+
+def get_node_path(cluster_name, node_type, id):
+    return os.path.join(get_cluster_path(cluster_name),
+                        get_node_name(node_type, id))
 
 
 def get_compose_file(cluster_name):
@@ -246,11 +257,10 @@ class Node(object):
         return ["conf", "log"]
 
     def get_name(self):
-        return "{}-{}".format(self.node_type(), self.id)
+        return get_node_name(self.node_type(), self.id)
 
     def get_path(self):
-        return os.path.join(get_cluster_path(self.cluster.name),
-                            self.get_name())
+        return get_node_path(self.cluster.name, self.node_type(), self.id)
 
     def get_image(self):
         return self.meta.image
@@ -283,15 +293,27 @@ class Node(object):
         enable_coverage = self.cluster.coverage_dir
 
         envs = {
-            "MY_IP": self.get_ip(),
-            "MY_ID": self.id,
-            "MY_TYPE": self.node_type(),
-            "FE_QUERY_PORT": FE_QUERY_PORT,
-            "FE_EDITLOG_PORT": FE_EDITLOG_PORT,
-            "BE_HEARTBEAT_PORT": BE_HEARTBEAT_PORT,
-            "DORIS_HOME": os.path.join(self.docker_home_dir()),
-            "STOP_GRACE": 1 if enable_coverage else 0,
-            "IS_CLOUD": 1 if self.cluster.is_cloud else 0,
+            "MY_IP":
+            self.get_ip(),
+            "MY_ID":
+            self.id,
+            "MY_TYPE":
+            self.node_type(),
+            "FE_QUERY_PORT":
+            FE_QUERY_PORT,
+            "FE_EDITLOG_PORT":
+            FE_EDITLOG_PORT,
+            "BE_HEARTBEAT_PORT":
+            BE_HEARTBEAT_PORT,
+            "DORIS_HOME":
+            os.path.join(self.docker_home_dir()),
+            "STOP_GRACE":
+            1 if enable_coverage else 0,
+            "IS_CLOUD":
+            1 if self.cluster.is_cloud else 0,
+            "SQL_MODE_NODE_MGR":
+            1 if hasattr(self.cluster, 'sql_mode_node_mgr')
+            and self.cluster.sql_mode_node_mgr else 0
         }
 
         if self.cluster.is_cloud:
@@ -382,15 +404,22 @@ class FE(Node):
             cfg += self.cluster.fe_config
         if self.cluster.is_cloud:
             cfg += [
-                "cloud_unique_id = " + self.cloud_unique_id(),
                 "meta_service_endpoint = {}".format(
-                    self.cluster.get_meta_server_addr()),
-                "",
+                    self.cluster.get_meta_server_addr()), "",
                 "# For regression-test",
                 "ignore_unsupported_properties_in_cloud_mode = true",
                 "merge_on_write_forced_to_false = true",
+                "deploy_mode = cloud"
             ]
 
+            if self.cluster.sql_mode_node_mgr:
+                cfg += [
+                    "cluster_id = " + CLUSTER_ID,
+                ]
+            else:
+                cfg += [
+                    "cloud_unique_id = " + self.cloud_unique_id(),
+                ]
         return cfg
 
     def init_is_follower(self):
@@ -442,14 +471,26 @@ class BE(Node):
             cfg += self.cluster.be_config
         if self.cluster.is_cloud:
             cfg += [
-                "cloud_unique_id = " + self.cloud_unique_id(),
-                "meta_service_endpoint = {}".format(
-                    self.cluster.get_meta_server_addr()),
                 'tmp_file_dirs = [ {"path":"./storage/tmp","max_cache_bytes":10240000, "max_upload_bytes":10240000}]',
                 'enable_file_cache = true',
                 'file_cache_path = [ {{"path": "{}/storage/file_cache", "total_size":53687091200, "query_limit": 10737418240}}]'
                 .format(self.docker_home_dir()),
+                "deploy_mode = cloud",
             ]
+
+            if self.cluster.be_metaservice_endpoint:
+                cfg += [
+                    "meta_service_endpoint = {}".format(
+                        self.cluster.get_meta_server_addr()),
+                ]
+            if self.cluster.be_cluster_id:
+                cfg += [
+                    "cluster_id = " + CLUSTER_ID,
+                ]
+            if not self.cluster.sql_mode_node_mgr:
+                cfg += [
+                    "cloud_unique_id = " + self.cloud_unique_id(),
+                ]
         return cfg
 
     def init_cluster_name(self):
@@ -620,7 +661,8 @@ class Cluster(object):
 
     def __init__(self, name, subnet, image, is_cloud, fe_config, be_config,
                  ms_config, recycle_config, fe_follower, be_disks, be_cluster,
-                 reg_be, coverage_dir, cloud_store_config):
+                 reg_be, coverage_dir, cloud_store_config, sql_mode_node_mgr,
+                 be_metaservice_endpoint, be_cluster_id):
         self.name = name
         self.subnet = subnet
         self.image = image
@@ -639,22 +681,29 @@ class Cluster(object):
             node_type: Group(node_type)
             for node_type in Node.TYPE_ALL
         }
+        self.sql_mode_node_mgr = sql_mode_node_mgr
+        self.be_metaservice_endpoint = be_metaservice_endpoint
+        self.be_cluster_id = be_cluster_id
 
     @staticmethod
     def new(name, image, is_cloud, fe_config, be_config, ms_config,
             recycle_config, fe_follower, be_disks, be_cluster, reg_be,
-            coverage_dir, cloud_store_config):
+            coverage_dir, cloud_store_config, sql_mode_node_mgr,
+            be_metaservice_endpoint, be_cluster_id):
         if not os.path.exists(LOCAL_DORIS_PATH):
             os.makedirs(LOCAL_DORIS_PATH, exist_ok=True)
             os.chmod(LOCAL_DORIS_PATH, 0o777)
         lock_file = os.path.join(LOCAL_DORIS_PATH, "lock")
         with filelock.FileLock(lock_file):
-            os.chmod(lock_file, 0o666)
+            if os.getuid() == utils.get_path_uid(lock_file):
+                os.chmod(lock_file, 0o666)
             subnet = gen_subnet_prefix16()
             cluster = Cluster(name, subnet, image, is_cloud, fe_config,
                               be_config, ms_config, recycle_config,
                               fe_follower, be_disks, be_cluster, reg_be,
-                              coverage_dir, cloud_store_config)
+                              coverage_dir, cloud_store_config,
+                              sql_mode_node_mgr, be_metaservice_endpoint,
+                              be_cluster_id)
             os.makedirs(cluster.get_path(), exist_ok=True)
             os.makedirs(get_status_path(name), exist_ok=True)
             cluster._save_meta()

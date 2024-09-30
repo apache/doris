@@ -48,22 +48,6 @@ lexer grammar DorisLexer;
   }
 
   /**
-   * This method will be called when we see '/*' and try to match it as a bracketed comment.
-   * If the next character is '+', it should be parsed as hint later, and we cannot match
-   * it as a bracketed comment.
-   *
-   * Returns true if the next character is '+'.
-   */
-  public boolean isHint() {
-    int nextChar = _input.LA(1);
-    if (nextChar == '+') {
-      return true;
-    } else {
-      return false;
-    }
-  }
-
-  /**
    * This method will be called when the character stream ends and try to find out the
    * unclosed bracketed comment.
    * If the method be called, it means the end of the entire character stream match,
@@ -169,6 +153,7 @@ COMMITTED: 'COMMITTED';
 COMPACT: 'COMPACT';
 COMPLETE: 'COMPLETE';
 COMPRESS_TYPE: 'COMPRESS_TYPE';
+COMPUTE: 'COMPUTE';
 CONDITIONS: 'CONDITIONS';
 CONFIG: 'CONFIG';
 CONNECTION: 'CONNECTION';
@@ -177,7 +162,7 @@ CONSISTENT: 'CONSISTENT';
 CONSTRAINT: 'CONSTRAINT';
 CONSTRAINTS: 'CONSTRAINTS';
 CONVERT: 'CONVERT';
-CONVERT_LSC: 'CONVERT_LSC';
+CONVERT_LSC: 'CONVERT_LIGHT_SCHEMA_CHANGE_PROCESS';
 COPY: 'COPY';
 COUNT: 'COUNT';
 CREATE: 'CREATE';
@@ -221,6 +206,7 @@ DEMAND: 'DEMAND';
 DESC: 'DESC';
 DESCRIBE: 'DESCRIBE';
 DIAGNOSE: 'DIAGNOSE';
+DIAGNOSIS: 'DIAGNOSIS';
 DISK: 'DISK';
 DISTINCT: 'DISTINCT';
 DISTINCTPC: 'DISTINCTPC';
@@ -567,9 +553,11 @@ VARIABLE: 'VARIABLE';
 VARIABLES: 'VARIABLES';
 VARIANT: 'VARIANT';
 VAULT: 'VAULT';
+VAULTS: 'VAULTS';
 VERBOSE: 'VERBOSE';
 VERSION: 'VERSION';
 VIEW: 'VIEW';
+VIEWS: 'VIEWS';
 WARM: 'WARM';
 WARNINGS: 'WARNINGS';
 WEEK: 'WEEK';
@@ -611,6 +599,7 @@ COLON: ':';
 ARROW: '->';
 HINT_START: '/*+';
 HINT_END: '*/';
+COMMENT_START: '/*';
 ATSIGN: '@';
 DOUBLEATSIGN: '@@';
 
@@ -690,8 +679,9 @@ SIMPLE_COMMENT
     ;
 
 BRACKETED_COMMENT
-    : '/*' {!isHint()}? ( BRACKETED_COMMENT | . )*? ('*/' | {markUnclosedComment();} EOF) -> channel(HIDDEN)
+    : COMMENT_START ( BRACKETED_COMMENT | . )*? ('*/' | {markUnclosedComment();} EOF) -> channel(2)
     ;
+
 
 FROM_DUAL
     : 'FROM' WS+ 'DUAL' -> channel(HIDDEN);

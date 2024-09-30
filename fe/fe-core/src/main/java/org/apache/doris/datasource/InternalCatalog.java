@@ -1086,7 +1086,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                     long tabletId = tablet.getId();
                     List<Replica> replicas = tablet.getReplicas();
                     for (Replica replica : replicas) {
-                        long backendId = replica.getBackendId();
+                        long backendId = replica.getBackendIdWithoutException();
                         long replicaId = replica.getId();
                         DropReplicaTask dropTask = new DropReplicaTask(backendId, tabletId,
                                 replicaId, schemaHash, true);
@@ -1663,13 +1663,6 @@ public class InternalCatalog implements CatalogIf<Database> {
             if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY)) {
                 properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY, olapTable.getStoragePolicy());
             }
-            if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM)) {
-                TStorageMedium tableStorageMedium = olapTable.getStorageMedium();
-                if (tableStorageMedium != null) {
-                    properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM,
-                            tableStorageMedium.name().toLowerCase());
-                }
-            }
 
             singlePartitionDesc.analyze(partitionInfo.getPartitionColumns().size(), properties);
             partitionInfo.createAndCheckPartitionItem(singlePartitionDesc, isTempPartition);
@@ -2146,7 +2139,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             for (Tablet tablet : index.getTablets()) {
                 long tabletId = tablet.getId();
                 for (Replica replica : tablet.getReplicas()) {
-                    long backendId = replica.getBackendId();
+                    long backendId = replica.getBackendIdWithoutException();
                     long replicaId = replica.getId();
                     countDownLatch.addMark(backendId, tabletId);
                     CreateReplicaTask task = new CreateReplicaTask(backendId, dbId, tbl.getId(), partitionId, indexId,
@@ -2681,6 +2674,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                 if (info != null) {
                     storageVaultName = info.first;
                     storageVaultId = info.second;
+                    LOG.info("Using default storage vault: name={}, id={}", storageVaultName, storageVaultId);
                 } else {
                     throw new DdlException("No default storage vault."
                             + " You can use `SHOW STORAGE VAULT` to get all available vaults,"
@@ -2704,9 +2698,12 @@ public class InternalCatalog implements CatalogIf<Database> {
 
             olapTable.setStorageVaultName(storageVaultName);
             storageVaultId = env.getStorageVaultMgr().getVaultIdByName(storageVaultName);
-            if (storageVaultId != null && !storageVaultId.isEmpty()) {
-                olapTable.setStorageVaultId(storageVaultId);
+            if (Strings.isNullOrEmpty(storageVaultId)) {
+                throw new DdlException("Storage vault '" + storageVaultName + "' does not exist. "
+                        + "You can use `SHOW STORAGE VAULT` to get all available vaults, "
+                        + "or create a new one with `CREATE STORAGE VAULT`.");
             }
+            olapTable.setStorageVaultId(storageVaultId);
         }
 
         // check `update on current_timestamp`

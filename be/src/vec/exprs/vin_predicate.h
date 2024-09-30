@@ -51,6 +51,8 @@ public:
 
     std::string debug_string() const override;
 
+    size_t skip_constant_args_size() const;
+
     const FunctionBasePtr function() { return _function; }
 
     bool is_not_in() const { return _is_not_in; };
@@ -62,5 +64,6 @@ private:
 
     const bool _is_not_in;
     static const constexpr char* function_name = "in";
+    bool _is_args_all_constant = false;
 };
 } // namespace doris::vectorized

@@ -31,6 +31,7 @@
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
+#include "common/exception.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "exprs/bitmapfilter_predicate.h"
@@ -270,6 +271,10 @@ TabletColumn TabletReader::materialize_column(const TabletColumn& orig) {
     TabletColumn column_with_cast_type = orig;
     auto cast_type = _reader_context.target_cast_type_for_variants.at(orig.name());
     FieldType filed_type = TabletColumn::get_field_type_by_type(cast_type.type);
+    if (filed_type == FieldType::OLAP_FIELD_TYPE_UNKNOWN) {
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Invalid type for variant column: {}",
+                               cast_type.type);
+    }
     column_with_cast_type.set_type(filed_type);
     return column_with_cast_type;
 }
@@ -630,11 +635,8 @@ Status TabletReader::_init_delete_condition(const ReaderParams& read_params) {
     // However, queries will not use this condition but generate special where predicates to filter data.
     // (Though a lille bit confused, it is how the current logic working...)
     _filter_delete = _delete_sign_available || cumu_delete;
-    auto* runtime_state = read_params.runtime_state;
-    bool enable_sub_pred_v2 =
-            runtime_state == nullptr ? true : runtime_state->enable_delete_sub_pred_v2();
     return _delete_handler.init(_tablet_schema, read_params.delete_predicates,
-                                read_params.version.second, enable_sub_pred_v2);
+                                read_params.version.second);
 }
 
 Status TabletReader::init_reader_params_and_create_block(

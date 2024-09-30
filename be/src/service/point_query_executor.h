@@ -100,6 +100,9 @@ public:
 
     RuntimeState* runtime_state() { return _runtime_state.get(); }
 
+    // delete sign idx in block
+    int32_t delete_sign_idx() const { return _delete_sign_idx; }
+
 private:
     // caching TupleDescriptor, output_expr, etc...
     std::unique_ptr<RuntimeState> _runtime_state;
@@ -118,6 +121,8 @@ private:
     std::unordered_set<int32_t> _missing_col_uids;
     // included cids in rowstore(column group)
     std::unordered_set<int32_t> _include_col_uids;
+    // delete sign idx in block
+    int32_t _delete_sign_idx = -1;
 };
 
 // RowCache is a LRU cache for row store

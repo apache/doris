@@ -2103,7 +2103,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             try {
                 RoutineLoadJob routineLoadJob = Env.getCurrentEnv().getRoutineLoadManager()
                         .getRoutineLoadJobByMultiLoadTaskTxnId(request.getTxnId());
-                routineLoadJob.updateState(JobState.PAUSED, new ErrorReason(InternalErrorCode.CANNOT_RESUME_ERR,
+                routineLoadJob.updateState(JobState.PAUSED, new ErrorReason(InternalErrorCode.INTERNAL_ERR,
                             "failed to get stream load plan, " + exception.getMessage()), false);
             } catch (Throwable e) {
                 LOG.warn("catch update routine load job error.", e);
@@ -2674,7 +2674,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     LOG.warn("replica {} not normal", replica.getId());
                     continue;
                 }
-                Backend backend = Env.getCurrentEnv().getCurrentSystemInfo().getBackend(replica.getBackendId());
+                Backend backend = Env.getCurrentSystemInfo().getBackend(replica.getBackendIdWithoutException());
                 if (backend != null) {
                     TReplicaInfo replicaInfo = new TReplicaInfo();
                     replicaInfo.setHost(backend.getHost());
@@ -3963,8 +3963,12 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (request.isSetShowFullSql()) {
             isShowFullSql = request.isShowFullSql();
         }
+        UserIdentity userIdentity = UserIdentity.ROOT;
+        if (request.isSetCurrentUserIdent()) {
+            userIdentity = UserIdentity.fromThrift(request.getCurrentUserIdent());
+        }
         List<List<String>> processList = ExecuteEnv.getInstance().getScheduler()
-                .listConnectionWithoutAuth(isShowFullSql);
+                .listConnectionForRpc(userIdentity, isShowFullSql);
         TShowProcessListResult result = new TShowProcessListResult();
         result.setProcessList(processList);
         return result;
