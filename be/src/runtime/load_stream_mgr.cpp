@@ -48,6 +48,7 @@ LoadStreamMgr::~LoadStreamMgr() {
 Status LoadStreamMgr::open_load_stream(const POpenLoadStreamRequest* request,
                                        LoadStream*& load_stream) {
     UniqueId load_id(request->load_id());
+    UniqueId conn_id(request->connection_id());
 
     {
         std::lock_guard l(_lock);
@@ -62,6 +63,12 @@ Status LoadStreamMgr::open_load_stream(const POpenLoadStreamRequest* request,
             _load_streams_map[load_id] = std::move(p);
         }
         load_stream->add_source(request->src_id());
+        if (_known_connections.contains(conn_id)) {
+            // detected retry open, increase total streams
+            load_stream->increase_use_count();
+        } else {
+            _known_connections.insert(conn_id);
+        }
     }
     return Status::OK();
 }

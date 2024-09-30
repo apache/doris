@@ -62,6 +62,7 @@
 #include "util/debug_points.h"
 #include "util/runtime_profile.h"
 #include "util/stopwatch.hpp"
+#include "util/uid_util.h"
 #include "vec/columns/column.h"
 #include "vec/common/allocator.h"
 #include "vec/core/block.h"
@@ -235,6 +236,7 @@ protected:
     std::atomic<bool> _is_cancelled;
     std::atomic<bool> _is_eos;
 
+    PUniqueId _connection_id = generate_uuid_p();
     PUniqueId _load_id;
     brpc::StreamId _stream_id;
     int64_t _src_id = -1; // source backend_id

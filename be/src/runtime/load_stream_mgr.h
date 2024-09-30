@@ -68,6 +68,7 @@ public:
 private:
     std::mutex _lock;
     std::unordered_map<UniqueId, LoadStreamPtr> _load_streams_map;
+    std::unordered_set<UniqueId> _known_connections;
     std::unique_ptr<ThreadPool> _file_writer_thread_pool;
 
     uint32_t _num_threads = 0;

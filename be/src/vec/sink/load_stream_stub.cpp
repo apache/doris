@@ -166,6 +166,7 @@ Status LoadStreamStub::open(BrpcClientCache<PBackendService_Stub>* client_cache,
     cntl.set_timeout_ms(config::open_load_stream_timeout_ms);
     POpenLoadStreamRequest request;
     *request.mutable_load_id() = _load_id;
+    *request.mutable_connection_id() = _connection_id;
     request.set_src_id(_src_id);
     request.set_txn_id(txn_id);
     request.set_enable_profile(enable_profile);

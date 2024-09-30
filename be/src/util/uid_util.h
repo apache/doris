@@ -166,6 +166,14 @@ inline TUniqueId generate_uuid() {
     return uid;
 }
 
+inline PUniqueId generate_uuid_p() {
+    auto uuid = boost::uuids::basic_random_generator<boost::mt19937>()();
+    PUniqueId uid;
+    uid.set_hi(reinterpret_cast<int64_t*>(uuid.data)[0]);
+    uid.set_lo(reinterpret_cast<int64_t*>(uuid.data)[1]);
+    return uid;
+}
+
 std::ostream& operator<<(std::ostream& os, const UniqueId& uid);
 
 std::string print_id(const TUniqueId& id);

@@ -126,6 +126,8 @@ public:
         }
     }
 
+    void increase_use_count() { _total_streams++; }
+
     void close(int64_t src_id, const std::vector<PTabletID>& tablets_to_commit,
                std::vector<int64_t>* success_tablet_ids, FailedTablets* failed_tablet_ids);
 
