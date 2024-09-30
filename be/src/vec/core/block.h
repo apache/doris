@@ -404,6 +404,9 @@ public:
     // we built some temporary columns into block
     void erase_tmp_columns() noexcept;
 
+    void clear_column_mem_not_keep(const std::vector<bool>& column_keep_flags,
+                                   bool need_keep_first);
+
 private:
     void erase_impl(size_t position);
 };
