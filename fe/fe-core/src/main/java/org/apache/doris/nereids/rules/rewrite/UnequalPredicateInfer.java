@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.rewrite;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -31,6 +32,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.util.PredicateInferUtils;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 
@@ -93,6 +95,10 @@ public class UnequalPredicateInfer {
             Set<Expression> inputExpressionSet = new HashSet<>();
             for (ComparisonPredicate comparison : inputs) {
                 if (comparison.left().equals(comparison.right())) {
+                    otherPredicates.add(comparison);
+                    continue;
+                }
+                if (comparison.left() instanceof NullLiteral || comparison.right() instanceof NullLiteral) {
                     otherPredicates.add(comparison);
                     continue;
                 }
@@ -348,13 +354,17 @@ public class UnequalPredicateInfer {
                     if (i == j) {
                         continue;
                     }
-                    if (chosen[i][j] == Relation.GT) {
-                        newPredicates.add(normalize(new GreaterThan(inputExprs.get(i), inputExprs.get(j))));
-                    } else if (chosen[i][j] == Relation.GTE) {
-                        newPredicates.add(normalize(new GreaterThanEqual(inputExprs.get(i), inputExprs.get(j))));
-                    } else if (chosen[i][j] == Relation.EQ) {
-                        newPredicates.add(normalize(new EqualTo(inputExprs.get(i), inputExprs.get(j))));
-                        clear(chosen, i, j, Relation.EQ);
+                    try {
+                        if (chosen[i][j] == Relation.GT) {
+                            newPredicates.add(normalize(new GreaterThan(inputExprs.get(i), inputExprs.get(j))));
+                        } else if (chosen[i][j] == Relation.GTE) {
+                            newPredicates.add(normalize(new GreaterThanEqual(inputExprs.get(i), inputExprs.get(j))));
+                        } else if (chosen[i][j] == Relation.EQ) {
+                            newPredicates.add(normalize(new EqualTo(inputExprs.get(i), inputExprs.get(j))));
+                            clear(chosen, i, j, Relation.EQ);
+                        }
+                    } catch (AnalysisException e) {
+                        // type error, just not generate this predicate, do nothing but continue
                     }
                 }
             }

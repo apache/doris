@@ -23,8 +23,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 
-import java.util.LinkedHashSet;
-import java.util.Set;
+import com.google.common.collect.ImmutableSet;
 
 /**
  * this rule aims to merge consecutive filters.
@@ -45,11 +44,10 @@ public class MergeFilters extends OneRewriteRuleFactory {
     public Rule build() {
         return logicalFilter(logicalFilter()).then(filter -> {
             LogicalFilter<? extends Plan> childFilter = filter.child();
-            // upper predicates is inferred, should be placed behind.
-            Set<Expression> newConjuncts = new LinkedHashSet<>();
-            newConjuncts.addAll(childFilter.getConjuncts());
-            newConjuncts.addAll(filter.getConjuncts());
-            return new LogicalFilter<>(newConjuncts, childFilter.child());
+            return new LogicalFilter<>(ImmutableSet.<Expression>builder()
+                    .addAll(filter.getConjuncts())
+                    .addAll(childFilter.getConjuncts()).build(), childFilter.child());
         }).toRule(RuleType.MERGE_FILTERS);
     }
+
 }
