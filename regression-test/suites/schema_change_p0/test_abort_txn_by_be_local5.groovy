@@ -21,7 +21,6 @@ import org.apache.http.NoHttpResponseException
 suite('test_abort_txn_by_be_local5', 'docker') {
     def options = new ClusterOptions()
     options.cloudMode = false
-    options.skipRunWhenPipelineDiff = false
     options.enableDebugPoints()
     options.beConfigs += [ "enable_java_support=false" ]
     options.feConfigs += [ "enable_abort_txn_by_checking_coordinator_be=true" ]

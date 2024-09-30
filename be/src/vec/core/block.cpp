@@ -125,7 +125,7 @@ Status Block::deserialize(const PBlock& pblock) {
         MutableColumnPtr data_column = type->create_column();
         // Here will try to allocate large memory, should return error if failed.
         RETURN_IF_CATCH_EXCEPTION(
-                buf = type->deserialize(buf, data_column.get(), pblock.be_exec_version()));
+                buf = type->deserialize(buf, &data_column, pblock.be_exec_version()));
         data.emplace_back(data_column->get_ptr(), type, pcol_meta.name());
     }
     initialize_index_by_name();
@@ -372,7 +372,7 @@ void Block::set_num_rows(size_t length) {
     if (rows() > length) {
         for (auto& elem : data) {
             if (elem.column) {
-                elem.column = elem.column->cut(0, length);
+                elem.column = elem.column->shrink(length);
             }
         }
         if (length < row_same_bit.size()) {
@@ -439,13 +439,9 @@ size_t Block::allocated_bytes() const {
     size_t res = 0;
     for (const auto& elem : data) {
         if (!elem.column) {
-            std::stringstream ss;
-            for (const auto& e : data) {
-                ss << e.name + " ";
-            }
-            throw Exception(ErrorCode::INTERNAL_ERROR,
-                            "Column {} in block is nullptr, in method bytes. All Columns are {}",
-                            elem.name, ss.str());
+            // Sometimes if expr failed, then there will be a nullptr
+            // column left in the block.
+            continue;
         }
         res += elem.column->allocated_bytes();
     }
@@ -515,10 +511,14 @@ std::string Block::dump_data(size_t begin, size_t row_limit, bool allow_null_mis
             std::string s;
             if (data[i].column) {
                 if (data[i].type->is_nullable() && !data[i].column->is_nullable()) {
-                    assert(allow_null_mismatch);
-                    s = assert_cast<const DataTypeNullable*>(data[i].type.get())
-                                ->get_nested_type()
-                                ->to_string(*data[i].column, row_num);
+                    if (is_column_const(*data[i].column)) {
+                        s = data[i].to_string(0);
+                    } else {
+                        assert(allow_null_mismatch);
+                        s = assert_cast<const DataTypeNullable*>(data[i].type.get())
+                                    ->get_nested_type()
+                                    ->to_string(*data[i].column, row_num);
+                    }
                 } else {
                     s = data[i].to_string(row_num);
                 }
@@ -858,7 +858,7 @@ Status Block::append_to_block_by_selector(MutableBlock* dst,
 }
 
 Status Block::filter_block(Block* block, const std::vector<uint32_t>& columns_to_filter,
-                           int filter_column_id, int column_to_keep) {
+                           size_t filter_column_id, size_t column_to_keep) {
     const auto& filter_column = block->get_by_position(filter_column_id).column;
     if (const auto* nullable_column = check_and_get_column<ColumnNullable>(*filter_column)) {
         const auto& nested_column = nullable_column->get_nested_column_ptr();
@@ -896,7 +896,7 @@ Status Block::filter_block(Block* block, const std::vector<uint32_t>& columns_to
     return Status::OK();
 }
 
-Status Block::filter_block(Block* block, int filter_column_id, int column_to_keep) {
+Status Block::filter_block(Block* block, size_t filter_column_id, size_t column_to_keep) {
     std::vector<uint32_t> columns_to_filter;
     columns_to_filter.resize(column_to_keep);
     for (uint32_t i = 0; i < column_to_keep; ++i) {

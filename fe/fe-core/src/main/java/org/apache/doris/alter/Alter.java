@@ -729,12 +729,11 @@ public class Alter {
         try {
             String viewName = view.getName();
             view.setInlineViewDefWithSqlMode(inlineViewDef, alterViewInfo.getSqlMode());
-            try {
-                view.init();
-            } catch (UserException e) {
-                throw new DdlException("failed to init view stmt, reason=" + e.getMessage());
-            }
             view.setNewFullSchema(newFullSchema);
+
+            // We do not need to init view here.
+            // During the `init` phase, some `Alter-View` statements will access the remote file system,
+            // but they should not access it during the metadata replay phase.
 
             db.unregisterTable(viewName);
             db.registerTable(view);
@@ -1004,8 +1003,6 @@ public class Alter {
         try {
             Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(tbl.getDb());
             mtmv = (MTMV) db.getTableOrMetaException(tbl.getTbl(), TableType.MATERIALIZED_VIEW);
-
-            mtmv.writeMvLock();
             switch (alterMTMV.getOpType()) {
                 case ALTER_REFRESH_INFO:
                     mtmv.alterRefreshInfo(alterMTMV.getRefreshInfo());
@@ -1018,8 +1015,6 @@ public class Alter {
                     break;
                 case ADD_TASK:
                     mtmv.addTaskResult(alterMTMV.getTask(), alterMTMV.getRelation(), alterMTMV.getPartitionSnapshots());
-                    Env.getCurrentEnv().getMtmvService()
-                            .refreshComplete(mtmv, alterMTMV.getRelation(), alterMTMV.getTask());
                     break;
                 default:
                     throw new RuntimeException("Unknown type value: " + alterMTMV.getOpType());
@@ -1032,10 +1027,6 @@ public class Alter {
         } catch (UserException e) {
             // if MTMV has been dropped, ignore this exception
             LOG.warn(e);
-        } finally {
-            if (mtmv != null) {
-                mtmv.writeMvUnlock();
-            }
         }
     }
 }

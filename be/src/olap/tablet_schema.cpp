@@ -97,8 +97,6 @@ FieldType TabletColumn::get_field_type_by_type(PrimitiveType primitiveType) {
         return FieldType::OLAP_FIELD_TYPE_HLL;
     case PrimitiveType::TYPE_DECIMALV2:
         return FieldType::OLAP_FIELD_TYPE_UNKNOWN; // Not implemented
-    case PrimitiveType::TYPE_TIME:
-        return FieldType::OLAP_FIELD_TYPE_UNKNOWN;
     case PrimitiveType::TYPE_OBJECT:
         return FieldType::OLAP_FIELD_TYPE_OBJECT;
     case PrimitiveType::TYPE_STRING:
@@ -675,7 +673,7 @@ bool TabletColumn::is_row_store_column() const {
 vectorized::AggregateFunctionPtr TabletColumn::get_aggregate_function_union(
         vectorized::DataTypePtr type, int current_be_exec_version) const {
     const auto* state_type = assert_cast<const vectorized::DataTypeAggState*>(type.get());
-    BeExecVersionManager::check_agg_state_compatibility(
+    BeExecVersionManager::check_function_compatibility(
             current_be_exec_version, _be_exec_version,
             state_type->get_nested_function()->get_name());
     return vectorized::AggregateStateUnion::create(state_type->get_nested_function(), {type}, type);

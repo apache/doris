@@ -57,11 +57,13 @@ class ScanTask {
 public:
     ScanTask(std::weak_ptr<ScannerDelegate> delegate_scanner) : scanner(delegate_scanner) {
         _query_thread_context.init_unlocked();
+        DorisMetrics::instance()->scanner_task_cnt->increment(1);
     }
 
     ~ScanTask() {
         SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_query_thread_context.query_mem_tracker);
         cached_blocks.clear();
+        DorisMetrics::instance()->scanner_task_cnt->increment(-1);
     }
 
 private:
@@ -117,6 +119,7 @@ public:
             // do nothing
         }
         block.reset();
+        DorisMetrics::instance()->scanner_ctx_cnt->increment(-1);
     }
     Status init();
 
@@ -155,7 +158,6 @@ public:
 
     RuntimeState* state() { return _state; }
     void incr_ctx_scheduling_time(int64_t num) { _scanner_ctx_sched_time->update(num); }
-
     std::string parent_name();
 
     bool empty_in_queue(int id);
@@ -223,6 +225,8 @@ protected:
     const int _num_parallel_instances;
     std::shared_ptr<RuntimeProfile> _scanner_profile;
     RuntimeProfile::Counter* _scanner_sched_counter = nullptr;
+    // This counter refers to scan operator's local state
+    RuntimeProfile::Counter* _scanner_memory_used_counter = nullptr;
     RuntimeProfile::Counter* _newly_create_free_blocks_num = nullptr;
     RuntimeProfile::Counter* _scanner_wait_batch_timer = nullptr;
     RuntimeProfile::Counter* _scanner_ctx_sched_time = nullptr;

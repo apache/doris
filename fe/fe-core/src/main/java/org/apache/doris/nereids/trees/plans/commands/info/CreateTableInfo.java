@@ -55,7 +55,6 @@ import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.translator.ExpressionTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
-import org.apache.doris.nereids.parser.PartitionTableInfo;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.analysis.ExpressionAnalyzer;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
@@ -770,9 +769,6 @@ public class CreateTableInfo {
 
         if (!clusterKeysColumnNames.isEmpty()) {
             // the same code as KeysDesc#analyzeClusterKeys
-            if (Config.isCloudMode()) {
-                throw new AnalysisException("Cluster key is not supported in cloud mode");
-            }
             if (keysType != KeysType.UNIQUE_KEYS) {
                 throw new AnalysisException("Cluster keys only support unique keys table");
             }

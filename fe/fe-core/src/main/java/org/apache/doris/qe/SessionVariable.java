@@ -240,6 +240,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String MAX_JOIN_NUMBER_BUSHY_TREE = "max_join_number_bushy_tree";
     public static final String ENABLE_PARTITION_TOPN = "enable_partition_topn";
+    public static final String PARTITION_TOPN_MAX_PARTITIONS = "partition_topn_max_partitions";
+    public static final String PARTITION_TOPN_PER_PARTITION_ROWS = "partition_topn_pre_partition_rows";
 
     public static final String GLOBAL_PARTITION_TOPN_THRESHOLD = "global_partition_topn_threshold";
 
@@ -407,7 +409,7 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_TWO_PHASE_READ_OPT = "enable_two_phase_read_opt";
     public static final String TOPN_OPT_LIMIT_THRESHOLD = "topn_opt_limit_threshold";
-    public static final String TOPN_FILTER_LIMIT_THRESHOLD = "topn_filter_limit_threshold";
+    public static final String TOPN_FILTER_RATIO = "topn_filter_ratio";
     public static final String ENABLE_SNAPSHOT_POINT_QUERY = "enable_snapshot_point_query";
 
     public static final String ENABLE_FILE_CACHE = "enable_file_cache";
@@ -432,8 +434,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String JOIN_REORDER_TIME_LIMIT = "join_order_time_limit";
     public static final String SHOW_USER_DEFAULT_ROLE = "show_user_default_role";
-
-    public static final String ENABLE_MINIDUMP = "enable_minidump";
 
     public static final String ENABLE_PAGE_CACHE = "enable_page_cache";
 
@@ -1045,7 +1045,7 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = PARALLEL_SCAN_MIN_ROWS_PER_SCANNER, fuzzy = true,
             varType = VariableAnnotation.EXPERIMENTAL, needForward = true)
-    private long parallelScanMinRowsPerScanner = 2097152; // 16K
+    private long parallelScanMinRowsPerScanner = 2097152; // 2M
 
     @VariableMgr.VarAttr(name = IGNORE_STORAGE_DATA_DISTRIBUTION, fuzzy = false,
             varType = VariableAnnotation.EXPERIMENTAL, needForward = true)
@@ -1239,6 +1239,22 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_PARTITION_TOPN)
     private boolean enablePartitionTopN = true;
+
+    @VariableMgr.VarAttr(name = PARTITION_TOPN_MAX_PARTITIONS, needForward = true, description = {
+            "这个阈值决定了partition_topn计算时的最大分区数量，超过这个阈值后且输入总行数少于预估总量，剩余的数据将直接透传给下一个算子",
+            "This threshold determines how many partitions will be allocated for window function get topn."
+                    + " if this threshold is exceeded and input rows less than the estimated total rows, the remaining"
+                    + " data will be pass through to other node directly."
+    })
+    private int partitionTopNMaxPartitions = 1024;
+
+    @VariableMgr.VarAttr(name = PARTITION_TOPN_PER_PARTITION_ROWS, needForward = true, description = {
+            "这个数值用于partition_topn预估每个分区的行数，用来计算所有分区的预估数据总量，决定是否能透传下一个算子",
+            "This value is used for partition_topn to estimate the number of rows in each partition, to calculate "
+            + " the estimated total amount of data for all partitions, and to determine whether the next operator "
+            + " can be passed transparently."
+    })
+    private int partitionTopNPerPartitionRows = 1000;
 
     @VariableMgr.VarAttr(name = GLOBAL_PARTITION_TOPN_THRESHOLD)
     private double globalPartitionTopNThreshold = 100;
@@ -1502,8 +1518,8 @@ public class SessionVariable implements Serializable, Writable {
     public boolean enableTwoPhaseReadOpt = true;
     @VariableMgr.VarAttr(name = TOPN_OPT_LIMIT_THRESHOLD)
     public long topnOptLimitThreshold = 1024;
-    @VariableMgr.VarAttr(name = TOPN_FILTER_LIMIT_THRESHOLD)
-    public long topnFilterLimitThreshold = 10240000;
+    @VariableMgr.VarAttr(name = TOPN_FILTER_RATIO)
+    public double topnFilterRatio = 0.5;
     @VariableMgr.VarAttr(name = ENABLE_SNAPSHOT_POINT_QUERY)
     public boolean enableSnapshotPointQuery = true;
 
@@ -1598,9 +1614,6 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = DPHYPER_LIMIT)
     public int dphyperLimit = 1000;
 
-    @VariableMgr.VarAttr(name = ENABLE_MINIDUMP)
-    public boolean enableMinidump = false;
-
 
     @VariableMgr.VarAttr(
             name = ENABLE_PAGE_CACHE,
@@ -1612,9 +1625,6 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_FOLD_NONDETERMINISTIC_FN)
     public boolean enableFoldNondeterministicFn = false;
-
-    @VariableMgr.VarAttr(name = MINIDUMP_PATH)
-    public String minidumpPath = "";
 
     @VariableMgr.VarAttr(name = TRACE_NEREIDS)
     public boolean traceNereids = false;
@@ -3656,10 +3666,13 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setTrimTailingSpacesForExternalTableQuery(trimTailingSpacesForExternalTableQuery);
         tResult.setEnableShareHashTableForBroadcastJoin(enableShareHashTableForBroadcastJoin);
         tResult.setEnableHashJoinEarlyStartProbe(enableHashJoinEarlyStartProbe);
+        tResult.setEnableScanNodeRunSerial(enableScanRunSerial);
 
         tResult.setBatchSize(batchSize);
         tResult.setDisableStreamPreaggregations(disableStreamPreaggregations);
         tResult.setEnableDistinctStreamingAggregation(enableDistinctStreamingAggregation);
+        tResult.setPartitionTopnMaxPartitions(partitionTopNMaxPartitions);
+        tResult.setPartitionTopnPrePartitionRows(partitionTopNPerPartitionRows);
 
         if (maxScanKeyNum > 0) {
             tResult.setMaxScanKeyNum(maxScanKeyNum);
@@ -3686,6 +3699,7 @@ public class SessionVariable implements Serializable, Writable {
             tResult.setResourceLimit(resourceLimit);
         }
 
+        tResult.setWaitFullBlockScheduleTimes(waitFullBlockScheduleTimes);
         tResult.setEnableFunctionPushdown(enableFunctionPushdown);
         tResult.setEnableCommonExprPushdown(enableCommonExprPushdown);
         tResult.setCheckOverflowForDecimal(checkOverflowForDecimal);
@@ -3753,6 +3767,7 @@ public class SessionVariable implements Serializable, Writable {
 
         tResult.setEnableLocalMergeSort(enableLocalMergeSort);
         tResult.setEnableParallelResultSink(enableParallelResultSink);
+        tResult.setEnableParallelOutfile(enableParallelOutfile);
         tResult.setEnableShortCircuitQueryAccessColumnStore(enableShortCircuitQueryAcessColumnStore);
         tResult.setReadCsvEmptyLineAsNull(readCsvEmptyLineAsNull);
         tResult.setSerdeDialect(getSerdeDialect());
@@ -3991,22 +4006,6 @@ public class SessionVariable implements Serializable, Writable {
             }
         }
         return "";
-    }
-
-    public boolean isEnableMinidump() {
-        return enableMinidump;
-    }
-
-    public void setEnableMinidump(boolean enableMinidump) {
-        this.enableMinidump = enableMinidump;
-    }
-
-    public String getMinidumpPath() {
-        return minidumpPath;
-    }
-
-    public void setMinidumpPath(String minidumpPath) {
-        this.minidumpPath = minidumpPath;
     }
 
     public boolean isTraceNereids() {

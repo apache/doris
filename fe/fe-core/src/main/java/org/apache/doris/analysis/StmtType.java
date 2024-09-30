@@ -43,6 +43,7 @@ public enum StmtType {
     PREPARE,
     RECOVER,
     REFRESH,
+    REPLAY,
     RESTORE,
     RESUME,
     REVOKE,

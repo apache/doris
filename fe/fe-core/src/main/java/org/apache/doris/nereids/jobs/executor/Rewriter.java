@@ -45,6 +45,7 @@ import org.apache.doris.nereids.rules.rewrite.CheckDataTypes;
 import org.apache.doris.nereids.rules.rewrite.CheckMatchExpression;
 import org.apache.doris.nereids.rules.rewrite.CheckMultiDistinct;
 import org.apache.doris.nereids.rules.rewrite.CheckPrivileges;
+import org.apache.doris.nereids.rules.rewrite.CheckRestorePartition;
 import org.apache.doris.nereids.rules.rewrite.ClearContextStatus;
 import org.apache.doris.nereids.rules.rewrite.CollectCteConsumerOutput;
 import org.apache.doris.nereids.rules.rewrite.CollectFilterAboveConsumer;
@@ -188,7 +189,12 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         // after doing NormalizeAggregate in analysis job
                         // we need run the following 2 rules to make AGG_SCALAR_SUBQUERY_TO_WINDOW_FUNCTION work
                         bottomUp(new PullUpProjectUnderApply()),
-                        topDown(new PushDownFilterThroughProject()),
+                        topDown(
+                                new PushDownFilterThroughProject(),
+                                // the subquery may have where and having clause
+                                // so there may be two filters we need to merge them
+                                new MergeFilters()
+                        ),
                         custom(RuleType.AGG_SCALAR_SUBQUERY_TO_WINDOW_FUNCTION,
                                 AggScalarSubQueryToWindowFunction::new),
                         bottomUp(
@@ -478,6 +484,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                 new ExpressionRewrite(CheckLegalityAfterRewrite.INSTANCE),
                                 new CheckMatchExpression(),
                                 new CheckMultiDistinct(),
+                                new CheckRestorePartition(),
                                 new CheckAfterRewrite()
                         )
                 ),

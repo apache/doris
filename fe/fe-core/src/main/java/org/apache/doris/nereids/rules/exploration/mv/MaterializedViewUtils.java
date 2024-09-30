@@ -247,7 +247,7 @@ public class MaterializedViewUtils {
 
     /**
      * Optimize by rules, this support optimize by custom rules by define different rewriter according to different
-     * rules
+     * rules, this method is only for materialized view rewrite
      */
     public static Plan rewriteByRules(
             CascadesContext cascadesContext,
@@ -267,7 +267,12 @@ public class MaterializedViewUtils {
         CascadesContext rewrittenPlanContext = CascadesContext.initContext(
                 cascadesContext.getStatementContext(), rewrittenPlan,
                 cascadesContext.getCurrentJobContext().getRequiredProperties());
-        rewrittenPlan = planRewriter.apply(rewrittenPlanContext);
+        try {
+            rewrittenPlanContext.getConnectContext().setSkipAuth(true);
+            rewrittenPlan = planRewriter.apply(rewrittenPlanContext);
+        } finally {
+            rewrittenPlanContext.getConnectContext().setSkipAuth(false);
+        }
         Map<ExprId, Slot> exprIdToNewRewrittenSlot = Maps.newLinkedHashMap();
         for (Slot slot : rewrittenPlan.getOutput()) {
             exprIdToNewRewrittenSlot.put(slot.getExprId(), slot);
@@ -409,7 +414,7 @@ public class MaterializedViewUtils {
             if (joinType.isInnerJoin() || joinType.isCrossJoin()) {
                 return visit(join, context);
             } else if ((joinType.isLeftJoin()
-                    || joinType.isLefSemiJoin()
+                    || joinType.isLeftSemiJoin()
                     || joinType.isLeftAntiJoin()) && useLeft) {
                 return visit(join.left(), context);
             } else if ((joinType.isRightJoin()

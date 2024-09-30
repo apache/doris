@@ -279,9 +279,10 @@ public class InsertUtils {
                 // check the necessary conditions for partial updates
                 OlapTable olapTable = (OlapTable) table;
 
-                if (!olapTable.getEnableUniqueKeyMergeOnWrite()) {
+                if (!olapTable.getEnableUniqueKeyMergeOnWrite() || olapTable.isUniqKeyMergeOnWriteWithClusterKeys()) {
                     // when enable_unique_key_partial_update = true,
-                    // only unique table with MOW insert with target columns can consider be a partial update,
+                    // only unique table with MOW (and without cluster keys)
+                    // insert with target columns can consider be a partial update,
                     // and unique table without MOW, insert will be like a normal insert.
                     ((UnboundTableSink<? extends Plan>) unboundLogicalSink).setPartialUpdate(false);
                 } else {
@@ -289,6 +290,12 @@ public class InsertUtils {
                         if (unboundLogicalSink.getColNames().isEmpty()) {
                             ((UnboundTableSink<? extends Plan>) unboundLogicalSink).setPartialUpdate(false);
                         } else {
+                            boolean hasSyncMaterializedView = olapTable.getFullSchema().stream()
+                                    .anyMatch(col -> col.isMaterializedViewColumn());
+                            if (hasSyncMaterializedView) {
+                                throw new AnalysisException("Can't do partial update on merge-on-write Unique table"
+                                        + " with sync materialized view.");
+                            }
                             boolean hasMissingColExceptAutoIncKey = false;
                             for (Column col : olapTable.getFullSchema()) {
                                 Optional<String> insertCol = unboundLogicalSink.getColNames().stream()

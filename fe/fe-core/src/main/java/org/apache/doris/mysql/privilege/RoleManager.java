@@ -199,8 +199,10 @@ public class RoleManager implements Writable, GsonPostProcessable {
                     }, (s1, s2) -> s1 + " " + s2
             ));
 
+            // METADATA in ShowRolesStmt, the 2nd CLUSTER is for compute group.
             Stream.of(PrivLevel.GLOBAL, PrivLevel.CATALOG, PrivLevel.DATABASE, PrivLevel.TABLE, PrivLevel.RESOURCE,
-                        PrivLevel.CLUSTER, PrivLevel.STAGE, PrivLevel.STORAGE_VAULT, PrivLevel.WORKLOAD_GROUP)
+                        PrivLevel.CLUSTER, PrivLevel.STAGE, PrivLevel.STORAGE_VAULT, PrivLevel.WORKLOAD_GROUP,
+                        PrivLevel.CLUSTER)
                     .forEach(level -> {
                         String infoItem = infoMap.get(level);
                         if (Strings.isNullOrEmpty(infoItem)) {

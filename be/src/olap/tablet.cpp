@@ -856,8 +856,8 @@ Status Tablet::capture_consistent_versions_unlocked(const Version& spec_version,
                              << ", version already has been merged. spec_version: " << spec_version
                              << ", max_version: " << max_version_unlocked();
             }
-            status = Status::Error<VERSION_ALREADY_MERGED>(
-                    "missed_versions is empty, spec_version "
+            status = Status::Error<VERSION_ALREADY_MERGED, false>(
+                    "versions are already compacted, spec_version "
                     "{}, max_version {}, tablet_id {}",
                     spec_version.second, max_version_unlocked(), tablet_id());
         } else {
@@ -2508,6 +2508,11 @@ std::string Tablet::get_rowset_binlog_meta(std::string_view binlog_version,
 
 Status Tablet::get_rowset_binlog_metas(const std::vector<int64_t>& binlog_versions,
                                        RowsetBinlogMetasPB* metas_pb) {
+    return RowsetMetaManager::get_rowset_binlog_metas(_data_dir->get_meta(), tablet_uid(),
+                                                      binlog_versions, metas_pb);
+}
+
+Status Tablet::get_rowset_binlog_metas(Version binlog_versions, RowsetBinlogMetasPB* metas_pb) {
     return RowsetMetaManager::get_rowset_binlog_metas(_data_dir->get_meta(), tablet_uid(),
                                                       binlog_versions, metas_pb);
 }
