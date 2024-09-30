@@ -34,15 +34,16 @@
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/io/io_helper.h"
+
 namespace doris::vectorized {
 
 template <typename T>
-struct AggregateFunctionRegrInterceptData {
+struct AggregateFunctionRegrData {
     UInt64 count = 0;
-    Float64 sum_x {};
-    Float64 sum_y {};
-    Float64 sum_of_x_mul_y {};
-    Float64 sum_of_x_squared {};
+    Float64 sum_x{};
+    Float64 sum_y{};
+    Float64 sum_of_x_mul_y{};
+    Float64 sum_of_x_squared{};
 
     void write(BufferWritable& buf) const {
         write_binary(sum_x, buf);
@@ -68,16 +69,7 @@ struct AggregateFunctionRegrInterceptData {
         count = 0;
     }
 
-    Float64 get_intercept_result() const {
-        Float64 denominator = count * sum_of_x_squared - sum_x * sum_x;
-        if (count < 2 || denominator == 0.0) {
-            return std::numeric_limits<Float64>::quiet_NaN();
-        }
-        Float64 slope = (count * sum_of_x_mul_y - sum_x * sum_y) / denominator;
-        return (sum_y - slope * sum_x) / count;
-    }
-
-    void merge(const AggregateFunctionRegrInterceptData& rhs) {
+    void merge(const AggregateFunctionRegrData& rhs) {
         if (rhs.count == 0) {
             return;
         }
@@ -98,31 +90,60 @@ struct AggregateFunctionRegrInterceptData {
 };
 
 template <typename T>
-struct RegrInterceptFuncTwoArg {
+struct RegrSlopeFunc {
     using Type = T;
-    using Data = AggregateFunctionRegrInterceptData<T>;
+    using Data = AggregateFunctionRegrData<Type>;
+    static constexpr const char* name = "regr_slope";
+
+    template <typename Data>
+    static Float64 get_result(const Data& data) {
+        Float64 denominator = data.count * data.sum_of_x_squared - data.sum_x * data.sum_x;
+        if (data.count < 2 || denominator == 0.0) {
+            return std::numeric_limits<Float64>::quiet_NaN();
+        }
+        Float64 slope = (data.count * data.sum_of_x_mul_y - data.sum_x * data.sum_y) / denominator;
+        return slope;
+    }
 };
 
-template <typename StatFunc, bool y_nullable, bool x_nullable>
-class AggregateFunctionRegrInterceptSimple
+template <typename T>
+struct RegrInterceptFunc {
+    using Type = T;
+    using Data = AggregateFunctionRegrData<Type>;
+    static constexpr const char* name = "regr_intercept";
+
+    template <typename Data>
+    static Float64 get_result(const Data& data) {
+        Float64 denominator = data.count * data.sum_of_x_squared - data.sum_x * data.sum_x;
+        if (data.count < 2 || denominator == 0.0) {
+            return std::numeric_limits<Float64>::quiet_NaN();
+        }
+        Float64 slope = (data.count * data.sum_of_x_mul_y - data.sum_x * data.sum_y) / denominator;
+        Float64 intercept = (data.sum_y - slope * data.sum_x) / data.count;
+        return intercept;
+    }
+};
+
+template <typename RegrFunc, bool y_nullable, bool x_nullable>
+class AggregateFunctionRegrSimple
         : public IAggregateFunctionDataHelper<
-                  typename StatFunc::Data,
-                  AggregateFunctionRegrInterceptSimple<StatFunc, y_nullable, x_nullable>> {
+                  typename RegrFunc::Data,
+                  AggregateFunctionRegrSimple<RegrFunc, y_nullable, x_nullable>> {
 public:
-    using Type = typename StatFunc::Type;
+    using Type = typename RegrFunc::Type;
     using XInputCol = ColumnVector<Type>;
     using YInputCol = ColumnVector<Type>;
     using ResultCol = ColumnVector<Float64>;
 
-    explicit AggregateFunctionRegrInterceptSimple(const DataTypes& argument_types_)
+    explicit AggregateFunctionRegrSimple(const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper<
-                      typename StatFunc::Data,
-                      AggregateFunctionRegrInterceptSimple<StatFunc, y_nullable, x_nullable>>(
+                      typename RegrFunc::Data,
+                      AggregateFunctionRegrSimple<RegrFunc, y_nullable, x_nullable>>(
                       argument_types_) {
         DCHECK(!argument_types_.empty());
     }
 
-    String get_name() const override { return "regr_intercept"; }
+    String get_name() const override { return RegrFunc::name; }
 
     DataTypePtr get_return_type() const override {
         return make_nullable(std::make_shared<DataTypeFloat64>());
@@ -187,15 +208,14 @@ public:
         const auto& data = this->data(place);
         auto& dst_column_with_nullable = assert_cast<ColumnNullable&>(to);
         auto& dst_column = assert_cast<ResultCol&>(dst_column_with_nullable.get_nested_column());
-        Float64 intercept = data.get_intercept_result();
-        if (std::isnan(intercept)) {
+        Float64 result = RegrFunc::get_result(data);
+        if (std::isnan(result)) {
             dst_column_with_nullable.get_null_map_data().push_back(1);
             dst_column.insert_default();
         } else {
             dst_column_with_nullable.get_null_map_data().push_back(0);
-            dst_column.get_data().push_back(intercept);
+            dst_column.get_data().push_back(result);
         }
     }
 };
-
 } // namespace doris::vectorized
