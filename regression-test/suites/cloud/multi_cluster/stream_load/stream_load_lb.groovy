@@ -57,11 +57,11 @@ suite("stream_load_lb") {
 
     addClusterLb(beUniqueIdList[0], ipList[0], hbPortList[0],
                  "stream_load_cluster_name0", "stream_load_cluster_id0",
-                 ipList[0] + ":" + httpPortList[0], ":" + httpPortList[1]);
+                 ipList[0] + ":" + httpPortList[0], ipList[0] + ":" + httpPortList[0]);
 
     addClusterLb(beUniqueIdList[1], ipList[1], hbPortList[1],
                  "stream_load_cluster_name1", "stream_load_cluster_id1",
-                 ipList[0] + ":" + httpPortList[0], ":" + httpPortList[1]);
+                 ipList[1] + ":" + httpPortList[1], ipList[1] + ":" + httpPortList[1]);
     sleep(20000)
 
     result  = sql "show clusters"
@@ -171,6 +171,7 @@ suite("stream_load_lb") {
             set 'column_separator', ','
             set 'cloud_cluster', 'stream_load_cluster_name1'
             set 'Host', 'xxx-public-xxx'
+            set 'redirect-policy', 'public-private'  // used for cloud 4.0
 
             file 'all_types.csv'
             time 10000 // limit inflight 10s
@@ -198,6 +199,7 @@ suite("stream_load_lb") {
             set 'column_separator', ','
             set 'cloud_cluster', 'stream_load_cluster_name1'
             set 'Host', 'xxxx-xxxxx'
+            set 'redirect-policy', 'public-private' // used for cloud 4.0
 
             file 'all_types.csv'
             time 10000 // limit inflight 10s
