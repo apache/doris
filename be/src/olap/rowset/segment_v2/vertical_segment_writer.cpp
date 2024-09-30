@@ -622,7 +622,7 @@ Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(
         RETURN_IF_ERROR(_merge_rows_for_sequence_column(data, skip_bitmaps, key_columns,
                                                         specified_rowsets, segment_caches));
         if (origin_rows != data.num_rows) {
-            // data in block has changed, should re-encode key columns and re-get skip_bitmaps
+            // data in block has changed, should re-encode key columns and re-get skip_bitmaps and delete_sign_column_data
             _olap_data_convertor->clear_source_content();
             key_columns.clear();
             for (std::size_t cid {0}; cid < _num_sort_key_columns; cid++) {
@@ -641,6 +641,10 @@ Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(
                                              .column->assume_mutable()
                                              .get())
                                      ->get_data());
+
+            delete_sign_column_data = BaseTablet::get_delete_sign_column_data(
+                    *data.block, data.row_pos + data.num_rows);
+            DCHECK(delete_sign_column_data != nullptr);
         }
     }
 
@@ -801,13 +805,15 @@ Status VerticalSegmentWriter::_merge_rows_for_sequence_column(
         const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns,
         const std::vector<RowsetSharedPtr>& specified_rowsets,
         std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches) {
+    LOG_INFO("VerticalSegmentWriter::_merge_rows_for_sequence_column enter: data.block:{}\n",
+             data.block->dump_data());
     auto seq_col_unique_id = _tablet_schema->column(_tablet_schema->sequence_col_idx()).unique_id();
     FixedReadPlan read_plan;
     std::unordered_map<size_t, size_t> neighber_index;
     std::string previous_key {};
     bool previous_has_seq_col {false};
     std::set<size_t> use_default;
-    bool has_duplicate_key {false};
+    int duplicate_keys {0};
 
     for (size_t block_pos = data.row_pos; block_pos < data.row_pos + data.num_rows; block_pos++) {
         size_t delta_pos = block_pos - data.row_pos;
@@ -817,7 +823,7 @@ Status VerticalSegmentWriter::_merge_rows_for_sequence_column(
         Status st;
         if (delta_pos > 0 && previous_key == key) {
             DCHECK(previous_has_seq_col == !row_has_sequence_col);
-            has_duplicate_key = true;
+            ++duplicate_keys;
             RowLocation loc;
             RowsetSharedPtr rowset;
             size_t row_index {};
@@ -836,13 +842,18 @@ Status VerticalSegmentWriter::_merge_rows_for_sequence_column(
             } else {
                 _rsid_to_rowset.emplace(rowset->rowset_id(), rowset);
                 read_plan.prepare_to_read(loc, row_index);
+                LOG_INFO(
+                        "VerticalSegmentWriter::_merge_rows_for_sequence_column, prepare to read, "
+                        "block_pos={}, row_index={}, neighber_idx={}, row_has_sequence_col={}",
+                        block_pos, row_index, neighber_idx, row_has_sequence_col);
             }
+
             neighber_index[row_index] = neighber_idx;
         }
         previous_key = std::move(key);
         previous_has_seq_col = row_has_sequence_col;
     }
-    if (has_duplicate_key) {
+    if (duplicate_keys > 0) {
         auto seq_col_idx = _tablet_schema->sequence_col_idx();
         std::vector<uint32_t> cids {static_cast<uint32_t>(seq_col_idx)};
         auto tmp_block = _tablet_schema->create_block_by_cids(cids);
@@ -867,6 +878,10 @@ Status VerticalSegmentWriter::_merge_rows_for_sequence_column(
                                                .column->get_data_at(neighber)
                                                .to_slice();
             int res = cur_seq_value.compare(neighber_seq_value);
+            LOG_INFO(
+                    "VerticalSegmentWriter::_merge_rows_for_sequence_column: idx={}, neighber={}, "
+                    "res={}",
+                    idx, neighber, res);
             if (res > 0) {
                 filter_map[neighber] = 0;
             } else if (res < 0) {
@@ -880,6 +895,16 @@ Status VerticalSegmentWriter::_merge_rows_for_sequence_column(
         block->insert({std::move(filter_column), std::make_shared<vectorized::DataTypeUInt8>(),
                        "__dup_key_filter_col__"});
         RETURN_IF_ERROR(vectorized::Block::filter_block(block, num_cols, num_cols));
+        int merged_rows = data.num_rows - block->rows();
+        LOG_INFO(
+                "VerticalSegmentWriter::_merge_rows_for_sequence_column after filter: "
+                "data.block:{}\n",
+                data.block->dump_data());
+        DCHECK_EQ(duplicate_keys, merged_rows)
+                << "duplicate_keys != merged_rows, duplicate_keys=" << duplicate_keys
+                << ", merged_rows=" << merged_rows << ", num_rows=" << data.num_rows
+                << ", mutable_block->rows()=" << block->rows();
+
         data.num_rows = block->rows();
     }
     return Status::OK();

@@ -760,7 +760,7 @@ Status SegmentWriter::append_block_with_flexible_partial_content(const vectorize
                                                        key_columns, specified_rowsets,
                                                        segment_caches));
         if (origin_rows != num_rows) {
-            // data in block has changed, should re-encode key columns and re-get skip_bitmaps
+            // data in block has changed, should re-encode key columns and re-get skip_bitmaps and delete_sign_column_data
             _olap_data_convertor->clear_source_content();
             key_columns.clear();
             for (std::size_t cid {0}; cid < _num_sort_key_columns; cid++) {
@@ -778,6 +778,10 @@ Status SegmentWriter::append_block_with_flexible_partial_content(const vectorize
                                              .column->assume_mutable()
                                              .get())
                                      ->get_data());
+
+            delete_sign_column_data =
+                    BaseTablet::get_delete_sign_column_data(*block, row_pos + num_rows);
+            DCHECK(delete_sign_column_data != nullptr);
         }
     }
 
@@ -944,7 +948,7 @@ Status SegmentWriter::merge_rows_for_sequence_column(
     std::string previous_key {};
     bool previous_has_seq_col {false};
     std::set<size_t> use_default;
-    bool has_duplicate_key {false};
+    int duplicate_keys {0};
 
     for (size_t block_pos = row_pos; block_pos < row_pos + num_rows; block_pos++) {
         size_t delta_pos = block_pos - row_pos;
@@ -954,7 +958,7 @@ Status SegmentWriter::merge_rows_for_sequence_column(
         Status st;
         if (delta_pos > 0 && previous_key == key) {
             DCHECK(previous_has_seq_col == !row_has_sequence_col);
-            has_duplicate_key = true;
+            ++duplicate_keys;
             RowLocation loc;
             RowsetSharedPtr rowset;
             size_t row_index {};
@@ -979,7 +983,7 @@ Status SegmentWriter::merge_rows_for_sequence_column(
         previous_key = std::move(key);
         previous_has_seq_col = row_has_sequence_col;
     }
-    if (has_duplicate_key) {
+    if (duplicate_keys > 0) {
         auto seq_col_idx = _tablet_schema->sequence_col_idx();
         std::vector<uint32_t> cids {static_cast<uint32_t>(seq_col_idx)};
         auto tmp_block = _tablet_schema->create_block_by_cids(cids);
@@ -1017,6 +1021,11 @@ Status SegmentWriter::merge_rows_for_sequence_column(
                                std::make_shared<vectorized::DataTypeUInt8>(),
                                "__dup_key_filter_col__"});
         RETURN_IF_ERROR(vectorized::Block::filter_block(mutable_block, num_cols, num_cols));
+        int merged_rows = num_rows - mutable_block->rows();
+        DCHECK_EQ(duplicate_keys, merged_rows)
+                << "duplicate_keys != merged_rows, duplicate_keys=" << duplicate_keys
+                << ", merged_rows=" << merged_rows << ", num_rows=" << num_rows
+                << ", mutable_block->rows()=" << mutable_block->rows();
         num_rows = mutable_block->rows();
     }
     return Status::OK();

@@ -57,6 +57,16 @@ struct PartialUpdateInfo {
                                                               BitmapValue* skip_bitmap) const;
     std::string summary() const;
 
+    std::string partial_update_mode_str() const {
+        switch (partial_update_mode) {
+        case UniqueKeyUpdateModePB::UPSERT:
+            return "upsert";
+        case UniqueKeyUpdateModePB::UPDATE_FIXED_COLUMNS:
+            return "partial update";
+        case UniqueKeyUpdateModePB::UPDATE_FLEXIBLE_COLUMNS:
+            return "flexible partial update";
+        }
+    }
     bool is_partial_update() const { return partial_update_mode != UniqueKeyUpdateModePB::UPSERT; }
     bool is_fixed_partial_update() const {
         return partial_update_mode == UniqueKeyUpdateModePB::UPDATE_FIXED_COLUMNS;
