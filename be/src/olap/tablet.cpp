@@ -3832,7 +3832,10 @@ void Tablet::calc_compaction_output_rowset_delete_bitmap(
             for (auto iter = subset_map.delete_bitmap.begin();
                  iter != subset_map.delete_bitmap.end(); ++iter) {
                 auto cur_version = std::get<2>(iter->first);
-                auto output_version = cur_version < min_version ? min_version : cur_version;
+                auto output_version = cur_version;
+                if (config::merge_mow_delete_bitmap_when_compaction && cur_version < min_version) {
+                    output_version = min_version;
+                }
                 size_t size = 0;
                 for (auto index = iter->second.begin(); index != iter->second.end(); ++index) {
                     src.row_id = *index;
