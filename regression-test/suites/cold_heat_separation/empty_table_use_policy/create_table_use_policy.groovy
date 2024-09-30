@@ -112,6 +112,9 @@ suite("create_table_use_policy") {
     assertEquals(create_temp_table_use_created_policy.size(), 1);
 
     sql """
+    DROP TABLE IF EXISTS create_temp_table_use_created_policy
+    """
+    sql """
     DROP TABLE IF EXISTS create_table_use_created_policy
     """
     sql """
