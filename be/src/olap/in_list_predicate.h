@@ -234,8 +234,8 @@ public:
             const auto* nullable_col =
                     vectorized::check_and_get_column<vectorized::ColumnNullable>(column);
             const auto& null_bitmap = reinterpret_cast<const vectorized::ColumnUInt8&>(
-                                        nullable_col->get_null_map_column())
-                                        .get_data();
+                                              nullable_col->get_null_map_column())
+                                              .get_data();
             const auto& nested_col = nullable_col->get_nested_column();
 
             if (_opposite) {
@@ -302,8 +302,9 @@ public:
     bool evaluate_and(const segment_v2::BloomFilter* bf) const override {
         if constexpr (PT == PredicateType::IN_LIST) {
             // IN predicate can not use ngram bf, just return true to accept
-            if (bf->is_ngram_bf()) { return true;
-}
+            if (bf->is_ngram_bf()) {
+                return true;
+            }
             HybridSetBase::IteratorBase* iter = _values->begin();
             while (iter->has_next()) {
                 if constexpr (std::is_same_v<T, StringRef>) {
