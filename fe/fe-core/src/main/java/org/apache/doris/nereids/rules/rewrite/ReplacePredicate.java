@@ -210,7 +210,7 @@ public class ReplacePredicate {
         ImmutableEqualSet<Expression> hasCastEqualSet = findEqual(inputs);
         Set<Expression> targetExprs = hasCastEqualSet.getAllItemSet();
         if (targetExprs.isEmpty()) {
-            return new LinkedHashSet<>();
+            return new LinkedHashSet<>(inputs);
         }
         Map<Expression, Set<Expression>> exprPredicates = new HashMap<>();
         for (Expression input : inputs) {
@@ -220,7 +220,7 @@ public class ReplacePredicate {
             }
             input.accept(PredicatesCollector.INSTANCE, exprPredicates);
         }
-        Set<Expression> inferPredicates = new LinkedHashSet<>();
+        Set<Expression> inferPredicates = new LinkedHashSet<>(inputs);
         if (!exprPredicates.isEmpty()) {
             for (Expression expr : targetExprs) {
                 if (expr instanceof Literal) {

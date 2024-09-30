@@ -87,15 +87,9 @@ public class PredicateInferUtils {
         if (predicates.size() < 2) {
             return predicates;
         }
-        Set<Expression> inferPredicates = new LinkedHashSet<>();
-        Set<Expression> complexPredicates = new LinkedHashSet<>();
-        Set<ComparisonPredicate> simplePredicates = new LinkedHashSet<>();
         Set<Expression> inferAndOriginPredicates = ReplacePredicate.infer(predicates);
-        inferAndOriginPredicates.addAll(predicates);
-        PredicateInferUtils.getComplexAndSimplePredicates(inferAndOriginPredicates, complexPredicates,
-                simplePredicates);
-        inferPredicates.addAll(UnequalPredicateInfer.inferUnequalPredicates(simplePredicates));
-        inferPredicates.addAll(complexPredicates);
+        Set<Expression> inferPredicates = new LinkedHashSet<>(
+                UnequalPredicateInfer.inferUnequalPredicates(inferAndOriginPredicates));
         // Keep the order of predicates. The input predicates are in the front
         // and the derived predicates are in the rear
         Set<Expression> res = new LinkedHashSet<>();
@@ -114,16 +108,8 @@ public class PredicateInferUtils {
         if (predicates.size() < 2) {
             return predicates;
         }
-        Set<Expression> inferPredicates = new LinkedHashSet<>();
-        Set<Expression> complexPredicates = new LinkedHashSet<>();
-        Set<ComparisonPredicate> simplePredicates = new LinkedHashSet<>();
         Set<Expression> inferAndOriginPredicates = ReplacePredicate.infer(predicates);
-        inferAndOriginPredicates.addAll(predicates);
-        PredicateInferUtils.getComplexAndSimplePredicates(inferAndOriginPredicates, complexPredicates,
-                simplePredicates);
-        inferPredicates.addAll(UnequalPredicateInfer.inferAllPredicates(simplePredicates));
-        inferPredicates.addAll(complexPredicates);
-        return inferPredicates;
+        return new LinkedHashSet<>(UnequalPredicateInfer.inferAllPredicates(inferAndOriginPredicates));
     }
 
     /**getPairFromCast*/
