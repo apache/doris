@@ -1097,7 +1097,7 @@ public class NativeInsertStmt extends InsertStmt {
 
     public void complete() throws UserException {
         if (!isExplain() && targetTable instanceof OlapTable) {
-            ((OlapTableSink) dataSink).complete();
+            ((OlapTableSink) dataSink).complete(analyzer);
             if (!allowAutoPartition) {
                 ((OlapTableSink) dataSink).setAutoPartition(false);
             }

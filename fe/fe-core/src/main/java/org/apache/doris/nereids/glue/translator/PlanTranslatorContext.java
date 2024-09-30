@@ -312,6 +312,26 @@ public class PlanTranslatorContext {
         return createSlotDesc(tupleDesc, slotReference, null);
     }
 
+    /**
+     * createSlotDescForSink
+     */
+    public SlotDescriptor createSlotDescForSink(TupleDescriptor tupleDesc, SlotReference slotReference) {
+        if (!slotReference.getColumn().isPresent()) {
+            throw new RuntimeException("Sink node's slot should have column member");
+        }
+        Column column = slotReference.getColumn().get();
+        SlotDescriptor slotDesc = this.addSlotDesc(tupleDesc);
+        slotDesc.setIsMaterialized(true);
+        slotDesc.setType(column.getType());
+        slotDesc.setColumn(column);
+        slotDesc.setIsNullable(column.isAllowNull());
+        slotDesc.setAutoInc(column.isAutoInc());
+        SlotRef slotRef = new SlotRef(slotDesc);
+        slotRef.setLabel(slotReference.getName());
+        this.addExprIdSlotRefPair(slotReference.getExprId(), slotRef);
+        return slotDesc;
+    }
+
     public List<TupleDescriptor> getTupleDesc(PlanNode planNode) {
         if (planNode.getOutputTupleDesc() != null) {
             return Lists.newArrayList(planNode.getOutputTupleDesc());

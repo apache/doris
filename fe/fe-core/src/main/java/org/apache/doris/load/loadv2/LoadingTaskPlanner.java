@@ -220,7 +220,7 @@ public class LoadingTaskPlanner {
                 txnTimeout);
         olapTableSink.setPartialUpdateInputColumns(isPartialUpdate, partialUpdateInputColumns);
 
-        olapTableSink.complete();
+        olapTableSink.complete(analyzer);
 
         // 3. Plan fragment
         PlanFragment sinkFragment = new PlanFragment(new PlanFragmentId(0), scanNode, DataPartition.RANDOM);

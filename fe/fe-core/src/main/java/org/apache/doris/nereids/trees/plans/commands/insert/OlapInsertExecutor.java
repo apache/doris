@@ -118,17 +118,7 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
                     ctx.getSessionVariable().getSendBatchParallelism(),
                     false,
                     isStrictMode,
-                    timeout);
-            // complete and set commands both modify thrift struct
-            olapTableSink.complete();
-            if (!olapInsertCtx.isAllowAutoPartition()) {
-                olapTableSink.setAutoPartition(false);
-            }
-            if (olapInsertCtx.isAutoDetectOverwrite()) {
-                olapTableSink.setAutoDetectOverwite(true);
-                olapTableSink.setOverwriteGroupId(olapInsertCtx.getOverwriteGroupId());
-            }
-            // update
+                    timeout, olapInsertCtx);
 
             // set schema and partition info for tablet id shuffle exchange
             if (fragment.getPlanRoot() instanceof ExchangeNode
@@ -155,13 +145,10 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
                     throw new IllegalStateException("Unsupported DataSink: " + childFragmentSink);
                 }
 
-                dataStreamSink.setTabletSinkSchemaParam(olapTableSink.createSchema(
-                        database.getId(), olapTableSink.getDstTable()));
-                dataStreamSink.setTabletSinkPartitionParam(olapTableSink.createPartition(
-                        database.getId(), olapTableSink.getDstTable()));
+                dataStreamSink.setTabletSinkSchemaParam(olapTableSink.getOlapTableSchemaParam());
+                dataStreamSink.setTabletSinkPartitionParam(olapTableSink.getOlapTablePartitionParam());
                 dataStreamSink.setTabletSinkTupleDesc(olapTableSink.getTupleDescriptor());
-                List<TOlapTableLocationParam> locationParams = olapTableSink
-                        .createLocation(database.getId(), olapTableSink.getDstTable());
+                List<TOlapTableLocationParam> locationParams = olapTableSink.getOlapTableLocationParams();
                 dataStreamSink.setTabletSinkLocationParam(locationParams.get(0));
                 dataStreamSink.setTabletSinkTxnId(olapTableSink.getTxnId());
                 dataStreamSink.setTabletSinkExprs(fragment.getOutputExprs());

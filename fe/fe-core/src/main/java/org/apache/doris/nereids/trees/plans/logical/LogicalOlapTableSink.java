@@ -19,10 +19,23 @@ package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.analyzer.Scope;
+import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.LogicalProperties;
+import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.rules.analysis.ExpressionAnalyzer;
+import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.PropagateFuncDeps;
@@ -30,13 +43,20 @@ import org.apache.doris.nereids.trees.plans.algebra.Sink;
 import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.OriginStatement;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 /**
  * logical olap table sink for insert command
@@ -49,6 +69,9 @@ public class LogicalOlapTableSink<CHILD_TYPE extends Plan> extends LogicalTableS
     private final List<Long> partitionIds;
     private final boolean isPartialUpdate;
     private final DMLCommandType dmlCommandType;
+    private final List<Expression> partitionExprList;
+    private final Map<Long, Expression> syncMvWhereClauses;
+    private final List<Slot> targetTableSlots;
 
     public LogicalOlapTableSink(Database database, OlapTable targetTable, List<Column> cols, List<Long> partitionIds,
             List<NamedExpression> outputExprs, boolean isPartialUpdate, DMLCommandType dmlCommandType,
@@ -64,27 +87,55 @@ public class LogicalOlapTableSink<CHILD_TYPE extends Plan> extends LogicalTableS
             List<Long> partitionIds, List<NamedExpression> outputExprs, boolean isPartialUpdate,
             DMLCommandType dmlCommandType, Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
+        this(database, targetTable, cols, partitionIds, outputExprs, isPartialUpdate,
+                dmlCommandType, new ArrayList<>(), new HashMap<>(), new ArrayList<>(),
+                groupExpression, logicalProperties, child);
+    }
+
+    private LogicalOlapTableSink(Database database, OlapTable targetTable, List<Column> cols,
+            List<Long> partitionIds, List<NamedExpression> outputExprs, boolean isPartialUpdate,
+            DMLCommandType dmlCommandType, List<Expression> partitionExprList,
+            Map<Long, Expression> syncMvWhereClauses, List<Slot> targetTableSlots,
+            Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
         super(PlanType.LOGICAL_OLAP_TABLE_SINK, outputExprs, groupExpression, logicalProperties, cols, child);
         this.database = Objects.requireNonNull(database, "database != null in LogicalOlapTableSink");
         this.targetTable = Objects.requireNonNull(targetTable, "targetTable != null in LogicalOlapTableSink");
         this.isPartialUpdate = isPartialUpdate;
         this.dmlCommandType = dmlCommandType;
         this.partitionIds = Utils.copyRequiredList(partitionIds);
+        this.partitionExprList = partitionExprList;
+        this.syncMvWhereClauses = syncMvWhereClauses;
+        this.targetTableSlots = targetTableSlots;
     }
 
-    public Plan withChildAndUpdateOutput(Plan child) {
-        List<NamedExpression> output = child.getOutput().stream()
-                .map(NamedExpression.class::cast)
+    /**
+     * withChildAndUpdateOutput
+     */
+    public Plan withChildAndUpdateOutput(Plan child, List<Column> columns) {
+        List<NamedExpression> output = child.getOutput().stream().map(NamedExpression.class::cast)
                 .collect(ImmutableList.toImmutableList());
-        return new LogicalOlapTableSink<>(database, targetTable, cols, partitionIds, output, isPartialUpdate,
-                dmlCommandType, Optional.empty(), Optional.empty(), child);
+        Preconditions.checkArgument(output.size() == columns.size(),
+                "output's size should be same as columns's size");
+        int size = columns.size();
+        List<Slot> targetTableSlots = new ArrayList<>(size);
+        for (int i = 0; i < size; ++i) {
+            targetTableSlots.add(SlotReference.fromColumn(targetTable, columns.get(i),
+                    targetTable.getFullQualifiers()));
+        }
+        LegacyExprTranslator exprTranslator = new LegacyExprTranslator(targetTable, targetTableSlots);
+        return new LogicalOlapTableSink<>(database, targetTable, cols, partitionIds, output,
+                isPartialUpdate, dmlCommandType, exprTranslator.createPartitionExprList(),
+                exprTranslator.createSyncMvWhereClause(), targetTableSlots, Optional.empty(),
+                Optional.empty(), child);
     }
 
     @Override
     public Plan withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1, "LogicalOlapTableSink only accepts one child");
-        return new LogicalOlapTableSink<>(database, targetTable, cols, partitionIds, outputExprs, isPartialUpdate,
-                dmlCommandType, Optional.empty(), Optional.empty(), children.get(0));
+        return new LogicalOlapTableSink<>(database, targetTable, cols, partitionIds, outputExprs,
+                isPartialUpdate, dmlCommandType, partitionExprList, syncMvWhereClauses,
+                targetTableSlots, Optional.empty(), Optional.empty(), children.get(0));
     }
 
     public Database getDatabase() {
@@ -107,9 +158,22 @@ public class LogicalOlapTableSink<CHILD_TYPE extends Plan> extends LogicalTableS
         return dmlCommandType;
     }
 
+    public List<Expression> getPartitionExprList() {
+        return partitionExprList;
+    }
+
+    public Map<Long, Expression> getSyncMvWhereClauses() {
+        return syncMvWhereClauses;
+    }
+
+    public List<Slot> getTargetTableSlots() {
+        return targetTableSlots;
+    }
+
     public LogicalOlapTableSink<CHILD_TYPE> withOutputExprs(List<NamedExpression> outputExprs) {
-        return new LogicalOlapTableSink<>(database, targetTable, cols, partitionIds, outputExprs, isPartialUpdate,
-                dmlCommandType, Optional.empty(), Optional.empty(), child());
+        return new LogicalOlapTableSink<>(database, targetTable, cols, partitionIds, outputExprs,
+                isPartialUpdate, dmlCommandType, partitionExprList, syncMvWhereClauses,
+                targetTableSlots, Optional.empty(), Optional.empty(), child());
     }
 
     @Override
@@ -156,14 +220,84 @@ public class LogicalOlapTableSink<CHILD_TYPE extends Plan> extends LogicalTableS
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalOlapTableSink<>(database, targetTable, cols, partitionIds, outputExprs, isPartialUpdate,
-                dmlCommandType, groupExpression, Optional.of(getLogicalProperties()), child());
+        return new LogicalOlapTableSink<>(database, targetTable, cols, partitionIds, outputExprs,
+                isPartialUpdate, dmlCommandType, partitionExprList, syncMvWhereClauses,
+                targetTableSlots, groupExpression, Optional.of(getLogicalProperties()), child());
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new LogicalOlapTableSink<>(database, targetTable, cols, partitionIds, outputExprs, isPartialUpdate,
-                dmlCommandType, groupExpression, logicalProperties, children.get(0));
+        return new LogicalOlapTableSink<>(database, targetTable, cols, partitionIds, outputExprs,
+                isPartialUpdate, dmlCommandType, partitionExprList, syncMvWhereClauses,
+                targetTableSlots, groupExpression, logicalProperties, children.get(0));
+    }
+
+    public Plan withPartitionExprAndMvWhereClause(List<Expression> partitionExprList,
+                                                  Map<Long, Expression> syncMvWhereClauses) {
+        return new LogicalOlapTableSink<>(database, targetTable, cols, partitionIds, outputExprs,
+                isPartialUpdate, dmlCommandType, partitionExprList, syncMvWhereClauses,
+                targetTableSlots, Optional.empty(), Optional.empty(), child());
+    }
+
+    private static class LegacyExprTranslator {
+        private final Map<String, Slot> nereidsSlotReplaceMap = new HashMap<>();
+        private final OlapTable olapTable;
+
+        public LegacyExprTranslator(OlapTable table, List<Slot> outputs) {
+            for (Slot expression : outputs) {
+                String name = expression.getName();
+                nereidsSlotReplaceMap.put(name.toLowerCase(), expression.toSlot());
+            }
+            this.olapTable = table;
+        }
+
+        public List<Expression> createPartitionExprList() {
+            return olapTable.getPartitionInfo().getPartitionExprs().stream()
+                    .map(expr -> analyze(expr.toSql())).collect(Collectors.toList());
+        }
+
+        public Map<Long, Expression> createSyncMvWhereClause() {
+            Map<Long, Expression> mvWhereClauses = new HashMap<>();
+            long baseIndexId = olapTable.getBaseIndexId();
+            for (Map.Entry<Long, MaterializedIndexMeta> entry : olapTable.getVisibleIndexIdToMeta().entrySet()) {
+                if (entry.getKey() != baseIndexId && entry.getValue().getWhereClause() != null) {
+                    mvWhereClauses.put(entry.getKey(), analyze(entry.getValue().getWhereClause().toSql()));
+                }
+            }
+            return mvWhereClauses;
+        }
+
+        private Expression analyze(String exprSql) {
+            Expression expression = new NereidsParser().parseExpression(exprSql);
+            Expression boundSlotExpression =
+                    SlotReplacer.INSTANCE.replace(expression, nereidsSlotReplaceMap);
+            Scope scope = new Scope(Lists.newArrayList(nereidsSlotReplaceMap.values()));
+            LogicalEmptyRelation dummyPlan = new LogicalEmptyRelation(
+                    ConnectContext.get().getStatementContext().getNextRelationId(), new ArrayList<>());
+            CascadesContext cascadesContext = CascadesContext.initContext(
+                    new StatementContext(ConnectContext.get(), new OriginStatement(exprSql, 0)),
+                    dummyPlan, PhysicalProperties.ANY);
+            ExpressionAnalyzer analyzer = new ExpressionAnalyzer(null, scope, cascadesContext, false, false);
+            return analyzer.analyze(boundSlotExpression, new ExpressionRewriteContext(cascadesContext));
+        }
+
+        private static class SlotReplacer extends DefaultExpressionRewriter<Map<String, Slot>> {
+            public static final SlotReplacer INSTANCE = new SlotReplacer();
+
+            public Expression replace(Expression e, Map<String, Slot> replaceMap) {
+                return e.accept(this, replaceMap);
+            }
+
+            @Override
+            public Expression visitUnboundSlot(UnboundSlot unboundSlot,
+                    Map<String, Slot> replaceMap) {
+                if (!replaceMap.containsKey(unboundSlot.getName().toLowerCase())) {
+                    throw new org.apache.doris.nereids.exceptions.AnalysisException(
+                            "Unknown column " + unboundSlot.getName());
+                }
+                return replaceMap.get(unboundSlot.getName().toLowerCase());
+            }
+        }
     }
 }

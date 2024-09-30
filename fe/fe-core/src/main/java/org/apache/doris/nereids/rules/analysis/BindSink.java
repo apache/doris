@@ -83,6 +83,7 @@ import com.google.common.collect.ImmutableListMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -222,7 +223,14 @@ public class BindSink implements AnalysisRuleFactory {
                 ctx, table, isPartialUpdate, boundSink, child);
         LogicalProject<?> fullOutputProject = getOutputProjectByCoercion(
                 table.getFullSchema(), child, columnToOutput);
-        return boundSink.withChildAndUpdateOutput(fullOutputProject);
+        List<Column> columns = new ArrayList<>(table.getFullSchema().size());
+        for (int i = 0; i < table.getFullSchema().size(); ++i) {
+            Column col = table.getFullSchema().get(i);
+            if (columnToOutput.get(col.getName()) != null) {
+                columns.add(col);
+            }
+        }
+        return boundSink.withChildAndUpdateOutput(fullOutputProject, columns);
     }
 
     private LogicalProject<?> getOutputProjectByCoercion(List<Column> tableSchema, LogicalPlan child,
