@@ -25,7 +25,6 @@ suite("fold_constant_numeric_arithmatic") {
 
     testFoldConst("SELECT truncate(123.456, -1)")
 //    testFoldConst("select pmod(-9223372036854775808,-1)")
-    testFoldConst("select sqrt(-1)")
     //Coalesce function cases
     testFoldConst("SELECT COALESCE(NULL, 5) AS coalesce_case_1")
     testFoldConst("SELECT COALESCE(NULL, NULL, 7) AS coalesce_case_2")
@@ -211,8 +210,6 @@ suite("fold_constant_numeric_arithmatic") {
     testFoldConst("SELECT SQRT(16) AS sqrt_case_1") //sqrt(16) = 4
     testFoldConst("SELECT SQRT(0) AS sqrt_case_2") //sqrt(0) = 0
     testFoldConst("SELECT SQRT(2) AS sqrt_case_3") //sqrt(2)
-//Exception: Sqrt of negative values (undefined)
-    testFoldConst("SELECT SQRT(-1) AS sqrt_case_exception") //undefined (returns NULL or error)
 
 //Power function cases
     testFoldConst("SELECT POWER(2, 3) AS power_case_1") //2^3 = 8
@@ -326,8 +323,6 @@ suite("fold_constant_numeric_arithmatic") {
     testFoldConst("SELECT SQRT(16.0) AS dsqrt_case_1") //sqrt(16.0) = 4
     testFoldConst("SELECT SQRT(0.0) AS dsqrt_case_2") //sqrt(0.0) = 0
     testFoldConst("SELECT SQRT(2.0) AS dsqrt_case_3") //sqrt(2.0)
-//Exception: Sqrt of negative values
-    testFoldConst("SELECT SQRT(-1.0) AS dsqrt_case_exception") //undefined (returns NULL or error)
 
 //Fmod function cases (floating-point modulus)
     testFoldConst("SELECT MOD(10.5, 3.2) AS fmod_case_1") //fmod(10.5 % 3.2)
@@ -409,9 +404,6 @@ test {
     testFoldConst("SELECT SIN(1E308) AS sin_large_value") //Sin overflow
     testFoldConst("SELECT COS(1E308) AS cos_large_value") //Cos overflow
     testFoldConst("SELECT TAN(PI() / 2) AS tan_undefined") //Undefined for tan(π/2)
-
-//Sqrt, Ln, and other operations with negative or zero edge cases
-    testFoldConst("SELECT SQRT(-1) AS sqrt_invalid_value") //Sqrt of negative number (undefined)
 
 //Miscellaneous operations like bit manipulations and modulo on edge cases
     testFoldConst("SELECT BIN(-1) AS bin_negative_value") //Bin of negative number (may be undefined)

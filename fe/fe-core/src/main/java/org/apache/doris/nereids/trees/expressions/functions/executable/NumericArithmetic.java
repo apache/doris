@@ -854,7 +854,7 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "power")
     public static Expression power(DoubleLiteral first, DoubleLiteral second) {
-        checkInputBoundary(second, Double.MIN_VALUE, Double.MAX_VALUE, true, true);
+        checkInputBoundary(second, Double.NEGATIVE_INFINITY, Double.POSITIVE_INFINITY, false, false);
         return checkOutputBoundary(new DoubleLiteral(Math.pow(first.getValue(), second.getValue())));
     }
 
@@ -890,7 +890,7 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "asin")
     public static Expression asin(DoubleLiteral first) {
-        checkInputBoundary(first, 1.0, 1.0, true, true);
+        checkInputBoundary(first, -1.0, 1.0, true, true);
         return checkOutputBoundary(new DoubleLiteral(Math.asin(first.getValue())));
     }
 
@@ -899,7 +899,7 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "acos")
     public static Expression acos(DoubleLiteral first) {
-        checkInputBoundary(first, 1.0, 1.0, true, true);
+        checkInputBoundary(first, -1.0, 1.0, true, true);
         return checkOutputBoundary(new DoubleLiteral(Math.acos(first.getValue())));
     }
 
