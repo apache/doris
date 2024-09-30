@@ -24,6 +24,7 @@
 #include "cloud/config.h"
 #include "common/status.h"
 #include "olap/rowset/beta_rowset.h"
+#include "olap/storage_engine.h"
 #include "pipeline/exec/olap_scan_operator.h"
 #include "vec/exec/scan/new_olap_scanner.h"
 
@@ -44,7 +45,8 @@ Status ParallelScannerBuilder::build_scanners(std::list<VScannerSPtr>& scanners)
 Status ParallelScannerBuilder::_build_scanners_by_rowid(std::list<VScannerSPtr>& scanners) {
     DCHECK_GE(_rows_per_scanner, _min_rows_per_scanner);
 
-    for (auto&& [tablet, version] : _tablets) {
+    for (auto&& [tablet, version, sub_txn_ids] : _tablets) {
+        version += sub_txn_ids.size();
         DCHECK(_all_read_sources.contains(tablet->tablet_id()));
         auto& entire_read_source = _all_read_sources[tablet->tablet_id()];
 
@@ -166,10 +168,22 @@ Status ParallelScannerBuilder::_build_scanners_by_rowid(std::list<VScannerSPtr>&
  */
 Status ParallelScannerBuilder::_load() {
     _total_rows = 0;
-    for (auto&& [tablet, version] : _tablets) {
+    for (auto&& [tablet, version, sub_txn_ids] : _tablets) {
         const auto tablet_id = tablet->tablet_id();
         auto& read_source = _all_read_sources[tablet_id];
-        RETURN_IF_ERROR(tablet->capture_rs_readers({0, version}, &read_source.rs_splits, false));
+        if (sub_txn_ids.empty()) {
+            RETURN_IF_ERROR(
+                    tablet->capture_rs_readers({0, version}, &read_source.rs_splits, false));
+        } else {
+            if (version > 0) {
+                RETURN_IF_ERROR(
+                        tablet->capture_rs_readers({0, version}, &read_source.rs_splits, false));
+            }
+            LOG(INFO) << "capture sub txn rs readers, size=" << sub_txn_ids.size()
+                      << ", tablet_id=" << tablet_id << ", version=" << version;
+            RETURN_IF_ERROR(tablet->capture_sub_txn_rs_readers(version, sub_txn_ids,
+                                                               &read_source.rs_splits));
+        }
         if (!_state->skip_delete_predicate()) {
             read_source.fill_delete_predicates();
         }

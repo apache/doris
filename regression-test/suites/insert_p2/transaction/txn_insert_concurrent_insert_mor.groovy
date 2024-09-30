@@ -21,8 +21,8 @@ import java.sql.Statement
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.CompletableFuture
 
-suite("txn_insert_concurrent_insert_aggregate") {
-    def tableName = "txn_insert_concurrent_insert_aggregate"
+suite("txn_insert_concurrent_insert_mor") {
+    def tableName = "txn_insert_concurrent_insert_mor"
     List<String> errors = new ArrayList<>()
 
     for (int i = 0; i < 3; i++) {
@@ -35,23 +35,24 @@ suite("txn_insert_concurrent_insert_aggregate") {
                 L_PARTKEY     INTEGER NOT NULL,
                 L_SUPPKEY     INTEGER NOT NULL,
                 L_LINENUMBER  INTEGER NOT NULL,
-                L_QUANTITY    DECIMAL(15,2) MAX NOT NULL,
-                L_EXTENDEDPRICE  DECIMAL(15,2) MAX NOT NULL,
-                L_DISCOUNT    DECIMAL(15,2) MAX NOT NULL,
-                L_TAX         DECIMAL(15,2) MAX NOT NULL,
-                L_RETURNFLAG  CHAR(1) REPLACE NOT NULL,
-                L_LINESTATUS  CHAR(1) REPLACE NOT NULL,
-                L_SHIPDATE    DATE REPLACE NOT NULL,
-                L_COMMITDATE  DATE REPLACE NOT NULL,
-                L_RECEIPTDATE DATE REPLACE NOT NULL,
-                L_SHIPINSTRUCT CHAR(25) REPLACE NOT NULL,
-                L_SHIPMODE     CHAR(10) REPLACE NOT NULL,
-                L_COMMENT      VARCHAR(44) REPLACE NOT NULL
+                L_QUANTITY    DECIMAL(15,2) NOT NULL,
+                L_EXTENDEDPRICE  DECIMAL(15,2) NOT NULL,
+                L_DISCOUNT    DECIMAL(15,2) NOT NULL,
+                L_TAX         DECIMAL(15,2) NOT NULL,
+                L_RETURNFLAG  CHAR(1) NOT NULL,
+                L_LINESTATUS  CHAR(1) NOT NULL,
+                L_SHIPDATE    DATE NOT NULL,
+                L_COMMITDATE  DATE NOT NULL,
+                L_RECEIPTDATE DATE NOT NULL,
+                L_SHIPINSTRUCT CHAR(25) NOT NULL,
+                L_SHIPMODE     CHAR(10) NOT NULL,
+                L_COMMENT      VARCHAR(44) NOT NULL
             )
-            AGGREGATE KEY(L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER)
+            UNIQUE KEY(L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER)
             DISTRIBUTED BY HASH(L_ORDERKEY) BUCKETS 3
             PROPERTIES (
-                "replication_num" = "1"
+                "replication_num" = "1",
+                "enable_unique_key_merge_on_write" = "false"
             )
         """
 
@@ -81,7 +82,7 @@ suite("txn_insert_concurrent_insert_aggregate") {
     }
     sql """ sync """
 
-    def dbName = "regression_test_insert_p2"
+    def dbName = "regression_test_insert_p2_transaction"
     def url = getServerPrepareJdbcUrl(context.config.jdbcUrl, dbName).replace("&useServerPrepStmts=true", "") + "&useLocalSessionState=true"
     logger.info("url: ${url}")
 
