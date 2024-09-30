@@ -639,6 +639,8 @@ void WorkloadGroupMgr::update_queries_limit(WorkloadGroupPtr wg, bool enable_har
         int64_t expected_query_weighted_mem_limit = 0;
         // If the query enable hard limit, then it should not use the soft limit
         if (query_ctx->enable_query_slot_hard_limit()) {
+            LOG(INFO) << "query info " << wg_high_water_mark_except_load << ","
+                      << query_ctx->get_slot_count() << "," << total_slot_count;
             if (total_slot_count < 1) {
                 LOG(WARNING)
                         << "query " << print_id(query_ctx->query_id())
@@ -673,8 +675,8 @@ void WorkloadGroupMgr::update_queries_limit(WorkloadGroupPtr wg, bool enable_har
             query_ctx->set_expected_mem_limit(expected_query_weighted_mem_limit);
         }
     }
-    //LOG(INFO) << debug_msg;
-    LOG_EVERY_T(INFO, 60) << debug_msg;
+    LOG(INFO) << debug_msg;
+    //LOG_EVERY_T(INFO, 60) << debug_msg;
 }
 
 void WorkloadGroupMgr::stop() {
