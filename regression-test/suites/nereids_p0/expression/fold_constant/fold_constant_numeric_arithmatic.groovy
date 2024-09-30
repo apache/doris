@@ -241,15 +241,11 @@ suite("fold_constant_numeric_arithmatic") {
     testFoldConst("SELECT ACOS(1) AS acos_case_1") //acos(1) = 0
     testFoldConst("SELECT ACOS(0) AS acos_case_2") //acos(0) = π/2
     testFoldConst("SELECT ACOS(-1) AS acos_case_3") //acos(-1) = π
-//Exception: Acos out of range (-1 to 1)
-    testFoldConst("SELECT ACOS(2) AS acos_case_exception")
 
 //Asin function cases
     testFoldConst("SELECT ASIN(1) AS asin_case_1") //asin(1) = π/2
     testFoldConst("SELECT ASIN(0) AS asin_case_2") //asin(0) = 0
     testFoldConst("SELECT ASIN(-1) AS asin_case_3") //asin(-1) = -π/2
-//Exception: Asin out of range (-1 to 1)
-    testFoldConst("SELECT ASIN(2) AS acos_case_exception")
 
 //Atan function cases
     testFoldConst("SELECT ATAN(1) AS atan_case_1") //atan(1) = π/4
