@@ -332,9 +332,11 @@ public class Backend implements Writable {
         sb.append("backendId=").append(id);
         sb.append(", host=").append(host);
         if (!isAlive()) {
-            sb.append(", isAlive=false");
+            sb.append(", isAlive=false, exclude it");
         } else if (isDecommissioned()) {
-            sb.append(", isDecommissioned=true");
+            sb.append(", isDecommissioned=true, exclude it");
+        } else if (isComputeNode()) {
+            sb.append(", isComputeNode=true, exclude it");
         } else {
             sb.append(", hdd disks count={");
             if (hddOk > 0) {
