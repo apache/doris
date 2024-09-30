@@ -33,8 +33,8 @@ AggregateFunctionPtr create_aggregate_function_percentile_approx_older(
     }
     if (argument_types.size() == 2) {
         return creator_without_type::create<
-                AggregateFunctionPercentileApproxTwoParams_OLDER<is_nullable>>((argument_types),
-                                                                               result_is_nullable);
+                AggregateFunctionPercentileApproxTwoParams_OLDER<is_nullable>>(
+                remove_nullable(argument_types), result_is_nullable);
     }
     if (argument_types.size() == 3) {
         return creator_without_type::create<
@@ -104,23 +104,27 @@ AggregateFunctionPtr create_aggregate_function_percentile_approx_weighted(
 
 void register_aggregate_function_percentile(AggregateFunctionSimpleFactory& factory) {
     factory.register_function_both("percentile",
-                                   creator_with_integer_type::creator<AggregateFunctionPercentile>);
+                                   creator_with_numeric_type::creator<AggregateFunctionPercentile>);
     factory.register_function_both(
             "percentile_array",
             creator_with_integer_type::creator<AggregateFunctionPercentileArray>);
 }
 
 void register_percentile_approx_old_function(AggregateFunctionSimpleFactory& factory) {
-    factory.register_alternative_function(
-            "percentile_approx", create_aggregate_function_percentile_approx_older<false>, false);
-    factory.register_alternative_function(
-            "percentile_approx", create_aggregate_function_percentile_approx_older<true>, true);
+    factory.register_alternative_function("percentile_approx",
+                                          create_aggregate_function_percentile_approx_older<false>,
+                                          false, AGG_FUNCTION_NULLABLE);
+    factory.register_alternative_function("percentile_approx",
+                                          create_aggregate_function_percentile_approx_older<true>,
+                                          true, AGG_FUNCTION_NULLABLE);
     factory.register_alternative_function(
             "percentile_approx_weighted",
-            create_aggregate_function_percentile_approx_weighted_older<false>, false);
+            create_aggregate_function_percentile_approx_weighted_older<false>, false,
+            AGG_FUNCTION_NULLABLE);
     factory.register_alternative_function(
             "percentile_approx_weighted",
-            create_aggregate_function_percentile_approx_weighted_older<true>, true);
+            create_aggregate_function_percentile_approx_weighted_older<true>, true,
+            AGG_FUNCTION_NULLABLE);
 }
 
 void register_aggregate_function_percentile_approx(AggregateFunctionSimpleFactory& factory) {

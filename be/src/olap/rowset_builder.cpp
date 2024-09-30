@@ -165,7 +165,8 @@ Status RowsetBuilder::check_tablet_version_count() {
     if (version_count > config::max_tablet_version_num) {
         return Status::Error<TOO_MANY_VERSION>(
                 "failed to init rowset builder. version count: {}, exceed limit: {}, "
-                "tablet: {}",
+                "tablet: {}. Please reduce the frequency of loading data or adjust the "
+                "max_tablet_version_num in be.conf to a larger value.",
                 version_count, config::max_tablet_version_num, _tablet->tablet_id());
     }
     return Status::OK();
@@ -200,7 +201,8 @@ Status RowsetBuilder::init() {
         config::tablet_meta_serialize_size_limit) {
         return Status::Error<TOO_MANY_VERSION>(
                 "failed to init rowset builder. meta serialize size : {}, exceed limit: {}, "
-                "tablet: {}",
+                "tablet: {}. Please reduce the frequency of loading data or adjust the "
+                "max_tablet_version_num in be.conf to a larger value.",
                 tablet()->avg_rs_meta_serialize_size() * version_count,
                 config::tablet_meta_serialize_size_limit, _tablet->tablet_id());
     }

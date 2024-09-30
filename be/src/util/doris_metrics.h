@@ -234,6 +234,14 @@ public:
     IntAtomicCounter* num_io_bytes_read_from_cache = nullptr;
     IntAtomicCounter* num_io_bytes_read_from_remote = nullptr;
 
+    IntAtomicCounter* query_ctx_cnt = nullptr;
+    IntAtomicCounter* scanner_ctx_cnt = nullptr;
+    IntAtomicCounter* scanner_cnt = nullptr;
+    IntAtomicCounter* scanner_task_cnt = nullptr;
+    IntAtomicCounter* scanner_task_queued = nullptr;
+    IntAtomicCounter* scanner_task_submit_failed = nullptr;
+    IntAtomicCounter* scanner_task_running = nullptr;
+
     static DorisMetrics* instance() {
         static DorisMetrics instance;
         return &instance;

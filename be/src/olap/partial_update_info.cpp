@@ -19,6 +19,7 @@
 
 #include <gen_cpp/olap_file.pb.h>
 
+#include "common/consts.h"
 #include "olap/base_tablet.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/rowset.h"
@@ -26,6 +27,7 @@
 #include "olap/tablet_meta.h"
 #include "olap/tablet_schema.h"
 #include "olap/utils.h"
+#include "util/bitmap_value.h"
 #include "vec/common/assert_cast.h"
 #include "vec/core/block.h"
 
@@ -180,6 +182,11 @@ void PartialUpdateInfo::_generate_default_values_for_missing_cids(
                 DateV2Value<DateV2ValueType> dv;
                 dv.from_unixtime(timestamp_ms / 1000, timezone);
                 default_value = dv.debug_string();
+            } else if (UNLIKELY(column.type() == FieldType::OLAP_FIELD_TYPE_OBJECT &&
+                                to_lower(column.default_value()).find(to_lower("BITMAP_EMPTY")) !=
+                                        std::string::npos)) {
+                BitmapValue v = BitmapValue {};
+                default_value = v.to_string();
             } else {
                 default_value = column.default_value();
             }
@@ -300,7 +307,7 @@ Status PartialUpdateReadPlan::fill_missing_columns(
                             assert_cast<vectorized::ColumnInt64*, TypeCheckOnRelease::DISABLE>(missing_col.get());
                     auto_inc_column->insert(
                             (assert_cast<const vectorized::ColumnInt64*, TypeCheckOnRelease::DISABLE>(
-                                     block->get_by_name("__PARTIAL_UPDATE_AUTO_INC_COLUMN__").column.get()))->get_element(idx));
+                                     block->get_by_name(BeConsts::PARTIAL_UPDATE_AUTO_INC_COL).column.get()))->get_element(idx));
                 } else {
                     // If the control flow reaches this branch, the column neither has default value
                     // nor is nullable. It means that the row's delete sign is marked, and the value

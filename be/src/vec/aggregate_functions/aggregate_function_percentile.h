@@ -583,11 +583,14 @@ public:
 template <typename T>
 struct PercentileState {
     mutable std::vector<Counts<T>> vec_counts;
-    std::vector<double> vec_quantile;
+    std::vector<double> vec_quantile {-1};
     bool inited_flag = false;
 
     void write(BufferWritable& buf) const {
         write_binary(inited_flag, buf);
+        if (!inited_flag) {
+            return;
+        }
         int size_num = vec_quantile.size();
         write_binary(size_num, buf);
         for (const auto& quantile : vec_quantile) {
@@ -600,6 +603,9 @@ struct PercentileState {
 
     void read(BufferReadable& buf) {
         read_binary(inited_flag, buf);
+        if (!inited_flag) {
+            return;
+        }
         int size_num = 0;
         read_binary(size_num, buf);
         double data = 0.0;
@@ -625,8 +631,18 @@ struct PercentileState {
             }
         }
         for (int i = 0; i < arg_size; ++i) {
-            vec_counts[i].increment(source, 1);
+            vec_counts[i].increment(source);
         }
+    }
+
+    void add_batch(const PaddedPODArray<T>& source, const Float64& q) {
+        if (!inited_flag) {
+            inited_flag = true;
+            vec_counts.resize(1);
+            vec_quantile.resize(1);
+            vec_quantile[0] = q;
+        }
+        vec_counts[0].increment_batch(source);
     }
 
     void merge(const PercentileState& rhs) {
@@ -684,6 +700,17 @@ public:
                 assert_cast<const ColumnFloat64&, TypeCheckOnRelease::DISABLE>(*columns[1]);
         AggregateFunctionPercentile::data(place).add(sources.get_data()[row_num],
                                                      quantile.get_data(), 1);
+    }
+
+    void add_batch_single_place(size_t batch_size, AggregateDataPtr place, const IColumn** columns,
+                                Arena* arena) const override {
+        const auto& sources =
+                assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(*columns[0]);
+        const auto& quantile =
+                assert_cast<const ColumnFloat64&, TypeCheckOnRelease::DISABLE>(*columns[1]);
+        DCHECK_EQ(sources.get_data().size(), batch_size);
+        AggregateFunctionPercentile::data(place).add_batch(sources.get_data(),
+                                                           quantile.get_data()[0]);
     }
 
     void reset(AggregateDataPtr __restrict place) const override {

@@ -178,6 +178,17 @@ public class ColumnDef {
             }
             return value;
         }
+
+        public String toSql() {
+            StringBuilder sb = new StringBuilder();
+            sb.append("DEFAULT ");
+            if (value != null) {
+                sb.append('"').append(value).append('"');
+            } else {
+                sb.append("NULL");
+            }
+            return sb.toString();
+        }
     }
 
     // parameter initialized in constructor
@@ -427,8 +438,10 @@ public class ColumnDef {
         }
 
         if (type.getPrimitiveType() == PrimitiveType.BITMAP) {
-            if (defaultValue.isSet && defaultValue != DefaultValue.NULL_DEFAULT_VALUE) {
-                throw new AnalysisException("Bitmap type column can not set default value");
+            if (defaultValue.isSet && defaultValue != DefaultValue.NULL_DEFAULT_VALUE
+                    && !defaultValue.value.equals(DefaultValue.BITMAP_EMPTY_DEFAULT_VALUE.value)) {
+                throw new AnalysisException("Bitmap type column default value only support null or "
+                        + DefaultValue.BITMAP_EMPTY_DEFAULT_VALUE.value);
             }
             defaultValue = DefaultValue.BITMAP_EMPTY_DEFAULT_VALUE;
         }
@@ -660,7 +673,7 @@ public class ColumnDef {
         }
 
         if (defaultValue.isSet) {
-            sb.append("DEFAULT \"").append(defaultValue.value).append("\" ");
+            sb.append(defaultValue.toSql()).append(" ");
         }
         sb.append("COMMENT \"").append(comment).append("\"");
 

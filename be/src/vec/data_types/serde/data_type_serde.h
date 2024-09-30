@@ -137,6 +137,10 @@ public:
         bool converted_from_string = false;
 
         char escape_char = 0;
+        /**
+         * flags for each byte to indicate if escape is needed.
+         */
+        bool need_escape[256] = {false};
 
         /**
          * only used for export data
@@ -148,8 +152,8 @@ public:
          *      NULL
          *      null
          */
-        const char* null_format;
-        int null_len;
+        const char* null_format = "\\N";
+        int null_len = 2;
 
         /**
          * The wrapper char for string type in nested type.
@@ -166,7 +170,7 @@ public:
             CHECK(0 <= hive_text_complex_type_delimiter_level &&
                   hive_text_complex_type_delimiter_level <= 153);
 
-            char ans = '\002';
+            char ans;
             //https://github.com/apache/hive/blob/master/serde/src/java/org/apache/hadoop/hive/serde2/lazy/LazySerDeParameters.java#L250
             //use only control chars that are very unlikely to be part of the string
             // the following might/likely to be used in text files for strings
@@ -175,8 +179,9 @@ public:
             // 12 (form feed, FF, \f, ^L),
             // 13 (carriage return, CR, \r, ^M),
             // 27 (escape, ESC, \e [GCC only], ^[).
-
-            if (hive_text_complex_type_delimiter_level == 1) {
+            if (hive_text_complex_type_delimiter_level == 0) {
+                ans = field_delim[0];
+            } else if (hive_text_complex_type_delimiter_level == 1) {
                 ans = collection_delim;
             } else if (hive_text_complex_type_delimiter_level == 2) {
                 ans = map_key_delim;
@@ -192,7 +197,7 @@ public:
             } else if (hive_text_complex_type_delimiter_level <= 25) {
                 // [22, 25] -> [28, 31]
                 ans = hive_text_complex_type_delimiter_level + 6;
-            } else if (hive_text_complex_type_delimiter_level <= 153) {
+            } else {
                 // [26, 153] -> [-128, -1]
                 ans = hive_text_complex_type_delimiter_level + (-26 - 128);
             }

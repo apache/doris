@@ -154,8 +154,8 @@ public class ModifyBackendTest {
         String partName = tbl.getPartitionNames().stream().findFirst().get();
         String wrongAlterStr = "alter table test.tbl4 modify partition " + partName
                 + " set ('replication_allocation' = 'tag.location.zonex:1')";
-        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class, "errCode = 2, detailMessage = "
-                        + "errCode = 2, detailMessage = Failed to find enough backend, "
+        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class, "errCode = 2,"
+                        + " detailMessage = Failed to find enough backend, "
                         + "please check the replication num,replication tag and storage medium and avail capacity of backends "
                         + "or maybe all be on same host.\n"
                         + "Create failed replications:\n"

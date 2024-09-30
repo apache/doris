@@ -250,6 +250,9 @@ Status DataTypeStructSerDe::deserialize_one_cell_from_hive_text(
     char* data = slice.data;
     for (size_t i = 0, from = 0; i <= slice.size; i++) {
         if (i == slice.size || data[i] == struct_delimiter) {
+            if (options.escape_char != 0 && i > 0 && data[i - 1] == options.escape_char) {
+                continue;
+            }
             slices.push_back({data + from, i - from});
             from = i + 1;
         }
