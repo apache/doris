@@ -1683,6 +1683,11 @@ bool init(const char* conf_file, bool fill_conf_map, bool must_exist, bool set_t
         SET_FIELD(it.second, std::vector<std::string>, fill_conf_map, set_to_default);
     }
 
+    if (config::is_cloud_mode()) {
+        auto st = config::set_config("enable_file_cache", "true", true);
+        LOG(INFO) << "set config enable_file_cache " << "true" << " " << st;
+    }
+
     return true;
 }
 
