@@ -123,7 +123,7 @@ Status HashJoinBuildSinkLocalState::close(RuntimeState* state, Status exec_statu
             if (_shared_state->build_block) {
                 // release the memory of unused column in probe stage
                 _shared_state->build_block->clear_column_mem_not_keep(
-                        p._should_keep_column_flags, p._shared_hash_table_context.get() != nullptr);
+                        p._should_keep_column_flags, bool(p._shared_hashtable_controller));
             }
         }
 
@@ -596,7 +596,6 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
             _shared_hash_table_context->build_indexes_null =
                     local_state._shared_state->build_indexes_null;
             local_state._runtime_filter_slots->copy_to_shared_context(_shared_hash_table_context);
-            _shared_hashtable_controller->signal(node_id());
         }
     } else if (!local_state._should_build_hash_table) {
         DCHECK(_shared_hashtable_controller != nullptr);

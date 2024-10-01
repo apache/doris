@@ -763,7 +763,7 @@ void Block::clear_column_mem_not_keep(const std::vector<bool>& column_keep_flags
             }
         }
 
-        if (need_keep_first && data[0].column->size() != origin_rows) {
+        if (need_keep_first && !column_keep_flags[0]) {
             auto first_column = data[0].column->clone_empty();
             first_column->resize(origin_rows);
             data[0].column = std::move(first_column);
