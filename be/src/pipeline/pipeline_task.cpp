@@ -392,10 +392,11 @@ Status PipelineTask::execute(bool* eos) {
                 COUNTER_UPDATE(_memory_reserve_times, 1);
                 if (!st.ok()) {
                     COUNTER_UPDATE(_memory_reserve_failed_times, 1);
-                    LOG(INFO) << "query: " << print_id(query_id)
-                              << ", try to reserve: " << reserve_size << "(sink reserve size:("
-                              << sink_reserve_size << ")"
-                              << ", sink name: " << _sink->get_name()
+                    LOG(INFO) << "query: " << print_id(query_id) << ", try to reserve: "
+                              << PrettyPrinter::print(reserve_size, TUnit::BYTES)
+                              << "(sink reserve size:("
+                              << PrettyPrinter::print(sink_reserve_size, TUnit::BYTES)
+                              << "), sink name: " << _sink->get_name()
                               << ", node id: " << _sink->node_id() << " failed: " << st.to_string()
                               << ", debug info: " << GlobalMemoryArbitrator::process_mem_log_str();
 
