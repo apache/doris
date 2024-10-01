@@ -1284,7 +1284,7 @@ public class OlapTable extends Table {
         long rowCount = 0;
         for (Map.Entry<Long, Partition> entry : idToPartition.entrySet()) {
             MaterializedIndex index = entry.getValue().getIndex(indexId);
-            if (strict && !index.getRowCountReported()) {
+            if (index == null || strict && !index.getRowCountReported()) {
                 return -1;
             }
             rowCount += (index == null || index.getRowCount() == -1) ? 0 : index.getRowCount();
