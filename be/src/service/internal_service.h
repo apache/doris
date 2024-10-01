@@ -41,11 +41,11 @@ class RuntimeState;
 template <typename T>
 concept CanCancel = requires(T* response) { response->mutable_status(); };
 
-//template <typename T>
-//void offer_failed(T* response, google::protobuf::Closure* done, const FifoThreadPool& pool) {
-//    brpc::ClosureGuard closure_guard(done);
-//    LOG(WARNING) << "fail to offer request to the work pool, pool=" << pool.get_info();
-//}
+template <typename T>
+void offer_failed(T* response, google::protobuf::Closure* done, const FifoThreadPool& pool) {
+    brpc::ClosureGuard closure_guard(done);
+    LOG(WARNING) << "fail to offer request to the work pool, pool=" << pool.get_info();
+}
 
 template <CanCancel T>
 void offer_failed(T* response, google::protobuf::Closure* done, const FifoThreadPool& pool) {
