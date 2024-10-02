@@ -443,7 +443,8 @@ Status PipelineTask::execute(bool* eos) {
             COUNTER_UPDATE(_yield_counts, 1);
 
             LOG(INFO) << "query: " << print_id(query_id) << ", task: " << (void*)this
-                      << ", insufficient memory. reserve_size: " << reserve_size;
+                      << ", insufficient memory. reserve_size: "
+                      << PrettyPrinter::print(reserve_size, TUnit::BYTES);
             _memory_sufficient_dependency->block();
             ExecEnv::GetInstance()->workload_group_mgr()->add_paused_query(
                     _state->get_query_ctx()->shared_from_this(), reserve_size);

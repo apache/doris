@@ -285,8 +285,6 @@ void WorkloadGroupMgr::handle_non_overcommit_wg_paused_queries() {
         auto& queries_list = it->second;
         const auto& wg = it->first;
         if (queries_list.empty()) {
-            LOG(INFO) << "wg: " << wg->debug_string()
-                      << " has no paused query, update it to memory sufficent";
             it = _paused_queries_list.erase(it);
             continue;
         }
@@ -639,8 +637,6 @@ void WorkloadGroupMgr::update_queries_limit(WorkloadGroupPtr wg, bool enable_har
         int64_t expected_query_weighted_mem_limit = 0;
         // If the query enable hard limit, then it should not use the soft limit
         if (query_ctx->enable_query_slot_hard_limit()) {
-            LOG(INFO) << "query info " << wg_high_water_mark_except_load << ","
-                      << query_ctx->get_slot_count() << "," << total_slot_count;
             if (total_slot_count < 1) {
                 LOG(WARNING)
                         << "query " << print_id(query_ctx->query_id())
