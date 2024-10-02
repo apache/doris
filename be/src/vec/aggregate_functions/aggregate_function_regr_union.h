@@ -103,9 +103,7 @@ template <typename T>
 struct RegrSlopeFunc : AggregateFunctionRegrData<T> {
     static constexpr const char* name = "regr_slope";
 
-    Float64 get_result() const {
-        return this->get_slope();
-    }
+    Float64 get_result() const { return this->get_slope(); }
 };
 
 template <typename T>
@@ -116,8 +114,7 @@ struct RegrInterceptFunc : AggregateFunctionRegrData<T> {
         auto slope = this->get_slope();
         if (std::isnan(slope)) {
             return slope;
-        }
-        else {
+        } else {
             Float64 intercept = (this->sum_y - slope * this->sum_x) / this->count;
             return intercept;
         }
