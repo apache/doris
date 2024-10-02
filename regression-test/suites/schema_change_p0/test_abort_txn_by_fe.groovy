@@ -18,13 +18,17 @@
 import org.apache.doris.regression.suite.ClusterOptions
 import org.apache.http.NoHttpResponseException
 
-suite('test_abort_txn_by_fe_local3', 'docker') {
+suite('test_abort_txn_by_fe', 'docker') {
     def options = new ClusterOptions()
-    options.cloudMode = false
+    options.cloudMode = null
     options.enableDebugPoints()
     options.beConfigs += [ "enable_java_support=false" ]
-    options.feConfigs += [ "enable_abort_txn_by_checking_coordinator_be=false" ]
-    options.feConfigs += [ "enable_abort_txn_by_checking_conflict_txn=true" ]
+    options.feConfigs += [
+        "load_checker_interval_second=2",
+        "enable_abort_txn_by_checking_coordinator_be=false",
+        "enable_abort_txn_by_checking_conflict_txn=true",
+    ]
+    options.feNum = 3
     options.beNum = 1
 
     docker(options) {
@@ -59,10 +63,15 @@ suite('test_abort_txn_by_fe_local3', 'docker') {
         loadSql = loadSql.replaceAll("\\\$\\{loadLabel\\}", loadLabel) + s3WithProperties
         sql loadSql
 
-        def coordinatorFe = cluster.getAllFrontends().get(0)
-        def coordinatorFeHost = coordinatorFe.host
-
-        sleep(5000)
+        if (isCloudMode()) {
+            sleep 6000
+        } else {
+            def dbId = getDbId()
+            dockerAwaitUntil(20, {
+                def txns = sql_return_maparray("show proc '/transactions/${dbId}/running'")
+                txns.any { it.Label == loadLabel }
+            })
+        }
 
         sql """ alter table ${table} modify column lo_suppkey bigint NULL """
         
@@ -82,9 +91,22 @@ suite('test_abort_txn_by_fe_local3', 'docker') {
         sleep 10000
         assertEquals(result, "WAITING_TXN");
 
-        cluster.restartFrontends()
-        sleep(30000)
+        def oldMasterFe = cluster.getMasterFe()
+        cluster.restartFrontends(oldMasterFe.index)
+        boolean hasRestart = false
+        for (int i = 0; i < 30; i++) {
+            if (cluster.getFeByIndex(oldMasterFe.index).alive) {
+                hasRestart = true
+                break
+            }
+            sleep 1000
+        }
+        assertTrue(hasRestart)
         context.reconnectFe()
+        if (!isCloudMode()) {
+            def newMasterFe = cluster.getMasterFe()
+            assertTrue(oldMasterFe.index != newMasterFe.index)
+        }
 
         max_try_time = 3000
         while (max_try_time--){
