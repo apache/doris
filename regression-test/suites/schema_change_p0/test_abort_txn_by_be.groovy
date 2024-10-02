@@ -18,13 +18,15 @@
 import org.apache.doris.regression.suite.ClusterOptions
 import org.apache.http.NoHttpResponseException
 
-suite('test_abort_txn_by_be_local5', 'docker') {
+suite('test_abort_txn_by_be', 'docker') {
+
+  def run_test = { enable_abort_txn_by_checking_coordinator_be, enable_abort_txn_by_checking_conflict_txn ->
     def options = new ClusterOptions()
-    options.cloudMode = false
+    options.cloudMode = null
     options.enableDebugPoints()
     options.beConfigs += [ "enable_java_support=false" ]
-    options.feConfigs += [ "enable_abort_txn_by_checking_coordinator_be=true" ]
-    options.feConfigs += [ "enable_abort_txn_by_checking_conflict_txn=false" ]
+    options.feConfigs += [ "enable_abort_txn_by_checking_coordinator_be=${enable_abort_txn_by_checking_coordinator_be}" ]
+    options.feConfigs += [ "enable_abort_txn_by_checking_conflict_txn=${enable_abort_txn_by_checking_conflict_txn}" ]
     options.beNum = 1
 
     docker(options) {
@@ -59,6 +61,8 @@ suite('test_abort_txn_by_be_local5', 'docker') {
                 lo_shippriority,lo_quantity,lo_extendedprice,lo_ordtotalprice,lo_discount, 
                 lo_revenue,lo_supplycost,lo_tax,lo_commitdate,lo_shipmode,lo_dummy"""
 
+        GetDebugPoint().enableDebugPointForAllBEs('StreamLoadExecutor.commit_txn.block')
+
         thread {
             streamLoad {
                 // a default db 'regression_test' is specified in
@@ -86,22 +90,21 @@ suite('test_abort_txn_by_be_local5', 'docker') {
                 // if declared a check callback, the default check condition will ignore.
                 // So you must check all condition
                 check { result, exception, startTime, endTime ->
-                    if (exception != null) {
-                        throw exception
-                    }
-                    log.info("Stream load result: ${result}".toString())
-                    def json = parseJson(result)
-                    assertEquals("success", json.Status.toLowerCase())
-                    assertEquals(json.NumberTotalRows, json.NumberLoadedRows)
-                    assertTrue(json.NumberLoadedRows > 0 && json.LoadBytes > 0)
                 }
             }
         }
 
-        sleep(10000)
+        if (isCloudMode()) {
+            sleep 3000
+        } else {
+            def dbId = getDbId()
+            dockerAwaitUntil(20, {
+                def txns = sql_return_maparray("show proc '/transactions/${dbId}/running'")
+                txns.size() > 0
+            })
+        }
 
         sql """ alter table ${tableName} modify column lo_suppkey bigint NULL """
-
         String result = ""
         int max_try_time = 3000
         while (max_try_time--){
@@ -161,4 +164,8 @@ suite('test_abort_txn_by_be_local5', 'docker') {
             }
         }
     }
+  }
+
+  run_test(true, false)
+  run_test(false, true)
 }
