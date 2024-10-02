@@ -39,6 +39,7 @@ namespace doris::vectorized {
 
 template <typename T>
 struct AggregateFunctionRegrData {
+    using Type = T;
     UInt64 count = 0;
     Float64 sum_x {};
     Float64 sum_y {};
@@ -87,38 +88,39 @@ struct AggregateFunctionRegrData {
         sum_of_x_squared += value_x * value_x;
         count += 1;
     }
-};
 
-template <typename T>
-struct RegrSlopeFunc : AggregateFunctionRegrData<T> {
-    using Type = T;
-    static constexpr const char* name = "regr_slope";
-
-    Float64 get_result() const {
-        Float64 denominator = this->count * this->sum_of_x_squared - this->sum_x * this->sum_x;
-        if (this->count < 2 || denominator == 0.0) {
+    Float64 get_slope() const {
+        Float64 denominator = count * sum_of_x_squared - sum_x * sum_x;
+        if (count < 2 || denominator == 0.0) {
             return std::numeric_limits<Float64>::quiet_NaN();
         }
-        Float64 slope =
-                (this->count * this->sum_of_x_mul_y - this->sum_x * this->sum_y) / denominator;
+        Float64 slope = (count * sum_of_x_mul_y - sum_x * sum_y) / denominator;
         return slope;
     }
 };
 
 template <typename T>
+struct RegrSlopeFunc : AggregateFunctionRegrData<T> {
+    static constexpr const char* name = "regr_slope";
+
+    Float64 get_result() const {
+        return this->get_slope();
+    }
+};
+
+template <typename T>
 struct RegrInterceptFunc : AggregateFunctionRegrData<T> {
-    using Type = T;
     static constexpr const char* name = "regr_intercept";
 
     Float64 get_result() const {
-        Float64 denominator = this->count * this->sum_of_x_squared - this->sum_x * this->sum_x;
-        if (this->count < 2 || denominator == 0.0) {
-            return std::numeric_limits<Float64>::quiet_NaN();
+        auto slope = this->get_slope();
+        if (std::isnan(slope)) {
+            return slope;
         }
-        Float64 slope =
-                (this->count * this->sum_of_x_mul_y - this->sum_x * this->sum_y) / denominator;
-        Float64 intercept = (this->sum_y - slope * this->sum_x) / this->count;
-        return intercept;
+        else {
+            Float64 intercept = (this->sum_y - slope * this->sum_x) / this->count;
+            return intercept;
+        }
     }
 };
 
