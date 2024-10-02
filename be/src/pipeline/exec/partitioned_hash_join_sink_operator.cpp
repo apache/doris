@@ -327,7 +327,8 @@ Status PartitionedHashJoinSinkLocalState::revoke_memory(
             st = Status::Error<INTERNAL_ERROR>(
                     "fault_inject partitioned_hash_join_sink revoke_memory submit_func failed");
         });
-
+        // For every stream, the task counter is increased +1
+        // so that when a stream finished, it should desc -1
         state->get_query_ctx()->increase_revoking_tasks_count();
         auto spill_runnable = std::make_shared<SpillRunnable>(
                 state, _shared_state->shared_from_this(),
@@ -349,6 +350,7 @@ Status PartitionedHashJoinSinkLocalState::revoke_memory(
                         return Status::OK();
                     }();
 
+                    _state->get_query_ctx()->decrease_revoking_tasks_count();
                     if (!status.ok()) {
                         std::unique_lock<std::mutex> lock(_spill_lock);
                         _spill_dependency->set_ready();
@@ -458,7 +460,6 @@ void PartitionedHashJoinSinkLocalState::_spill_to_disk(
 
     if (num == 1) {
         std::unique_lock<std::mutex> lock(_spill_lock);
-        _state->get_query_ctx()->decrease_revoking_tasks_count();
         _spill_dependency->set_ready();
         if (_child_eos) {
             VLOG_DEBUG << "query:" << print_id(this->state()->query_id()) << ", hash join sink "

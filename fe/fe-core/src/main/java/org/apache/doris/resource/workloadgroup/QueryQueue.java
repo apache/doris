@@ -130,7 +130,8 @@ public class QueryQueue {
                 queueToken.complete();
                 return queueToken;
             } else if (waitingQueryQueue.size() >= maxQueueSize) {
-                throw new UserException("query waiting queue is full, queue length=" + maxQueueSize);
+                throw new UserException("query waiting queue is full, queue capacity=" + maxQueueSize
+                        + ", waiting num=" + waitingQueryQueue.size());
             } else {
                 if (!hasFreeSlot) {
                     queueToken.setQueueMsg("NO_FREE_SLOT");

@@ -470,7 +470,7 @@ Status QueryContext::revoke_memory() {
     // Do not use memlimit, use current memory usage.
     // For example, if current limit is 1.6G, but current used is 1G, if reserve failed
     // should free 200MB memory, not 300MB
-    const int64_t target_revoking_size = (int64_t)(query_mem_tracker->consumption() * 0.2);
+    //const int64_t target_revoking_size = (int64_t)(query_mem_tracker->consumption() * 0.2);
     size_t revoked_size = 0;
 
     std::vector<pipeline::PipelineTask*> chosen_tasks;
@@ -478,9 +478,11 @@ Status QueryContext::revoke_memory() {
         chosen_tasks.emplace_back(task);
 
         revoked_size += revocable_size;
-        if (revoked_size >= target_revoking_size) {
-            break;
-        }
+        // Only revoke the largest task to ensure memory is used as much as possible
+        break;
+        //if (revoked_size >= target_revoking_size) {
+        //    break;
+        //}
     }
 
     std::weak_ptr<QueryContext> this_ctx = shared_from_this();
@@ -491,18 +493,18 @@ Status QueryContext::revoke_memory() {
                     return;
                 }
 
-                LOG(INFO) << "query: " << print_id(query_context->_query_id)
-                          << ", context: " << ((void*)context)
-                          << " all revoking tasks done, resumt it.";
+                LOG(INFO) << query_context->debug_string() << ", context: " << ((void*)context)
+                          << " all spill tasks done, resume it.";
                 query_context->set_memory_sufficient(true);
             });
 
-    LOG(INFO) << "query: " << print_id(_query_id) << ", context: " << ((void*)spill_context.get())
-              << " total revoked size: " << revoked_size << ", tasks count: " << chosen_tasks.size()
-              << "/" << tasks.size();
     for (auto* task : chosen_tasks) {
         RETURN_IF_ERROR(task->revoke_memory(spill_context));
     }
+
+    LOG(INFO) << this->debug_string() << ", context: " << ((void*)spill_context.get())
+              << " total revoked size: " << PrettyPrinter::print(revoked_size, TUnit::BYTES)
+              << ", tasks count: " << chosen_tasks.size() << "/" << tasks.size();
     return Status::OK();
 }
 
@@ -526,7 +528,7 @@ std::vector<pipeline::PipelineTask*> QueryContext::get_revocable_tasks() const {
 std::string QueryContext::debug_string() {
     std::lock_guard l(_paused_mutex);
     return fmt::format(
-            "MemTracker Label={}, Used={}, Limit={}, Peak={}, running revoke task count {}, "
+            "Label={}, Used={}, Limit={}, Peak={}, running revoke task count {}, "
             "MemorySufficient={}, PausedReason={}",
             query_mem_tracker->label(),
             PrettyPrinter::print(query_mem_tracker->consumption(), TUnit::BYTES),
