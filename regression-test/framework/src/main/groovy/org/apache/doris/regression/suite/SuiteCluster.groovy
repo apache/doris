@@ -270,6 +270,7 @@ class SuiteCluster {
     final Config config
     private boolean running
     private boolean sqlModeNodeMgr = false
+    private boolean isCloudMode = false
 
     SuiteCluster(String name, Config config) {
         this.name = name
@@ -281,6 +282,8 @@ class SuiteCluster {
         assert name != null && name != ''
         assert options.feNum > 0 || options.beNum > 0
         assert config.image != null && config.image != ''
+
+        this.isCloudMode = isCloud
 
         def cmd = [
             'up', name, config.image
@@ -513,6 +516,10 @@ class SuiteCluster {
 
     boolean isRunning() {
         return running
+    }
+
+    boolean isCloudMode() {
+        return this.isCloudMode
     }
 
     // if not specific fe indices, then start all frontends

@@ -290,17 +290,13 @@ class Suite implements GroovyInterceptable {
                     + "see example demo_p0/docker_action.groovy")
         }
 
-        try {
-            context.config.fetchCloudMode()
-        } catch (Exception e) {
-        }
-
-        boolean dockerIsCloud = false
         if (options.cloudMode == null) {
             if (context.config.runMode == RunMode.UNKNOWN) {
-                throw new Exception("Bad run mode, cloud or not_cloud is unknown")
+                dockerImpl(options, false, actionSupplier)
+                dockerImpl(options, true, actionSupplier)
+            } else {
+                dockerImpl(options, context.config.runMode == RunMode.CLOUD, actionSupplier)
             }
-            dockerIsCloud = context.config.runMode == RunMode.CLOUD
         } else {
             if (options.cloudMode == true && context.config.runMode == RunMode.NOT_CLOUD) {
                 return
@@ -308,12 +304,16 @@ class Suite implements GroovyInterceptable {
             if (options.cloudMode == false && context.config.runMode == RunMode.CLOUD) {
                 return
             }
-            dockerIsCloud = options.cloudMode
+            dockerImpl(options, options.cloudMode, actionSupplier)
         }
+    }
 
+
+    private void dockerImpl(ClusterOptions options, boolean isCloud, Closure actionSupplier) throws Exception {
+        logger.info("=== start run suite {} in {} mode. ===", name, (isCloud ? "cloud" : "not_cloud"))
         try {
             cluster.destroy(true)
-            cluster.init(options, dockerIsCloud)
+            cluster.init(options, isCloud)
 
             def user = context.config.jdbcUser
             def password = context.config.jdbcPassword
@@ -329,7 +329,7 @@ class Suite implements GroovyInterceptable {
 
             logger.info("get fe {}", fe)
             assertNotNull(fe)
-            if (!dockerIsCloud) {
+            if (!isCloud) {
                 for (def be : cluster.getAllBackends()) {
                     be_report_disk(be.host, be.httpPort)
                 }
@@ -1478,7 +1478,11 @@ class Suite implements GroovyInterceptable {
     }
 
     boolean isCloudMode() {
-        return context.config.isCloudMode()
+        if (cluster.isRunning()) {
+            return cluster.isCloudMode()
+        } else {
+            return context.config.isCloudMode()
+        }
     }
 
     boolean enableStoragevault() {
