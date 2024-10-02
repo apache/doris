@@ -23,11 +23,16 @@ import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
 
 import java.util.Map;
 
-public class ConfigAWSProvider implements AwsCredentialsProvider {
+/**
+ * This is credentials provider for AWS SDK 2.x, comparing to ConfigurationAWSCredentialsProvider,
+ * which is for AWS SDK 1.x.
+ * See: https://docs.aws.amazon.com/sdk-for-java/latest/developer-guide/migration-client-credentials.html
+ */
+public class ConfigurationAWSCredentialsProvider2x implements AwsCredentialsProvider {
 
     private AwsBasicCredentials awsBasicCredentials;
 
-    private ConfigAWSProvider(AwsBasicCredentials awsBasicCredentials) {
+    private ConfigurationAWSCredentialsProvider2x(AwsBasicCredentials awsBasicCredentials) {
         this.awsBasicCredentials = awsBasicCredentials;
     }
 
@@ -40,6 +45,6 @@ public class ConfigAWSProvider implements AwsCredentialsProvider {
         String ak = config.get("glue.access_key");
         String sk = config.get("glue.secret_key");
         AwsBasicCredentials awsBasicCredentials = AwsBasicCredentials.create(ak, sk);
-        return new ConfigAWSProvider(awsBasicCredentials);
+        return new ConfigurationAWSCredentialsProvider2x(awsBasicCredentials);
     }
 }
