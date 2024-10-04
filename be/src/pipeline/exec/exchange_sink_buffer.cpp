@@ -22,6 +22,7 @@
 #include <butil/iobuf_inl.h>
 #include <fmt/format.h>
 #include <gen_cpp/Types_types.h>
+#include <gen_cpp/types.pb.h>
 #include <glog/logging.h>
 #include <google/protobuf/stubs/callback.h>
 #include <stddef.h>
@@ -145,6 +146,10 @@ Status ExchangeSinkBuffer::add_block(TransmitInfo&& request) {
         return Status::OK();
     }
     auto ins_id = request.channel->_fragment_instance_id.lo;
+    if (!_instance_to_package_queue_mutex.contains(ins_id)) {
+        return Status::InternalError("fragment_instance_id {} not do register_sink",
+                                     print_id(request.channel->_fragment_instance_id));
+    }
     if (_is_receiver_eof(ins_id)) {
         return Status::EndOfFile("receiver eof");
     }
@@ -179,6 +184,10 @@ Status ExchangeSinkBuffer::add_block(BroadcastTransmitInfo&& request) {
         return Status::OK();
     }
     auto ins_id = request.channel->_fragment_instance_id.lo;
+    if (!_instance_to_package_queue_mutex.contains(ins_id)) {
+        return Status::InternalError("fragment_instance_id {} not do register_sink",
+                                     print_id(request.channel->_fragment_instance_id));
+    }
     if (_is_receiver_eof(ins_id)) {
         return Status::EndOfFile("receiver eof");
     }
@@ -272,7 +281,11 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
             } else if (eos) {
                 _ended(id);
             } else {
-                static_cast<void>(_send_rpc(id));
+                s = _send_rpc(id);
+                if (!s) {
+                    _failed(id, fmt::format("exchange req success but status isn't ok: {}",
+                                            s.to_string()));
+                }
             }
         });
         {
@@ -351,7 +364,11 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
             } else if (eos) {
                 _ended(id);
             } else {
-                static_cast<void>(_send_rpc(id));
+                s = _send_rpc(id);
+                if (!s) {
+                    _failed(id, fmt::format("exchange req success but status isn't ok: {}",
+                                            s.to_string()));
+                }
             }
         });
         {
