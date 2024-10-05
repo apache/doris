@@ -397,7 +397,7 @@ Status FixedReadPlan::fill_missing_columns(
 
 void FlexibleReadPlan::prepare_to_read(const RowLocation& row_location, size_t pos,
                                        const BitmapValue& skip_bitmap) {
-    if (!has_row_store) {
+    if (!use_row_store) {
         for (uint64_t col_uid : skip_bitmap) {
             plan[row_location.rowset_id][row_location.segment_id][col_uid].emplace_back(
                     row_location.row_id, pos);
@@ -406,10 +406,6 @@ void FlexibleReadPlan::prepare_to_read(const RowLocation& row_location, size_t p
         row_store_plan[row_location.rowset_id][row_location.segment_id].emplace_back(
                 row_location.row_id, pos);
     }
-}
-
-void FlexibleReadPlan::set_row_store(bool has_row_store_column) {
-    has_row_store = has_row_store_column;
 }
 
 Status FlexibleReadPlan::read_columns_by_plan(
@@ -456,7 +452,7 @@ Status FlexibleReadPlan::read_columns_by_plan(
         const TabletSchema& tablet_schema, const std::vector<uint32_t>& cids_to_read,
         const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
         vectorized::Block& old_value_block, std::map<uint32_t, uint32_t>* read_index) const {
-    DCHECK(has_row_store);
+    DCHECK(use_row_store);
     auto mutable_columns = old_value_block.mutate_columns();
     size_t read_idx = 0;
     for (const auto& [rowset_id, segment_row_mappings] : row_store_plan) {
@@ -491,14 +487,13 @@ Status FlexibleReadPlan::fill_non_primary_key_columns(
         const std::size_t segment_start_pos, const std::size_t block_start_pos,
         const vectorized::Block* block, std::vector<BitmapValue>* skip_bitmaps) const {
     auto mutable_full_columns = full_block.mutate_columns();
-    bool has_row_column = tablet_schema.has_row_store_for_all_columns();
 
     // missing_cids are all non sort key columns' cids
     const auto& non_sort_key_cids = rowset_ctx->partial_update_info->missing_cids;
     auto old_value_block = tablet_schema.create_block_by_cids(non_sort_key_cids);
     CHECK_EQ(non_sort_key_cids.size(), old_value_block.columns());
 
-    if (!has_row_column) {
+    if (!use_row_store) {
         RETURN_IF_ERROR(fill_non_primary_key_columns_for_column_store(
                 rowset_ctx, rsid_to_rowset, tablet_schema, non_sort_key_cids, old_value_block,
                 mutable_full_columns, use_default_or_null_flag, has_default_or_nullable,

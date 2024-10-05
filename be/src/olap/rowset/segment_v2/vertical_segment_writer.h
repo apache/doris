@@ -172,8 +172,8 @@ private:
                                                        vectorized::Block& full_block);
     Status _generate_flexible_read_plan(
             FlexibleReadPlan& read_plan, RowsInBlock& data, size_t segment_start_pos,
-            bool schema_has_sequence_col, int32_t seq_col_unique_id, int32_t seq_map_col_unique_id,
-            int32_t delete_sign_col_unique_id, std::vector<BitmapValue>* skip_bitmaps,
+            bool schema_has_sequence_col, int32_t seq_map_col_unique_id,
+            std::vector<BitmapValue>* skip_bitmaps,
             const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns,
             vectorized::IOlapColumnDataAccessor* seq_column,
             const signed char* delete_sign_column_data,
@@ -184,6 +184,7 @@ private:
     Status _merge_rows_for_sequence_column(
             RowsInBlock& data, std::vector<BitmapValue>* skip_bitmaps,
             const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns,
+            vectorized::IOlapColumnDataAccessor* seq_column,
             const std::vector<RowsetSharedPtr>& specified_rowsets,
             std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches);
     Status _append_block_with_variant_subcolumns(RowsInBlock& data);

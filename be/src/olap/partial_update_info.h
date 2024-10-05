@@ -130,7 +130,7 @@ private:
 
 class FlexibleReadPlan {
 public:
-    void set_row_store(bool has_row_store_column);
+    FlexibleReadPlan(bool has_row_store_for_column) : use_row_store(has_row_store_for_column) {}
     void prepare_to_read(const RowLocation& row_location, size_t pos,
                          const BitmapValue& skip_bitmap);
     // for column store
@@ -171,10 +171,9 @@ public:
             const vectorized::Block* block, std::vector<BitmapValue>* skip_bitmaps) const;
 
 private:
+    bool use_row_store {false};
     // rowset_id -> segment_id -> column unique id -> mappings
     std::map<RowsetId, std::map<uint32_t, std::map<uint32_t, std::vector<RidAndPos>>>> plan;
-
-    bool has_row_store {false};
     std::map<RowsetId, std::map<uint32_t /* segment_id */, std::vector<RidAndPos>>> row_store_plan;
 };
 
