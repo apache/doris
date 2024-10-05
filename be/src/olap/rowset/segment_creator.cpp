@@ -47,6 +47,7 @@
 #include "vec/core/columns_with_type_and_name.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
+#include "vec/json/json_parser.h"
 
 namespace doris {
 using namespace ErrorCode;
@@ -68,8 +69,7 @@ Status SegmentFlusher::flush_single_block(const vectorized::Block* block, int32_
         RETURN_IF_ERROR(_parse_variant_columns(flush_block));
     }
     bool no_compression = flush_block.bytes() <= config::segment_compression_threshold_kb * 1024;
-    if (config::enable_vertical_segment_writer &&
-        _context.tablet_schema->cluster_key_idxes().empty()) {
+    if (config::enable_vertical_segment_writer) {
         std::unique_ptr<segment_v2::VerticalSegmentWriter> writer;
         RETURN_IF_ERROR(_create_segment_writer(writer, segment_id, no_compression));
         RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_add_rows(writer, &flush_block, 0, flush_block.rows()));
@@ -83,7 +83,7 @@ Status SegmentFlusher::flush_single_block(const vectorized::Block* block, int32_
     return Status::OK();
 }
 
-Status SegmentFlusher::_parse_variant_columns(vectorized::Block& block) {
+Status SegmentFlusher::_internal_parse_variant_columns(vectorized::Block& block) {
     size_t num_rows = block.rows();
     if (num_rows == 0) {
         return Status::OK();
@@ -101,9 +101,10 @@ Status SegmentFlusher::_parse_variant_columns(vectorized::Block& block) {
         return Status::OK();
     }
 
-    vectorized::schema_util::ParseContext ctx;
-    ctx.record_raw_json_column = _context.tablet_schema->has_row_store_for_all_columns();
-    RETURN_IF_ERROR(vectorized::schema_util::parse_variant_columns(block, variant_column_pos, ctx));
+    vectorized::ParseConfig config;
+    config.enable_flatten_nested = _context.tablet_schema->variant_flatten_nested();
+    RETURN_IF_ERROR(
+            vectorized::schema_util::parse_variant_columns(block, variant_column_pos, config));
     return Status::OK();
 }
 

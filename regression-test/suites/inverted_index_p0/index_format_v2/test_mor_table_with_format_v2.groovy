@@ -155,6 +155,7 @@ suite("test_mor_table_with_format_v2", "inverted_index_format_v2") {
             """
 
         sql """ sync """
+        sql """ set enable_common_expr_pushdown = true """
 
         sql """ DELETE FROM ${tableName} WHERE user_id = 3 """
 

@@ -132,6 +132,10 @@ suite("materialized_view_grouping_sets") {
     (2, 3, 10, 11.01, 'supply2');
     """
 
+    sql """analyze table lineitem with sync;"""
+    sql """analyze table orders with sync;"""
+    sql """analyze table partsupp with sync;"""
+
     // query has group sets, and mv doesn't
     // single table grouping sets without grouping scalar function
     def mv1_0 =

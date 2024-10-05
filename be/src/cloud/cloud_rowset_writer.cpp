@@ -17,6 +17,7 @@
 
 #include "cloud/cloud_rowset_writer.h"
 
+#include "common/status.h"
 #include "io/cache/block_file_cache_factory.h"
 #include "io/fs/file_system.h"
 #include "olap/rowset/rowset_factory.h"
@@ -34,7 +35,7 @@ Status CloudRowsetWriter::init(const RowsetWriterContext& rowset_writer_context)
     if (_context.is_local_rowset()) {
         // In cloud mode, this branch implies it is an intermediate rowset for external merge sort,
         // we use `global_local_filesystem` to write data to `tmp_file_dir`(see `local_segment_path`).
-        _context.tablet_path = io::FileCacheFactory::instance()->get_cache_path();
+        _context.tablet_path = io::FileCacheFactory::instance()->pick_one_cache_path();
     } else {
         _rowset_meta->set_remote_storage_resource(*_context.storage_resource);
     }

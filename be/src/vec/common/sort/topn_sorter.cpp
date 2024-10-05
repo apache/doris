@@ -72,17 +72,16 @@ Status TopNSorter::_do_sort(Block* block) {
         // if one block totally greater the heap top of _block_priority_queue
         // we can throw the block data directly.
         if (_state->num_rows() < _offset + _limit) {
-            RETURN_IF_ERROR(_state->add_sorted_block(sorted_block));
-            _block_priority_queue.emplace(_pool->add(
-                    new MergeSortCursorImpl(_state->last_sorted_block(), _sort_description)));
+            _state->add_sorted_block(Block::create_shared(std::move(sorted_block)));
+            _block_priority_queue.emplace(MergeSortCursorImpl::create_shared(
+                    _state->last_sorted_block(), _sort_description));
         } else {
-            auto tmp_cursor_impl =
-                    std::make_unique<MergeSortCursorImpl>(sorted_block, _sort_description);
-            MergeSortBlockCursor block_cursor(tmp_cursor_impl.get());
+            auto tmp_cursor_impl = MergeSortCursorImpl::create_shared(
+                    Block::create_shared(std::move(sorted_block)), _sort_description);
+            MergeSortBlockCursor block_cursor(tmp_cursor_impl);
             if (!block_cursor.totally_greater(_block_priority_queue.top())) {
-                RETURN_IF_ERROR(_state->add_sorted_block(sorted_block));
-                _block_priority_queue.emplace(_pool->add(
-                        new MergeSortCursorImpl(_state->last_sorted_block(), _sort_description)));
+                _state->add_sorted_block(block_cursor.impl->block);
+                _block_priority_queue.emplace(tmp_cursor_impl);
             }
         }
     } else {

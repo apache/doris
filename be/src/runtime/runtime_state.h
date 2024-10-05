@@ -437,10 +437,6 @@ public:
 
     std::vector<TErrorTabletInfo>& error_tablet_infos() { return _error_tablet_infos; }
 
-    // get mem limit for load channel
-    // if load mem limit is not set, or is zero, using query mem limit instead.
-    int64_t get_load_mem_limit();
-
     // local runtime filter mgr, the runtime filter do not have remote target or
     // not need local merge should regist here. the instance exec finish, the local
     // runtime filter mgr can release the memory of local runtime filter
@@ -492,6 +488,18 @@ public:
         return _query_options.__isset.parallel_scan_max_scanners_count
                        ? _query_options.parallel_scan_max_scanners_count
                        : 0;
+    }
+
+    int partition_topn_max_partitions() const {
+        return _query_options.__isset.partition_topn_max_partitions
+                       ? _query_options.partition_topn_max_partitions
+                       : 1024;
+    }
+
+    int partition_topn_per_partition_rows() const {
+        return _query_options.__isset.partition_topn_pre_partition_rows
+                       ? _query_options.partition_topn_pre_partition_rows
+                       : 1000;
     }
 
     int64_t parallel_scan_min_rows_per_scanner() const {
@@ -727,6 +735,7 @@ private:
     std::shared_ptr<io::S3FileSystem> _s3_error_fs;
     // error file path on s3, ${bucket}/${prefix}/error_log/${label}_${fragment_instance_id}
     std::string _s3_error_log_file_path;
+    std::mutex _s3_error_log_file_lock;
 };
 
 #define RETURN_IF_CANCELLED(state)               \

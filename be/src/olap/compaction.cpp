@@ -119,8 +119,9 @@ Compaction::Compaction(BaseTabletSPtr tablet, const std::string& label)
           _tablet(std::move(tablet)),
           _is_vertical(config::enable_vertical_compaction),
           _allow_delete_in_cumu_compaction(config::enable_delete_when_cumu_compaction) {
-    ;
     init_profile(label);
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_mem_tracker);
+    _rowid_conversion = std::make_unique<RowIdConversion>();
 }
 
 Compaction::~Compaction() {
@@ -130,6 +131,7 @@ Compaction::~Compaction() {
     _input_rowsets.clear();
     _output_rowset.reset();
     _cur_tablet_schema.reset();
+    _rowid_conversion.reset();
 }
 
 void Compaction::init_profile(const std::string& label) {
@@ -176,7 +178,7 @@ Status Compaction::merge_input_rowsets() {
     // the row ID conversion matrix needs to be used for inverted index compaction.
     if (!ctx.skip_inverted_index.empty() || (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
                                              _tablet->enable_unique_key_merge_on_write())) {
-        _stats.rowid_conversion = &_rowid_conversion;
+        _stats.rowid_conversion = _rowid_conversion.get();
     }
 
     int64_t way_num = merge_way_num();
@@ -493,7 +495,7 @@ Status Compaction::do_inverted_index_compaction() {
     std::map<RowsetSharedPtr, std::list<std::pair<RowLocation, RowLocation>>> location_map;
     // Convert the delete bitmap of the input rowsets to output rowset.
     _tablet->calc_compaction_output_rowset_delete_bitmap(
-            _input_rowsets, _rowid_conversion, 0, cur_max_version + 1, &missed_rows, &location_map,
+            _input_rowsets, *_rowid_conversion, 0, cur_max_version + 1, &missed_rows, &location_map,
             _tablet->tablet_meta()->delete_bitmap(), &output_rowset_delete_bitmap);
 
     if (!_allow_delete_in_cumu_compaction) {
@@ -627,7 +629,8 @@ Status Compaction::do_inverted_index_compaction() {
         auto seg_path = DORIS_TRY(rowset->segment_path(seg_id));
         auto inverted_index_file_reader = std::make_unique<InvertedIndexFileReader>(
                 fs, std::string {InvertedIndexDescriptor::get_index_file_path_prefix(seg_path)},
-                _cur_tablet_schema->get_inverted_index_storage_format());
+                _cur_tablet_schema->get_inverted_index_storage_format(),
+                rowset->rowset_meta()->inverted_index_file_info(seg_id));
         bool open_idx_file_cache = false;
         RETURN_NOT_OK_STATUS_WITH_WARN(
                 inverted_index_file_reader->init(config::inverted_index_read_buffer_size,
@@ -686,9 +689,9 @@ Status Compaction::do_inverted_index_compaction() {
                        << st;
             return st;
         }
-        for (const auto& writer : inverted_index_file_writers) {
-            writer->set_file_writer_opts(ctx.get_file_writer_options());
-        }
+    }
+    for (const auto& writer : inverted_index_file_writers) {
+        writer->set_file_writer_opts(ctx.get_file_writer_options());
     }
 
     // use tmp file dir to store index files
@@ -840,56 +843,47 @@ void Compaction::construct_skip_inverted_index(RowsetWriterContext& ctx) {
                     return false;
                 }
 
-                auto inverted_index_file_reader = std::make_unique<InvertedIndexFileReader>(
-                        fs,
-                        std::string {
-                                InvertedIndexDescriptor::get_index_file_path_prefix(*seg_path)},
-                        _cur_tablet_schema->get_inverted_index_storage_format());
-                bool open_idx_file_cache = false;
-                auto st = inverted_index_file_reader->init(config::inverted_index_read_buffer_size,
-                                                           open_idx_file_cache);
-                if (!st.ok()) {
-                    LOG(WARNING) << "init index "
-                                 << inverted_index_file_reader->get_index_file_path(index_meta)
-                                 << " error:" << st;
-                    return false;
-                }
+                std::string index_file_path;
+                try {
+                    auto inverted_index_file_reader = std::make_unique<InvertedIndexFileReader>(
+                            fs,
+                            std::string {
+                                    InvertedIndexDescriptor::get_index_file_path_prefix(*seg_path)},
+                            _cur_tablet_schema->get_inverted_index_storage_format(),
+                            rowset->rowset_meta()->inverted_index_file_info(i));
+                    bool open_idx_file_cache = false;
+                    auto st = inverted_index_file_reader->init(
+                            config::inverted_index_read_buffer_size, open_idx_file_cache);
+                    index_file_path = inverted_index_file_reader->get_index_file_path(index_meta);
+                    if (!st.ok()) {
+                        LOG(WARNING) << "init index " << index_file_path << " error:" << st;
+                        return false;
+                    }
 
-                bool exists = false;
-                if (!inverted_index_file_reader->index_file_exist(index_meta, &exists).ok()) {
-                    LOG(ERROR) << inverted_index_file_reader->get_index_file_path(index_meta)
-                               << " fs->exists error";
-                    return false;
-                }
+                    // check index meta
+                    auto result = inverted_index_file_reader->open(index_meta);
+                    if (!result.has_value()) {
+                        LOG(WARNING)
+                                << "open index " << index_file_path << " error:" << result.error();
+                        return false;
+                    }
+                    auto reader = std::move(result.value());
+                    std::vector<std::string> files;
+                    reader->list(&files);
+                    reader->close();
 
-                if (!exists) {
+                    // why is 3?
+                    // bkd index will write at least 3 files
+                    if (files.size() < 3) {
+                        LOG(WARNING) << "tablet[" << _tablet->tablet_id() << "] column_unique_id["
+                                     << col_unique_id << "]," << index_file_path
+                                     << " is corrupted, will skip index compaction";
+                        return false;
+                    }
+                } catch (CLuceneError& err) {
                     LOG(WARNING) << "tablet[" << _tablet->tablet_id() << "] column_unique_id["
-                                 << col_unique_id << "],"
-                                 << inverted_index_file_reader->get_index_file_path(index_meta)
-                                 << " is not exists, will skip index compaction";
-                    return false;
-                }
-
-                // check index meta
-                auto result = inverted_index_file_reader->open(index_meta);
-                if (!result.has_value()) {
-                    LOG(WARNING) << "open index "
-                                 << inverted_index_file_reader->get_index_file_path(index_meta)
-                                 << " error:" << result.error();
-                    return false;
-                }
-                auto reader = std::move(result.value());
-                std::vector<std::string> files;
-                reader->list(&files);
-                reader->close();
-
-                // why is 3?
-                // bkd index will write at least 3 files
-                if (files.size() < 3) {
-                    LOG(WARNING) << "tablet[" << _tablet->tablet_id() << "] column_unique_id["
-                                 << col_unique_id << "],"
-                                 << inverted_index_file_reader->get_index_file_path(index_meta)
-                                 << " is corrupted, will skip index compaction";
+                                 << col_unique_id << "] open index[" << index_file_path
+                                 << "], will skip index compaction, error:" << err.what();
                     return false;
                 }
             }
@@ -932,8 +926,7 @@ Status CompactionMixin::modify_rowsets() {
     output_rowsets.push_back(_output_rowset);
 
     if (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
-        _tablet->enable_unique_key_merge_on_write() &&
-        _tablet->tablet_schema()->cluster_key_idxes().empty()) {
+        _tablet->enable_unique_key_merge_on_write()) {
         Version version = tablet()->max_version();
         DeleteBitmap output_rowset_delete_bitmap(_tablet->tablet_id());
         std::unique_ptr<RowLocationSet> missed_rows;
@@ -956,15 +949,20 @@ Status CompactionMixin::modify_rowsets() {
         // TODO(LiaoXin): check if there are duplicate keys
         std::size_t missed_rows_size = 0;
         tablet()->calc_compaction_output_rowset_delete_bitmap(
-                _input_rowsets, _rowid_conversion, 0, version.second + 1, missed_rows.get(),
+                _input_rowsets, *_rowid_conversion, 0, version.second + 1, missed_rows.get(),
                 location_map.get(), _tablet->tablet_meta()->delete_bitmap(),
                 &output_rowset_delete_bitmap);
         if (missed_rows) {
             missed_rows_size = missed_rows->size();
+            std::size_t merged_missed_rows_size = _stats.merged_rows;
+            if (!_tablet->tablet_meta()->tablet_schema()->cluster_key_idxes().empty()) {
+                merged_missed_rows_size += _stats.filtered_rows;
+            }
             if (_tablet->tablet_state() == TABLET_RUNNING &&
-                _stats.merged_rows != missed_rows_size) {
+                merged_missed_rows_size != missed_rows_size) {
                 std::stringstream ss;
                 ss << "cumulative compaction: the merged rows(" << _stats.merged_rows
+                   << "), filtered rows(" << _stats.filtered_rows
                    << ") is not equal to missed rows(" << missed_rows_size
                    << ") in rowid conversion, tablet_id: " << _tablet->tablet_id()
                    << ", table_id:" << _tablet->table_id();
@@ -982,10 +980,11 @@ Status CompactionMixin::modify_rowsets() {
                     ss << ", version[0-" << version.second + 1 << "]";
                 }
                 std::string err_msg = fmt::format(
-                        "cumulative compaction: the merged rows({}) is not equal to missed "
-                        "rows({}) in rowid conversion, tablet_id: {}, table_id:{}",
-                        _stats.merged_rows, missed_rows_size, _tablet->tablet_id(),
-                        _tablet->table_id());
+                        "cumulative compaction: the merged rows({}), filtered rows({})"
+                        " is not equal to missed rows({}) in rowid conversion,"
+                        " tablet_id: {}, table_id:{}",
+                        _stats.merged_rows, _stats.filtered_rows, missed_rows_size,
+                        _tablet->tablet_id(), _tablet->table_id());
                 if (config::enable_mow_compaction_correctness_check_core) {
                     CHECK(false) << err_msg;
                 } else {
@@ -1025,7 +1024,7 @@ Status CompactionMixin::modify_rowsets() {
                 }
                 DeleteBitmap txn_output_delete_bitmap(_tablet->tablet_id());
                 tablet()->calc_compaction_output_rowset_delete_bitmap(
-                        _input_rowsets, _rowid_conversion, 0, UINT64_MAX, missed_rows.get(),
+                        _input_rowsets, *_rowid_conversion, 0, UINT64_MAX, missed_rows.get(),
                         location_map.get(), *it.delete_bitmap.get(), &txn_output_delete_bitmap);
                 if (config::enable_merge_on_write_correctness_check) {
                     RowsetIdUnorderedSet rowsetids;
@@ -1045,7 +1044,7 @@ Status CompactionMixin::modify_rowsets() {
             // Convert the delete bitmap of the input rowsets to output rowset for
             // incremental data.
             tablet()->calc_compaction_output_rowset_delete_bitmap(
-                    _input_rowsets, _rowid_conversion, version.second, UINT64_MAX,
+                    _input_rowsets, *_rowid_conversion, version.second, UINT64_MAX,
                     missed_rows.get(), location_map.get(), _tablet->tablet_meta()->delete_bitmap(),
                     &output_rowset_delete_bitmap);
 

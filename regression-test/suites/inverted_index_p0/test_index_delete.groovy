@@ -49,6 +49,7 @@ suite("test_index_delete", "p0") {
 
     try {
         sql "sync"
+        sql """ set enable_common_expr_pushdown = true """
 
         sql """ delete from ${indexTbName1} where a >= 9; """
         sql "sync"

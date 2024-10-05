@@ -26,7 +26,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
 // DROP RESOURCE resource_name
-public class DropResourceStmt extends DdlStmt {
+public class DropResourceStmt extends DdlStmt implements NotFallbackInParser {
     private boolean ifExists;
     private String resourceName;
 

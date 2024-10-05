@@ -83,31 +83,45 @@ public:
     }
 
     std::shared_ptr<T> get_client(const std::string& host, int port) {
-        std::string realhost;
-        realhost = host;
-        if (!is_valid_ip(host)) {
-            Status status = ExecEnv::GetInstance()->dns_cache()->get(host, &realhost);
+        std::string realhost = host;
+        auto dns_cache = ExecEnv::GetInstance()->dns_cache();
+        if (dns_cache == nullptr) {
+            LOG(WARNING) << "DNS cache is not initialized, skipping hostname resolve";
+        } else if (!is_valid_ip(host)) {
+            Status status = dns_cache->get(host, &realhost);
             if (!status.ok()) {
                 LOG(WARNING) << "failed to get ip from host:" << status.to_string();
                 return nullptr;
             }
         }
         std::string host_port = get_host_port(realhost, port);
-        return get_client(host_port);
-    }
-
-    std::shared_ptr<T> get_client(const std::string& host_port) {
         std::shared_ptr<T> stub_ptr;
         auto get_value = [&stub_ptr](const auto& v) { stub_ptr = v.second; };
         if (LIKELY(_stub_map.if_contains(host_port, get_value))) {
+            DCHECK(stub_ptr != nullptr);
             return stub_ptr;
         }
 
         // new one stub and insert into map
         auto stub = get_new_client_no_cache(host_port);
-        _stub_map.try_emplace_l(
-                host_port, [&stub](const auto& v) { stub = v.second; }, stub);
+        if (stub != nullptr) {
+            _stub_map.try_emplace_l(
+                    host_port, [&stub](const auto& v) { stub = v.second; }, stub);
+        }
         return stub;
+    }
+
+    std::shared_ptr<T> get_client(const std::string& host_port) {
+        int pos = host_port.rfind(':');
+        std::string host = host_port.substr(0, pos);
+        int port = 0;
+        try {
+            port = stoi(host_port.substr(pos + 1));
+        } catch (const std::exception& err) {
+            LOG(WARNING) << "failed to parse port from " << host_port << ": " << err.what();
+            return nullptr;
+        }
+        return get_client(host, port);
     }
 
     std::shared_ptr<T> get_new_client_no_cache(const std::string& host_port,
@@ -143,6 +157,7 @@ public:
                     channel->Init(host_port.c_str(), config::rpc_load_balancer.c_str(), &options);
         }
         if (ret_code) {
+            LOG(WARNING) << "Failed to initialize brpc Channel to " << host_port;
             return nullptr;
         }
         return std::make_shared<T>(channel.release(), google::protobuf::Service::STUB_OWNS_CHANNEL);

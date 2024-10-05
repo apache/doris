@@ -63,6 +63,7 @@ import org.apache.doris.nereids.trees.plans.algebra.Project;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalHudiScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
@@ -116,7 +117,8 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                     .when(agg -> {
                         Set<AggregateFunction> funcs = agg.getAggregateFunctions();
                         return !funcs.isEmpty() && funcs.stream()
-                                .allMatch(f -> f instanceof Count && !f.isDistinct());
+                                .allMatch(f -> f instanceof Count && !f.isDistinct() && (((Count) f).isCountStar()
+                                     || f.child(0) instanceof Slot));
                     })
                     .thenApply(ctx -> {
                         LogicalAggregate<LogicalFilter<LogicalOlapScan>> agg = ctx.root;
@@ -135,7 +137,8 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                     .when(agg -> agg.getGroupByExpressions().isEmpty())
                     .when(agg -> {
                         Set<AggregateFunction> funcs = agg.getAggregateFunctions();
-                        return !funcs.isEmpty() && funcs.stream().allMatch(f -> f instanceof Count && !f.isDistinct());
+                        return !funcs.isEmpty() && funcs.stream().allMatch(f -> f instanceof Count && !f.isDistinct()
+                            && (((Count) f).isCountStar() || f.child(0) instanceof Slot));
                     })
                     .thenApply(ctx -> {
                         LogicalAggregate<LogicalProject<LogicalFilter<LogicalOlapScan>>> agg = ctx.root;
@@ -761,9 +764,9 @@ public class AggregateStrategies implements ImplementationRuleFactory {
             }
 
         } else if (logicalScan instanceof LogicalFileScan) {
-            PhysicalFileScan physicalScan = (PhysicalFileScan) new LogicalFileScanToPhysicalFileScan()
-                    .build()
-                    .transform(logicalScan, cascadesContext)
+            Rule rule = (logicalScan instanceof LogicalHudiScan) ? new LogicalHudiScanToPhysicalHudiScan().build()
+                    : new LogicalFileScanToPhysicalFileScan().build();
+            PhysicalFileScan physicalScan = (PhysicalFileScan) rule.transform(logicalScan, cascadesContext)
                     .get(0);
             if (project != null) {
                 return aggregate.withChildren(ImmutableList.of(

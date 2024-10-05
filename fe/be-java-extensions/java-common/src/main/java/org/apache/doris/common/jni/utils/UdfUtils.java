@@ -25,6 +25,7 @@ import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.exception.InternalException;
+import org.apache.doris.thrift.TPrimitiveType;
 
 import org.apache.log4j.Logger;
 import sun.misc.Unsafe;
@@ -112,8 +113,11 @@ public class UdfUtils {
         // Check if the evaluate method return type is compatible with the return type from
         // the function definition. This happens when both of them map to the same primitive
         // type.
-        Object[] res = javaTypes.stream().filter(
-                t -> t.getPrimitiveType() == retType.getPrimitiveType().toThrift()).toArray();
+        Object[] res = javaTypes.stream().filter(t -> {
+            TPrimitiveType t1 = t.getPrimitiveType();
+            TPrimitiveType ret = retType.getPrimitiveType().toThrift();
+            return (t1 == ret) || (t1 == TPrimitiveType.STRING && ret == TPrimitiveType.VARCHAR);
+        }).toArray();
 
         JavaUdfDataType result = new JavaUdfDataType(
                 res.length == 0 ? javaTypes.iterator().next() : (JavaUdfDataType) res[0]);
@@ -160,8 +164,11 @@ public class UdfUtils {
         for (int i = 0; i < parameterTypes.length; ++i) {
             Set<JavaUdfDataType> javaTypes = JavaUdfDataType.getCandidateTypes(udfArgTypes[i + firstPos]);
             int finalI = i;
-            Object[] res = javaTypes.stream().filter(
-                    t -> t.getPrimitiveType() == parameterTypes[finalI].getPrimitiveType().toThrift()).toArray();
+            Object[] res = javaTypes.stream().filter(t -> {
+                TPrimitiveType t1 = t.getPrimitiveType();
+                TPrimitiveType param = parameterTypes[finalI].getPrimitiveType().toThrift();
+                return (t1 == param) || (t1 == TPrimitiveType.STRING && param == TPrimitiveType.VARCHAR);
+            }).toArray();
             inputArgTypes[i] = new JavaUdfDataType(
                     res.length == 0 ? javaTypes.iterator().next() : (JavaUdfDataType) res[0]);
             if (parameterTypes[finalI].isDecimalV3() || parameterTypes[finalI].isDatetimeV2()) {

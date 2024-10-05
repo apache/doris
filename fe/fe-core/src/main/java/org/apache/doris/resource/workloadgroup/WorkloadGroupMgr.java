@@ -309,6 +309,31 @@ public class WorkloadGroupMgr extends MasterDaemon implements Writable, GsonPost
         }
     }
 
+    public Map<String, List<String>> getWorkloadGroupQueryDetail() {
+        Map<String, List<String>> ret = Maps.newHashMap();
+        readLock();
+        try {
+            for (Map.Entry<Long, WorkloadGroup> entry : idToWorkloadGroup.entrySet()) {
+                Long wgId = entry.getKey();
+                WorkloadGroup wg = entry.getValue();
+                QueryQueue qq = idToQueryQueue.get(wgId);
+                List<String> valueList = new ArrayList<>(2);
+                if (qq == null) {
+                    valueList.add("0");
+                    valueList.add("0");
+                } else {
+                    Pair<Integer, Integer> qdtail = qq.getQueryQueueDetail();
+                    valueList.add(String.valueOf(qdtail.first));
+                    valueList.add(String.valueOf(qdtail.second));
+                }
+                ret.put(wg.getName(), valueList);
+            }
+        } finally {
+            readUnlock();
+        }
+        return ret;
+    }
+
     private String getWorkloadGroupNameAndCheckPriv(ConnectContext context) throws AnalysisException {
         String groupName = context.getSessionVariable().getWorkloadGroup();
         if (Strings.isNullOrEmpty(groupName)) {
@@ -429,7 +454,10 @@ public class WorkloadGroupMgr extends MasterDaemon implements Writable, GsonPost
         // user need to reset user property first
         Pair<Boolean, String> ret = Env.getCurrentEnv().getAuth().isWorkloadGroupInUse(workloadGroupName);
         if (ret.first) {
-            throw new DdlException("workload group " + workloadGroupName + " is set for user " + ret.second);
+            throw new DdlException("workload group " + workloadGroupName + " is set for user " + ret.second
+                    + ", you can reset the user's property(eg, "
+                    + "set property for " + ret.second + " 'default_workload_group'='xxx'; ), "
+                    + "then you can drop the group.");
         }
 
         // A group with related policies should not be deleted.

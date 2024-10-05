@@ -25,7 +25,7 @@ import org.apache.doris.common.UserException;
 
 import lombok.Getter;
 
-public class CancelJobTaskStmt extends DdlStmt {
+public class CancelJobTaskStmt extends DdlStmt implements NotFallbackInParser {
 
     @Getter
     private String jobName;

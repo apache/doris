@@ -17,8 +17,10 @@
 
 package org.apache.doris.event;
 
+import org.apache.doris.common.AnalysisException;
+
 public class ReplacePartitionEvent extends TableEvent {
-    public ReplacePartitionEvent(long ctlId, long dbId, long tableId) {
+    public ReplacePartitionEvent(long ctlId, long dbId, long tableId) throws AnalysisException {
         super(EventType.REPLACE_PARTITION, ctlId, dbId, tableId);
     }
 }

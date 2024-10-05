@@ -34,7 +34,7 @@ import org.apache.doris.qe.ConnectContext;
  * syntax:
  * DROP CACHED STATS TableName;
  */
-public class DropCachedStatsStmt extends DdlStmt {
+public class DropCachedStatsStmt extends DdlStmt implements NotFallbackInParser {
 
     private final TableName tableName;
 

@@ -20,6 +20,7 @@ package org.apache.doris.planner;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.FederationBackendPolicy;
 import org.apache.doris.datasource.FileSplit;
 import org.apache.doris.datasource.NodeSelectionStrategy;
@@ -76,28 +77,28 @@ public class FederationBackendPolicyTest {
         };
 
         List<Split> splits = new ArrayList<>();
-        splits.add(new FileSplit(new Path(
+        splits.add(new FileSplit(new LocationPath(
                 "hdfs://HDFS8000871/usr/hive/warehouse/clickbench.db/hits_orc/part-00000-3e24f7d5-f658-4a80-a168-7b215c5a35bf-c000.snappy.orc"),
                 0, 112140970, 112140970, 0, null, Collections.emptyList()));
-        splits.add(new FileSplit(new Path(
+        splits.add(new FileSplit(new LocationPath(
                 "hdfs://HDFS8000871/usr/hive/warehouse/clickbench.db/hits_orc/part-00001-3e24f7d5-f658-4a80-a168-7b215c5a35bf-c000.snappy.orc"),
                 0, 120839661, 120839661, 0, null, Collections.emptyList()));
-        splits.add(new FileSplit(new Path(
+        splits.add(new FileSplit(new LocationPath(
                 "hdfs://HDFS8000871/usr/hive/warehouse/clickbench.db/hits_orc/part-00002-3e24f7d5-f658-4a80-a168-7b215c5a35bf-c000.snappy.orc"),
                 0, 108897409, 108897409, 0, null, Collections.emptyList()));
-        splits.add(new FileSplit(new Path(
+        splits.add(new FileSplit(new LocationPath(
                 "hdfs://HDFS8000871/usr/hive/warehouse/clickbench.db/hits_orc/part-00003-3e24f7d5-f658-4a80-a168-7b215c5a35bf-c000.snappy.orc"),
                 0, 95795997, 95795997, 0, null, Collections.emptyList()));
-        splits.add(new FileSplit(new Path(
+        splits.add(new FileSplit(new LocationPath(
                 "hdfs://HDFS8000871/usr/hive/warehouse/clickbench.db/hits_orc/part-00004-3e24f7d5-f658-4a80-a168-7b215c5a35bf-c000.snappy.orc"),
                 0, 104600402, 104600402, 0, null, Collections.emptyList()));
-        splits.add(new FileSplit(new Path(
+        splits.add(new FileSplit(new LocationPath(
                 "hdfs://HDFS8000871/usr/hive/warehouse/clickbench.db/hits_orc/part-00005-3e24f7d5-f658-4a80-a168-7b215c5a35bf-c000.snappy.orc"),
                 0, 104600402, 104600402, 0, null, Collections.emptyList()));
-        splits.add(new FileSplit(new Path(
+        splits.add(new FileSplit(new LocationPath(
                 "hdfs://HDFS8000871/usr/hive/warehouse/clickbench.db/hits_orc/part-00006-3e24f7d5-f658-4a80-a168-7b215c5a35bf-c000.snappy.orc"),
                 0, 104600402, 104600402, 0, null, Collections.emptyList()));
-        splits.add(new FileSplit(new Path(
+        splits.add(new FileSplit(new LocationPath(
                 "hdfs://HDFS8000871/usr/hive/warehouse/clickbench.db/hits_orc/part-00007-3e24f7d5-f658-4a80-a168-7b215c5a35bf-c000.snappy.orc"),
                 0, 105664025, 105664025, 0, null, Collections.emptyList()));
 
@@ -141,28 +142,28 @@ public class FederationBackendPolicyTest {
         };
 
         List<Split> splits = new ArrayList<>();
-        splits.add(new FileSplit(new Path(
+        splits.add(new FileSplit(new LocationPath(
                 "hdfs://HDFS8000871/usr/hive/warehouse/clickbench.db/hits_orc/part-00000-3e24f7d5-f658-4a80-a168-7b215c5a35bf-c000.snappy.orc"),
                 0, 112140970, 112140970, 0, new String[] {"172.30.0.100"}, Collections.emptyList()));
-        splits.add(new FileSplit(new Path(
+        splits.add(new FileSplit(new LocationPath(
                 "hdfs://HDFS8000871/usr/hive/warehouse/clickbench.db/hits_orc/part-00001-3e24f7d5-f658-4a80-a168-7b215c5a35bf-c000.snappy.orc"),
                 0, 120839661, 120839661, 0, null, Collections.emptyList()));
-        splits.add(new FileSplit(new Path(
+        splits.add(new FileSplit(new LocationPath(
                 "hdfs://HDFS8000871/usr/hive/warehouse/clickbench.db/hits_orc/part-00002-3e24f7d5-f658-4a80-a168-7b215c5a35bf-c000.snappy.orc"),
                 0, 108897409, 108897409, 0, null, Collections.emptyList()));
-        splits.add(new FileSplit(new Path(
+        splits.add(new FileSplit(new LocationPath(
                 "hdfs://HDFS8000871/usr/hive/warehouse/clickbench.db/hits_orc/part-00003-3e24f7d5-f658-4a80-a168-7b215c5a35bf-c000.snappy.orc"),
                 0, 95795997, 95795997, 0, new String[] {"172.30.0.106"}, Collections.emptyList()));
-        splits.add(new FileSplit(new Path(
+        splits.add(new FileSplit(new LocationPath(
                 "hdfs://HDFS8000871/usr/hive/warehouse/clickbench.db/hits_orc/part-00004-3e24f7d5-f658-4a80-a168-7b215c5a35bf-c000.snappy.orc"),
                 0, 104600402, 104600402, 0, null, Collections.emptyList()));
-        splits.add(new FileSplit(new Path(
+        splits.add(new FileSplit(new LocationPath(
                 "hdfs://HDFS8000871/usr/hive/warehouse/clickbench.db/hits_orc/part-00005-3e24f7d5-f658-4a80-a168-7b215c5a35bf-c000.snappy.orc"),
                 0, 104600402, 104600402, 0, null, Collections.emptyList()));
-        splits.add(new FileSplit(new Path(
+        splits.add(new FileSplit(new LocationPath(
                 "hdfs://HDFS8000871/usr/hive/warehouse/clickbench.db/hits_orc/part-00006-3e24f7d5-f658-4a80-a168-7b215c5a35bf-c000.snappy.orc"),
                 0, 104600402, 104600402, 0, null, Collections.emptyList()));
-        splits.add(new FileSplit(new Path(
+        splits.add(new FileSplit(new LocationPath(
                 "hdfs://HDFS8000871/usr/hive/warehouse/clickbench.db/hits_orc/part-00007-3e24f7d5-f658-4a80-a168-7b215c5a35bf-c000.snappy.orc"),
                 0, 105664025, 105664025, 0, null, Collections.emptyList()));
 
@@ -178,11 +179,11 @@ public class FederationBackendPolicyTest {
             for (Split split : assignedSplits) {
                 FileSplit fileSplit = (FileSplit) split;
                 ++totalSplitNum;
-                if (fileSplit.getPath().equals(new Path(
+                if (fileSplit.getPath().getPath().equals(new Path(
                         "hdfs://HDFS8000871/usr/hive/warehouse/clickbench.db/hits_orc/part-00000-3e24f7d5-f658-4a80-a168-7b215c5a35bf-c000.snappy.orc"))) {
                     Assert.assertEquals("172.30.0.100", backend.getHost());
                     checkedLocalSplit.add(true);
-                } else if (fileSplit.getPath().equals(new Path(
+                } else if (fileSplit.getPath().getPath().equals(new Path(
                         "hdfs://HDFS8000871/usr/hive/warehouse/clickbench.db/hits_orc/part-00003-3e24f7d5-f658-4a80-a168-7b215c5a35bf-c000.snappy.orc"))) {
                     Assert.assertEquals("172.30.0.106", backend.getHost());
                     checkedLocalSplit.add(true);
@@ -235,28 +236,28 @@ public class FederationBackendPolicyTest {
         };
 
         List<Split> splits = new ArrayList<>();
-        splits.add(new FileSplit(new Path(
+        splits.add(new FileSplit(new LocationPath(
                 "hdfs://HDFS8000871/usr/hive/warehouse/clickbench.db/hits_orc/part-00000-3e24f7d5-f658-4a80-a168-7b215c5a35bf-c000.snappy.orc"),
                 0, 112140970, 112140970, 0, null, Collections.emptyList()));
-        splits.add(new FileSplit(new Path(
+        splits.add(new FileSplit(new LocationPath(
                 "hdfs://HDFS8000871/usr/hive/warehouse/clickbench.db/hits_orc/part-00001-3e24f7d5-f658-4a80-a168-7b215c5a35bf-c000.snappy.orc"),
                 0, 120839661, 120839661, 0, null, Collections.emptyList()));
-        splits.add(new FileSplit(new Path(
+        splits.add(new FileSplit(new LocationPath(
                 "hdfs://HDFS8000871/usr/hive/warehouse/clickbench.db/hits_orc/part-00002-3e24f7d5-f658-4a80-a168-7b215c5a35bf-c000.snappy.orc"),
                 0, 108897409, 108897409, 0, null, Collections.emptyList()));
-        splits.add(new FileSplit(new Path(
+        splits.add(new FileSplit(new LocationPath(
                 "hdfs://HDFS8000871/usr/hive/warehouse/clickbench.db/hits_orc/part-00003-3e24f7d5-f658-4a80-a168-7b215c5a35bf-c000.snappy.orc"),
                 0, 95795997, 95795997, 0, null, Collections.emptyList()));
-        splits.add(new FileSplit(new Path(
+        splits.add(new FileSplit(new LocationPath(
                 "hdfs://HDFS8000871/usr/hive/warehouse/clickbench.db/hits_orc/part-00004-3e24f7d5-f658-4a80-a168-7b215c5a35bf-c000.snappy.orc"),
                 0, 104600402, 104600402, 0, null, Collections.emptyList()));
-        splits.add(new FileSplit(new Path(
+        splits.add(new FileSplit(new LocationPath(
                 "hdfs://HDFS8000871/usr/hive/warehouse/clickbench.db/hits_orc/part-00005-3e24f7d5-f658-4a80-a168-7b215c5a35bf-c000.snappy.orc"),
                 0, 104600402, 104600402, 0, null, Collections.emptyList()));
-        splits.add(new FileSplit(new Path(
+        splits.add(new FileSplit(new LocationPath(
                 "hdfs://HDFS8000871/usr/hive/warehouse/clickbench.db/hits_orc/part-00006-3e24f7d5-f658-4a80-a168-7b215c5a35bf-c000.snappy.orc"),
                 0, 104600402, 104600402, 0, null, Collections.emptyList()));
-        splits.add(new FileSplit(new Path(
+        splits.add(new FileSplit(new LocationPath(
                 "hdfs://HDFS8000871/usr/hive/warehouse/clickbench.db/hits_orc/part-00007-3e24f7d5-f658-4a80-a168-7b215c5a35bf-c000.snappy.orc"),
                 0, 105664025, 105664025, 0, null, Collections.emptyList()));
 
@@ -344,7 +345,7 @@ public class FederationBackendPolicyTest {
         int splitCount = random.nextInt(1000 - 100) + 100;
         for (int i = 0; i < splitCount; ++i) {
             long splitLength = random.nextInt(115343360 - 94371840) + 94371840;
-            FileSplit split = new FileSplit(new Path(
+            FileSplit split = new FileSplit(new LocationPath(
                     "hdfs://HDFS00001/usr/hive/warehouse/test.db/test_table/" + UUID.randomUUID()),
                     0, splitLength, splitLength, 0, null, Collections.emptyList());
             remoteSplits.add(split);
@@ -365,7 +366,7 @@ public class FederationBackendPolicyTest {
                 totalLocalHosts.add(localHost);
             }
             long localSplitLength = random.nextInt(115343360 - 94371840) + 94371840;
-            FileSplit split = new FileSplit(new Path(
+            FileSplit split = new FileSplit(new LocationPath(
                     "hdfs://HDFS00001/usr/hive/warehouse/test.db/test_table/" + UUID.randomUUID()),
                     0, localSplitLength, localSplitLength, 0, localHosts.toArray(new String[0]),
                     Collections.emptyList());
@@ -468,7 +469,7 @@ public class FederationBackendPolicyTest {
         int splitCount = random.nextInt(1000 - 100) + 100;
         for (int i = 0; i < splitCount; ++i) {
             long splitLength = random.nextInt(115343360 - 94371840) + 94371840;
-            FileSplit split = new FileSplit(new Path(
+            FileSplit split = new FileSplit(new LocationPath(
                     "hdfs://HDFS00001/usr/hive/warehouse/test.db/test_table/" + UUID.randomUUID()),
                     0, splitLength, splitLength, 0, null, Collections.emptyList());
             remoteSplits.add(split);
@@ -489,7 +490,7 @@ public class FederationBackendPolicyTest {
                 totalLocalHosts.add(localHost);
             }
             long localSplitLength = random.nextInt(115343360 - 94371840) + 94371840;
-            FileSplit split = new FileSplit(new Path(
+            FileSplit split = new FileSplit(new LocationPath(
                     "hdfs://HDFS00001/usr/hive/warehouse/test.db/test_table/" + UUID.randomUUID()),
                     0, localSplitLength, localSplitLength, 0, localHosts.toArray(new String[0]),
                     Collections.emptyList());
@@ -606,28 +607,28 @@ public class FederationBackendPolicyTest {
         };
 
         List<Split> splits = new ArrayList<>();
-        splits.add(new FileSplit(new Path(
+        splits.add(new FileSplit(new LocationPath(
                 "hdfs://HDFS8000871/usr/hive/warehouse/clickbench.db/hits_orc/part-00000-3e24f7d5-f658-4a80-a168-7b215c5a35bf-c000.snappy.orc"),
                 0, 112140970, 112140970, 0, null, Collections.emptyList()));
-        splits.add(new FileSplit(new Path(
+        splits.add(new FileSplit(new LocationPath(
                 "hdfs://HDFS8000871/usr/hive/warehouse/clickbench.db/hits_orc/part-00001-3e24f7d5-f658-4a80-a168-7b215c5a35bf-c000.snappy.orc"),
                 0, 120839661, 120839661, 0, null, Collections.emptyList()));
-        splits.add(new FileSplit(new Path(
+        splits.add(new FileSplit(new LocationPath(
                 "hdfs://HDFS8000871/usr/hive/warehouse/clickbench.db/hits_orc/part-00002-3e24f7d5-f658-4a80-a168-7b215c5a35bf-c000.snappy.orc"),
                 0, 108897409, 108897409, 0, null, Collections.emptyList()));
-        splits.add(new FileSplit(new Path(
+        splits.add(new FileSplit(new LocationPath(
                 "hdfs://HDFS8000871/usr/hive/warehouse/clickbench.db/hits_orc/part-00003-3e24f7d5-f658-4a80-a168-7b215c5a35bf-c000.snappy.orc"),
                 0, 95795997, 95795997, 0, null, Collections.emptyList()));
-        splits.add(new FileSplit(new Path(
+        splits.add(new FileSplit(new LocationPath(
                 "hdfs://HDFS8000871/usr/hive/warehouse/clickbench.db/hits_orc/part-00004-3e24f7d5-f658-4a80-a168-7b215c5a35bf-c000.snappy.orc"),
                 0, 104600402, 104600402, 0, null, Collections.emptyList()));
-        splits.add(new FileSplit(new Path(
+        splits.add(new FileSplit(new LocationPath(
                 "hdfs://HDFS8000871/usr/hive/warehouse/clickbench.db/hits_orc/part-00005-3e24f7d5-f658-4a80-a168-7b215c5a35bf-c000.snappy.orc"),
                 0, 104600402, 104600402, 0, null, Collections.emptyList()));
-        splits.add(new FileSplit(new Path(
+        splits.add(new FileSplit(new LocationPath(
                 "hdfs://HDFS8000871/usr/hive/warehouse/clickbench.db/hits_orc/part-00006-3e24f7d5-f658-4a80-a168-7b215c5a35bf-c000.snappy.orc"),
                 0, 104600402, 104600402, 0, null, Collections.emptyList()));
-        splits.add(new FileSplit(new Path(
+        splits.add(new FileSplit(new LocationPath(
                 "hdfs://HDFS8000871/usr/hive/warehouse/clickbench.db/hits_orc/part-00007-3e24f7d5-f658-4a80-a168-7b215c5a35bf-c000.snappy.orc"),
                 0, 105664025, 105664025, 0, null, Collections.emptyList()));
 

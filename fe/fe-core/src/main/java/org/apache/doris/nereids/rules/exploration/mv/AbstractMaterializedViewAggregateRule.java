@@ -17,7 +17,10 @@
 
 package org.apache.doris.nereids.rules.exploration.mv;
 
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.MTMV;
 import org.apache.doris.common.Pair;
+import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.jobs.executor.Rewriter;
 import org.apache.doris.nereids.properties.DataTrait;
@@ -38,6 +41,7 @@ import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
@@ -63,6 +67,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Supplier;
@@ -217,7 +222,7 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
         LogicalAggregate<Plan> queryAggregate = queryTopPlanAndAggPair.value();
         List<Expression> queryGroupByExpressions = queryAggregate.getGroupByExpressions();
         // handle the scene that query top plan not use the group by in query bottom aggregate
-        if (queryGroupByExpressions.size() != queryTopPlanGroupBySet.size()) {
+        if (needCompensateGroupBy(queryTopPlanGroupBySet, queryGroupByExpressions)) {
             for (Expression expression : queryGroupByExpressions) {
                 if (queryTopPlanGroupBySet.contains(expression)) {
                     continue;
@@ -267,6 +272,42 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
     }
 
     /**
+     * handle the scene that query top plan not use the group by in query bottom aggregate
+     * If mv is select o_orderdate from  orders group by o_orderdate;
+     * query is select 1 from orders group by o_orderdate.
+     * Or mv is select o_orderdate from orders group by o_orderdate
+     * query is select o_orderdate from  orders group by o_orderdate, o_orderkey;
+     * if the slot which query top project use can not cover the slot which query bottom aggregate group by slot
+     * should compensate group by to make sure the data is right.
+     * For example:
+     * mv is select o_orderdate from orders group by o_orderdate;
+     * query is select o_orderdate from  orders group by o_orderdate, o_orderkey;
+     *
+     * @param queryGroupByExpressions query bottom aggregate group by is o_orderdate, o_orderkey
+     * @param queryTopProject query top project is o_orderdate
+     * @return need to compensate group by if true or not need
+     *
+     */
+    private static boolean needCompensateGroupBy(Set<? extends Expression> queryTopProject,
+            List<Expression> queryGroupByExpressions) {
+        Set<Expression> queryGroupByExpressionSet = new HashSet<>(queryGroupByExpressions);
+        if (queryGroupByExpressionSet.size() != queryTopProject.size()) {
+            return true;
+        }
+        Set<NamedExpression> queryTopPlanGroupByUseNamedExpressions = new HashSet<>();
+        Set<NamedExpression> queryGroupByUseNamedExpressions = new HashSet<>();
+        for (Expression expr : queryTopProject) {
+            queryTopPlanGroupByUseNamedExpressions.addAll(expr.collect(NamedExpression.class::isInstance));
+        }
+        for (Expression expr : queryGroupByExpressionSet) {
+            queryGroupByUseNamedExpressions.addAll(expr.collect(NamedExpression.class::isInstance));
+        }
+        // if the slots query top project use can not cover the slots which query bottom aggregate use
+        // Should compensate.
+        return !queryTopPlanGroupByUseNamedExpressions.containsAll(queryGroupByUseNamedExpressions);
+    }
+
+    /**
      * Try to rewrite query expression by view, contains both group by dimension and aggregate function
      */
     protected Expression tryRewriteExpression(StructInfo queryStructInfo, Expression queryExpression,
@@ -286,6 +327,51 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
             return null;
         }
         return rewrittenExpression;
+    }
+
+    /**
+     * Not all query after rewritten successfully can compensate union all
+     * Such as:
+     * mv def sql is as following, partition column is a
+     * select a, b, count(*) from t1 group by a, b
+     * Query is as following:
+     * select b, count(*) from t1 group by b, after rewritten by materialized view successfully
+     * If mv part partition is invalid, can not compensate union all, because result is wrong after
+     * compensate union all.
+     */
+    @Override
+    protected boolean canUnionRewrite(Plan queryPlan, MTMV mtmv, CascadesContext cascadesContext) {
+        // Check query plan is contain the partition column
+        // Query plan in the current rule must contain aggregate node, because the rule pattern is
+        //
+        Optional<LogicalAggregate<Plan>> logicalAggregateOptional =
+                queryPlan.collectFirst(planTreeNode -> planTreeNode instanceof LogicalAggregate);
+        if (!logicalAggregateOptional.isPresent()) {
+            return true;
+        }
+        List<Expression> groupByExpressions = logicalAggregateOptional.get().getGroupByExpressions();
+        if (groupByExpressions.isEmpty()) {
+            // Scalar aggregate can not compensate union all
+            return false;
+        }
+        final String relatedCol = mtmv.getMvPartitionInfo().getRelatedCol();
+        final BaseTableInfo relatedTableInfo = mtmv.getMvPartitionInfo().getRelatedTableInfo();
+        boolean canUnionRewrite = false;
+        // Check the query plan group by expression contains partition col or not
+        List<? extends Expression> groupByShuttledExpressions =
+                ExpressionUtils.shuttleExpressionWithLineage(groupByExpressions, queryPlan, new BitSet());
+        for (Expression expression : groupByShuttledExpressions) {
+            canUnionRewrite = !expression.collectToSet(expr -> expr instanceof SlotReference
+                    && ((SlotReference) expr).isColumnFromTable()
+                    && Objects.equals(((SlotReference) expr).getColumn().map(Column::getName).orElse(null),
+                    relatedCol)
+                    && Objects.equals(((SlotReference) expr).getTable().map(BaseTableInfo::new).orElse(null),
+                    relatedTableInfo)).isEmpty();
+            if (canUnionRewrite) {
+                break;
+            }
+        }
+        return canUnionRewrite;
     }
 
     /**
@@ -435,7 +521,12 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
 
     /**
      * Check group by is equal or not after group by eliminate by functional dependency
-     * Such as query group by expression is (l_orderdate#1, l_supperkey#2)
+     * Such as query is select l_orderdate, l_supperkey, count(*) from table group by l_orderdate, l_supperkey;
+     * materialized view is select l_orderdate, l_supperkey, l_partkey count(*) from table
+     * group by l_orderdate, l_supperkey, l_partkey;
+     * Would check the extra l_partkey is can be eliminated by functional dependency.
+     * The process step and  data is as following:
+     * group by expression is (l_orderdate#1, l_supperkey#2)
      * materialized view is group by expression is (l_orderdate#4, l_supperkey#5, l_partkey#6)
      * materialized view expression mapping is
      * {l_orderdate#4:l_orderdate#10, l_supperkey#5:l_supperkey#11, l_partkey#6:l_partkey#12}

@@ -17,10 +17,11 @@
 
 package org.apache.doris.datasource.lakesoul.source;
 
+import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.FileSplit;
 
+import com.google.common.collect.Maps;
 import lombok.Data;
-import org.apache.hadoop.fs.Path;
 
 import java.util.List;
 import java.util.Map;
@@ -46,7 +47,8 @@ public class LakeSoulSplit extends FileSplit {
                          long fileLength,
                          String[] hosts,
                          List<String> partitionValues) {
-        super(new Path(paths.get(0)), start, length, fileLength, hosts, partitionValues);
+        super(new LocationPath(paths.get(0), Maps.newHashMap()), start, length, fileLength,
+                0, hosts, partitionValues);
         this.paths = paths;
         this.primaryKeys = primaryKeys;
         this.partitionDesc = partitionDesc;

@@ -27,7 +27,7 @@
 #include "vec/exprs/vectorized_agg_fn.h"
 
 namespace doris::pipeline {
-
+#include "common/compile_check_begin.h"
 /// The minimum reduction factor (input rows divided by output rows) to grow hash tables
 /// in a streaming preaggregation, given that the hash tables are currently the given
 /// size or above. The sizes roughly correspond to hash table sizes where the bucket
@@ -48,7 +48,7 @@ namespace doris::pipeline {
 /// is in a random order. This means that we assume that the reduction factor will
 /// increase over time.
 AggSinkLocalState::AggSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
-        : Base(parent, state) {}
+        : Base(parent, state), _agg_profile_arena(std::make_unique<vectorized::Arena>()) {}
 
 Status AggSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
@@ -97,11 +97,10 @@ Status AggSinkLocalState::open(RuntimeState* state) {
         RETURN_IF_ERROR(
                 p._probe_expr_ctxs[i]->clone(state, Base::_shared_state->probe_expr_ctxs[i]));
     }
-    Base::_shared_state->agg_profile_arena = std::make_unique<vectorized::Arena>();
 
     if (Base::_shared_state->probe_expr_ctxs.empty()) {
         _agg_data->without_key = reinterpret_cast<vectorized::AggregateDataPtr>(
-                Base::_shared_state->agg_profile_arena->alloc(p._total_size_of_aggregate_states));
+                _agg_profile_arena->alloc(p._total_size_of_aggregate_states));
 
         if (p._is_merge) {
             _executor = std::make_unique<Executor<true, true>>();
@@ -267,7 +266,7 @@ Status AggSinkLocalState::_merge_with_serialized_key_helper(vectorized::Block* b
     vectorized::ColumnRawPtrs key_columns(key_size);
     std::vector<int> key_locs(key_size);
 
-    for (size_t i = 0; i < key_size; ++i) {
+    for (int i = 0; i < key_size; ++i) {
         if constexpr (for_spill) {
             key_columns[i] = block->get_by_position(i).column.get();
             key_locs[i] = i;
@@ -280,7 +279,7 @@ Status AggSinkLocalState::_merge_with_serialized_key_helper(vectorized::Block* b
         }
     }
 
-    int rows = block->rows();
+    size_t rows = block->rows();
     if (_places.size() < rows) {
         _places.resize(rows);
     }
@@ -337,7 +336,7 @@ Status AggSinkLocalState::_merge_with_serialized_key_helper(vectorized::Block* b
         if (need_do_agg) {
             for (int i = 0; i < Base::_shared_state->aggregate_evaluators.size(); ++i) {
                 if (Base::_shared_state->aggregate_evaluators[i]->is_merge() || for_spill) {
-                    int col_id = 0;
+                    size_t col_id = 0;
                     if constexpr (for_spill) {
                         col_id = Base::_shared_state->probe_expr_ctxs.size() + i;
                     } else {
@@ -460,7 +459,7 @@ Status AggSinkLocalState::_execute_with_serialized_key_helper(vectorized::Block*
         }
     }
 
-    int rows = block->rows();
+    size_t rows = block->rows();
     if (_places.size() < rows) {
         _places.resize(rows);
     }
@@ -757,7 +756,7 @@ Status AggSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
         const auto& agg_sort_info = tnode.agg_node.agg_sort_info_by_group_key;
         DCHECK_EQ(agg_sort_info.nulls_first.size(), agg_sort_info.is_asc_order.size());
 
-        const int order_by_key_size = agg_sort_info.is_asc_order.size();
+        const size_t order_by_key_size = agg_sort_info.is_asc_order.size();
         _order_directions.resize(order_by_key_size);
         _null_directions.resize(order_by_key_size);
         for (int i = 0; i < order_by_key_size; ++i) {
@@ -770,15 +769,16 @@ Status AggSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     return Status::OK();
 }
 
-Status AggSinkOperatorX::prepare(RuntimeState* state) {
+Status AggSinkOperatorX::open(RuntimeState* state) {
+    RETURN_IF_ERROR(DataSinkOperatorX<AggSinkLocalState>::open(state));
     _intermediate_tuple_desc = state->desc_tbl().get_tuple_descriptor(_intermediate_tuple_id);
     _output_tuple_desc = state->desc_tbl().get_tuple_descriptor(_output_tuple_id);
     DCHECK_EQ(_intermediate_tuple_desc->slots().size(), _output_tuple_desc->slots().size());
     RETURN_IF_ERROR(vectorized::VExpr::prepare(
-            _probe_expr_ctxs, state, DataSinkOperatorX<AggSinkLocalState>::_child_x->row_desc()));
+            _probe_expr_ctxs, state, DataSinkOperatorX<AggSinkLocalState>::_child->row_desc()));
 
-    int j = _probe_expr_ctxs.size();
-    for (int i = 0; i < j; ++i) {
+    size_t j = _probe_expr_ctxs.size();
+    for (size_t i = 0; i < j; ++i) {
         auto nullable_output = _output_tuple_desc->slots()[i]->is_nullable();
         auto nullable_input = _probe_expr_ctxs[i]->root()->is_nullable();
         if (nullable_output != nullable_input) {
@@ -786,11 +786,11 @@ Status AggSinkOperatorX::prepare(RuntimeState* state) {
             _make_nullable_keys.emplace_back(i);
         }
     }
-    for (int i = 0; i < _aggregate_evaluators.size(); ++i, ++j) {
+    for (size_t i = 0; i < _aggregate_evaluators.size(); ++i, ++j) {
         SlotDescriptor* intermediate_slot_desc = _intermediate_tuple_desc->slots()[j];
         SlotDescriptor* output_slot_desc = _output_tuple_desc->slots()[j];
         RETURN_IF_ERROR(_aggregate_evaluators[i]->prepare(
-                state, DataSinkOperatorX<AggSinkLocalState>::_child_x->row_desc(),
+                state, DataSinkOperatorX<AggSinkLocalState>::_child->row_desc(),
                 intermediate_slot_desc, output_slot_desc));
         _aggregate_evaluators[i]->set_version(state->be_exec_version());
     }
@@ -825,10 +825,6 @@ Status AggSinkOperatorX::prepare(RuntimeState* state) {
         RETURN_IF_ERROR(vectorized::AggFnEvaluator::check_agg_fn_output(
                 _probe_expr_ctxs.size(), _aggregate_evaluators, _agg_fn_output_row_descriptor));
     }
-    return Status::OK();
-}
-
-Status AggSinkOperatorX::open(RuntimeState* state) {
     RETURN_IF_ERROR(vectorized::VExpr::open(_probe_expr_ctxs, state));
 
     for (auto& _aggregate_evaluator : _aggregate_evaluators) {

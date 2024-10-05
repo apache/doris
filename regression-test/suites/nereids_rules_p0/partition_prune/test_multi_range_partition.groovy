@@ -73,7 +73,7 @@ suite("test_multi_range_partition") {
     }
     explain{
         sql "select * from pt where sin(k1)=0"
-        contains "artitions=3/3 (p1,p2,p3)"
+        contains "partitions=1/3 (p1)"
     }
 
     // fix BUG: p1 missed

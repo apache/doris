@@ -66,6 +66,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
     ///////////////////////////////////////////////////////////////////////////
 
     /**
+    /**
      * The select materialized index id to read data from.
      */
     private final long selectedIndexId;
@@ -538,9 +539,6 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
 
     @Override
     public void computeEqualSet(DataTrait.Builder builder) {
-        if (getTable() instanceof MTMV && getTable().getName().equals("mv1")) {
-            System.out.println();
-        }
         if (getTable() instanceof MTMV) {
             MTMV mtmv = (MTMV) getTable();
             MTMVCache cache = mtmv.getCache();

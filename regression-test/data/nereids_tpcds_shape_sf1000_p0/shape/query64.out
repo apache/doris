@@ -22,42 +22,42 @@ PhysicalCteAnchor ( cteId=CTEId#1 )
 ----------------------------------PhysicalOlapScan[store_returns] apply RFs: RF14 RF15
 --------------------------------PhysicalProject
 ----------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_cdemo_sk = cd1.cd_demo_sk)) otherCondition=() build RFs:RF13 cd_demo_sk->[ss_cdemo_sk]
-------------------------------------PhysicalProject
---------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_item_sk = cs_ui.cs_item_sk)) otherCondition=() build RFs:RF12 cs_item_sk->[i_item_sk,ss_item_sk]
-----------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF11 i_item_sk->[ss_item_sk]
+------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF12 i_item_sk->[cr_item_sk,cs_item_sk,ss_item_sk]
+--------------------------------------PhysicalProject
+----------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_store_sk = store.s_store_sk)) otherCondition=() build RFs:RF11 s_store_sk->[ss_store_sk]
 ------------------------------------------PhysicalProject
---------------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_store_sk = store.s_store_sk)) otherCondition=() build RFs:RF10 s_store_sk->[ss_store_sk]
+--------------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((hd1.hd_income_band_sk = ib1.ib_income_band_sk)) otherCondition=() build RFs:RF10 ib_income_band_sk->[hd_income_band_sk]
 ----------------------------------------------PhysicalProject
-------------------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((hd1.hd_income_band_sk = ib1.ib_income_band_sk)) otherCondition=() build RFs:RF9 ib_income_band_sk->[hd_income_band_sk]
+------------------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_hdemo_sk = hd1.hd_demo_sk)) otherCondition=() build RFs:RF9 hd_demo_sk->[ss_hdemo_sk]
 --------------------------------------------------PhysicalProject
-----------------------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_hdemo_sk = hd1.hd_demo_sk)) otherCondition=() build RFs:RF8 hd_demo_sk->[ss_hdemo_sk]
+----------------------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_item_sk = cs_ui.cs_item_sk)) otherCondition=() build RFs:RF8 cs_item_sk->[ss_item_sk]
 ------------------------------------------------------PhysicalProject
 --------------------------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_sold_date_sk = d1.d_date_sk)) otherCondition=() build RFs:RF7 d_date_sk->[ss_sold_date_sk]
 ----------------------------------------------------------PhysicalProject
-------------------------------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF7 RF8 RF10 RF11 RF12 RF13 RF17 RF18
+------------------------------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF7 RF8 RF9 RF11 RF12 RF13 RF17 RF18
 ----------------------------------------------------------PhysicalProject
 ------------------------------------------------------------filter(d_year IN (1999, 2000))
 --------------------------------------------------------------PhysicalOlapScan[date_dim]
 ------------------------------------------------------PhysicalProject
---------------------------------------------------------PhysicalOlapScan[household_demographics] apply RFs: RF9
+--------------------------------------------------------filter((sale > (2 * refund)))
+----------------------------------------------------------hashAgg[GLOBAL]
+------------------------------------------------------------PhysicalDistribute[DistributionSpecHash]
+--------------------------------------------------------------hashAgg[LOCAL]
+----------------------------------------------------------------PhysicalProject
+------------------------------------------------------------------hashJoin[INNER_JOIN colocated] hashCondition=((catalog_sales.cs_item_sk = catalog_returns.cr_item_sk) and (catalog_sales.cs_order_number = catalog_returns.cr_order_number)) otherCondition=() build RFs:RF5 cr_item_sk->[cs_item_sk];RF6 cr_order_number->[cs_order_number]
+--------------------------------------------------------------------PhysicalProject
+----------------------------------------------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF5 RF6 RF12
+--------------------------------------------------------------------PhysicalProject
+----------------------------------------------------------------------PhysicalOlapScan[catalog_returns] apply RFs: RF12
 --------------------------------------------------PhysicalProject
-----------------------------------------------------PhysicalOlapScan[income_band]
+----------------------------------------------------PhysicalOlapScan[household_demographics] apply RFs: RF10
 ----------------------------------------------PhysicalProject
-------------------------------------------------PhysicalOlapScan[store]
+------------------------------------------------PhysicalOlapScan[income_band]
 ------------------------------------------PhysicalProject
---------------------------------------------filter((item.i_current_price <= 58.00) and (item.i_current_price >= 49.00) and i_color IN ('blush', 'lace', 'lawn', 'misty', 'orange', 'pink'))
-----------------------------------------------PhysicalOlapScan[item] apply RFs: RF12
-----------------------------------------PhysicalProject
-------------------------------------------filter((sale > (2 * refund)))
---------------------------------------------hashAgg[GLOBAL]
-----------------------------------------------PhysicalDistribute[DistributionSpecHash]
-------------------------------------------------hashAgg[LOCAL]
---------------------------------------------------PhysicalProject
-----------------------------------------------------hashJoin[INNER_JOIN colocated] hashCondition=((catalog_sales.cs_item_sk = catalog_returns.cr_item_sk) and (catalog_sales.cs_order_number = catalog_returns.cr_order_number)) otherCondition=() build RFs:RF5 cr_item_sk->[cs_item_sk];RF6 cr_order_number->[cs_order_number]
-------------------------------------------------------PhysicalProject
---------------------------------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF5 RF6
-------------------------------------------------------PhysicalProject
---------------------------------------------------------PhysicalOlapScan[catalog_returns]
+--------------------------------------------PhysicalOlapScan[store]
+--------------------------------------PhysicalProject
+----------------------------------------filter((item.i_current_price <= 58.00) and (item.i_current_price >= 49.00) and i_color IN ('blush', 'lace', 'lawn', 'misty', 'orange', 'pink'))
+------------------------------------------PhysicalOlapScan[item]
 ------------------------------------PhysicalProject
 --------------------------------------PhysicalOlapScan[customer_demographics]
 ------------------------PhysicalProject
@@ -91,10 +91,10 @@ PhysicalCteAnchor ( cteId=CTEId#1 )
 ------PhysicalDistribute[DistributionSpecGather]
 --------PhysicalQuickSort[LOCAL_SORT]
 ----------PhysicalProject
-------------hashJoin[INNER_JOIN shuffle] hashCondition=((cs1.item_sk = cs2.item_sk) and (cs1.store_name = cs2.store_name) and (cs1.store_zip = cs2.store_zip)) otherCondition=((cs2.cnt <= cs1.cnt))
+------------hashJoin[INNER_JOIN shuffle] hashCondition=((cs1.item_sk = cs2.item_sk) and (cs1.store_name = cs2.store_name) and (cs1.store_zip = cs2.store_zip)) otherCondition=((cs2.cnt <= cs1.cnt)) build RFs:RF20 item_sk->[item_sk];RF21 store_name->[store_name];RF22 store_zip->[store_zip]
 --------------PhysicalProject
 ----------------filter((cs1.syear = 1999))
-------------------PhysicalCteConsumer ( cteId=CTEId#1 )
+------------------PhysicalCteConsumer ( cteId=CTEId#1 ) apply RFs: RF20 RF21 RF22
 --------------PhysicalProject
 ----------------filter((cs2.syear = 2000))
 ------------------PhysicalCteConsumer ( cteId=CTEId#1 )

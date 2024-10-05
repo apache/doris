@@ -155,6 +155,32 @@ public class FunctionSet<T> {
                     .put(Type.DECIMAL128, Type.DECIMAL128)
                     .build();
 
+    public static final Set<String> nonDeterministicFunctions =
+            ImmutableSet.<String>builder()
+                    .add("RAND")
+                    .add("RANDOM")
+                    .add("RANDOM_BYTES")
+                    .add("CONNECTION_ID")
+                    .add("DATABASE")
+                    .add("USER")
+                    .add("UUID")
+                    .add("CURRENT_USER")
+                    .add("UUID_NUMERIC")
+                    .build();
+
+    public static final Set<String> nonDeterministicTimeFunctions =
+            ImmutableSet.<String>builder()
+                    .add("NOW")
+                    .add("CURDATE")
+                    .add("CURRENT_DATE")
+                    .add("UTC_TIMESTAMP")
+                    .add("CURTIME")
+                    .add("CURRENT_TIMESTAMP")
+                    .add("CURRENT_TIME")
+                    .add("UNIX_TIMESTAMP")
+                    .add()
+                    .build();
+
     private static final Map<Type, String> STDDEV_UPDATE_SYMBOL =
             ImmutableMap.<Type, String>builder()
                 .put(Type.TINYINT,
@@ -1914,6 +1940,42 @@ public class FunctionSet<T> {
                 Lists.<Type>newArrayList(Type.DOUBLE, Type.DOUBLE), Type.DOUBLE, Type.DOUBLE,
                 "", "", "", "", "", "", "",
                 false, false, false, true));
+
+
+        List<String> skewnessAndKurtosis = Lists.newArrayList("skew", "skew_pop", "skewness", "kurt",
+                "kurt_pop", "kurtosis");
+        skewnessAndKurtosis.addAll(skewnessAndKurtosis);
+
+        for (String name : skewnessAndKurtosis) {
+            addBuiltin(AggregateFunction.createBuiltin(name,
+                    Lists.<Type>newArrayList(Type.TINYINT), Type.DOUBLE, Type.DOUBLE,
+                    "", "", "", "", "", "", "",
+                    false, false, false, true));
+            addBuiltin(AggregateFunction.createBuiltin(name,
+                    Lists.<Type>newArrayList(Type.SMALLINT), Type.DOUBLE, Type.DOUBLE,
+                    "", "", "", "", "", "", "",
+                    false, false, false, true));
+            addBuiltin(AggregateFunction.createBuiltin(name,
+                    Lists.<Type>newArrayList(Type.INT), Type.DOUBLE, Type.DOUBLE,
+                    "", "", "", "", "", "", "",
+                    false, false, false, true));
+            addBuiltin(AggregateFunction.createBuiltin(name,
+                    Lists.<Type>newArrayList(Type.BIGINT), Type.DOUBLE, Type.DOUBLE,
+                    "", "", "", "", "", "", "",
+                    false, false, false, true));
+            addBuiltin(AggregateFunction.createBuiltin(name,
+                    Lists.<Type>newArrayList(Type.LARGEINT), Type.DOUBLE, Type.DOUBLE,
+                    "", "", "", "", "", "", "",
+                    false, false, false, true));
+            addBuiltin(AggregateFunction.createBuiltin(name,
+                    Lists.<Type>newArrayList(Type.FLOAT), Type.DOUBLE, Type.DOUBLE,
+                    "", "", "", "", "", "", "",
+                    false, false, false, true));
+            addBuiltin(AggregateFunction.createBuiltin(name,
+                    Lists.<Type>newArrayList(Type.DOUBLE), Type.DOUBLE, Type.DOUBLE,
+                    "", "", "", "", "", "", "",
+                    false, false, false, true));
+        }
     }
 
     public Map<String, List<Function>> getVectorizedFunctions() {

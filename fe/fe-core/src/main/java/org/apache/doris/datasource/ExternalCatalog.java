@@ -33,6 +33,8 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.io.Text;
@@ -101,7 +103,13 @@ public abstract class ExternalCatalog
     public static final String DORIS_VERSION = "doris.version";
     public static final String DORIS_VERSION_VALUE = Version.DORIS_BUILD_VERSION + "-" + Version.DORIS_BUILD_SHORT_HASH;
     public static final String USE_META_CACHE = "use_meta_cache";
+    public static final String CREATE_TIME = "create_time";
     public static final boolean DEFAULT_USE_META_CACHE = true;
+
+    // Properties that should not be shown in the `show create catalog` result
+    public static final Set<String> HIDDEN_PROPERTIES = Sets.newHashSet(
+            CREATE_TIME,
+            USE_META_CACHE);
 
     // Unique id of this catalog, will be assigned after catalog is loaded.
     @SerializedName(value = "id")
@@ -121,6 +129,9 @@ public abstract class ExternalCatalog
     protected Map<Long, ExternalDatabase<? extends ExternalTable>> idToDb = Maps.newConcurrentMap();
     @SerializedName(value = "lastUpdateTime")
     protected long lastUpdateTime;
+    // <db name, table name> to tableAutoAnalyzePolicy
+    @SerializedName(value = "taap")
+    protected Map<Pair<String, String>, String> tableAutoAnalyzePolicy = Maps.newHashMap();
     // db name does not contains "default_cluster"
     protected Map<String, Long> dbNameToId = Maps.newConcurrentMap();
     private boolean objectCreated = false;
@@ -241,7 +252,7 @@ public abstract class ExternalCatalog
                             Config.max_meta_object_cache_num,
                             ignored -> getFilteredDatabaseNames(),
                             dbName -> Optional.ofNullable(
-                                    buildDbForInit(dbName, Util.genIdByName(name, dbName), logType)),
+                                    buildDbForInit(dbName, Util.genIdByName(name, dbName), logType, true)),
                             (key, value, cause) -> value.ifPresent(v -> v.setUnInitialized(invalidCacheInInit)));
                 }
                 setLastUpdateTime(System.currentTimeMillis());
@@ -291,11 +302,11 @@ public abstract class ExternalCatalog
             }
         }
 
-        if (properties.getOrDefault(ExternalCatalog.USE_META_CACHE, "true").equals("false")) {
-            LOG.warn("force to set use_meta_cache to true for catalog: {} when creating", name);
-            getCatalogProperty().addProperty(ExternalCatalog.USE_META_CACHE, "true");
-            useMetaCache = Optional.of(true);
-        }
+        // if (properties.getOrDefault(ExternalCatalog.USE_META_CACHE, "true").equals("false")) {
+        //     LOG.warn("force to set use_meta_cache to true for catalog: {} when creating", name);
+        //     getCatalogProperty().addProperty(ExternalCatalog.USE_META_CACHE, "true");
+        //     useMetaCache = Optional.of(true);
+        // }
     }
 
     /**
@@ -361,7 +372,7 @@ public abstract class ExternalCatalog
             } else {
                 dbId = Env.getCurrentEnv().getNextId();
                 tmpDbNameToId.put(dbName, dbId);
-                ExternalDatabase<? extends ExternalTable> db = buildDbForInit(dbName, dbId, logType);
+                ExternalDatabase<? extends ExternalTable> db = buildDbForInit(dbName, dbId, logType, false);
                 tmpIdToDb.put(dbId, db);
                 initCatalogLog.addCreateDb(dbId, dbName);
             }
@@ -627,7 +638,7 @@ public abstract class ExternalCatalog
         }
         for (int i = 0; i < log.getCreateCount(); i++) {
             ExternalDatabase<? extends ExternalTable> db =
-                    buildDbForInit(log.getCreateDbNames().get(i), log.getCreateDbIds().get(i), log.getType());
+                    buildDbForInit(log.getCreateDbNames().get(i), log.getCreateDbIds().get(i), log.getType(), false);
             if (db != null) {
                 tmpDbNameToId.put(db.getFullName(), db.getId());
                 tmpIdToDb.put(db.getId(), db);
@@ -650,8 +661,37 @@ public abstract class ExternalCatalog
         }
     }
 
+    /**
+     * Build a database instance.
+     * If checkExists is true, it will check if the database exists in the remote system.
+     *
+     * @param dbName
+     * @param dbId
+     * @param logType
+     * @param checkExists
+     * @return
+     */
     protected ExternalDatabase<? extends ExternalTable> buildDbForInit(String dbName, long dbId,
-            InitCatalogLog.Type logType) {
+            InitCatalogLog.Type logType, boolean checkExists) {
+        // When running ut, disable this check to make ut pass.
+        // Because in ut, the database is not created in remote system.
+        if (checkExists && !FeConstants.runningUnitTest) {
+            try {
+                List<String> dbNames = getDbNames();
+                if (!dbNames.contains(dbName)) {
+                    dbNames = listDatabaseNames();
+                    if (!dbNames.contains(dbName)) {
+                        return null;
+                    }
+                }
+            } catch (Throwable t) {
+                // If connection failed, it will throw exception.
+                // ignore it and treat it as not exist.
+                LOG.warn("Failed to check db {} exist in remote system, ignore it.", dbName, t);
+                return null;
+            }
+        }
+
         if (dbName.equals(InfoSchemaDb.DATABASE_NAME)) {
             return new ExternalInfoSchemaDatabase(this, dbId);
         }
@@ -717,6 +757,9 @@ public abstract class ExternalCatalog
         this.propLock = new byte[0];
         this.initialized = false;
         setDefaultPropsIfMissing(true);
+        if (tableAutoAnalyzePolicy == null) {
+            tableAutoAnalyzePolicy = Maps.newHashMap();
+        }
     }
 
     public void addDatabaseForTest(ExternalDatabase<? extends ExternalTable> db) {
@@ -877,5 +920,14 @@ public abstract class ExternalCatalog
 
     public String getQualifiedName(String dbName) {
         return String.join(".", name, dbName);
+    }
+
+    public void setAutoAnalyzePolicy(String dbName, String tableName, String policy) {
+        Pair<String, String> key = Pair.of(dbName, tableName);
+        if (policy == null) {
+            tableAutoAnalyzePolicy.remove(key);
+        } else {
+            tableAutoAnalyzePolicy.put(key, policy);
+        }
     }
 }

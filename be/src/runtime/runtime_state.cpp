@@ -434,6 +434,7 @@ Status RuntimeState::append_error_msg_to_file(std::function<std::string()> line,
 }
 
 std::string RuntimeState::get_error_log_file_path() {
+    std::lock_guard<std::mutex> l(_s3_error_log_file_lock);
     if (_s3_error_fs && _error_log_file && _error_log_file->is_open()) {
         // close error log file
         _error_log_file->close();
@@ -457,15 +458,6 @@ std::string RuntimeState::get_error_log_file_path() {
                                                                     EXPIRATION_SECONDS, true);
     }
     return _error_log_file_path;
-}
-
-int64_t RuntimeState::get_load_mem_limit() {
-    // TODO: the code is abandoned, it can be deleted after v1.3
-    if (_query_options.__isset.load_mem_limit && _query_options.load_mem_limit > 0) {
-        return _query_options.load_mem_limit;
-    } else {
-        return _query_mem_tracker->limit();
-    }
 }
 
 void RuntimeState::resize_op_id_to_local_state(int operator_size) {

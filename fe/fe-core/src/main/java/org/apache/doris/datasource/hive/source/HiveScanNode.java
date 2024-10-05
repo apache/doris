@@ -27,10 +27,8 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
-import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.FileSplit;
@@ -52,7 +50,6 @@ import org.apache.doris.thrift.TFileAttributes;
 import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileTextScanRangeParams;
-import org.apache.doris.thrift.TFileType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -94,6 +91,11 @@ public class HiveScanNode extends FileQueryScanNode {
 
     public static final String PROP_MAP_KV_DELIMITER = "mapkey.delim";
     public static final String DEFAULT_MAP_KV_DELIMITER = "\003";
+
+    public static final String PROP_ESCAPE_DELIMITER = "escape.delim";
+    public static final String DEFAULT_ESCAPE_DELIMIER = "\\";
+    public static final String PROP_NULL_FORMAT = "serialization.null.format";
+    public static final String DEFAULT_NULL_FORMAT = "\\N";
 
     protected final HMSExternalTable hmsTable;
     private HiveTransaction hiveTransaction = null;
@@ -255,30 +257,32 @@ public class HiveScanNode extends FileQueryScanNode {
                 }
                 try {
                     splittersOnFlight.acquire();
-                } catch (InterruptedException e) {
+                    CompletableFuture.runAsync(() -> {
+                        try {
+                            List<Split> allFiles = Lists.newArrayList();
+                            getFileSplitByPartitions(
+                                    cache, Collections.singletonList(partition), allFiles, bindBrokerName);
+                            if (allFiles.size() > numSplitsPerPartition.get()) {
+                                numSplitsPerPartition.set(allFiles.size());
+                            }
+                            splitAssignment.addToQueue(allFiles);
+                        } catch (IOException e) {
+                            batchException.set(new UserException(e.getMessage(), e));
+                        } finally {
+                            splittersOnFlight.release();
+                            if (batchException.get() != null) {
+                                splitAssignment.setException(batchException.get());
+                            }
+                            if (numFinishedPartitions.incrementAndGet() == prunedPartitions.size()) {
+                                splitAssignment.finishSchedule();
+                            }
+                        }
+                    }, scheduleExecutor);
+                } catch (Exception e) {
+                    // When submitting a task, an exception will be thrown if the task pool(scheduleExecutor) is full
                     batchException.set(new UserException(e.getMessage(), e));
                     break;
                 }
-                CompletableFuture.runAsync(() -> {
-                    try {
-                        List<Split> allFiles = Lists.newArrayList();
-                        getFileSplitByPartitions(cache, Collections.singletonList(partition), allFiles, bindBrokerName);
-                        if (allFiles.size() > numSplitsPerPartition.get()) {
-                            numSplitsPerPartition.set(allFiles.size());
-                        }
-                        splitAssignment.addToQueue(allFiles);
-                    } catch (IOException e) {
-                        batchException.set(new UserException(e.getMessage(), e));
-                    } finally {
-                        splittersOnFlight.release();
-                        if (batchException.get() != null) {
-                            splitAssignment.setException(batchException.get());
-                        }
-                        if (numFinishedPartitions.incrementAndGet() == prunedPartitions.size()) {
-                            splitAssignment.finishSchedule();
-                        }
-                    }
-                }, scheduleExecutor);
             }
             if (batchException.get() != null) {
                 splitAssignment.setException(batchException.get());
@@ -338,7 +342,7 @@ public class HiveScanNode extends FileQueryScanNode {
             allFiles.addAll(splitFile(status.getPath(), status.getBlockSize(),
                     status.getBlockLocations(), status.getLength(), status.getModificationTime(),
                     status.isSplittable(), status.getPartitionValues(),
-                new HiveSplitCreator(status.getAcidInfo())));
+                    new HiveSplitCreator(status.getAcidInfo())));
         }
     }
 
@@ -405,21 +409,6 @@ public class HiveScanNode extends FileQueryScanNode {
     }
 
     @Override
-    protected TFileType getLocationType() throws UserException {
-        return getLocationType(hmsTable.getRemoteTable().getSd().getLocation());
-    }
-
-    @Override
-    protected TFileType getLocationType(String location) throws UserException {
-        String bindBrokerName = hmsTable.getCatalog().bindBrokerName();
-        if (bindBrokerName != null) {
-            return TFileType.FILE_BROKER;
-        }
-        return Optional.ofNullable(LocationPath.getTFileTypeForBE(location)).orElseThrow(() ->
-                new DdlException("Unknown file location " + location + " for hms table " + hmsTable.getName()));
-    }
-
-    @Override
     public TFileFormatType getFileFormatType() throws UserException {
         TFileFormatType type = null;
         String inputFormatName = hmsTable.getRemoteTable().getSd().getInputFormat();
@@ -475,6 +464,24 @@ public class HiveScanNode extends FileQueryScanNode {
         if (serdeParams.containsKey(PROP_QUOTE_CHAR)) {
             textParams.setEnclose(serdeParams.get(PROP_QUOTE_CHAR).getBytes()[0]);
         }
+        // 6. set escape delimiter
+        Optional<String> escapeDelim = HiveMetaStoreClientHelper.getSerdeProperty(hmsTable.getRemoteTable(),
+                PROP_ESCAPE_DELIMITER);
+        if (escapeDelim.isPresent()) {
+            String escape = HiveMetaStoreClientHelper.getByte(
+                    escapeDelim.get());
+            if (escape != null) {
+                textParams
+                        .setEscape(escape.getBytes()[0]);
+            } else {
+                textParams.setEscape(DEFAULT_ESCAPE_DELIMIER.getBytes()[0]);
+            }
+        }
+        // 7. set null format
+        Optional<String> nullFormat = HiveMetaStoreClientHelper.getSerdeProperty(hmsTable.getRemoteTable(),
+                PROP_NULL_FORMAT);
+        textParams.setNullFormat(HiveMetaStoreClientHelper.firstPresentOrDefault(
+                DEFAULT_NULL_FORMAT, nullFormat));
 
         TFileAttributes fileAttributes = new TFileAttributes();
         fileAttributes.setTextParams(textParams);

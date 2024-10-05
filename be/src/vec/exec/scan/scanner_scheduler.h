@@ -18,9 +18,11 @@
 #pragma once
 
 #include <atomic>
+#include <cstdint>
 #include <memory>
 
 #include "common/status.h"
+#include "util/doris_metrics.h"
 #include "util/threadpool.h"
 #include "vec/exec/scan/vscanner.h"
 
@@ -57,7 +59,7 @@ public:
 
     [[nodiscard]] Status init(ExecEnv* env);
 
-    void submit(std::shared_ptr<ScannerContext> ctx, std::shared_ptr<ScanTask> scan_task);
+    Status submit(std::shared_ptr<ScannerContext> ctx, std::shared_ptr<ScanTask> scan_task);
 
     void stop();
 
@@ -135,7 +137,13 @@ public:
 
     Status submit_scan_task(SimplifiedScanTask scan_task) {
         if (!_is_stop) {
-            return _scan_thread_pool->submit_func([scan_task] { scan_task.scan_func(); });
+            DorisMetrics::instance()->scanner_task_queued->increment(1);
+            auto st = _scan_thread_pool->submit_func([scan_task] { scan_task.scan_func(); });
+            if (!st.ok()) {
+                DorisMetrics::instance()->scanner_task_queued->increment(-1);
+                DorisMetrics::instance()->scanner_task_submit_failed->increment(1);
+            }
+            return st;
         } else {
             return Status::InternalError<false>("scanner pool {} is shutdown.", _sched_name);
         }

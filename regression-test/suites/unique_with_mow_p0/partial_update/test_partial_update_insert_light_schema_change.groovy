@@ -58,7 +58,7 @@ suite("test_partial_update_insert_light_schema_change", "p0") {
             
             // schema change
             sql " ALTER table ${tableName} add column c10 INT DEFAULT '0' "
-            def try_times=12000
+            def try_times=1200
             // if timeout awaitility will raise exception
             Awaitility.await().atMost(try_times, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).await().until(() -> {
                 def res = sql " SHOW ALTER TABLE COLUMN WHERE TableName = '${tableName}' ORDER BY CreateTime DESC LIMIT 1 "
@@ -264,11 +264,11 @@ suite("test_partial_update_insert_light_schema_change", "p0") {
             sql "sync"
 
             // test insert data with all key column, should fail because
-            // it don't have any value columns
+            // it inserts a new row in strict mode
             sql "set enable_unique_key_partial_update=true;"
             test {
                 sql "insert into ${tableName}(c0,c1) values(1, 1);"
-                exception "INTERNAL_ERROR"
+                exception "Insert has filtered data in strict mode"
             }
             sql "insert into ${tableName}(c0,c1,c2) values(1,0,10);"
             sql "set enable_unique_key_partial_update=false;"

@@ -233,7 +233,7 @@ public abstract class AbstractPhysicalJoin<
         properties.put("HashJoinConjuncts", hashJoinConjuncts.toString());
         properties.put("OtherJoinConjuncts", otherJoinConjuncts.toString());
         properties.put("MarkJoinConjuncts", markJoinConjuncts.toString());
-        properties.put("JoinHint", hint.toString());
+        properties.put("JoinHint", hint.getExplainString());
         properties.put("MarkJoinSlotReference", markJoinSlotReference.toString());
         physicalJoin.put("Properties", properties);
         return physicalJoin;
@@ -267,8 +267,9 @@ public abstract class AbstractPhysicalJoin<
 
     @Override
     public String toString() {
-        List<Object> args = Lists.newArrayList("type", joinType,
+        List<Object> args = Lists.newArrayList(
                 "stats", statistics,
+                "type", joinType,
                 "hashCondition", hashJoinConjuncts,
                 "otherCondition", otherJoinConjuncts,
                 "markCondition", markJoinConjuncts);

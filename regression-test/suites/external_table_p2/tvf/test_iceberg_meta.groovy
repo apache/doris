@@ -16,6 +16,13 @@
 // under the License.
 
 suite("test_iceberg_meta", "p2,external,iceberg,external_remote,external_remote_iceberg") {
+
+    Boolean ignoreP2 = true;
+    if (ignoreP2) {
+        logger.info("disable p2 test");
+        return;
+    }
+
     String enabled = context.config.otherConfigs.get("enableExternalHiveTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String iceberg_catalog_name = "test_iceberg_meta_tvf"
