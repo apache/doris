@@ -32,6 +32,7 @@
 #include <type_traits>
 #include <utility>
 
+#include "common/cast_set.h"
 #include "util/hash_util.hpp"
 #include "util/time_lut.h"
 #include "util/timezone_utils.h"
@@ -47,7 +48,7 @@ class DataTypeDateTimeV2;
 } // namespace doris::vectorized
 
 namespace doris {
-
+#include "common/compile_check_begin.h"
 enum TimeUnit {
     MICROSECOND,
     MILLISECOND,
@@ -297,15 +298,17 @@ public:
         _type = TIME_DATETIME;
         uint64_t date = datetime / 1000000;
         uint64_t time = datetime % 1000000;
-
-        auto [year, month, day, hour, minute, second] = std::tuple {0, 0, 0, 0, 0, 0};
-        year = date / 10000;
+        // uint32_t year, uint32_t month, uint32_t day, uint32_t hour,uint32_t minute, uint32_t second
+        auto [year, month, day, hour, minute, second] =
+                std::tuple<uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t> {0, 0, 0,
+                                                                                        0, 0, 0};
+        cast_set(year, date / 10000);
         date %= 10000;
-        month = date / 100;
+        cast_set(month, date / 100);
         day = date % 100;
-        hour = time / 10000;
+        cast_set(hour, time / 10000);
         time %= 10000;
-        minute = time / 100;
+        cast_set(minute, time / 100);
         second = time % 100;
 
         return check_range_and_set_time(year, month, day, hour, minute, second, _type);
@@ -320,14 +323,16 @@ public:
     bool from_olap_date(uint64_t date) {
         _neg = 0;
         _type = TIME_DATE;
-
-        auto [year, month, day, hour, minute, second] = std::tuple {0, 0, 0, 0, 0, 0};
+        // uint32_t year, uint32_t month, uint32_t day, uint32_t hour,uint32_t minute, uint32_t second
+        auto [year, month, day, hour, minute, second] =
+                std::tuple<uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t> {0, 0, 0,
+                                                                                        0, 0, 0};
 
         day = date & 0x1f;
         date >>= 5;
         month = date & 0x0f;
         date >>= 4;
-        year = date;
+        cast_set(year, date);
 
         return check_range_and_set_time(year, month, day, hour, minute, second, _type);
     }
@@ -623,7 +628,7 @@ public:
 
     uint32_t hash(int seed) const { return HashUtil::hash(this, sizeof(*this), seed); }
 
-    int day_of_year() const { return daynr() - calc_daynr(_year, 1, 1) + 1; }
+    int64_t day_of_year() const { return daynr() - calc_daynr(_year, 1, 1) + 1; }
 
     // TODO(zhaochun): local time ???
     static VecDateTimeValue local_time();
@@ -786,13 +791,14 @@ public:
     void set_microsecond(uint32_t microsecond);
 
     bool from_olap_date(uint64_t date) {
-        auto [year, month, day] = std::tuple {0, 0, 0};
+        //uint16_t year, uint8_t month, uint8_t day
+        auto [year, month, day] = std::tuple<uint16_t, uint8_t, uint8_t> {0, 0, 0};
 
         day = date & 0x1f;
         date >>= 5;
         month = date & 0x0f;
         date >>= 4;
-        year = date;
+        cast_set(year, date);
 
         return check_range_and_set_time(year, month, day, 0, 0, 0, 0);
     }
@@ -800,17 +806,18 @@ public:
     bool from_olap_datetime(uint64_t datetime) {
         uint64_t date = datetime / 1000000;
         uint64_t time = datetime % 1000000;
-
-        auto [year, month, day, hour, minute, second] = std::tuple {0, 0, 0, 0, 0, 0};
-        year = date / 10000;
+        //uint16_t year, uint8_t month, uint8_t day,uint8_t hour, uint8_t minute, uint8_t second, uint32_t microsecond
+        auto [year, month, day, hour, minute, second] =
+                std::tuple<uint16_t, uint8_t, uint8_t, uint8_t, uint8_t, uint8_t> {0, 0, 0,
+                                                                                   0, 0, 0};
+        cast_set(year, date / 10000);
         date %= 10000;
-        month = date / 100;
-        day = date % 100;
-        hour = time / 10000;
+        cast_set(month, date / 100);
+        cast_set(day, date % 100);
+        cast_set(hour, time / 10000);
         time %= 10000;
-        minute = time / 100;
-        second = time % 100;
-
+        cast_set(minute, time / 100);
+        cast_set(second, time % 100);
         return check_range_and_set_time(year, month, day, hour, minute, second, 0);
     }
 
@@ -1116,7 +1123,7 @@ public:
 
     uint32_t hash(int seed) const { return HashUtil::hash(this, sizeof(*this), seed); }
 
-    int day_of_year() const { return daynr() - calc_daynr(this->year(), 1, 1) + 1; }
+    int64_t day_of_year() const { return daynr() - calc_daynr(this->year(), 1, 1) + 1; }
 
     std::string debug_string() const {
         char buf[64];
@@ -1294,7 +1301,7 @@ public:
 
     void format_datetime(uint32_t* date_v, bool* carry_bits) const;
 
-    void set_int_val(uint64_t val) { this->int_val_ = val; }
+    void set_int_val(underlying_value val) { this->int_val_ = val; }
 
 private:
     static uint8_t calc_week(const uint32_t& day_nr, const uint16_t& year, const uint8_t& month,
@@ -1369,7 +1376,7 @@ int64_t datetime_diff(const VecDateTimeValue& ts_value1, const VecDateTimeValue&
         return month;
     }
     case WEEK: {
-        int day = ts_value2.daynr() - ts_value1.daynr();
+        int64_t day = ts_value2.daynr() - ts_value1.daynr();
         if (day > 0) {
             day -= ts_value2.time_part_diff(ts_value1) < 0;
         } else if (day < 0) {
@@ -1378,7 +1385,7 @@ int64_t datetime_diff(const VecDateTimeValue& ts_value1, const VecDateTimeValue&
         return day / 7;
     }
     case DAY: {
-        int day = ts_value2.daynr() - ts_value1.daynr();
+        int64_t day = ts_value2.daynr() - ts_value1.daynr();
         if (day > 0) {
             day -= ts_value2.time_part_diff(ts_value1) < 0;
         } else if (day < 0) {
@@ -1493,7 +1500,7 @@ int64_t datetime_diff(const DateV2Value<T0>& ts_value1, const DateV2Value<T1>& t
         return month;
     }
     case WEEK: {
-        int day = ts_value2.daynr() - ts_value1.daynr();
+        int64_t day = ts_value2.daynr() - ts_value1.daynr();
         int64_t ms_diff = ts_value2.time_part_diff_microsecond(ts_value1);
         if (day > 0 && ms_diff < 0) {
             day--;
@@ -1503,7 +1510,7 @@ int64_t datetime_diff(const DateV2Value<T0>& ts_value1, const DateV2Value<T1>& t
         return day / 7;
     }
     case DAY: {
-        int day = ts_value2.daynr() - ts_value1.daynr();
+        int64_t day = ts_value2.daynr() - ts_value1.daynr();
         int64_t ms_diff = ts_value2.time_part_diff_microsecond(ts_value1);
         if (day > 0 && ms_diff < 0) {
             day--;
@@ -1634,3 +1641,5 @@ struct std::hash<doris::DateV2Value<doris::DateTimeV2ValueType>> {
         return doris::hash_value(v);
     }
 };
+
+#include "common/compile_check_end.h"

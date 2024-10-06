@@ -42,6 +42,8 @@
 
 namespace doris {
 
+#include "common/compile_check_begin.h"
+
 static const char* s_ab_month_name[] = {"",    "Jan", "Feb", "Mar", "Apr", "May", "Jun",
                                         "Jul", "Aug", "Sep", "Oct", "Nov", "Dec", nullptr};
 
