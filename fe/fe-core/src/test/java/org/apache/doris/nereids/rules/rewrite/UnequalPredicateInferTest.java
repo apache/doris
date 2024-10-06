@@ -55,7 +55,7 @@ public class UnequalPredicateInferTest {
         SlotReference c = new SlotReference("c", IntegerType.INSTANCE, true, ImmutableList.of("t1"));
         EqualTo equalTo1 = new EqualTo(a, b);
         EqualTo equalTo2 = new EqualTo(b, c);
-        Set<ComparisonPredicate> inputs = new LinkedHashSet<>();
+        Set<Expression> inputs = new LinkedHashSet<>();
         inputs.add(equalTo1);
         inputs.add(equalTo2);
         Set<? extends Expression> result = UnequalPredicateInfer.inferUnequalPredicates(inputs);
@@ -74,7 +74,7 @@ public class UnequalPredicateInferTest {
         // a>b b>c
         ComparisonPredicate gt1 = new GreaterThan(a, b);
         ComparisonPredicate gt2 = new GreaterThan(b, c);
-        Set<ComparisonPredicate> inputs = new LinkedHashSet<>();
+        Set<Expression> inputs = new LinkedHashSet<>();
         inputs.add(gt1);
         inputs.add(gt2);
         UnequalPredicateInfer.InferenceGraph inferenceGraph = new UnequalPredicateInfer.InferenceGraph(inputs);
@@ -86,7 +86,7 @@ public class UnequalPredicateInferTest {
         // a>=b b>=c
         ComparisonPredicate gte1 = new GreaterThanEqual(a, b);
         ComparisonPredicate gte2 = new GreaterThanEqual(b, c);
-        Set<ComparisonPredicate> inputs2 = new LinkedHashSet<>();
+        Set<Expression> inputs2 = new LinkedHashSet<>();
         inputs2.add(gte1);
         inputs2.add(gte2);
         UnequalPredicateInfer.InferenceGraph inferenceGraph2 = new UnequalPredicateInfer.InferenceGraph(inputs2);
@@ -97,7 +97,7 @@ public class UnequalPredicateInferTest {
         // a<=b b<=c
         ComparisonPredicate lte1 = new LessThanEqual(a, b);
         ComparisonPredicate lte2 = new LessThanEqual(b, c);
-        Set<ComparisonPredicate> inputs3 = new LinkedHashSet<>();
+        Set<Expression> inputs3 = new LinkedHashSet<>();
         inputs3.add(lte1);
         inputs3.add(lte2);
         UnequalPredicateInfer.InferenceGraph inferenceGraph3 = new UnequalPredicateInfer.InferenceGraph(inputs3);
@@ -108,7 +108,7 @@ public class UnequalPredicateInferTest {
         // a<=b b<c
         ComparisonPredicate lte3 = new LessThanEqual(a, b);
         ComparisonPredicate gt3 = new GreaterThan(c, b);
-        Set<ComparisonPredicate> inputs4 = new LinkedHashSet<>();
+        Set<Expression> inputs4 = new LinkedHashSet<>();
         inputs4.add(lte3);
         inputs4.add(gt3);
         UnequalPredicateInfer.InferenceGraph inferenceGraph4 = new UnequalPredicateInfer.InferenceGraph(inputs4);
@@ -126,7 +126,7 @@ public class UnequalPredicateInferTest {
         // a=b b>c
         ComparisonPredicate gt1 = new EqualTo(a, b);
         ComparisonPredicate gt2 = new GreaterThan(b, c);
-        Set<ComparisonPredicate> inputs = new LinkedHashSet<>();
+        Set<Expression> inputs = new LinkedHashSet<>();
         inputs.add(gt1);
         inputs.add(gt2);
         UnequalPredicateInfer.InferenceGraph inferenceGraph = new UnequalPredicateInfer.InferenceGraph(inputs);
@@ -147,7 +147,7 @@ public class UnequalPredicateInferTest {
         ComparisonPredicate eq = new EqualTo(a, b);
         ComparisonPredicate gt = new GreaterThan(b, c);
         ComparisonPredicate lte = new LessThanEqual(d, c);
-        Set<ComparisonPredicate> inputs = new LinkedHashSet<>();
+        Set<Expression> inputs = new LinkedHashSet<>();
         inputs.add(eq);
         inputs.add(gt);
         inputs.add(lte);
@@ -181,7 +181,7 @@ public class UnequalPredicateInferTest {
         Literal d = new IntegerLiteral(1);
         ComparisonPredicate eq1 = new EqualTo(a, d);
         ComparisonPredicate eq2 = new EqualTo(b, d);
-        Set<ComparisonPredicate> inputs = new LinkedHashSet<>();
+        Set<Expression> inputs = new LinkedHashSet<>();
         inputs.add(eq1);
         inputs.add(eq2);
         InferenceGraph inferenceGraph = new InferenceGraph(inputs);
@@ -208,7 +208,7 @@ public class UnequalPredicateInferTest {
         ComparisonPredicate eq1 = new EqualTo(a, d);
         ComparisonPredicate eq2 = new EqualTo(b, d);
         ComparisonPredicate eq3 = new EqualTo(c, d);
-        Set<ComparisonPredicate> inputs = new LinkedHashSet<>();
+        Set<Expression> inputs = new LinkedHashSet<>();
         inputs.add(eq1);
         inputs.add(eq2);
         inputs.add(eq3);
@@ -237,7 +237,7 @@ public class UnequalPredicateInferTest {
         Literal d = new IntegerLiteral(1);
         ComparisonPredicate eq1 = new EqualTo(a, d);
         ComparisonPredicate eq2 = new EqualTo(b, a);
-        Set<ComparisonPredicate> inputs = new LinkedHashSet<>();
+        Set<Expression> inputs = new LinkedHashSet<>();
         inputs.add(eq1);
         inputs.add(eq2);
         InferenceGraph inferenceGraph = new InferenceGraph(inputs);
@@ -264,7 +264,7 @@ public class UnequalPredicateInferTest {
         ComparisonPredicate eq1 = new EqualTo(a, d);
         ComparisonPredicate eq2 = new EqualTo(b, a);
         ComparisonPredicate eq3 = new EqualTo(c, a);
-        Set<ComparisonPredicate> inputs = new LinkedHashSet<>();
+        Set<Expression> inputs = new LinkedHashSet<>();
         inputs.add(eq1);
         inputs.add(eq2);
         inputs.add(eq3);
@@ -296,7 +296,7 @@ public class UnequalPredicateInferTest {
         ComparisonPredicate eq1 = new EqualTo(a, literal);
         ComparisonPredicate eq2 = new EqualTo(b, a);
         ComparisonPredicate eq3 = new EqualTo(d, c);
-        Set<ComparisonPredicate> inputs = new LinkedHashSet<>();
+        Set<Expression> inputs = new LinkedHashSet<>();
         inputs.add(eq1);
         inputs.add(eq2);
         inputs.add(eq3);
@@ -324,7 +324,7 @@ public class UnequalPredicateInferTest {
         Literal d = new IntegerLiteral(1);
         ComparisonPredicate eq1 = new EqualTo(a, d);
         ComparisonPredicate eq2 = new EqualTo(b, d);
-        Set<ComparisonPredicate> inputs = new LinkedHashSet<>();
+        Set<Expression> inputs = new LinkedHashSet<>();
         inputs.add(eq1);
         inputs.add(eq2);
         InferenceGraph inferenceGraph = new InferenceGraph(inputs);
@@ -351,7 +351,7 @@ public class UnequalPredicateInferTest {
         ComparisonPredicate eq1 = new EqualTo(a, d);
         ComparisonPredicate eq2 = new EqualTo(b, d);
         ComparisonPredicate eq3 = new EqualTo(c, d);
-        Set<ComparisonPredicate> inputs = new LinkedHashSet<>();
+        Set<Expression> inputs = new LinkedHashSet<>();
         inputs.add(eq1);
         inputs.add(eq2);
         inputs.add(eq3);
@@ -382,7 +382,7 @@ public class UnequalPredicateInferTest {
         ComparisonPredicate eq1 = new EqualTo(a, d);
         ComparisonPredicate eq2 = new EqualTo(b, a);
         ComparisonPredicate eq3 = new EqualTo(c, a);
-        Set<ComparisonPredicate> inputs = new LinkedHashSet<>();
+        Set<Expression> inputs = new LinkedHashSet<>();
         inputs.add(eq1);
         inputs.add(eq2);
         inputs.add(eq3);
@@ -414,7 +414,7 @@ public class UnequalPredicateInferTest {
         ComparisonPredicate eq1 = new EqualTo(a, literal);
         ComparisonPredicate eq2 = new EqualTo(b, a);
         ComparisonPredicate eq3 = new EqualTo(d, c);
-        Set<ComparisonPredicate> inputs = new LinkedHashSet<>();
+        Set<Expression> inputs = new LinkedHashSet<>();
         inputs.add(eq1);
         inputs.add(eq2);
         inputs.add(eq3);
@@ -445,7 +445,7 @@ public class UnequalPredicateInferTest {
         Literal literal = new IntegerLiteral(1);
         ComparisonPredicate cmp1 = new GreaterThan(a, literal);
         ComparisonPredicate cmp2 = new GreaterThan(b, a);
-        Set<ComparisonPredicate> inputs = new LinkedHashSet<>();
+        Set<Expression> inputs = new LinkedHashSet<>();
         inputs.add(cmp1);
         inputs.add(cmp2);
         Set<? extends Expression> sets = UnequalPredicateInfer.inferUnequalPredicates(inputs);
@@ -470,7 +470,7 @@ public class UnequalPredicateInferTest {
         Literal literal = new IntegerLiteral(1);
         ComparisonPredicate cmp1 = new LessThan(a, literal);
         ComparisonPredicate cmp2 = new EqualTo(b, a);
-        Set<ComparisonPredicate> inputs = new LinkedHashSet<>();
+        Set<Expression> inputs = new LinkedHashSet<>();
         inputs.add(cmp1);
         inputs.add(cmp2);
         Set<? extends Expression> sets = UnequalPredicateInfer.inferUnequalPredicates(inputs);
@@ -504,7 +504,7 @@ public class UnequalPredicateInferTest {
         Literal literal = new IntegerLiteral(1);
         ComparisonPredicate cmp1 = new GreaterThan(a, literal);
         ComparisonPredicate cmp2 = new GreaterThan(b, a);
-        Set<ComparisonPredicate> inputs = new LinkedHashSet<>();
+        Set<Expression> inputs = new LinkedHashSet<>();
         inputs.add(cmp1);
         inputs.add(cmp2);
         Set<? extends Expression> sets = UnequalPredicateInfer.inferUnequalPredicates(inputs);
@@ -530,7 +530,7 @@ public class UnequalPredicateInferTest {
         Literal literal = new IntegerLiteral(1);
         ComparisonPredicate cmp1 = new LessThan(b, literal);
         ComparisonPredicate cmp2 = new EqualTo(b, a);
-        Set<ComparisonPredicate> inputs = new LinkedHashSet<>();
+        Set<Expression> inputs = new LinkedHashSet<>();
         inputs.add(cmp1);
         inputs.add(cmp2);
         Set<? extends Expression> sets = UnequalPredicateInfer.inferUnequalPredicates(inputs);
@@ -567,7 +567,7 @@ public class UnequalPredicateInferTest {
         ComparisonPredicate cmp2 = new EqualTo(a, c);
         ComparisonPredicate cmp3 = new EqualTo(b, c);
 
-        Set<ComparisonPredicate> inputs = new LinkedHashSet<>();
+        Set<Expression> inputs = new LinkedHashSet<>();
         inputs.add(cmp1);
         inputs.add(cmp2);
         inputs.add(cmp3);
@@ -586,7 +586,7 @@ public class UnequalPredicateInferTest {
         ComparisonPredicate cmp2 = new EqualTo(a, b);
         ComparisonPredicate cmp3 = new EqualTo(b, c);
 
-        Set<ComparisonPredicate> inputs = new LinkedHashSet<>();
+        Set<Expression> inputs = new LinkedHashSet<>();
         inputs.add(cmp1);
         inputs.add(cmp2);
         Set<? extends Expression> sets = UnequalPredicateInfer.inferUnequalPredicates(inputs);
@@ -661,7 +661,7 @@ public class UnequalPredicateInferTest {
         SlotReference c = new SlotReference("c", DateTimeType.INSTANCE, true, ImmutableList.of("t3"));
         EqualTo equalTo1 = new EqualTo(new Cast(a, DateTimeType.INSTANCE), c);
         EqualTo equalTo2 = new EqualTo(new Cast(b, DateTimeType.INSTANCE), c);
-        Set<ComparisonPredicate> inputs = new HashSet<>();
+        Set<Expression> inputs = new HashSet<>();
         inputs.add(equalTo1);
         inputs.add(equalTo2);
         Set<? extends Expression> result = UnequalPredicateInfer.inferUnequalPredicates(inputs);
@@ -678,7 +678,7 @@ public class UnequalPredicateInferTest {
         EqualTo equalTo1 = new EqualTo(new Cast(a, DateType.INSTANCE), c);
         EqualTo equalTo2 = new EqualTo(b, new Cast(c, DateV2Type.INSTANCE));
 
-        Set<ComparisonPredicate> inputs = new HashSet<>();
+        Set<Expression> inputs = new HashSet<>();
         inputs.add(equalTo1);
         inputs.add(equalTo2);
         Set<? extends Expression> result = UnequalPredicateInfer.inferUnequalPredicates(inputs);
