@@ -273,6 +273,8 @@ DEFINE_mInt32(doris_scan_block_max_mb, "67108864");
 DEFINE_mInt32(doris_scanner_row_num, "16384");
 // single read execute fragment row bytes
 DEFINE_mInt32(doris_scanner_row_bytes, "10485760");
+// single read execute fragment max run time millseconds
+DEFINE_mInt32(doris_scanner_max_run_time_ms, "1000");
 DEFINE_mInt32(min_bytes_in_scanner_queue, "67108864");
 // (Advanced) Maximum size of per-query receive-side buffer
 DEFINE_mInt32(exchg_node_buffer_size_bytes, "20485760");
@@ -1005,7 +1007,7 @@ DEFINE_Bool(enable_file_cache, "false");
 // or use the default storage value:
 //     {"path": "memory", "total_size":53687091200}
 // Both will use the directory "memory" on the disk instead of the real RAM.
-DEFINE_String(file_cache_path, "");
+DEFINE_String(file_cache_path, "[{\"path\":\"${DORIS_HOME}/file_cache\"}]");
 DEFINE_Int64(file_cache_each_block_size, "1048576"); // 1MB
 
 DEFINE_Bool(clear_file_cache, "false");
@@ -1685,6 +1687,11 @@ bool init(const char* conf_file, bool fill_conf_map, bool must_exist, bool set_t
         SET_FIELD(it.second, std::vector<int64_t>, fill_conf_map, set_to_default);
         SET_FIELD(it.second, std::vector<double>, fill_conf_map, set_to_default);
         SET_FIELD(it.second, std::vector<std::string>, fill_conf_map, set_to_default);
+    }
+
+    if (config::is_cloud_mode()) {
+        auto st = config::set_config("enable_file_cache", "true", true, true);
+        LOG(INFO) << "set config enable_file_cache " << "true" << " " << st;
     }
 
     return true;
