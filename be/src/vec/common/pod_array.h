@@ -114,8 +114,7 @@ protected:
     /// pad_left is also rounded up to 16 bytes to maintain alignment of allocated memory.
     static constexpr size_t pad_left = integerRoundUp(integerRoundUp(pad_left_, ELEMENT_SIZE), 16);
     /// Empty array will point to this static memory as padding.
-    static constexpr char* null =
-            pad_left ? const_cast<char*>(empty_pod_array) + EmptyPODArraySize : nullptr;
+    static constexpr char* null = const_cast<char*>(empty_pod_array) + pad_left;
 
     static_assert(pad_left <= EmptyPODArraySize &&
                   "Left Padding exceeds EmptyPODArraySize. Is the element size too large?");
