@@ -73,12 +73,8 @@ public:
     }
 
     void update_counters(int64_t filter_rows, int64_t input_rows) {
-        if (_expr_filtered_rows_counter) {
-            COUNTER_UPDATE(_expr_filtered_rows_counter, filter_rows);
-        }
-        if (_expr_input_rows_counter) {
-            COUNTER_UPDATE(_expr_input_rows_counter, input_rows);
-        }
+        COUNTER_UPDATE(_expr_filtered_rows_counter, filter_rows);
+        COUNTER_UPDATE(_expr_input_rows_counter, input_rows);
     }
 
     template <typename T>
