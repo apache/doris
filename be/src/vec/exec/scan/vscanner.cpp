@@ -143,6 +143,7 @@ Status VScanner::get_block(RuntimeState* state, Block* block, bool* eof) {
     }
 
     if (state->is_cancelled()) {
+        // TODO: Should return the specific ErrorStatus instead of just Cancelled.
         return Status::Cancelled("cancelled");
     }
     *eof = *eof || _should_stop;
