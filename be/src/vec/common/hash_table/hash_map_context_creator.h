@@ -35,47 +35,51 @@ using vectorized::DataTypePtr;
 
 template <template <typename...> typename HashMap, template <typename> typename Hash, typename Key,
           typename... Mapped, typename Variant>
-void get_hash_map_context_fixed(Variant& variant, bool has_nullable_key, const Sizes& key_sizes) {
+void get_hash_map_context_fixed(RuntimeState* state, Variant& variant, bool has_nullable_key,
+                                const Sizes& key_sizes) {
     if (has_nullable_key) {
         variant.template emplace<MethodKeysFixed<HashMap<Key, Mapped..., Hash<Key>>, true>>(
-                key_sizes);
+                state, key_sizes);
     } else {
-        variant.template emplace<MethodKeysFixed<HashMap<Key, Mapped..., Hash<Key>>>>(key_sizes);
+        variant.template emplace<MethodKeysFixed<HashMap<Key, Mapped..., Hash<Key>>>>(state,
+                                                                                      key_sizes);
     }
 }
 
 template <template <typename... Args> typename HashMap, template <typename> typename Hash,
           typename... Mapped, typename Variant>
-void get_hash_map_context_fixed(Variant& variant, size_t size, bool has_nullable_key,
-                                const Sizes& key_sizes) {
+void get_hash_map_context_fixed(RuntimeState* state, Variant& variant, size_t size,
+                                bool has_nullable_key, const Sizes& key_sizes) {
     if (size <= sizeof(UInt64)) {
-        get_hash_map_context_fixed<HashMap, Hash, UInt64, Mapped...>(variant, has_nullable_key,
-                                                                     key_sizes);
+        get_hash_map_context_fixed<HashMap, Hash, UInt64, Mapped...>(state, variant,
+                                                                     has_nullable_key, key_sizes);
     } else if (size <= sizeof(UInt128)) {
-        get_hash_map_context_fixed<HashMap, Hash, UInt128, Mapped...>(variant, has_nullable_key,
-                                                                      key_sizes);
+        get_hash_map_context_fixed<HashMap, Hash, UInt128, Mapped...>(state, variant,
+                                                                      has_nullable_key, key_sizes);
     } else if (size <= sizeof(UInt136)) {
-        get_hash_map_context_fixed<HashMap, Hash, UInt136, Mapped...>(variant, has_nullable_key,
-                                                                      key_sizes);
+        get_hash_map_context_fixed<HashMap, Hash, UInt136, Mapped...>(state, variant,
+                                                                      has_nullable_key, key_sizes);
     } else if (size <= sizeof(UInt256)) {
-        get_hash_map_context_fixed<HashMap, Hash, UInt256, Mapped...>(variant, has_nullable_key,
-                                                                      key_sizes);
+        get_hash_map_context_fixed<HashMap, Hash, UInt256, Mapped...>(state, variant,
+                                                                      has_nullable_key, key_sizes);
     }
 }
 
 template <template <typename... Args> typename HashMap, template <typename> typename Hash,
           typename... Mapped, typename Variant>
-bool try_get_hash_map_context_fixed(Variant& variant, const VExprContextSPtrs& expr_ctxs) {
+bool try_get_hash_map_context_fixed(RuntimeState* state, Variant& variant,
+                                    const VExprContextSPtrs& expr_ctxs) {
     std::vector<DataTypePtr> data_types;
     for (const auto& ctx : expr_ctxs) {
         data_types.emplace_back(ctx->root()->data_type());
     }
-    return try_get_hash_map_context_fixed<HashMap, Hash, Mapped...>(variant, data_types);
+    return try_get_hash_map_context_fixed<HashMap, Hash, Mapped...>(state, variant, data_types);
 }
 
 template <template <typename... Args> typename HashMap, template <typename> typename Hash,
           typename... Mapped, typename Variant>
-bool try_get_hash_map_context_fixed(Variant& variant, const std::vector<DataTypePtr>& data_types) {
+bool try_get_hash_map_context_fixed(RuntimeState* state, Variant& variant,
+                                    const std::vector<DataTypePtr>& data_types) {
     Sizes key_sizes;
 
     bool use_fixed_key = true;
@@ -99,15 +103,15 @@ bool try_get_hash_map_context_fixed(Variant& variant, const std::vector<DataType
     }
 
     if (use_fixed_key) {
-        get_hash_map_context_fixed<HashMap, Hash, Mapped...>(variant, bitmap_size + key_byte_size,
-                                                             has_null, key_sizes);
+        get_hash_map_context_fixed<HashMap, Hash, Mapped...>(
+                state, variant, bitmap_size + key_byte_size, has_null, key_sizes);
     }
     return use_fixed_key;
 }
 
 template <typename DataVariants, typename Data>
-Status init_hash_method(DataVariants* agg_data, const vectorized::VExprContextSPtrs& probe_exprs,
-                        bool is_first_phase) {
+Status init_hash_method(RuntimeState* state, DataVariants* agg_data,
+                        const vectorized::VExprContextSPtrs& probe_exprs, bool is_first_phase) {
     using Type = DataVariants::Type;
     Type t(Type::serialized);
 
@@ -160,11 +164,11 @@ Status init_hash_method(DataVariants* agg_data, const vectorized::VExprContextSP
                 t = Type::serialized;
             }
 
-            agg_data->init(get_hash_key_type_with_phase(t, !is_first_phase), is_nullable);
+            agg_data->init(state, get_hash_key_type_with_phase(t, !is_first_phase), is_nullable);
         } else {
             if (!try_get_hash_map_context_fixed<PHNormalHashMap, HashCRC32, Data>(
-                        agg_data->method_variant, probe_exprs)) {
-                agg_data->init(Type::serialized);
+                        state, agg_data->method_variant, probe_exprs)) {
+                agg_data->init(state, Type::serialized);
             }
         }
     } catch (const Exception& e) {

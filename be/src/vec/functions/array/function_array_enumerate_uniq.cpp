@@ -171,45 +171,62 @@ public:
                     assert_cast<const DataTypeArray&>(*src_column_type).get_nested_type();
             WhichDataType which(remove_nullable(nested_type));
             if (which.is_uint8()) {
-                _execute_number<ColumnUInt8>(data_columns, *offsets, null_map, dst_values);
+                _execute_number<ColumnUInt8>(context->state(), data_columns, *offsets, null_map,
+                                             dst_values);
             } else if (which.is_int8()) {
-                _execute_number<ColumnInt8>(data_columns, *offsets, null_map, dst_values);
+                _execute_number<ColumnInt8>(context->state(), data_columns, *offsets, null_map,
+                                            dst_values);
             } else if (which.is_int16()) {
-                _execute_number<ColumnInt16>(data_columns, *offsets, null_map, dst_values);
+                _execute_number<ColumnInt16>(context->state(), data_columns, *offsets, null_map,
+                                             dst_values);
             } else if (which.is_int32()) {
-                _execute_number<ColumnInt32>(data_columns, *offsets, null_map, dst_values);
+                _execute_number<ColumnInt32>(context->state(), data_columns, *offsets, null_map,
+                                             dst_values);
             } else if (which.is_int64()) {
-                _execute_number<ColumnInt64>(data_columns, *offsets, null_map, dst_values);
+                _execute_number<ColumnInt64>(context->state(), data_columns, *offsets, null_map,
+                                             dst_values);
             } else if (which.is_int128()) {
-                _execute_number<ColumnInt128>(data_columns, *offsets, null_map, dst_values);
+                _execute_number<ColumnInt128>(context->state(), data_columns, *offsets, null_map,
+                                              dst_values);
             } else if (which.is_float32()) {
-                _execute_number<ColumnFloat32>(data_columns, *offsets, null_map, dst_values);
+                _execute_number<ColumnFloat32>(context->state(), data_columns, *offsets, null_map,
+                                               dst_values);
             } else if (which.is_float64()) {
-                _execute_number<ColumnFloat64>(data_columns, *offsets, null_map, dst_values);
+                _execute_number<ColumnFloat64>(context->state(), data_columns, *offsets, null_map,
+                                               dst_values);
             } else if (which.is_date()) {
-                _execute_number<ColumnDate>(data_columns, *offsets, null_map, dst_values);
+                _execute_number<ColumnDate>(context->state(), data_columns, *offsets, null_map,
+                                            dst_values);
             } else if (which.is_date_time()) {
-                _execute_number<ColumnDateTime>(data_columns, *offsets, null_map, dst_values);
+                _execute_number<ColumnDateTime>(context->state(), data_columns, *offsets, null_map,
+                                                dst_values);
             } else if (which.is_date_v2()) {
-                _execute_number<ColumnDateV2>(data_columns, *offsets, null_map, dst_values);
+                _execute_number<ColumnDateV2>(context->state(), data_columns, *offsets, null_map,
+                                              dst_values);
             } else if (which.is_decimal32()) {
-                _execute_number<ColumnDecimal32>(data_columns, *offsets, null_map, dst_values);
+                _execute_number<ColumnDecimal32>(context->state(), data_columns, *offsets, null_map,
+                                                 dst_values);
             } else if (which.is_decimal64()) {
-                _execute_number<ColumnDecimal64>(data_columns, *offsets, null_map, dst_values);
+                _execute_number<ColumnDecimal64>(context->state(), data_columns, *offsets, null_map,
+                                                 dst_values);
             } else if (which.is_decimal128v3()) {
-                _execute_number<ColumnDecimal128V3>(data_columns, *offsets, null_map, dst_values);
+                _execute_number<ColumnDecimal128V3>(context->state(), data_columns, *offsets,
+                                                    null_map, dst_values);
             } else if (which.is_decimal256()) {
-                _execute_number<ColumnDecimal256>(data_columns, *offsets, null_map, dst_values);
+                _execute_number<ColumnDecimal256>(context->state(), data_columns, *offsets,
+                                                  null_map, dst_values);
             } else if (which.is_date_time_v2()) {
-                _execute_number<ColumnDateTimeV2>(data_columns, *offsets, null_map, dst_values);
+                _execute_number<ColumnDateTimeV2>(context->state(), data_columns, *offsets,
+                                                  null_map, dst_values);
             } else if (which.is_decimal128v2()) {
-                _execute_number<ColumnDecimal128V2>(data_columns, *offsets, null_map, dst_values);
+                _execute_number<ColumnDecimal128V2>(context->state(), data_columns, *offsets,
+                                                    null_map, dst_values);
             } else if (which.is_string()) {
-                _execute_string(data_columns, *offsets, null_map, dst_values);
+                _execute_string(context->state(), data_columns, *offsets, null_map, dst_values);
             }
         } else {
             _execute_by_hash<MethodSerialized<PHHashMap<StringRef, Int64>>, false>(
-                    data_columns, *offsets, nullptr, dst_values);
+                    context->state(), data_columns, *offsets, nullptr, dst_values);
         }
 
         ColumnPtr nested_column = dst_nested_column->get_ptr();
@@ -232,10 +249,11 @@ public:
 
 private:
     template <typename HashTableContext, bool is_nullable>
-    void _execute_by_hash(const ColumnRawPtrs& columns, const ColumnArray::Offsets64& offsets,
+    void _execute_by_hash(RuntimeState* state, const ColumnRawPtrs& columns,
+                          const ColumnArray::Offsets64& offsets,
                           [[maybe_unused]] const NullMap* null_map,
                           ColumnInt64::Container& dst_values) const {
-        HashTableContext ctx;
+        HashTableContext ctx(state);
         ctx.init_serialized_keys(columns, columns[0]->size(),
                                  null_map ? null_map->data() : nullptr);
 
@@ -265,27 +283,29 @@ private:
     }
 
     template <typename ColumnType>
-    void _execute_number(const ColumnRawPtrs& columns, const ColumnArray::Offsets64& offsets,
-                         const NullMapType* null_map, ColumnInt64::Container& dst_values) const {
+    void _execute_number(RuntimeState* state, const ColumnRawPtrs& columns,
+                         const ColumnArray::Offsets64& offsets, const NullMapType* null_map,
+                         ColumnInt64::Container& dst_values) const {
         using NestType = typename ColumnType::value_type;
         using ElementNativeType = typename NativeType<NestType>::Type;
         using HashMethod =
                 MethodOneNumber<ElementNativeType,
                                 PHHashMap<ElementNativeType, Int64, HashCRC32<ElementNativeType>>>;
         if (null_map != nullptr) {
-            _execute_by_hash<HashMethod, true>(columns, offsets, null_map, dst_values);
+            _execute_by_hash<HashMethod, true>(state, columns, offsets, null_map, dst_values);
         } else {
-            _execute_by_hash<HashMethod, false>(columns, offsets, nullptr, dst_values);
+            _execute_by_hash<HashMethod, false>(state, columns, offsets, nullptr, dst_values);
         }
     }
 
-    void _execute_string(const ColumnRawPtrs& columns, const ColumnArray::Offsets64& offsets,
-                         const NullMapType* null_map, ColumnInt64::Container& dst_values) const {
+    void _execute_string(RuntimeState* state, const ColumnRawPtrs& columns,
+                         const ColumnArray::Offsets64& offsets, const NullMapType* null_map,
+                         ColumnInt64::Container& dst_values) const {
         using HashMethod = MethodStringNoCache<PHHashMap<StringRef, Int64>>;
         if (null_map != nullptr) {
-            _execute_by_hash<HashMethod, true>(columns, offsets, null_map, dst_values);
+            _execute_by_hash<HashMethod, true>(state, columns, offsets, null_map, dst_values);
         } else {
-            _execute_by_hash<HashMethod, false>(columns, offsets, nullptr, dst_values);
+            _execute_by_hash<HashMethod, false>(state, columns, offsets, nullptr, dst_values);
         }
     }
 };

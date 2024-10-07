@@ -182,7 +182,7 @@ Status SetSinkLocalState<is_intersect>::open(RuntimeState* state) {
     auto& parent = _parent->cast<Parent>();
     DCHECK(parent._cur_child_id == 0);
     _shared_state->hash_table_variants = std::make_unique<SetHashTableVariants>();
-    _shared_state->hash_table_init();
+    _shared_state->hash_table_init(state);
     return Status::OK();
 }
 

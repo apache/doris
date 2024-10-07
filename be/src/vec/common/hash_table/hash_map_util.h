@@ -63,11 +63,12 @@ struct DataVariants {
     Type _type = Type::EMPTY;
 
     template <typename T, typename TT, bool nullable>
-    void emplace_single() {
+    void emplace_single(RuntimeState* state) {
         if (nullable) {
-            method_variant.template emplace<MethodNullable<MethodOneNumber<T, DataNullable<TT>>>>();
+            method_variant.template emplace<MethodNullable<MethodOneNumber<T, DataNullable<TT>>>>(
+                    state);
         } else {
-            method_variant.template emplace<MethodOneNumber<T, TT>>();
+            method_variant.template emplace<MethodOneNumber<T, TT>>(state);
         }
     }
 };

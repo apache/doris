@@ -162,41 +162,43 @@ struct PartitionedHashMapVariants
                   PartitionedMethodVariants, vectorized::MethodSingleNullableColumn,
                   vectorized::MethodOneNumber, MethodKeysFixed, vectorized::DataWithNullKey> {
     template <bool nullable>
-    void init(vectorized::HashKeyType type) {
+    void init(RuntimeState* state, vectorized::HashKeyType type) {
         _type = type;
         switch (_type) {
         case vectorized::HashKeyType::serialized: {
-            method_variant.emplace<vectorized::MethodSerialized<PartitionDataWithStringKey>>();
+            method_variant.emplace<vectorized::MethodSerialized<PartitionDataWithStringKey>>(state);
             break;
         }
         case vectorized::HashKeyType::int8_key: {
-            emplace_single<vectorized::UInt8, PartitionDataWithUInt8Key, nullable>();
+            emplace_single<vectorized::UInt8, PartitionDataWithUInt8Key, nullable>(state);
             break;
         }
         case vectorized::HashKeyType::int16_key: {
-            emplace_single<vectorized::UInt16, PartitionDataWithUInt16Key, nullable>();
+            emplace_single<vectorized::UInt16, PartitionDataWithUInt16Key, nullable>(state);
             break;
         }
         case vectorized::HashKeyType::int32_key: {
-            emplace_single<vectorized::UInt32, PartitionDataWithUInt32Key, nullable>();
+            emplace_single<vectorized::UInt32, PartitionDataWithUInt32Key, nullable>(state);
             break;
         }
         case vectorized::HashKeyType::int64_key: {
-            emplace_single<UInt64, PartitionDataWithUInt64Key, nullable>();
+            emplace_single<UInt64, PartitionDataWithUInt64Key, nullable>(state);
             break;
         }
         case vectorized::HashKeyType::int128_key: {
-            emplace_single<UInt128, PartitionDataWithUInt128Key, nullable>();
+            emplace_single<UInt128, PartitionDataWithUInt128Key, nullable>(state);
             break;
         }
         case vectorized::HashKeyType::string_key: {
             if (nullable) {
                 method_variant.emplace<
                         vectorized::MethodSingleNullableColumn<vectorized::MethodStringNoCache<
-                                vectorized::DataWithNullKey<PartitionDataWithShortStringKey>>>>();
+                                vectorized::DataWithNullKey<PartitionDataWithShortStringKey>>>>(
+                        state);
             } else {
-                method_variant.emplace<
-                        vectorized::MethodStringNoCache<PartitionDataWithShortStringKey>>();
+                method_variant
+                        .emplace<vectorized::MethodStringNoCache<PartitionDataWithShortStringKey>>(
+                                state);
             }
             break;
         }
@@ -204,11 +206,11 @@ struct PartitionedHashMapVariants
             throw Exception(ErrorCode::INTERNAL_ERROR, "meet invalid key type, type={}", type);
         }
     }
-    void init(vectorized::HashKeyType type, bool is_nullable = false) {
+    void init(RuntimeState* state, vectorized::HashKeyType type, bool is_nullable = false) {
         if (is_nullable) {
-            init<true>(type);
+            init<true>(state, type);
         } else {
-            init<false>(type);
+            init<false>(state, type);
         }
     }
 };

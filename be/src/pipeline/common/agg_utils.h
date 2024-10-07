@@ -135,46 +135,49 @@ struct AggregatedDataVariants
     AggregatedDataWithoutKey without_key = nullptr;
 
     template <bool nullable>
-    void init(Type type) {
+    void init(RuntimeState* state, Type type) {
         _type = type;
         switch (_type) {
         case Type::without_key:
             break;
         case Type::serialized:
-            method_variant.emplace<vectorized::MethodSerialized<AggregatedDataWithStringKey>>();
+            method_variant.emplace<vectorized::MethodSerialized<AggregatedDataWithStringKey>>(
+                    state);
             break;
         case Type::int8_key:
-            emplace_single<vectorized::UInt8, AggregatedDataWithUInt8Key, nullable>();
+            emplace_single<vectorized::UInt8, AggregatedDataWithUInt8Key, nullable>(state);
             break;
         case Type::int16_key:
-            emplace_single<vectorized::UInt16, AggregatedDataWithUInt16Key, nullable>();
+            emplace_single<vectorized::UInt16, AggregatedDataWithUInt16Key, nullable>(state);
             break;
         case Type::int32_key:
-            emplace_single<vectorized::UInt32, AggregatedDataWithUInt32Key, nullable>();
+            emplace_single<vectorized::UInt32, AggregatedDataWithUInt32Key, nullable>(state);
             break;
         case Type::int32_key_phase2:
-            emplace_single<vectorized::UInt32, AggregatedDataWithUInt32KeyPhase2, nullable>();
+            emplace_single<vectorized::UInt32, AggregatedDataWithUInt32KeyPhase2, nullable>(state);
             break;
         case Type::int64_key:
-            emplace_single<vectorized::UInt64, AggregatedDataWithUInt64Key, nullable>();
+            emplace_single<vectorized::UInt64, AggregatedDataWithUInt64Key, nullable>(state);
             break;
         case Type::int64_key_phase2:
-            emplace_single<vectorized::UInt64, AggregatedDataWithUInt64KeyPhase2, nullable>();
+            emplace_single<vectorized::UInt64, AggregatedDataWithUInt64KeyPhase2, nullable>(state);
             break;
         case Type::int128_key:
-            emplace_single<vectorized::UInt128, AggregatedDataWithUInt128Key, nullable>();
+            emplace_single<vectorized::UInt128, AggregatedDataWithUInt128Key, nullable>(state);
             break;
         case Type::int128_key_phase2:
-            emplace_single<vectorized::UInt128, AggregatedDataWithUInt128KeyPhase2, nullable>();
+            emplace_single<vectorized::UInt128, AggregatedDataWithUInt128KeyPhase2, nullable>(
+                    state);
             break;
         case Type::string_key:
             if (nullable) {
-                method_variant.emplace<
-                        vectorized::MethodSingleNullableColumn<vectorized::MethodStringNoCache<
-                                AggregatedDataWithNullableShortStringKey>>>();
+                method_variant.emplace<vectorized::MethodSingleNullableColumn<
+                        vectorized::MethodStringNoCache<AggregatedDataWithNullableShortStringKey>>>(
+                        state);
             } else {
-                method_variant.emplace<
-                        vectorized::MethodStringNoCache<AggregatedDataWithShortStringKey>>();
+                method_variant
+                        .emplace<vectorized::MethodStringNoCache<AggregatedDataWithShortStringKey>>(
+                                state);
             }
             break;
         default:
@@ -182,11 +185,11 @@ struct AggregatedDataVariants
         }
     }
 
-    void init(Type type, bool is_nullable = false) {
+    void init(RuntimeState* state, Type type, bool is_nullable = false) {
         if (is_nullable) {
-            init<true>(type);
+            init<true>(state, type);
         } else {
-            init<false>(type);
+            init<false>(state, type);
         }
     }
 };

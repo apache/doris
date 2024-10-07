@@ -22,6 +22,7 @@
 
 #include "common/compiler_util.h"
 #include "runtime/descriptors.h"
+#include "runtime/runtime_state.h"
 #include "util/stack_util.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/common/arena.h"
@@ -52,6 +53,7 @@ struct MethodBaseInner {
     using Value = typename HashMap::value_type;
     using HashMapType = HashMap;
 
+    RuntimeState* state = nullptr;
     std::shared_ptr<HashMap> hash_table = nullptr;
     bool inited_iterator = false;
     Key* keys = nullptr;
@@ -61,7 +63,9 @@ struct MethodBaseInner {
     // use in join case
     std::vector<uint32_t> bucket_nums;
 
-    MethodBaseInner() { hash_table.reset(new HashMap()); }
+    constexpr static size_t DATA_BATCH_SIZE = 4096;
+
+    MethodBaseInner(RuntimeState* state_) : state(state_) { hash_table.reset(new HashMap()); }
     virtual ~MethodBaseInner() = default;
 
     virtual void reset() {
@@ -75,23 +79,23 @@ struct MethodBaseInner {
 
     virtual size_t serialized_keys_size(bool is_build) const { return 0; }
 
-    void init_join_bucket_num(uint32_t num_rows, uint32_t bucket_size, const uint8_t* null_map) {
+    void init_join_bucket_num(size_t num_rows, uint32_t bucket_size, const uint8_t* null_map) {
         bucket_nums.resize(num_rows);
 
         if (null_map == nullptr) {
             init_join_bucket_num(num_rows, bucket_size);
             return;
         }
-        for (uint32_t k = 0; k < num_rows; ++k) {
-            bucket_nums[k] =
-                    null_map[k] ? bucket_size : hash_table->hash(keys[k]) & (bucket_size - 1);
-        }
+        LOOP_BATCH_RETURN_IF_CANCELLED(state, 0, num_rows, DATA_BATCH_SIZE, {
+            bucket_nums[kk] =
+                    null_map[kk] ? bucket_size : hash_table->hash(keys[kk]) & (bucket_size - 1);
+        });
     }
 
-    void init_join_bucket_num(uint32_t num_rows, uint32_t bucket_size) {
-        for (uint32_t k = 0; k < num_rows; ++k) {
-            bucket_nums[k] = hash_table->hash(keys[k]) & (bucket_size - 1);
-        }
+    void init_join_bucket_num(size_t num_rows, uint32_t bucket_size) {
+        LOOP_BATCH_RETURN_IF_CANCELLED(state, 0, num_rows, DATA_BATCH_SIZE, {
+            bucket_nums[kk] = hash_table->hash(keys[kk]) & (bucket_size - 1);
+        });
     }
 
     void init_hash_values(size_t num_rows, const uint8_t* null_map) {
@@ -100,20 +104,19 @@ struct MethodBaseInner {
             return;
         }
         hash_values.resize(num_rows);
-        for (size_t k = 0; k < num_rows; ++k) {
-            if (null_map[k]) {
+        LOOP_BATCH_RETURN_IF_CANCELLED(state, 0, num_rows, DATA_BATCH_SIZE, {
+            if (null_map[kk]) {
                 continue;
             }
 
-            hash_values[k] = hash_table->hash(keys[k]);
-        }
+            hash_values[kk] = hash_table->hash(keys[kk]);
+        });
     }
 
     void init_hash_values(size_t num_rows) {
         hash_values.resize(num_rows);
-        for (size_t k = 0; k < num_rows; ++k) {
-            hash_values[k] = hash_table->hash(keys[k]);
-        }
+        LOOP_BATCH_RETURN_IF_CANCELLED(state, 0, num_rows, DATA_BATCH_SIZE,
+                                       { hash_values[kk] = hash_table->hash(keys[kk]); });
     }
 
     template <bool read>
@@ -175,6 +178,7 @@ template <typename HashMap>
 struct MethodBase : public MethodBaseInner<HashMap> {
     using Iterator = void*;
     Iterator iterator;
+    MethodBase(RuntimeState* state_) : MethodBaseInner<HashMap>(state_) {}
     void init_iterator() { MethodBaseInner<HashMap>::inited_iterator = true; }
 };
 
@@ -183,6 +187,7 @@ struct MethodBase<HashMap> : public MethodBaseInner<HashMap> {
     using Iterator = typename HashMap::iterator;
     using Base = MethodBaseInner<HashMap>;
     Iterator iterator;
+    MethodBase(RuntimeState* state_) : Base(state_) {}
     void init_iterator() {
         if (!Base::inited_iterator) {
             Base::inited_iterator = true;
@@ -202,6 +207,8 @@ struct MethodSerialized : public MethodBase<TData> {
     Arena build_arena;
     // refresh each time probe
     std::vector<StringRef> stored_keys;
+
+    MethodSerialized(RuntimeState* state_) : Base(state_) {}
 
     StringRef serialize_keys_to_pool_contiguous(size_t i, size_t keys_size,
                                                 const ColumnRawPtrs& key_columns, Arena& pool) {
@@ -228,21 +235,25 @@ struct MethodSerialized : public MethodBase<TData> {
         if (total_bytes > config::pre_serialize_keys_limit_bytes) {
             // reach mem limit, don't serialize in batch
             size_t keys_size = key_columns.size();
-            for (size_t i = 0; i < num_rows; ++i) {
-                input_keys[i] =
-                        serialize_keys_to_pool_contiguous(i, keys_size, key_columns, input_arena);
-            }
+            LOOP_BATCH_RETURN_IF_CANCELLED(Base::state, 0, num_rows, Base::DATA_BATCH_SIZE, {
+                input_keys[kk] =
+                        serialize_keys_to_pool_contiguous(kk, keys_size, key_columns, input_arena);
+            });
         } else {
             auto* serialized_key_buffer =
                     reinterpret_cast<uint8_t*>(input_arena.alloc(total_bytes));
 
-            for (size_t i = 0; i < num_rows; ++i) {
-                input_keys[i].data =
-                        reinterpret_cast<char*>(serialized_key_buffer + i * max_one_row_byte_size);
-                input_keys[i].size = 0;
-            }
+            LOOP_BATCH_RETURN_IF_CANCELLED(Base::state, 0, num_rows, Base::DATA_BATCH_SIZE, {
+                input_keys[kk].data =
+                        reinterpret_cast<char*>(serialized_key_buffer + kk * max_one_row_byte_size);
+                input_keys[kk].size = 0;
+            });
 
             for (const auto& column : key_columns) {
+                if (Base::state->is_cancelled()) {
+                    auto status = Base::state->cancel_reason();
+                    throw Exception(status.code(), status.to_string());
+                }
                 column->serialize_vec(input_keys, num_rows, max_one_row_byte_size);
             }
         }
@@ -290,6 +301,8 @@ struct MethodStringNoCache : public MethodBase<TData> {
     // refresh each time probe
     std::vector<StringRef> _stored_keys;
 
+    MethodStringNoCache(RuntimeState* state_) : Base(state_) {}
+
     size_t serialized_keys_size(bool is_build) const override {
         return is_build ? (_build_stored_keys.size() * sizeof(StringRef))
                         : (_stored_keys.size() * sizeof(StringRef));
@@ -302,14 +315,15 @@ struct MethodStringNoCache : public MethodBase<TData> {
                 column.is_nullable()
                         ? assert_cast<const ColumnNullable&>(column).get_nested_column()
                         : column;
-        auto serialized_str = [](const auto& column_string, std::vector<StringRef>& stored_keys) {
+        auto serialized_str = [num_rows, state = Base::state](const auto& column_string,
+                                                              std::vector<StringRef>& stored_keys) {
             const auto& offsets = column_string.get_offsets();
             const auto* chars = column_string.get_chars().data();
             stored_keys.resize(column_string.size());
-            for (size_t row = 0; row < column_string.size(); row++) {
-                stored_keys[row] =
-                        StringRef(chars + offsets[row - 1], offsets[row] - offsets[row - 1]);
-            }
+
+            LOOP_BATCH_RETURN_IF_CANCELLED(state, 0, num_rows, Base::DATA_BATCH_SIZE, {
+                stored_keys[kk] = StringRef(chars + offsets[kk - 1], offsets[kk] - offsets[kk - 1]);
+            });
         };
         if (nested_column.is_column_string64()) {
             const auto& column_string = assert_cast<const ColumnString64&>(nested_column);
@@ -350,6 +364,7 @@ struct MethodOneNumber : public MethodBase<TData> {
     using State = ColumnsHashing::HashMethodOneNumber<typename Base::Value, typename Base::Mapped,
                                                       FieldType>;
 
+    MethodOneNumber(RuntimeState* state_) : Base(state_) {}
     void init_serialized_keys(const ColumnRawPtrs& key_columns, size_t num_rows,
                               const uint8_t* null_map = nullptr, bool is_join = false,
                               bool is_build = false, uint32_t bucket_size = 0) override {
@@ -393,7 +408,8 @@ struct MethodKeysFixed : public MethodBase<TData> {
     std::vector<Key> stored_keys;
     Sizes key_sizes;
 
-    MethodKeysFixed(Sizes key_sizes_) : key_sizes(std::move(key_sizes_)) {}
+    MethodKeysFixed(RuntimeState* state_, Sizes key_sizes_)
+            : Base(state_), key_sizes(std::move(key_sizes_)) {}
 
     template <typename T>
     void pack_fixeds(size_t row_numbers, const ColumnRawPtrs& key_columns,
@@ -413,9 +429,9 @@ struct MethodKeysFixed : public MethodBase<TData> {
                 size_t offset = j % BITSIZE;
                 const auto& data =
                         assert_cast<const ColumnUInt8&>(*nullmap_columns[j]).get_data().data();
-                for (size_t i = 0; i < row_numbers; ++i) {
-                    *((char*)(&result[i]) + bucket) |= data[i] << offset;
-                }
+                LOOP_BATCH_RETURN_IF_CANCELLED(Base::state, 0, row_numbers, Base::DATA_BATCH_SIZE, {
+                    *((char*)(&result[kk]) + bucket) |= data[kk] << offset;
+                });
             }
             offset += bitmap_size;
         }
@@ -428,17 +444,19 @@ struct MethodKeysFixed : public MethodBase<TData> {
                 if (!nullmap_columns.empty() && nullmap_columns[j]) {
                     const auto& nullmap =
                             assert_cast<const ColumnUInt8&>(*nullmap_columns[j]).get_data().data();
-                    for (size_t i = 0; i < row_numbers; ++i) {
-                        // make sure null cell is filled by 0x0
-                        memcpy_fixed<Fixed, true>(
-                                (char*)(&result[i]) + offset,
-                                nullmap[i] ? (char*)&zero : data + i * sizeof(Fixed));
-                    }
+                    LOOP_BATCH_RETURN_IF_CANCELLED(
+                            Base::state, 0, row_numbers, Base::DATA_BATCH_SIZE,
+                            (
+                                    // make sure null cell is filled by 0x0
+                                    memcpy_fixed<Fixed, true>(
+                                            (char*)(&result[kk]) + offset,
+                                            nullmap[kk] ? (char*)&zero
+                                                        : data + kk * sizeof(Fixed))));
                 } else {
-                    for (size_t i = 0; i < row_numbers; ++i) {
-                        memcpy_fixed<Fixed, true>((char*)(&result[i]) + offset,
-                                                  data + i * sizeof(Fixed));
-                    }
+                    LOOP_BATCH_RETURN_IF_CANCELLED(
+                            Base::state, 0, row_numbers, Base::DATA_BATCH_SIZE,
+                            (memcpy_fixed<Fixed, true>((char*)(&result[kk]) + offset,
+                                                       data + kk * sizeof(Fixed))));
                 }
             };
 
@@ -522,20 +540,21 @@ struct MethodKeysFixed : public MethodBase<TData> {
                 // corresponding key is nullable. Update the null map accordingly.
                 size_t bucket = i / BITSIZE;
                 size_t offset = i % BITSIZE;
-                for (size_t j = 0; j < num_rows; j++) {
-                    nullmap[j] =
-                            (reinterpret_cast<const UInt8*>(&input_keys[j])[bucket] >> offset) & 1;
-                }
+                LOOP_BATCH_RETURN_IF_CANCELLED(
+                        Base::state, 0, num_rows, Base::DATA_BATCH_SIZE,
+                        nullmap[kk] = (reinterpret_cast<const UInt8*>(&input_keys[kk])[bucket] >>
+                                       offset) &
+                                      1);
             } else {
                 data = const_cast<char*>(key_columns[i]->get_raw_data().data);
             }
 
             auto foo = [&]<typename Fixed>(Fixed zero) {
                 CHECK_EQ(sizeof(Fixed), size);
-                for (size_t j = 0; j < num_rows; j++) {
-                    memcpy_fixed<Fixed, true>(data + j * sizeof(Fixed),
-                                              (char*)(&input_keys[j]) + pos);
-                }
+                LOOP_BATCH_RETURN_IF_CANCELLED(
+                        Base::state, 0, num_rows, Base::DATA_BATCH_SIZE,
+                        (memcpy_fixed<Fixed, true>(data + kk * sizeof(Fixed),
+                                                   (char*)(&input_keys[kk]) + pos)));
             };
 
             if (size == sizeof(uint8_t)) {
@@ -591,6 +610,9 @@ struct MethodSingleNullableColumn : public SingleColumnMethod {
     using Base = SingleColumnMethod;
     using State = ColumnsHashing::HashMethodSingleLowNullableColumn<typename Base::State,
                                                                     typename Base::Mapped>;
+
+    MethodSingleNullableColumn(RuntimeState* state_) : Base(state_) {}
+
     void insert_keys_into_columns(std::vector<typename Base::Key>& input_keys,
                                   MutableColumns& key_columns, const size_t num_rows) override {
         auto* col = key_columns[0].get();

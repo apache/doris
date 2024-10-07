@@ -209,7 +209,7 @@ struct ProcessHashTableBuild {
                                             null_map ? null_map->data() : nullptr, true, true,
                                             hash_table_ctx.hash_table->get_bucket_size());
         hash_table_ctx.hash_table->template build<JoinOpType, with_other_conjuncts>(
-                hash_table_ctx.keys, hash_table_ctx.bucket_nums.data(), _rows);
+                _state, hash_table_ctx.keys, hash_table_ctx.bucket_nums.data(), _rows);
         hash_table_ctx.bucket_nums.resize(_batch_size);
         hash_table_ctx.bucket_nums.shrink_to_fit();
 
