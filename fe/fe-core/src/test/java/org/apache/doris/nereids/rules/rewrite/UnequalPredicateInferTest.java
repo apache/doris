@@ -685,20 +685,4 @@ public class UnequalPredicateInferTest {
         EqualTo expected = new EqualTo(a, b);
         Assertions.assertTrue(result.contains(expected) || result.contains(expected.commute()), "Expected to find a = b in the result.");
     }
-
-    @Test
-    public void testNotInferWithTransitiveEqualitySameTable() {
-        // a = b, b = c
-        SlotReference a = new SlotReference("a", IntegerType.INSTANCE, true, ImmutableList.of("t1"));
-        SlotReference b = new SlotReference("b", IntegerType.INSTANCE, true, ImmutableList.of("t1"));
-        SlotReference c = new SlotReference("c", IntegerType.INSTANCE, true, ImmutableList.of("t1"));
-        EqualTo equalTo1 = new EqualTo(a, b);
-        EqualTo equalTo2 = new EqualTo(b, c);
-        Set<Expression> inputs = new HashSet<>();
-        inputs.add(equalTo1);
-        inputs.add(equalTo2);
-        Set<Expression> result = ReplacePredicate.infer(inputs);
-
-        Assertions.assertTrue(result.isEmpty());
-    }
 }

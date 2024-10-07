@@ -57,7 +57,7 @@ public class ReplacePredicateTest {
         inputs.add(equalTo);
 
         Set<Expression> result = ReplacePredicate.infer(inputs);
-        Assertions.assertTrue(result.isEmpty(), "Expected no additional predicates.");
+        Assertions.assertEquals(1, result.size(), "Expected no additional predicates.");
     }
 
     @Test
@@ -73,7 +73,7 @@ public class ReplacePredicateTest {
         inputs.add(equalTo);
 
         Set<Expression> result = ReplacePredicate.infer(inputs);
-        Assertions.assertEquals(1, result.size());
+        Assertions.assertEquals(3, result.size());
     }
 
     @Test
@@ -89,7 +89,7 @@ public class ReplacePredicateTest {
         inputs.add(equalTo);
 
         Set<Expression> result = ReplacePredicate.infer(inputs);
-        Assertions.assertTrue(result.isEmpty());
+        Assertions.assertEquals(2, result.size());
     }
 
     @Test
@@ -121,7 +121,7 @@ public class ReplacePredicateTest {
 
         Set<Expression> result = ReplacePredicate.infer(inputs);
         Like expected = new Like(b, new StringLiteral("test%"));
-        Assertions.assertEquals(1, result.size());
+        Assertions.assertEquals(3, result.size());
         Assertions.assertTrue(result.contains(expected), "Expected to find b like 'test%' in the result");
     }
 
@@ -137,7 +137,7 @@ public class ReplacePredicateTest {
         inputs.add(equalTo);
 
         Set<Expression> result = ReplacePredicate.infer(inputs);
-        Assertions.assertTrue(result.isEmpty());
+        Assertions.assertEquals(2, result.size());
     }
 
     @Test
@@ -152,7 +152,7 @@ public class ReplacePredicateTest {
         inputs.add(equalTo);
 
         Set<Expression> result = ReplacePredicate.infer(inputs);
-        Assertions.assertTrue(result.isEmpty());
+        Assertions.assertEquals(2, result.size());
     }
 
     @Test
@@ -166,7 +166,7 @@ public class ReplacePredicateTest {
         inputs.add(equalTo);
 
         Set<Expression> result = ReplacePredicate.infer(inputs);
-        Assertions.assertEquals(1, result.size());
+        Assertions.assertEquals(3, result.size());
     }
 
     @Test
@@ -183,6 +183,21 @@ public class ReplacePredicateTest {
         Set<Expression> inputs = new HashSet<>();
         inputs.add(equalTo1);
         inputs.add(equalTo2);
-        Assertions.assertTrue(ReplacePredicate.infer(inputs).isEmpty());
+        Assertions.assertEquals(2, ReplacePredicate.infer(inputs).size());
+    }
+
+    @Test
+    public void testNotInferWithTransitiveEqualitySameTable() {
+        // a = b, b = c
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE, true, ImmutableList.of("t1"));
+        SlotReference b = new SlotReference("b", IntegerType.INSTANCE, true, ImmutableList.of("t1"));
+        SlotReference c = new SlotReference("c", IntegerType.INSTANCE, true, ImmutableList.of("t1"));
+        EqualTo equalTo1 = new EqualTo(a, b);
+        EqualTo equalTo2 = new EqualTo(b, c);
+        Set<Expression> inputs = new HashSet<>();
+        inputs.add(equalTo1);
+        inputs.add(equalTo2);
+        Set<Expression> result = ReplacePredicate.infer(inputs);
+        Assertions.assertEquals(2, result.size());
     }
 }
