@@ -139,6 +139,29 @@ yy=2023/mm=08/dd=05/pt=5
 5	2023	08	05
 5	2023	08	05
 
+-- !other_db_show --
+other_db_mc_parts
+other_db_mc_tb
+
+-- !other_db_select --
+1	10
+2	20
+3	30
+
+-- !other_db_select_partiton --
+1001	Sample data 1	a
+1002	Sample data 2	b
+1003	Sample data 3	c
+1004	Sample data 4	d
+1005	Sample data 5	e
+
+-- !other_db_show_partiton --
+dt=a
+dt=b
+dt=c
+dt=d
+dt=e
+
 -- !null_1 --
 1	1
 2	\N
@@ -156,4 +179,11 @@ yy=2023/mm=08/dd=05/pt=5
 2	\N
 3	\N
 5	\N
+
+-- !show_partition --
+dt=2023-08-01
+dt=2023-08-02
+dt=2023-08-03
+dt=2023-08-04
+dt=2023-08-05
 
