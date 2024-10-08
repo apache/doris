@@ -18,7 +18,7 @@
 package org.apache.doris.nereids.util;
 
 import org.apache.doris.common.Pair;
-import org.apache.doris.nereids.rules.rewrite.ReplacePredicate;
+import org.apache.doris.nereids.rules.rewrite.InferPredicateByReplace;
 import org.apache.doris.nereids.rules.rewrite.UnequalPredicateInfer;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
@@ -87,7 +87,7 @@ public class PredicateInferUtils {
         if (predicates.size() < 2) {
             return predicates;
         }
-        Set<Expression> inferAndOriginPredicates = ReplacePredicate.infer(predicates);
+        Set<Expression> inferAndOriginPredicates = InferPredicateByReplace.infer(predicates);
         Set<Expression> inferPredicates = new LinkedHashSet<>(
                 UnequalPredicateInfer.inferUnequalPredicates(inferAndOriginPredicates));
         // Keep the order of predicates. The input predicates are in the front
@@ -108,7 +108,7 @@ public class PredicateInferUtils {
         if (predicates.size() < 2) {
             return predicates;
         }
-        Set<Expression> inferAndOriginPredicates = ReplacePredicate.infer(predicates);
+        Set<Expression> inferAndOriginPredicates = InferPredicateByReplace.infer(predicates);
         return new LinkedHashSet<>(UnequalPredicateInfer.inferAllPredicates(inferAndOriginPredicates));
     }
 

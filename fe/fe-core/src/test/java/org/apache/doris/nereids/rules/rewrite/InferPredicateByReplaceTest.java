@@ -47,7 +47,7 @@ import org.junit.jupiter.api.Test;
 import java.util.HashSet;
 import java.util.Set;
 
-public class ReplacePredicateTest {
+public class InferPredicateByReplaceTest {
     @Test
     public void testInferWithEqualTo() {
         SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
@@ -56,7 +56,7 @@ public class ReplacePredicateTest {
         Set<Expression> inputs = new HashSet<>();
         inputs.add(equalTo);
 
-        Set<Expression> result = ReplacePredicate.infer(inputs);
+        Set<Expression> result = InferPredicateByReplace.infer(inputs);
         Assertions.assertEquals(1, result.size(), "Expected no additional predicates.");
     }
 
@@ -72,7 +72,7 @@ public class ReplacePredicateTest {
         inputs.add(inPredicate);
         inputs.add(equalTo);
 
-        Set<Expression> result = ReplacePredicate.infer(inputs);
+        Set<Expression> result = InferPredicateByReplace.infer(inputs);
         Assertions.assertEquals(3, result.size());
     }
 
@@ -88,7 +88,7 @@ public class ReplacePredicateTest {
         inputs.add(inPredicate);
         inputs.add(equalTo);
 
-        Set<Expression> result = ReplacePredicate.infer(inputs);
+        Set<Expression> result = InferPredicateByReplace.infer(inputs);
         Assertions.assertEquals(2, result.size());
     }
 
@@ -103,7 +103,7 @@ public class ReplacePredicateTest {
         inputs.add(notPredicate);
         inputs.add(equalTo);
 
-        Set<Expression> result = ReplacePredicate.infer(inputs);
+        Set<Expression> result = InferPredicateByReplace.infer(inputs);
         Not expected = new Not(new InPredicate(b, ImmutableList.of(new IntegerLiteral(1), new IntegerLiteral(2))));
         Assertions.assertTrue(result.contains(expected));
     }
@@ -119,7 +119,7 @@ public class ReplacePredicateTest {
         inputs.add(like);
         inputs.add(equalTo);
 
-        Set<Expression> result = ReplacePredicate.infer(inputs);
+        Set<Expression> result = InferPredicateByReplace.infer(inputs);
         Like expected = new Like(b, new StringLiteral("test%"));
         Assertions.assertEquals(3, result.size());
         Assertions.assertTrue(result.contains(expected), "Expected to find b like 'test%' in the result");
@@ -136,7 +136,7 @@ public class ReplacePredicateTest {
         inputs.add(like);
         inputs.add(equalTo);
 
-        Set<Expression> result = ReplacePredicate.infer(inputs);
+        Set<Expression> result = InferPredicateByReplace.infer(inputs);
         Assertions.assertEquals(2, result.size());
     }
 
@@ -151,7 +151,7 @@ public class ReplacePredicateTest {
         inputs.add(or);
         inputs.add(equalTo);
 
-        Set<Expression> result = ReplacePredicate.infer(inputs);
+        Set<Expression> result = InferPredicateByReplace.infer(inputs);
         Assertions.assertEquals(2, result.size());
     }
 
@@ -165,7 +165,7 @@ public class ReplacePredicateTest {
         inputs.add(greaterThan);
         inputs.add(equalTo);
 
-        Set<Expression> result = ReplacePredicate.infer(inputs);
+        Set<Expression> result = InferPredicateByReplace.infer(inputs);
         Assertions.assertEquals(3, result.size());
     }
 
@@ -183,7 +183,7 @@ public class ReplacePredicateTest {
         Set<Expression> inputs = new HashSet<>();
         inputs.add(equalTo1);
         inputs.add(equalTo2);
-        Assertions.assertEquals(2, ReplacePredicate.infer(inputs).size());
+        Assertions.assertEquals(2, InferPredicateByReplace.infer(inputs).size());
     }
 
     @Test
@@ -197,7 +197,7 @@ public class ReplacePredicateTest {
         Set<Expression> inputs = new HashSet<>();
         inputs.add(equalTo1);
         inputs.add(equalTo2);
-        Set<Expression> result = ReplacePredicate.infer(inputs);
+        Set<Expression> result = InferPredicateByReplace.infer(inputs);
         Assertions.assertEquals(2, result.size());
     }
 }

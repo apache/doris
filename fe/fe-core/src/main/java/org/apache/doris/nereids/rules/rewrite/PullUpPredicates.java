@@ -60,7 +60,7 @@ import java.util.function.Supplier;
 public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void> {
 
     Map<Plan, ImmutableSet<Expression>> cache = new IdentityHashMap<>();
-    boolean getAllPredicates;
+    private final boolean getAllPredicates;
 
     public PullUpPredicates(boolean all) {
         getAllPredicates = all;

@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
-import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.Scope;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -35,30 +34,26 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
-import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
+import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.ImmutableEqualSet;
 import org.apache.doris.nereids.util.PredicateInferUtils;
-import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import com.google.common.collect.ImmutableList;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 /**ReplacePredicate*/
-public class ReplacePredicate {
+public class InferPredicateByReplace {
     private static List<Expression> getAllSubExpressions(Expression expr) {
         List<Expression> subExpressions = new ArrayList<>();
         getAllSubExpressions(expr, subExpressions);
@@ -162,7 +157,7 @@ public class ReplacePredicate {
                 continue;
             }
             for (Expression predicate : exprPredicates.get(equals)) {
-                Expression newPredicates = Replacer.INSTANCE.replace(predicate, replaceMap);
+                Expression newPredicates = ExpressionUtils.replace(predicate, replaceMap);
                 try {
                     Expression analyzed = analyzer.analyze(newPredicates);
                     res.add(analyzed.withInferred(true));
@@ -233,58 +228,9 @@ public class ReplacePredicate {
         return inferPredicates;
     }
 
-    private static class Replacer extends DefaultExpressionRewriter<Map<Expression, Expression>> {
-        public static Replacer INSTANCE = new Replacer();
-
-        public Expression replace(Expression e, Map<Expression, Expression> replaceMap) {
-            return e.accept(this, replaceMap);
-        }
-
-        @Override
-        public Expression visit(Expression expr, Map<Expression, Expression> replaceMap) {
-            expr = rewriteChildren(this, expr, replaceMap);
-            if (replaceMap.containsKey(expr)) {
-                return replaceMap.get(expr);
-            }
-            return expr;
-        }
-    }
-
-    /* This function is used to input a=b b=c to derive a=c, and return a=c.*/
-    private static Set<Expression> deduceTransitiveEquality(ImmutableEqualSet<Slot> equalSet,
-            Set<Pair<Slot, Slot>> equalPairs) {
-        List<Set<Slot>> equalSetList = equalSet.calEqualSetList();
-        Set<Expression> derivedEqualities = new LinkedHashSet<>();
-        for (Set<Slot> es : equalSetList) {
-            List<Slot> el = es.stream().sorted(Comparator.comparingInt(s -> s.getExprId().asInt()))
-                    .collect(Collectors.toList());
-            for (int i = 0; i < el.size(); i++) {
-                Slot left = el.get(i);
-                for (int j = i + 1; j < el.size(); j++) {
-                    Slot right = el.get(j);
-                    if (equalPairs.contains(Pair.of(left, right))) {
-                        continue;
-                    }
-                    EqualTo newEqualTo = new EqualTo(left, right);
-                    if (isSingleTableExpression(newEqualTo)) {
-                        continue;
-                    }
-                    derivedEqualities.add(TypeCoercionUtils.processComparisonPredicate(newEqualTo)
-                            .withInferred(true));
-                }
-            }
-        }
-        return derivedEqualities;
-    }
-
-    private static boolean isSingleTableExpression(Expression expr) {
-        Set<String> qualifiers = new HashSet<>();
-        for (Slot slot : expr.getInputSlots()) {
-            qualifiers.add(String.join(".", slot.getQualifier()));
-        }
-        return qualifiers.size() == 1;
-    }
-
+    /** ReplaceAnalyzer is to perform type conversion on the expression after replacement
+     * and perform type check on the expression.
+     * If there is a cast that will cause an error during execution, an exception should be thrown. */
     private static class ReplaceAnalyzer extends ExpressionAnalyzer {
         private ReplaceAnalyzer(Plan currentPlan, Scope scope,
                 @Nullable CascadesContext cascadesContext,

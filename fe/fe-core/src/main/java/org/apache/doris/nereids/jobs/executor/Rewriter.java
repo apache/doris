@@ -326,6 +326,10 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         // this can help to translate plan to backend
                         topDown(new PushFilterInsideJoin()),
                         topDown(new FindHashConditionForJoin()),
+                        // ProjectOtherJoinConditionForNestedLoopJoin will push down the expression
+                        // in the non-equivalent join condition and turn it into slotReference,
+                        // This results in the inability to obtain Cast child information in INFER_PREDICATES,
+                        // which will affect predicate inference with cast. So put this rule behind the INFER_PREDICATES
                         topDown(new ProjectOtherJoinConditionForNestedLoopJoin())
                 ),
                 // this rule should invoke after ColumnPruning
