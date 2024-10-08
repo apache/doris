@@ -784,7 +784,9 @@ Status VerticalSegmentWriter::_generate_flexible_read_plan(
     int32_t delete_sign_col_unique_id =
             _tablet_schema->column(_tablet_schema->delete_sign_idx()).unique_id();
     int32_t seq_col_unique_id =
-            _tablet_schema->column(_tablet_schema->sequence_col_idx()).unique_id();
+            (_tablet_schema->has_sequence_col()
+                     ? _tablet_schema->column(_tablet_schema->sequence_col_idx()).unique_id()
+                     : -1);
     for (size_t block_pos = data.row_pos; block_pos < data.row_pos + data.num_rows; block_pos++) {
         size_t delta_pos = block_pos - data.row_pos;
         size_t segment_pos = segment_start_pos + delta_pos;
@@ -882,6 +884,7 @@ Status VerticalSegmentWriter::_merge_rows_for_sequence_column(
             }
             std::string cur_encoded_seq_value {};
             _encode_seq_column(seq_column, rid_with_seq, &cur_encoded_seq_value);
+            // the encoded value is order-preserving, so we can use Slice::compare() to compare them
             int res = previous_seq_slice.compare(Slice {cur_encoded_seq_value});
             LOG_INFO(
                     "VerticalSegmentWriter::_merge_rows_for_sequence_column: rid_with_seq={}, "

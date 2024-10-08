@@ -891,7 +891,9 @@ Status SegmentWriter::generate_flexible_read_plan(
     int32_t delete_sign_col_unique_id =
             _tablet_schema->column(_tablet_schema->delete_sign_idx()).unique_id();
     int32_t seq_col_unique_id =
-            _tablet_schema->column(_tablet_schema->sequence_col_idx()).unique_id();
+            (_tablet_schema->has_sequence_col()
+                     ? _tablet_schema->column(_tablet_schema->sequence_col_idx()).unique_id()
+                     : -1);
     for (size_t block_pos = row_pos; block_pos < row_pos + num_rows; block_pos++) {
         size_t delta_pos = block_pos - row_pos;
         size_t segment_pos = segment_start_pos + delta_pos;
