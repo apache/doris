@@ -228,10 +228,6 @@ public class StructInfo {
                 // ExpressionLineageReplacer#visitGroupPlan
                 namedExprIdAndExprMapping.putAll(replaceContext.getExprIdExpressionMap());
             });
-            List<Expression> otherJoinConjuncts = edge.getOtherJoinConjuncts();
-            if (!otherJoinConjuncts.isEmpty()) {
-                return false;
-            }
         }
         // Collect expression from where in hyper graph
         hyperGraph.getFilterEdges().forEach(filterEdge -> {
@@ -619,9 +615,6 @@ public class StructInfo {
                 PlanCheckContext checkContext) {
             checkContext.setAlreadyMeetJoin(true);
             if (!checkContext.getSupportJoinTypes().contains(join.getJoinType())) {
-                return false;
-            }
-            if (!join.getOtherJoinConjuncts().isEmpty()) {
                 return false;
             }
             return visit(join, checkContext);
