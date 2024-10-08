@@ -1014,9 +1014,9 @@ Status Segment::lookup_row_key(const Slice& key, const TabletSchema* latest_sche
             *encoded_seq_value = std::string {};
         } else {
             // include marker
-            Slice encoded_seq_value_slice = Slice(
-                    sought_key.get_data() + sought_key_without_seq.get_size(), seq_col_length);
-            *encoded_seq_value = encoded_seq_value_slice.to_string();
+            *encoded_seq_value =
+                    Slice(sought_key.get_data() + sought_key_without_seq.get_size(), seq_col_length)
+                            .to_string();
         }
     }
     return Status::OK();

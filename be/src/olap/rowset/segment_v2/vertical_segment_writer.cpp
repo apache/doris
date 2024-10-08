@@ -742,6 +742,35 @@ Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(
     return Status::OK();
 }
 
+Status VerticalSegmentWriter::_generate_encoded_default_seq_value(const TabletSchema& tablet_schema,
+                                                                  const PartialUpdateInfo& info,
+                                                                  std::string* encoded_value) {
+    const auto& seq_column = tablet_schema.column(tablet_schema.sequence_col_idx());
+    auto block = tablet_schema.create_block_by_cids(
+            {static_cast<uint32_t>(tablet_schema.sequence_col_idx())});
+    if (seq_column.has_default_value()) {
+        auto idx = tablet_schema.sequence_col_idx() - tablet_schema.num_key_columns();
+        const auto& default_value = info.default_values[idx];
+        vectorized::ReadBuffer rb(const_cast<char*>(default_value.c_str()), default_value.size());
+        RETURN_IF_ERROR(block.get_by_position(0).type->from_string(
+                rb, block.get_by_position(0).column->assume_mutable().get()));
+
+    } else {
+        block.get_by_position(0).column->assume_mutable()->insert_default();
+    }
+    DCHECK_EQ(block.rows(), 1);
+    auto olap_data_convertor = std::make_unique<vectorized::OlapBlockDataConvertor>();
+    olap_data_convertor->add_column_data_convertor(seq_column);
+    olap_data_convertor->set_source_content(&block, 0, 1);
+    auto [status, column] = olap_data_convertor->convert_column_data(0);
+    if (!status.ok()) {
+        return status;
+    }
+    // include marker
+    _encode_seq_column(column, 0, encoded_value);
+    return Status::OK();
+}
+
 Status VerticalSegmentWriter::_generate_flexible_read_plan(
         FlexibleReadPlan& read_plan, RowsInBlock& data, size_t segment_start_pos,
         bool schema_has_sequence_col, int32_t seq_map_col_unique_id,
@@ -813,6 +842,10 @@ Status VerticalSegmentWriter::_merge_rows_for_sequence_column(
     auto filter_column = vectorized::ColumnUInt8::create(data.num_rows, 1);
     auto* __restrict filter_map = filter_column->get_data().data();
 
+    std::string encoded_default_seq_value {};
+    RETURN_IF_ERROR(_generate_encoded_default_seq_value(
+            *_tablet_schema, *_opts.rowset_ctx->partial_update_info, &encoded_default_seq_value));
+
     for (size_t block_pos = data.row_pos; block_pos < data.row_pos + data.num_rows; block_pos++) {
         size_t delta_pos = block_pos - data.row_pos;
         auto& skip_bitmap = skip_bitmaps->at(block_pos);
@@ -841,13 +874,15 @@ Status VerticalSegmentWriter::_merge_rows_for_sequence_column(
 
             Slice previous_seq_slice {};
             if (st.is<KEY_NOT_FOUND>()) {
-                // TODO: handle default value
+                previous_seq_slice = Slice {encoded_default_seq_value};
             } else {
+                // TODO(bobhan1): we can mark these rows in delete bitmap and eliminate reading them in later phase
                 _rsid_to_rowset.emplace(rowset->rowset_id(), rowset);
+                previous_seq_slice = Slice {previous_encoded_seq_value};
             }
             std::string cur_encoded_seq_value {};
             _encode_seq_column(seq_column, rid_with_seq, &cur_encoded_seq_value);
-            int res = Slice {previous_encoded_seq_value}.compare(Slice {cur_encoded_seq_value});
+            int res = previous_seq_slice.compare(Slice {cur_encoded_seq_value});
             LOG_INFO(
                     "VerticalSegmentWriter::_merge_rows_for_sequence_column: rid_with_seq={}, "
                     "rid_missing_seq={}, res={}",

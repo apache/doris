@@ -170,6 +170,9 @@ private:
     Status _append_block_with_partial_content(RowsInBlock& data, vectorized::Block& full_block);
     Status _append_block_with_flexible_partial_content(RowsInBlock& data,
                                                        vectorized::Block& full_block);
+    Status _generate_encoded_default_seq_value(const TabletSchema& tablet_schema,
+                                               const PartialUpdateInfo& info,
+                                               std::string* encoded_value);
     Status _generate_flexible_read_plan(
             FlexibleReadPlan& read_plan, RowsInBlock& data, size_t segment_start_pos,
             bool schema_has_sequence_col, int32_t seq_map_col_unique_id,
