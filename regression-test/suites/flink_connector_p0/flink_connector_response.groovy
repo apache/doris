@@ -31,6 +31,9 @@ suite("flink_connector_response") {
             Pattern.compile(
                     "transaction \\[(\\d+)\\] is already|transaction \\[(\\d+)\\] not found");
 
+    def COMMITED_STATUS = "ALREADY_EXIST";
+    def ABORTTED_STATUS = ["NOT_FOUND", "ABORTED"]
+
     def thisDb = sql """select database()""";
     thisDb = thisDb[0][0];
     logger.info("current database is ${thisDb}");
@@ -140,6 +143,20 @@ PROPERTIES (
     assertNotEquals(jsonout.status, "Success")
     assertTrue(ABORTTED_PATTERN.matcher(jsonout.msg).find())
 
+    //check status abort not exist txnid
+    println("start check status abort not exist txnid")
+    outAbort = execute_abort_cmd(no_exist_txnid)
+    jsonout = parseJson(outAbort)
+    assertEquals(jsonout.status, "NOT_FOUND")
+    assertTrue(ABORTTED_STATUS.contains(jsonout.status))
+
+    //check status abort already abort txnid
+    println("start check status abort already abort txnid")
+    outAbort = execute_abort_cmd(txnid);
+    jsonout = parseJson(outAbort)
+    assertEquals(jsonout.status, "ABORTED")
+    assertTrue(ABORTTED_STATUS.contains(jsonout.status))
+
     //commit not exist txnid
     println("start commit not exist txnid")
     def outCommit = execute_commit_cmd(no_exist_txnid)
@@ -175,6 +192,12 @@ PROPERTIES (
     jsonout = parseJson(outCommit)
     assertNotEquals(jsonout.status, "Success")
     assertTrue(COMMITTED_PATTERN.matcher(jsonout.msg).find())
+
+    //check status commit already commit txnid
+    println("start check status commit already commit txnid")
+    outCommit = execute_commit_cmd(commitTxnId)
+    jsonout = parseJson(outCommit)
+    assertEquals(jsonout.status, COMMITED_STATUS)
 
     //abort already commit txnid
     println("start abort already commit txnid")
