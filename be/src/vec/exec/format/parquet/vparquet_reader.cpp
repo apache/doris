@@ -22,6 +22,7 @@
 #include <gen_cpp/parquet_types.h>
 #include <glog/logging.h>
 
+#include <algorithm>
 #include <functional>
 #include <utility>
 
@@ -180,6 +181,8 @@ void ParquetReader::_init_profile() {
                 _profile, "SkipPageHeaderNum", TUnit::UNIT, parquet_profile, 1);
         _parquet_profile.parse_page_header_num = ADD_CHILD_COUNTER_WITH_LEVEL(
                 _profile, "ParsePageHeaderNum", TUnit::UNIT, parquet_profile, 1);
+        _parquet_profile.predicate_filter_time =
+                ADD_CHILD_TIMER_WITH_LEVEL(_profile, "PredicateFilterTime", parquet_profile, 1);
     }
 }
 
@@ -300,12 +303,14 @@ Status ParquetReader::init_reader(
         const std::unordered_map<std::string, int>* colname_to_slot_id,
         const VExprContextSPtrs* not_single_slot_filter_conjuncts,
         const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts,
-        bool filter_groups) {
+        bool filter_groups, const bool hive_use_column_names) {
     _tuple_descriptor = tuple_descriptor;
     _row_descriptor = row_descriptor;
     _colname_to_slot_id = colname_to_slot_id;
     _not_single_slot_filter_conjuncts = not_single_slot_filter_conjuncts;
     _slot_id_to_filter_conjuncts = slot_id_to_filter_conjuncts;
+    _colname_to_value_range = colname_to_value_range;
+    _hive_use_column_names = hive_use_column_names;
     if (_file_metadata == nullptr) {
         return Status::InternalError("failed to init parquet reader, please open reader first");
     }
@@ -320,28 +325,59 @@ Status ParquetReader::init_reader(
     // e.g. table added a column after this parquet file was written.
     _column_names = &all_column_names;
     auto schema_desc = _file_metadata->schema();
-    std::set<std::string> required_columns(all_column_names.begin(), all_column_names.end());
-    // Currently only used in iceberg, the columns are dropped but added back
-    std::set<std::string> dropped_columns(missing_column_names.begin(), missing_column_names.end());
-    // Make the order of read columns the same as physical order in parquet file
-    for (int i = 0; i < schema_desc.size(); ++i) {
-        auto name = schema_desc.get_column(i)->name;
-        // If the column in parquet file is included in all_column_names and not in missing_column_names,
-        // add it to _map_column, which means the reader should read the data of this column.
-        // Here to check against missing_column_names is for the 'Add a column back to the table
-        // with the same column name' case. (drop column a then add column a).
-        // Shouldn't read this column data in this case.
-        if (required_columns.find(name) != required_columns.end() &&
-            dropped_columns.find(name) == dropped_columns.end()) {
-            required_columns.erase(name);
-            _read_columns.emplace_back(name);
+    if (_hive_use_column_names) {
+        std::set<std::string> required_columns(all_column_names.begin(), all_column_names.end());
+        // Currently only used in iceberg, the columns are dropped but added back
+        std::set<std::string> dropped_columns(missing_column_names.begin(),
+                                              missing_column_names.end());
+        // Make the order of read columns the same as physical order in parquet file
+        for (int i = 0; i < schema_desc.size(); ++i) {
+            auto name = schema_desc.get_column(i)->name;
+            // If the column in parquet file is included in all_column_names and not in missing_column_names,
+            // add it to _map_column, which means the reader should read the data of this column.
+            // Here to check against missing_column_names is for the 'Add a column back to the table
+            // with the same column name' case. (drop column a then add column a).
+            // Shouldn't read this column data in this case.
+            if (required_columns.find(name) != required_columns.end() &&
+                dropped_columns.find(name) == dropped_columns.end()) {
+                required_columns.erase(name);
+                _read_columns.emplace_back(name);
+            }
+        }
+        for (const std::string& name : required_columns) {
+            _missing_cols.emplace_back(name);
+        }
+    } else {
+        std::unordered_map<std::string, ColumnValueRangeType> new_colname_to_value_range;
+        const auto& table_column_idxs = _scan_params.column_idxs;
+        std::map<int, int> table_col_id_to_idx;
+        for (int i = 0; i < table_column_idxs.size(); i++) {
+            table_col_id_to_idx.insert({table_column_idxs[i], i});
+        }
+
+        for (auto [id, idx] : table_col_id_to_idx) {
+            if (id >= schema_desc.size()) {
+                _missing_cols.emplace_back(all_column_names[idx]);
+            } else {
+                auto& table_col = all_column_names[idx];
+                auto file_col = schema_desc.get_column(id)->name;
+                _read_columns.emplace_back(file_col);
+
+                if (table_col != file_col) {
+                    _table_col_to_file_col[table_col] = file_col;
+                    auto iter = _colname_to_value_range->find(table_col);
+                    if (iter != _colname_to_value_range->end()) {
+                        continue;
+                    }
+                    new_colname_to_value_range[file_col] = iter->second;
+                    _colname_to_value_range->erase(iter->first);
+                }
+            }
+        }
+        for (auto it : new_colname_to_value_range) {
+            _colname_to_value_range->emplace(it.first, std::move(it.second));
         }
     }
-    for (const std::string& name : required_columns) {
-        _missing_cols.emplace_back(name);
-    }
-
-    _colname_to_value_range = colname_to_value_range;
     // build column predicates for column lazy read
     _lazy_read_ctx.conjuncts = conjuncts;
     RETURN_IF_ERROR(_init_row_groups(filter_groups));
@@ -525,6 +561,16 @@ Status ParquetReader::get_next_block(Block* block, size_t* read_rows, bool* eof)
         return Status::OK();
     }
 
+    if (!_hive_use_column_names) {
+        for (auto i = 0; i < block->get_names().size(); i++) {
+            auto& col = block->get_by_position(i);
+            if (_table_col_to_file_col.contains(col.name)) {
+                col.name = _table_col_to_file_col[col.name];
+            }
+        }
+        block->initialize_index_by_name();
+    }
+
     SCOPED_RAW_TIMER(&_statistics.column_read_time);
     Status batch_st =
             _current_group_reader->next_batch(block, _batch_size, read_rows, &_row_group_eof);
@@ -535,6 +581,13 @@ Status ParquetReader::get_next_block(Block* block, size_t* read_rows, bool* eof)
         *eof = true;
         return Status::OK();
     }
+
+    if (!_hive_use_column_names) {
+        for (auto i = 0; i < block->columns(); i++) {
+            block->get_by_position(i).name = (*_column_names)[i];
+        }
+        block->initialize_index_by_name();
+    }
     if (!batch_st.ok()) {
         return Status::InternalError("Read parquet file {} failed, reason = {}", _scan_range.path,
                                      batch_st.to_string());
@@ -544,6 +597,7 @@ Status ParquetReader::get_next_block(Block* block, size_t* read_rows, bool* eof)
         auto column_st = _current_group_reader->statistics();
         _column_statistics.merge(column_st);
         _statistics.lazy_read_filtered_rows += _current_group_reader->lazy_read_filtered_rows();
+        _statistics.predicate_filter_time += _current_group_reader->predicate_filter_time();
         if (_read_row_groups.size() == 0) {
             *eof = true;
         } else {
@@ -887,15 +941,53 @@ Status ParquetReader::_process_column_stat_filter(const std::vector<tparquet::Co
             continue;
         }
         const FieldSchema* col_schema = schema_desc.get_column(col_name);
+        bool ignore_min_max_stats = false;
         // Min-max of statistic is plain-encoded value
-        if (statistic.__isset.min_value) {
+        if (statistic.__isset.min_value && statistic.__isset.max_value) {
+            ColumnOrderName column_order =
+                    col_schema->physical_type == tparquet::Type::INT96 ||
+                                    col_schema->parquet_schema.logicalType.__isset.UNKNOWN
+                            ? ColumnOrderName::UNDEFINED
+                            : ColumnOrderName::TYPE_DEFINED_ORDER;
+            if ((statistic.min_value != statistic.max_value) &&
+                (column_order != ColumnOrderName::TYPE_DEFINED_ORDER)) {
+                ignore_min_max_stats = true;
+            }
             *filter_group = ParquetPredicate::filter_by_stats(
-                    slot_iter->second, col_schema, is_set_min_max, statistic.min_value,
+                    slot_iter->second, col_schema, ignore_min_max_stats, statistic.min_value,
                     statistic.max_value, is_all_null, *_ctz, true);
         } else {
+            if (statistic.__isset.min && statistic.__isset.max) {
+                bool max_equals_min = statistic.min == statistic.max;
+
+                SortOrder sort_order = _determine_sort_order(col_schema->parquet_schema);
+                bool sort_orders_match = SortOrder::SIGNED == sort_order;
+                if (!sort_orders_match && !max_equals_min) {
+                    ignore_min_max_stats = true;
+                }
+                bool should_ignore_corrupted_stats = false;
+                if (_ignored_stats.count(col_schema->physical_type) == 0) {
+                    if (CorruptStatistics::should_ignore_statistics(_t_metadata->created_by,
+                                                                    col_schema->physical_type)) {
+                        _ignored_stats[col_schema->physical_type] = true;
+                        should_ignore_corrupted_stats = true;
+                    } else {
+                        _ignored_stats[col_schema->physical_type] = false;
+                    }
+                } else if (_ignored_stats[col_schema->physical_type]) {
+                    should_ignore_corrupted_stats = true;
+                }
+                if (should_ignore_corrupted_stats) {
+                    ignore_min_max_stats = true;
+                } else if (!sort_orders_match && !max_equals_min) {
+                    ignore_min_max_stats = true;
+                }
+            } else {
+                ignore_min_max_stats = true;
+            }
             *filter_group = ParquetPredicate::filter_by_stats(
-                    slot_iter->second, col_schema, is_set_min_max, statistic.min, statistic.max,
-                    is_all_null, *_ctz, false);
+                    slot_iter->second, col_schema, ignore_min_max_stats, statistic.min,
+                    statistic.max, is_all_null, *_ctz, false);
         }
         if (*filter_group) {
             break;
@@ -953,6 +1045,7 @@ void ParquetReader::_collect_profile() {
     COUNTER_UPDATE(_parquet_profile.skip_page_header_num, _column_statistics.skip_page_header_num);
     COUNTER_UPDATE(_parquet_profile.parse_page_header_num,
                    _column_statistics.parse_page_header_num);
+    COUNTER_UPDATE(_parquet_profile.predicate_filter_time, _statistics.predicate_filter_time);
     COUNTER_UPDATE(_parquet_profile.file_read_time, _column_statistics.read_time);
     COUNTER_UPDATE(_parquet_profile.file_read_calls, _column_statistics.read_calls);
     COUNTER_UPDATE(_parquet_profile.file_meta_read_calls, _column_statistics.meta_read_calls);
@@ -968,6 +1061,63 @@ void ParquetReader::_collect_profile() {
 
 void ParquetReader::_collect_profile_before_close() {
     _collect_profile();
+}
+
+SortOrder ParquetReader::_determine_sort_order(const tparquet::SchemaElement& parquet_schema) {
+    tparquet::Type::type physical_type = parquet_schema.type;
+    const tparquet::LogicalType& logical_type = parquet_schema.logicalType;
+
+    // Assume string type is SortOrder::SIGNED, use ParquetPredicate::_try_read_old_utf8_stats() to handle it.
+    if (logical_type.__isset.STRING && (physical_type == tparquet::Type::BYTE_ARRAY ||
+                                        physical_type == tparquet::Type::FIXED_LEN_BYTE_ARRAY)) {
+        return SortOrder::SIGNED;
+    }
+
+    if (logical_type.__isset.INTEGER) {
+        if (logical_type.INTEGER.isSigned) {
+            return SortOrder::SIGNED;
+        } else {
+            return SortOrder::UNSIGNED;
+        }
+    } else if (logical_type.__isset.DATE) {
+        return SortOrder::SIGNED;
+    } else if (logical_type.__isset.ENUM) {
+        return SortOrder::UNSIGNED;
+    } else if (logical_type.__isset.BSON) {
+        return SortOrder::UNSIGNED;
+    } else if (logical_type.__isset.JSON) {
+        return SortOrder::UNSIGNED;
+    } else if (logical_type.__isset.STRING) {
+        return SortOrder::UNSIGNED;
+    } else if (logical_type.__isset.DECIMAL) {
+        return SortOrder::UNKNOWN;
+    } else if (logical_type.__isset.MAP) {
+        return SortOrder::UNKNOWN;
+    } else if (logical_type.__isset.LIST) {
+        return SortOrder::UNKNOWN;
+    } else if (logical_type.__isset.TIME) {
+        return SortOrder::SIGNED;
+    } else if (logical_type.__isset.TIMESTAMP) {
+        return SortOrder::SIGNED;
+    } else if (logical_type.__isset.UNKNOWN) {
+        return SortOrder::UNKNOWN;
+    } else {
+        switch (physical_type) {
+        case tparquet::Type::BOOLEAN:
+        case tparquet::Type::INT32:
+        case tparquet::Type::INT64:
+        case tparquet::Type::FLOAT:
+        case tparquet::Type::DOUBLE:
+            return SortOrder::SIGNED;
+        case tparquet::Type::BYTE_ARRAY:
+        case tparquet::Type::FIXED_LEN_BYTE_ARRAY:
+            return SortOrder::UNSIGNED;
+        case tparquet::Type::INT96:
+            return SortOrder::UNKNOWN;
+        default:
+            return SortOrder::UNKNOWN;
+        }
+    }
 }
 
 } // namespace doris::vectorized

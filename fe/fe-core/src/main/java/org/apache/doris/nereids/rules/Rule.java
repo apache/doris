@@ -64,6 +64,10 @@ public abstract class Rule {
         return ruleType.getRuleTypeClass() == RuleTypeClass.REWRITE;
     }
 
+    public boolean isExploration() {
+        return ruleType.getRuleTypeClass() == RuleTypeClass.EXPLORATION;
+    }
+
     @Override
     public String toString() {
         return getRuleType().toString();

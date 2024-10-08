@@ -145,7 +145,8 @@ public:
 #ifdef __clang__
 #pragma clang fp reassociate(on)
 #endif
-        const auto& column = assert_cast<const ColVecType&>(*columns[0]);
+        const auto& column =
+                assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(*columns[0]);
         if constexpr (IsDecimalNumber<T>) {
             this->data(place).sum += column.get_data()[row_num].value;
         } else {

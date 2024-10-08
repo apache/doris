@@ -38,7 +38,8 @@ public class LabelAlreadyUsedException extends DdlException {
     }
 
     public LabelAlreadyUsedException(TransactionState txn) {
-        super("Label [" + txn.getLabel() + "] has already been used, relate to txn [" + txn.getTransactionId() + "]");
+        super("Label [" + txn.getLabel() + "] has already been used, relate to txn [" + txn.getTransactionId()
+                + "], status [" + txn.getTransactionStatus() + "].");
         switch (txn.getTransactionStatus()) {
             case UNKNOWN:
             case PREPARE:

@@ -69,6 +69,7 @@ import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalGenerate;
@@ -104,6 +105,7 @@ import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.ImmutableListMultimap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
@@ -112,10 +114,13 @@ import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Consumer;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
@@ -269,7 +274,8 @@ public class BindExpression implements AnalysisRuleFactory {
                 for (int idx = 0; idx < fields.size(); ++idx) {
                     expandAlias.add(new Alias(new StructElement(
                             boundSlot, new StringLiteral(fields.get(idx).getName())),
-                            generate.getExpandColumnAlias().get(i).get(idx)));
+                            generate.getExpandColumnAlias().get(i).get(idx),
+                            slot.getQualifier()));
                 }
             }
         }
@@ -508,6 +514,8 @@ public class BindExpression implements AnalysisRuleFactory {
         LogicalJoin<Plan, Plan> join = ctx.root;
         CascadesContext cascadesContext = ctx.cascadesContext;
 
+        checkConflictAlias(join);
+
         SimpleExprAnalyzer analyzer = buildSimpleExprAnalyzer(
                 join, cascadesContext, join.children(), true, true);
 
@@ -530,6 +538,47 @@ public class BindExpression implements AnalysisRuleFactory {
                 hashJoinConjuncts.build(), otherJoinConjuncts.build(),
                 join.getDistributeHint(), join.getMarkJoinSlotReference(),
                 join.children(), null);
+    }
+
+    private void checkConflictAlias(Plan plan) {
+        Set<String> existsTableNames = Sets.newLinkedHashSet();
+        Consumer<String> checkAlias = tableAliasName -> {
+            if (!existsTableNames.add(tableAliasName)) {
+                String tableName = tableAliasName.substring(tableAliasName.lastIndexOf('.') + 1);
+                throw new AnalysisException("Not unique table/alias: '" + tableName + "'");
+            }
+        };
+
+        boolean stopCheckChildren = true;
+        plan.foreach(p -> {
+            if (p instanceof LogicalSubQueryAlias) {
+                String alias = ((LogicalSubQueryAlias<?>) p).getAlias();
+                String dbName = getDbName(p.children().get(0));
+                String result = dbName + "." + alias;
+                checkAlias.accept(result);
+                return stopCheckChildren;
+
+            } else if (p instanceof LogicalCatalogRelation) {
+                String table = ((LogicalCatalogRelation) p).qualifiedName();
+                checkAlias.accept(table);
+                return stopCheckChildren;
+            } else {
+                return !stopCheckChildren;
+            }
+        });
+    }
+
+    private String getDbName(Plan plan) {
+        if (plan instanceof LogicalCatalogRelation) {
+            return ((LogicalCatalogRelation) plan).qualifiedName().split("\\.")[0]
+                    + ((LogicalCatalogRelation) plan).qualifiedName().split("\\.")[1];
+        } else if (plan instanceof LogicalSubQueryAlias) {
+            return ((LogicalSubQueryAlias<?>) plan).getQualifier().get(0)
+                    + ((LogicalSubQueryAlias<?>) plan).getQualifier().get(1);
+
+        } else {
+            return "default-catalog" + "default-db";
+        }
     }
 
     private LogicalJoin<Plan, Plan> bindUsingJoin(MatchingContext<UsingJoin<Plan, Plan>> ctx) {
@@ -571,27 +620,59 @@ public class BindExpression implements AnalysisRuleFactory {
         SimpleExprAnalyzer analyzer = buildSimpleExprAnalyzer(
                 project, cascadesContext, project.children(), true, true);
 
-        List<NamedExpression> excepts = project.getExcepts();
-        Supplier<Set<NamedExpression>> boundExcepts = Suppliers.memoize(
-                () -> analyzer.analyzeToSet(project.getExcepts()));
-
-        Builder<NamedExpression> boundProjections = ImmutableList.builderWithExpectedSize(project.arity());
+        Builder<NamedExpression> boundProjections = ImmutableList.builderWithExpectedSize(project.getProjects().size());
         StatementContext statementContext = ctx.statementContext;
         for (Expression expression : project.getProjects()) {
             Expression expr = analyzer.analyze(expression);
             if (!(expr instanceof BoundStar)) {
                 boundProjections.add((NamedExpression) expr);
             } else {
+                UnboundStar unboundStar = (UnboundStar) expression;
+                List<NamedExpression> excepts = unboundStar.getExceptedSlots();
+                Set<NamedExpression> boundExcepts = Suppliers.memoize(() -> analyzer.analyzeToSet(excepts)).get();
                 BoundStar boundStar = (BoundStar) expr;
-                List<Slot> slots = boundStar.getSlots();
-                if (!excepts.isEmpty()) {
-                    slots = Utils.filterImmutableList(slots, slot -> !boundExcepts.get().contains(slot));
+
+                List<Slot> slots = exceptStarSlots(boundExcepts, boundStar);
+
+                List<NamedExpression> replaces = unboundStar.getReplacedAlias();
+                if (!replaces.isEmpty()) {
+                    final Map<Expression, Expression> replaceMap = new HashMap<>();
+                    final Set<Expression> replaced = new HashSet<>();
+                    Supplier<List<NamedExpression>> boundReplaces = Suppliers.memoize(
+                            () -> analyzer.analyzeToList(replaces));
+                    for (NamedExpression replace : boundReplaces.get()) {
+                        Preconditions.checkArgument(replace instanceof Alias);
+                        Alias alias = (Alias) replace;
+                        UnboundSlot unboundSlot = new UnboundSlot(alias.getName());
+                        Expression slot = analyzer.analyze(unboundSlot);
+                        if (replaceMap.containsKey(slot)) {
+                            throw new AnalysisException("Duplicate replace column name: " + alias.getName());
+                        }
+                        replaceMap.put(slot, alias);
+                    }
+
+                    Collection c = CollectionUtils.intersection(boundExcepts, replaceMap.keySet());
+                    if (!c.isEmpty()) {
+                        throw new AnalysisException("Replace column name: " + c + " is in excepts");
+                    }
+                    for (Slot s : slots) {
+                        Expression e = ExpressionUtils.replace(s, replaceMap);
+                        if (s != e) {
+                            replaced.add(s);
+                        }
+                        boundProjections.add((NamedExpression) e);
+                    }
+
+                    if (replaced.size() != replaceMap.size()) {
+                        replaceMap.keySet().removeAll(replaced);
+                        throw new AnalysisException("Invalid replace column name: " + replaceMap.keySet());
+                    }
+                } else {
+                    boundProjections.addAll(slots);
                 }
-                boundProjections.addAll(slots);
 
                 // for create view stmt expand star
                 List<Slot> slotsForLambda = slots;
-                UnboundStar unboundStar = (UnboundStar) expression;
                 unboundStar.getIndexInSqlString().ifPresent(pair -> {
                     statementContext.addIndexInSqlToString(pair, toSqlWithBackquote(slotsForLambda));
                 });
@@ -616,6 +697,17 @@ public class BindExpression implements AnalysisRuleFactory {
         return new LogicalFilter<>(boundConjuncts.build(), filter.child());
     }
 
+    private List<Slot> exceptStarSlots(Set<NamedExpression> boundExcepts, BoundStar boundStar) {
+        List<Slot> slots = boundStar.getSlots();
+        if (!boundExcepts.isEmpty()) {
+            slots = Utils.filterImmutableList(slots, slot -> !boundExcepts.contains(slot));
+            if (slots.isEmpty()) {
+                throw new AnalysisException("All slots in * EXCEPT clause are excepted");
+            }
+        }
+        return slots;
+    }
+
     private Plan bindAggregate(MatchingContext<LogicalAggregate<Plan>> ctx) {
         LogicalAggregate<Plan> agg = ctx.root;
         CascadesContext cascadesContext = ctx.cascadesContext;
@@ -624,13 +716,29 @@ public class BindExpression implements AnalysisRuleFactory {
                 agg, cascadesContext, agg.children(), true, true);
         List<NamedExpression> boundAggOutput = aggOutputAnalyzer.analyzeToList(agg.getOutputExpressions());
         List<NamedExpression> boundProjections = new ArrayList<>(boundAggOutput.size());
-        for (NamedExpression output : boundAggOutput) {
+        for (int i = 0; i < boundAggOutput.size(); i++) {
+            NamedExpression output = boundAggOutput.get(i);
             if (output instanceof BoundStar) {
-                boundProjections.addAll(((BoundStar) output).getSlots());
+                UnboundStar unboundStar = (UnboundStar) agg.getOutputExpression(i);
+                if (!unboundStar.getReplacedAlias().isEmpty()) {
+                    // If user use * replace in agg, witch slot the group by clause should reference is ambiguous.
+                    // For example, select * replace (col % 2 as col) from t group by col
+                    // The sql should be rewritten like follows:
+                    // select * except (col), col % 2 as col1 from t group by ..., col1
+                    // or
+                    // select * except (col), col % 2 as col1 from t group by ..., col -- group by origin col in t
+                    throw new AnalysisException("* REPLACE in agg clause is not supported, use * EXCEPT instead");
+                }
+                List<NamedExpression> excepts = unboundStar.getExceptedSlots();
+                Set<NamedExpression> boundExcepts = Suppliers.memoize(
+                        () -> aggOutputAnalyzer.analyzeToSet(excepts)).get();
+                List<Slot> slots = exceptStarSlots(boundExcepts, (BoundStar) output);
+                boundProjections.addAll(slots);
             } else {
                 boundProjections.add(output);
             }
         }
+
         Supplier<Scope> aggOutputScopeWithoutAggFun =
                 buildAggOutputScopeWithoutAggFun(boundProjections, cascadesContext);
         List<Expression> boundGroupBy = bindGroupBy(

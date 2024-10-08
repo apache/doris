@@ -310,7 +310,7 @@ public class SchemaChangeHandler extends AlterHandler {
         boolean lightSchemaChange = olapTable.getEnableLightSchemaChange();
         /*
          * UNIQUE:
-         *      Can not drop any key column.
+         *      Can not drop any key column, cluster key column
          * AGGREGATION:
          *      Can not drp any key column is has value with REPLACE method
          */
@@ -614,13 +614,7 @@ public class SchemaChangeHandler extends AlterHandler {
                     if (columnPos == null && col.getDataType() == PrimitiveType.VARCHAR
                             && modColumn.getDataType() == PrimitiveType.VARCHAR) {
                         col.checkSchemaChangeAllowed(modColumn);
-                        // If col and modColumn is not key, it allow light schema change,
-                        // of course, olapTable has been enable light schema change
-                        if (modColumn.isKey() || col.isKey()) {
-                            lightSchemaChange = false;
-                        } else {
-                            lightSchemaChange = olapTable.getEnableLightSchemaChange();
-                        }
+                        lightSchemaChange = olapTable.getEnableLightSchemaChange();
                     }
                     if (col.isClusterKey()) {
                         throw new DdlException("Can not modify cluster key column: " + col.getName());
@@ -747,12 +741,6 @@ public class SchemaChangeHandler extends AlterHandler {
         } // end for handling other indices
 
         if (typeChanged && !lightSchemaChange) {
-            Optional<Column> autoIncCol = olapTable.getBaseSchema(true).stream()
-                    .filter(col -> col.isAutoInc()).findFirst();
-            if (autoIncCol.isPresent()) {
-                throw new DdlException("Can not modify column " + modColumn.getName() + " becasue table "
-                        + olapTable.getName() + " has auto-increment column " + autoIncCol.get().getName());
-            }
             /*
              * In new alter table process (AlterJobV2), any modified columns are treated as new columns.
              * But the modified columns' name does not changed. So in order to distinguish this, we will add
@@ -849,9 +837,6 @@ public class SchemaChangeHandler extends AlterHandler {
             for (Column column : targetIndexSchema) {
                 if (!column.isVisible()) {
                     newSchema.add(column);
-                }
-                if (column.isClusterKey()) {
-                    throw new DdlException("Can not modify column order in Unique data model table");
                 }
             }
         }
@@ -1800,6 +1785,10 @@ public class SchemaChangeHandler extends AlterHandler {
         }
     }
 
+    public Map<Long, IndexChangeJob> getIndexChangeJobs() {
+        return indexChangeJobs;
+    }
+
     public List<List<Comparable>> getAllIndexChangeJobInfos() {
         List<List<Comparable>> indexChangeJobInfos = new LinkedList<>();
         for (IndexChangeJob indexChangeJob : ImmutableList.copyOf(indexChangeJobs.values())) {
@@ -2239,8 +2228,9 @@ public class SchemaChangeHandler extends AlterHandler {
                     int schemaHash = olapTable.getSchemaHashByIndexId(index.getId());
                     for (Tablet tablet : index.getTablets()) {
                         for (Replica replica : tablet.getReplicas()) {
-                            ClearAlterTask alterTask = new ClearAlterTask(replica.getBackendId(), db.getId(),
-                                    olapTable.getId(), partition.getId(), index.getId(), tablet.getId(), schemaHash);
+                            ClearAlterTask alterTask = new ClearAlterTask(replica.getBackendIdWithoutException(),
+                                    db.getId(), olapTable.getId(), partition.getId(),
+                                    index.getId(), tablet.getId(), schemaHash);
                             batchTask.addTask(alterTask);
                         }
                     }
@@ -2290,7 +2280,8 @@ public class SchemaChangeHandler extends AlterHandler {
                 || properties.containsKey(PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION)
                 || properties.containsKey(PropertyAnalyzer.PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD)
                 || properties.containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD)
-                || properties.containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_LEVEL_THRESHOLD));
+                || properties.containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_LEVEL_THRESHOLD)
+                || properties.containsKey(PropertyAnalyzer.PROPERTIES_AUTO_ANALYZE_POLICY));
 
         Env.getCurrentEnv().getAlterInstance().checkNoForceProperty(properties);
         List<Partition> partitions = Lists.newArrayList();
@@ -2314,11 +2305,6 @@ public class SchemaChangeHandler extends AlterHandler {
             }
         }
         String storagePolicy = properties.get(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY);
-        if (enableUniqueKeyMergeOnWrite && !Strings.isNullOrEmpty(storagePolicy)) {
-            throw new UserException(
-                    "Can not set UNIQUE KEY table that enables Merge-On-write" + " with storage policy(" + storagePolicy
-                            + ")");
-        }
         long storagePolicyId = storagePolicyNameToId(storagePolicy);
 
         String compactionPolicy = properties.get(PropertyAnalyzer.PROPERTIES_COMPACTION_POLICY);
@@ -2371,7 +2357,8 @@ public class SchemaChangeHandler extends AlterHandler {
                 && !properties.containsKey(PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION)
                 && !properties.containsKey(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_INTERVAL_MS)
                 && !properties.containsKey(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_DATA_BYTES)
-                && !properties.containsKey(PropertyAnalyzer.PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD)) {
+                && !properties.containsKey(PropertyAnalyzer.PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD)
+                && !properties.containsKey(PropertyAnalyzer.PROPERTIES_AUTO_ANALYZE_POLICY)) {
             LOG.info("Properties already up-to-date");
             return;
         }
@@ -2870,6 +2857,8 @@ public class SchemaChangeHandler extends AlterHandler {
                     LOG.debug("logModifyTableAddOrDropInvertedIndices info:{}", info);
                 }
                 Env.getCurrentEnv().getEditLog().logModifyTableAddOrDropInvertedIndices(info);
+                // Drop table column stats after light schema change finished.
+                Env.getCurrentEnv().getAnalysisManager().dropStats(olapTable, null);
 
                 if (isDropIndex) {
                     // send drop rpc to be
@@ -2896,6 +2885,8 @@ public class SchemaChangeHandler extends AlterHandler {
                     LOG.debug("logModifyTableAddOrDropColumns info:{}", info);
                 }
                 Env.getCurrentEnv().getEditLog().logModifyTableAddOrDropColumns(info);
+                // Drop table column stats after light schema change finished.
+                Env.getCurrentEnv().getAnalysisManager().dropStats(olapTable, null);
             }
             LOG.info("finished modify table's add or drop or modify columns. table: {}, job: {}, is replay: {}",
                     olapTable.getName(), jobId, isReplay);
@@ -3036,6 +3027,7 @@ public class SchemaChangeHandler extends AlterHandler {
         }
         olapTable.setIndexes(indexes);
         olapTable.rebuildFullSchema();
+        olapTable.rebuildDistributionInfo();
     }
 
     public void replayModifyTableAddOrDropInvertedIndices(TableAddOrDropInvertedIndicesInfo info)

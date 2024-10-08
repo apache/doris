@@ -41,15 +41,10 @@
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_number.h"
 
-namespace doris {
-namespace vectorized {
+namespace doris::vectorized {
 class Arena;
 class BufferReadable;
 class BufferWritable;
-} // namespace vectorized
-} // namespace doris
-
-namespace doris::vectorized {
 
 struct RowNumberData {
     int64_t count = 0;
@@ -387,7 +382,8 @@ public:
 
     void set_value(const IColumn** columns, size_t pos) {
         if constexpr (arg_is_nullable) {
-            if (assert_cast<const ColumnNullable*>(columns[0])->is_null_at(pos)) {
+            if (assert_cast<const ColumnNullable*, TypeCheckOnRelease::DISABLE>(columns[0])
+                        ->is_null_at(pos)) {
                 // ptr == nullptr means nullable
                 _data_value.reset();
                 return;
@@ -400,7 +396,8 @@ public:
     void check_default(const IColumn* column) {
         if (!_is_inited) {
             if (is_column_nullable(*column)) {
-                const auto* nullable_column = assert_cast<const ColumnNullable*>(column);
+                const auto* nullable_column =
+                        assert_cast<const ColumnNullable*, TypeCheckOnRelease::DISABLE>(column);
                 if (nullable_column->is_null_at(0)) {
                     _default_value.reset();
                 } else {
@@ -497,9 +494,9 @@ template <typename Data, bool arg_ignore_null = false>
 struct WindowFunctionLastImpl : Data {
     void add_range_single_place(int64_t partition_start, int64_t partition_end, int64_t frame_start,
                                 int64_t frame_end, const IColumn** columns) {
-        if ((frame_start <= frame_end) &&
-            ((frame_end <= partition_start) ||
-             (frame_start >= partition_end))) { //beyond or under partition, set null
+        DCHECK_LE(frame_start, frame_end);
+        if ((frame_end <= partition_start) ||
+            (frame_start >= partition_end)) { //beyond or under partition, set null
             this->set_is_null();
             return;
         }

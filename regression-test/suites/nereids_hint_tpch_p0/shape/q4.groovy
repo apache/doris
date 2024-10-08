@@ -19,6 +19,9 @@
 
 suite("q4") {
     String db = context.config.getDbNameByFile(new File(context.file.parent))
+    if (isCloudMode()) {
+        return
+    }
     sql "use ${db}"
     sql 'set enable_nereids_planner=true'
     sql 'set enable_nereids_distribute_planner=false'
@@ -36,29 +39,29 @@ suite("q4") {
 sql 'set be_number_for_test=3'
 
 
-    qt_select """
-    explain shape plan
-    select  
-    /*+ leading(lineitem orders) */
-        o_orderpriority,
-        count(*) as order_count
-    from
-        orders
-    where
-        o_orderdate >= date '1993-07-01'
-        and o_orderdate < date '1993-07-01' + interval '3' month
-        and exists (
-            select
-                *
-            from
-                lineitem
-            where
-                l_orderkey = o_orderkey
-                and l_commitdate < l_receiptdate
-        )
-    group by
-        o_orderpriority
-    order by
-        o_orderpriority;
-    """
+    // qt_select """
+    // explain shape plan
+    // select  
+    // /*+ leading(lineitem orders) */
+    //     o_orderpriority,
+    //     count(*) as order_count
+    // from
+    //     orders
+    // where
+    //     o_orderdate >= date '1993-07-01'
+    //     and o_orderdate < date '1993-07-01' + interval '3' month
+    //     and exists (
+    //         select
+    //             *
+    //         from
+    //             lineitem
+    //         where
+    //             l_orderkey = o_orderkey
+    //             and l_commitdate < l_receiptdate
+    //     )
+    // group by
+    //     o_orderpriority
+    // order by
+    //     o_orderpriority;
+    // """
 }

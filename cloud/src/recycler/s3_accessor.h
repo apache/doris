@@ -17,11 +17,13 @@
 
 #pragma once
 
+#include <bvar/latency_recorder.h>
+
 #include <array>
 #include <cstdint>
 #include <memory>
 
-#include "recycler/s3_obj_client.h"
+#include "recycler/obj_storage_client.h"
 #include "recycler/storage_vault_accessor.h"
 
 namespace Aws::S3 {
@@ -35,6 +37,19 @@ enum class S3RateLimitType;
 namespace cloud {
 class ObjectStoreInfoPB;
 class SimpleThreadPool;
+
+namespace s3_bvar {
+extern bvar::LatencyRecorder s3_get_latency;
+extern bvar::LatencyRecorder s3_put_latency;
+extern bvar::LatencyRecorder s3_delete_object_latency;
+extern bvar::LatencyRecorder s3_delete_objects_latency;
+extern bvar::LatencyRecorder s3_head_latency;
+extern bvar::LatencyRecorder s3_multi_part_upload_latency;
+extern bvar::LatencyRecorder s3_list_latency;
+extern bvar::LatencyRecorder s3_list_object_versions_latency;
+extern bvar::LatencyRecorder s3_get_bucket_version_latency;
+extern bvar::LatencyRecorder s3_copy_object_latency;
+}; // namespace s3_bvar
 
 struct AccessorRateLimiter {
 public:

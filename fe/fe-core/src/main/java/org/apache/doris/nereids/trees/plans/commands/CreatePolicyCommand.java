@@ -19,7 +19,7 @@ package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.StmtType;
 import org.apache.doris.analysis.UserIdentity;
-import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.exceptions.MustFallbackException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -80,8 +80,7 @@ public class CreatePolicyCommand extends Command implements ForwardWithSync {
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        ctx.getSessionVariable().enableFallbackToOriginalPlannerOnce();
-        throw new AnalysisException("Not support create policy command in Nereids now");
+        throw new MustFallbackException("Not support create policy command in Nereids now");
     }
 
     @Override

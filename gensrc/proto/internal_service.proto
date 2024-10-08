@@ -107,6 +107,7 @@ message PTabletWriterOpenRequest {
     optional bool write_file_cache = 17;
     optional string storage_vault_id = 18;
     optional int32 sender_id = 19;
+    optional int64 workload_group_id = 20;
 };
 
 message PTabletWriterOpenResult {
@@ -232,6 +233,7 @@ enum PFragmentRequestVersion {
     VERSION_1 = 1;  // only one TExecPlanFragmentParams in request
     VERSION_2 = 2;  // multi TExecPlanFragmentParams in request
     VERSION_3 = 3;  // multi TPipelineFragmentParams in request
+    VERSION_4 = 4; // multi TPipelineFragmentParams with optimized common fields in request. Used by 2.1
 };
 
 message PExecPlanFragmentRequest {
@@ -517,16 +519,18 @@ enum PColumnType {
     COLUMN_TYPE_DECIMAL64 = 18;
     COLUMN_TYPE_DECIMAL128I = 19;
     COLUMN_TYPE_DECIMAL256 = 20;
+    COLUMN_TYPE_IPV4 = 21;
+    COLUMN_TYPE_IPV6 = 22;
 }
 
 message PMinMaxFilter {
-    required PColumnType column_type = 1;
+    required PColumnType column_type = 1; // Deprecated
     required PColumnValue min_val = 2;
     required PColumnValue max_val = 3;
 };
 
 message PInFilter {
-    required PColumnType column_type = 1;
+    required PColumnType column_type = 1; // Deprecated
     repeated PColumnValue values = 2;
     optional string ignored_msg = 3;
 }
@@ -707,9 +711,6 @@ message PFetchTableSchemaResult {
 }
 
 message POutfileWriteSuccessRequest {
-    // optional string file_path = 1;
-    // optional string success_file_name = 2;
-    // map<string, string> broker_properties = 4; // only for remote file
     optional bytes result_file_sink = 1;
 }
 
@@ -808,6 +809,7 @@ message FileCacheBlockMeta {
     required int64 size = 6;
     required FileCacheType cache_type = 7;
     required int64 expiration_time = 8;
+    optional int64 file_size = 9;
 }
 
 message PGetFileCacheMetaResponse {
@@ -953,6 +955,19 @@ message PAlterVaultSyncRequest {
 message PAlterVaultSyncResponse {
 }
 
+message PGetBeResourceRequest {
+}
+
+message PGlobalResourceUsage {
+    optional int64 mem_limit = 1;
+    optional int64 mem_usage = 2;
+}
+
+message PGetBeResourceResponse {
+    optional PStatus status = 1;
+    optional PGlobalResourceUsage global_be_resource_usage = 2;
+}
+
 service PBackendService {
     rpc transmit_data(PTransmitDataParams) returns (PTransmitDataResult);
     rpc transmit_data_by_http(PEmptyRequest) returns (PTransmitDataResult);
@@ -1003,5 +1018,6 @@ service PBackendService {
     rpc fetch_remote_tablet_schema(PFetchRemoteSchemaRequest) returns (PFetchRemoteSchemaResponse);
     rpc test_jdbc_connection(PJdbcTestConnectionRequest) returns (PJdbcTestConnectionResult);
     rpc alter_vault_sync(PAlterVaultSyncRequest) returns (PAlterVaultSyncResponse);
+    rpc get_be_resource(PGetBeResourceRequest) returns (PGetBeResourceResponse);
 };
 

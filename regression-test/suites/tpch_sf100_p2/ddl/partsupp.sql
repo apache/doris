@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS partsupp (
 DUPLICATE KEY(PS_PARTKEY, PS_SUPPKEY)
 DISTRIBUTED BY HASH(PS_PARTKEY) BUCKETS 32
 PROPERTIES (
+  "enable_mow_light_delete" = "true",
   "replication_num" = "1"
 )
 

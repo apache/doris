@@ -49,7 +49,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TMinMaxRuntimeFilterType;
 import org.apache.doris.thrift.TRuntimeFilterType;
 
-import cfjd.com.google.common.base.Preconditions;
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -203,12 +203,6 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
         }
 
         TRuntimeFilterType type = ctx.type;
-        if (type == TRuntimeFilterType.IN_OR_BLOOM
-                && RuntimeFilterGenerator.hasRemoteTarget(ctx.builderNode, scan)
-                && !ctx.builderNode.isBroadCastJoin()) {
-            type = TRuntimeFilterType.BLOOM;
-        }
-
         RuntimeFilter filter = ctx.rfContext.getRuntimeFilterBySrcAndType(ctx.srcExpr, type, ctx.builderNode);
         if (filter != null) {
             if (!filter.hasTargetScan(scan)) {

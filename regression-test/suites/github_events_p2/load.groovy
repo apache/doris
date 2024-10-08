@@ -27,7 +27,7 @@
  */
 suite("load") {
     restore {
-        location "s3://${getS3BucketName()}/regression_backup/clickhouse/github_events"
+        location "s3://${getS3BucketName()}/regression/clickhouse/github_events"
         ak "${getS3AK()}"
         sk "${getS3SK()}"
         endpoint "http://${getS3Endpoint()}"

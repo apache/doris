@@ -234,8 +234,41 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
                 + "       \"replication_num\" = \"1\"\n"
                 + ");\n"
         );
+        createTable("CREATE TABLE `test3` (\n"
+                + "  `id` VARCHAR(36) NOT NULL COMMENT 'id',\n"
+                + "  `created_time` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT ''\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(`id`)\n"
+                + "COMMENT ''\n"
+                + "PARTITION BY RANGE(`created_time`)\n"
+                + "(PARTITION P_2024071713 VALUES [('2024-07-17 13:00:00'), ('2024-07-17 14:00:00')),\n"
+                + "PARTITION P_2024071714 VALUES [('2024-07-17 14:00:00'), ('2024-07-17 15:00:00')))\n"
+                + "DISTRIBUTED BY HASH(`id`) BUCKETS AUTO\n"
+                + "PROPERTIES (\n"
+                + "\"replication_allocation\" = \"tag.location.default: 1\"\n"
+                + ");\n");
         // Should not make scan to empty relation when the table used by materialized view has no data
         connectContext.getSessionVariable().setDisableNereidsRules("OLAP_SCAN_PARTITION_PRUNE,PRUNE_EMPTY_PARTITION");
+    }
+
+    // Test when join both side are all partition table and partition column name is same
+    @Test
+    public void joinPartitionNameSameTest() {
+        PlanChecker.from(connectContext)
+                .checkExplain("select t1.upgrade_day, t2.batch_no, count(*) "
+                                + "from test2 t2 join test1 t1 on "
+                                + "t1.upgrade_day = t2.upgrade_day "
+                                + "group by t1.upgrade_day, t2.batch_no;",
+                        nereidsPlanner -> {
+                            Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
+                            RelatedTableInfo relatedTableInfo =
+                                    MaterializedViewUtils.getRelatedTableInfo("upgrade_day", null,
+                                            rewrittenPlan, nereidsPlanner.getCascadesContext());
+                            checkRelatedTableInfo(relatedTableInfo,
+                                    "test1",
+                                    "upgrade_day",
+                                    true);
+                        });
     }
 
     @Test
@@ -273,7 +306,7 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
                                 + "JOIN "
                                 + "(SELECT abs(sqrt(PS_SUPPLYCOST)) as c2_abs, PS_AVAILQTY, PS_PARTKEY, PS_SUPPKEY "
                                 + "FROM partsupp) as ps "
-                                + "ON l.L_PARTKEY = ps.PS_PARTKEY and l.L_SUPPKEY = ps.PS_SUPPKEY",
+                                + "ON l.L_PARTKEY = ps.PS_PARTKEY and l.L_SUPPKEY = ps.PS_SUPPKEY limit 1",
                         nereidsPlanner -> {
                             Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
                             RelatedTableInfo relatedTableInfo =
@@ -574,6 +607,24 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
     }
 
     @Test
+    public void getRelatedTableInfoTestWithLimitTest() {
+        PlanChecker.from(connectContext)
+                .checkExplain("SELECT l.L_SHIPDATE, l.L_ORDERKEY "
+                               + "FROM "
+                               + "lineitem as l limit 1",
+                        nereidsPlanner -> {
+                            Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
+                            RelatedTableInfo relatedTableInfo =
+                                    MaterializedViewUtils.getRelatedTableInfo("l_shipdate", null,
+                                            rewrittenPlan, nereidsPlanner.getCascadesContext());
+                            checkRelatedTableInfo(relatedTableInfo,
+                                    "lineitem",
+                                    "L_SHIPDATE",
+                                    true);
+                        });
+    }
+
+    @Test
     public void testPartitionDateTrunc() {
         PlanChecker.from(connectContext)
                 .checkExplain("SELECT date_trunc(t1.L_SHIPDATE, 'hour') as date_alias, t2.O_ORDERDATE, t1.L_QUANTITY, t2.O_ORDERSTATUS, "
@@ -806,6 +857,42 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
                         nereidsPlanner -> {
                             Plan analyzedPlan = nereidsPlanner.getAnalyzedPlan();
                             Assertions.assertFalse(MaterializedViewUtils.containTableQueryOperator(analyzedPlan));
+                        });
+    }
+
+    @Test
+    public void getRelatedTableInfoWhenMultiPartitionExprs() {
+        PlanChecker.from(connectContext)
+                .checkExplain("select  id, date_trunc(created_time, 'minute') as created_time_minute,"
+                                + "        min(created_time) as start_time,"
+                                + "        if(count(id) > 0, 1, 0) as status\n"
+                                + "        from test3 \n"
+                                + "        group by id, date_trunc(created_time, 'minute')",
+                        nereidsPlanner -> {
+                            Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
+                            RelatedTableInfo relatedTableInfo =
+                                    MaterializedViewUtils.getRelatedTableInfo("created_time_minute",
+                                            "day", rewrittenPlan, nereidsPlanner.getCascadesContext());
+                            checkRelatedTableInfo(relatedTableInfo,
+                                    "test3",
+                                    "created_time",
+                                    true);
+                        });
+        PlanChecker.from(connectContext)
+                .checkExplain("select  id, date_trunc(created_time, 'hour') as created_time_hour,"
+                                + "        min(created_time) as start_time\n"
+                                + "        from test3 \n"
+                                + "        group by id, date_trunc(created_time, 'minute'),"
+                                + "        date_trunc(created_time, 'hour');",
+                        nereidsPlanner -> {
+                            Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
+                            RelatedTableInfo relatedTableInfo =
+                                    MaterializedViewUtils.getRelatedTableInfo("created_time_hour",
+                                            "day", rewrittenPlan, nereidsPlanner.getCascadesContext());
+                            checkRelatedTableInfo(relatedTableInfo,
+                                    "test3",
+                                    "created_time",
+                                    true);
                         });
     }
 

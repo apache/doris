@@ -79,8 +79,10 @@ public class JoinOrderJob extends Job {
             builder.updateNode(node.getIndex(), optimizePlan(dPhyperNode.getGroup()));
         }
         HyperGraph hyperGraph = builder.build();
-        // TODO: Right now, we just hardcode the limit with 10000, maybe we need a better way to set it
         int limit = 1000;
+        if (this.context.getCascadesContext().getConnectContext() != null) {
+            limit = this.context.getCascadesContext().getConnectContext().getSessionVariable().dphyperLimit;
+        }
         PlanReceiver planReceiver = new PlanReceiver(this.context, limit, hyperGraph,
                 group.getLogicalProperties().getOutputSet());
         if (!tryEnumerateJoin(hyperGraph, planReceiver, limit)) {

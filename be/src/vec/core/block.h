@@ -255,14 +255,20 @@ public:
 
     bool empty() const { return rows() == 0; }
 
-    /** Updates SipHash of the Block, using update method of columns.
+    /** 
+      * Updates SipHash of the Block, using update method of columns.
       * Returns hash for block, that could be used to differentiate blocks
       *  with same structure, but different data.
       */
     void update_hash(SipHash& hash) const;
 
-    /** Get block data in string. */
-    std::string dump_data(size_t begin = 0, size_t row_limit = 100) const;
+    /** 
+     *  Get block data in string. 
+     *  If code is in default_implementation_for_nulls or something likely, type and column's nullity could
+     *   temporarily be not same. set allow_null_mismatch to true to dump it correctly.
+    */
+    std::string dump_data(size_t begin = 0, size_t row_limit = 100,
+                          bool allow_null_mismatch = false) const;
 
     static std::string dump_column(ColumnPtr col, DataTypePtr type) {
         ColumnWithTypeAndName type_name {col, type, ""};
@@ -288,11 +294,11 @@ public:
     static void filter_block_internal(Block* block, const IColumn::Filter& filter);
 
     static Status filter_block(Block* block, const std::vector<uint32_t>& columns_to_filter,
-                               int filter_column_id, int column_to_keep);
+                               size_t filter_column_id, size_t column_to_keep);
 
-    static Status filter_block(Block* block, int filter_column_id, int column_to_keep);
+    static Status filter_block(Block* block, size_t filter_column_id, size_t column_to_keep);
 
-    static void erase_useless_column(Block* block, int column_to_keep) {
+    static void erase_useless_column(Block* block, size_t column_to_keep) {
         block->erase_tail(column_to_keep);
     }
 
@@ -392,6 +398,14 @@ public:
     // return string contains use_count() of each columns
     // for debug purpose.
     std::string print_use_count();
+
+    // remove tmp columns in block
+    // in inverted index apply logic, in order to optimize query performance,
+    // we built some temporary columns into block
+    void erase_tmp_columns() noexcept;
+
+    void clear_column_mem_not_keep(const std::vector<bool>& column_keep_flags,
+                                   bool need_keep_first);
 
 private:
     void erase_impl(size_t position);

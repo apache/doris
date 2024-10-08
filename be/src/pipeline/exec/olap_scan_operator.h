@@ -92,9 +92,6 @@ private:
     std::vector<std::unique_ptr<doris::OlapScanRange>> _cond_ranges;
     OlapScanKeys _scan_keys;
     std::vector<TCondition> _olap_filters;
-    // _compound_filters store conditions in the one compound relationship in conjunct expr tree except leaf node of `and` node,
-    // such as: "(a or b) and (c or d)", conditions for a,b,c,d will be stored
-    std::vector<TCondition> _compound_filters;
     // If column id in this set, indicate that we need to read data after index filtering
     std::set<int32_t> _maybe_read_column_ids;
 
@@ -174,6 +171,7 @@ private:
 
     RuntimeProfile::Counter* _inverted_index_filter_counter = nullptr;
     RuntimeProfile::Counter* _inverted_index_filter_timer = nullptr;
+    RuntimeProfile::Counter* _inverted_index_query_null_bitmap_timer = nullptr;
     RuntimeProfile::Counter* _inverted_index_query_cache_hit_counter = nullptr;
     RuntimeProfile::Counter* _inverted_index_query_cache_miss_counter = nullptr;
     RuntimeProfile::Counter* _inverted_index_query_timer = nullptr;
@@ -181,6 +179,9 @@ private:
     RuntimeProfile::Counter* _inverted_index_query_bitmap_op_timer = nullptr;
     RuntimeProfile::Counter* _inverted_index_searcher_open_timer = nullptr;
     RuntimeProfile::Counter* _inverted_index_searcher_search_timer = nullptr;
+    RuntimeProfile::Counter* _inverted_index_searcher_cache_hit_counter = nullptr;
+    RuntimeProfile::Counter* _inverted_index_searcher_cache_miss_counter = nullptr;
+    RuntimeProfile::Counter* _inverted_index_downgrade_count_counter = nullptr;
 
     RuntimeProfile::Counter* _output_index_result_column_timer = nullptr;
 
@@ -197,11 +198,13 @@ private:
 class OlapScanOperatorX final : public ScanOperatorX<OlapScanLocalState> {
 public:
     OlapScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
-                      const DescriptorTbl& descs, int parallel_tasks);
+                      const DescriptorTbl& descs, int parallel_tasks,
+                      const TQueryCacheParam& cache_param);
 
 private:
     friend class OlapScanLocalState;
     TOlapScanNode _olap_scan_node;
+    TQueryCacheParam _cache_param;
 };
 
 } // namespace doris::pipeline

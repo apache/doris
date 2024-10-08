@@ -31,7 +31,7 @@ import com.google.common.base.Strings;
  * CLEAN LABEL FROM db;
  * CLEAN LABEL my_label FROM db;
  */
-public class CleanLabelStmt extends DdlStmt {
+public class CleanLabelStmt extends DdlStmt implements NotFallbackInParser {
     private String db;
     private String label;
 

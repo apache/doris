@@ -84,7 +84,7 @@ suite("test_join2", "query,p0,arrow_flight_sql") {
             FROM ${TBname1} NATURAL JOIN ${TBname2}
             ORDER BY 1,2,3,4,5,6;
         """
-        exception "natural join is not supported"
+        exception "mismatched input 'NATURAL'"
     }
     
     qt_join4 """

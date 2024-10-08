@@ -85,7 +85,7 @@ import java.util.Map.Entry;
 //      resource_desc:
 //          WITH RESOURCE name
 //          (key3=value3, ...)
-public class LoadStmt extends DdlStmt {
+public class LoadStmt extends DdlStmt implements NotFallbackInParser {
     private static final Logger LOG = LogManager.getLogger(LoadStmt.class);
 
     public static final String TIMEOUT_PROPERTY = "timeout";
@@ -527,7 +527,8 @@ public class LoadStmt extends DdlStmt {
         Map<String, String> properties = brokerDesc.getProperties();
         for (Map.Entry<String, String> entry : properties.entrySet()) {
             if (entry.getKey().equalsIgnoreCase(S3Properties.PROVIDER)) {
-                return entry.getValue();
+                // S3 Provider properties should be case insensitive.
+                return entry.getValue().toUpperCase();
             }
         }
         return S3Properties.S3_PROVIDER;
@@ -578,7 +579,7 @@ public class LoadStmt extends DdlStmt {
 
         if (properties != null && !properties.isEmpty()) {
             sb.append("\nPROPERTIES (");
-            sb.append(new PrintableMap<String, String>(properties, "=", true, false));
+            sb.append(new PrintableMap<>(properties, "=", true, false, true));
             sb.append(")");
         }
         return sb.toString();
@@ -607,14 +608,21 @@ public class LoadStmt extends DdlStmt {
             connection.setConnectTimeout(10000);
             connection.connect();
         } catch (Exception e) {
-            LOG.warn("Failed to connect endpoint={}", endpoint, e);
-            throw new UserException("Incorrect object storage info: " + e.getMessage());
+            LOG.warn("Failed to connect endpoint={}, err={}", endpoint, e);
+            String msg;
+            if (e instanceof UserException) {
+                msg = ((UserException) e).getDetailMessage();
+            } else {
+                msg = e.getMessage();
+            }
+            throw new UserException(InternalErrorCode.GET_REMOTE_DATA_ERROR,
+                    "Failed to access object storage, message=" + msg, e);
         } finally {
             if (connection != null) {
                 try {
                     connection.disconnect();
                 } catch (Exception e) {
-                    LOG.warn("Failed to disconnect connection, endpoint={}", endpoint, e);
+                    LOG.warn("Failed to disconnect connection, endpoint={}, err={}", endpoint, e);
                 }
             }
             SecurityChecker.getInstance().stopSSRFChecking();
@@ -652,11 +660,13 @@ public class LoadStmt extends DdlStmt {
     private void checkAkSk() throws UserException {
         RemoteBase remote = null;
         ObjectInfo objectInfo = null;
+        String curFile = null;
         try {
             Map<String, String> brokerDescProperties = brokerDesc.getProperties();
             String provider = getProviderFromEndpoint();
             for (DataDescription dataDescription : dataDescriptions) {
                 for (String filePath : dataDescription.getFilePaths()) {
+                    curFile = filePath;
                     String bucket = getBucketFromFilePath(filePath);
                     objectInfo = new ObjectInfo(ObjectStoreInfoPB.Provider.valueOf(provider.toUpperCase()),
                             brokerDescProperties.get(S3Properties.Env.ACCESS_KEY),
@@ -671,16 +681,15 @@ public class LoadStmt extends DdlStmt {
                 }
             }
         } catch (Exception e) {
-            LOG.warn("Failed check object info={}", objectInfo, e);
-            String message = e.getMessage();
-            if (message != null) {
-                int index = message.indexOf("Error message=");
-                if (index != -1) {
-                    message = message.substring(index);
-                }
+            LOG.warn("Failed to access object storage, file={}, proto={}, err={}", curFile, objectInfo, e.toString());
+            String msg;
+            if (e instanceof UserException) {
+                msg = ((UserException) e).getDetailMessage();
+            } else {
+                msg = e.getMessage();
             }
             throw new UserException(InternalErrorCode.GET_REMOTE_DATA_ERROR,
-                    "Incorrect object storage info, " + message);
+                    "Failed to access object storage, message=" + msg, e);
         } finally {
             if (remote != null) {
                 remote.close();

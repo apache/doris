@@ -72,6 +72,10 @@ public class DistributionDescriptor {
      * analyze distribution descriptor
      */
     public void validate(Map<String, ColumnDefinition> columnMap, KeysType keysType) {
+        if (bucketNum <= 0) {
+            throw new AnalysisException(isHash ? "Number of hash distribution should be greater than zero."
+                    : "Number of random distribution should be greater than zero.");
+        }
         if (isHash) {
             Set<String> colSet = Sets.newHashSet(cols);
             if (colSet.size() != cols.size()) {

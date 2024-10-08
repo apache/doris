@@ -24,12 +24,10 @@ suite("paimon_base_filesystem", "p0,external,doris,external_docker,external_dock
     try {
         String catalog_cos = "paimon_base_filesystem_paimon_cos"
         String catalog_oss = "paimon_base_filesystem_paimon_oss"
-        String ak = context.config.otherConfigs.get("aliYunAk")
-        String sk = context.config.otherConfigs.get("aliYunSk")
-
-        String s3ak = getS3AK()
-        String s3sk = getS3SK()
-        def s3Endpoint = getS3Endpoint()
+        String aliYunAk = context.config.otherConfigs.get("aliYunAk")
+        String aliYunSk = context.config.otherConfigs.get("aliYunSk")
+        String txYunAk = context.config.otherConfigs.get("txYunAk")
+        String txYunSk = context.config.otherConfigs.get("txYunSk")
 
         def cos = """select c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16,c18 from ${catalog_cos}.zd.all_table order by c18"""
         def oss = """select * from ${catalog_oss}.paimonossdb1.test_tableoss order by a"""
@@ -39,18 +37,18 @@ suite("paimon_base_filesystem", "p0,external,doris,external_docker,external_dock
         sql """
             create catalog if not exists ${catalog_cos} properties (
                 "type" = "paimon",
-                "warehouse" = "cosn://paimon-1308700295/paimoncos",
-                "cos.access_key" = "${s3ak}",
-                "cos.secret_key" = "${s3sk}",
+                "warehouse" = "cosn://doris-build-1308700295/regression/paimoncos",
+                "cos.access_key" = "${txYunAk}",
+                "cos.secret_key" = "${txYunSk}",
                 "cos.endpoint" = "cos.ap-beijing.myqcloud.com"
             );
         """
         sql """
             create catalog if not exists ${catalog_oss} properties (
                 "type" = "paimon",
-                "warehouse" = "oss://paimon-zd/paimonoss",
-                "oss.access_key"="${ak}",
-                "oss.secret_key"="${sk}",
+                "warehouse" = "oss://doris-regression-bj/regression/paimonoss",
+                "oss.access_key"="${aliYunAk}",
+                "oss.secret_key"="${aliYunSk}",
                 "oss.endpoint"="oss-cn-beijing.aliyuncs.com"
             );
         """

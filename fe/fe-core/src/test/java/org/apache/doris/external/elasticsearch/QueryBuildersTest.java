@@ -209,6 +209,33 @@ public class QueryBuildersTest {
                 new FloatLiteral(3.0, Type.DOUBLE));
         QueryBuilders.toEsDsl(castDoublePredicate, notPushDownList, fieldsContext, builderOptions);
         Assertions.assertEquals(3, notPushDownList.size());
+
+        SlotRef k4 = new SlotRef(null, "k4");
+        k4.setType(Type.FLOAT);
+        CastExpr castFloatExpr = new CastExpr(Type.FLOAT, k4);
+        BinaryPredicate castFloatPredicate = new BinaryPredicate(Operator.GE, new FloatLiteral(3.0, Type.FLOAT),
+                castFloatExpr);
+        QueryBuilders.QueryBuilder queryBuilder = QueryBuilders.toEsDsl(castFloatPredicate, notPushDownList, fieldsContext, builderOptions);
+        Assertions.assertEquals("{\"range\":{\"k4\":{\"lte\":3.0}}}", queryBuilder.toJson());
+        Assertions.assertEquals(3, notPushDownList.size());
+
+        castFloatPredicate = new BinaryPredicate(Operator.LE, new FloatLiteral(3.0, Type.FLOAT),
+            castFloatExpr);
+        queryBuilder = QueryBuilders.toEsDsl(castFloatPredicate, notPushDownList, fieldsContext, builderOptions);
+        Assertions.assertEquals("{\"range\":{\"k4\":{\"gte\":3.0}}}", queryBuilder.toJson());
+        Assertions.assertEquals(3, notPushDownList.size());
+
+        castFloatPredicate = new BinaryPredicate(Operator.LT, new FloatLiteral(3.0, Type.FLOAT),
+            castFloatExpr);
+        queryBuilder = QueryBuilders.toEsDsl(castFloatPredicate, notPushDownList, fieldsContext, builderOptions);
+        Assertions.assertEquals("{\"range\":{\"k4\":{\"gt\":3.0}}}", queryBuilder.toJson());
+        Assertions.assertEquals(3, notPushDownList.size());
+
+        castFloatPredicate = new BinaryPredicate(Operator.GT, new FloatLiteral(3.0, Type.FLOAT),
+            castFloatExpr);
+        queryBuilder = QueryBuilders.toEsDsl(castFloatPredicate, notPushDownList, fieldsContext, builderOptions);
+        Assertions.assertEquals("{\"range\":{\"k4\":{\"lt\":3.0}}}", queryBuilder.toJson());
+        Assertions.assertEquals(3, notPushDownList.size());
     }
 
 

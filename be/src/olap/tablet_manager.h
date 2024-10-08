@@ -194,8 +194,8 @@ private:
 
     bool _check_tablet_id_exist_unlocked(TTabletId tablet_id);
 
-    Status _drop_tablet_unlocked(TTabletId tablet_id, TReplicaId replica_id, bool keep_files,
-                                 bool is_drop_table_or_partition);
+    Status _drop_tablet(TTabletId tablet_id, TReplicaId replica_id, bool keep_files,
+                        bool is_drop_table_or_partition, bool had_held_shard_lock);
 
     TabletSharedPtr _get_tablet_unlocked(TTabletId tablet_id);
     TabletSharedPtr _get_tablet_unlocked(TTabletId tablet_id, bool include_deleted,

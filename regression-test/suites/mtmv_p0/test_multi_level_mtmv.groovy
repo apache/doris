@@ -29,6 +29,11 @@ suite("test_multi_level_mtmv") {
             k1 int,
             k2 int
         )
+        PARTITION BY LIST(`k1`)
+        (
+            PARTITION `p1` VALUES IN ('1'),
+            PARTITION `p2` VALUES IN ('2')
+        )
         DISTRIBUTED BY HASH(k1) BUCKETS 10
         PROPERTIES (
             "replication_num" = "1"
@@ -40,33 +45,63 @@ suite("test_multi_level_mtmv") {
 
     sql """
         CREATE MATERIALIZED VIEW ${mv1}
-        BUILD DEFERRED REFRESH COMPLETE ON MANUAL
+        BUILD DEFERRED REFRESH AUTO ON MANUAL
+        partition by(k1)
         DISTRIBUTED BY RANDOM BUCKETS 2
         PROPERTIES ('replication_num' = '1') 
         AS 
         SELECT * FROM ${tableName};
     """
-    def jobName1 = getJobName("regression_test_mtmv_p0", mv1);
      sql """
         REFRESH MATERIALIZED VIEW ${mv1} AUTO
     """
-    waitingMTMVTaskFinished(jobName1)
+    waitingMTMVTaskFinishedByMvName(mv1)
     order_qt_mv1 "select * from ${mv1}"
 
     sql """
         CREATE MATERIALIZED VIEW ${mv2}
-        BUILD DEFERRED REFRESH COMPLETE ON MANUAL
+        BUILD DEFERRED REFRESH AUTO ON MANUAL
+        partition by(k1)
         DISTRIBUTED BY RANDOM BUCKETS 2
         PROPERTIES ('replication_num' = '1')
         AS
         SELECT * FROM ${mv1};
     """
-    def jobName2 = getJobName("regression_test_mtmv_p0", mv2);
      sql """
         REFRESH MATERIALIZED VIEW ${mv2} AUTO
     """
-    waitingMTMVTaskFinished(jobName2)
+    waitingMTMVTaskFinishedByMvName(mv2)
     order_qt_mv2 "select * from ${mv2}"
+
+    sql """
+            INSERT INTO ${tableName} VALUES(2,2);
+        """
+    sql """
+           REFRESH MATERIALIZED VIEW ${mv1} AUTO
+       """
+    waitingMTMVTaskFinishedByMvName(mv1)
+    order_qt_mv1_should_one_partition "select NeedRefreshPartitions from tasks('type'='mv') where MvName = '${mv1}' order by CreateTime desc limit 1"
+    sql """
+           REFRESH MATERIALIZED VIEW ${mv2} AUTO
+        """
+    waitingMTMVTaskFinishedByMvName(mv2)
+    order_qt_mv2_should_one_partition "select NeedRefreshPartitions from tasks('type'='mv') where MvName = '${mv2}' order by CreateTime desc limit 1"
+
+    // insert into p2 again, check partition version if change
+    sql """
+            INSERT INTO ${tableName} VALUES(2,3);
+        """
+    sql """
+           REFRESH MATERIALIZED VIEW ${mv1} AUTO
+       """
+    waitingMTMVTaskFinishedByMvName(mv1)
+    order_qt_mv1_should_one_partition_again "select NeedRefreshPartitions from tasks('type'='mv') where MvName = '${mv1}' order by CreateTime desc limit 1"
+    sql """
+           REFRESH MATERIALIZED VIEW ${mv2} AUTO
+        """
+    waitingMTMVTaskFinishedByMvName(mv2)
+    order_qt_mv2_should_one_partition_again "select NeedRefreshPartitions from tasks('type'='mv') where MvName = '${mv2}' order by CreateTime desc limit 1"
+    order_qt_mv2_again "select * from ${mv2}"
 
     // drop table
     sql """

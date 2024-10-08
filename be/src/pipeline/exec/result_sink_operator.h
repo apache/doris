@@ -58,6 +58,7 @@ struct ResultFileOptions {
     std::string file_suffix;
     //Bring BOM when exporting to CSV format
     bool with_bom = false;
+    int64_t orc_writer_version = 0;
 
     ResultFileOptions(const TResultFileSinkOptions& t_opt) {
         file_path = t_opt.file_path;
@@ -108,6 +109,9 @@ struct ResultFileOptions {
         if (t_opt.__isset.orc_compression_type) {
             orc_compression_type = t_opt.orc_compression_type;
         }
+        if (t_opt.__isset.orc_writer_version) {
+            orc_writer_version = t_opt.orc_writer_version;
+        }
     }
 };
 
@@ -142,7 +146,6 @@ class ResultSinkOperatorX final : public DataSinkOperatorX<ResultSinkLocalState>
 public:
     ResultSinkOperatorX(int operator_id, const RowDescriptor& row_desc,
                         const std::vector<TExpr>& select_exprs, const TResultSink& sink);
-    Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
 
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
@@ -152,6 +155,7 @@ private:
 
     Status _second_phase_fetch_data(RuntimeState* state, vectorized::Block* final_block);
     TResultSinkType::type _sink_type;
+    int _result_sink_buffer_size_rows;
     // set file options when sink type is FILE
     std::unique_ptr<ResultFileOptions> _file_opts = nullptr;
 

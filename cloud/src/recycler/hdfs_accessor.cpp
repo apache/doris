@@ -17,8 +17,17 @@
 
 #include "recycler/hdfs_accessor.h"
 
+#include <bvar/latency_recorder.h>
 #include <gen_cpp/cloud.pb.h>
-#include <hadoop_hdfs/hdfs.h>
+
+#include "common/stopwatch.h"
+#include "recycler/util.h"
+
+#ifdef USE_HADOOP_HDFS
+#include <hadoop_hdfs/hdfs.h> // IWYU pragma: export
+#else
+#include <hdfs/hdfs.h> // IWYU pragma: export
+#endif
 
 #include <string_view>
 
@@ -40,6 +49,12 @@ std::string hdfs_error() {
     return fmt::format("({}): {}", std::strerror(errno), err_msg ? err_msg : "");
 }
 
+bvar::LatencyRecorder hdfs_write_latency("hdfs_write");
+bvar::LatencyRecorder hdfs_open_latency("hdfs_open");
+bvar::LatencyRecorder hdfs_close_latency("hdfs_close");
+bvar::LatencyRecorder hdfs_list_dir("hdfs_list_dir");
+bvar::LatencyRecorder hdfs_exist_latency("hdfs_exist");
+bvar::LatencyRecorder hdfs_delete_latency("hdfs_delete");
 } // namespace
 
 class HDFSBuilder {
@@ -285,8 +300,10 @@ public:
     }
 
 private:
+    // Return null if error occured, return emtpy DirEntries if dir is empty or doesn't exist.
     std::optional<DirEntries> list_directory(const char* dir_path) {
-        int num_entries;
+        int num_entries = 0;
+        SCOPED_BVAR_LATENCY(hdfs_list_dir);
         auto* file_infos = hdfsListDirectory(hdfs_.get(), dir_path, &num_entries);
         if (errno != 0 && errno != ENOENT) {
             LOG_WARNING("failed to list hdfs directory")
@@ -337,8 +354,27 @@ int HdfsAccessor::init() {
 }
 
 int HdfsAccessor::delete_prefix(const std::string& path_prefix, int64_t expiration_time) {
-    LOG_INFO("delete prefix").tag("uri", to_uri(path_prefix)); // Audit log
-    return 0;
+    auto uri = to_uri(path_prefix);
+    LOG(INFO) << "delete prefix, uri=" << uri;
+    std::unique_ptr<ListIterator> list_iter;
+    int ret = list_all(&list_iter);
+    if (ret != 0) {
+        LOG(WARNING) << "delete prefix, failed to list" << uri;
+        return ret;
+    }
+    size_t num_listed = 0, num_deleted = 0;
+    for (auto file = list_iter->next(); file; file = list_iter->next()) {
+        ++num_listed;
+        if (file->path.find(path_prefix) != 0) continue;
+        if (int del_ret = delete_file(file->path); del_ret != 0) {
+            ret = del_ret;
+            break;
+        }
+        ++num_deleted;
+    }
+    LOG(INFO) << "delete prefix " << (ret != 0 ? "failed" : "succ") << " ret=" << ret
+              << " uri=" << uri << " num_listed=" << num_listed << " num_deleted=" << num_deleted;
+    return ret;
 }
 
 int HdfsAccessor::delete_directory_impl(const std::string& dir_path) {
@@ -425,6 +461,7 @@ int HdfsAccessor::delete_file(const std::string& relative_path) {
     // Path exists
     auto path = to_fs_path(relative_path);
     LOG_INFO("delete object").tag("uri", to_uri(relative_path)); // Audit log
+    SCOPED_BVAR_LATENCY(hdfs_delete_latency);
     ret = hdfsDelete(fs_.get(), path.c_str(), 0);
     if (ret != 0) {
         LOG_WARNING("failed to delete object")
@@ -438,7 +475,11 @@ int HdfsAccessor::delete_file(const std::string& relative_path) {
 
 int HdfsAccessor::put_file(const std::string& relative_path, const std::string& content) {
     auto path = to_fs_path(relative_path);
-    auto* file = hdfsOpenFile(fs_.get(), path.c_str(), O_WRONLY, 0, 0, 0);
+    hdfsFile file;
+    {
+        SCOPED_BVAR_LATENCY(hdfs_open_latency);
+        file = hdfsOpenFile(fs_.get(), path.c_str(), O_WRONLY, 0, 0, 0);
+    }
     if (!file) {
         LOG_WARNING("failed to create file")
                 .tag("uri", to_uri(relative_path))
@@ -448,11 +489,16 @@ int HdfsAccessor::put_file(const std::string& relative_path, const std::string& 
 
     std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01, [&](int*) {
         if (file) {
+            SCOPED_BVAR_LATENCY(hdfs_close_latency);
             hdfsCloseFile(fs_.get(), file);
         }
     });
 
-    int64_t written_bytes = hdfsWrite(fs_.get(), file, content.data(), content.size());
+    int64_t written_bytes = 0;
+    {
+        SCOPED_BVAR_LATENCY(hdfs_write_latency);
+        written_bytes = hdfsWrite(fs_.get(), file, content.data(), content.size());
+    }
     if (written_bytes < content.size()) {
         LOG_WARNING("failed to write file")
                 .tag("uri", to_uri(relative_path))
@@ -460,7 +506,11 @@ int HdfsAccessor::put_file(const std::string& relative_path, const std::string& 
         return -1;
     }
 
-    int ret = hdfsCloseFile(fs_.get(), file);
+    int ret = 0;
+    {
+        SCOPED_BVAR_LATENCY(hdfs_close_latency);
+        ret = hdfsCloseFile(fs_.get(), file);
+    }
     file = nullptr;
     if (ret != 0) {
         LOG_WARNING("failed to close file")
@@ -491,6 +541,7 @@ int HdfsAccessor::list_all(std::unique_ptr<ListIterator>* res) {
 
 int HdfsAccessor::exists(const std::string& relative_path) {
     auto path = to_fs_path(relative_path);
+    SCOPED_BVAR_LATENCY(hdfs_exist_latency);
     int ret = hdfsExists(fs_.get(), path.c_str());
 #ifdef USE_HADOOP_HDFS
     // when calling hdfsExists() and return non-zero code,

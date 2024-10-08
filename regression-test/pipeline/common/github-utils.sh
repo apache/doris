@@ -308,6 +308,7 @@ file_changed_cloud_p0() {
             [[ "${af}" == 'build.sh' ]] ||
             [[ "${af}" == 'env.sh' ]] ||
             [[ "${af}" == 'run-regression-test.sh' ]] ||
+            [[ "${af}" == 'cloud/CMakeLists.txt' ]] ||
             [[ "${af}" == 'cloud/src/'* ]] ||
             [[ "${af}" == 'cloud/cmake/'* ]] ||
             [[ "${af}" == 'cloud/test/'* ]]; then
@@ -370,6 +371,7 @@ file_changed_performance() {
             [[ "${af}" == 'regression-test/pipeline/common/doris-utils.sh' ]] ||
             [[ "${af}" == 'regression-test/pipeline/common/oss-utils.sh' ]] ||
             [[ "${af}" == 'regression-test/pipeline/performance/'* ]] ||
+            [[ "${af}" == 'tools/clickbench-tools/run-clickbench-queries.sh' ]] ||
             [[ "${af}" == 'tools/tpch-tools/bin/run-tpch-queries.sh' ]] ||
             [[ "${af}" == 'tools/tpcds-tools/bin/run-tpcds-queries.sh' ]] ||
             [[ "${af}" == 'regression-test/pipeline/tpch/tpch-sf100/'* ]]; then

@@ -61,7 +61,7 @@ NestedLoopJoinBuildSinkLocalState::NestedLoopJoinBuildSinkLocalState(DataSinkOpe
 Status NestedLoopJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(JoinBuildSinkLocalState::init(state, info));
     SCOPED_TIMER(exec_time_counter());
-    SCOPED_TIMER(_open_timer);
+    SCOPED_TIMER(_init_timer);
     auto& p = _parent->cast<NestedLoopJoinBuildSinkOperatorX>();
     _shared_state->join_op_variants = p._join_op_variants;
     _runtime_filters.resize(p._runtime_filter_descs.size());
@@ -107,20 +107,16 @@ Status NestedLoopJoinBuildSinkOperatorX::init(const TPlanNode& tnode, RuntimeSta
     return Status::OK();
 }
 
-Status NestedLoopJoinBuildSinkOperatorX::prepare(RuntimeState* state) {
-    // pre-compute the tuple index of build tuples in the output row
-    int num_build_tuples = _child_x->row_desc().tuple_descriptors().size();
+Status NestedLoopJoinBuildSinkOperatorX::open(RuntimeState* state) {
+    RETURN_IF_ERROR(JoinBuildSinkOperatorX<NestedLoopJoinBuildSinkLocalState>::open(state));
+    int num_build_tuples = _child->row_desc().tuple_descriptors().size();
 
     for (int i = 0; i < num_build_tuples; ++i) {
-        TupleDescriptor* build_tuple_desc = _child_x->row_desc().tuple_descriptors()[i];
+        TupleDescriptor* build_tuple_desc = _child->row_desc().tuple_descriptors()[i];
         auto tuple_idx = _row_descriptor.get_tuple_idx(build_tuple_desc->id());
         RETURN_IF_INVALID_TUPLE_IDX(build_tuple_desc->id(), tuple_idx);
     }
-    RETURN_IF_ERROR(vectorized::VExpr::prepare(_filter_src_expr_ctxs, state, _child_x->row_desc()));
-    return Status::OK();
-}
-
-Status NestedLoopJoinBuildSinkOperatorX::open(RuntimeState* state) {
+    RETURN_IF_ERROR(vectorized::VExpr::prepare(_filter_src_expr_ctxs, state, _child->row_desc()));
     return vectorized::VExpr::open(_filter_src_expr_ctxs, state);
 }
 

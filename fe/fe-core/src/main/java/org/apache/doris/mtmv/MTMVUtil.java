@@ -27,6 +27,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeExtractAndTransform;
@@ -37,6 +38,7 @@ import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.qe.ConnectContext;
 
 import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.lang3.StringUtils;
 
 import java.util.List;
 import java.util.Optional;
@@ -52,11 +54,18 @@ public class MTMVUtil {
      * @throws AnalysisException
      */
     public static TableIf getTable(BaseTableInfo baseTableInfo) throws AnalysisException {
-        TableIf table = Env.getCurrentEnv().getCatalogMgr()
-                .getCatalogOrAnalysisException(baseTableInfo.getCtlId())
-                .getDbOrAnalysisException(baseTableInfo.getDbId())
-                .getTableOrAnalysisException(baseTableInfo.getTableId());
-        return table;
+        // for compatible old version, not have name
+        if (StringUtils.isEmpty(baseTableInfo.getCtlName())) {
+            return Env.getCurrentEnv().getCatalogMgr()
+                    .getCatalogOrAnalysisException(baseTableInfo.getCtlId())
+                    .getDbOrAnalysisException(baseTableInfo.getDbId())
+                    .getTableOrAnalysisException(baseTableInfo.getTableId());
+        } else {
+            return Env.getCurrentEnv().getCatalogMgr()
+                    .getCatalogOrAnalysisException(baseTableInfo.getCtlName())
+                    .getDbOrAnalysisException(baseTableInfo.getDbName())
+                    .getTableOrAnalysisException(baseTableInfo.getTableName());
+        }
     }
 
     public static MTMVRelatedTableIf getRelatedTable(BaseTableInfo baseTableInfo) {
@@ -85,9 +94,9 @@ public class MTMVUtil {
      * @return
      */
     public static boolean mtmvContainsExternalTable(MTMV mtmv) {
-        Set<BaseTableInfo> baseTables = mtmv.getRelation().getBaseTables();
+        Set<BaseTableInfo> baseTables = mtmv.getRelation().getBaseTablesOneLevel();
         for (BaseTableInfo baseTableInfo : baseTables) {
-            if (baseTableInfo.getCtlId() != InternalCatalog.INTERNAL_CATALOG_ID) {
+            if (!baseTableInfo.getCtlName().equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
                 return true;
             }
         }
@@ -148,6 +157,18 @@ public class MTMVUtil {
             Optional<Table> table = db.getTable(tableId);
             if (table.isPresent() && table.get() instanceof MTMV && !MTMVUtil.allowModifyMTMVData(ctx)) {
                 throw new AnalysisException("Not allowed to perform current operation on async materialized view");
+            }
+        }
+    }
+
+    public static void compatibleMTMV(CatalogMgr catalogMgr) {
+        List<Database> dbs = catalogMgr.getInternalCatalog().getDbs();
+        for (Database database : dbs) {
+            List<Table> tables = database.getTables();
+            for (Table table : tables) {
+                if (table instanceof MTMV) {
+                    ((MTMV) table).compatible(catalogMgr);
+                }
             }
         }
     }

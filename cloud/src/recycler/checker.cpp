@@ -79,6 +79,8 @@ int Checker::start() {
 
     // launch instance scanner
     auto scanner_func = [this]() {
+        std::this_thread::sleep_for(
+                std::chrono::seconds(config::recycler_sleep_before_scheduling_seconds));
         while (!stopped()) {
             std::vector<InstanceInfoPB> instances;
             get_all_instances(txn_kv_.get(), instances);
@@ -127,8 +129,9 @@ int Checker::start() {
             long enqueue_time_s = 0;
             {
                 std::unique_lock lock(mtx_);
-                pending_instance_cond_.wait(
-                        lock, [&]() { return !pending_instance_queue_.empty() || stopped(); });
+                pending_instance_cond_.wait(lock, [&]() -> bool {
+                    return !pending_instance_queue_.empty() || stopped();
+                });
                 if (stopped()) {
                     return;
                 }

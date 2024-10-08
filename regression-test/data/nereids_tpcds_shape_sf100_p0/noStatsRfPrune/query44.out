@@ -5,15 +5,15 @@ PhysicalResultSink
 ----PhysicalDistribute[DistributionSpecGather]
 ------PhysicalTopN[LOCAL_SORT]
 --------PhysicalProject
-----------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((i2.i_item_sk = descending.item_sk)) otherCondition=() build RFs:RF1 item_sk->[i_item_sk]
+----------hashJoin[INNER_JOIN broadcast] hashCondition=((i2.i_item_sk = descending.item_sk)) otherCondition=() build RFs:RF1 item_sk->[i_item_sk]
 ------------PhysicalProject
 --------------PhysicalOlapScan[item] apply RFs: RF1
 ------------PhysicalProject
---------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((i1.i_item_sk = asceding.item_sk)) otherCondition=() build RFs:RF0 item_sk->[i_item_sk]
+--------------hashJoin[INNER_JOIN broadcast] hashCondition=((i1.i_item_sk = asceding.item_sk)) otherCondition=() build RFs:RF0 item_sk->[i_item_sk]
 ----------------PhysicalProject
 ------------------PhysicalOlapScan[item] apply RFs: RF0
 ----------------PhysicalProject
-------------------hashJoin[INNER_JOIN shuffle] hashCondition=((asceding.rnk = descending.rnk)) otherCondition=()
+------------------hashJoin[INNER_JOIN broadcast] hashCondition=((asceding.rnk = descending.rnk)) otherCondition=()
 --------------------PhysicalProject
 ----------------------filter((rnk < 11))
 ------------------------PhysicalWindow

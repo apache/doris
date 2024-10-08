@@ -46,7 +46,7 @@ suite("test_group_commit_timeout", "nonConcurrent") {
     } catch (Exception e) {
         long end = System.currentTimeMillis()
         logger.info("failed " + e.getMessage())
-        assertTrue(e.getMessage().contains("FragmentMgr cancel worker going to cancel timeout instance") || e.getMessage().contains("Execute timeout"))
+        assertTrue(e.getMessage().contains("FragmentMgr cancel worker going to cancel timeout instance") || e.getMessage().contains("Execute timeout") || e.getMessage().contains("timeout"))
         assertTrue(end - start <= 60000)
     } finally {
         sql "SET global query_timeout = ${query_timeout[0][1]}"

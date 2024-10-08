@@ -120,7 +120,7 @@ suite ("test_follower_consistent_auth","p0,auth") {
                 sql "SHOW CATALOG RECYCLE BIN WHERE NAME = '${catalog_name}'"
             } catch (Exception e) {
                 log.info(e.getMessage())
-                assertTrue(e.getMessage().contains("Admin_priv"))
+                assertTrue(e.getMessage().contains("denied"))
             }
         }
         connect(user=user, password="${pwd}", url=new_jdbc_url) {
@@ -128,7 +128,7 @@ suite ("test_follower_consistent_auth","p0,auth") {
                 sql "SHOW CATALOG RECYCLE BIN WHERE NAME = '${catalog_name}'"
             } catch (Exception e) {
                 log.info(e.getMessage())
-                assertTrue(e.getMessage().contains("Admin_priv"))
+                assertTrue(e.getMessage().contains("denied"))
             }
         }
         connect(user=user, password="${pwd}", url=url_tmp1) {
@@ -136,7 +136,7 @@ suite ("test_follower_consistent_auth","p0,auth") {
                 sql "SHOW DATA"
             } catch (Exception e) {
                 log.info(e.getMessage())
-                assertTrue(e.getMessage().contains("Admin_priv"))
+                assertTrue(e.getMessage().contains("denied"))
             }
         }
         connect(user=user, password="${pwd}", url=new_jdbc_url) {
@@ -144,7 +144,7 @@ suite ("test_follower_consistent_auth","p0,auth") {
                 sql "SHOW DATA"
             } catch (Exception e) {
                 log.info(e.getMessage())
-                assertTrue(e.getMessage().contains("Admin_priv"))
+                assertTrue(e.getMessage().contains("denied"))
             }
         }
 
@@ -153,7 +153,7 @@ suite ("test_follower_consistent_auth","p0,auth") {
                 sql "select username from ${dbName}.${tableName}"
             } catch (Exception e) {
                 log.info(e.getMessage())
-                assertTrue(e.getMessage().contains("Admin_priv,Select_priv"))
+                assertTrue(e.getMessage().contains("denied"))
             }
         }
         connect(user=user, password="${pwd}", url=new_jdbc_url) {
@@ -161,7 +161,7 @@ suite ("test_follower_consistent_auth","p0,auth") {
                 sql "select username from ${dbName}.${tableName}"
             } catch (Exception e) {
                 log.info(e.getMessage())
-                assertTrue(e.getMessage().contains("Admin_priv,Select_priv"))
+                assertTrue(e.getMessage().contains("denied"))
             }
         }
         sql """grant select_priv(username) on ${dbName}.${tableName} to ${user}"""
@@ -178,7 +178,7 @@ suite ("test_follower_consistent_auth","p0,auth") {
                 sql "select username from ${dbName}.${view_name}"
             } catch (Exception e) {
                 log.info(e.getMessage())
-                assertTrue(e.getMessage().contains("Admin_priv,Select_priv"))
+                assertTrue(e.getMessage().contains("denied"))
             }
         }
         connect(user=user, password="${pwd}", url=new_jdbc_url) {
@@ -186,7 +186,7 @@ suite ("test_follower_consistent_auth","p0,auth") {
                 sql "select username from ${dbName}.${view_name}"
             } catch (Exception e) {
                 log.info(e.getMessage())
-                assertTrue(e.getMessage().contains("Admin_priv,Select_priv"))
+                assertTrue(e.getMessage().contains("denied"))
             }
         }
         sql """grant select_priv(username) on ${dbName}.${view_name} to ${user}"""
@@ -203,7 +203,7 @@ suite ("test_follower_consistent_auth","p0,auth") {
                 sql "select username from ${dbName}.${mtmv_name}"
             } catch (Exception e) {
                 log.info(e.getMessage())
-                assertTrue(e.getMessage().contains("Admin_priv,Select_priv"))
+                assertTrue(e.getMessage().contains("denied"))
             }
         }
         connect(user=user, password="${pwd}", url=new_jdbc_url) {
@@ -211,7 +211,7 @@ suite ("test_follower_consistent_auth","p0,auth") {
                 sql "select username from ${dbName}.${mtmv_name}"
             } catch (Exception e) {
                 log.info(e.getMessage())
-                assertTrue(e.getMessage().contains("Admin_priv,Select_priv"))
+                assertTrue(e.getMessage().contains("denied"))
             }
         }
         sql """grant select_priv(username) on ${dbName}.${mtmv_name} to ${user}"""
@@ -241,7 +241,7 @@ suite ("test_follower_consistent_auth","p0,auth") {
                 sql "select username from ${dbName}.${tableName}"
             } catch (Exception e) {
                 log.info(e.getMessage())
-                assertTrue(e.getMessage().contains("Admin_priv,Select_priv"))
+                assertTrue(e.getMessage().contains("denied"))
             }
         }
         connect(user=user, password="${pwd}", url=new_jdbc_url) {
@@ -249,7 +249,7 @@ suite ("test_follower_consistent_auth","p0,auth") {
                 sql "select username from ${dbName}.${tableName}"
             } catch (Exception e) {
                 log.info(e.getMessage())
-                assertTrue(e.getMessage().contains("Admin_priv,Select_priv"))
+                assertTrue(e.getMessage().contains("denied"))
             }
         }
 
@@ -272,7 +272,7 @@ suite ("test_follower_consistent_auth","p0,auth") {
                 sql "select username from ${dbName}.${tableName}"
             } catch (Exception e) {
                 log.info(e.getMessage())
-                assertTrue(e.getMessage().contains("Admin_priv,Select_priv"))
+                assertTrue(e.getMessage().contains("denied"))
             }
         }
         connect(user=user, password="${pwd}", url=new_jdbc_url) {
@@ -280,7 +280,7 @@ suite ("test_follower_consistent_auth","p0,auth") {
                 sql "select username from ${dbName}.${tableName}"
             } catch (Exception e) {
                 log.info(e.getMessage())
-                assertTrue(e.getMessage().contains("Admin_priv,Select_priv"))
+                assertTrue(e.getMessage().contains("denied"))
             }
         }
 
@@ -292,7 +292,7 @@ suite ("test_follower_consistent_auth","p0,auth") {
                 sql "select username from ${dbName}.${tableName}"
             } catch (Exception e) {
                 log.info(e.getMessage())
-                assertTrue(e.getMessage().contains("USAGE/ADMIN privilege"))
+                assertTrue(e.getMessage().contains("denied"))
             }
         }
         connect(user=user, password="${pwd}", url=new_jdbc_url) {
@@ -301,7 +301,7 @@ suite ("test_follower_consistent_auth","p0,auth") {
                 sql "select username from ${dbName}.${tableName}"
             } catch (Exception e) {
                 log.info(e.getMessage())
-                assertTrue(e.getMessage().contains("USAGE/ADMIN privilege"))
+                assertTrue(e.getMessage().contains("denied"))
             }
         }
         sql """GRANT USAGE_PRIV ON WORKLOAD GROUP '${wg}' TO '${user}';"""

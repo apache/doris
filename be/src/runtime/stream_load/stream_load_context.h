@@ -37,6 +37,7 @@
 #include "common/utils.h"
 #include "runtime/exec_env.h"
 #include "runtime/stream_load/stream_load_executor.h"
+#include "runtime/thread_context.h"
 #include "util/byte_buffer.h"
 #include "util/time.h"
 #include "util/uid_util.h"
@@ -120,6 +121,17 @@ public:
 
     bool is_mow_table() const;
 
+    Status allocate_schema_buffer() {
+        if (_schema_buffer == nullptr) {
+            SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(
+                    ExecEnv::GetInstance()->stream_load_pipe_tracker());
+            return ByteBuffer::allocate(config::stream_tvf_buffer_size, &_schema_buffer);
+        }
+        return Status::OK();
+    }
+
+    ByteBufferPtr schema_buffer() { return _schema_buffer; }
+
 public:
     static const int default_txn_id = -1;
     // load type, eg: ROUTINE LOAD/MANUAL LOAD
@@ -184,8 +196,6 @@ public:
     std::shared_ptr<MessageBodySink> body_sink;
     std::shared_ptr<io::StreamLoadPipe> pipe;
 
-    ByteBufferPtr schema_buffer = ByteBuffer::allocate(config::stream_tvf_buffer_size);
-
     TStreamLoadPutResult put_result;
     TStreamLoadMultiTablePutResult multi_table_put_result;
 
@@ -247,6 +257,7 @@ public:
 
 private:
     ExecEnv* _exec_env = nullptr;
+    ByteBufferPtr _schema_buffer;
 };
 
 } // namespace doris

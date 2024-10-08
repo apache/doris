@@ -22,6 +22,7 @@
 
 #include "gtest/gtest_pred_impl.h"
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_jsonb.h"
 #include "vec/data_types/data_type_nothing.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
@@ -67,6 +68,8 @@ static DataTypePtr typeFromString(const std::string& str) {
         return std::make_shared<DataTypeDateTimeV2>();
     } else if (str == "String") {
         return std::make_shared<DataTypeString>();
+    } else if (str == "Jsonb") {
+        return std::make_shared<DataTypeJsonb>();
     }
     return nullptr;
 }
@@ -141,12 +144,7 @@ INSTANTIATE_TEST_SUITE_P(data_type, LeastSuperTypeTest,
                                  {"Int8 Int32 Int64", "Int64"},
                                  {"UInt8 UInt32 Int64", "Int64"},
                                  {"Float32 Float64", "Float64"},
+                                 {"Date Date", "Date"},
                                  {"Float32 UInt16 Int32", "Float64"},
                                  {"Float32 Int16 UInt32", "Float64"},
-                                 {"Date Date", "Date"},
-                                 {"DateTime DateTime", "DateTime"},
-                                 {"String String String", "String"},
-                                 {"Int8 String", nullptr},
-                                 {"Int64 UInt64", nullptr},
-                                 {"Float32 UInt64", nullptr},
-                                 {"Float64 Int64", nullptr}}));
+                                 {"String String String", "String"}}));

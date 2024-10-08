@@ -101,7 +101,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         List<Long> tabletIds = pair.first;
         long totalRowCount = info.indexId == -1
                 ? tbl.getRowCount()
-                : ((OlapTable) tbl).getRowCountForIndex(info.indexId);
+                : ((OlapTable) tbl).getRowCountForIndex(info.indexId, false);
         double scaleFactor = (double) totalRowCount / (double) pair.second;
         // might happen if row count in fe metadata hasn't been updated yet
         if (Double.isInfinite(scaleFactor) || Double.isNaN(scaleFactor)) {
@@ -156,11 +156,8 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
                 sql = stringSubstitutor.replace(LINEAR_ANALYZE_TEMPLATE);
             } else {
                 params.put("dataSizeFunction", getDataSizeFunction(col, true));
-                if (col.getType().isStringType()) {
-                    sql = stringSubstitutor.replace(DUJ1_ANALYZE_STRING_TEMPLATE);
-                } else {
-                    sql = stringSubstitutor.replace(DUJ1_ANALYZE_TEMPLATE);
-                }
+                params.put("subStringColName", getStringTypeColName(col));
+                sql = stringSubstitutor.replace(DUJ1_ANALYZE_TEMPLATE);
             }
             LOG.info("Sample for column [{}]. Total rows [{}], rows to sample [{}], scale factor [{}], "
                     + "limited [{}], distribute column [{}], partition column [{}], key column [{}], "

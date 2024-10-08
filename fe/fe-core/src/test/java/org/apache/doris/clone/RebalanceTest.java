@@ -177,7 +177,7 @@ public class RebalanceTest {
 
     private void generateStatisticMap() {
         LoadStatisticForTag loadStatistic = new LoadStatisticForTag(
-                Tag.DEFAULT_BACKEND_TAG, systemInfoService, invertedIndex);
+                Tag.DEFAULT_BACKEND_TAG, systemInfoService, invertedIndex, null);
         loadStatistic.init();
         statisticMap = Maps.newHashMap();
         statisticMap.put(Tag.DEFAULT_BACKEND_TAG, loadStatistic);

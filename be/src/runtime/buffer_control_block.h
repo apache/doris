@@ -113,7 +113,6 @@ protected:
     bool _is_close;
     std::atomic_bool _is_cancelled;
     Status _status;
-    std::atomic_int _buffer_rows;
     const int _buffer_limit;
     int64_t _packet_num;
 

@@ -38,6 +38,7 @@ import org.apache.doris.nereids.SqlCacheContext.FullTableName;
 import org.apache.doris.nereids.SqlCacheContext.ScanTable;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundVariable;
+import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.analysis.ExpressionAnalyzer;
 import org.apache.doris.nereids.rules.analysis.UserAuthentication;
@@ -45,7 +46,7 @@ import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Variable;
-import org.apache.doris.nereids.trees.expressions.functions.Nondeterministic;
+import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
@@ -128,7 +129,7 @@ public class NereidsSqlCacheManager {
         SqlCacheContext sqlCacheContext = sqlCacheContextOpt.get();
         UserIdentity currentUserIdentity = connectContext.getCurrentUserIdentity();
         String key = sqlCacheContext.getCacheKeyType() == CacheKeyType.SQL
-                ? currentUserIdentity.toString() + ":" + sql.trim()
+                ? currentUserIdentity.toString() + ":" + normalizeSql(sql.trim())
                 : currentUserIdentity.toString() + ":" + DebugUtil.printId(sqlCacheContext.getOrComputeCacheKeyMd5());
         if (sqlCaches.getIfPresent(key) == null && sqlCacheContext.getOrComputeCacheKeyMd5() != null
                 && sqlCacheContext.getResultSetInFe().isPresent()) {
@@ -148,7 +149,7 @@ public class NereidsSqlCacheManager {
         SqlCacheContext sqlCacheContext = sqlCacheContextOpt.get();
         UserIdentity currentUserIdentity = connectContext.getCurrentUserIdentity();
         String key = sqlCacheContext.getCacheKeyType() == CacheKeyType.SQL
-                ? currentUserIdentity.toString() + ":" + sql.trim()
+                ? currentUserIdentity.toString() + ":" + normalizeSql(sql.trim())
                 : currentUserIdentity.toString() + ":" + DebugUtil.printId(sqlCacheContext.getOrComputeCacheKeyMd5());
         if (sqlCaches.getIfPresent(key) == null && sqlCacheContext.getOrComputeCacheKeyMd5() != null) {
             SqlCache cache = (SqlCache) analyzer.getCache();
@@ -169,7 +170,7 @@ public class NereidsSqlCacheManager {
     /** tryParseSql */
     public Optional<LogicalSqlCache> tryParseSql(ConnectContext connectContext, String sql) {
         UserIdentity currentUserIdentity = connectContext.getCurrentUserIdentity();
-        String key = currentUserIdentity + ":" + sql.trim();
+        String key = currentUserIdentity + ":" + normalizeSql(sql.trim());
         SqlCacheContext sqlCacheContext = sqlCaches.getIfPresent(key);
         if (sqlCacheContext == null) {
             return Optional.empty();
@@ -200,6 +201,10 @@ public class NereidsSqlCacheManager {
         } else {
             return tryParseSqlWithoutCheckVariable(connectContext, key, sqlCacheContext, currentUserIdentity);
         }
+    }
+
+    private String normalizeSql(String sql) {
+        return NereidsParser.removeCommentAndTrimBlank(sql);
     }
 
     private Optional<LogicalSqlCache> tryParseSqlWithoutCheckVariable(
@@ -396,7 +401,8 @@ public class NereidsSqlCacheManager {
             Variable currentVariable = currentVariables.get(i);
             Variable cachedVariable = cachedUsedVariables.get(i);
             if (!Objects.equals(currentVariable, cachedVariable)
-                    || cachedVariable.getRealExpression().anyMatch(Nondeterministic.class::isInstance)) {
+                    || cachedVariable.getRealExpression().anyMatch(
+                            expr -> !((ExpressionTrait) expr).isDeterministic())) {
                 return true;
             }
         }

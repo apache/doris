@@ -34,6 +34,7 @@ import org.apache.doris.analysis.PredicateUtils;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.Column;
@@ -106,6 +107,8 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
 
     // support multi topn filter
     protected final List<SortNode> topnFilterSortNodes = Lists.newArrayList();
+
+    protected TableSnapshot tableSnapshot;
 
     public ScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName, StatisticalType statisticalType) {
         super(id, desc.getId().asList(), planNodeName, statisticalType);
@@ -736,8 +739,20 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
     }
 
     public boolean shouldUseOneInstance(ConnectContext ctx) {
-        long limitRowsForSingleInstance = ctx == null ? 10000 : ctx.getSessionVariable().limitRowsForSingleInstance;
-        return hasLimit() && getLimit() < limitRowsForSingleInstance && conjuncts.isEmpty();
+        int adaptivePipelineTaskSerialReadOnLimit = 10000;
+
+        if (ctx != null) {
+            if (ctx.getSessionVariable().enableAdaptivePipelineTaskSerialReadOnLimit) {
+                adaptivePipelineTaskSerialReadOnLimit = ctx.getSessionVariable().adaptivePipelineTaskSerialReadOnLimit;
+            } else {
+                return false;
+            }
+        } else {
+            // No connection context, typically for broker load.
+        }
+
+        // For UniqueKey table, we will use multiple instance.
+        return hasLimit() && getLimit() <= adaptivePipelineTaskSerialReadOnLimit && conjuncts.isEmpty();
     }
 
     // In cloud mode, meta read lock is not enough to keep a snapshot of the partition versions.

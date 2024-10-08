@@ -24,6 +24,7 @@
 #include "vec/exprs/vectorized_agg_fn.h"
 
 namespace doris::pipeline {
+#include "common/compile_check_begin.h"
 
 Status AnalyticSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(PipelineXSinkLocalState<AnalyticSharedState>::init(state, info));
@@ -91,7 +92,7 @@ bool AnalyticSinkLocalState::_whether_need_next_partition(BlockRowPos& found_par
 }
 
 //_partition_by_columns,_order_by_columns save in blocks, so if need to calculate the boundary, may find in which blocks firstly
-BlockRowPos AnalyticSinkLocalState::_compare_row_to_find_end(int idx, BlockRowPos start,
+BlockRowPos AnalyticSinkLocalState::_compare_row_to_find_end(int64_t idx, BlockRowPos start,
                                                              BlockRowPos end,
                                                              bool need_check_first) {
     auto& shared_state = *_shared_state;
@@ -231,13 +232,14 @@ Status AnalyticSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) 
     return Status::OK();
 }
 
-Status AnalyticSinkOperatorX::prepare(RuntimeState* state) {
+Status AnalyticSinkOperatorX::open(RuntimeState* state) {
+    RETURN_IF_ERROR(DataSinkOperatorX<AnalyticSinkLocalState>::open(state));
     for (const auto& ctx : _agg_expr_ctxs) {
-        RETURN_IF_ERROR(vectorized::VExpr::prepare(ctx, state, _child_x->row_desc()));
+        RETURN_IF_ERROR(vectorized::VExpr::prepare(ctx, state, _child->row_desc()));
     }
     if (!_partition_by_eq_expr_ctxs.empty() || !_order_by_eq_expr_ctxs.empty()) {
         vector<TTupleId> tuple_ids;
-        tuple_ids.push_back(_child_x->row_desc().tuple_descriptors()[0]->id());
+        tuple_ids.push_back(_child->row_desc().tuple_descriptors()[0]->id());
         tuple_ids.push_back(_buffered_tuple_id);
         RowDescriptor cmp_row_desc(state->desc_tbl(), tuple_ids, vector<bool>(2, false));
         if (!_partition_by_eq_expr_ctxs.empty()) {
@@ -249,10 +251,6 @@ Status AnalyticSinkOperatorX::prepare(RuntimeState* state) {
                     vectorized::VExpr::prepare(_order_by_eq_expr_ctxs, state, cmp_row_desc));
         }
     }
-    return Status::OK();
-}
-
-Status AnalyticSinkOperatorX::open(RuntimeState* state) {
     RETURN_IF_ERROR(vectorized::VExpr::open(_partition_by_eq_expr_ctxs, state));
     RETURN_IF_ERROR(vectorized::VExpr::open(_order_by_eq_expr_ctxs, state));
     for (size_t i = 0; i < _agg_functions_size; ++i) {

@@ -107,7 +107,15 @@ public class BaseViewInfo {
         analyzedPlan.accept(PlanSlotFinder.INSTANCE, ctx.getStatementContext());
     }
 
-    protected String rewriteSql(TreeMap<Pair<Integer, Integer>, String> indexStringSqlMap) {
+    /**
+     * Add the full path to the field
+     *
+     * @param indexStringSqlMap key is the start and end position of the sql substring that needs to be replaced,
+     *         and value is the new string used for replacement.
+     * @param querySql origin query sql
+     * @return sql rewritten sql
+     */
+    public static String rewriteSql(TreeMap<Pair<Integer, Integer>, String> indexStringSqlMap, String querySql) {
         StringBuilder builder = new StringBuilder();
         int beg = 0;
         for (Map.Entry<Pair<Integer, Integer>, String> entry : indexStringSqlMap.entrySet()) {
@@ -150,7 +158,8 @@ public class BaseViewInfo {
     protected void createFinalCols(List<Slot> outputs) throws org.apache.doris.common.AnalysisException {
         if (simpleColumnDefinitions.isEmpty()) {
             for (Slot output : outputs) {
-                Column column = new Column(output.getName(), output.getDataType().toCatalogDataType());
+                Column column = new Column(output.getName(), output.getDataType().toCatalogDataType(),
+                        output.nullable());
                 finalCols.add(column);
             }
         } else {
@@ -159,7 +168,7 @@ public class BaseViewInfo {
             }
             for (int i = 0; i < simpleColumnDefinitions.size(); ++i) {
                 Column column = new Column(simpleColumnDefinitions.get(i).getName(),
-                        outputs.get(i).getDataType().toCatalogDataType());
+                        outputs.get(i).getDataType().toCatalogDataType(), outputs.get(i).nullable());
                 column.setComment(simpleColumnDefinitions.get(i).getComment());
                 finalCols.add(column);
             }
@@ -245,8 +254,11 @@ public class BaseViewInfo {
         }
     }
 
-    private static class PlanSlotFinder extends DefaultPlanVisitor<Void, StatementContext> {
-        private static PlanSlotFinder INSTANCE = new PlanSlotFinder();
+    /**
+     * PlanSlotFinder
+     */
+    public static class PlanSlotFinder extends DefaultPlanVisitor<Void, StatementContext> {
+        public static PlanSlotFinder INSTANCE = new PlanSlotFinder();
 
         @Override
         public Void visitLogicalView(LogicalView<? extends Plan> alias, StatementContext context) {

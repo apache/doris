@@ -39,7 +39,9 @@ struct ColumnWithTypeAndName;
 
 class VHiveTableWriter final : public AsyncResultWriter {
 public:
-    VHiveTableWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs);
+    VHiveTableWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs,
+                     std::shared_ptr<pipeline::Dependency> dep,
+                     std::shared_ptr<pipeline::Dependency> fin_dep);
 
     ~VHiveTableWriter() override = default;
 

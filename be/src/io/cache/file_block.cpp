@@ -25,6 +25,7 @@
 #include <thread>
 
 #include "common/status.h"
+#include "cpp/sync_point.h"
 #include "io/cache/block_file_cache.h"
 
 namespace doris {
@@ -160,32 +161,41 @@ Status FileBlock::read(Slice buffer, size_t read_offset) {
     return _mgr->_storage->read(_key, read_offset, buffer);
 }
 
-Status FileBlock::change_cache_type_by_mgr(FileCacheType new_type) {
+Status FileBlock::change_cache_type_between_ttl_and_others(FileCacheType new_type) {
     std::lock_guard block_lock(_mutex);
-    if (new_type == _key.meta.type) {
-        return Status::OK();
+    DCHECK(new_type != _key.meta.type);
+    bool expr = (new_type == FileCacheType::TTL || _key.meta.type == FileCacheType::TTL);
+    if (!expr) {
+        LOG(WARNING) << "none of the cache type is TTL"
+                     << ", hash: " << _key.hash.to_string() << ", offset: " << _key.offset
+                     << ", new type: " << BlockFileCache::cache_type_to_string(new_type)
+                     << ", old type: " << BlockFileCache::cache_type_to_string(_key.meta.type);
     }
-    if (_download_state == State::DOWNLOADED) {
-        KeyMeta new_meta;
-        new_meta.expiration_time = _key.meta.expiration_time;
-        new_meta.type = new_type;
-        RETURN_IF_ERROR(_mgr->_storage->change_key_meta(_key, new_meta));
-    }
+    DCHECK(expr);
+
+    // change cache type between TTL to others don't need to rename the filename suffix
     _key.meta.type = new_type;
     return Status::OK();
 }
 
-Status FileBlock::change_cache_type_self(FileCacheType new_type) {
+Status FileBlock::change_cache_type_between_normal_and_index(FileCacheType new_type) {
     std::lock_guard cache_lock(_mgr->_mutex);
     std::lock_guard block_lock(_mutex);
+    bool expr = (new_type != FileCacheType::TTL && _key.meta.type != FileCacheType::TTL);
+    if (!expr) {
+        LOG(WARNING) << "one of the cache type is TTL"
+                     << ", hash: " << _key.hash.to_string() << ", offset: " << _key.offset
+                     << ", new type: " << BlockFileCache::cache_type_to_string(new_type)
+                     << ", old type: " << BlockFileCache::cache_type_to_string(_key.meta.type);
+    }
+    DCHECK(expr);
     if (_key.meta.type == FileCacheType::TTL || new_type == _key.meta.type) {
         return Status::OK();
     }
     if (_download_state == State::DOWNLOADED) {
-        KeyMeta new_meta;
-        new_meta.expiration_time = _key.meta.expiration_time;
-        new_meta.type = new_type;
-        RETURN_IF_ERROR(_mgr->_storage->change_key_meta(_key, new_meta));
+        Status st;
+        TEST_SYNC_POINT_CALLBACK("FileBlock::change_cache_type", &st);
+        RETURN_IF_ERROR(_mgr->_storage->change_key_meta_type(_key, new_type));
     }
     _mgr->change_cache_type(_key.hash, _block_range.left, new_type, cache_lock);
     _key.meta.type = new_type;
@@ -195,10 +205,10 @@ Status FileBlock::change_cache_type_self(FileCacheType new_type) {
 Status FileBlock::update_expiration_time(uint64_t expiration_time) {
     std::lock_guard block_lock(_mutex);
     if (_download_state == State::DOWNLOADED) {
-        KeyMeta new_meta;
-        new_meta.expiration_time = expiration_time;
-        new_meta.type = _key.meta.type;
-        RETURN_IF_ERROR(_mgr->_storage->change_key_meta(_key, new_meta));
+        auto st = _mgr->_storage->change_key_meta_expiration(_key, expiration_time);
+        if (!st.ok() && !st.is<ErrorCode::NOT_FOUND>()) {
+            return st;
+        }
     }
     _key.meta.expiration_time = expiration_time;
     return Status::OK();

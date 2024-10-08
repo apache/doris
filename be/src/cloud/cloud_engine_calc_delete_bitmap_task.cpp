@@ -87,6 +87,7 @@ Status CloudEngineCalcDeleteBitmapTask::execute() {
                     LOG(WARNING) << "handle calc delete bitmap fail, st=" << st.to_string();
                 }
             });
+            VLOG_DEBUG << "submit TabletCalcDeleteBitmapTask for tablet=" << tablet_id;
             if (!submit_st.ok()) {
                 _res = submit_st;
                 break;
@@ -95,6 +96,7 @@ Status CloudEngineCalcDeleteBitmapTask::execute() {
     }
     // wait for all finished
     token->wait();
+    DBUG_EXECUTE_IF("CloudEngineCalcDeleteBitmapTask.execute.enable_wait", { sleep(3); });
 
     LOG(INFO) << "finish to calculate delete bitmap on transaction."
               << "transaction_id=" << transaction_id << ", cost(us): " << watch.get_elapse_time_us()
@@ -120,11 +122,12 @@ void CloudTabletCalcDeleteBitmapTask::set_compaction_stats(int64_t ms_base_compa
                                                            int64_t ms_cumulative_compaction_cnt,
                                                            int64_t ms_cumulative_point) {
     _ms_base_compaction_cnt = ms_base_compaction_cnt;
-    _ms_cumulative_compaction_cnt = ms_base_compaction_cnt;
+    _ms_cumulative_compaction_cnt = ms_cumulative_compaction_cnt;
     _ms_cumulative_point = ms_cumulative_point;
 }
 
 Status CloudTabletCalcDeleteBitmapTask::handle() const {
+    VLOG_DEBUG << "start calculate delete bitmap on tablet " << _tablet_id;
     SCOPED_ATTACH_TASK(_mem_tracker);
     int64_t t1 = MonotonicMicros();
     auto base_tablet = DORIS_TRY(_engine.get_tablet(_tablet_id));
@@ -154,26 +157,32 @@ Status CloudTabletCalcDeleteBitmapTask::handle() const {
     };
     if (_version != max_version + 1 || should_sync_rowsets_produced_by_compaction()) {
         auto sync_st = tablet->sync_rowsets();
-        if (sync_st.is<ErrorCode::INVALID_TABLET_STATE>()) [[unlikely]] {
-            _engine_calc_delete_bitmap_task->add_succ_tablet_id(_tablet_id);
-            LOG(INFO) << "tablet is under alter process, delete bitmap will be calculated later, "
-                         "tablet_id: "
-                      << _tablet_id << " txn_id: " << _transaction_id
-                      << ", request_version=" << _version;
-            return sync_st;
-        }
         if (!sync_st.ok()) {
             LOG(WARNING) << "failed to sync rowsets. tablet_id=" << _tablet_id
                          << ", txn_id=" << _transaction_id << ", status=" << sync_st;
             _engine_calc_delete_bitmap_task->add_error_tablet_id(_tablet_id, sync_st);
             return sync_st;
         }
+        if (tablet->tablet_state() != TABLET_RUNNING) [[unlikely]] {
+            _engine_calc_delete_bitmap_task->add_succ_tablet_id(_tablet_id);
+            LOG(INFO) << "tablet is under alter process, delete bitmap will be calculated later, "
+                         "tablet_id: "
+                      << _tablet_id << " txn_id: " << _transaction_id
+                      << ", request_version=" << _version;
+            return Status::Error<ErrorCode::INVALID_TABLET_STATE>(
+                    "invalid tablet state {}. tablet_id={}", tablet->tablet_state(),
+                    tablet->tablet_id());
+        }
     }
     auto sync_rowset_time_us = MonotonicMicros() - t2;
     max_version = tablet->max_version_unlocked();
     if (_version != max_version + 1) {
-        LOG(WARNING) << "version not continuous, current max version=" << max_version
-                     << ", request_version=" << _version << " tablet_id=" << _tablet_id;
+        bool need_log = (config::publish_version_gap_logging_threshold < 0 ||
+                         max_version + config::publish_version_gap_logging_threshold >= _version);
+        if (need_log) {
+            LOG(WARNING) << "version not continuous, current max version=" << max_version
+                         << ", request_version=" << _version << " tablet_id=" << _tablet_id;
+        }
         auto error_st =
                 Status::Error<ErrorCode::DELETE_BITMAP_LOCK_ERROR, false>("version not continuous");
         _engine_calc_delete_bitmap_task->add_error_tablet_id(_tablet_id, error_st);
@@ -186,9 +195,10 @@ Status CloudTabletCalcDeleteBitmapTask::handle() const {
     std::shared_ptr<PartialUpdateInfo> partial_update_info;
     std::shared_ptr<PublishStatus> publish_status;
     int64_t txn_expiration;
+    TxnPublishInfo previous_publish_info;
     Status status = _engine.txn_delete_bitmap_cache().get_tablet_txn_info(
             _transaction_id, _tablet_id, &rowset, &delete_bitmap, &rowset_ids, &txn_expiration,
-            &partial_update_info, &publish_status);
+            &partial_update_info, &publish_status, &previous_publish_info);
     if (status != Status::OK()) {
         LOG(WARNING) << "failed to get tablet txn info. tablet_id=" << _tablet_id
                      << ", txn_id=" << _transaction_id << ", status=" << status;
@@ -204,8 +214,19 @@ Status CloudTabletCalcDeleteBitmapTask::handle() const {
     txn_info.rowset_ids = rowset_ids;
     txn_info.partial_update_info = partial_update_info;
     txn_info.publish_status = publish_status;
+    txn_info.publish_info = {.publish_version = _version,
+                             .base_compaction_cnt = _ms_base_compaction_cnt,
+                             .cumulative_compaction_cnt = _ms_cumulative_compaction_cnt,
+                             .cumulative_point = _ms_cumulative_point};
     auto update_delete_bitmap_time_us = 0;
-    if (txn_info.publish_status && (*(txn_info.publish_status) == PublishStatus::SUCCEED)) {
+    if (txn_info.publish_status && (*(txn_info.publish_status) == PublishStatus::SUCCEED) &&
+        _version == previous_publish_info.publish_version &&
+        _ms_base_compaction_cnt == previous_publish_info.base_compaction_cnt &&
+        _ms_cumulative_compaction_cnt == previous_publish_info.cumulative_compaction_cnt &&
+        _ms_cumulative_point == previous_publish_info.cumulative_point) {
+        // if version or compaction stats can't match, it means that this is a retry and there are
+        // compaction or other loads finished successfully on the same tablet. So the previous publish
+        // is stale and we should re-calculate the delete bitmap
         LOG(INFO) << "tablet=" << _tablet_id << ",txn=" << _transaction_id
                   << ",publish_status=SUCCEED,not need to recalculate and update delete_bitmap.";
     } else {

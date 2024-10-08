@@ -60,7 +60,7 @@ suite("test_show_create_mtmv","mtmv") {
     assertTrue(showCreateMTMVResult.toString().contains("DUPLICATE KEY(`k1`, `k2`)"))
     assertTrue(showCreateMTMVResult.toString().contains("PARTITION BY (date_trunc(`k2`, 'month'))"))
     assertTrue(showCreateMTMVResult.toString().contains("DISTRIBUTED BY RANDOM BUCKETS 2"))
-    assertTrue(showCreateMTMVResult.toString().contains("SELECT * FROM"))
+    assertTrue(showCreateMTMVResult.toString().contains("SELECT"))
     assertTrue(showCreateMTMVResult.toString().contains("grace_period"))
 
     sql """drop materialized view if exists ${mvName};"""
@@ -98,6 +98,29 @@ suite("test_show_create_mtmv","mtmv") {
     assertTrue(showCreateMTMVResult.toString().contains("aa comment 'aa_comment',bb"))
     assertTrue(showCreateMTMVResult.toString().contains("BUILD IMMEDIATE REFRESH COMPLETE ON COMMIT"))
     assertTrue(showCreateMTMVResult.toString().contains("DISTRIBUTED BY RANDOM BUCKETS AUTO"))
+
+
+    sql """drop materialized view if exists ${mvName};"""
+    sql """
+        CREATE MATERIALIZED VIEW ${mvName}
+        BUILD DEFERRED REFRESH AUTO ON SCHEDULE EVERY 10 DAY starts "9999-01-01 10:10:10"
+        partition by (`k2`)
+        DISTRIBUTED BY hash(k1) BUCKETS 2
+        PROPERTIES (
+        'replication_num' = '1'
+        )
+        AS
+        SELECT * FROM ${tableName};
+    """
+    showCreateMTMVResult = sql """show CREATE MATERIALIZED VIEW ${mvName}"""
+    logger.info("showCreateMTMVResult: " + showCreateMTMVResult.toString())
+    sql """drop materialized view if exists ${mvName};"""
+    sql """
+            ${showCreateMTMVResult[0][1]}
+        """
+    def showCreateMTMVResultAgain = sql """show CREATE MATERIALIZED VIEW ${mvName}"""
+    logger.info("showCreateMTMVAgainResult: " + showCreateMTMVResultAgain.toString())
+    assertEquals(showCreateMTMVResult.toString(), showCreateMTMVResultAgain.toString())
 
     sql """drop table if exists `${tableName}`"""
     sql """drop materialized view if exists ${mvName};"""

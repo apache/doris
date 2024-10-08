@@ -8,7 +8,9 @@ PhysicalResultSink
 ----------PhysicalDistribute[DistributionSpecHash]
 ------------hashAgg[LOCAL]
 --------------PhysicalProject
-----------------hashJoin[INNER_JOIN shuffle] hashCondition=((catalog_sales.cs_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF3 i_item_sk->[cs_item_sk]
+----------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((catalog_sales.cs_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF3 cs_item_sk->[i_item_sk]
+------------------PhysicalProject
+--------------------PhysicalOlapScan[item] apply RFs: RF3
 ------------------PhysicalProject
 --------------------hashJoin[INNER_JOIN broadcast] hashCondition=((catalog_sales.cs_promo_sk = promotion.p_promo_sk)) otherCondition=() build RFs:RF2 p_promo_sk->[cs_promo_sk]
 ----------------------PhysicalProject
@@ -16,7 +18,7 @@ PhysicalResultSink
 --------------------------PhysicalProject
 ----------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((catalog_sales.cs_bill_cdemo_sk = customer_demographics.cd_demo_sk)) otherCondition=() build RFs:RF0 cd_demo_sk->[cs_bill_cdemo_sk]
 ------------------------------PhysicalProject
---------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF0 RF1 RF2 RF3
+--------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF0 RF1 RF2
 ------------------------------PhysicalProject
 --------------------------------filter((customer_demographics.cd_education_status = 'Unknown') and (customer_demographics.cd_gender = 'M') and (customer_demographics.cd_marital_status = 'S'))
 ----------------------------------PhysicalOlapScan[customer_demographics]
@@ -26,6 +28,4 @@ PhysicalResultSink
 ----------------------PhysicalProject
 ------------------------filter(((promotion.p_channel_email = 'N') OR (promotion.p_channel_event = 'N')))
 --------------------------PhysicalOlapScan[promotion]
-------------------PhysicalProject
---------------------PhysicalOlapScan[item]
 

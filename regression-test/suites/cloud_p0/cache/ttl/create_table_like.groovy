@@ -34,14 +34,14 @@ suite("create_table_like") {
     assertEquals(backendIdToBackendIP.size(), 1)
 
     backendId = backendIdToBackendIP.keySet()[0]
-    def url = backendIdToBackendIP.get(backendId) + ":" + backendIdToBackendHttpPort.get(backendId) + """/api/clear_file_cache"""
+    def url = backendIdToBackendIP.get(backendId) + ":" + backendIdToBackendHttpPort.get(backendId) + """/api/file_cache?op=clear&sync=true"""
     logger.info(url)
 def clearFileCache = { check_func ->
         httpTest {
             endpoint ""
             uri url
-            op "post"
-            body "{\"sync\"=\"true\"}"
+            op "get"
+            body ""
             check check_func
         }
     }

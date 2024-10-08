@@ -50,7 +50,7 @@ import java.util.UUID;
 /**
  * Create stage.
  */
-public class CreateStageStmt extends DdlStmt {
+public class CreateStageStmt extends DdlStmt implements NotFallbackInParser {
     private static final Logger LOG = LogManager.getLogger(CreateStageStmt.class);
 
     @Getter
@@ -112,16 +112,16 @@ public class CreateStageStmt extends DdlStmt {
             remote.headObject("1");
             remote.listObjects(null);
         } catch (Exception e) {
-            LOG.warn("Failed check object storage info={}", stageProperties.getObjectStoreInfoPB(), e);
-            String message = e.getMessage();
-            if (message != null) {
-                int index = message.indexOf("Error message=");
-                if (index != -1) {
-                    message = message.substring(index);
-                }
+            LOG.warn("Failed to access object storage, proto={}, err={}",
+                    stageProperties.getObjectStoreInfoPB(), e.toString());
+            String msg;
+            if (e instanceof UserException) {
+                msg = ((UserException) e).getDetailMessage();
+            } else {
+                msg = e.getMessage();
             }
             throw new UserException(InternalErrorCode.GET_REMOTE_DATA_ERROR,
-                    "Incorrect object storage info, " + message);
+                    "Failed to access object storage, message=" + msg, e);
         } finally {
             if (remote != null) {
                 remote.close();

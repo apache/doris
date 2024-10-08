@@ -92,6 +92,12 @@ std::string get_datetime_value(const Field& field) {
     return cast_to_string<TYPE_DATETIME, ValueType>(value, 0);
 }
 
+std::string get_time_value(const Field& field) {
+    using ValueType = typename PrimitiveTypeTraits<TYPE_TIMEV2>::CppType;
+    ValueType value = field.get<ValueType>();
+    return cast_to_string<TYPE_TIMEV2, ValueType>(value, 0);
+}
+
 std::string get_decimalv2_value(const Field& field) {
     // can NOT use PrimitiveTypeTraits<TYPE_DECIMALV2>::CppType since
     //   it is DecimalV2Value and Decimal128V2 can not convert to it implicitly
@@ -156,6 +162,10 @@ bool RuntimePredicate::_init(PrimitiveType type) {
     }
     case PrimitiveType::TYPE_DATETIME: {
         _get_value_fn = get_datetime_value;
+        break;
+    }
+    case PrimitiveType::TYPE_TIMEV2: {
+        _get_value_fn = get_time_value;
         break;
     }
     case PrimitiveType::TYPE_DECIMAL32: {

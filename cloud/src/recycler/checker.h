@@ -17,6 +17,9 @@
 
 #pragma once
 
+#if defined(USE_LIBCPP) && _LIBCPP_ABI_VERSION <= 1
+#define _LIBCPP_ABI_INCOMPLETE_TYPES_IN_DEQUE
+#endif
 #include <atomic>
 #include <condition_variable>
 #include <deque>

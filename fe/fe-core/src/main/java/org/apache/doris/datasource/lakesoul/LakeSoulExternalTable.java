@@ -25,17 +25,23 @@ import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.SchemaCacheValue;
+import org.apache.doris.statistics.AnalysisInfo;
+import org.apache.doris.statistics.BaseAnalysisTask;
+import org.apache.doris.statistics.ExternalAnalysisTask;
 import org.apache.doris.thrift.TLakeSoulTable;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
 
 import com.dmetasoul.lakesoul.meta.DBUtil;
+import com.dmetasoul.lakesoul.meta.entity.PartitionInfo;
 import com.dmetasoul.lakesoul.meta.entity.TableInfo;
 import com.google.common.collect.Lists;
 import org.apache.arrow.util.Preconditions;
 import org.apache.arrow.vector.types.pojo.ArrowType;
 import org.apache.arrow.vector.types.pojo.Field;
 import org.apache.arrow.vector.types.pojo.Schema;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.util.HashMap;
@@ -45,11 +51,24 @@ import java.util.Optional;
 import java.util.stream.Collectors;
 
 public class LakeSoulExternalTable extends ExternalTable {
-
+    private static final Logger LOG = LogManager.getLogger(LakeSoulExternalTable.class);
     public static final int LAKESOUL_TIMESTAMP_SCALE_MS = 6;
+
+    public final String tableId;
 
     public LakeSoulExternalTable(long id, String name, String dbName, LakeSoulExternalCatalog catalog) {
         super(id, name, catalog, dbName, TableType.LAKESOUl_EXTERNAL_TABLE);
+        TableInfo tableInfo = getLakeSoulTableInfo();
+        if (tableInfo == null) {
+            throw new RuntimeException(String.format("LakeSoul table %s.%s does not exist", dbName, name));
+        }
+        tableId = tableInfo.getTableId();
+    }
+
+    @Override
+    public BaseAnalysisTask createAnalysisTask(AnalysisInfo info) {
+        makeSureInitialized();
+        return new ExternalAnalysisTask(info);
     }
 
     private Type arrowFiledToDorisType(Field field) {
@@ -150,6 +169,7 @@ public class LakeSoulExternalTable extends ExternalTable {
         String tableSchema = tableInfo.getTableSchema();
         DBUtil.TablePartitionKeys partitionKeys = DBUtil.parseTableInfoPartitions(tableInfo.getPartitions());
         Schema schema;
+        LOG.info("tableSchema={}", tableSchema);
         try {
             schema = Schema.fromJSON(tableSchema);
         } catch (IOException e) {
@@ -172,6 +192,10 @@ public class LakeSoulExternalTable extends ExternalTable {
 
     public TableInfo getLakeSoulTableInfo() {
         return ((LakeSoulExternalCatalog) catalog).getLakeSoulTable(dbName, name);
+    }
+
+    public List<PartitionInfo> listPartitionInfo() {
+        return ((LakeSoulExternalCatalog) catalog).listPartitionInfo(tableId);
     }
 
     public String tablePath() {

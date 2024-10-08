@@ -276,7 +276,7 @@ public abstract class MaterializationContext {
         return originalPlan;
     }
 
-    public Plan getScanPlan() {
+    public Plan getScanPlan(StructInfo queryStructInfo) {
         return scanPlan;
     }
 
@@ -374,7 +374,10 @@ public abstract class MaterializationContext {
         builder.append("\nMaterializedViewRewriteSuccessAndChose:\n");
         if (!chosenMaterializationQualifiers.isEmpty()) {
             chosenMaterializationQualifiers.forEach(materializationQualifier ->
-                    builder.append(generateIdentifierName(materializationQualifier)).append(", \n"));
+                    builder.append("  ")
+                            .append(generateIdentifierName(materializationQualifier)).append(" chose, \n"));
+        } else {
+            builder.append("  chose: none, \n");
         }
         // rewrite success but not chosen
         builder.append("\nMaterializedViewRewriteSuccessButNotChose:\n");
@@ -383,9 +386,11 @@ public abstract class MaterializationContext {
                 .filter(materializationQualifier -> !chosenMaterializationQualifiers.contains(materializationQualifier))
                 .collect(Collectors.toSet());
         if (!rewriteSuccessButNotChoseQualifiers.isEmpty()) {
-            builder.append("  Names: ");
             rewriteSuccessButNotChoseQualifiers.forEach(materializationQualifier ->
-                    builder.append(generateIdentifierName(materializationQualifier)).append(", "));
+                    builder.append("  ")
+                            .append(generateIdentifierName(materializationQualifier)).append(" not chose, \n"));
+        } else {
+            builder.append("  not chose: none, \n");
         }
         // rewrite fail
         builder.append("\nMaterializedViewRewriteFail:");
@@ -394,8 +399,8 @@ public abstract class MaterializationContext {
                 Set<String> failReasonSet =
                         ctx.getFailReason().values().stream().map(Pair::key).collect(ImmutableSet.toImmutableSet());
                 builder.append("\n")
-                        .append("  Name: ").append(generateIdentifierName(ctx.generateMaterializationIdentifier()))
-                        .append("\n")
+                        .append("  ")
+                        .append(generateIdentifierName(ctx.generateMaterializationIdentifier())).append(" fail, \n")
                         .append("  FailSummary: ").append(String.join(", ", failReasonSet));
             }
         }
@@ -403,7 +408,7 @@ public abstract class MaterializationContext {
     }
 
     private static String generateIdentifierName(List<String> qualifiers) {
-        return String.join("#", qualifiers);
+        return String.join(".", qualifiers);
     }
 
     @Override

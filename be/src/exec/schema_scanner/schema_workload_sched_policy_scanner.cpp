@@ -106,7 +106,8 @@ Status SchemaWorkloadSchedulePolicyScanner::_get_workload_schedule_policy_block_
     return Status::OK();
 }
 
-Status SchemaWorkloadSchedulePolicyScanner::get_next_block(vectorized::Block* block, bool* eos) {
+Status SchemaWorkloadSchedulePolicyScanner::get_next_block_internal(vectorized::Block* block,
+                                                                    bool* eos) {
     if (!_is_init) {
         return Status::InternalError("Used before initialized.");
     }

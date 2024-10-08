@@ -17,6 +17,8 @@
 
 package org.apache.doris.system;
 
+import org.apache.doris.common.Config;
+import org.apache.doris.qe.SimpleScheduler;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.thrift.TStorageMedium;
 
@@ -208,6 +210,10 @@ public class BeSelectionPolicy {
             }
         } else {
             candidates.addAll(filterBackends);
+        }
+        // filter out backends in black list
+        if (!Config.disable_backend_black_list) {
+            candidates = candidates.stream().filter(b -> SimpleScheduler.isAvailable(b)).collect(Collectors.toList());
         }
         Collections.shuffle(candidates);
         return candidates;

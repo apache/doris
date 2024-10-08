@@ -40,6 +40,7 @@
 #include "olap/rowset/beta_rowset_reader.h"
 #include "olap/rowset/segment_v2/inverted_index_cache.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
+#include "olap/rowset/segment_v2/inverted_index_file_reader.h"
 #include "olap/tablet_schema.h"
 #include "olap/utils.h"
 #include "util/crc32c.h"
@@ -82,6 +83,10 @@ Status BetaRowset::get_inverted_index_size(size_t* index_size) {
     if (_schema->get_inverted_index_storage_format() == InvertedIndexStorageFormatPB::V1) {
         auto indices = _schema->indexes();
         for (auto& index : indices) {
+            // only get file_size for inverted index
+            if (index.index_type() != IndexType::INVERTED) {
+                continue;
+            }
             for (int seg_id = 0; seg_id < num_segments(); ++seg_id) {
                 auto seg_path = DORIS_TRY(segment_path(seg_id));
                 int64_t file_size = 0;
@@ -177,8 +182,9 @@ Status BetaRowset::load_segment(int64_t seg_id, segment_v2::SegmentSharedPtr* se
             .cache_base_path = "",
             .file_size = _rowset_meta->segment_file_size(seg_id),
     };
+
     auto s = segment_v2::Segment::open(fs, seg_path, seg_id, rowset_id(), _schema, reader_options,
-                                       segment);
+                                       segment, _rowset_meta->inverted_index_file_info(seg_id));
     if (!s.ok()) {
         LOG(WARNING) << "failed to open segment. " << seg_path << " under rowset " << rowset_id()
                      << " : " << s.to_string();
@@ -536,8 +542,10 @@ Status BetaRowset::check_current_rowset_segment() {
                 .cache_base_path {},
                 .file_size = _rowset_meta->segment_file_size(seg_id),
         };
+
         auto s = segment_v2::Segment::open(fs, seg_path, seg_id, rowset_id(), _schema,
-                                           reader_options, &segment);
+                                           reader_options, &segment,
+                                           _rowset_meta->inverted_index_file_info(seg_id));
         if (!s.ok()) {
             LOG(WARNING) << "segment can not be opened. file=" << seg_path;
             return s;
@@ -698,6 +706,131 @@ Status BetaRowset::calc_file_crc(uint32_t* crc_value, int64_t* file_count) {
         *crc_value = crc32c::Extend(*crc_value, i.data(), i.size());
     }
 
+    return Status::OK();
+}
+
+Status BetaRowset::show_nested_index_file(rapidjson::Value* rowset_value,
+                                          rapidjson::Document::AllocatorType& allocator) {
+    const auto& fs = _rowset_meta->fs();
+    auto storage_format = _schema->get_inverted_index_storage_format();
+    auto format_str = storage_format == InvertedIndexStorageFormatPB::V1 ? "V1" : "V2";
+    auto rs_id = rowset_id().to_string();
+    rowset_value->AddMember("rowset_id", rapidjson::Value(rs_id.c_str(), allocator), allocator);
+    rowset_value->AddMember("index_storage_format", rapidjson::Value(format_str, allocator),
+                            allocator);
+    rapidjson::Value segments(rapidjson::kArrayType);
+    for (int seg_id = 0; seg_id < num_segments(); ++seg_id) {
+        rapidjson::Value segment(rapidjson::kObjectType);
+        segment.AddMember("segment_id", rapidjson::Value(seg_id).Move(), allocator);
+
+        auto seg_path = DORIS_TRY(segment_path(seg_id));
+        auto index_file_path_prefix = InvertedIndexDescriptor::get_index_file_path_prefix(seg_path);
+        auto inverted_index_file_reader = std::make_unique<InvertedIndexFileReader>(
+                fs, std::string(index_file_path_prefix), storage_format);
+        RETURN_IF_ERROR(inverted_index_file_reader->init());
+        auto dirs = inverted_index_file_reader->get_all_directories();
+
+        auto add_file_info_to_json = [&](const std::string& path,
+                                         rapidjson::Value& json_value) -> Status {
+            json_value.AddMember("idx_file_path", rapidjson::Value(path.c_str(), allocator),
+                                 allocator);
+            int64_t idx_file_size = 0;
+            auto st = fs->file_size(path, &idx_file_size);
+            if (st != Status::OK()) {
+                LOG(WARNING) << "show nested index file get file size error, file: " << path
+                             << ", error: " << st.msg();
+                return st;
+            }
+            json_value.AddMember("idx_file_size", rapidjson::Value(idx_file_size).Move(),
+                                 allocator);
+            return Status::OK();
+        };
+
+        auto process_files = [&allocator, &inverted_index_file_reader](
+                                     auto& index_meta, rapidjson::Value& indices,
+                                     rapidjson::Value& index) -> Status {
+            rapidjson::Value files_value(rapidjson::kArrayType);
+            std::vector<std::string> files;
+            auto ret = inverted_index_file_reader->open(&index_meta);
+            if (!ret.has_value()) {
+                LOG(INFO) << "InvertedIndexFileReader open error:" << ret.error();
+                return Status::InternalError("InvertedIndexFileReader open error");
+            }
+            using T = std::decay_t<decltype(ret)>;
+            auto reader = std::forward<T>(ret).value();
+            reader->list(&files);
+            for (auto& file : files) {
+                rapidjson::Value file_value(rapidjson::kObjectType);
+                auto size = reader->fileLength(file.c_str());
+                file_value.AddMember("name", rapidjson::Value(file.c_str(), allocator), allocator);
+                file_value.AddMember("size", rapidjson::Value(size).Move(), allocator);
+                files_value.PushBack(file_value, allocator);
+            }
+            index.AddMember("files", files_value, allocator);
+            indices.PushBack(index, allocator);
+            return Status::OK();
+        };
+
+        if (storage_format != InvertedIndexStorageFormatPB::V1) {
+            auto path = InvertedIndexDescriptor::get_index_file_path_v2(index_file_path_prefix);
+            auto st = add_file_info_to_json(path, segment);
+            if (!st.ok()) {
+                return st;
+            }
+            rapidjson::Value indices(rapidjson::kArrayType);
+            for (auto& dir : *dirs) {
+                rapidjson::Value index(rapidjson::kObjectType);
+                auto index_id = dir.first.first;
+                auto index_suffix = dir.first.second;
+                index.AddMember("index_id", rapidjson::Value(index_id).Move(), allocator);
+                index.AddMember("index_suffix", rapidjson::Value(index_suffix.c_str(), allocator),
+                                allocator);
+
+                rapidjson::Value files_value(rapidjson::kArrayType);
+                std::vector<std::string> files;
+                doris::TabletIndexPB index_pb;
+                index_pb.set_index_id(index_id);
+                index_pb.set_index_suffix_name(index_suffix);
+                TabletIndex index_meta;
+                index_meta.init_from_pb(index_pb);
+
+                auto status = process_files(index_meta, indices, index);
+                if (!status.ok()) {
+                    return status;
+                }
+            }
+            segment.AddMember("indices", indices, allocator);
+            segments.PushBack(segment, allocator);
+        } else {
+            rapidjson::Value indices(rapidjson::kArrayType);
+            for (auto column : _rowset_meta->tablet_schema()->columns()) {
+                const auto* index_meta = _rowset_meta->tablet_schema()->get_inverted_index(*column);
+                if (index_meta == nullptr) {
+                    continue;
+                }
+                rapidjson::Value index(rapidjson::kObjectType);
+                auto index_id = index_meta->index_id();
+                auto index_suffix = index_meta->get_index_suffix();
+                index.AddMember("index_id", rapidjson::Value(index_id).Move(), allocator);
+                index.AddMember("index_suffix", rapidjson::Value(index_suffix.c_str(), allocator),
+                                allocator);
+                auto path = InvertedIndexDescriptor::get_index_file_path_v1(index_file_path_prefix,
+                                                                            index_id, index_suffix);
+                auto st = add_file_info_to_json(path, index);
+                if (!st.ok()) {
+                    return st;
+                }
+
+                auto status = process_files(*index_meta, indices, index);
+                if (!status.ok()) {
+                    return status;
+                }
+            }
+            segment.AddMember("indices", indices, allocator);
+            segments.PushBack(segment, allocator);
+        }
+    }
+    rowset_value->AddMember("segments", segments, allocator);
     return Status::OK();
 }
 

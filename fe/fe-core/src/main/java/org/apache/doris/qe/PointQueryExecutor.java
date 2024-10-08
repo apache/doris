@@ -167,7 +167,7 @@ public class PointQueryExecutor implements CoordInterface {
             } else if (binaryPredicate.getChild(1) instanceof LiteralExpr) {
                 binaryPredicate.setChild(1, conjunctVals.get(i));
             } else {
-                Preconditions.checkState(false, "Should conatains literal in " + binaryPredicate.toSqlImpl());
+                Preconditions.checkState(false, "Should contains literal in " + binaryPredicate.toSqlImpl());
             }
         }
     }
@@ -267,7 +267,10 @@ public class PointQueryExecutor implements CoordInterface {
             if (snapshotVisibleVersions != null && !snapshotVisibleVersions.isEmpty()) {
                 requestBuilder.setVersion(snapshotVisibleVersions.get(0));
             }
-            if (shortCircuitQueryContext.cacheID != null) {
+            // Only set cacheID for prepared statement excute phase,
+            // otherwise leading to many redundant cost in BE side
+            if (shortCircuitQueryContext.cacheID != null
+                        && ConnectContext.get().command == MysqlCommand.COM_STMT_EXECUTE) {
                 InternalService.UUID.Builder uuidBuilder = InternalService.UUID.newBuilder();
                 uuidBuilder.setUuidHigh(shortCircuitQueryContext.cacheID.getMostSignificantBits());
                 uuidBuilder.setUuidLow(shortCircuitQueryContext.cacheID.getLeastSignificantBits());

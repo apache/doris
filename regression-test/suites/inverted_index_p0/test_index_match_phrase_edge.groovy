@@ -16,7 +16,7 @@
 // under the License.
 
 
-suite("test_index_match_phrase_edge", "p0"){
+suite("test_index_match_phrase_edge", "nonConcurrent"){
     def indexTbName1 = "test_index_match_phrase_edge"
 
     sql "DROP TABLE IF EXISTS ${indexTbName1}"
@@ -48,8 +48,16 @@ suite("test_index_match_phrase_edge", "p0"){
     sql """ INSERT INTO ${indexTbName1} VALUES (9, "hm_bg.jpg", "前几日 hm bg jpg 在别处 hm bg jpg 购得"); """
     sql """ INSERT INTO ${indexTbName1} VALUES (10, "nav_tickets_off.gif", "习惯于生活中很多 nav tickets off gif 虚假 nav tickets off gif 美化的人来说"); """
 
+    sql """ INSERT INTO ${indexTbName1} VALUES (11, "40.135.0.0", "GET /images/hm_bg.jpg HTTP/1.0"); """
+    sql """ INSERT INTO ${indexTbName1} VALUES (12, "232.0.0.0", "GET /images/hm_bg.jpg HTTP/1.0"); """
+    sql """ INSERT INTO ${indexTbName1} VALUES (13, "26.1.0.0", "GET /images/hm_bg.jpg HTTP/1.0"); """
+    sql """ INSERT INTO ${indexTbName1} VALUES (14, "247.37.0.0", "GET /french/splash_inet.html HTTP/1.0"); """
+    sql """ INSERT INTO ${indexTbName1} VALUES (15, "247.37.0.0", "GET /images/hm_nbg.jpg HTTP/1.0"); """
+
     try {
         sql "sync"
+        sql """ set enable_common_expr_pushdown = true; """
+        GetDebugPoint().enableDebugPointForAllBEs("VMatchPredicate.execute")
 
         qt_sql """ select * from ${indexTbName1} where b match_phrase_edge 'x.h'; """
         qt_sql """ select * from ${indexTbName1} where b match_phrase_edge 'v_i'; """
@@ -63,7 +71,12 @@ suite("test_index_match_phrase_edge", "p0"){
         qt_sql """ select * from ${indexTbName1} where c match_phrase_edge 'ue off gif 家长 na'; """
         qt_sql """ select * from ${indexTbName1} where c match_phrase_edge 'if 虚假 na'; """
 
+        qt_sql """ select count() from ${indexTbName1} where b match_phrase_edge '1'; """
+        qt_sql """ select count() from ${indexTbName1} where b match_phrase_edge '3'; """
+        qt_sql """ select count() from ${indexTbName1} where c match_phrase_edge 'n'; """
+        qt_sql """ select count() from ${indexTbName1} where c match_phrase_edge 'b'; """
+
     } finally {
-        //try_sql("DROP TABLE IF EXISTS ${testTable}")
+        GetDebugPoint().disableDebugPointForAllBEs("VMatchPredicate.execute")
     }
 }

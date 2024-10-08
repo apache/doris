@@ -32,6 +32,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.PatternMatcherWrapper;
+import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.OrderByPair;
 import org.apache.doris.common.util.TimeUtils;
@@ -107,6 +108,15 @@ public class ExportMgr {
                 }
             }
             unprotectAddJob(job);
+            // delete existing files
+            if (Config.enable_delete_existing_files && Boolean.parseBoolean(job.getDeleteExistingFiles())) {
+                if (job.getBrokerDesc() == null) {
+                    throw new AnalysisException("Local file system does not support delete existing files");
+                }
+                String fullPath = job.getExportPath();
+                BrokerUtil.deleteDirectoryWithFileSystem(fullPath.substring(0, fullPath.lastIndexOf('/') + 1),
+                        job.getBrokerDesc());
+            }
             job.getTaskExecutors().forEach(executor -> {
                 Long taskId = Env.getCurrentEnv().getTransientTaskManager().addMemoryTask(executor);
                 job.getTaskIdToExecutor().put(taskId, executor);
@@ -145,7 +155,7 @@ public class ExportMgr {
 
     public void checkCancelExportJobAuth(String ctlName, String dbName, List<ExportJob> jobs) throws AnalysisException {
         if (jobs.size() > 1) {
-            if (Env.getCurrentEnv().getAccessManager()
+            if (!Env.getCurrentEnv().getAccessManager()
                     .checkDbPriv(ConnectContext.get(), ctlName, dbName,
                             PrivPredicate.SELECT)) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_DB_ACCESS_DENIED_ERROR,
@@ -156,7 +166,7 @@ public class ExportMgr {
             if (tableName == null) {
                 return;
             }
-            if (Env.getCurrentEnv().getAccessManager()
+            if (!Env.getCurrentEnv().getAccessManager()
                     .checkTblPriv(ConnectContext.get(), ctlName, dbName,
                             tableName.getTbl(),
                             PrivPredicate.SELECT)) {

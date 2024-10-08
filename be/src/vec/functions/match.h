@@ -55,6 +55,7 @@ const std::string MATCH_ALL_FUNCTION = "match_all";
 const std::string MATCH_PHRASE_FUNCTION = "match_phrase";
 const std::string MATCH_PHRASE_PREFIX_FUNCTION = "match_phrase_prefix";
 const std::string MATCH_PHRASE_REGEXP_FUNCTION = "match_regexp";
+const std::string MATCH_PHRASE_EDGE_FUNCTION = "match_phrase_edge";
 
 class FunctionMatchBase : public IFunction {
 public:
@@ -81,6 +82,10 @@ public:
 
     doris::segment_v2::InvertedIndexQueryType get_query_type_from_fn_name() const;
 
+    std::vector<std::string> analyse_query_str_token(InvertedIndexCtx* inverted_index_ctx,
+                                                     const std::string& match_query_str,
+                                                     const std::string& field_name) const;
+
     std::vector<std::string> analyse_data_token(const std::string& column_name,
                                                 InvertedIndexCtx* inverted_index_ctx,
                                                 const ColumnString* string_col,
@@ -89,6 +94,11 @@ public:
                                                 int32_t& current_src_array_offset) const;
 
     Status check(FunctionContext* context, const std::string& function_name) const;
+    Status evaluate_inverted_index(
+            const ColumnsWithTypeAndName& arguments,
+            const std::vector<vectorized::IndexFieldNameAndTypePair>& data_type_with_names,
+            std::vector<segment_v2::InvertedIndexIterator*> iterators, uint32_t num_rows,
+            segment_v2::InvertedIndexResultBitmap& bitmap_result) const override;
 };
 
 class FunctionMatchAny : public FunctionMatchBase {

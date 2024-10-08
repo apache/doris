@@ -20,7 +20,6 @@ package org.apache.doris.metric;
 import org.apache.doris.alter.Alter;
 import org.apache.doris.alter.AlterJobV2.JobType;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
@@ -89,6 +88,7 @@ public final class MetricRepo {
     public static Histogram HISTO_QUERY_LATENCY;
     public static AutoMappedMetric<Histogram> USER_HISTO_QUERY_LATENCY;
     public static AutoMappedMetric<GaugeMetricImpl<Long>> USER_GAUGE_QUERY_INSTANCE_NUM;
+    public static AutoMappedMetric<GaugeMetricImpl<Integer>> USER_GAUGE_CONNECTIONS;
     public static AutoMappedMetric<LongCounterMetric> USER_COUNTER_QUERY_INSTANCE_BEGIN;
     public static AutoMappedMetric<LongCounterMetric> BE_COUNTER_QUERY_RPC_ALL;
     public static AutoMappedMetric<LongCounterMetric> BE_COUNTER_QUERY_RPC_FAILED;
@@ -228,10 +228,15 @@ public final class MetricRepo {
         generateBackendsTabletMetrics();
 
         // connections
-        GaugeMetric<Integer> connections = new GaugeMetric<Integer>("connection_total", MetricUnit.CONNECTIONS,
-                "total connections") {
+        USER_GAUGE_CONNECTIONS = addLabeledMetrics("user", () ->
+                new GaugeMetricImpl<>("connection_total", MetricUnit.CONNECTIONS,
+                        "total connections", 0));
+        GaugeMetric<Integer> connections = new GaugeMetric<Integer>("connection_total",
+                MetricUnit.CONNECTIONS, "total connections") {
             @Override
             public Integer getValue() {
+                ExecuteEnv.getInstance().getScheduler().getUserConnectionMap()
+                        .forEach((k, v) -> USER_GAUGE_CONNECTIONS.getOrAdd(k).setValue(v.get()));
                 return ExecuteEnv.getInstance().getScheduler().getConnectionNum();
             }
         };
@@ -646,7 +651,6 @@ public final class MetricRepo {
         DORIS_METRIC_REGISTER.removeMetrics(TABLET_MAX_COMPACTION_SCORE);
 
         SystemInfoService infoService = Env.getCurrentSystemInfo();
-        TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
 
         for (Long beId : infoService.getAllBackendIds(false)) {
             Backend be = infoService.getBackend(beId);
@@ -661,7 +665,7 @@ public final class MetricRepo {
                     if (!Env.getCurrentEnv().isMaster()) {
                         return 0L;
                     }
-                    return (long) invertedIndex.getTabletNumByBackendId(beId);
+                    return (long) infoService.getTabletNumByBackendId(beId);
                 }
             };
             tabletNum.addLabel(new MetricLabel("backend",
@@ -714,6 +718,8 @@ public final class MetricRepo {
         visitor.visitNodeInfo();
 
         visitor.visitCloudTableStats();
+
+        visitor.visitWorkloadGroup();
 
         return visitor.finish();
     }

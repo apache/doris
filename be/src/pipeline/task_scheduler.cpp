@@ -52,13 +52,13 @@ TaskScheduler::~TaskScheduler() {
 
 Status TaskScheduler::start() {
     int cores = _task_queue->cores();
-    // Must be mutil number of cpu cores
     RETURN_IF_ERROR(ThreadPoolBuilder(_name)
                             .set_min_threads(cores)
                             .set_max_threads(cores)
                             .set_max_queue_size(0)
                             .set_cgroup_cpu_ctl(_cgroup_cpu_ctl)
                             .build(&_fix_thread_pool));
+    LOG_INFO("TaskScheduler set cores").tag("size", cores);
     _markers.resize(cores, true);
     for (size_t i = 0; i < cores; ++i) {
         RETURN_IF_ERROR(_fix_thread_pool->submit_func([this, i] { _do_work(i); }));
@@ -94,7 +94,7 @@ void _close_task(PipelineTask* task, Status exec_status) {
     }
     task->finalize();
     task->set_running(false);
-    task->fragment_context()->close_a_pipeline();
+    task->fragment_context()->close_a_pipeline(task->pipeline_id());
 }
 
 void TaskScheduler::_do_work(size_t index) {

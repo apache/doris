@@ -113,7 +113,7 @@ Status SchemaViewsScanner::_get_new_table() {
     return Status::OK();
 }
 
-Status SchemaViewsScanner::get_next_block(vectorized::Block* block, bool* eos) {
+Status SchemaViewsScanner::get_next_block_internal(vectorized::Block* block, bool* eos) {
     if (!_is_init) {
         return Status::InternalError("Used before initialized.");
     }

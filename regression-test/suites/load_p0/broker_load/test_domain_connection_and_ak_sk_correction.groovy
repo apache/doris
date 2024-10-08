@@ -100,7 +100,7 @@ suite("test_domain_connection_and_ak_sk_correction",  "load_p0") {
         assertTrue(false. "The endpoint is wrong, so the connection test should fale")
     } catch (Exception e) {
         logger.info("the second sql exception result is {}", e.getMessage())
-        assertTrue(e.getMessage().contains("Incorrect object storage info"), e.getMessage())
+        assertTrue(e.getMessage().contains("Failed to access object storage, message="), e.getMessage())
     }
 
     label = UUID.randomUUID().toString().replace("-", "")
@@ -125,7 +125,7 @@ suite("test_domain_connection_and_ak_sk_correction",  "load_p0") {
         assertTrue(false. "AK is wrong, so the correction of AKSK test should fale")
     } catch (Exception e) {
         logger.info("the third sql exception result is {}", e.getMessage())
-        assertTrue(e.getMessage().contains("Incorrect object storage info"), e.getMessage())
+        assertTrue(e.getMessage().contains("Failed to access object storage, message="), e.getMessage())
     }
 
     label = UUID.randomUUID().toString().replace("-", "")
@@ -154,7 +154,7 @@ suite("test_domain_connection_and_ak_sk_correction",  "load_p0") {
         assertTrue(false. "in the second DATA INFILE, the first bucket is wrong, so the sql should fail")
     } catch (Exception e) {
         logger.info("the fourth sql exception result is {}", e.getMessage())
-        assertTrue(e.getMessage().contains("Incorrect object storage info"), e.getMessage())
+        assertTrue(e.getMessage().contains("Failed to access object storage, message="), e.getMessage())
     }
     sql """ DROP TABLE IF EXISTS ${tableName} FORCE"""
     sql """ DROP TABLE IF EXISTS ${tableNameOrders} FORCE"""

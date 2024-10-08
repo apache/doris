@@ -80,7 +80,7 @@ public:
                        int64_t push_down_count);
     ~IcebergTableReader() override = default;
 
-    Status init_row_filters(const TFileRangeDesc& range) final;
+    Status init_row_filters(const TFileRangeDesc& range, io::IOContext* io_ctx) final;
 
     Status get_next_block(Block* block, size_t* read_rows, bool* eof) final;
 

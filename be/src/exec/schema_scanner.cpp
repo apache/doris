@@ -28,6 +28,7 @@
 
 #include "exec/schema_scanner/schema_active_queries_scanner.h"
 #include "exec/schema_scanner/schema_backend_active_tasks.h"
+#include "exec/schema_scanner/schema_catalog_meta_cache_stats_scanner.h"
 #include "exec/schema_scanner/schema_charsets_scanner.h"
 #include "exec/schema_scanner/schema_collations_scanner.h"
 #include "exec/schema_scanner/schema_columns_scanner.h"
@@ -43,15 +44,21 @@
 #include "exec/schema_scanner/schema_schemata_scanner.h"
 #include "exec/schema_scanner/schema_table_options_scanner.h"
 #include "exec/schema_scanner/schema_table_privileges_scanner.h"
+#include "exec/schema_scanner/schema_table_properties_scanner.h"
 #include "exec/schema_scanner/schema_tables_scanner.h"
 #include "exec/schema_scanner/schema_user_privileges_scanner.h"
 #include "exec/schema_scanner/schema_user_scanner.h"
 #include "exec/schema_scanner/schema_variables_scanner.h"
 #include "exec/schema_scanner/schema_views_scanner.h"
+#include "exec/schema_scanner/schema_workload_group_privileges.h"
+#include "exec/schema_scanner/schema_workload_group_resource_usage_scanner.h"
 #include "exec/schema_scanner/schema_workload_groups_scanner.h"
 #include "exec/schema_scanner/schema_workload_sched_policy_scanner.h"
 #include "olap/hll.h"
+#include "pipeline/dependency.h"
 #include "runtime/define_primitive_type.h"
+#include "runtime/fragment_mgr.h"
+#include "runtime/types.h"
 #include "util/string_util.h"
 #include "util/types.h"
 #include "vec/columns/column.h"
@@ -65,6 +72,7 @@
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_factory.hpp"
 
 namespace doris {
 class ObjectPool;
@@ -85,7 +93,64 @@ Status SchemaScanner::start(RuntimeState* state) {
     return Status::OK();
 }
 
-Status SchemaScanner::get_next_block(vectorized::Block* block, bool* eos) {
+Status SchemaScanner::get_next_block(RuntimeState* state, vectorized::Block* block, bool* eos) {
+    if (_data_block == nullptr) {
+        return Status::InternalError("No data left!");
+    }
+    DCHECK(_async_thread_running == false);
+    RETURN_IF_ERROR(_scanner_status.status());
+    for (size_t i = 0; i < block->columns(); i++) {
+        std::move(*block->get_by_position(i).column)
+                .mutate()
+                ->insert_range_from(*_data_block->get_by_position(i).column, 0,
+                                    _data_block->rows());
+    }
+    _data_block->clear_column_data();
+    *eos = _eos;
+    if (!*eos) {
+        RETURN_IF_ERROR(get_next_block_async(state));
+    }
+    return Status::OK();
+}
+
+Status SchemaScanner::get_next_block_async(RuntimeState* state) {
+    _dependency->block();
+    auto task_ctx = state->get_task_execution_context();
+    RETURN_IF_ERROR(ExecEnv::GetInstance()->fragment_mgr()->get_thread_pool()->submit_func(
+            [this, task_ctx, state]() {
+                DCHECK(_async_thread_running == false);
+                auto task_lock = task_ctx.lock();
+                if (task_lock == nullptr) {
+                    _scanner_status.update(Status::InternalError("Task context not exists!"));
+                    return;
+                }
+                SCOPED_ATTACH_TASK(state);
+                _dependency->block();
+                _async_thread_running = true;
+                _finish_dependency->block();
+                if (!_opened) {
+                    _data_block = vectorized::Block::create_unique();
+                    _init_block(_data_block.get());
+                    _scanner_status.update(start(state));
+                    _opened = true;
+                }
+                bool eos = false;
+                auto call_next_block_internal = [&]() -> Status {
+                    RETURN_IF_CATCH_EXCEPTION(
+                            { return get_next_block_internal(_data_block.get(), &eos); });
+                };
+                _scanner_status.update(call_next_block_internal());
+                _eos = eos;
+                _async_thread_running = false;
+                _dependency->set_ready();
+                if (eos) {
+                    _finish_dependency->set_ready();
+                }
+            }));
+    return Status::OK();
+}
+
+Status SchemaScanner::get_next_block_internal(vectorized::Block* block, bool* eos) {
     if (!_is_init) {
         return Status::InternalError("used before initialized.");
     }
@@ -170,9 +235,27 @@ std::unique_ptr<SchemaScanner> SchemaScanner::create(TSchemaTableType::type type
         return SchemaWorkloadSchedulePolicyScanner::create_unique();
     case TSchemaTableType::SCH_TABLE_OPTIONS:
         return SchemaTableOptionsScanner::create_unique();
+    case TSchemaTableType::SCH_WORKLOAD_GROUP_PRIVILEGES:
+        return SchemaWorkloadGroupPrivilegesScanner::create_unique();
+    case TSchemaTableType::SCH_WORKLOAD_GROUP_RESOURCE_USAGE:
+        return SchemaBackendWorkloadGroupResourceUsage::create_unique();
+    case TSchemaTableType::SCH_TABLE_PROPERTIES:
+        return SchemaTablePropertiesScanner::create_unique();
+    case TSchemaTableType::SCH_CATALOG_META_CACHE_STATISTICS:
+        return SchemaCatalogMetaCacheStatsScanner::create_unique();
     default:
         return SchemaDummyScanner::create_unique();
         break;
+    }
+}
+
+void SchemaScanner::_init_block(vectorized::Block* src_block) {
+    const std::vector<SchemaScanner::ColumnDesc>& columns_desc(get_column_desc());
+    for (int i = 0; i < columns_desc.size(); ++i) {
+        TypeDescriptor descriptor(columns_desc[i].type);
+        auto data_type = vectorized::DataTypeFactory::instance().create_data_type(descriptor, true);
+        src_block->insert(vectorized::ColumnWithTypeAndName(data_type->create_column(), data_type,
+                                                            columns_desc[i].name));
     }
 }
 
@@ -370,6 +453,17 @@ Status SchemaScanner::insert_block_column(TCell cell, int col_index, vectorized:
         break;
     }
 
+    case TYPE_DATETIME: {
+        std::vector<void*> datas(1);
+        VecDateTimeValue src[1];
+        src[0].from_date_str(cell.stringVal.data(), cell.stringVal.size());
+        datas[0] = src;
+        auto data = datas[0];
+        reinterpret_cast<vectorized::ColumnVector<vectorized::Int64>*>(col_ptr)->insert_data(
+                reinterpret_cast<char*>(data), 0);
+        nullable_column->get_null_map_data().emplace_back(0);
+        break;
+    }
     default: {
         std::stringstream ss;
         ss << "unsupported column type:" << type;

@@ -92,7 +92,6 @@ public class BackupHandler extends MasterDaemon implements Writable {
     public static final int SIGNATURE_VERSION = 1;
     public static final Path BACKUP_ROOT_DIR = Paths.get(Config.tmp_dir, "backup").normalize();
     public static final Path RESTORE_ROOT_DIR = Paths.get(Config.tmp_dir, "restore").normalize();
-
     private RepositoryMgr repoMgr = new RepositoryMgr();
 
     // this lock is used for updating dbIdToBackupOrRestoreJobs
@@ -220,6 +219,10 @@ public class BackupHandler extends MasterDaemon implements Writable {
         if (!st.ok()) {
             ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
                                            "Failed to create repository: " + st.getErrMsg());
+        }
+        if (!repo.ping()) {
+            ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
+                    "Failed to create repository: failed to connect to the repo");
         }
     }
 
@@ -528,12 +531,14 @@ public class BackupHandler extends MasterDaemon implements Writable {
                     db.getId(), db.getFullName(), jobInfo, stmt.allowLoad(), stmt.getReplicaAlloc(),
                     stmt.getTimeoutMs(), metaVersion, stmt.reserveReplica(),
                     stmt.reserveDynamicPartitionEnable(), stmt.isBeingSynced(),
+                    stmt.isCleanTables(), stmt.isCleanPartitions(), stmt.isAtomicRestore(),
                     env, Repository.KEEP_ON_LOCAL_REPO_ID, backupMeta);
         } else {
             restoreJob = new RestoreJob(stmt.getLabel(), stmt.getBackupTimestamp(),
                 db.getId(), db.getFullName(), jobInfo, stmt.allowLoad(), stmt.getReplicaAlloc(),
                 stmt.getTimeoutMs(), stmt.getMetaVersion(), stmt.reserveReplica(), stmt.reserveDynamicPartitionEnable(),
-                stmt.isBeingSynced(), env, repository.getId());
+                stmt.isBeingSynced(), stmt.isCleanTables(), stmt.isCleanPartitions(), stmt.isAtomicRestore(),
+                env, repository.getId());
         }
 
         env.getEditLog().logRestoreJob(restoreJob);

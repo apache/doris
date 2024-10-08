@@ -89,7 +89,7 @@ public class ColumnDefTest {
             ColumnDef column = new ColumnDef("col", intCol, false, AggregateType.REPLACE_IF_NOT_NULL, true, DefaultValue.NOT_SET, "");
             column.analyze(true);
             Assert.assertEquals(AggregateType.REPLACE_IF_NOT_NULL, column.getAggregateType());
-            Assert.assertEquals("`col` int REPLACE_IF_NOT_NULL NULL DEFAULT \"null\" COMMENT \"\"", column.toSql());
+            Assert.assertEquals("`col` int REPLACE_IF_NOT_NULL NULL DEFAULT NULL COMMENT \"\"", column.toSql());
         } // CHECKSTYLE IGNORE THIS LINE
         { // CHECKSTYLE IGNORE THIS LINE
             // not allow null
@@ -97,6 +97,12 @@ public class ColumnDefTest {
             column.analyze(true);
             Assert.assertEquals(AggregateType.REPLACE_IF_NOT_NULL, column.getAggregateType());
             Assert.assertEquals("`col` int REPLACE_IF_NOT_NULL NULL DEFAULT \"10\" COMMENT \"\"", column.toSql());
+        } // CHECKSTYLE IGNORE THIS LINE
+        { // CHECKSTYLE IGNORE THIS LINE
+            ColumnDef column = new ColumnDef("col", intCol, false, AggregateType.REPLACE_IF_NOT_NULL, true, DefaultValue.NULL_DEFAULT_VALUE, "");
+            column.analyze(true);
+            Assert.assertEquals(AggregateType.REPLACE_IF_NOT_NULL, column.getAggregateType());
+            Assert.assertEquals("`col` int REPLACE_IF_NOT_NULL NULL DEFAULT NULL COMMENT \"\"", column.toSql());
         } // CHECKSTYLE IGNORE THIS LINE
     }
 

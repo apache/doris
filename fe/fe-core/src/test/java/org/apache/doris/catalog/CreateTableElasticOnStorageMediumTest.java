@@ -36,7 +36,7 @@ public class CreateTableElasticOnStorageMediumTest extends TestWithFeService {
 
     public void setStorageMediumToSSDTest() throws Exception {
         SystemInfoService clusterInfo = Env.getCurrentEnv().getClusterInfo();
-        List<Backend> allBackends = clusterInfo.getAllBackends();
+        List<Backend> allBackends = clusterInfo.getAllBackendsByAllCluster().values().asList();
         // set all backends' storage medium to SSD
         for (Backend backend : allBackends) {
             if (backend.hasPathHash()) {
@@ -59,7 +59,7 @@ public class CreateTableElasticOnStorageMediumTest extends TestWithFeService {
 
     public void setStorageMediumToHDDTest() throws Exception {
         SystemInfoService clusterInfo = Env.getCurrentEnv().getClusterInfo();
-        List<Backend> allBackends = clusterInfo.getAllBackends();
+        List<Backend> allBackends = clusterInfo.getAllBackendsByAllCluster().values().asList();
         // set all backends' storage medium to SSD
         for (Backend backend : allBackends) {
             if (backend.hasPathHash()) {

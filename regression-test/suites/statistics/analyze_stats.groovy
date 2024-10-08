@@ -165,6 +165,73 @@ suite("test_analyze") {
         exception = e
     }
 
+    // Test partition load data for the first time.
+    sql """
+     CREATE TABLE `partition_test` (
+      `id` INT NOT NULL,
+      `name` VARCHAR(25) NOT NULL,
+      `comment` VARCHAR(152) NULL
+      ) ENGINE=OLAP
+      DUPLICATE KEY(`id`)
+      COMMENT 'OLAP'
+      PARTITION BY RANGE(`id`)
+      (PARTITION p1 VALUES [("0"), ("100")),
+       PARTITION p2 VALUES [("100"), ("200")),
+       PARTITION p3 VALUES [("200"), ("300")))
+      DISTRIBUTED BY HASH(`id`) BUCKETS 1
+      PROPERTIES (
+       "replication_num" = "1");
+     """
+
+    sql """analyze table partition_test with sync"""
+    sql """insert into partition_test values (1, '1', '1')"""
+    def partition_result = sql """show table stats partition_test"""
+    assertEquals(partition_result[0][6], "true")
+    assertEquals(partition_result[0][0], "1")
+    sql """analyze table partition_test with sync"""
+    partition_result = sql """show table stats partition_test"""
+    assertEquals(partition_result[0][6], "false")
+    sql """insert into partition_test values (101, '1', '1')"""
+    partition_result = sql """show table stats partition_test"""
+    assertEquals(partition_result[0][6], "true")
+    sql """analyze table partition_test(id) with sync"""
+    partition_result = sql """show table stats partition_test"""
+    assertEquals(partition_result[0][6], "true")
+    sql """analyze table partition_test with sync"""
+    partition_result = sql """show table stats partition_test"""
+    assertEquals(partition_result[0][6], "false")
+    sql """insert into partition_test values (102, '1', '1')"""
+    partition_result = sql """show table stats partition_test"""
+    assertEquals(partition_result[0][6], "false")
+    sql """insert into partition_test values (2, '2', '2')"""
+    sql """insert into partition_test values (3, '3', '3')"""
+    sql """insert into partition_test values (4, '4', '4')"""
+    sql """insert into partition_test values (5, '5', '5')"""
+    sql """insert into partition_test values (6, '6', '6')"""
+    sql """insert into partition_test values (7, '7', '7')"""
+    sql """insert into partition_test values (8, '8', '8')"""
+    sql """insert into partition_test values (9, '9', '9')"""
+    sql """insert into partition_test values (10, '10', '10')"""
+    sql """insert into partition_test values (103, '1', '1')"""
+    sql """insert into partition_test values (104, '1', '1')"""
+    sql """insert into partition_test values (105, '1', '1')"""
+    partition_result = sql """show table stats partition_test"""
+    assertEquals(partition_result[0][6], "false")
+    sql """analyze table partition_test with sync"""
+    sql """insert into partition_test values (201, '1', '1')"""
+    partition_result = sql """show table stats partition_test"""
+    assertEquals(partition_result[0][6], "true")
+    partition_result = sql """show column stats partition_test(id)"""
+    assertEquals("id", partition_result[0][0])
+    assertEquals("15.0", partition_result[0][2])
+    partition_result = sql """show column stats partition_test(name)"""
+    assertEquals("name", partition_result[0][0])
+    assertEquals("15.0", partition_result[0][2])
+    partition_result = sql """show column stats partition_test(comment)"""
+    assertEquals("comment", partition_result[0][0])
+    assertEquals("15.0", partition_result[0][2])
+
+
     // Test sample agg table value column. Min max is N/A when zone map is not available.
     sql """
      CREATE TABLE `agg_table_test` (
@@ -177,13 +244,41 @@ suite("test_analyze") {
      PROPERTIES (
       "replication_num" = "1"
      );
-   """
+    """
     sql """insert into agg_table_test values (1,'name1'), (2, 'name2')"""
     sql """analyze table agg_table_test with sample rows 100 with sync"""
     def agg_result = sql """show column stats agg_table_test (name)"""
     logger.info("show column agg_table_test(name) stats: " + agg_result)
     assertEquals(agg_result[0][7], "N/A")
     assertEquals(agg_result[0][8], "N/A")
+
+    // Continue test partition load data for the first time.
+    def reported = false;
+    for (int i = 0; i < 10; i++) {
+        def data_result = sql """show data from partition_test"""
+        logger.info("show data from partition_test: " + data_result)
+        if (data_result[0][4] == '16') {
+            reported = true;
+            break;
+        }
+        sleep(1000)
+    }
+    if (!reported) {
+        logger.info("partition_test row count is not reported.")
+    } else {
+        sql """analyze table partition_test(name) PROPERTIES("use.auto.analyzer"="true")"""
+        partition_result = sql """show table stats partition_test"""
+        assertEquals(partition_result[0][6], "false")
+        partition_result = sql """show column stats partition_test(id)"""
+        assertEquals("id", partition_result[0][0])
+        assertEquals("16.0", partition_result[0][2])
+        partition_result = sql """show column stats partition_test(name)"""
+        assertEquals("name", partition_result[0][0])
+        assertEquals("16.0", partition_result[0][2])
+        partition_result = sql """show column stats partition_test(comment)"""
+        assertEquals("comment", partition_result[0][0])
+        assertEquals("16.0", partition_result[0][2])
+    }
 
     def a_result_1 = sql """
         ANALYZE DATABASE ${db} WITH SYNC WITH SAMPLE PERCENT 10
@@ -2596,42 +2691,6 @@ PARTITION `p599` VALUES IN (599)
     assertEquals("\'name1\'", result[0][7])
     assertEquals("\'name3\'", result[0][8])
 
-    // Test partititon load data for the first time.
-    sql """
-     CREATE TABLE `partition_test` (
-      `id` INT NOT NULL,
-      `name` VARCHAR(25) NOT NULL,
-      `comment` VARCHAR(152) NULL
-      ) ENGINE=OLAP
-      DUPLICATE KEY(`id`)
-      COMMENT 'OLAP'
-      PARTITION BY RANGE(`id`)
-      (PARTITION p1 VALUES [("0"), ("100")),
-       PARTITION p2 VALUES [("100"), ("200")),
-       PARTITION p3 VALUES [("200"), ("300")))
-      DISTRIBUTED BY HASH(`id`) BUCKETS 1
-      PROPERTIES (
-       "replication_num" = "1");
-     """
-
-    sql """analyze table partition_test with sync"""
-    sql """insert into partition_test values (1, '1', '1')"""
-    def partition_result = sql """show table stats partition_test"""
-    assertEquals(partition_result[0][6], "true")
-    assertEquals(partition_result[0][0], "1")
-    sql """analyze table partition_test with sync"""
-    partition_result = sql """show table stats partition_test"""
-    assertEquals(partition_result[0][6], "false")
-    sql """insert into partition_test values (101, '1', '1')"""
-    partition_result = sql """show table stats partition_test"""
-    assertEquals(partition_result[0][6], "true")
-    sql """analyze table partition_test(id) with sync"""
-    partition_result = sql """show table stats partition_test"""
-    assertEquals(partition_result[0][6], "false")
-    sql """insert into partition_test values (102, '1', '1')"""
-    partition_result = sql """show table stats partition_test"""
-    assertEquals(partition_result[0][6], "false")
-
     // Test sample string type min max
     sql """
      CREATE TABLE `string_min_max` (
@@ -2684,7 +2743,7 @@ PARTITION `p599` VALUES IN (599)
     assertEquals("true", alter_result[0][7])
     sql """drop stats alter_test"""
     alter_result = sql """show table stats alter_test"""
-    assertEquals("false", alter_result[0][7])
+    assertEquals("", alter_result[0][7])
     sql """alter table alter_test modify column id set stats ('row_count'='100', 'ndv'='0', 'num_nulls'='0.0', 'data_size'='2.69975443E8', 'min_value'='1', 'max_value'='2');"""
     alter_result = sql """show column stats alter_test(id)"""
     logger.info("show column alter_test(id) stats: " + alter_result)

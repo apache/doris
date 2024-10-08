@@ -46,15 +46,6 @@ AggregateFunctionPtr create_function_single_value(const String& name,
     FOR_NUMERIC_TYPES(DISPATCH)
 #undef DISPATCH
 
-#define DISPATCH(TYPE)                                                                 \
-    if (which.idx == TypeIndex::TYPE)                                                  \
-        return creator_without_type::create<AggregateFunctionTemplate<                 \
-                NameData<Data<TYPE, BaseDatadecimal<TYPE, is_stddev>>>, is_nullable>>( \
-                custom_nullable ? remove_nullable(argument_types) : argument_types,    \
-                result_is_nullable);
-    FOR_DECIMAL_TYPES(DISPATCH)
-#undef DISPATCH
-
     LOG(WARNING) << fmt::format("create_function_single_value with unknowed type {}",
                                 argument_types[0]->get_name());
     return nullptr;
@@ -118,13 +109,17 @@ void register_aggregate_function_stddev_variance_pop(AggregateFunctionSimpleFact
 
 void register_aggregate_function_stddev_variance_samp_old(AggregateFunctionSimpleFactory& factory) {
     factory.register_alternative_function(
-            "variance_samp", create_aggregate_function_variance_samp_older<false, false>);
+            "variance_samp", create_aggregate_function_variance_samp_older<false, false>, false,
+            AGG_FUNCTION_NULLABLE);
     factory.register_alternative_function(
-            "variance_samp", create_aggregate_function_variance_samp_older<false, true>, true);
+            "variance_samp", create_aggregate_function_variance_samp_older<false, true>, true,
+            AGG_FUNCTION_NULLABLE);
     factory.register_alternative_function("stddev_samp",
-                                          create_aggregate_function_stddev_samp_older<true, false>);
-    factory.register_alternative_function(
-            "stddev_samp", create_aggregate_function_stddev_samp_older<true, true>, true);
+                                          create_aggregate_function_stddev_samp_older<true, false>,
+                                          false, AGG_FUNCTION_NULLABLE);
+    factory.register_alternative_function("stddev_samp",
+                                          create_aggregate_function_stddev_samp_older<true, true>,
+                                          true, AGG_FUNCTION_NULLABLE);
 }
 
 void register_aggregate_function_stddev_variance_samp(AggregateFunctionSimpleFactory& factory) {

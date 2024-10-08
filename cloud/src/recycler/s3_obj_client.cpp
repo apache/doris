@@ -30,9 +30,11 @@
 
 #include "common/config.h"
 #include "common/logging.h"
+#include "common/stopwatch.h"
 #include "cpp/s3_rate_limiter.h"
 #include "cpp/sync_point.h"
 #include "recycler/s3_accessor.h"
+#include "recycler/util.h"
 
 namespace doris::cloud {
 
@@ -89,7 +91,10 @@ public:
             return false;
         }
 
-        auto outcome = s3_get_rate_limit([&]() { return client_->ListObjectsV2(req_); });
+        auto outcome = s3_get_rate_limit([&]() {
+            SCOPED_BVAR_LATENCY(s3_bvar::s3_list_latency);
+            return client_->ListObjectsV2(req_);
+        });
 
         if (!outcome.IsSuccess()) {
             LOG_WARNING("failed to list objects")
@@ -152,7 +157,10 @@ ObjectStorageResponse S3ObjClient::put_object(ObjectStoragePathRef path, std::st
     auto input = Aws::MakeShared<Aws::StringStream>("S3Accessor");
     *input << stream;
     request.SetBody(input);
-    auto outcome = s3_put_rate_limit([&]() { return s3_client_->PutObject(request); });
+    auto outcome = s3_put_rate_limit([&]() {
+        SCOPED_BVAR_LATENCY(s3_bvar::s3_put_latency);
+        return s3_client_->PutObject(request);
+    });
     if (!outcome.IsSuccess()) {
         LOG_WARNING("failed to put object")
                 .tag("endpoint", endpoint_)
@@ -168,7 +176,10 @@ ObjectStorageResponse S3ObjClient::put_object(ObjectStoragePathRef path, std::st
 ObjectStorageResponse S3ObjClient::head_object(ObjectStoragePathRef path, ObjectMeta* res) {
     Aws::S3::Model::HeadObjectRequest request;
     request.WithBucket(path.bucket).WithKey(path.key);
-    auto outcome = s3_get_rate_limit([&]() { return s3_client_->HeadObject(request); });
+    auto outcome = s3_get_rate_limit([&]() {
+        SCOPED_BVAR_LATENCY(s3_bvar::s3_head_latency);
+        return s3_client_->HeadObject(request);
+    });
     if (outcome.IsSuccess()) {
         res->key = path.key;
         res->size = outcome.GetResult().GetContentLength();
@@ -210,8 +221,10 @@ ObjectStorageResponse S3ObjClient::delete_objects(const std::string& bucket,
         Aws::S3::Model::Delete del;
         del.WithObjects(std::move(objects)).SetQuiet(true);
         delete_request.SetDelete(std::move(del));
-        auto delete_outcome =
-                s3_put_rate_limit([&]() { return s3_client_->DeleteObjects(delete_request); });
+        auto delete_outcome = s3_put_rate_limit([&]() {
+            SCOPED_BVAR_LATENCY(s3_bvar::s3_delete_objects_latency);
+            return s3_client_->DeleteObjects(delete_request);
+        });
         if (!delete_outcome.IsSuccess()) {
             LOG_WARNING("failed to delete objects")
                     .tag("endpoint", endpoint_)
@@ -267,7 +280,10 @@ ObjectStorageResponse S3ObjClient::delete_objects(const std::string& bucket,
 ObjectStorageResponse S3ObjClient::delete_object(ObjectStoragePathRef path) {
     Aws::S3::Model::DeleteObjectRequest request;
     request.WithBucket(path.bucket).WithKey(path.key);
-    auto outcome = s3_put_rate_limit([&]() { return s3_client_->DeleteObject(request); });
+    auto outcome = s3_put_rate_limit([&]() {
+        SCOPED_BVAR_LATENCY(s3_bvar::s3_delete_object_latency);
+        return s3_client_->DeleteObject(request);
+    });
     if (!outcome.IsSuccess()) {
         LOG_WARNING("failed to delete object")
                 .tag("endpoint", endpoint_)

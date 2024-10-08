@@ -169,6 +169,7 @@ public class DeleteStmt extends DdlStmt implements NotFallbackInParser {
         }
 
         FromClause fromUsedInInsert;
+        targetTableRef.setPartitionNames(partitionNames);
         if (fromClause == null) {
             fromUsedInInsert = new FromClause(Lists.newArrayList(targetTableRef));
         } else {
@@ -192,7 +193,8 @@ public class DeleteStmt extends DdlStmt implements NotFallbackInParser {
                 LimitElement.NO_LIMIT
         );
         boolean isPartialUpdate = false;
-        if (((OlapTable) targetTable).getEnableUniqueKeyMergeOnWrite()
+        OlapTable olapTable = (OlapTable) targetTable;
+        if (olapTable.getEnableUniqueKeyMergeOnWrite() && !olapTable.isUniqKeyMergeOnWriteWithClusterKeys()
                 && cols.size() < targetTable.getColumns().size()) {
             isPartialUpdate = true;
         }

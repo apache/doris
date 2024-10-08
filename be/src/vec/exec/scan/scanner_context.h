@@ -50,7 +50,6 @@ namespace vectorized {
 
 class VScanner;
 class ScannerDelegate;
-class VScanNode;
 class ScannerScheduler;
 class SimplifiedScanScheduler;
 
@@ -58,11 +57,13 @@ class ScanTask {
 public:
     ScanTask(std::weak_ptr<ScannerDelegate> delegate_scanner) : scanner(delegate_scanner) {
         _query_thread_context.init_unlocked();
+        DorisMetrics::instance()->scanner_task_cnt->increment(1);
     }
 
     ~ScanTask() {
         SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_query_thread_context.query_mem_tracker);
         cached_blocks.clear();
+        DorisMetrics::instance()->scanner_task_cnt->increment(-1);
     }
 
 private:
@@ -118,15 +119,18 @@ public:
             // do nothing
         }
         block.reset();
+        DorisMetrics::instance()->scanner_ctx_cnt->increment(-1);
     }
     Status init();
 
     vectorized::BlockUPtr get_free_block(bool force);
     void return_free_block(vectorized::BlockUPtr block);
-    inline void inc_free_block_usage(size_t usage) {
-        _free_blocks_memory_usage += usage;
-        _free_blocks_memory_usage_mark->set(_free_blocks_memory_usage);
-    }
+    inline void inc_block_usage(size_t usage) { _block_memory_usage += usage; }
+
+    // Caller should make sure the pipeline task is still running when calling this function
+    void update_peak_running_scanner(int num);
+    // Caller should make sure the pipeline task is still running when calling this function
+    void update_peak_memory_usage(int64_t usage);
 
     // Get next block from blocks queue. Called by ScanNode/ScanOperator
     // Set eos to true if there is no more data to read.
@@ -138,7 +142,7 @@ public:
     // set the next scanned block to `ScanTask::current_block`
     // set the error state to `ScanTask::status`
     // set the `eos` to `ScanTask::eos` if there is no more data in current scanner
-    void submit_scan_task(std::shared_ptr<ScanTask> scan_task);
+    Status submit_scan_task(std::shared_ptr<ScanTask> scan_task);
 
     // append the running scanner and its cached block to `_blocks_queue`
     void append_block_to_queue(std::shared_ptr<ScanTask> scan_task);
@@ -154,7 +158,6 @@ public:
 
     RuntimeState* state() { return _state; }
     void incr_ctx_scheduling_time(int64_t num) { _scanner_ctx_sched_time->update(num); }
-
     std::string parent_name();
 
     bool empty_in_queue(int id);
@@ -185,10 +188,9 @@ protected:
     /// 3. `_free_blocks_memory_usage` < `_max_bytes_in_queue`, remains enough memory to scale up
     /// 4. At most scale up `MAX_SCALE_UP_RATIO` times to `_max_thread_num`
     void _set_scanner_done();
-    void _try_to_scale_up();
+    Status _try_to_scale_up();
 
     RuntimeState* _state = nullptr;
-    VScanNode* _parent = nullptr;
     pipeline::ScanLocalStateBase* _local_state = nullptr;
 
     // the comment of same fields in VScanNode
@@ -223,9 +225,10 @@ protected:
     const int _num_parallel_instances;
     std::shared_ptr<RuntimeProfile> _scanner_profile;
     RuntimeProfile::Counter* _scanner_sched_counter = nullptr;
+    // This counter refers to scan operator's local state
+    RuntimeProfile::Counter* _scanner_memory_used_counter = nullptr;
     RuntimeProfile::Counter* _newly_create_free_blocks_num = nullptr;
     RuntimeProfile::Counter* _scanner_wait_batch_timer = nullptr;
-    RuntimeProfile::HighWaterMarkCounter* _free_blocks_memory_usage_mark = nullptr;
     RuntimeProfile::Counter* _scanner_ctx_sched_time = nullptr;
     RuntimeProfile::Counter* _scale_up_scanners_counter = nullptr;
     QueryThreadContext _query_thread_context;
@@ -233,7 +236,7 @@ protected:
 
     // for scaling up the running scanners
     size_t _estimated_block_size = 0;
-    std::atomic_long _free_blocks_memory_usage = 0;
+    std::atomic_long _block_memory_usage = 0;
     int64_t _last_scale_up_time = 0;
     int64_t _last_fetch_time = 0;
     int64_t _total_wait_block_time = 0;

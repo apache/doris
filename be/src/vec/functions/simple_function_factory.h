@@ -105,6 +105,8 @@ void register_function_tokenize(SimpleFunctionFactory& factory);
 void register_function_url(SimpleFunctionFactory& factory);
 void register_function_ip(SimpleFunctionFactory& factory);
 void register_function_multi_match(SimpleFunctionFactory& factory);
+void register_function_split_by_regexp(SimpleFunctionFactory& factory);
+void register_function_assert_true(SimpleFunctionFactory& factory);
 
 class SimpleFunctionFactory {
     using Creator = std::function<FunctionBuilderPtr()>;
@@ -147,14 +149,6 @@ public:
 
     void register_alias(const std::string& name, const std::string& alias) {
         function_alias[alias] = name;
-    }
-
-    /// @TEMPORARY: for be_exec_version=4
-    template <class Function>
-    void register_alternative_function() {
-        static std::string suffix {"_old_for_version_before_5_0"};
-        function_to_replace[Function::name] = Function::name + suffix;
-        register_function(Function::name + suffix, &createDefaultFunction<Function>);
     }
 
     FunctionBasePtr get_function(const std::string& name, const ColumnsWithTypeAndName& arguments,
@@ -292,6 +286,8 @@ public:
             register_function_ignore(instance);
             register_function_variant_element(instance);
             register_function_multi_match(instance);
+            register_function_split_by_regexp(instance);
+            register_function_assert_true(instance);
         });
         return instance;
     }

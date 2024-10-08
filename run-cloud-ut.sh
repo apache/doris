@@ -162,6 +162,14 @@ if [[ -z "${GLIBC_COMPATIBILITY}" ]]; then
     GLIBC_COMPATIBILITY=ON
 fi
 
+if [[ -z "${USE_LIBCPP}" ]]; then
+    if [[ "$(uname -s)" != 'Darwin' ]]; then
+        USE_LIBCPP='OFF'
+    else
+        USE_LIBCPP='ON'
+    fi
+fi
+
 if [[ -z "${USE_DWARF}" ]]; then
     USE_DWARF=OFF
 fi
@@ -182,6 +190,7 @@ find . -name "*.gcda" -exec rm {} \;
     -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
     -DMAKE_TEST=ON \
     -DGLIBC_COMPATIBILITY="${GLIBC_COMPATIBILITY}" \
+    -DUSE_LIBCPP="${USE_LIBCPP}" \
     -DUSE_DWARF="${USE_DWARF}" \
     -DUSE_MEM_TRACKER=ON \
     -DUSE_JEMALLOC=OFF \
@@ -211,6 +220,8 @@ fi
 echo "**********************************"
 echo "   Running MetaService Unit Test  "
 echo "**********************************"
+
+export ASAN_OPTIONS=detect_container_overflow=0
 
 # test binary output dir
 cd test

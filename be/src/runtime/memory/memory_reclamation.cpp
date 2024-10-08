@@ -37,7 +37,6 @@ bool MemoryReclamation::process_minor_gc(std::string mem_info) {
     std::unique_ptr<RuntimeProfile> profile = std::make_unique<RuntimeProfile>("");
 
     Defer defer {[&]() {
-        MemInfo::notify_je_purge_dirty_pages();
         std::stringstream ss;
         profile->pretty_print(&ss);
         LOG(INFO) << fmt::format(
@@ -45,12 +44,6 @@ bool MemoryReclamation::process_minor_gc(std::string mem_info) {
                 PrettyPrinter::print(freed_mem, TUnit::BYTES), watch.elapsed_time() / 1000,
                 ss.str());
     }};
-
-    freed_mem += CacheManager::instance()->for_each_cache_prune_stale(profile.get());
-    MemInfo::notify_je_purge_dirty_pages();
-    if (freed_mem > MemInfo::process_minor_gc_size()) {
-        return true;
-    }
 
     if (config::enable_workload_group_memory_gc) {
         RuntimeProfile* tg_profile = profile->create_child("WorkloadGroup", true, true);
@@ -88,7 +81,6 @@ bool MemoryReclamation::process_full_gc(std::string mem_info) {
     std::unique_ptr<RuntimeProfile> profile = std::make_unique<RuntimeProfile>("");
 
     Defer defer {[&]() {
-        MemInfo::notify_je_purge_dirty_pages();
         std::stringstream ss;
         profile->pretty_print(&ss);
         LOG(INFO) << fmt::format(
@@ -96,12 +88,6 @@ bool MemoryReclamation::process_full_gc(std::string mem_info) {
                 PrettyPrinter::print(freed_mem, TUnit::BYTES), watch.elapsed_time() / 1000,
                 ss.str());
     }};
-
-    freed_mem += CacheManager::instance()->for_each_cache_prune_all(profile.get());
-    MemInfo::notify_je_purge_dirty_pages();
-    if (freed_mem > MemInfo::process_full_gc_size()) {
-        return true;
-    }
 
     if (config::enable_workload_group_memory_gc) {
         RuntimeProfile* tg_profile = profile->create_child("WorkloadGroup", true, true);

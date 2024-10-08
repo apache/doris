@@ -130,6 +130,16 @@ void FileCacheBlockDownloader::check_download_task(const std::vector<int64_t>& t
     }
 }
 
+std::unordered_map<std::string, RowsetMetaSharedPtr> snapshot_rs_metas(BaseTablet* tablet) {
+    std::unordered_map<std::string, RowsetMetaSharedPtr> id_to_rowset_meta_map;
+    auto visitor = [&id_to_rowset_meta_map](const RowsetSharedPtr& r) {
+        id_to_rowset_meta_map.emplace(r->rowset_meta()->rowset_id().to_string(), r->rowset_meta());
+    };
+    constexpr bool include_stale = false;
+    tablet->traverse_rowsets(visitor, include_stale);
+    return id_to_rowset_meta_map;
+}
+
 void FileCacheBlockDownloader::download_file_cache_block(
         const DownloadTask::FileCacheBlockMetaVec& metas) {
     std::ranges::for_each(metas, [&](const FileCacheBlockMeta& meta) {
@@ -141,7 +151,7 @@ void FileCacheBlockDownloader::download_file_cache_block(
             tablet = std::move(res).value();
         }
 
-        auto id_to_rowset_meta_map = tablet->tablet_meta()->snapshot_rs_metas();
+        auto id_to_rowset_meta_map = snapshot_rs_metas(tablet.get());
         auto find_it = id_to_rowset_meta_map.find(meta.rowset_id());
         if (find_it == id_to_rowset_meta_map.end()) {
             return;
@@ -171,7 +181,8 @@ void FileCacheBlockDownloader::download_file_cache_block(
         DownloadFileMeta download_meta {
                 .path = storage_resource.value()->remote_segment_path(*find_it->second,
                                                                       meta.segment_id()),
-                .file_size = meta.offset() + meta.size(), // To avoid trigger get file size IO
+                .file_size = meta.has_file_size() ? meta.file_size()
+                                                  : -1, // To avoid trigger get file size IO
                 .offset = meta.offset(),
                 .download_size = meta.size(),
                 .file_system = storage_resource.value()->fs,

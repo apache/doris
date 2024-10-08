@@ -90,15 +90,26 @@ public:
 
     bool is_variable_length() const override { return true; }
 
+    bool is_exclusive() const override {
+        for (const auto& col : columns) {
+            if (!col->is_exclusive()) {
+                return false;
+            }
+        }
+        return IColumn::is_exclusive();
+    }
+
     Field operator[](size_t n) const override;
     void get(size_t n, Field& res) const override;
 
     [[noreturn]] StringRef get_data_at(size_t n) const override {
-        LOG(FATAL) << "Method get_data_at is not supported for " + get_name();
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "Method get_data_at is not supported for " + get_name());
         __builtin_unreachable();
     }
     [[noreturn]] void insert_data(const char* pos, size_t length) override {
-        LOG(FATAL) << "Method insert_data is not supported for " + get_name();
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "Method insert_data is not supported for " + get_name());
         __builtin_unreachable();
     }
     void insert(const Field& x) override;
@@ -132,7 +143,8 @@ public:
         return append_data_by_selector_impl<ColumnStruct>(res, selector, begin, end);
     }
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
-        LOG(FATAL) << "Method replace_column_data is not supported for " << get_name();
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "Method replace_column_data is not supported for " + get_name());
     }
 
     void insert_range_from(const IColumn& src, size_t start, size_t length) override;

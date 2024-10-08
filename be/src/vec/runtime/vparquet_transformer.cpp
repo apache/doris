@@ -42,6 +42,7 @@
 #include "olap/olap_common.h"
 #include "runtime/decimalv2_value.h"
 #include "runtime/define_primitive_type.h"
+#include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 #include "runtime/types.h"
 #include "util/arrow/block_convertor.h"
@@ -237,6 +238,7 @@ VParquetTransformer::VParquetTransformer(RuntimeState* state, doris::io::FileWri
 
 Status VParquetTransformer::_parse_properties() {
     try {
+        arrow::MemoryPool* pool = ExecEnv::GetInstance()->arrow_memory_pool();
         parquet::WriterProperties::Builder builder;
         ParquetBuildHelper::build_compression_type(builder, _compression_type);
         ParquetBuildHelper::build_version(builder, _parquet_version);
@@ -248,6 +250,7 @@ Status VParquetTransformer::_parse_properties() {
         builder.created_by(
                 fmt::format("{}({})", doris::get_short_version(), parquet::DEFAULT_CREATED_BY));
         builder.max_row_group_length(std::numeric_limits<int64_t>::max());
+        builder.memory_pool(pool);
         _parquet_writer_properties = builder.build();
         _arrow_properties = parquet::ArrowWriterProperties::Builder()
                                     .enable_deprecated_int96_timestamps()
@@ -292,8 +295,9 @@ Status VParquetTransformer::write(const Block& block) {
 
     // serialize
     std::shared_ptr<arrow::RecordBatch> result;
-    RETURN_IF_ERROR(convert_to_arrow_batch(block, _arrow_schema, arrow::default_memory_pool(),
-                                           &result, _state->timezone_obj()));
+    RETURN_IF_ERROR(convert_to_arrow_batch(block, _arrow_schema,
+                                           ExecEnv::GetInstance()->arrow_memory_pool(), &result,
+                                           _state->timezone_obj()));
 
     RETURN_DORIS_STATUS_IF_ERROR(_writer->WriteRecordBatch(*result));
     _write_size += block.bytes();
@@ -305,9 +309,10 @@ Status VParquetTransformer::write(const Block& block) {
 }
 
 arrow::Status VParquetTransformer::_open_file_writer() {
-    ARROW_ASSIGN_OR_RAISE(_writer, parquet::arrow::FileWriter::Open(
-                                           *_arrow_schema, arrow::default_memory_pool(), _outstream,
-                                           _parquet_writer_properties, _arrow_properties));
+    ARROW_ASSIGN_OR_RAISE(_writer,
+                          parquet::arrow::FileWriter::Open(
+                                  *_arrow_schema, ExecEnv::GetInstance()->arrow_memory_pool(),
+                                  _outstream, _parquet_writer_properties, _arrow_properties));
     return arrow::Status::OK();
 }
 

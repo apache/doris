@@ -56,6 +56,8 @@ private:
     friend class PassToOneExchanger;
     friend class LocalMergeSortExchanger;
     friend class AdaptivePassthroughExchanger;
+    template <typename BlockType>
+    friend class Exchanger;
 
     ExchangerBase* _exchanger = nullptr;
 
@@ -100,10 +102,8 @@ public:
         return Status::InternalError("{} should not init with TPlanNode", Base::_name);
     }
 
-    Status init(ExchangeType type, const int num_buckets, const bool is_shuffled_hash_join,
+    Status init(ExchangeType type, const int num_buckets, const bool should_disable_bucket_shuffle,
                 const std::map<int, int>& shuffle_idx_to_instance_idx) override;
-
-    Status prepare(RuntimeState* state) override;
 
     Status open(RuntimeState* state) override;
 

@@ -19,10 +19,12 @@ package org.apache.doris.load.routineload;
 
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.planner.StreamLoadPlanner;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TKafkaLoadInfo;
 import org.apache.doris.thrift.TLoadSourceType;
@@ -47,17 +49,16 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
     private Map<Integer, Long> partitionIdToOffset;
 
     public KafkaTaskInfo(UUID id, long jobId,
-                        long timeoutMs, int timeoutBackOffCount,
-                        Map<Integer, Long> partitionIdToOffset, boolean isMultiTable) {
-        super(id, jobId, timeoutMs, timeoutBackOffCount, isMultiTable);
+                         long timeoutMs, Map<Integer, Long> partitionIdToOffset, boolean isMultiTable) {
+        super(id, jobId, timeoutMs, isMultiTable);
         this.partitionIdToOffset = partitionIdToOffset;
     }
 
     public KafkaTaskInfo(KafkaTaskInfo kafkaTaskInfo, Map<Integer, Long> partitionIdToOffset, boolean isMultiTable) {
         super(UUID.randomUUID(), kafkaTaskInfo.getJobId(),
-                kafkaTaskInfo.getTimeoutMs(), kafkaTaskInfo.getTimeoutBackOffCount(),
-                kafkaTaskInfo.getBeId(), isMultiTable);
+                kafkaTaskInfo.getTimeoutMs(), kafkaTaskInfo.getBeId(), isMultiTable);
         this.partitionIdToOffset = partitionIdToOffset;
+        this.isEof = kafkaTaskInfo.getIsEof();
     }
 
     public List<Integer> getPartitions() {
@@ -127,14 +128,13 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
     private TPipelineFragmentParams rePlan(RoutineLoadJob routineLoadJob) throws UserException {
         TUniqueId loadId = new TUniqueId(id.getMostSignificantBits(), id.getLeastSignificantBits());
         // plan for each task, in case table has change(rollup or schema change)
-        TPipelineFragmentParams tExecPlanFragmentParams = routineLoadJob.plan(loadId, txnId);
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(routineLoadJob.getDbId());
+        StreamLoadPlanner planner = new StreamLoadPlanner(db,
+                (OlapTable) db.getTableOrMetaException(routineLoadJob.getTableId(),
+                Table.TableType.OLAP), routineLoadJob);
+        TPipelineFragmentParams tExecPlanFragmentParams = routineLoadJob.plan(planner, loadId, txnId);
         TPlanFragment tPlanFragment = tExecPlanFragmentParams.getFragment();
         tPlanFragment.getOutputSink().getOlapTableSink().setTxnId(txnId);
-        // it needs update timeout to make task timeout backoff work
-        long timeoutS = this.getTimeoutMs() / 1000;
-        tPlanFragment.getOutputSink().getOlapTableSink().setLoadChannelTimeoutS(timeoutS);
-        tExecPlanFragmentParams.getQueryOptions().setQueryTimeout((int) timeoutS);
-        tExecPlanFragmentParams.getQueryOptions().setExecutionTimeout((int) timeoutS);
 
         if (Config.enable_workload_group) {
             long wgId = routineLoadJob.getWorkloadId();

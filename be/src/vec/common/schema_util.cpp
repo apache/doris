@@ -69,6 +69,7 @@
 #include "vec/data_types/get_least_supertype.h"
 #include "vec/functions/function.h"
 #include "vec/functions/simple_function_factory.h"
+#include "vec/json/json_parser.h"
 #include "vec/json/parse2column.h"
 #include "vec/json/path_in_data.h"
 
@@ -174,6 +175,13 @@ Status cast_column(const ColumnWithTypeAndName& arg, const DataTypePtr& type, Co
         return Status::OK();
     }
 
+    if (WhichDataType(arg.type).is_nothing()) {
+        // cast from nothing to any type should result in nulls
+        *result = type->create_column_const_with_default_value(arg.column->size())
+                          ->convert_to_full_column_if_const();
+        return Status::OK();
+    }
+
     // We convert column string to jsonb type just add a string jsonb field to dst column instead of parse
     // each line in original string column.
     ctx->set_string_as_jsonb_string(true);
@@ -212,7 +220,6 @@ void get_column_by_type(const vectorized::DataTypePtr& data_type, const std::str
                            "", child, {});
         column.set_length(TabletColumn::get_field_length_by_type(TPrimitiveType::ARRAY, 0));
         column.add_sub_column(child);
-        column.set_default_value("[]");
         return;
     }
     // size is not fixed when type is string or json
@@ -461,7 +468,7 @@ Status get_least_common_schema(const std::vector<TabletSchemaSPtr>& schemas,
 }
 
 Status _parse_variant_columns(Block& block, const std::vector<int>& variant_pos,
-                              const ParseContext& ctx) {
+                              const ParseConfig& config) {
     for (int i = 0; i < variant_pos.size(); ++i) {
         auto column_ref = block.get_by_position(variant_pos[i]).column;
         bool is_nullable = column_ref->is_nullable();
@@ -499,7 +506,7 @@ Status _parse_variant_columns(Block& block, const std::vector<int>& variant_pos,
         if (scalar_root_column->is_column_string()) {
             variant_column = ColumnObject::create(true);
             parse_json_to_variant(*variant_column.get(),
-                                  assert_cast<const ColumnString&>(*scalar_root_column));
+                                  assert_cast<const ColumnString&>(*scalar_root_column), config);
         } else {
             // Root maybe other types rather than string like ColumnObject(Int32).
             // In this case, we should finlize the root and cast to JSON type
@@ -522,31 +529,11 @@ Status _parse_variant_columns(Block& block, const std::vector<int>& variant_pos,
 }
 
 Status parse_variant_columns(Block& block, const std::vector<int>& variant_pos,
-                             const ParseContext& ctx) {
-    try {
-        // Parse each variant column from raw string column
-        RETURN_IF_ERROR(vectorized::schema_util::_parse_variant_columns(block, variant_pos, ctx));
-    } catch (const doris::Exception& e) {
-        // TODO more graceful, max_filter_ratio
-        LOG(WARNING) << "encounter execption " << e.to_string();
-        return Status::InternalError(e.to_string());
-    }
-    return Status::OK();
-}
-
-void finalize_variant_columns(Block& block, const std::vector<int>& variant_pos,
-                              bool ignore_sparse) {
-    for (int i = 0; i < variant_pos.size(); ++i) {
-        auto& column_ref = block.get_by_position(variant_pos[i]).column->assume_mutable_ref();
-        auto& column =
-                column_ref.is_nullable()
-                        ? assert_cast<ColumnObject&>(
-                                  assert_cast<ColumnNullable&>(column_ref).get_nested_column())
-                        : assert_cast<ColumnObject&>(column_ref);
-        // Record information about columns merged into a sparse column within a variant
-        std::vector<TabletColumn> sparse_subcolumns_schema;
-        column.finalize(ignore_sparse);
-    }
+                             const ParseConfig& config) {
+    // Parse each variant column from raw string column
+    RETURN_IF_CATCH_EXCEPTION({
+        return vectorized::schema_util::_parse_variant_columns(block, variant_pos, config);
+    });
 }
 
 Status encode_variant_sparse_subcolumns(ColumnObject& column) {

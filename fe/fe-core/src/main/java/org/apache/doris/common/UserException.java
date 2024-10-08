@@ -54,7 +54,12 @@ public class UserException extends Exception {
         super(Strings.nullToEmpty(msg));
         this.errorCode = errCode;
         mysqlErrorCode = ErrorCode.ERR_UNKNOWN_ERROR;
+    }
 
+    public UserException(InternalErrorCode errCode, String msg, Throwable cause) {
+        super(Strings.nullToEmpty(msg), cause);
+        this.errorCode = errCode;
+        mysqlErrorCode = ErrorCode.ERR_UNKNOWN_ERROR;
     }
 
     public InternalErrorCode getErrorCode() {
@@ -71,10 +76,17 @@ public class UserException extends Exception {
 
     @Override
     public String getMessage() {
-        return errorCode + ", detailMessage = " + super.getMessage();
+        return deleteUselessMsg(errorCode + ", detailMessage = " + super.getMessage());
     }
 
     public String getDetailMessage() {
-        return super.getMessage();
+        return deleteUselessMsg(super.getMessage());
+    }
+
+    protected String deleteUselessMsg(String msg) {
+        if (msg.contains("detailMessage = errCode = 2, ")) {
+            return msg.replace("detailMessage = errCode = 2, ", "");
+        }
+        return msg;
     }
 }

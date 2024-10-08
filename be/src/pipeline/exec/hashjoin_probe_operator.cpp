@@ -21,16 +21,20 @@
 
 #include "common/logging.h"
 #include "pipeline/exec/operator.h"
+#include "runtime/descriptors.h"
+#include "vec/common/assert_cast.h"
+#include "vec/data_types/data_type_nullable.h"
 
 namespace doris::pipeline {
 
 HashJoinProbeLocalState::HashJoinProbeLocalState(RuntimeState* state, OperatorXBase* parent)
-        : JoinProbeLocalState<HashJoinSharedState, HashJoinProbeLocalState>(state, parent) {}
+        : JoinProbeLocalState<HashJoinSharedState, HashJoinProbeLocalState>(state, parent),
+          _process_hashtable_ctx_variants(std::make_unique<HashTableCtxVariants>()) {}
 
 Status HashJoinProbeLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(JoinProbeLocalState::init(state, info));
     SCOPED_TIMER(exec_time_counter());
-    SCOPED_TIMER(_open_timer);
+    SCOPED_TIMER(_init_timer);
     auto& p = _parent->cast<HashJoinProbeOperatorX>();
     _shared_state->probe_ignore_null = p._probe_ignore_null;
     _probe_expr_ctxs.resize(p._probe_expr_ctxs.size());
@@ -68,7 +72,6 @@ Status HashJoinProbeLocalState::open(RuntimeState* state) {
     SCOPED_TIMER(_open_timer);
     RETURN_IF_ERROR(JoinProbeLocalState::open(state));
 
-    _process_hashtable_ctx_variants = std::make_unique<HashTableCtxVariants>();
     auto& p = _parent->cast<HashJoinProbeOperatorX>();
     std::visit(
             [&](auto&& join_op_variants, auto have_other_join_conjunct) {
@@ -273,7 +276,7 @@ Status HashJoinProbeOperatorX::pull(doris::RuntimeState* state, vectorized::Bloc
         /// increase the output rows count(just same as `_probe_block`'s rows count).
         RETURN_IF_ERROR(local_state.filter_data_and_build_output(state, output_block, eos,
                                                                  &local_state._probe_block, false));
-        local_state._probe_block.clear_column_data(_child_x->row_desc().num_materialized_slots());
+        local_state._probe_block.clear_column_data(_child->row_desc().num_materialized_slots());
         return Status::OK();
     }
 
@@ -577,8 +580,8 @@ Status HashJoinProbeOperatorX::init(const TPlanNode& tnode, RuntimeState* state)
     return Status::OK();
 }
 
-Status HashJoinProbeOperatorX::prepare(RuntimeState* state) {
-    RETURN_IF_ERROR(JoinProbeOperatorX<HashJoinProbeLocalState>::prepare(state));
+Status HashJoinProbeOperatorX::open(RuntimeState* state) {
+    RETURN_IF_ERROR(JoinProbeOperatorX<HashJoinProbeLocalState>::open(state));
     // init left/right output slots flags, only column of slot_id in _hash_output_slot_ids need
     // insert to output block of hash join.
     // _left_output_slots_flags : column of left table need to output set flag = true
@@ -594,10 +597,9 @@ Status HashJoinProbeOperatorX::prepare(RuntimeState* state) {
             }
         }
     };
-    init_output_slots_flags(_child_x->row_desc().tuple_descriptors(), _left_output_slot_flags);
+    init_output_slots_flags(_child->row_desc().tuple_descriptors(), _left_output_slot_flags);
     init_output_slots_flags(_build_side_child->row_desc().tuple_descriptors(),
                             _right_output_slot_flags);
-    RETURN_IF_ERROR(vectorized::VExpr::prepare(_output_expr_ctxs, state, *_intermediate_row_desc));
     // _other_join_conjuncts are evaluated in the context of the rows produced by this node
     for (auto& conjunct : _other_join_conjuncts) {
         RETURN_IF_ERROR(conjunct->prepare(state, *_intermediate_row_desc));
@@ -607,20 +609,63 @@ Status HashJoinProbeOperatorX::prepare(RuntimeState* state) {
         RETURN_IF_ERROR(conjunct->prepare(state, *_intermediate_row_desc));
     }
 
-    RETURN_IF_ERROR(vectorized::VExpr::prepare(_probe_expr_ctxs, state, _child_x->row_desc()));
+    RETURN_IF_ERROR(vectorized::VExpr::prepare(_probe_expr_ctxs, state, _child->row_desc()));
     DCHECK(_build_side_child != nullptr);
     // right table data types
     _right_table_data_types =
             vectorized::VectorizedUtils::get_data_types(_build_side_child->row_desc());
-    _left_table_data_types = vectorized::VectorizedUtils::get_data_types(_child_x->row_desc());
+    _left_table_data_types = vectorized::VectorizedUtils::get_data_types(_child->row_desc());
     _right_table_column_names =
             vectorized::VectorizedUtils::get_column_names(_build_side_child->row_desc());
-    _build_side_child.reset();
-    return Status::OK();
-}
 
-Status HashJoinProbeOperatorX::open(RuntimeState* state) {
-    RETURN_IF_ERROR(JoinProbeOperatorX<HashJoinProbeLocalState>::open(state));
+    std::vector<const SlotDescriptor*> slots_to_check;
+    for (const auto& tuple_descriptor : _intermediate_row_desc->tuple_descriptors()) {
+        for (const auto& slot : tuple_descriptor->slots()) {
+            slots_to_check.emplace_back(slot);
+        }
+    }
+
+    if (_is_mark_join) {
+        const auto* last_one = slots_to_check.back();
+        slots_to_check.pop_back();
+        auto data_type = last_one->get_data_type_ptr();
+        if (!data_type->is_nullable()) {
+            return Status::InternalError(
+                    "The last column for mark join should be Nullable(UInt8), not {}",
+                    data_type->get_name());
+        }
+
+        const auto& null_data_type = assert_cast<const vectorized::DataTypeNullable&>(*data_type);
+        if (null_data_type.get_nested_type()->get_type_id() != vectorized::TypeIndex::UInt8) {
+            return Status::InternalError(
+                    "The last column for mark join should be Nullable(UInt8), not {}",
+                    data_type->get_name());
+        }
+    }
+
+    const int right_col_idx =
+            (_is_right_semi_anti && !_have_other_join_conjunct) ? 0 : _left_table_data_types.size();
+    size_t idx = 0;
+    for (const auto* slot : slots_to_check) {
+        auto data_type = slot->get_data_type_ptr();
+        auto target_data_type = idx < right_col_idx ? _left_table_data_types[idx]
+                                                    : _right_table_data_types[idx - right_col_idx];
+        ++idx;
+        if (data_type->equals(*target_data_type)) {
+            continue;
+        }
+
+        auto data_type_non_nullable = vectorized::remove_nullable(data_type);
+        if (data_type_non_nullable->equals(*target_data_type)) {
+            continue;
+        }
+
+        return Status::InternalError("intermediate slot({}) data type not match: '{}' vs '{}'",
+                                     slot->id(), data_type->get_name(),
+                                     _left_table_data_types[idx]->get_name());
+    }
+
+    _build_side_child.reset();
     RETURN_IF_ERROR(vectorized::VExpr::open(_probe_expr_ctxs, state));
     for (auto& conjunct : _other_join_conjuncts) {
         RETURN_IF_ERROR(conjunct->open(state));

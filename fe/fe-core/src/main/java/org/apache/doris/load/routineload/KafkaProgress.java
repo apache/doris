@@ -17,6 +17,7 @@
 
 package org.apache.doris.load.routineload;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.DebugUtil;
@@ -36,6 +37,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * this is description of kafka routine load progress
@@ -57,6 +59,8 @@ public class KafkaProgress extends RoutineLoadProgress {
     // the offset saved here is the next offset need to be consumed
     @SerializedName(value = "pito")
     private ConcurrentMap<Integer, Long> partitionIdToOffset = Maps.newConcurrentMap();
+
+    private ReentrantLock lock = new ReentrantLock(true);
 
     public KafkaProgress() {
         super(LoadDataSourceType.KAFKA);
@@ -132,15 +136,17 @@ public class KafkaProgress extends RoutineLoadProgress {
         }
     }
 
-    // modify the partition offset of this progress.
-    // throw exception is the specified partition does not exist in progress.
-    public void modifyOffset(List<Pair<Integer, Long>> kafkaPartitionOffsets) throws DdlException {
+    public void checkPartitions(List<Pair<Integer, Long>> kafkaPartitionOffsets) throws DdlException {
         for (Pair<Integer, Long> pair : kafkaPartitionOffsets) {
             if (!partitionIdToOffset.containsKey(pair.first)) {
                 throw new DdlException("The specified partition " + pair.first + " is not in the consumed partitions");
             }
         }
+    }
 
+    // modify the partition offset of this progress.
+    // throw exception is the specified partition does not exist in progress.
+    public void modifyOffset(List<Pair<Integer, Long>> kafkaPartitionOffsets) {
         for (Pair<Integer, Long> pair : kafkaPartitionOffsets) {
             partitionIdToOffset.put(pair.first, pair.second);
         }
@@ -206,9 +212,24 @@ public class KafkaProgress extends RoutineLoadProgress {
     @Override
     public void update(RLTaskTxnCommitAttachment attachment) {
         KafkaProgress newProgress = (KafkaProgress) attachment.getProgress();
+
         // + 1 to point to the next msg offset to be consumed
-        newProgress.partitionIdToOffset.entrySet().stream()
-                .forEach(entity -> this.partitionIdToOffset.put(entity.getKey(), entity.getValue() + 1));
+        if (Config.isCloudMode()) {
+            lock.lock();
+            try {
+                newProgress.partitionIdToOffset.forEach((partitionId, newOffset) -> {
+                    this.partitionIdToOffset.compute(partitionId, (key, oldOffset) -> {
+                        return (oldOffset == null || newOffset + 1 > oldOffset) ? newOffset + 1 : oldOffset;
+                    });
+                });
+            } finally {
+                lock.unlock();
+            }
+        } else {
+            newProgress.partitionIdToOffset.entrySet().stream()
+                    .forEach(entity -> this.partitionIdToOffset.put(entity.getKey(), entity.getValue() + 1));
+        }
+
         if (LOG.isDebugEnabled()) {
             LOG.debug("update kafka progress: {}, task: {}, job: {}",
                     newProgress.toJsonString(), DebugUtil.printId(attachment.getTaskId()), attachment.getJobId());

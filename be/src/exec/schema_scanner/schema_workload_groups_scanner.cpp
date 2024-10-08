@@ -116,7 +116,7 @@ Status SchemaWorkloadGroupsScanner::_get_workload_groups_block_from_fe() {
     return Status::OK();
 }
 
-Status SchemaWorkloadGroupsScanner::get_next_block(vectorized::Block* block, bool* eos) {
+Status SchemaWorkloadGroupsScanner::get_next_block_internal(vectorized::Block* block, bool* eos) {
     if (!_is_init) {
         return Status::InternalError("Used before initialized.");
     }

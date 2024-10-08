@@ -36,14 +36,14 @@ suite("test_autobucket_dynamic_partition") {
     log.info("show result : ${result}")
     assertTrue(result.toString().containsIgnoreCase("BUCKETS AUTO"))
 
-    result = sql "show partitions from test_autobucket_dynamic_partition"
+    result = sql_return_maparray "show partitions from test_autobucket_dynamic_partition"
     logger.info("${result}")
     // XXX: buckets at pos(8), next maybe impl by sql meta
     // 10 is the default buckets without partition size
     assertEquals(result.size(), 3)
-    assertEquals(Integer.valueOf(result.get(0).get(8)), 10)
-    assertEquals(Integer.valueOf(result.get(1).get(8)), 10)
-    assertEquals(Integer.valueOf(result.get(2).get(8)), 10)
+    for (def partition : result) {
+        assertEquals(Integer.valueOf(partition.Buckets), 10)
+    }
 
     sql "drop table if exists test_autobucket_dynamic_partition"
 }

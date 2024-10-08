@@ -47,6 +47,7 @@ import org.apache.doris.analysis.LambdaFunctionCallExpr;
 import org.apache.doris.analysis.LambdaFunctionExpr;
 import org.apache.doris.analysis.LargeIntLiteral;
 import org.apache.doris.analysis.LikePredicate;
+import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.MapLiteral;
 import org.apache.doris.analysis.MatchPredicate;
 import org.apache.doris.analysis.MaxLiteral;
@@ -309,6 +310,7 @@ public class GsonUtils {
             .registerSubtype(StringLiteral.class, StringLiteral.class.getSimpleName())
             .registerSubtype(IntLiteral.class, IntLiteral.class.getSimpleName())
             .registerSubtype(LargeIntLiteral.class, LargeIntLiteral.class.getSimpleName())
+            .registerSubtype(LiteralExpr.class, LiteralExpr.class.getSimpleName())
             .registerSubtype(DecimalLiteral.class, DecimalLiteral.class.getSimpleName())
             .registerSubtype(FloatLiteral.class, FloatLiteral.class.getSimpleName())
             .registerSubtype(NullLiteral.class, NullLiteral.class.getSimpleName())
@@ -579,18 +581,24 @@ public class GsonUtils {
 
     // the builder of GSON instance.
     // Add any other adapters if necessary.
+    //
+    // ATTN:
+    // Since GsonBuilder.create() adds all registered factories to GSON in reverse order, if you
+    // need to ensure the search order of two RuntimeTypeAdapterFactory instances, be sure to
+    // register them in reverse priority order.
     private static final GsonBuilder GSON_BUILDER = new GsonBuilder()
             .setObjectToNumberStrategy(ToNumberPolicy.LONG_OR_DOUBLE)
             .addSerializationExclusionStrategy(
-                    new HiddenAnnotationExclusionStrategy()).enableComplexMapKeySerialization()
+                    new HiddenAnnotationExclusionStrategy()).serializeSpecialFloatingPointValues()
+            .enableComplexMapKeySerialization()
             .addReflectionAccessFilter(ReflectionAccessFilter.BLOCK_INACCESSIBLE_JAVA)
             .registerTypeHierarchyAdapter(Table.class, new GuavaTableAdapter())
             // .registerTypeHierarchyAdapter(Expr.class, new ExprAdapter())
             .registerTypeHierarchyAdapter(Multimap.class, new GuavaMultimapAdapter())
             .registerTypeAdapterFactory(new PostProcessTypeAdapterFactory())
             .registerTypeAdapterFactory(new PreProcessTypeAdapterFactory())
-            .registerTypeAdapterFactory(new ExprAdapterFactory())
             .registerTypeAdapterFactory(exprAdapterFactory)
+            .registerTypeAdapterFactory(new ExprAdapterFactory())
             .registerTypeAdapterFactory(columnTypeAdapterFactory)
             .registerTypeAdapterFactory(distributionInfoTypeAdapterFactory)
             .registerTypeAdapterFactory(resourceTypeAdapterFactory)
@@ -641,7 +649,7 @@ public class GsonUtils {
     public static final Gson GSON = GSON_BUILDER.create();
 
     // ATTN: the order between creating GSON and GSON_PRETTY_PRINTING is very important.
-    private static final GsonBuilder GSON_BUILDER_PRETTY_PRINTING = GSON_BUILDER;
+    private static final GsonBuilder GSON_BUILDER_PRETTY_PRINTING = GSON_BUILDER.setPrettyPrinting();
     public static final Gson GSON_PRETTY_PRINTING = GSON_BUILDER_PRETTY_PRINTING.create();
 
     /*
@@ -775,6 +783,11 @@ public class GsonUtils {
         public <T> TypeAdapter<T> create(Gson gson, TypeToken<T> type) {
             final Class<T> rawType = (Class<T>) type.getRawType();
             final TypeAdapter<T> delegate = gson.getDelegateAdapter(this, type);
+
+            if (!Expr.class.isAssignableFrom(rawType)) {
+                // reduce the stack depth.
+                return null;
+            }
 
             return new TypeAdapter<T>() {
                 public void write(JsonWriter out, T value) throws IOException {

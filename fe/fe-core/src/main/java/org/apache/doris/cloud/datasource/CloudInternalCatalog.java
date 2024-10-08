@@ -72,6 +72,7 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import doris.segment_v2.SegmentV2;
+import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -101,8 +102,7 @@ public class CloudInternalCatalog extends InternalCatalog {
                                                    String storagePolicy,
                                                    IdGeneratorBuffer idGeneratorBuffer,
                                                    BinlogConfig binlogConfig,
-                                                   boolean isStorageMediumSpecified,
-                                                   List<Integer> clusterKeyIndexes)
+                                                   boolean isStorageMediumSpecified)
             throws DdlException {
         // create base index first.
         Preconditions.checkArgument(tbl.getBaseIndexId() != -1);
@@ -156,6 +156,11 @@ public class CloudInternalCatalog extends InternalCatalog {
             } else {
                 indexes = Lists.newArrayList();
             }
+            List<Integer> clusterKeyIndexes = null;
+            if (indexId == tbl.getBaseIndexId()) {
+                // only base and shadow index need cluster key indexes
+                clusterKeyIndexes = OlapTable.getClusterKeyIndexes(columns);
+            }
             Cloud.CreateTabletsRequest.Builder requestBuilder = Cloud.CreateTabletsRequest.newBuilder();
             List<String> rowStoreColumns =
                     tbl.getTableProperty().getCopiedRowStoreColumns();
@@ -174,15 +179,17 @@ public class CloudInternalCatalog extends InternalCatalog {
                         tbl.getRowStoreColumnsUniqueIds(rowStoreColumns),
                         tbl.getEnableMowLightDelete(),
                         tbl.getInvertedIndexFileStorageFormat(),
-                        tbl.rowStorePageSize());
+                        tbl.rowStorePageSize(),
+                        tbl.variantEnableFlattenNested(), clusterKeyIndexes);
                 requestBuilder.addTabletMetas(builder);
             }
             if (!storageVaultIdSet && ((CloudEnv) Env.getCurrentEnv()).getEnableStorageVault()) {
                 requestBuilder.setStorageVaultName(storageVaultName);
             }
+            requestBuilder.setDbId(dbId);
 
             LOG.info("create tablets, dbId: {}, tableId: {}, tableName: {}, partitionId: {}, partitionName: {}, "
-                    + "indexId: {}, vault name {}",
+                    + "indexId: {}, vault name: {}",
                     dbId, tbl.getId(), tbl.getName(), partitionId, partitionName, indexId, storageVaultName);
             Cloud.CreateTabletsResponse resp = sendCreateTabletsRpc(requestBuilder);
             // If the resp has no vault id set, it means the MS is running with enable_storage_vault false
@@ -222,7 +229,8 @@ public class CloudInternalCatalog extends InternalCatalog {
             Long timeSeriesCompactionTimeThresholdSeconds, Long timeSeriesCompactionEmptyRowsetsThreshold,
             Long timeSeriesCompactionLevelThreshold, boolean disableAutoCompaction,
             List<Integer> rowStoreColumnUniqueIds, boolean enableMowLightDelete,
-            TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat, long pageSize) throws DdlException {
+            TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat, long pageSize,
+            boolean variantEnableFlattenNested, List<Integer> clusterKeyIdxes) throws DdlException {
         OlapFile.TabletMetaCloudPB.Builder builder = OlapFile.TabletMetaCloudPB.newBuilder();
         builder.setTableId(tableId);
         builder.setIndexId(indexId);
@@ -349,6 +357,10 @@ public class CloudInternalCatalog extends InternalCatalog {
             }
         }
         schemaBuilder.setRowStorePageSize(pageSize);
+        schemaBuilder.setEnableVariantFlattenNested(variantEnableFlattenNested);
+        if (!CollectionUtils.isEmpty(clusterKeyIdxes)) {
+            schemaBuilder.addAllClusterKeyIdxes(clusterKeyIdxes);
+        }
 
         OlapFile.TabletSchemaCloudPB schema = schemaBuilder.build();
         builder.setSchema(schema);
@@ -443,6 +455,11 @@ public class CloudInternalCatalog extends InternalCatalog {
 
     private void preparePartition(long dbId, long tableId, List<Long> partitionIds, List<Long> indexIds)
             throws DdlException {
+        if (Config.enable_check_compatibility_mode) {
+            LOG.info("skip prepare partition in checking compatibility mode");
+            return;
+        }
+
         Cloud.PartitionRequest.Builder partitionRequestBuilder = Cloud.PartitionRequest.newBuilder();
         partitionRequestBuilder.setCloudUniqueId(Config.cloud_unique_id);
         partitionRequestBuilder.setTableId(tableId);
@@ -479,6 +496,11 @@ public class CloudInternalCatalog extends InternalCatalog {
 
     private void commitPartition(long dbId, long tableId, List<Long> partitionIds, List<Long> indexIds)
             throws DdlException {
+        if (Config.enable_check_compatibility_mode) {
+            LOG.info("skip committing partitions in check compatibility mode");
+            return;
+        }
+
         Cloud.PartitionRequest.Builder partitionRequestBuilder = Cloud.PartitionRequest.newBuilder();
         partitionRequestBuilder.setCloudUniqueId(Config.cloud_unique_id);
         partitionRequestBuilder.addAllPartitionIds(partitionIds);
@@ -512,6 +534,11 @@ public class CloudInternalCatalog extends InternalCatalog {
 
     // if `expiration` = 0, recycler will delete uncommitted indexes in `retention_seconds`
     public void prepareMaterializedIndex(Long tableId, List<Long> indexIds, long expiration) throws DdlException {
+        if (Config.enable_check_compatibility_mode) {
+            LOG.info("skip prepare materialized index in checking compatibility mode");
+            return;
+        }
+
         Cloud.IndexRequest.Builder indexRequestBuilder = Cloud.IndexRequest.newBuilder();
         indexRequestBuilder.setCloudUniqueId(Config.cloud_unique_id);
         indexRequestBuilder.addAllIndexIds(indexIds);
@@ -544,6 +571,11 @@ public class CloudInternalCatalog extends InternalCatalog {
 
     public void commitMaterializedIndex(long dbId, long tableId, List<Long> indexIds, boolean isCreateTable)
             throws DdlException {
+        if (Config.enable_check_compatibility_mode) {
+            LOG.info("skip committing materialized index in checking compatibility mode");
+            return;
+        }
+
         Cloud.IndexRequest.Builder indexRequestBuilder = Cloud.IndexRequest.newBuilder();
         indexRequestBuilder.setCloudUniqueId(Config.cloud_unique_id);
         indexRequestBuilder.addAllIndexIds(indexIds);
@@ -577,6 +609,11 @@ public class CloudInternalCatalog extends InternalCatalog {
 
     private void checkPartition(long dbId, long tableId, List<Long> partitionIds)
             throws DdlException {
+        if (Config.enable_check_compatibility_mode) {
+            LOG.info("skip checking partitions in checking compatibility mode");
+            return;
+        }
+
         Cloud.CheckKeyInfos.Builder checkKeyInfosBuilder = Cloud.CheckKeyInfos.newBuilder();
         checkKeyInfosBuilder.addAllPartitionIds(partitionIds);
         // for ms log
@@ -612,6 +649,11 @@ public class CloudInternalCatalog extends InternalCatalog {
 
     public void checkMaterializedIndex(long dbId, long tableId, List<Long> indexIds)
             throws DdlException {
+        if (Config.enable_check_compatibility_mode) {
+            LOG.info("skip checking materialized index in checking compatibility mode");
+            return;
+        }
+
         Cloud.CheckKeyInfos.Builder checkKeyInfosBuilder = Cloud.CheckKeyInfos.newBuilder();
         checkKeyInfosBuilder.addAllIndexIds(indexIds);
         // for ms log
@@ -649,7 +691,7 @@ public class CloudInternalCatalog extends InternalCatalog {
             sendCreateTabletsRpc(Cloud.CreateTabletsRequest.Builder requestBuilder) throws DdlException  {
         requestBuilder.setCloudUniqueId(Config.cloud_unique_id);
         Cloud.CreateTabletsRequest createTabletsReq = requestBuilder.build();
-
+        Preconditions.checkState(createTabletsReq.hasDbId(), "createTabletsReq must set dbId");
         if (LOG.isDebugEnabled()) {
             LOG.debug("send create tablets rpc, createTabletsReq: {}", createTabletsReq);
         }
@@ -775,6 +817,11 @@ public class CloudInternalCatalog extends InternalCatalog {
 
     private void dropCloudPartition(long dbId, long tableId, List<Long> partitionIds, List<Long> indexIds,
                                     boolean needUpdateTableVersion) throws DdlException {
+        if (Config.enable_check_compatibility_mode) {
+            LOG.info("skip dropping cloud partitions in checking compatibility mode");
+            return;
+        }
+
         Cloud.PartitionRequest.Builder partitionRequestBuilder =
                 Cloud.PartitionRequest.newBuilder();
         partitionRequestBuilder.setCloudUniqueId(Config.cloud_unique_id);
@@ -810,7 +857,73 @@ public class CloudInternalCatalog extends InternalCatalog {
         }
     }
 
+    public void removeSchemaChangeJob(long dbId, long tableId, long indexId, long newIndexId,
+            long partitionId, long tabletId, long newTabletId)
+            throws DdlException {
+        Cloud.FinishTabletJobRequest.Builder finishTabletJobRequestBuilder = Cloud.FinishTabletJobRequest.newBuilder();
+        finishTabletJobRequestBuilder.setCloudUniqueId(Config.cloud_unique_id);
+        finishTabletJobRequestBuilder.setAction(Cloud.FinishTabletJobRequest.Action.ABORT);
+        Cloud.TabletJobInfoPB.Builder tabletJobInfoPBBuilder = Cloud.TabletJobInfoPB.newBuilder();
+
+        // set origin tablet
+        Cloud.TabletIndexPB.Builder tabletIndexPBBuilder = Cloud.TabletIndexPB.newBuilder();
+        tabletIndexPBBuilder.setDbId(dbId);
+        tabletIndexPBBuilder.setTableId(tableId);
+        tabletIndexPBBuilder.setIndexId(indexId);
+        tabletIndexPBBuilder.setPartitionId(partitionId);
+        tabletIndexPBBuilder.setTabletId(tabletId);
+        final Cloud.TabletIndexPB tabletIndex = tabletIndexPBBuilder.build();
+        tabletJobInfoPBBuilder.setIdx(tabletIndex);
+
+        // set new tablet
+        Cloud.TabletSchemaChangeJobPB.Builder schemaChangeJobPBBuilder =
+                Cloud.TabletSchemaChangeJobPB.newBuilder();
+        Cloud.TabletIndexPB.Builder newtabletIndexPBBuilder = Cloud.TabletIndexPB.newBuilder();
+        newtabletIndexPBBuilder.setDbId(dbId);
+        newtabletIndexPBBuilder.setTableId(tableId);
+        newtabletIndexPBBuilder.setIndexId(newIndexId);
+        newtabletIndexPBBuilder.setPartitionId(partitionId);
+        newtabletIndexPBBuilder.setTabletId(newTabletId);
+        final Cloud.TabletIndexPB newtabletIndex = newtabletIndexPBBuilder.build();
+        schemaChangeJobPBBuilder.setNewTabletIdx(newtabletIndex);
+        final Cloud.TabletSchemaChangeJobPB tabletSchemaChangeJobPb =
+                schemaChangeJobPBBuilder.build();
+
+        tabletJobInfoPBBuilder.setSchemaChange(tabletSchemaChangeJobPb);
+
+        final Cloud.TabletJobInfoPB tabletJobInfoPB = tabletJobInfoPBBuilder.build();
+        finishTabletJobRequestBuilder.setJob(tabletJobInfoPB);
+
+        final Cloud.FinishTabletJobRequest request = finishTabletJobRequestBuilder.build();
+
+        Cloud.FinishTabletJobResponse response = null;
+        int tryTimes = 0;
+        while (tryTimes++ < Config.metaServiceRpcRetryTimes()) {
+            try {
+                response = MetaServiceProxy.getInstance().finishTabletJob(request);
+                if (response.getStatus().getCode() != Cloud.MetaServiceCode.KV_TXN_CONFLICT) {
+                    break;
+                }
+            } catch (RpcException e) {
+                LOG.warn("tryTimes:{}, finishTabletJob RpcException", tryTimes, e);
+                if (tryTimes + 1 >= Config.metaServiceRpcRetryTimes()) {
+                    throw new DdlException(e.getMessage());
+                }
+            }
+            sleepSeveralMs();
+        }
+
+        if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
+            LOG.warn("finishTabletJob response: {} ", response);
+        }
+    }
+
     public void dropMaterializedIndex(long tableId, List<Long> indexIds, boolean dropTable) throws DdlException {
+        if (Config.enable_check_compatibility_mode) {
+            LOG.info("skip dropping materialized index in compatibility checking mode");
+            return;
+        }
+
         Cloud.IndexRequest.Builder indexRequestBuilder = Cloud.IndexRequest.newBuilder();
         indexRequestBuilder.setCloudUniqueId(Config.cloud_unique_id);
         indexRequestBuilder.addAllIndexIds(indexIds);
@@ -931,7 +1044,7 @@ public class CloudInternalCatalog extends InternalCatalog {
                     clusterId = realClusterId;
                 }
 
-                ((CloudReplica) replica).updateClusterToBe(clusterId, info.getBeId());
+                ((CloudReplica) replica).updateClusterToPrimaryBe(clusterId, info.getBeId());
 
                 LOG.debug("update single cloud replica cluster {} replica {} be {}", info.getClusterId(),
                         replica.getId(), info.getBeId());
@@ -957,7 +1070,7 @@ public class CloudInternalCatalog extends InternalCatalog {
 
                     LOG.debug("update cloud replica cluster {} replica {} be {}", info.getClusterId(),
                             replica.getId(), info.getBeIds().get(i));
-                    ((CloudReplica) replica).updateClusterToBe(clusterId, info.getBeIds().get(i));
+                    ((CloudReplica) replica).updateClusterToPrimaryBe(clusterId, info.getBeIds().get(i));
                 }
             }
         } catch (Exception e) {
@@ -966,6 +1079,11 @@ public class CloudInternalCatalog extends InternalCatalog {
     }
 
     public void createStage(Cloud.StagePB stagePB, boolean ifNotExists) throws DdlException {
+        if (Config.enable_check_compatibility_mode) {
+            LOG.info("skip creating stage in checking compatibility mode");
+            return;
+        }
+
         Cloud.CreateStageRequest createStageRequest = Cloud.CreateStageRequest.newBuilder()
                 .setCloudUniqueId(Config.cloud_unique_id).setStage(stagePB).build();
         Cloud.CreateStageResponse response = null;
@@ -1099,6 +1217,11 @@ public class CloudInternalCatalog extends InternalCatalog {
     public void dropStage(Cloud.StagePB.StageType stageType, String userName, String userId,
                           String stageName, String reason, boolean ifExists)
             throws DdlException {
+        if (Config.enable_check_compatibility_mode) {
+            LOG.info("skip dropping stage in checking compatibility mode");
+            return;
+        }
+
         Cloud.DropStageRequest.Builder builder = Cloud.DropStageRequest.newBuilder()
                 .setCloudUniqueId(Config.cloud_unique_id).setType(stageType);
         if (userName != null) {

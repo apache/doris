@@ -21,7 +21,7 @@ PhysicalResultSink
 --------------------------------PhysicalProject
 ----------------------------------PhysicalOlapScan[item] apply RFs: RF12 RF13
 ----------------------------PhysicalProject
-------------------------------hashJoin[LEFT_SEMI_JOIN shuffle] hashCondition=((date_dim.d_date = date_dim.d_date)) otherCondition=() build RFs:RF9 d_date->[d_date]
+------------------------------hashJoin[LEFT_SEMI_JOIN broadcast] hashCondition=((date_dim.d_date = date_dim.d_date)) otherCondition=() build RFs:RF9 d_date->[d_date]
 --------------------------------PhysicalProject
 ----------------------------------PhysicalOlapScan[date_dim] apply RFs: RF9
 --------------------------------PhysicalProject
@@ -44,7 +44,7 @@ PhysicalResultSink
 --------------------------------PhysicalProject
 ----------------------------------PhysicalOlapScan[item] apply RFs: RF13
 ----------------------------PhysicalProject
-------------------------------hashJoin[LEFT_SEMI_JOIN shuffle] hashCondition=((date_dim.d_date = date_dim.d_date)) otherCondition=() build RFs:RF5 d_date->[d_date]
+------------------------------hashJoin[LEFT_SEMI_JOIN broadcast] hashCondition=((date_dim.d_date = date_dim.d_date)) otherCondition=() build RFs:RF5 d_date->[d_date]
 --------------------------------PhysicalProject
 ----------------------------------PhysicalOlapScan[date_dim] apply RFs: RF5
 --------------------------------PhysicalProject
@@ -67,7 +67,7 @@ PhysicalResultSink
 ----------------------------PhysicalProject
 ------------------------------PhysicalOlapScan[item]
 ------------------------PhysicalProject
---------------------------hashJoin[LEFT_SEMI_JOIN shuffle] hashCondition=((date_dim.d_date = date_dim.d_date)) otherCondition=() build RFs:RF1 d_date->[d_date]
+--------------------------hashJoin[LEFT_SEMI_JOIN broadcast] hashCondition=((date_dim.d_date = date_dim.d_date)) otherCondition=() build RFs:RF1 d_date->[d_date]
 ----------------------------PhysicalProject
 ------------------------------PhysicalOlapScan[date_dim] apply RFs: RF1
 ----------------------------PhysicalProject

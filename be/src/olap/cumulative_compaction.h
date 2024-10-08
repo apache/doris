@@ -44,6 +44,9 @@ private:
 
     Status pick_rowsets_to_compact();
 
+    void find_longest_consecutive_version(std::vector<RowsetSharedPtr>* rowsets,
+                                          std::vector<Version>* missing_version);
+
     Version _last_delete_version {-1, -1};
 };
 

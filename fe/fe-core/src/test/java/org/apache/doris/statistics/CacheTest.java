@@ -388,4 +388,48 @@ public class CacheTest extends TestWithFeService {
         Thread.sleep(100);
         Assertions.assertEquals(1, columnStatisticsCache.synchronous().asMap().size());
     }
+
+    @Test
+    public void testLoadWithException() throws Exception {
+        new MockUp<ColumnStatisticsCacheLoader>() {
+            @Mock
+            protected Optional<ColumnStatistic> doLoad(StatisticsCacheKey key) {
+                return null;
+            }
+        };
+        StatisticsCache statisticsCache = new StatisticsCache();
+        ColumnStatistic columnStatistic = statisticsCache.getColumnStatistics(1, 1, 1, -1, "col");
+        Thread.sleep(3000);
+        Assertions.assertTrue(columnStatistic.isUnKnown);
+
+        new MockUp<ColumnStatisticsCacheLoader>() {
+            @Mock
+            protected Optional<ColumnStatistic> doLoad(StatisticsCacheKey key) {
+                return Optional.of(new ColumnStatistic(1, 2,
+                    null, 3, 4, 5, 6, 7,
+                    null, null, false,
+                        new Date().toString()));
+            }
+        };
+        columnStatistic = statisticsCache.getColumnStatistics(1, 1, 1, -1, "col");
+        for (int i = 0; i < 60; i++) {
+            columnStatistic = statisticsCache.getColumnStatistics(1, 1, 1, -1, "col");
+            if (columnStatistic != ColumnStatistic.UNKNOWN) {
+                break;
+            }
+            System.out.println("Not ready yet.");
+            Thread.sleep(1000);
+        }
+        if (columnStatistic != ColumnStatistic.UNKNOWN) {
+            Assertions.assertEquals(1, columnStatistic.count);
+            Assertions.assertEquals(2, columnStatistic.ndv);
+            Assertions.assertEquals(3, columnStatistic.avgSizeByte);
+            Assertions.assertEquals(4, columnStatistic.numNulls);
+            Assertions.assertEquals(5, columnStatistic.dataSize);
+            Assertions.assertEquals(6, columnStatistic.minValue);
+            Assertions.assertEquals(7, columnStatistic.maxValue);
+        } else {
+            Assertions.fail("Column stats is still unknown");
+        }
+    }
 }

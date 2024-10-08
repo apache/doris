@@ -219,7 +219,7 @@ Status SpillSortLocalState::setup_in_memory_sort_op(RuntimeState* state) {
 
     _runtime_state->set_desc_tbl(&state->desc_tbl());
     _runtime_state->resize_op_id_to_local_state(state->max_operator_id());
-    _runtime_state->set_pipeline_x_runtime_filter_mgr(state->local_runtime_filter_mgr());
+    _runtime_state->set_runtime_filter_mgr(state->local_runtime_filter_mgr());
 
     DCHECK(_shared_state->in_mem_shared_state);
     LocalStateInfo state_info {
@@ -243,11 +243,6 @@ Status SpillSortSourceOperatorX::init(const TPlanNode& tnode, RuntimeState* stat
     RETURN_IF_ERROR(OperatorXBase::init(tnode, state));
     _op_name = "SPILL_SORT_SOURCE_OPERATOR";
     return _sort_source_operator->init(tnode, state);
-}
-
-Status SpillSortSourceOperatorX::prepare(RuntimeState* state) {
-    RETURN_IF_ERROR(OperatorXBase::prepare(state));
-    return _sort_source_operator->prepare(state);
 }
 
 Status SpillSortSourceOperatorX::open(RuntimeState* state) {

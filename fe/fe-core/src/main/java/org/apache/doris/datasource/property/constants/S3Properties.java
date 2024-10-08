@@ -197,7 +197,8 @@ public class S3Properties extends BaseProperties {
     private static void checkProvider(Map<String, String> properties) throws DdlException {
         if (properties.containsKey(PROVIDER)) {
             properties.put(PROVIDER, properties.get(PROVIDER).toUpperCase());
-            if (!PROVIDERS.stream().anyMatch(s -> s.equals(properties.get(PROVIDER)))) {
+            // S3 Provider properties should be case insensitive.
+            if (!PROVIDERS.stream().anyMatch(s -> s.equals(properties.get(PROVIDER).toUpperCase()))) {
                 throw new DdlException("Provider must be one of OSS, OBS, AZURE, BOS, COS, S3, GCP");
             }
         }
@@ -308,14 +309,31 @@ public class S3Properties extends BaseProperties {
 
     public static Cloud.ObjectStoreInfoPB.Builder getObjStoreInfoPB(Map<String, String> properties) {
         Cloud.ObjectStoreInfoPB.Builder builder = Cloud.ObjectStoreInfoPB.newBuilder();
-        builder.setEndpoint(properties.get(S3Properties.ENDPOINT));
-        builder.setRegion(properties.get(S3Properties.REGION));
-        builder.setAk(properties.get(S3Properties.ACCESS_KEY));
-        builder.setSk(properties.get(S3Properties.SECRET_KEY));
-        builder.setPrefix(properties.get(S3Properties.ROOT_PATH));
-        builder.setBucket(properties.get(S3Properties.BUCKET));
-        builder.setExternalEndpoint(properties.get(S3Properties.EXTERNAL_ENDPOINT));
-        builder.setProvider(Provider.valueOf(properties.get(S3Properties.PROVIDER)));
+        if (properties.containsKey(S3Properties.ENDPOINT)) {
+            builder.setEndpoint(properties.get(S3Properties.ENDPOINT));
+        }
+        if (properties.containsKey(S3Properties.REGION)) {
+            builder.setRegion(properties.get(S3Properties.REGION));
+        }
+        if (properties.containsKey(S3Properties.ACCESS_KEY)) {
+            builder.setAk(properties.get(S3Properties.ACCESS_KEY));
+        }
+        if (properties.containsKey(S3Properties.SECRET_KEY)) {
+            builder.setSk(properties.get(S3Properties.SECRET_KEY));
+        }
+        if (properties.containsKey(S3Properties.ROOT_PATH)) {
+            builder.setPrefix(properties.get(S3Properties.ROOT_PATH));
+        }
+        if (properties.containsKey(S3Properties.BUCKET)) {
+            builder.setBucket(properties.get(S3Properties.BUCKET));
+        }
+        if (properties.containsKey(S3Properties.EXTERNAL_ENDPOINT)) {
+            builder.setExternalEndpoint(properties.get(S3Properties.EXTERNAL_ENDPOINT));
+        }
+        if (properties.containsKey(S3Properties.PROVIDER)) {
+            // S3 Provider properties should be case insensitive.
+            builder.setProvider(Provider.valueOf(properties.get(S3Properties.PROVIDER).toUpperCase()));
+        }
         return builder;
     }
 }

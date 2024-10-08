@@ -2,6 +2,18 @@
 
 This file contains version of the third-party dependency libraries in the build-env image. The docker build-env image is apache/doris, and the tag is `build-env-${version}`
 
+## 20240815
+
+- Modified: arrow 15.0.2 -> 17.0.0
+
+## 20240814
+
+- Modified: hadoop-libs 3.3.6.2 -> 3.3.6.3
+
+## 20240813
+
+- Modified: hadoop-libs 3.3.6.1 -> 3.3.6.2
+
 ## 20240529
 
 - Added: azure-core 1.10.3

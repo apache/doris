@@ -1,0 +1,74 @@
+set sql_dialect='presto';
+set enable_fallback_to_original_planner=false;
+set debug_skip_fold_constant=false;
+-- SELECT transform(ARRAY[5, 6], x -> 9); # differ: doris : [9, 9], presto : [9, 9]
+-- SELECT transform(ARRAY[5, 6], x -> x + 1); # differ: doris : [6, 7], presto : [6, 7]
+-- SELECT transform(ARRAY[5 + RANDOM(1), 6], x -> x + 1); # differ: doris : [6, 7], presto : [6, 7]
+-- SELECT transform(ARRAY[3], x -> x + 1); # differ: doris : [4], presto : [4]
+-- SELECT transform(ARRAY[NULL, NULL], x -> x + 1); # differ: doris : [null, null], presto : [None, None]
+-- SELECT transform(ARRAY[NULL, 3, NULL], x -> x + 1); # differ: doris : [null, 4, null], presto : [None, 4, None]
+-- SELECT transform(ARRAY[3], x -> x IS NULL); # differ: doris : [0], presto : [False]
+-- SELECT transform(ARRAY[NULL, NULL], x -> x IS NULL); # differ: doris : [1, 1], presto : [True, True]
+-- SELECT transform(ARRAY[NULL, 3, NULL], x -> x IS NULL); # differ: doris : [1, 0, 1], presto : [True, False, True]
+-- SELECT transform(ARRAY[2, 3, 4, NULL, 5], x -> concat(ARRAY[1], x)); # error: errCode = 2, detailMessage = can not cast from origin type ARRAY<TINYINT> to target type=VARCHAR(65533)
+-- SELECT transform(ARRAY[25, 26], x -> x + 1); # differ: doris : [26, 27], presto : [26, 27]
+-- SELECT transform(ARRAY[25, 26], x -> x + 1.0E0); # differ: doris : [26.0, 27.0], presto : [26.0, 27.0]
+-- SELECT transform(ARRAY[25, 26], x -> x = 25); # differ: doris : [1, 0], presto : [True, False]
+-- SELECT transform(ARRAY[25, 26], x -> to_base(x, 16)); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT transform(ARRAY[25, 26], x -> to_base(x, 16));	                         ^	Encountered: COMMA	Expected: ||	
+-- SELECT transform(ARRAY[25, 26], x -> ARRAY[x + 1]); # differ: doris : [[26], [27]], presto : [[26], [27]]
+-- SELECT transform(ARRAY[25.6E0, 27.3E0], x -> CAST(x AS BIGINT)); # differ: doris : [25, 27], presto : [26, 27]
+-- SELECT transform(ARRAY[25.6E0, 27.3E0], x -> x + 1.0E0); # differ: doris : [26.6, 28.3], presto : [26.6, 28.3]
+-- SELECT transform(ARRAY[25.6E0, 27.3E0], x -> x = 25.6E0); # differ: doris : [1, 0], presto : [True, False]
+-- SELECT transform(ARRAY[25.6E0, 27.3E0], x -> CAST(x AS VARCHAR)); # differ: doris : ["25.6", "27.3"], presto : ['25.6', '27.3']
+-- SELECT transform(ARRAY[25.6E0, 27.3E0], x -> MAP(ARRAY[x + 1], ARRAY[true])); # error: errCode = 2, detailMessage = Can not found function 'ARRAY_MAP' which has 2 arity. Candidate functions are: [ARRAY_MAPorg.apache.doris.nereids.trees.expressions.functions.BuiltinFunctionBuilder@7527dfe6, ARRAY_MAPorg.apache.doris.nereids.trees.expressions.functions.BuiltinFunctionBuilder@123ddb14]
+-- SELECT transform(ARRAY[true, false], x -> if(x, 25, 26)); # differ: doris : [25, 26], presto : [25, 26]
+-- SELECT transform(ARRAY[false, true], x -> if(x, 25.6E0, 28.9E0)); # differ: doris : [28.9, 25.6], presto : [28.9, 25.6]
+-- SELECT transform(ARRAY[true, false], x -> not x); # differ: doris : [0, 1], presto : [False, True]
+-- SELECT transform(ARRAY[false, true], x -> CAST(x AS VARCHAR)); # differ: doris : ["0", "1"], presto : ['false', 'true']
+-- SELECT transform(ARRAY[true, false], x -> ARRAY[x]); # differ: doris : [[1], [0]], presto : [[True], [False]]
+-- SELECT transform(ARRAY['41', '42'], x -> from_base(x, 16)); # error: errCode = 2, detailMessage = Can not found function 'FROM_BASE'
+-- SELECT transform(ARRAY['25.6E0', '27.3E0'], x -> CAST(x AS DOUBLE)); # differ: doris : [25.6, 27.3], presto : [25.6, 27.3]
+-- SELECT transform(ARRAY['abc', 'def'], x -> 'abc' = x); # differ: doris : [1, 0], presto : [True, False]
+-- SELECT transform(ARRAY['abc', 'def'], x -> x || x); # differ: doris : ["abcabc", "defdef"], presto : ['abcabc', 'defdef']
+-- SELECT transform(ARRAY['123', '456'], x -> ROW(x, CAST(x AS INTEGER), x > '3')); # differ: doris : [{"col1":"123", "col2":123, "col3":0}, {"col1":"456", "col2":456, "col3":1}], presto : [['123', 123, False], ['456', 456, True]]
+-- SELECT transform(ARRAY[ARRAY['abc', null, '123'], ARRAY['def', 'x', '456']], x -> from_base(x[3], 10)); # error: errCode = 2, detailMessage = Can not found function 'FROM_BASE'
+-- SELECT transform(ARRAY[ARRAY['abc', null, '123'], ARRAY['def', 'x', '456']], x -> CAST(x[3] AS DOUBLE)); # differ: doris : [123, 456], presto : [123.0, 456.0]
+-- SELECT transform(ARRAY[ARRAY['abc', null, '123'], ARRAY['def', 'x', '456']], x -> x[2] IS NULL); # differ: doris : [1, 0], presto : [True, False]
+-- SELECT transform(ARRAY[ARRAY['abc', null, '123'], ARRAY['def', 'x', '456']], x -> x[2]); # differ: doris : [null, "x"], presto : [None, 'x']
+-- SELECT transform(ARRAY[MAP(ARRAY['abc', 'def'], ARRAY[123, 456]), MAP(ARRAY['ghi', 'jkl'], ARRAY[234, 567])], x -> map_keys(x)); # error: errCode = 2, detailMessage = Syntax error in line 1:	...form(ARRAY[MAP(ARRAY['abc', 'def'], ARRAY[123, 456]), ...	                             ^	Encountered: COMMA	Expected: ||	
+set debug_skip_fold_constant=true;
+-- SELECT transform(ARRAY[5, 6], x -> 9); # differ: doris : [9, 9], presto : [9, 9]
+-- SELECT transform(ARRAY[5, 6], x -> x + 1); # differ: doris : [6, 7], presto : [6, 7]
+-- SELECT transform(ARRAY[5 + RANDOM(1), 6], x -> x + 1); # differ: doris : [6, 7], presto : [6, 7]
+-- SELECT transform(ARRAY[3], x -> x + 1); # differ: doris : [4], presto : [4]
+-- SELECT transform(ARRAY[NULL, NULL], x -> x + 1); # differ: doris : [null, null], presto : [None, None]
+-- SELECT transform(ARRAY[NULL, 3, NULL], x -> x + 1); # differ: doris : [null, 4, null], presto : [None, 4, None]
+-- SELECT transform(ARRAY[3], x -> x IS NULL); # differ: doris : [0], presto : [False]
+-- SELECT transform(ARRAY[NULL, NULL], x -> x IS NULL); # differ: doris : [1, 1], presto : [True, True]
+-- SELECT transform(ARRAY[NULL, 3, NULL], x -> x IS NULL); # differ: doris : [1, 0, 1], presto : [True, False, True]
+-- SELECT transform(ARRAY[2, 3, 4, NULL, 5], x -> concat(ARRAY[1], x)); # error: errCode = 2, detailMessage = can not cast from origin type ARRAY<TINYINT> to target type=VARCHAR(65533)
+-- SELECT transform(ARRAY[25, 26], x -> x + 1); # differ: doris : [26, 27], presto : [26, 27]
+-- SELECT transform(ARRAY[25, 26], x -> x + 1.0E0); # differ: doris : [26.0, 27.0], presto : [26.0, 27.0]
+-- SELECT transform(ARRAY[25, 26], x -> x = 25); # differ: doris : [1, 0], presto : [True, False]
+-- SELECT transform(ARRAY[25, 26], x -> to_base(x, 16)); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT transform(ARRAY[25, 26], x -> to_base(x, 16));	                         ^	Encountered: COMMA	Expected: ||	
+-- SELECT transform(ARRAY[25, 26], x -> ARRAY[x + 1]); # differ: doris : [[26], [27]], presto : [[26], [27]]
+-- SELECT transform(ARRAY[25.6E0, 27.3E0], x -> CAST(x AS BIGINT)); # differ: doris : [25, 27], presto : [26, 27]
+-- SELECT transform(ARRAY[25.6E0, 27.3E0], x -> x + 1.0E0); # differ: doris : [26.6, 28.3], presto : [26.6, 28.3]
+-- SELECT transform(ARRAY[25.6E0, 27.3E0], x -> x = 25.6E0); # differ: doris : [1, 0], presto : [True, False]
+-- SELECT transform(ARRAY[25.6E0, 27.3E0], x -> CAST(x AS VARCHAR)); # differ: doris : ["25.6", "27.3"], presto : ['25.6', '27.3']
+-- SELECT transform(ARRAY[25.6E0, 27.3E0], x -> MAP(ARRAY[x + 1], ARRAY[true])); # error: errCode = 2, detailMessage = Can not found function 'ARRAY_MAP' which has 2 arity. Candidate functions are: [ARRAY_MAPorg.apache.doris.nereids.trees.expressions.functions.BuiltinFunctionBuilder@7527dfe6, ARRAY_MAPorg.apache.doris.nereids.trees.expressions.functions.BuiltinFunctionBuilder@123ddb14]
+-- SELECT transform(ARRAY[true, false], x -> if(x, 25, 26)); # differ: doris : [25, 26], presto : [25, 26]
+-- SELECT transform(ARRAY[false, true], x -> if(x, 25.6E0, 28.9E0)); # differ: doris : [28.9, 25.6], presto : [28.9, 25.6]
+-- SELECT transform(ARRAY[true, false], x -> not x); # differ: doris : [0, 1], presto : [False, True]
+-- SELECT transform(ARRAY[false, true], x -> CAST(x AS VARCHAR)); # differ: doris : ["0", "1"], presto : ['false', 'true']
+-- SELECT transform(ARRAY[true, false], x -> ARRAY[x]); # differ: doris : [[1], [0]], presto : [[True], [False]]
+-- SELECT transform(ARRAY['41', '42'], x -> from_base(x, 16)); # error: errCode = 2, detailMessage = Can not found function 'FROM_BASE'
+-- SELECT transform(ARRAY['25.6E0', '27.3E0'], x -> CAST(x AS DOUBLE)); # differ: doris : [25.6, 27.3], presto : [25.6, 27.3]
+-- SELECT transform(ARRAY['abc', 'def'], x -> 'abc' = x); # differ: doris : [1, 0], presto : [True, False]
+-- SELECT transform(ARRAY['abc', 'def'], x -> x || x); # differ: doris : ["abcabc", "defdef"], presto : ['abcabc', 'defdef']
+-- SELECT transform(ARRAY['123', '456'], x -> ROW(x, CAST(x AS INTEGER), x > '3')); # differ: doris : [{"col1":"123", "col2":123, "col3":0}, {"col1":"456", "col2":456, "col3":1}], presto : [['123', 123, False], ['456', 456, True]]
+-- SELECT transform(ARRAY[ARRAY['abc', null, '123'], ARRAY['def', 'x', '456']], x -> from_base(x[3], 10)); # error: errCode = 2, detailMessage = Can not found function 'FROM_BASE'
+-- SELECT transform(ARRAY[ARRAY['abc', null, '123'], ARRAY['def', 'x', '456']], x -> CAST(x[3] AS DOUBLE)); # differ: doris : [123, 456], presto : [123.0, 456.0]
+-- SELECT transform(ARRAY[ARRAY['abc', null, '123'], ARRAY['def', 'x', '456']], x -> x[2] IS NULL); # differ: doris : [1, 0], presto : [True, False]
+-- SELECT transform(ARRAY[ARRAY['abc', null, '123'], ARRAY['def', 'x', '456']], x -> x[2]); # differ: doris : [null, "x"], presto : [None, 'x']
+-- SELECT transform(ARRAY[MAP(ARRAY['abc', 'def'], ARRAY[123, 456]), MAP(ARRAY['ghi', 'jkl'], ARRAY[234, 567])], x -> map_keys(x)) # error: errCode = 2, detailMessage = Syntax error in line 1:	...form(ARRAY[MAP(ARRAY['abc', 'def'], ARRAY[123, 456]), ...	                             ^	Encountered: COMMA	Expected: ||	

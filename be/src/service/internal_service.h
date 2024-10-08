@@ -50,9 +50,11 @@ void offer_failed(T* response, google::protobuf::Closure* done, const FifoThread
 template <CanCancel T>
 void offer_failed(T* response, google::protobuf::Closure* done, const FifoThreadPool& pool) {
     brpc::ClosureGuard closure_guard(done);
-    response->mutable_status()->set_status_code(TStatusCode::CANCELLED);
-    response->mutable_status()->add_error_msgs("fail to offer request to the work pool, pool=" +
-                                               pool.get_info());
+    // Should use status to generate protobuf message, because it will encoding Backend Info
+    // into the error message and then we could know which backend's pool is full.
+    Status st = Status::Error<TStatusCode::CANCELLED>(
+            "fail to offer request to the work pool, pool={}", pool.get_info());
+    st.to_protobuf(response->mutable_status());
     LOG(WARNING) << "cancelled due to fail to offer request to the work pool, pool="
                  << pool.get_info();
 }
@@ -230,6 +232,10 @@ public:
                                     PFetchRemoteSchemaResponse* response,
                                     google::protobuf::Closure* done) override;
 
+    void get_be_resource(google::protobuf::RpcController* controller,
+                         const PGetBeResourceRequest* request, PGetBeResourceResponse* response,
+                         google::protobuf::Closure* done) override;
+
 private:
     void _exec_plan_fragment_in_pthread(google::protobuf::RpcController* controller,
                                         const PExecPlanFragmentRequest* request,
@@ -251,7 +257,7 @@ private:
     void _transmit_block(::google::protobuf::RpcController* controller,
                          const ::doris::PTransmitDataParams* request,
                          ::doris::PTransmitDataResult* response, ::google::protobuf::Closure* done,
-                         const Status& extract_st);
+                         const Status& extract_st, const int64_t wait_for_worker);
 
     Status _tablet_fetch_data(const PTabletKeyLookupRequest* request,
                               PTabletKeyLookupResponse* response);

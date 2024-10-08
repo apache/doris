@@ -21,6 +21,7 @@
 #pragma once
 
 #include <glog/logging.h>
+#include <pdqsort.h>
 #include <stdint.h>
 #include <string.h>
 #include <sys/types.h>
@@ -115,7 +116,7 @@ public:
     void resize(size_t n) override { data.resize(n); }
 
     void insert_from(const IColumn& src, size_t n) override {
-        data.push_back(assert_cast<const Self&>(src).get_data()[n]);
+        data.push_back(assert_cast<const Self&, TypeCheckOnRelease::DISABLE>(src).get_data()[n]);
     }
 
     void insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
@@ -240,7 +241,7 @@ public:
 
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
         DCHECK(size() > self_row);
-        data[self_row] = assert_cast<const Self&>(rhs).data[row];
+        data[self_row] = assert_cast<const Self&, TypeCheckOnRelease::DISABLE>(rhs).data[row];
     }
 
     void replace_column_null_data(const uint8_t* __restrict null_map) override;
@@ -269,14 +270,22 @@ protected:
         for (U i = 0; i < s; ++i) res[i] = i;
 
         auto sort_end = res.end();
-        if (limit && limit < s) sort_end = res.begin() + limit;
-
-        if (reverse)
-            std::partial_sort(res.begin(), sort_end, res.end(),
-                              [this](size_t a, size_t b) { return data[a] > data[b]; });
-        else
-            std::partial_sort(res.begin(), sort_end, res.end(),
-                              [this](size_t a, size_t b) { return data[a] < data[b]; });
+        if (limit && limit < s / 8.0) {
+            sort_end = res.begin() + limit;
+            if (reverse)
+                std::partial_sort(res.begin(), sort_end, res.end(),
+                                  [this](size_t a, size_t b) { return data[a] > data[b]; });
+            else
+                std::partial_sort(res.begin(), sort_end, res.end(),
+                                  [this](size_t a, size_t b) { return data[a] < data[b]; });
+        } else {
+            if (reverse)
+                pdqsort(res.begin(), res.end(),
+                        [this](size_t a, size_t b) { return data[a] > data[b]; });
+            else
+                pdqsort(res.begin(), res.end(),
+                        [this](size_t a, size_t b) { return data[a] < data[b]; });
+        }
     }
 
     void ALWAYS_INLINE decimalv2_do_crc(size_t i, uint32_t& hash) const {

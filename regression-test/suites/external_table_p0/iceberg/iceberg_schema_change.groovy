@@ -23,8 +23,6 @@ suite("iceberg_schema_change", "p0,external,doris,external_docker,external_docke
         return
     }
 
-    // TODO 找当时的人看下怎么构造的这个表
-    return
 
     String rest_port = context.config.otherConfigs.get("iceberg_rest_uri_port")
     String minio_port = context.config.otherConfigs.get("iceberg_minio_port")
@@ -46,7 +44,7 @@ suite("iceberg_schema_change", "p0,external,doris,external_docker,external_docke
         logger.info("catalog " + catalog_name + " created")
         sql """switch ${catalog_name};"""
         logger.info("switched to catalog " + catalog_name)
-        sql """ use multi_catalog;""" 
+        sql """ use test_db;""" 
 
 
         qt_parquet_v1_1  """ desc complex_parquet_v1_schema_change ;""" 
@@ -58,8 +56,19 @@ suite("iceberg_schema_change", "p0,external,doris,external_docker,external_docke
         qt_parquet_v1_7  """ select rename_col7 from  complex_parquet_v1_schema_change order by id; """ 
         qt_parquet_v1_8  """ select col_add2 from  complex_parquet_v1_schema_change  where id >=7 order by id; """ 
         qt_parquet_v1_9  """ select id,count(col_add) from  complex_parquet_v1_schema_change  group by id order by id desc ; """ 
-        qt_parquet_v1_10  """ select col_add from  complex_parquet_v1_schema_change where col_add -1 = col_add2 order by id; """ 
-
+        qt_parquet_v1_10  """ select col_add from  complex_parquet_v1_schema_change where col_add -1 = col_add2 order by id; """
+        qt_parquet_v1_11 """ select array_size(rename_col3),rename_col3 from  complex_parquet_v1_schema_change  where array_size(rename_col3) > 2 order by id; """
+        qt_parquet_v1_12 """ select array_size(rename_col2),rename_col2 from  complex_parquet_v1_schema_change    order by id; """
+        qt_parquet_v1_13 """ select array_size(rename_col2),rename_col2 from  complex_parquet_v1_schema_change   where rename_col2[1] > 7  order by id; """
+        qt_parquet_v1_14 """ select array_size(rename_col2),rename_col2 from  complex_parquet_v1_schema_change   where rename_col2[1] > 7  and id > 7   order by id; """
+        qt_parquet_v1_15 """ select array_size(rename_col1),rename_col1 from  complex_parquet_v1_schema_change order by id; """
+        qt_parquet_v1_16 """ select  * from complex_parquet_v1_schema_change where rename_col10 > 500 order by id ; """
+        qt_parquet_v1_17 """ select * from complex_parquet_v1_schema_change where  map_keys(rename_col4)[1] > 10 order by id;   """
+        qt_parquet_v1_18 """ select * from complex_parquet_v1_schema_change where  map_values(rename_col5)[1] > 10 order by id; """
+        qt_parquet_v1_19 """ select struct_element(rename_col7,"add") from complex_parquet_v1_schema_change  order by id; """
+        qt_parquet_v1_20 """ select struct_element(rename_col7,"x") from complex_parquet_v1_schema_change  order by id; """
+        qt_parquet_v1_21 """ select array_size(rename_col3),rename_col3 from  complex_parquet_v1_schema_change order by id; """
+        qt_parquet_v1_22 """ select  *  from  complex_parquet_v1_schema_change  where rename_col8 + rename_col9 > 100 order by id;"""
 
 
         qt_parquet_v2_1  """ desc complex_parquet_v2_schema_change ;""" 
@@ -72,8 +81,18 @@ suite("iceberg_schema_change", "p0,external,doris,external_docker,external_docke
         qt_parquet_v2_8  """ select col_add2 from  complex_parquet_v2_schema_change  where id >=7 order by id; """ 
         qt_parquet_v2_9  """ select id,count(col_add) from  complex_parquet_v2_schema_change  group by id order by id desc ; """ 
         qt_parquet_v2_10  """ select col_add from  complex_parquet_v2_schema_change where col_add -1 = col_add2 order by id; """ 
-
-
+        qt_parquet_v2_11 """ select array_size(rename_col3),rename_col3 from  complex_parquet_v2_schema_change  where array_size(rename_col3) > 2 order by id; """
+        qt_parquet_v2_12 """ select array_size(rename_col2),rename_col2 from  complex_parquet_v2_schema_change    order by id; """
+        qt_parquet_v2_13 """ select array_size(rename_col2),rename_col2 from  complex_parquet_v2_schema_change   where rename_col2[1] > 7  order by id; """
+        qt_parquet_v2_14 """ select array_size(rename_col2),rename_col2 from  complex_parquet_v2_schema_change   where rename_col2[1] > 7  and id > 7   order by id; """
+        qt_parquet_v2_15 """ select array_size(rename_col1),rename_col1 from  complex_parquet_v2_schema_change order by id; """
+        qt_parquet_v2_16 """ select  * from complex_parquet_v2_schema_change where rename_col10 > 500 order by id ; """
+        qt_parquet_v2_17 """ select * from complex_parquet_v2_schema_change where  map_keys(rename_col4)[1] > 10 order by id;   """
+        qt_parquet_v2_18 """ select * from complex_parquet_v2_schema_change where  map_values(rename_col5)[1] > 10 order by id; """
+        qt_parquet_v2_19 """ select struct_element(rename_col7,"add") from complex_parquet_v2_schema_change  order by id; """
+        qt_parquet_v2_20 """ select struct_element(rename_col7,"x") from complex_parquet_v2_schema_change  order by id; """
+        qt_parquet_v2_21 """ select array_size(rename_col3),rename_col3 from  complex_parquet_v2_schema_change order by id; """
+        qt_parquet_v2_22 """ select  *  from  complex_parquet_v2_schema_change  where rename_col8 + rename_col9 > 100 order by id;"""
 
 
         qt_orc_v1_1  """ desc complex_orc_v1_schema_change ;""" 
@@ -86,7 +105,18 @@ suite("iceberg_schema_change", "p0,external,doris,external_docker,external_docke
         qt_orc_v1_8  """ select col_add2 from  complex_orc_v1_schema_change  where id >=7 order by id; """ 
         qt_orc_v1_9  """ select id,count(col_add) from  complex_orc_v1_schema_change  group by id order by id desc ; """ 
         qt_orc_v1_10  """ select col_add from  complex_orc_v1_schema_change where col_add -1 = col_add2 order by id; """ 
-
+        qt_orc_v1_11 """ select array_size(rename_col3),rename_col3 from  complex_orc_v1_schema_change  where array_size(rename_col3) > 2 order by id; """
+        qt_orc_v1_12 """ select array_size(rename_col2),rename_col2 from  complex_orc_v1_schema_change    order by id; """
+        qt_orc_v1_13 """ select array_size(rename_col2),rename_col2 from  complex_orc_v1_schema_change   where rename_col2[1] > 7  order by id; """
+        qt_orc_v1_14 """ select array_size(rename_col2),rename_col2 from  complex_orc_v1_schema_change   where rename_col2[1] > 7  and id > 7   order by id; """
+        qt_orc_v1_15 """ select array_size(rename_col1),rename_col1 from  complex_orc_v1_schema_change order by id; """
+        qt_orc_v1_16 """ select  * from complex_orc_v1_schema_change where rename_col10 > 500 order by id ; """
+        qt_orc_v1_17 """ select * from complex_orc_v1_schema_change where  map_keys(rename_col4)[1] > 10 order by id;   """
+        qt_orc_v1_18 """ select * from complex_orc_v1_schema_change where  map_values(rename_col5)[1] > 10 order by id; """
+        qt_orc_v1_19 """ select struct_element(rename_col7,"add") from complex_orc_v1_schema_change  order by id; """
+        qt_orc_v1_20 """ select struct_element(rename_col7,"x") from complex_orc_v1_schema_change  order by id; """
+        qt_orc_v1_21 """ select array_size(rename_col3),rename_col3 from  complex_orc_v1_schema_change order by id; """
+        qt_orc_v1_22 """ select  *  from  complex_orc_v1_schema_change  where rename_col8 + rename_col9 > 100 order by id;"""
         
 
         qt_orc_v2_1  """ desc complex_orc_v2_schema_change ;""" 
@@ -99,6 +129,19 @@ suite("iceberg_schema_change", "p0,external,doris,external_docker,external_docke
         qt_orc_v2_8  """ select col_add2 from  complex_orc_v2_schema_change  where id >=7 order by id; """ 
         qt_orc_v2_9  """ select id,count(col_add) from  complex_orc_v2_schema_change  group by id order by id desc ; """ 
         qt_orc_v2_10  """ select col_add from  complex_orc_v2_schema_change where col_add -1 = col_add2 order by id; """ 
+        qt_orc_v2_11 """ select array_size(rename_col3),rename_col3 from  complex_orc_v2_schema_change  where array_size(rename_col3) > 2 order by id; """
+        qt_orc_v2_12 """ select array_size(rename_col2),rename_col2 from  complex_orc_v2_schema_change    order by id; """
+        qt_orc_v2_13 """ select array_size(rename_col2),rename_col2 from  complex_orc_v2_schema_change   where rename_col2[1] > 7  order by id; """
+        qt_orc_v2_14 """ select array_size(rename_col2),rename_col2 from  complex_orc_v2_schema_change   where rename_col2[1] > 7  and id > 7   order by id; """
+        qt_orc_v2_15 """ select array_size(rename_col1),rename_col1 from  complex_orc_v2_schema_change order by id; """
+        qt_orc_v2_16 """ select  * from complex_orc_v2_schema_change where rename_col10 > 500 order by id ; """
+        qt_orc_v2_17 """ select * from complex_orc_v2_schema_change where  map_keys(rename_col4)[1] > 10 order by id;   """
+        qt_orc_v2_18 """ select * from complex_orc_v2_schema_change where  map_values(rename_col5)[1] > 10 order by id; """
+        qt_orc_v2_19 """ select struct_element(rename_col7,"add") from complex_orc_v2_schema_change  order by id; """
+        qt_orc_v2_20 """ select struct_element(rename_col7,"x") from complex_orc_v2_schema_change  order by id; """
+        qt_orc_v2_21 """ select array_size(rename_col3),rename_col3 from  complex_orc_v2_schema_change order by id; """
+        qt_orc_v2_22 """ select  *  from  complex_orc_v2_schema_change  where rename_col8 + rename_col9 > 100 order by id;"""
+
 
 }
 /*

@@ -56,7 +56,7 @@ public:
     static constexpr auto name = "array_enumerate";
     static FunctionPtr create() { return std::make_shared<FunctionArrayEnumerate>(); }
     String get_name() const override { return name; }
-    bool use_default_implementation_for_nulls() const override { return false; }
+    bool use_default_implementation_for_nulls() const override { return true; }
     size_t get_number_of_arguments() const override { return 1; }
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         const DataTypeArray* array_type =

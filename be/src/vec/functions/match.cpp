@@ -19,12 +19,69 @@
 
 #include <hs/hs.h>
 
+#include "olap/rowset/segment_v2/inverted_index/analyzer/analyzer.h"
 #include "runtime/query_context.h"
 #include "runtime/runtime_state.h"
 #include "util/debug_points.h"
 
 namespace doris::vectorized {
+Status FunctionMatchBase::evaluate_inverted_index(
+        const ColumnsWithTypeAndName& arguments,
+        const std::vector<vectorized::IndexFieldNameAndTypePair>& data_type_with_names,
+        std::vector<segment_v2::InvertedIndexIterator*> iterators, uint32_t num_rows,
+        segment_v2::InvertedIndexResultBitmap& bitmap_result) const {
+    DCHECK(arguments.size() == 1);
+    DCHECK(data_type_with_names.size() == 1);
+    DCHECK(iterators.size() == 1);
+    auto* iter = iterators[0];
+    auto data_type_with_name = data_type_with_names[0];
+    if (iter == nullptr) {
+        return Status::OK();
+    }
+    const std::string& function_name = get_name();
 
+    if (function_name == MATCH_PHRASE_FUNCTION || function_name == MATCH_PHRASE_PREFIX_FUNCTION ||
+        function_name == MATCH_PHRASE_EDGE_FUNCTION) {
+        if (iter->get_inverted_index_reader_type() == InvertedIndexReaderType::FULLTEXT &&
+            get_parser_phrase_support_string_from_properties(iter->get_index_properties()) ==
+                    INVERTED_INDEX_PARSER_PHRASE_SUPPORT_NO) {
+            return Status::Error<ErrorCode::INVERTED_INDEX_INVALID_PARAMETERS>(
+                    "phrase queries require setting support_phrase = true");
+        }
+    }
+    std::shared_ptr<roaring::Roaring> roaring = std::make_shared<roaring::Roaring>();
+    Field param_value;
+    arguments[0].column->get(0, param_value);
+    auto param_type = arguments[0].type->get_type_as_type_descriptor().type;
+    if (!is_string_type(param_type)) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_INVALID_PARAMETERS>(
+                "arguments for match must be string");
+    }
+    std::unique_ptr<InvertedIndexQueryParamFactory> query_param = nullptr;
+    RETURN_IF_ERROR(InvertedIndexQueryParamFactory::create_query_value(param_type, &param_value,
+                                                                       query_param));
+    if (is_string_type(param_type)) {
+        auto inverted_index_query_type = get_query_type_from_fn_name();
+        RETURN_IF_ERROR(
+                iter->read_from_inverted_index(data_type_with_name.first, query_param->get_value(),
+                                               inverted_index_query_type, num_rows, roaring));
+    } else {
+        return Status::Error<ErrorCode::INVERTED_INDEX_INVALID_PARAMETERS>(
+                "invalid params type for FunctionMatchBase::evaluate_inverted_index {}",
+                param_type);
+    }
+    std::shared_ptr<roaring::Roaring> null_bitmap = std::make_shared<roaring::Roaring>();
+    if (iter->has_null()) {
+        segment_v2::InvertedIndexQueryCacheHandle null_bitmap_cache_handle;
+        RETURN_IF_ERROR(iter->read_null_bitmap(&null_bitmap_cache_handle));
+        null_bitmap = null_bitmap_cache_handle.get_bitmap();
+    }
+    segment_v2::InvertedIndexResultBitmap result(roaring, null_bitmap);
+    bitmap_result = result;
+    bitmap_result.mask_out_null();
+
+    return Status::OK();
+}
 Status FunctionMatchBase::execute_impl(FunctionContext* context, Block& block,
                                        const ColumnNumbers& arguments, size_t result,
                                        size_t input_rows_count) const {
@@ -32,77 +89,69 @@ Status FunctionMatchBase::execute_impl(FunctionContext* context, Block& block,
     DataTypePtr& type_ptr = block.get_by_position(arguments[1]).type;
     auto match_query_str = type_ptr->to_string(*column_ptr, 0);
     std::string column_name = block.get_by_position(arguments[0]).name;
-    auto match_pred_column_name =
-            BeConsts::BLOCK_TEMP_COLUMN_PREFIX + column_name + "_match_" + match_query_str;
-    if (!block.has(match_pred_column_name)) {
-        VLOG_DEBUG << "begin to execute match directly, column_name=" << column_name
-                   << ", match_query_str=" << match_query_str;
-        InvertedIndexCtx* inverted_index_ctx = reinterpret_cast<InvertedIndexCtx*>(
-                context->get_function_state(FunctionContext::THREAD_LOCAL));
-        if (inverted_index_ctx == nullptr) {
-            inverted_index_ctx = reinterpret_cast<InvertedIndexCtx*>(
-                    context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
-        }
-
-        const ColumnPtr source_col =
-                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
-        const auto* values = check_and_get_column<ColumnString>(source_col.get());
-        const ColumnArray* array_col = nullptr;
-        if (source_col->is_column_array()) {
-            if (source_col->is_nullable()) {
-                auto* nullable = check_and_get_column<ColumnNullable>(source_col.get());
-                array_col = check_and_get_column<ColumnArray>(*nullable->get_nested_column_ptr());
-            } else {
-                array_col = check_and_get_column<ColumnArray>(source_col.get());
-            }
-            if (array_col && !array_col->get_data().is_column_string()) {
-                return Status::NotSupported(
-                        fmt::format("unsupported nested array of type {} for function {}",
-                                    is_column_nullable(array_col->get_data())
-                                            ? array_col->get_data().get_name()
-                                            : array_col->get_data().get_family_name(),
-                                    get_name()));
-            }
-
-            if (is_column_nullable(array_col->get_data())) {
-                const auto& array_nested_null_column =
-                        reinterpret_cast<const ColumnNullable&>(array_col->get_data());
-                values = check_and_get_column<ColumnString>(
-                        *(array_nested_null_column.get_nested_column_ptr()));
-            } else {
-                // array column element is always set Nullable for now.
-                values = check_and_get_column<ColumnString>(*(array_col->get_data_ptr()));
-            }
-        } else if (auto* nullable = check_and_get_column<ColumnNullable>(source_col.get())) {
-            // match null
-            if (type_ptr->is_nullable()) {
-                if (column_ptr->only_null()) {
-                    block.get_by_position(result).column = nullable->get_null_map_column_ptr();
-                    return Status::OK();
-                }
-            } else {
-                values = check_and_get_column<ColumnString>(*nullable->get_nested_column_ptr());
-            }
-        }
-
-        if (!values) {
-            LOG(WARNING) << "Illegal column " << source_col->get_name();
-            return Status::InternalError("Not supported input column types");
-        }
-        // result column
-        auto res = ColumnUInt8::create();
-        ColumnUInt8::Container& vec_res = res->get_data();
-        // set default value to 0, and match functions only need to set 1/true
-        vec_res.resize_fill(input_rows_count);
-        RETURN_IF_ERROR(execute_match(
-                context, column_name, match_query_str, input_rows_count, values, inverted_index_ctx,
-                (array_col ? &(array_col->get_offsets()) : nullptr), vec_res));
-        block.replace_by_position(result, std::move(res));
-    } else {
-        auto match_pred_column =
-                block.get_by_name(match_pred_column_name).column->convert_to_full_column_if_const();
-        block.replace_by_position(result, std::move(match_pred_column));
+    VLOG_DEBUG << "begin to execute match directly, column_name=" << column_name
+               << ", match_query_str=" << match_query_str;
+    InvertedIndexCtx* inverted_index_ctx = reinterpret_cast<InvertedIndexCtx*>(
+            context->get_function_state(FunctionContext::THREAD_LOCAL));
+    if (inverted_index_ctx == nullptr) {
+        inverted_index_ctx = reinterpret_cast<InvertedIndexCtx*>(
+                context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
     }
+
+    const ColumnPtr source_col =
+            block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+    const auto* values = check_and_get_column<ColumnString>(source_col.get());
+    const ColumnArray* array_col = nullptr;
+    if (source_col->is_column_array()) {
+        if (source_col->is_nullable()) {
+            auto* nullable = check_and_get_column<ColumnNullable>(source_col.get());
+            array_col = check_and_get_column<ColumnArray>(*nullable->get_nested_column_ptr());
+        } else {
+            array_col = check_and_get_column<ColumnArray>(source_col.get());
+        }
+        if (array_col && !array_col->get_data().is_column_string()) {
+            return Status::NotSupported(
+                    fmt::format("unsupported nested array of type {} for function {}",
+                                is_column_nullable(array_col->get_data())
+                                        ? array_col->get_data().get_name()
+                                        : array_col->get_data().get_family_name(),
+                                get_name()));
+        }
+
+        if (is_column_nullable(array_col->get_data())) {
+            const auto& array_nested_null_column =
+                    reinterpret_cast<const ColumnNullable&>(array_col->get_data());
+            values = check_and_get_column<ColumnString>(
+                    *(array_nested_null_column.get_nested_column_ptr()));
+        } else {
+            // array column element is always set Nullable for now.
+            values = check_and_get_column<ColumnString>(*(array_col->get_data_ptr()));
+        }
+    } else if (auto* nullable = check_and_get_column<ColumnNullable>(source_col.get())) {
+        // match null
+        if (type_ptr->is_nullable()) {
+            if (column_ptr->only_null()) {
+                block.get_by_position(result).column = nullable->get_null_map_column_ptr();
+                return Status::OK();
+            }
+        } else {
+            values = check_and_get_column<ColumnString>(*nullable->get_nested_column_ptr());
+        }
+    }
+
+    if (!values) {
+        LOG(WARNING) << "Illegal column " << source_col->get_name();
+        return Status::InternalError("Not supported input column types");
+    }
+    // result column
+    auto res = ColumnUInt8::create();
+    ColumnUInt8::Container& vec_res = res->get_data();
+    // set default value to 0, and match functions only need to set 1/true
+    vec_res.resize_fill(input_rows_count);
+    RETURN_IF_ERROR(execute_match(context, column_name, match_query_str, input_rows_count, values,
+                                  inverted_index_ctx,
+                                  (array_col ? &(array_col->get_offsets()) : nullptr), vec_res));
+    block.replace_by_position(result, std::move(res));
 
     return Status::OK();
 }
@@ -120,8 +169,28 @@ inline doris::segment_v2::InvertedIndexQueryType FunctionMatchBase::get_query_ty
         return doris::segment_v2::InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY;
     } else if (fn_name == MATCH_PHRASE_REGEXP_FUNCTION) {
         return doris::segment_v2::InvertedIndexQueryType::MATCH_REGEXP_QUERY;
+    } else if (fn_name == MATCH_PHRASE_EDGE_FUNCTION) {
+        return doris::segment_v2::InvertedIndexQueryType::MATCH_PHRASE_EDGE_QUERY;
     }
     return doris::segment_v2::InvertedIndexQueryType::UNKNOWN_QUERY;
+}
+
+std::vector<std::string> FunctionMatchBase::analyse_query_str_token(
+        InvertedIndexCtx* inverted_index_ctx, const std::string& match_query_str,
+        const std::string& column_name) const {
+    VLOG_DEBUG << "begin to run " << get_name() << ", parser_type: "
+               << inverted_index_parser_type_to_string(inverted_index_ctx->parser_type);
+    std::vector<std::string> query_tokens;
+    if (inverted_index_ctx->parser_type == InvertedIndexParserType::PARSER_NONE) {
+        query_tokens.emplace_back(match_query_str);
+        return query_tokens;
+    }
+    auto reader = doris::segment_v2::inverted_index::InvertedIndexAnalyzer::create_reader(
+            inverted_index_ctx->char_filter_map);
+    reader->init(match_query_str.data(), match_query_str.size(), true);
+    query_tokens = doris::segment_v2::inverted_index::InvertedIndexAnalyzer::get_analyse_result(
+            reader.get(), inverted_index_ctx->analyzer, column_name, get_query_type_from_fn_name());
+    return query_tokens;
 }
 
 inline std::vector<std::string> FunctionMatchBase::analyse_data_token(
@@ -134,23 +203,33 @@ inline std::vector<std::string> FunctionMatchBase::analyse_data_token(
         for (auto next_src_array_offset = (*array_offsets)[current_block_row_idx];
              current_src_array_offset < next_src_array_offset; ++current_src_array_offset) {
             const auto& str_ref = string_col->get_data_at(current_src_array_offset);
-            auto reader = doris::segment_v2::InvertedIndexReader::create_reader(
-                    inverted_index_ctx, str_ref.to_string());
+            if (inverted_index_ctx->parser_type == InvertedIndexParserType::PARSER_NONE) {
+                data_tokens.emplace_back(str_ref.to_string());
+                continue;
+            }
+            auto reader = doris::segment_v2::inverted_index::InvertedIndexAnalyzer::create_reader(
+                    inverted_index_ctx->char_filter_map);
+            reader->init(str_ref.data, str_ref.size, true);
 
-            std::vector<std::string> element_tokens;
-            doris::segment_v2::InvertedIndexReader::get_analyse_result(
-                    element_tokens, reader.get(), inverted_index_ctx->analyzer, column_name,
-                    query_type, false);
+            std::vector<std::string> element_tokens =
+                    doris::segment_v2::inverted_index::InvertedIndexAnalyzer::get_analyse_result(
+                            reader.get(), inverted_index_ctx->analyzer, column_name, query_type,
+                            false);
             data_tokens.insert(data_tokens.end(), element_tokens.begin(), element_tokens.end());
         }
     } else {
         const auto& str_ref = string_col->get_data_at(current_block_row_idx);
-        auto reader = doris::segment_v2::InvertedIndexReader::create_reader(inverted_index_ctx,
-                                                                            str_ref.to_string());
-
-        doris::segment_v2::InvertedIndexReader::get_analyse_result(data_tokens, reader.get(),
-                                                                   inverted_index_ctx->analyzer,
-                                                                   column_name, query_type, false);
+        if (inverted_index_ctx->parser_type == InvertedIndexParserType::PARSER_NONE) {
+            data_tokens.emplace_back(str_ref.to_string());
+        } else {
+            auto reader = doris::segment_v2::inverted_index::InvertedIndexAnalyzer::create_reader(
+                    inverted_index_ctx->char_filter_map);
+            reader->init(str_ref.data, str_ref.size, true);
+            data_tokens =
+                    doris::segment_v2::inverted_index::InvertedIndexAnalyzer::get_analyse_result(
+                            reader.get(), inverted_index_ctx->analyzer, column_name, query_type,
+                            false);
+        }
     }
     return data_tokens;
 }
@@ -177,23 +256,14 @@ Status FunctionMatchAny::execute_match(FunctionContext* context, const std::stri
                                        ColumnUInt8::Container& result) const {
     RETURN_IF_ERROR(check(context, name));
 
-    doris::InvertedIndexParserType parser_type = doris::InvertedIndexParserType::PARSER_UNKNOWN;
-    if (inverted_index_ctx) {
-        parser_type = inverted_index_ctx->parser_type;
-    }
-    VLOG_DEBUG << "begin to run FunctionMatchAny::execute_match, parser_type: "
-               << inverted_index_parser_type_to_string(parser_type);
-    auto reader = doris::segment_v2::InvertedIndexReader::create_reader(inverted_index_ctx,
-                                                                        match_query_str);
-    std::vector<std::string> query_tokens;
-    doris::segment_v2::InvertedIndexReader::get_analyse_result(
-            query_tokens, reader.get(), inverted_index_ctx->analyzer, column_name,
-            doris::segment_v2::InvertedIndexQueryType::MATCH_ANY_QUERY);
+    std::vector<std::string> query_tokens =
+            analyse_query_str_token(inverted_index_ctx, match_query_str, column_name);
     if (query_tokens.empty()) {
         VLOG_DEBUG << fmt::format(
                 "token parser result is empty for query, "
                 "please check your query: '{}' and index parser: '{}'",
-                match_query_str, inverted_index_parser_type_to_string(parser_type));
+                match_query_str,
+                inverted_index_parser_type_to_string(inverted_index_ctx->parser_type));
         return Status::OK();
     }
 
@@ -224,23 +294,14 @@ Status FunctionMatchAll::execute_match(FunctionContext* context, const std::stri
                                        ColumnUInt8::Container& result) const {
     RETURN_IF_ERROR(check(context, name));
 
-    doris::InvertedIndexParserType parser_type = doris::InvertedIndexParserType::PARSER_UNKNOWN;
-    if (inverted_index_ctx) {
-        parser_type = inverted_index_ctx->parser_type;
-    }
-    VLOG_DEBUG << "begin to run FunctionMatchAll::execute_match, parser_type: "
-               << inverted_index_parser_type_to_string(parser_type);
-    auto reader = doris::segment_v2::InvertedIndexReader::create_reader(inverted_index_ctx,
-                                                                        match_query_str);
-    std::vector<std::string> query_tokens;
-    doris::segment_v2::InvertedIndexReader::get_analyse_result(
-            query_tokens, reader.get(), inverted_index_ctx->analyzer, column_name,
-            doris::segment_v2::InvertedIndexQueryType::MATCH_ALL_QUERY);
+    std::vector<std::string> query_tokens =
+            analyse_query_str_token(inverted_index_ctx, match_query_str, column_name);
     if (query_tokens.empty()) {
         VLOG_DEBUG << fmt::format(
                 "token parser result is empty for query, "
                 "please check your query: '{}' and index parser: '{}'",
-                match_query_str, inverted_index_parser_type_to_string(parser_type));
+                match_query_str,
+                inverted_index_parser_type_to_string(inverted_index_ctx->parser_type));
         return Status::OK();
     }
 
@@ -277,23 +338,14 @@ Status FunctionMatchPhrase::execute_match(FunctionContext* context, const std::s
                                           ColumnUInt8::Container& result) const {
     RETURN_IF_ERROR(check(context, name));
 
-    doris::InvertedIndexParserType parser_type = doris::InvertedIndexParserType::PARSER_UNKNOWN;
-    if (inverted_index_ctx) {
-        parser_type = inverted_index_ctx->parser_type;
-    }
-    VLOG_DEBUG << "begin to run FunctionMatchPhrase::execute_match, parser_type: "
-               << inverted_index_parser_type_to_string(parser_type);
-    auto reader = doris::segment_v2::InvertedIndexReader::create_reader(inverted_index_ctx,
-                                                                        match_query_str);
-    std::vector<std::string> query_tokens;
-    doris::segment_v2::InvertedIndexReader::get_analyse_result(
-            query_tokens, reader.get(), inverted_index_ctx->analyzer, column_name,
-            doris::segment_v2::InvertedIndexQueryType::MATCH_PHRASE_QUERY);
+    std::vector<std::string> query_tokens =
+            analyse_query_str_token(inverted_index_ctx, match_query_str, column_name);
     if (query_tokens.empty()) {
         VLOG_DEBUG << fmt::format(
                 "token parser result is empty for query, "
                 "please check your query: '{}' and index parser: '{}'",
-                match_query_str, inverted_index_parser_type_to_string(parser_type));
+                match_query_str,
+                inverted_index_parser_type_to_string(inverted_index_ctx->parser_type));
         return Status::OK();
     }
 
@@ -345,25 +397,14 @@ Status FunctionMatchPhrasePrefix::execute_match(
         ColumnUInt8::Container& result) const {
     RETURN_IF_ERROR(check(context, name));
 
-    doris::InvertedIndexParserType parser_type = doris::InvertedIndexParserType::PARSER_UNKNOWN;
-    if (inverted_index_ctx) {
-        parser_type = inverted_index_ctx->parser_type;
-    }
-    VLOG_DEBUG << "begin to run FunctionMatchPhrasePrefix::execute_match, parser_type: "
-               << inverted_index_parser_type_to_string(parser_type);
-
-    auto reader = doris::segment_v2::InvertedIndexReader::create_reader(inverted_index_ctx,
-                                                                        match_query_str);
-    std::vector<std::string> query_tokens;
-    doris::segment_v2::InvertedIndexReader::get_analyse_result(
-            query_tokens, reader.get(), inverted_index_ctx->analyzer, column_name,
-            doris::segment_v2::InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY);
-
+    std::vector<std::string> query_tokens =
+            analyse_query_str_token(inverted_index_ctx, match_query_str, column_name);
     if (query_tokens.empty()) {
         VLOG_DEBUG << fmt::format(
                 "token parser result is empty for query, "
                 "please check your query: '{}' and index parser: '{}'",
-                match_query_str, inverted_index_parser_type_to_string(parser_type));
+                match_query_str,
+                inverted_index_parser_type_to_string(inverted_index_ctx->parser_type));
         return Status::OK();
     }
 
@@ -414,20 +455,8 @@ Status FunctionMatchRegexp::execute_match(FunctionContext* context, const std::s
                                           ColumnUInt8::Container& result) const {
     RETURN_IF_ERROR(check(context, name));
 
-    doris::InvertedIndexParserType parser_type = doris::InvertedIndexParserType::PARSER_UNKNOWN;
-    if (inverted_index_ctx) {
-        parser_type = inverted_index_ctx->parser_type;
-    }
     VLOG_DEBUG << "begin to run FunctionMatchRegexp::execute_match, parser_type: "
-               << inverted_index_parser_type_to_string(parser_type);
-
-    if (match_query_str.empty()) {
-        VLOG_DEBUG << fmt::format(
-                "token parser result is empty for query, "
-                "please check your query: '{}' and index parser: '{}'",
-                match_query_str, inverted_index_parser_type_to_string(parser_type));
-        return Status::OK();
-    }
+               << inverted_index_parser_type_to_string(inverted_index_ctx->parser_type);
 
     const std::string& pattern = match_query_str;
 

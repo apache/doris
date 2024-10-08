@@ -38,17 +38,15 @@ import org.apache.http.impl.client.LaxRedirectStrategy;
 //  - set smaller max_ttl_cache_ratio in this test
 
 suite("test_ttl_lru_evict") {
-    // sql """ use @regression_cluster_name1 """
-    sql """ use @compute_cluster """
-    def ttlProperties = """ PROPERTIES("file_cache_ttl_seconds"="180") """
+    sql """ use @regression_cluster_name1 """
+    def ttlProperties = """ PROPERTIES("file_cache_ttl_seconds"="3600") """
     String[][] backends = sql """ show backends """
     String backendId;
     def backendIdToBackendIP = [:]
     def backendIdToBackendHttpPort = [:]
     def backendIdToBackendBrpcPort = [:]
     for (String[] backend in backends) {
-        // if (backend[9].equals("true") && backend[19].contains("regression_cluster_name1")) {
-        if (backend[9].equals("true") && backend[19].contains("compute_cluster")) {
+        if (backend[9].equals("true") && backend[19].contains("regression_cluster_name1")) {
             backendIdToBackendIP.put(backend[0], backend[1])
             backendIdToBackendHttpPort.put(backend[0], backend[4])
             backendIdToBackendBrpcPort.put(backend[0], backend[5])
@@ -57,14 +55,14 @@ suite("test_ttl_lru_evict") {
     assertEquals(backendIdToBackendIP.size(), 1)
 
     backendId = backendIdToBackendIP.keySet()[0]
-    def url = backendIdToBackendIP.get(backendId) + ":" + backendIdToBackendHttpPort.get(backendId) + """/api/clear_file_cache"""
+    def url = backendIdToBackendIP.get(backendId) + ":" + backendIdToBackendHttpPort.get(backendId) + """/api/file_cache?op=clear&sync=true"""
     logger.info(url)
     def clearFileCache = { check_func ->
         httpTest {
             endpoint ""
             uri url
-            op "post"
-            body "{\"sync\"=\"true\"}"
+            op "get"
+            body ""
             check check_func
         }
     }

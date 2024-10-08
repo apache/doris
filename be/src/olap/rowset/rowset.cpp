@@ -23,6 +23,7 @@
 #include "olap/segment_loader.h"
 #include "olap/tablet_schema.h"
 #include "util/time.h"
+#include "util/trace.h"
 
 namespace doris {
 
@@ -118,8 +119,14 @@ std::string Rowset::get_rowset_info_str() {
 }
 
 void Rowset::clear_cache() {
-    SegmentLoader::instance()->erase_segments(rowset_id(), num_segments());
-    clear_inverted_index_cache();
+    {
+        SCOPED_SIMPLE_TRACE_IF_TIMEOUT(std::chrono::seconds(1));
+        SegmentLoader::instance()->erase_segments(rowset_id(), num_segments());
+    }
+    {
+        SCOPED_SIMPLE_TRACE_IF_TIMEOUT(std::chrono::seconds(1));
+        clear_inverted_index_cache();
+    }
 }
 
 Result<std::string> Rowset::segment_path(int64_t seg_id) {

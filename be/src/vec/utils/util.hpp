@@ -116,9 +116,11 @@ public:
         size_t size = dst.size();
         auto* __restrict l = dst.data();
         auto* __restrict r = src.data();
-        if (is_single && r[0]) {
-            for (size_t i = 0; i < size; ++i) {
-                l[i] = 1;
+        if (is_single) {
+            if (r[0]) {
+                for (size_t i = 0; i < size; ++i) {
+                    l[i] = 1;
+                }
             }
         } else {
             for (size_t i = 0; i < size; ++i) {
@@ -171,12 +173,12 @@ inline std::string remove_suffix(const std::string& name, const std::string& suf
 };
 
 inline ColumnPtr create_always_true_column(size_t size, bool is_nullable) {
-    auto res_data_column = ColumnUInt8::create(size, 1);
+    ColumnPtr res_data_column = ColumnUInt8::create(1, 1);
     if (is_nullable) {
-        auto null_map = ColumnVector<UInt8>::create(size, 0);
-        return ColumnNullable::create(std::move(res_data_column), std::move(null_map));
+        auto null_map = ColumnVector<UInt8>::create(1, 0);
+        res_data_column = ColumnNullable::create(res_data_column, std::move(null_map));
     }
-    return res_data_column;
+    return ColumnConst::create(std::move(res_data_column), size);
 }
 
 // change null element to true element

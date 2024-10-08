@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.hudi.source;
 
 import org.apache.doris.analysis.TableScanParams;
+import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PartitionItem;
@@ -203,8 +204,12 @@ public class HudiScanNode extends HiveScanNode {
         }
 
         timeline = hudiClient.getCommitsAndCompactionTimeline().filterCompletedInstants();
-        if (desc.getRef().getTableSnapshot() != null) {
-            queryInstant = desc.getRef().getTableSnapshot().getTime();
+        TableSnapshot tableSnapshot = getQueryTableSnapshot();
+        if (tableSnapshot != null) {
+            if (tableSnapshot.getType() == TableSnapshot.VersionType.VERSION) {
+                throw new UserException("Hudi does not support `FOR VERSION AS OF`, please use `FOR TIME AS OF`");
+            }
+            queryInstant = tableSnapshot.getTime().replaceAll("[-: ]", "");
             snapshotTimestamp = Option.of(queryInstant);
         } else {
             Option<HoodieInstant> snapshotInstant = timeline.lastInstant();
@@ -235,7 +240,7 @@ public class HudiScanNode extends HiveScanNode {
         }
     }
 
-    public void setHudiParams(TFileRangeDesc rangeDesc, HudiSplit hudiSplit) {
+    private void setHudiParams(TFileRangeDesc rangeDesc, HudiSplit hudiSplit) {
         TTableFormatFileDesc tableFormatFileDesc = new TTableFormatFileDesc();
         tableFormatFileDesc.setTableFormatType(hudiSplit.getTableFormatType().value());
         THudiFileDesc fileDesc = new THudiFileDesc();
@@ -346,8 +351,7 @@ public class HudiScanNode extends HiveScanNode {
                 long fileSize = baseFile.getFileSize();
                 // Need add hdfs host to location
                 LocationPath locationPath = new LocationPath(filePath, hmsTable.getCatalogProperties());
-                Path splitFilePath = locationPath.toStorageLocation();
-                splits.add(new FileSplit(splitFilePath, 0, fileSize, fileSize,
+                splits.add(new FileSplit(locationPath, 0, fileSize, fileSize, 0,
                         new String[0], partition.getPartitionValues()));
             });
         } else {
@@ -357,7 +361,7 @@ public class HudiScanNode extends HiveScanNode {
         }
     }
 
-    private void getPartitionSplits(List<HivePartition> partitions, List<Split> splits) {
+    private void getPartitionsSplits(List<HivePartition> partitions, List<Split> splits) {
         Executor executor = Env.getCurrentEnv().getExtMetaCacheMgr().getFileListingExecutor();
         CountDownLatch countDownLatch = new CountDownLatch(partitions.size());
         AtomicReference<Throwable> throwable = new AtomicReference<>();
@@ -392,7 +396,7 @@ public class HudiScanNode extends HiveScanNode {
             partitionInit = true;
         }
         List<Split> splits = Collections.synchronizedList(new ArrayList<>());
-        getPartitionSplits(prunedPartitions, splits);
+        getPartitionsSplits(prunedPartitions, splits);
         return splits;
     }
 
@@ -477,8 +481,8 @@ public class HudiScanNode extends HiveScanNode {
 
         // no base file, use log file to parse file type
         String agencyPath = filePath.isEmpty() ? logs.get(0) : filePath;
-        HudiSplit split = new HudiSplit(new Path(agencyPath), 0, fileSize, fileSize,
-                new String[0], partitionValues);
+        HudiSplit split = new HudiSplit(new LocationPath(agencyPath, hmsTable.getCatalogProperties()),
+                0, fileSize, fileSize, new String[0], partitionValues);
         split.setTableFormatType(TableFormatType.HUDI);
         split.setDataFilePath(filePath);
         split.setHudiDeltaLogs(logs);

@@ -91,6 +91,7 @@ public:
         int64_t page_index_filter_time = 0;
         int64_t read_page_index_time = 0;
         int64_t parse_page_index_time = 0;
+        int64_t predicate_filter_time = 0;
     };
 
     ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
@@ -116,7 +117,7 @@ public:
             const std::unordered_map<std::string, int>* colname_to_slot_id,
             const VExprContextSPtrs* not_single_slot_filter_conjuncts,
             const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts,
-            bool filter_groups = true);
+            bool filter_groups = true, const bool hive_use_column_names = true);
 
     Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
 
@@ -188,6 +189,7 @@ private:
         RuntimeProfile::Counter* decode_null_map_time = nullptr;
         RuntimeProfile::Counter* skip_page_header_num = nullptr;
         RuntimeProfile::Counter* parse_page_header_num = nullptr;
+        RuntimeProfile::Counter* predicate_filter_time = nullptr;
     };
 
     Status _open_file();
@@ -219,6 +221,8 @@ private:
     std::vector<io::PrefetchRange> _generate_random_access_ranges(
             const RowGroupReader::RowGroupIndex& group, size_t* avg_io_size);
     void _collect_profile();
+
+    static SortOrder _determine_sort_order(const tparquet::SchemaElement& parquet_schema);
 
 private:
     RuntimeProfile* _profile = nullptr;
@@ -282,5 +286,7 @@ private:
     const std::unordered_map<std::string, int>* _colname_to_slot_id = nullptr;
     const VExprContextSPtrs* _not_single_slot_filter_conjuncts = nullptr;
     const std::unordered_map<int, VExprContextSPtrs>* _slot_id_to_filter_conjuncts = nullptr;
+    bool _hive_use_column_names = false;
+    std::unordered_map<tparquet::Type::type, bool> _ignored_stats;
 };
 } // namespace doris::vectorized

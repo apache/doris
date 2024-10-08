@@ -640,9 +640,13 @@ Status ProcessHashTableProbe<JoinOpType>::process_data_in_hashtable(
                     mcol.size(), _right_col_len, _right_col_idx);
         }
         for (size_t j = 0; j < _right_col_len; ++j) {
-            const auto& column = *_build_block->safe_get_by_position(j).column;
-            mcol[j + _right_col_idx]->insert_indices_from(column, _build_indexs.data(),
-                                                          _build_indexs.data() + block_size);
+            if (_right_output_slot_flags->at(j)) {
+                const auto& column = *_build_block->safe_get_by_position(j).column;
+                mcol[j + _right_col_idx]->insert_indices_from(column, _build_indexs.data(),
+                                                              _build_indexs.data() + block_size);
+            } else {
+                mcol[j + _right_col_idx]->resize(block_size);
+            }
         }
 
         // just resize the left table column in case with other conjunct to make block size is not zero
@@ -739,6 +743,7 @@ struct ExtractType<T(U)> {
     INSTANTIATION(JoinOpType, (I256FixedKeyHashTableContext<true>));     \
     INSTANTIATION(JoinOpType, (I256FixedKeyHashTableContext<false>));    \
     INSTANTIATION(JoinOpType, (I136FixedKeyHashTableContext<true>));     \
+    INSTANTIATION(JoinOpType, (MethodOneString));                        \
     INSTANTIATION(JoinOpType, (I136FixedKeyHashTableContext<false>));
 
 } // namespace doris::pipeline

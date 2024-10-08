@@ -38,6 +38,7 @@ struct TTabletStat {
     4: optional i64 total_version_count
     5: optional i64 remote_data_size
     6: optional i64 visible_version_count
+    7: optional i64 visible_version
 }
 
 struct TTabletStatResult {
@@ -247,9 +248,9 @@ struct TQueryIngestBinlogResult {
 }
 
 enum TTopicInfoType {
-    WORKLOAD_GROUP
-    MOVE_QUERY_TO_GROUP
-    WORKLOAD_SCHED_POLICY
+    WORKLOAD_GROUP = 0
+    MOVE_QUERY_TO_GROUP = 1
+    WORKLOAD_SCHED_POLICY = 2
 }
 
 struct TWorkloadGroupInfo {
@@ -268,21 +269,22 @@ struct TWorkloadGroupInfo {
   13: optional i32 spill_threshold_high_watermark
   14: optional i64 read_bytes_per_second
   15: optional i64 remote_read_bytes_per_second
+  16: optional string tag
 }
 
 enum TWorkloadMetricType {
-    QUERY_TIME
-    BE_SCAN_ROWS
-    BE_SCAN_BYTES
-    QUERY_BE_MEMORY_BYTES
+    QUERY_TIME = 0
+    BE_SCAN_ROWS = 1
+    BE_SCAN_BYTES = 2
+    QUERY_BE_MEMORY_BYTES = 3
 }
 
 enum TCompareOperator {
-    EQUAL
-    GREATER
-    GREATER_EQUAL
-    LESS
-    LESS_EQUAL
+    EQUAL = 0
+    GREATER = 1
+    GREATER_EQUAL = 2
+    LESS = 3
+    LESS_EQUAL = 4
 }
 
 struct TWorkloadCondition {
@@ -292,8 +294,8 @@ struct TWorkloadCondition {
 }
 
 enum TWorkloadActionType {
-    MOVE_QUERY_TO_GROUP
-    CANCEL_QUERY
+    MOVE_QUERY_TO_GROUP = 0
+    CANCEL_QUERY = 1
 }
 
 struct TWorkloadAction {
@@ -333,18 +335,6 @@ struct TGetRealtimeExecStatusRequest {
 struct TGetRealtimeExecStatusResponse {
     1: optional Status.TStatus status
     2: optional FrontendService.TReportExecStatusParams report_exec_status_params
-}
-
-struct TGetBeResourceRequest {
-}
-
-struct TGlobalResourceUsage {
-    1: optional i64 mem_limit
-    2: optional i64 mem_usage
-}
-
-struct TGetBeResourceResult {
-    1: optional TGlobalResourceUsage global_resource_usage
 }
 
 service BackendService {
@@ -415,6 +405,4 @@ service BackendService {
     TPublishTopicResult publish_topic_info(1:TPublishTopicRequest topic_request);
 
     TGetRealtimeExecStatusResponse get_realtime_exec_status(1:TGetRealtimeExecStatusRequest request);
-
-    TGetBeResourceResult get_be_resource(1: TGetBeResourceRequest request);
 }

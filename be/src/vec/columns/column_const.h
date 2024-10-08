@@ -105,6 +105,7 @@ private:
     size_t s;
 
     ColumnConst(const ColumnPtr& data, size_t s_);
+    ColumnConst(const ColumnPtr& data, size_t s_, bool create_with_empty);
     ColumnConst(const ColumnConst& src) = default;
 
 public:
@@ -228,7 +229,7 @@ public:
     size_t allocated_bytes() const override { return data->allocated_bytes() + sizeof(s); }
 
     int compare_at(size_t, size_t, const IColumn& rhs, int nan_direction_hint) const override {
-        auto rhs_const_column = assert_cast<const ColumnConst&>(rhs);
+        auto rhs_const_column = assert_cast<const ColumnConst&, TypeCheckOnRelease::DISABLE>(rhs);
 
         const auto* this_nullable = check_and_get_column<ColumnNullable>(data.get());
         const auto* rhs_nullable =
