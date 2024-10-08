@@ -145,6 +145,7 @@ import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.rules.exploration.mv.InitMaterializationContextHook;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.DeleteFromCommand;
 import org.apache.doris.nereids.trees.plans.commands.Forward;
 import org.apache.doris.nereids.trees.plans.commands.NotAllowFallback;
 import org.apache.doris.nereids.trees.plans.commands.PrepareCommand;
@@ -479,10 +480,11 @@ public class StmtExecutor {
             return logicalPlan instanceof InsertIntoTableCommand
                     || logicalPlan instanceof InsertOverwriteTableCommand
                     || (logicalPlan instanceof CreateTableCommand
-                    && ((CreateTableCommand) logicalPlan).isCtasCommand());
+                    && ((CreateTableCommand) logicalPlan).isCtasCommand())
+                    || logicalPlan instanceof DeleteFromCommand;
         }
         return parsedStmt instanceof InsertStmt || parsedStmt instanceof InsertOverwriteTableStmt
-                || parsedStmt instanceof CreateTableAsSelectStmt;
+                || parsedStmt instanceof CreateTableAsSelectStmt || parsedStmt instanceof DeleteStmt;
     }
 
     public boolean isAnalyzeStmt() {
