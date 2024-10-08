@@ -111,6 +111,9 @@ Status HashJoinBuildSinkLocalState::open(RuntimeState* state) {
 }
 
 Status HashJoinBuildSinkLocalState::close(RuntimeState* state, Status exec_status) {
+    if (_closed) {
+        return Status::OK();
+    }
     auto p = _parent->cast<HashJoinBuildSinkOperatorX>();
     Defer defer {[&]() {
         if (_should_build_hash_table) {
@@ -132,8 +135,8 @@ Status HashJoinBuildSinkLocalState::close(RuntimeState* state, Status exec_statu
         }
     }};
 
-    if (!_runtime_filter_slots || _runtime_filters.empty() || state->is_cancelled()) {
-        return Status::OK();
+    if (!_runtime_filter_slots || _runtime_filters.empty() || state->is_cancelled() || !_eos) {
+        return Base::close(state, exec_status);
     }
     auto* block = _shared_state->build_block.get();
     uint64_t hash_table_size = block ? block->rows() : 0;
@@ -151,7 +154,7 @@ Status HashJoinBuildSinkLocalState::close(RuntimeState* state, Status exec_statu
 
     SCOPED_TIMER(_publish_runtime_filter_timer);
     RETURN_IF_ERROR(_runtime_filter_slots->publish(!_should_build_hash_table));
-    return Status::OK();
+    return Base::close(state, exec_status);
 }
 
 bool HashJoinBuildSinkLocalState::build_unique() const {
@@ -535,6 +538,7 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
 
+    local_state._eos = eos;
     if (local_state._should_build_hash_table) {
         // If eos or have already met a null value using short-circuit strategy, we do not need to pull
         // data from probe side.
