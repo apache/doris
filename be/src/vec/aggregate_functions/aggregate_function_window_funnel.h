@@ -81,6 +81,7 @@ struct WindowFunnelState {
                                              DateV2Value<DateTimeV2ValueType>, VecDateTimeValue>;
     int event_count = 0;
     int64_t window;
+    int version {};
     bool enable_mode;
     WindowFunnelMode window_funnel_mode;
     mutable vectorized::MutableBlock mutable_block;
@@ -97,8 +98,9 @@ struct WindowFunnelState {
         sort_description[0].direction = 1;
         sort_description[0].nulls_direction = -1;
     }
-    WindowFunnelState(int arg_event_count) : WindowFunnelState() {
+    WindowFunnelState(int arg_event_count, int arg_version) : WindowFunnelState() {
         event_count = arg_event_count;
+        version = arg_version;
         event_columns_datas.resize(event_count);
         auto timestamp_column = ColumnVector<NativeType>::create();
 
@@ -308,8 +310,7 @@ struct WindowFunnelState {
         std::string buff;
         Block block = mutable_block.to_block();
         status = block.serialize(
-                BeExecVersionManager::get_newest_version(), &pblock, &uncompressed_bytes,
-                &compressed_bytes,
+                version, &pblock, &uncompressed_bytes, &compressed_bytes,
                 segment_v2::CompressionTypePB::ZSTD); // ZSTD for better compression ratio
         block.clear_column_data();
         if (!status.ok()) {
@@ -374,7 +375,7 @@ public:
 
     void create(AggregateDataPtr __restrict place) const override {
         auto data = new (place) WindowFunnelState<TYPE_INDEX, NativeType>(
-                IAggregateFunction::get_argument_types().size() - 3);
+                IAggregateFunction::get_argument_types().size() - 3, version);
         /// support window funnel mode from 2.0. See `BeExecVersionManager::max_be_exec_version`
         data->enable_mode = version >= 3;
     }
