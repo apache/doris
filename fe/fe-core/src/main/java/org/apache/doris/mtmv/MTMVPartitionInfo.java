@@ -47,6 +47,8 @@ public class MTMVPartitionInfo {
     private String partitionCol;
     @SerializedName("expr")
     private Expr expr;
+    @SerializedName("oprt")
+    private List<MTMVPartitionCol> otherPartitionRefreshTables;
 
     public MTMVPartitionInfo() {
     }
