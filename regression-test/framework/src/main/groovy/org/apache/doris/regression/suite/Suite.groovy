@@ -1329,6 +1329,8 @@ class Suite implements GroovyInterceptable {
             logger.info("status is not success")
         }
         Assert.assertEquals("SUCCESS", status)
+        logger.info("waitingMTMVTaskFinished analyze mv name is " + result.last().get(5))
+        sql "analyze table ${result.last().get(6)}.${mvName} with sync;"
     }
 
     void waitingMTMVTaskFinishedByMvNameAllowCancel(String mvName) {
@@ -1399,6 +1401,9 @@ class Suite implements GroovyInterceptable {
             logger.info("status is not success")
         }
         Assert.assertEquals("SUCCESS", status)
+        // Need to analyze materialized view for cbo to choose the materialized view accurately
+        logger.info("waitingMTMVTaskFinished analyze mv name is " + result.last().get(5))
+        sql "analyze table ${result.last().get(6)}.${result.last().get(5)} with sync;"
     }
 
     void waitingMTMVTaskFinishedNotNeedSuccess(String jobName) {
