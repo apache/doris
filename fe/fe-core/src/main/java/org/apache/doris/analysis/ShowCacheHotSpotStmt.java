@@ -156,7 +156,7 @@ public class ShowCacheHotSpotStmt extends ShowStmt implements NotFallbackInParse
             + " FROM " + TABLE_NAME.toString()
             + " where " +  whereExpr.get(0)
             + " and " + whereExpr.get(1)
-            + "group by cluster_id, cluster_name, table_id, "
+            + " group by cluster_id, cluster_name, table_id, "
             + "table_name, partition_id, partition_name;");
         }
         Preconditions.checkState(query != null);
