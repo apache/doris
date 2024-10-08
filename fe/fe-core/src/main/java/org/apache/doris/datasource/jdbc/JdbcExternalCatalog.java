@@ -32,6 +32,7 @@ import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.datasource.jdbc.client.JdbcClient;
 import org.apache.doris.datasource.jdbc.client.JdbcClientConfig;
 import org.apache.doris.datasource.jdbc.client.JdbcClientException;
+import org.apache.doris.datasource.mapping.DefaultIdentifierMapping;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.InternalService.PJdbcTestConnectionRequest;
 import org.apache.doris.proto.InternalService.PJdbcTestConnectionResult;
@@ -57,6 +58,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
+import java.util.stream.Collectors;
 
 @Getter
 public class JdbcExternalCatalog extends ExternalCatalog {
@@ -119,12 +121,8 @@ public class JdbcExternalCatalog extends ExternalCatalog {
         super.onRefresh(invalidCache);
         if (jdbcClient != null) {
             jdbcClient.closeClient();
+            jdbcClient = null;
         }
-    }
-
-    @Override
-    public void onRefreshCache(boolean invalidCache) {
-        onRefresh(invalidCache);
     }
 
     @Override
@@ -132,6 +130,7 @@ public class JdbcExternalCatalog extends ExternalCatalog {
         super.onClose();
         if (jdbcClient != null) {
             jdbcClient.closeClient();
+            jdbcClient = null;
         }
     }
 
@@ -232,8 +231,6 @@ public class JdbcExternalCatalog extends ExternalCatalog {
                 .setDriverUrl(getDriverUrl())
                 .setDriverClass(getDriverClass())
                 .setOnlySpecifiedDatabase(getOnlySpecifiedDatabase())
-                .setIsLowerCaseMetaNames(getLowerCaseMetaNames())
-                .setMetaNamesMapping(getMetaNamesMapping())
                 .setIncludeDatabaseMap(getIncludeDatabaseMap())
                 .setExcludeDatabaseMap(getExcludeDatabaseMap())
                 .setConnectionPoolMinSize(getConnectionPoolMinSize())
@@ -243,22 +240,77 @@ public class JdbcExternalCatalog extends ExternalCatalog {
                 .setConnectionPoolKeepAlive(isConnectionPoolKeepAlive());
 
         jdbcClient = JdbcClient.createJdbcClient(jdbcClientConfig);
+        identifierMapping = new DefaultIdentifierMapping(Boolean.parseBoolean(getLowerCaseMetaNames()),
+                getMetaNamesMapping());
     }
 
+    @Override
     protected List<String> listDatabaseNames() {
-        return jdbcClient.getDatabaseNameList();
+        return getMappedDatabaseNames();
+    }
+
+    @Override
+    protected void buildDatabaseMapping() {
+        getMappedDatabaseNames();
+    }
+
+    private List<String> getMappedDatabaseNames() {
+        return identifierMapping.fromRemoteDatabaseName(jdbcClient.getDatabaseNameList());
+    }
+
+    protected String getRemoteDatabaseName(String dbName) {
+        return identifierMapping.toRemoteDatabaseName(dbName);
     }
 
     @Override
     public List<String> listTableNames(SessionContext ctx, String dbName) {
         makeSureInitialized();
-        return jdbcClient.getTablesNameList(dbName);
+        String remoteDbName = getRemoteDatabaseName(dbName);
+        return identifierMapping.fromRemoteTableName(remoteDbName, jdbcClient.getTablesNameList(remoteDbName));
+    }
+
+    @Override
+    protected void buildTableMapping(SessionContext ctx, String dbName) {
+        String remoteDbName = getRemoteDatabaseName(dbName);
+        identifierMapping.fromRemoteTableName(getRemoteDatabaseName(dbName),
+                jdbcClient.getTablesNameList(remoteDbName));
+    }
+
+    protected String getRemoteTableName(String dbName, String tblName) {
+        return identifierMapping.toRemoteTableName(getRemoteDatabaseName(dbName), tblName);
     }
 
     @Override
     public boolean tableExist(SessionContext ctx, String dbName, String tblName) {
         makeSureInitialized();
-        return jdbcClient.isTableExist(dbName, tblName);
+        String remoteDbName = getRemoteDatabaseName(dbName);
+        String remoteTblName = getRemoteTableName(dbName, tblName);
+        return jdbcClient.isTableExist(remoteDbName, remoteTblName);
+    }
+
+    public List<Column> listColumns(String dbName, String tblName) {
+        makeSureInitialized();
+        String remoteDbName = getRemoteDatabaseName(dbName);
+        String remoteTblName = getRemoteTableName(dbName, tblName);
+
+        List<Column> remoteColumns = jdbcClient.getColumnsFromJdbc(remoteDbName, remoteTblName);
+
+        List<String> remoteColumnNames = remoteColumns.stream()
+                .map(Column::getName)
+                .collect(Collectors.toList());
+        List<String> localColumnNames = identifierMapping.fromRemoteColumnName(remoteDbName, remoteTblName,
+                remoteColumnNames);
+
+        for (int i = 0; i < remoteColumns.size(); i++) {
+            remoteColumns.get(i).setName(localColumnNames.get(i));
+        }
+
+        return remoteColumns;
+    }
+
+    protected Map<String, String> getRemoteColumnNames(String dbName, String tblName) {
+        return identifierMapping.toRemoteColumnNames(getRemoteDatabaseName(dbName),
+                getRemoteTableName(dbName, tblName));
     }
 
     @Override
