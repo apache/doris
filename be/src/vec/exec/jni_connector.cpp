@@ -84,6 +84,7 @@ Status JniConnector::open(RuntimeState* state, RuntimeProfile* profile) {
         return Status::InternalError("Failed to get/create JVM");
     }
     SCOPED_TIMER(_open_scanner_time);
+    _scanner_params.emplace("time_zone", _state->timezone_obj().name());
     RETURN_IF_ERROR(_init_jni_scanner(env, batch_size));
     // Call org.apache.doris.common.jni.JniScanner#open
     env->CallVoidMethod(_jni_scanner_obj, _jni_scanner_open);
