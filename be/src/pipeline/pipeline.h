@@ -105,7 +105,7 @@ public:
     void set_children(std::shared_ptr<Pipeline> child) { _children.push_back(child); }
     void set_children(std::vector<std::shared_ptr<Pipeline>> children) { _children = children; }
 
-    void incr_created_tasks(int i, PipelineTask* task) {
+    void incr_created_tasks(size_t i, PipelineTask* task) {
         _num_tasks_created++;
         _num_tasks_running++;
         DCHECK_LT(i, _tasks.size());
