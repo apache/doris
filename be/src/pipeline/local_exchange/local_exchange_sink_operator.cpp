@@ -110,11 +110,14 @@ Status LocalExchangeSinkLocalState::close(RuntimeState* state, Status exec_statu
     }
     RETURN_IF_ERROR(Base::close(state, exec_status));
     if (exec_status.ok()) {
-        DCHECK(_release_count) << "Do not finish correctly! " << debug_string(0)
-                               << " state: { cancel = " << state->is_cancelled() << ", "
-                               << state->cancel_reason().to_string() << "} query ctx: { cancel = "
-                               << state->get_query_ctx()->is_cancelled() << ", "
-                               << state->get_query_ctx()->exec_status().to_string() << "}";
+        DCHECK(_release_count || _exchanger == nullptr ||
+               _exchanger->_running_source_operators == 0)
+                << "Do not finish correctly! " << debug_string(0)
+                << " state: { cancel = " << state->is_cancelled() << ", "
+                << state->cancel_reason().to_string()
+                << "} query ctx: { cancel = " << state->get_query_ctx()->is_cancelled() << ", "
+                << state->get_query_ctx()->exec_status().to_string()
+                << "} Exchanger: " << (void*)_exchanger;
     }
     return Status::OK();
 }
