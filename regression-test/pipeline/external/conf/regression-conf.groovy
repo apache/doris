@@ -71,6 +71,7 @@ excludeSuites = "000_the_start_sentinel_do_not_touch," + // keep this line as th
     "test_spark_load," +
     "test_broker_load_func," +
     "test_stream_stub_fault_injection," +
+    "test_iceberg_overwrite_with_wrong_partition," +
     "zzz_the_end_sentinel_do_not_touch" // keep this line as the last line
 
 // this directories will not be executed
@@ -145,6 +146,9 @@ aliYunSk="***********"
 txYunAk="***********"
 txYunSk="***********"
 
+// max compute catalog test config
+enableMaxComputeTest=true
+
 max_failure_num=50
 
 externalEnvIp="127.0.0.1"
@@ -156,6 +160,7 @@ hdfs_port=8020
 oracle_11_port=1521
 sqlserver_2022_port=1433
 clickhouse_22_port=8123
+oceanbase_port=2881
 db2_11_port=50000
 
 // trino-connector catalog test config

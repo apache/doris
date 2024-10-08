@@ -21,6 +21,7 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.common.Status;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.task.AbstractTask;
@@ -33,6 +34,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.thrift.TCell;
 import org.apache.doris.thrift.TRow;
+import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.ImmutableList;
@@ -58,6 +60,7 @@ public class InsertTask extends AbstractTask {
             new Column("Status", ScalarType.createStringType()),
             new Column("ErrorMsg", ScalarType.createStringType()),
             new Column("CreateTime", ScalarType.createStringType()),
+            new Column("StartTime", ScalarType.createStringType()),
             new Column("FinishTime", ScalarType.createStringType()),
             new Column("TrackingUrl", ScalarType.createStringType()),
             new Column("LoadStatistic", ScalarType.createStringType()),
@@ -154,8 +157,6 @@ public class InsertTask extends AbstractTask {
             ctx.setDatabase(currentDb);
         }
         TUniqueId queryId = generateQueryId(UUID.randomUUID().toString());
-        ctx.getSessionVariable().enableFallbackToOriginalPlanner = false;
-        ctx.getSessionVariable().enableNereidsDML = true;
         stmtExecutor = new StmtExecutor(ctx, (String) null);
         ctx.setQueryId(queryId);
         if (StringUtils.isNotEmpty(sql)) {
@@ -220,7 +221,7 @@ public class InsertTask extends AbstractTask {
         }
         isCanceled.getAndSet(true);
         if (null != stmtExecutor) {
-            stmtExecutor.cancel();
+            stmtExecutor.cancel(new Status(TStatusCode.CANCELLED, "insert task cancelled"));
         }
     }
 
@@ -247,6 +248,8 @@ public class InsertTask extends AbstractTask {
         trow.addToColumnValue(new TCell().setStringVal(errorMsg));
         // create time
         trow.addToColumnValue(new TCell().setStringVal(TimeUtils.longToTimeString(getCreateTimeMs())));
+        trow.addToColumnValue(new TCell().setStringVal(null == getStartTimeMs() ? ""
+                : TimeUtils.longToTimeString(getStartTimeMs())));
         // load end time
         trow.addToColumnValue(new TCell().setStringVal(TimeUtils.longToTimeString(getFinishTimeMs())));
         // tracking url
@@ -274,7 +277,10 @@ public class InsertTask extends AbstractTask {
         trow.addToColumnValue(new TCell().setStringVal(getStatus().name()));
         trow.addToColumnValue(new TCell().setStringVal(""));
         trow.addToColumnValue(new TCell().setStringVal(TimeUtils.longToTimeString(getCreateTimeMs())));
-        trow.addToColumnValue(new TCell().setStringVal(""));
+        trow.addToColumnValue(new TCell().setStringVal(null == getStartTimeMs() ? ""
+                : TimeUtils.longToTimeString(getStartTimeMs())));
+        trow.addToColumnValue(new TCell().setStringVal(null == getFinishTimeMs() ? ""
+                : TimeUtils.longToTimeString(getFinishTimeMs())));
         trow.addToColumnValue(new TCell().setStringVal(""));
         trow.addToColumnValue(new TCell().setStringVal(""));
         trow.addToColumnValue(new TCell().setStringVal(userIdentity.getQualifiedUser()));

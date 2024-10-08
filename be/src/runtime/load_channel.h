@@ -46,7 +46,7 @@ class BaseTabletsChannel;
 class LoadChannel {
 public:
     LoadChannel(const UniqueId& load_id, int64_t timeout_s, bool is_high_priority,
-                std::string sender_ip, int64_t backend_id, bool enable_profile);
+                std::string sender_ip, int64_t backend_id, bool enable_profile, int64_t wg_id);
     ~LoadChannel();
 
     // open a new load channel if not exist
@@ -127,6 +127,7 @@ private:
     int64_t _backend_id;
 
     bool _enable_profile;
+    bool _need_release_memtracker = false;
 };
 
 inline std::ostream& operator<<(std::ostream& os, LoadChannel& load_channel) {

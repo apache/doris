@@ -29,6 +29,7 @@
 #include <utility>
 #include <vector>
 
+#include "agent/be_exec_version_manager.h"
 #include "common/status.h"
 #include "exprs/function_filter.h"
 #include "gutil/strings/substitute.h"
@@ -108,6 +109,13 @@ public:
                     !rs_splits[1].rs_reader->rowset()->rowset_meta()->is_segments_overlapping());
         }
 
+        int get_be_exec_version() const {
+            if (runtime_state) {
+                return runtime_state->be_exec_version();
+            }
+            return BeExecVersionManager::get_newest_version();
+        }
+
         void set_read_source(ReadSource read_source) {
             rs_splits = std::move(read_source.rs_splits);
             delete_predicates = std::move(read_source.delete_predicates);
@@ -132,11 +140,10 @@ public:
         std::vector<std::pair<string, std::shared_ptr<BloomFilterFuncBase>>> bloom_filters;
         std::vector<std::pair<string, std::shared_ptr<BitmapFilterFuncBase>>> bitmap_filters;
         std::vector<std::pair<string, std::shared_ptr<HybridSetBase>>> in_filters;
-        std::vector<TCondition> conditions_except_leafnode_of_andnode;
         std::vector<FunctionFilter> function_filters;
         std::vector<RowsetMetaSharedPtr> delete_predicates;
         // slots that cast may be eliminated in storage layer
-        std::map<std::string, PrimitiveType> target_cast_type_for_variants;
+        std::map<std::string, TypeDescriptor> target_cast_type_for_variants;
 
         std::vector<RowSetSplits> rs_splits;
         // For unique key table with merge-on-write
@@ -243,8 +250,6 @@ protected:
 
     Status _init_conditions_param(const ReaderParams& read_params);
 
-    Status _init_conditions_param_except_leafnode_of_andnode(const ReaderParams& read_params);
-
     ColumnPredicate* _parse_to_predicate(
             const std::pair<std::string, std::shared_ptr<BloomFilterFuncBase>>& bloom_filter);
 
@@ -287,7 +292,6 @@ protected:
     std::vector<bool> _is_lower_keys_included;
     std::vector<bool> _is_upper_keys_included;
     std::vector<ColumnPredicate*> _col_predicates;
-    std::vector<ColumnPredicate*> _col_preds_except_leafnode_of_andnode;
     std::vector<ColumnPredicate*> _value_col_predicates;
     DeleteHandler _delete_handler;
 

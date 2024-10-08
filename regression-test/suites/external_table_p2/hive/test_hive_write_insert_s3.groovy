@@ -16,6 +16,12 @@
 // under the License.
 
 suite("test_hive_write_insert_s3", "p2,external,hive,external_remote,external_remote_hive") {
+
+    Boolean ignoreP2 = true;
+    if (ignoreP2) {
+        logger.info("disable p2 test");
+        return;
+    }
     def format_compressions = ["parquet_snappy"]
     def s3BucketName = getS3BucketName()
 

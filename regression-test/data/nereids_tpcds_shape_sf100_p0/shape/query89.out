@@ -9,8 +9,8 @@ PhysicalResultSink
 ------------filter((if(( not (avg_monthly_sales = 0.0000)), (cast(abs((sum_sales - cast(avg_monthly_sales as DECIMALV3(38, 2)))) as DECIMALV3(38, 10)) / avg_monthly_sales), NULL) > 0.100000))
 --------------PhysicalWindow
 ----------------PhysicalQuickSort[LOCAL_SORT]
-------------------PhysicalProject
---------------------PhysicalDistribute[DistributionSpecHash]
+------------------PhysicalDistribute[DistributionSpecHash]
+--------------------PhysicalProject
 ----------------------hashAgg[GLOBAL]
 ------------------------PhysicalDistribute[DistributionSpecHash]
 --------------------------hashAgg[LOCAL]
@@ -23,7 +23,7 @@ PhysicalResultSink
 ----------------------------------------PhysicalProject
 ------------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF0 RF1 RF2
 ----------------------------------------PhysicalProject
-------------------------------------------filter(((i_category IN ('Electronics', 'Jewelry', 'Shoes') AND i_class IN ('athletic', 'portable', 'semi-precious')) OR (i_category IN ('Men', 'Music', 'Women') AND i_class IN ('accessories', 'maternity', 'rock'))))
+------------------------------------------filter(((i_category IN ('Electronics', 'Jewelry', 'Shoes') AND i_class IN ('athletic', 'portable', 'semi-precious')) OR (i_category IN ('Men', 'Music', 'Women') AND i_class IN ('accessories', 'maternity', 'rock'))) and i_category IN ('Electronics', 'Jewelry', 'Men', 'Music', 'Shoes', 'Women') and i_class IN ('accessories', 'athletic', 'maternity', 'portable', 'rock', 'semi-precious'))
 --------------------------------------------PhysicalOlapScan[item]
 ------------------------------------PhysicalProject
 --------------------------------------filter((date_dim.d_year = 1999))

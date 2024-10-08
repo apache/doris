@@ -37,7 +37,7 @@ import java.util.Map;
  * syntax:
  * CREATE ROW POLICY [IF NOT EXISTS] test_row_policy ON test_table AS {PERMISSIVE|RESTRICTIVE} TO user USING (a = ’xxx‘)
  */
-public class CreatePolicyStmt extends DdlStmt {
+public class CreatePolicyStmt extends DdlStmt implements NotFallbackInParser {
 
     @Getter
     private final PolicyTypeEnum type;

@@ -32,18 +32,14 @@ follow the steps below:
 
     ./bin/gen-tpcds-data.sh -s 1
 
-### 3. generate tpc-ds queries. use -h for more infomations.
-
-    ./bin/gen-tpcds-queries.sh -s 1
-
-### 4. create tpc-ds tables. modify `conf/doris-cluster.conf` to specify doris info, then run script below.
+### 3. create tpc-ds tables. modify `conf/doris-cluster.conf` to specify doris info, then run script below.
 
     ./bin/create-tpcds-tables.sh -s 1
 
-### 5. load tpc-ds data. use -h for help.
+### 4. load tpc-ds data. use -h for help.
 
     ./bin/load-tpcds-data.sh
 
-### 6. run tpc-ds queries.
+### 5. run tpc-ds queries.
 
     ./bin/run-tpcds-queries.sh -s 1

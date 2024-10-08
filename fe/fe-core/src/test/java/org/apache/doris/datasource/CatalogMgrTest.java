@@ -105,13 +105,6 @@ public class CatalogMgrTest extends TestWithFeService {
         // grant with no catalog is switched, internal catalog works.
         CreateRoleStmt createRole1 = (CreateRoleStmt) parseAndAnalyzeStmt("create role role1;", rootCtx);
         auth.createRole(createRole1);
-        GrantStmt grantRole1 = (GrantStmt) parseAndAnalyzeStmt("grant grant_priv on tpch.* to role 'role1';", rootCtx);
-        auth.grant(grantRole1);
-        // grant with ctl.db.tbl. grant can succeed even if the catalog does not exist
-        GrantStmt grantRole1WithCtl = (GrantStmt) parseAndAnalyzeStmt(
-                "grant select_priv on testc.testdb.* to role 'role1';", rootCtx);
-        auth.grant(grantRole1WithCtl);
-        // user1 can't switch to hive
         auth.createUser((CreateUserStmt) parseAndAnalyzeStmt(
                 "create user 'user1'@'%' identified by 'pwd1' default role 'role1';", rootCtx));
         user1 = new UserIdentity("user1", "%");
@@ -276,6 +269,8 @@ public class CatalogMgrTest extends TestWithFeService {
         List<String> result = showResultSet.getResultRows().get(0);
         Assertions.assertEquals("my_catalog", result.get(0));
         Assertions.assertTrue(result.get(1).startsWith("\nCREATE CATALOG `my_catalog`\nCOMMENT \"hms comment\"\n PROPERTIES ("));
+        Assertions.assertTrue(!result.get(1).contains(ExternalCatalog.CREATE_TIME));
+        Assertions.assertTrue(!result.get(1).contains(ExternalCatalog.USE_META_CACHE));
 
         testCatalogMgrPersist();
 
@@ -362,7 +357,8 @@ public class CatalogMgrTest extends TestWithFeService {
         String showCatalogSql = "SHOW CATALOGS";
         ShowCatalogStmt showStmt = (ShowCatalogStmt) parseAndAnalyzeStmt(showCatalogSql);
         ShowResultSet showResultSet = mgr.showCatalogs(showStmt, user2Ctx.getCurrentCatalog().getName());
-        Assertions.assertEquals("yes", showResultSet.getResultRows().get(1).get(3));
+        Assertions.assertEquals("Yes", showResultSet.getResultRows().get(1).get(3));
+        Assertions.assertEquals("No", showResultSet.getResultRows().get(0).get(3));
 
         // user2 can switch to hive
         SwitchStmt switchHive = (SwitchStmt) parseAndAnalyzeStmt("switch hive;", user2Ctx);
@@ -372,7 +368,7 @@ public class CatalogMgrTest extends TestWithFeService {
         showCatalogSql = "SHOW CATALOGS";
         showStmt = (ShowCatalogStmt) parseAndAnalyzeStmt(showCatalogSql);
         showResultSet = mgr.showCatalogs(showStmt, user2Ctx.getCurrentCatalog().getName());
-        Assertions.assertEquals("yes", showResultSet.getResultRows().get(0).get(3));
+        Assertions.assertEquals("Yes", showResultSet.getResultRows().get(0).get(3));
     }
 
     @Test
@@ -548,7 +544,7 @@ public class CatalogMgrTest extends TestWithFeService {
             singleUidToColumnRangeMap = ListPartitionPrunerV2.genSingleUidToColumnRange(singleColumnRangeMap);
         }
         Map<Long, List<String>> partitionValuesMap = ListPartitionPrunerV2.getPartitionValuesMap(idToPartitionItem);
-        return new HivePartitionValues(idToPartitionItem, uidToPartitionRange, rangeToId, singleColumnRangeMap, idx,
+        return new HivePartitionValues(idToPartitionItem, uidToPartitionRange, rangeToId, singleColumnRangeMap,
                 partitionNameToIdMap, idToUniqueIdsMap, singleUidToColumnRangeMap, partitionValuesMap);
     }
 

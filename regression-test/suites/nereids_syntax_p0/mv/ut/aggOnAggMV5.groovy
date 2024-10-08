@@ -39,33 +39,15 @@ suite ("aggOnAggMV5") {
 
     createMV("create materialized view aggOnAggMV5_mv as select deptno, commission, sum(salary) from aggOnAggMV5 group by deptno, commission;")
 
-    sleep(3000)
-
     sql """insert into aggOnAggMV5 values("2020-01-01",1,"a",1,1,1);"""
 
     sql "analyze table aggOnAggMV5 with sync;"
-    sql """set enable_stats=false;"""
 
-    explain {
-        sql("select * from aggOnAggMV5 order by empid;")
-        contains "(aggOnAggMV5)"
-    }
+    mv_rewrite_all_fail("select * from aggOnAggMV5 order by empid;")
+    
     order_qt_select_star "select * from aggOnAggMV5 order by empid;"
 
-    explain {
-        sql("select * from (select deptno, sum(salary) as sum_salary from aggOnAggMV5 group by deptno) a where sum_salary>10;")
-        contains "(aggOnAggMV5_mv)"
-    }
+    mv_rewrite_success("select * from (select deptno, sum(salary) as sum_salary from aggOnAggMV5 group by deptno) a where sum_salary>10;", "aggOnAggMV5_mv")
+    
     order_qt_select_mv "select * from (select deptno, sum(salary) as sum_salary from aggOnAggMV5 group by deptno) a where sum_salary>10 order by 1;"
-
-    sql """set enable_stats=true;"""
-    explain {
-        sql("select * from aggOnAggMV5 order by empid;")
-        contains "(aggOnAggMV5)"
-    }
-
-    explain {
-        sql("select * from (select deptno, sum(salary) as sum_salary from aggOnAggMV5 group by deptno) a where sum_salary>10;")
-        contains "(aggOnAggMV5_mv)"
-    }
 }

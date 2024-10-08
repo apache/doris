@@ -170,7 +170,7 @@ Status SingleReplicaCompaction::_get_rowset_verisons_from_peer(
             ExecEnv::GetInstance()->brpc_internal_client_cache()->get_client(addr.host,
                                                                              addr.brpc_port);
     if (stub == nullptr) {
-        return Status::Aborted("get rpc stub failed");
+        return Status::Aborted("get rpc stub failed, host={}, port={}", addr.host, addr.brpc_port);
     }
 
     brpc::Controller cntl;
@@ -404,20 +404,7 @@ Status SingleReplicaCompaction::_download_files(DataDir* data_dir,
         return Status::InternalError("single compaction init curl failed");
     }
     for (auto& file_name : file_name_list) {
-        // The file name of the variant column with the inverted index contains %
-        // such as: 020000000000003f624c4c322c568271060f9b5b274a4a95_0_10133@properties%2Emessage.idx
-        //  {rowset_id}_{seg_num}_{index_id}_{variant_column_name}{%2E}{extracted_column_name}.idx
-        // We need to handle %, otherwise it will cause an HTTP 404 error.
-        // Because the percent ("%") character serves as the indicator for percent-encoded octets,
-        // it must be percent-encoded as "%25" for that octet to be used as data within a URI.
-        // https://datatracker.ietf.org/doc/html/rfc3986
-        auto output = std::unique_ptr<char, decltype(&curl_free)>(
-                curl_easy_escape(curl.get(), file_name.c_str(), file_name.length()), &curl_free);
-        if (!output) {
-            return Status::InternalError("escape file name failed, file name={}", file_name);
-        }
-        std::string encoded_filename(output.get());
-        auto remote_file_url = remote_url_prefix + encoded_filename;
+        auto remote_file_url = remote_url_prefix + file_name;
 
         // get file length
         uint64_t file_size = 0;

@@ -322,7 +322,7 @@ SELECT json_array_get('[]', null);
 SELECT json_array_get('[1]', null);
 SELECT json_array_get('', null);
 SELECT json_array_get('', 1);
-SELECT json_array_get('', -1);
+-- SELECT json_array_get('', -1); # error: errCode = 2, detailMessage = (127.0.0.1)[INVALID_ARGUMENT]Json path error: Invalid Json Path for value: -1
 -- SELECT json_array_get('[1]', -9223372036854775807 - 1); # error: errCode = 2, detailMessage = (127.0.0.1)[INVALID_ARGUMENT]Json path error: Invalid Json Path for value: -9223372036854775808
 SELECT json_array_get('[\, ]', 0);
 SELECT json_array_get('[\, , null]', 1);

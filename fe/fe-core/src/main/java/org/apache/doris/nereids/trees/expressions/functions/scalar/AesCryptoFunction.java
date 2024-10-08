@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 
 import com.google.common.collect.ImmutableSet;
@@ -52,7 +53,16 @@ public abstract class AesCryptoFunction extends CryptoFunction {
             "AES_256_CTR",
             "AES_128_OFB",
             "AES_192_OFB",
-            "AES_256_OFB"
+            "AES_256_OFB",
+            "AES_128_GCM",
+            "AES_192_GCM",
+            "AES_256_GCM"
+    );
+
+    public static final Set<String> AES_GCM_MODES = ImmutableSet.of(
+            "AES_128_GCM",
+            "AES_192_GCM",
+            "AES_256_GCM"
     );
 
     public AesCryptoFunction(String name, Expression... arguments) {
@@ -71,5 +81,18 @@ public abstract class AesCryptoFunction extends CryptoFunction {
                     "session variable block_encryption_mode is invalid with aes");
         }
         return encryptionMode;
+    }
+
+    @Override
+    public void checkLegalityAfterRewrite() {
+        if (arity() >= 4 && child(3) instanceof StringLikeLiteral) {
+            String mode = ((StringLikeLiteral) child(3)).getValue().toUpperCase();
+            if (!AES_MODES.contains(mode)) {
+                throw new AnalysisException("mode " + mode + " is not supported");
+            }
+            if (arity() == 5 && !AES_GCM_MODES.contains(mode)) {
+                throw new AnalysisException("only GCM mode support AAD(the 5th arg)");
+            }
+        }
     }
 }

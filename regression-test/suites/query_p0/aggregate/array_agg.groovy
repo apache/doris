@@ -20,6 +20,8 @@ suite("array_agg") {
     sql "DROP TABLE IF EXISTS `test_array_agg1`;"
     sql "DROP TABLE IF EXISTS `test_array_agg_int`;"
     sql "DROP TABLE IF EXISTS `test_array_agg_decimal`;"
+    sql "DROP TABLE IF EXISTS `test_array_agg_complex`;"
+
     sql """
        CREATE TABLE `test_array_agg` (
         `id` int(11) NOT NULL,
@@ -249,6 +251,31 @@ suite("array_agg") {
     SELECT count(value_field), size(array_agg(label_name)) FROM `test_array_agg` GROUP BY value_field order by value_field;
     """
 
+    // only support nereids
+    sql "SET enable_nereids_planner=true;"
+    sql "SET enable_fallback_to_original_planner=false;"
+	sql """ CREATE TABLE IF NOT EXISTS test_array_agg_complex (id int, kastr array<string>, km map<string, int>, ks STRUCT<id: int>) engine=olap
+                                                                                         DISTRIBUTED BY HASH(`id`) BUCKETS 4
+                                                                                         properties("replication_num" = "1") """
+    streamLoad {
+        table "test_array_agg_complex"
+        file "test_array_agg_complex.csv"
+        time 60000
+
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            log.info("Stream load result: ${result}".toString())
+            def json = parseJson(result)
+            assertEquals(112, json.NumberTotalRows)
+            assertEquals(112, json.NumberLoadedRows)
+        }
+    }
+
+    order_qt_sql_array_agg_array """ SELECT id, array_agg(kastr) FROM test_array_agg_complex GROUP BY id ORDER BY id """
+    order_qt_sql_array_agg_map """ SELECT id, array_agg(km) FROM test_array_agg_complex GROUP BY id ORDER BY id """
+    order_qt_sql_array_agg_struct """ SELECT id, array_agg(ks) FROM test_array_agg_complex GROUP BY id ORDER BY id """
 
     sql "DROP TABLE `test_array_agg`"
     sql "DROP TABLE `test_array_agg1`"	

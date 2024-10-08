@@ -351,7 +351,7 @@ AggFnEvaluator::AggFnEvaluator(AggFnEvaluator& evaluator, RuntimeState* state)
     }
 }
 
-Status AggFnEvaluator::check_agg_fn_output(int key_size,
+Status AggFnEvaluator::check_agg_fn_output(int64_t key_size,
                                            const std::vector<vectorized::AggFnEvaluator*>& agg_fn,
                                            const RowDescriptor& output_row_desc) {
     auto name_and_types = VectorizedUtils::create_name_and_data_types(output_row_desc);

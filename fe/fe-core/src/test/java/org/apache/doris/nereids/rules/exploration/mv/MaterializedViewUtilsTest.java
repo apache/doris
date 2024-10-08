@@ -251,6 +251,26 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
         connectContext.getSessionVariable().setDisableNereidsRules("OLAP_SCAN_PARTITION_PRUNE,PRUNE_EMPTY_PARTITION");
     }
 
+    // Test when join both side are all partition table and partition column name is same
+    @Test
+    public void joinPartitionNameSameTest() {
+        PlanChecker.from(connectContext)
+                .checkExplain("select t1.upgrade_day, t2.batch_no, count(*) "
+                                + "from test2 t2 join test1 t1 on "
+                                + "t1.upgrade_day = t2.upgrade_day "
+                                + "group by t1.upgrade_day, t2.batch_no;",
+                        nereidsPlanner -> {
+                            Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
+                            RelatedTableInfo relatedTableInfo =
+                                    MaterializedViewUtils.getRelatedTableInfo("upgrade_day", null,
+                                            rewrittenPlan, nereidsPlanner.getCascadesContext());
+                            checkRelatedTableInfo(relatedTableInfo,
+                                    "test1",
+                                    "upgrade_day",
+                                    true);
+                        });
+    }
+
     @Test
     public void getRelatedTableInfoWhenAutoPartitionTest() {
         PlanChecker.from(connectContext)
@@ -286,7 +306,7 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
                                 + "JOIN "
                                 + "(SELECT abs(sqrt(PS_SUPPLYCOST)) as c2_abs, PS_AVAILQTY, PS_PARTKEY, PS_SUPPKEY "
                                 + "FROM partsupp) as ps "
-                                + "ON l.L_PARTKEY = ps.PS_PARTKEY and l.L_SUPPKEY = ps.PS_SUPPKEY",
+                                + "ON l.L_PARTKEY = ps.PS_PARTKEY and l.L_SUPPKEY = ps.PS_SUPPKEY limit 1",
                         nereidsPlanner -> {
                             Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
                             RelatedTableInfo relatedTableInfo =
@@ -583,6 +603,24 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
                             Assertions.assertTrue(relatedTableInfo.getFailReason().contains(
                                     "window partition sets doesn't contain the target partition"));
                             Assertions.assertFalse(relatedTableInfo.isPctPossible());
+                        });
+    }
+
+    @Test
+    public void getRelatedTableInfoTestWithLimitTest() {
+        PlanChecker.from(connectContext)
+                .checkExplain("SELECT l.L_SHIPDATE, l.L_ORDERKEY "
+                               + "FROM "
+                               + "lineitem as l limit 1",
+                        nereidsPlanner -> {
+                            Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
+                            RelatedTableInfo relatedTableInfo =
+                                    MaterializedViewUtils.getRelatedTableInfo("l_shipdate", null,
+                                            rewrittenPlan, nereidsPlanner.getCascadesContext());
+                            checkRelatedTableInfo(relatedTableInfo,
+                                    "lineitem",
+                                    "L_SHIPDATE",
+                                    true);
                         });
     }
 

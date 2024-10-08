@@ -21,7 +21,6 @@ import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Config;
-import org.apache.doris.nereids.analyzer.ComplexDataType;
 import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Add;
@@ -102,6 +101,7 @@ import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
+import org.apache.doris.nereids.types.coercion.ComplexDataType;
 import org.apache.doris.nereids.types.coercion.FollowToAnyDataType;
 import org.apache.doris.nereids.types.coercion.FractionalType;
 import org.apache.doris.nereids.types.coercion.IntegralType;
@@ -1442,7 +1442,9 @@ public class TypeCoercionUtils {
             return Optional.of(IPv4Type.INSTANCE);
         }
         if ((leftType.isIPv6Type() && rightType.isStringLikeType())
-                || (rightType.isIPv6Type() && leftType.isStringLikeType())) {
+                || (rightType.isIPv6Type() && leftType.isStringLikeType())
+                || (leftType.isIPv4Type() && rightType.isIPv6Type())
+                || (leftType.isIPv6Type() && rightType.isIPv4Type())) {
             return Optional.of(IPv6Type.INSTANCE);
         }
 

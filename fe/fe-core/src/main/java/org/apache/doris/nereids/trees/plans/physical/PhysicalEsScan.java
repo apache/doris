@@ -17,7 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.physical;
 
-import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DistributionSpec;
 import org.apache.doris.nereids.properties.LogicalProperties;
@@ -48,7 +48,7 @@ public class PhysicalEsScan extends PhysicalCatalogRelation {
     /**
      * Constructor for PhysicalEsScan.
      */
-    public PhysicalEsScan(RelationId id, ExternalTable table, List<String> qualifier,
+    public PhysicalEsScan(RelationId id, TableIf table, List<String> qualifier,
             DistributionSpec distributionSpec, Optional<GroupExpression> groupExpression,
             LogicalProperties logicalProperties, Set<Expression> conjuncts) {
         super(id, PlanType.PHYSICAL_ES_SCAN, table, qualifier, groupExpression, logicalProperties);
@@ -59,7 +59,7 @@ public class PhysicalEsScan extends PhysicalCatalogRelation {
     /**
      * Constructor for PhysicalEsScan.
      */
-    public PhysicalEsScan(RelationId id, ExternalTable table, List<String> qualifier,
+    public PhysicalEsScan(RelationId id, TableIf table, List<String> qualifier,
             DistributionSpec distributionSpec, Optional<GroupExpression> groupExpression,
             LogicalProperties logicalProperties, PhysicalProperties physicalProperties, Statistics statistics,
             Set<Expression> conjuncts) {
@@ -94,11 +94,6 @@ public class PhysicalEsScan extends PhysicalCatalogRelation {
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new PhysicalEsScan(relationId, getTable(), qualifier, distributionSpec,
                 groupExpression, logicalProperties.get(), conjuncts);
-    }
-
-    @Override
-    public ExternalTable getTable() {
-        return (ExternalTable) table;
     }
 
     @Override

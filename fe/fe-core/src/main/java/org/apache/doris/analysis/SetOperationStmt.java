@@ -53,7 +53,7 @@ import java.util.stream.Collectors;
  * and we need to mark the slots of resolved exprs as materialized.
  */
 @Deprecated
-public class SetOperationStmt extends QueryStmt {
+public class SetOperationStmt extends QueryStmt implements NotFallbackInParser {
     private static final Logger LOG = LogManager.getLogger(SetOperationStmt.class);
 
     public enum Operation {

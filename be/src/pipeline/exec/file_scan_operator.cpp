@@ -93,6 +93,7 @@ void FileScanLocalState::set_scan_ranges(RuntimeState* state,
 
 Status FileScanLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(ScanLocalState<FileScanLocalState>::init(state, info));
+    SCOPED_TIMER(_init_timer);
     auto& p = _parent->cast<FileScanOperatorX>();
     _output_tuple_id = p._output_tuple_id;
     return Status::OK();
@@ -107,8 +108,8 @@ Status FileScanLocalState::_process_conjuncts(RuntimeState* state) {
     return Status::OK();
 }
 
-Status FileScanOperatorX::prepare(RuntimeState* state) {
-    RETURN_IF_ERROR(ScanOperatorX<FileScanLocalState>::prepare(state));
+Status FileScanOperatorX::open(RuntimeState* state) {
+    RETURN_IF_ERROR(ScanOperatorX<FileScanLocalState>::open(state));
     if (state->get_query_ctx() != nullptr &&
         state->get_query_ctx()->file_scan_range_params_map.contains(node_id())) {
         TFileScanRangeParams& params =

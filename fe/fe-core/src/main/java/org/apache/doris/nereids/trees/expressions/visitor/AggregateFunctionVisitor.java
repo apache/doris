@@ -44,6 +44,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Histogram;
 import org.apache.doris.nereids.trees.expressions.functions.agg.HllUnion;
 import org.apache.doris.nereids.trees.expressions.functions.agg.HllUnionAgg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.IntersectCount;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Kurt;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MapAgg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MaxBy;
@@ -63,12 +64,15 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.PercentileApprox
 import org.apache.doris.nereids.trees.expressions.functions.agg.PercentileApproxWeighted;
 import org.apache.doris.nereids.trees.expressions.functions.agg.PercentileArray;
 import org.apache.doris.nereids.trees.expressions.functions.agg.QuantileUnion;
+import org.apache.doris.nereids.trees.expressions.functions.agg.RegrIntercept;
+import org.apache.doris.nereids.trees.expressions.functions.agg.RegrSlope;
 import org.apache.doris.nereids.trees.expressions.functions.agg.RegrSxx;
 import org.apache.doris.nereids.trees.expressions.functions.agg.RegrSxy;
 import org.apache.doris.nereids.trees.expressions.functions.agg.RegrSyy;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Retention;
 import org.apache.doris.nereids.trees.expressions.functions.agg.SequenceCount;
 import org.apache.doris.nereids.trees.expressions.functions.agg.SequenceMatch;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Skew;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Stddev;
 import org.apache.doris.nereids.trees.expressions.functions.agg.StddevSamp;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
@@ -213,6 +217,10 @@ public interface AggregateFunctionVisitor<R, C> {
         return visitAggregateFunction(intersectCount, context);
     }
 
+    default R visitKurt(Kurt kurt, C context) {
+        return visitAggregateFunction(kurt, context);
+    }
+
     default R visitMapAgg(MapAgg mapAgg, C context) {
         return visitAggregateFunction(mapAgg, context);
     }
@@ -269,6 +277,14 @@ public interface AggregateFunctionVisitor<R, C> {
         return visitAggregateFunction(quantileUnion, context);
     }
 
+    default R visitRegrIntercept(RegrIntercept regrIntercept, C context) {
+        return visitAggregateFunction(regrIntercept, context);
+    }
+
+    default R visitRegrSlope(RegrSlope regrSlope, C context) {
+        return visitAggregateFunction(regrSlope, context);
+    }
+
     default R visitRegrSxx(RegrSxx regrSxx, C context) {
         return visitAggregateFunction(regrSxx, context);
     }
@@ -291,6 +307,10 @@ public interface AggregateFunctionVisitor<R, C> {
 
     default R visitSequenceMatch(SequenceMatch sequenceMatch, C context) {
         return visitNullableAggregateFunction(sequenceMatch, context);
+    }
+
+    default R visitSkew(Skew skew, C context) {
+        return visitAggregateFunction(skew, context);
     }
 
     default R visitStddev(Stddev stddev, C context) {

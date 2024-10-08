@@ -20,12 +20,14 @@ package org.apache.doris.nereids.trees.expressions.functions.agg;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
-import org.apache.doris.nereids.trees.expressions.functions.window.SupportWindowAnalytic;
+import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DoubleType;
+import org.apache.doris.nereids.types.FloatType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.SmallIntType;
 import org.apache.doris.nereids.types.TinyIntType;
@@ -36,51 +38,48 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 
 /** regr_sxx agg function. */
-public class RegrSxx extends NullableAggregateFunction
-        implements ExplicitlyCastableSignature, SupportWindowAnalytic {
+public class RegrSxx extends AggregateFunction
+        implements BinaryExpression, ExplicitlyCastableSignature, AlwaysNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(DoubleType.INSTANCE).args(DoubleType.INSTANCE, DoubleType.INSTANCE),
             FunctionSignature.ret(DoubleType.INSTANCE).args(BigIntType.INSTANCE, BigIntType.INSTANCE),
             FunctionSignature.ret(DoubleType.INSTANCE).args(IntegerType.INSTANCE, IntegerType.INSTANCE),
             FunctionSignature.ret(DoubleType.INSTANCE).args(SmallIntType.INSTANCE, SmallIntType.INSTANCE),
-            FunctionSignature.ret(DoubleType.INSTANCE).args(TinyIntType.INSTANCE, TinyIntType.INSTANCE));
+            FunctionSignature.ret(DoubleType.INSTANCE).args(TinyIntType.INSTANCE, TinyIntType.INSTANCE),
+            FunctionSignature.ret(DoubleType.INSTANCE).args(FloatType.INSTANCE, FloatType.INSTANCE));
 
-    public RegrSxx(Expression arg0, Expression arg1) {
-        this(false, false, arg0, arg1);
+    /**
+     * Constructor with 2 arguments.
+     */
+    public RegrSxx(Expression arg1, Expression arg2) {
+        this(false, arg1, arg2);
     }
 
-    public RegrSxx(boolean distinct, Expression arg0, Expression arg1) {
-        this(distinct, false, arg0, arg1);
-    }
-
-    public RegrSxx(boolean distinct, boolean alwaysNullable, Expression arg0, Expression arg1) {
-        super("regr_sxx", distinct, alwaysNullable, arg0, arg1);
+    /**
+     * Constructor with distinct flag and 2 arguments.
+     */
+    public RegrSxx(boolean distinct, Expression arg1, Expression arg2) {
+        super("regr_sxx", distinct, arg1, arg2);
     }
 
     @Override
-    public void checkLegalityBeforeTypeCoercion() {
-        DataType regrSxxTypeFirst = child(0).getDataType();
-        DataType regrSxxTypeSecond = child(1).getDataType();
-        if ((!regrSxxTypeFirst.isNumericType() && !regrSxxTypeFirst.isNullType())
-                || regrSxxTypeFirst.isOnlyMetricType()) {
-            throw new AnalysisException("regr_sxx requires numeric for first parameter");
-        } else if ((!regrSxxTypeSecond.isNumericType() && !regrSxxTypeSecond.isNullType())
-                || regrSxxTypeSecond.isOnlyMetricType()) {
-            throw new AnalysisException("regr_sxx requires numeric for second parameter");
-
+    public void checkLegalityBeforeTypeCoercion() throws AnalysisException {
+        DataType arg0Type = left().getDataType();
+        DataType arg1Type = right().getDataType();
+        if ((!arg0Type.isNumericType() && !arg0Type.isNullType())
+                || arg0Type.isOnlyMetricType()) {
+            throw new AnalysisException("regr_sxx requires numeric for first parameter: " + toSql());
+        } else if ((!arg1Type.isNumericType() && !arg1Type.isNullType())
+                || arg1Type.isOnlyMetricType()) {
+            throw new AnalysisException("regr_sxx requires numeric for second parameter: " + toSql());
         }
     }
 
     @Override
     public RegrSxx withDistinctAndChildren(boolean distinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new RegrSxx(distinct, alwaysNullable, children.get(0), children.get(1));
-    }
-
-    @Override
-    public NullableAggregateFunction withAlwaysNullable(boolean alwaysNullable) {
-        return new RegrSxx(distinct, alwaysNullable, children.get(0), children.get(1));
+        return new RegrSxx(distinct, children.get(0), children.get(1));
     }
 
     @Override

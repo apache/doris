@@ -57,7 +57,7 @@ public class AggregateFunction extends Function {
             FunctionSet.SEQUENCE_COUNT, FunctionSet.MAP_AGG, FunctionSet.BITMAP_AGG, FunctionSet.ARRAY_AGG,
             FunctionSet.REGR_SXX, FunctionSet.REGR_SYY, FunctionSet.REGR_SXY,
             FunctionSet.COLLECT_LIST, FunctionSet.COLLECT_SET, FunctionSet.GROUP_ARRAY_INTERSECT,
-            FunctionSet.SUM0, FunctionSet.MULTI_DISTINCT_SUM0);
+            FunctionSet.SUM0, FunctionSet.MULTI_DISTINCT_SUM0, FunctionSet.REGR_INTERCEPT, FunctionSet.REGR_SLOPE);
 
     public static ImmutableSet<String> ALWAYS_NULLABLE_AGGREGATE_FUNCTION_NAME_SET =
             ImmutableSet.of("stddev_samp", "variance_samp", "var_samp", "percentile_approx", "first_value",

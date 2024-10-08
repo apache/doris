@@ -31,7 +31,7 @@ import com.google.common.base.Strings;
 
 import java.util.Map;
 
-public class AlterColocateGroupStmt extends DdlStmt {
+public class AlterColocateGroupStmt extends DdlStmt implements NotFallbackInParser {
     private final ColocateGroupName colocateGroupName;
     private final Map<String, String> properties;
 

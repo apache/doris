@@ -58,7 +58,7 @@ public:
                 std::make_shared<DataTypeDateTime>(), std::make_shared<DataTypeUInt8>(),
                 std::make_shared<DataTypeUInt8>(),    std::make_shared<DataTypeUInt8>(),
                 std::make_shared<DataTypeUInt8>()};
-        agg_function = factory.get("window_funnel", data_types, false);
+        agg_function = factory.get("window_funnel", data_types, false, -1);
         EXPECT_NE(agg_function, nullptr);
     }
 
@@ -147,10 +147,15 @@ TEST_F(VWindowFunnelTest, testSerialize) {
         agg_function->add(place, column, i, nullptr);
     }
 
+    ColumnVector<Int32> column_result;
+    agg_function->insert_result_into(place, column_result);
+    EXPECT_EQ(column_result.get_data()[0], 3);
+
     ColumnString buf;
     VectorBufferWriter buf_writer(buf);
     agg_function->serialize(place, buf_writer);
     buf_writer.commit();
+    agg_function->destroy(place);
 
     std::unique_ptr<char[]> memory2(new char[agg_function->size_of_data()]);
     AggregateDataPtr place2 = memory2.get();
@@ -158,11 +163,6 @@ TEST_F(VWindowFunnelTest, testSerialize) {
 
     VectorBufferReader buf_reader(buf.get_data_at(0));
     agg_function->deserialize(place2, buf_reader, nullptr);
-
-    ColumnVector<Int32> column_result;
-    agg_function->insert_result_into(place, column_result);
-    EXPECT_EQ(column_result.get_data()[0], 3);
-    agg_function->destroy(place);
 
     ColumnVector<Int32> column_result2;
     agg_function->insert_result_into(place2, column_result2);

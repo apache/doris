@@ -38,12 +38,10 @@ namespace doris {
 Status LoadBlockQueue::add_block(RuntimeState* runtime_state,
                                  std::shared_ptr<vectorized::Block> block, bool write_wal,
                                  UniqueId& load_id) {
+    DBUG_EXECUTE_IF("LoadBlockQueue.add_block.failed",
+                    { return Status::InternalError("LoadBlockQueue.add_block.failed"); });
     std::unique_lock l(mutex);
     RETURN_IF_ERROR(status);
-    auto start = std::chrono::steady_clock::now();
-    DBUG_EXECUTE_IF("LoadBlockQueue.add_block.back_pressure_time_out", {
-        start = std::chrono::steady_clock::now() - std::chrono::milliseconds(120000);
-    });
     if (UNLIKELY(runtime_state->is_cancelled())) {
         return runtime_state->cancel_reason();
     }
@@ -584,7 +582,8 @@ Status GroupCommitTable::_exec_plan_fragment(int64_t db_id, int64_t table_id,
                          << ", st=" << finish_st.to_string();
         }
     };
-    return _exec_env->fragment_mgr()->exec_plan_fragment(pipeline_params, finish_cb);
+    return _exec_env->fragment_mgr()->exec_plan_fragment(pipeline_params,
+                                                         QuerySource::GROUP_COMMIT_LOAD, finish_cb);
 }
 
 Status GroupCommitTable::get_load_block_queue(const TUniqueId& instance_id,

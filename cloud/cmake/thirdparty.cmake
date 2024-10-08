@@ -105,10 +105,12 @@ add_thirdparty(idn LIB64)
 add_thirdparty(gsasl)
 # end krb5 libs
 # begin azure libs
-add_thirdparty(azure-core)
-add_thirdparty(azure-identity)
-add_thirdparty(azure-storage-blobs)
-add_thirdparty(azure-storage-common)
+if(BUILD_AZURE STREQUAL "ON")
+    add_thirdparty(azure-core)
+    add_thirdparty(azure-identity)
+    add_thirdparty(azure-storage-blobs)
+    add_thirdparty(azure-storage-common)
+endif()
 # end azure libs
 
 add_thirdparty(gtest NOTADD)
