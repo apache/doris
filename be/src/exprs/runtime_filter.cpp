@@ -728,14 +728,16 @@ public:
             break;
         }
         case TYPE_IPV4: {
-            batch_assign(in_filter, [](std::shared_ptr<HybridSetBase>& set, PColumnValue& column) {
+            batch_assign(in_filter, [](std::shared_ptr<HybridSetBase>& set, PColumnValue& column,
+                                       ObjectPool* pool) {
                 int32_t tmp = column.intval();
                 set->insert(&tmp);
             });
             break;
         }
         case TYPE_IPV6: {
-            batch_assign(in_filter, [](std::shared_ptr<HybridSetBase>& set, PColumnValue& column) {
+            batch_assign(in_filter, [](std::shared_ptr<HybridSetBase>& set, PColumnValue& column,
+                                       ObjectPool* pool) {
                 auto string_val = column.stringval();
                 StringParser::ParseResult result;
                 auto int128_val = StringParser::string_to_int<uint128_t>(
