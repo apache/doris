@@ -1355,6 +1355,31 @@ class Suite implements GroovyInterceptable {
         return debugPoint
     }
 
+    void waitingMVTaskFinished(String tbName, String mvName) {
+        Thread.sleep(2000)
+        String showTasks = "SHOW ALTER TABLE MATERIALIZED VIEW where TableName = '${tbName}' order by CreateTime DESC limit 1"
+        String status = "NULL"
+        String IndexName = "NULL"
+        List<List<Object>> result
+        long startTime = System.currentTimeMillis()
+        long timeoutTimestamp = startTime + 5 * 60 * 1000 // 5 min
+        do {
+            result = sql(showTasks)
+            logger.info("result: " + result.toString())
+            if (!result.isEmpty()) {
+                status = result[0].get(8)
+                IndexName = result[0].get(5)
+            }
+            logger.info("The ${IndexName} state of ${showTasks} is ${status}")
+            Thread.sleep(1000)
+        } while (timeoutTimestamp > System.currentTimeMillis() && (status != 'FINISHED'))
+        if (status != "FINISHED") {
+            logger.info("status is not FINISHED")
+        }
+        Assert.assertEquals(mvName, IndexName)
+        Assert.assertEquals("FINISHED", status)
+    }
+
     void waitingMTMVTaskFinishedByMvName(String mvName) {
         Thread.sleep(2000);
         String showTasks = "select TaskId,JobId,JobName,MvId,Status,MvName,MvDatabaseName,ErrorMsg from tasks('type'='mv') where MvName = '${mvName}' order by CreateTime ASC"
