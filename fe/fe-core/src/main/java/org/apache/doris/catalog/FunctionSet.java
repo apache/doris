@@ -631,6 +631,10 @@ public class FunctionSet<T> {
 
     public static final String RETENTION = "retention";
 
+    public static final String REGR_INTERCEPT = "regr_intercept";
+
+    public static final String REGR_SLOPE = "regr_slope";
+
     public static final String SEQUENCE_MATCH = "sequence_match";
 
     public static final String SEQUENCE_COUNT = "sequence_count";
@@ -663,6 +667,25 @@ public class FunctionSet<T> {
                 null, null,
                 "",
                 null, false, true, true, true));
+
+        // regr_intercept
+        addBuiltin(AggregateFunction.createBuiltin(FunctionSet.REGR_INTERCEPT,
+                Lists.newArrayList(Type.DOUBLE, Type.DOUBLE), Type.DOUBLE, Type.DOUBLE,
+                "",
+                "",
+                "",
+                null, null,
+                "",
+                null, false, false, false, true));
+        // regr_slope
+        addBuiltin(AggregateFunction.createBuiltin(FunctionSet.REGR_SLOPE,
+                Lists.newArrayList(Type.DOUBLE, Type.DOUBLE), Type.DOUBLE, Type.DOUBLE,
+                "",
+                "",
+                "",
+                null, null,
+                "",
+                null, false, false, false, true));
 
         // count(array/map/struct)
         for (Type complexType : Lists.newArrayList(Type.ARRAY, Type.MAP, Type.GENERIC_STRUCT)) {
