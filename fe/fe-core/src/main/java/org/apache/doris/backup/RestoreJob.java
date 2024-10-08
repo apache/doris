@@ -1106,7 +1106,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                                     remoteReplicas.size()));
                         }
                         for (int j = 0; j < remoteReplicas.size(); j++) {
-                            long backendId = localReplicas.get(j).getBackendId();
+                            long backendId = localReplicas.get(j).getBackendIdWithoutException();
                             remoteReplicas.get(j).setBackendId(backendId);
                             if (LOG.isDebugEnabled()) {
                                 LOG.debug("bind local replica {} and remote replica {} with same backend {}, table={}",
