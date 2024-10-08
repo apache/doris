@@ -476,8 +476,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_CTE_MATERIALIZE = "enable_cte_materialize";
 
-    public static final String ENABLE_SCAN_RUN_SERIAL = "enable_scan_node_run_serial";
-
     public static final String ENABLE_ANALYZE_COMPLEX_TYPE_COLUMN = "enable_analyze_complex_type_column";
 
     public static final String EXTERNAL_TABLE_ANALYZE_PART_NUM = "external_table_analyze_part_num";
