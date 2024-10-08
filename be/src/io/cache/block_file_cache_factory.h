@@ -21,7 +21,9 @@
 #pragma once
 
 #include <memory>
+#include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "common/status.h"
@@ -46,7 +48,8 @@ public:
 
     size_t try_release(const std::string& base_path);
 
-    const std::string& get_cache_path() {
+    std::string_view pick_one_cache_path() {
+        DCHECK(!_caches.empty());
         size_t cur_index = _next_index.fetch_add(1);
         return _caches[cur_index % _caches.size()]->get_base_path();
     }

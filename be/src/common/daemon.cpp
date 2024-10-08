@@ -58,6 +58,7 @@
 #include "runtime/memory/memory_reclamation.h"
 #include "runtime/runtime_query_statistics_mgr.h"
 #include "runtime/workload_group/workload_group_manager.h"
+#include "util/algorithm_util.h"
 #include "util/cpu_info.h"
 #include "util/debug_util.h"
 #include "util/disk_info.h"
@@ -242,7 +243,7 @@ void refresh_memory_state_after_memory_change() {
 
 void refresh_cache_capacity() {
     if (refresh_cache_capacity_sleep_time_ms <= 0) {
-        auto cache_capacity_reduce_mem_limit = uint64_t(
+        auto cache_capacity_reduce_mem_limit = int64_t(
                 doris::MemInfo::soft_mem_limit() * config::cache_capacity_reduce_mem_limit_frac);
         int64_t process_memory_usage = doris::GlobalMemoryArbitrator::process_memory_usage();
         // the rule is like this:
@@ -250,13 +251,8 @@ void refresh_cache_capacity() {
         // 2. if the process mem usage > soft memlimit * 0.6 and process mem usage < soft memlimit, then it will be adjusted to a lower value.
         // 3. if the process mem usage > soft memlimit, then the capacity is adjusted to 0.
         double new_cache_capacity_adjust_weighted =
-                process_memory_usage <= cache_capacity_reduce_mem_limit
-                        ? 1
-                        : std::max<double>(
-                                  1 - (process_memory_usage - cache_capacity_reduce_mem_limit) /
-                                                  (doris::MemInfo::soft_mem_limit() -
-                                                   cache_capacity_reduce_mem_limit),
-                                  0);
+                AlgoUtil::descent_by_step(10, cache_capacity_reduce_mem_limit,
+                                          doris::MemInfo::soft_mem_limit(), process_memory_usage);
         if (new_cache_capacity_adjust_weighted !=
             doris::GlobalMemoryArbitrator::last_cache_capacity_adjust_weighted) {
             doris::GlobalMemoryArbitrator::last_cache_capacity_adjust_weighted =

@@ -46,6 +46,7 @@ import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.VariantType;
+import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -148,7 +149,12 @@ public class StatisticsUtil {
         boolean useFileCacheForStat = (enableFileCache && Config.allow_analyze_statistics_info_polluting_file_cache);
         try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext(false, useFileCacheForStat)) {
             if (Config.isCloudMode()) {
-                r.connectContext.getCloudCluster();
+                try {
+                    r.connectContext.getCloudCluster();
+                } catch (ComputeGroupException e) {
+                    LOG.warn("failed to connect to cloud cluster", e);
+                    return Collections.emptyList();
+                }
             }
             StmtExecutor stmtExecutor = new StmtExecutor(r.connectContext, sql);
             r.connectContext.setExecutor(stmtExecutor);
@@ -228,7 +234,12 @@ public class StatisticsUtil {
         connectContext.setStartTime();
         if (Config.isCloudMode()) {
             AutoCloseConnectContext ctx = new AutoCloseConnectContext(connectContext);
-            ctx.connectContext.getCloudCluster();
+            try {
+                ctx.connectContext.getCloudCluster();
+            } catch (ComputeGroupException e) {
+                LOG.warn("failed to connect to cloud cluster", e);
+                return ctx;
+            }
             sessionVariable.disableFileCache = !useFileCacheForStat;
             return ctx;
         } else {
@@ -486,7 +497,12 @@ public class StatisticsUtil {
                 return false;
             }
             try (AutoCloseConnectContext r = buildConnectContext()) {
-                r.connectContext.getCloudCluster();
+                try {
+                    r.connectContext.getCloudCluster();
+                } catch (ComputeGroupException e) {
+                    LOG.warn("failed to connect to cloud cluster", e);
+                    return false;
+                }
                 for (OlapTable table : statsTbls) {
                     for (Partition partition : table.getPartitions()) {
                         if (partition.getBaseIndex().getTablets().stream()

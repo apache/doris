@@ -29,6 +29,7 @@
 #include "common/status.h"
 #include "pipeline/exec/scan_operator.h"
 #include "runtime/descriptors.h"
+#include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 #include "util/uid_util.h"
 #include "vec/core/block.h"
@@ -120,6 +121,8 @@ ScannerContext::ScannerContext(
     _query_thread_context = {_query_id, _state->query_mem_tracker(),
                              _state->get_query_ctx()->workload_group()};
     _dependency = dependency;
+
+    DorisMetrics::instance()->scanner_ctx_cnt->increment(1);
 }
 
 // After init function call, should not access _parent
@@ -130,6 +133,7 @@ Status ScannerContext::init() {
     _scanner_wait_batch_timer = _local_state->_scanner_wait_batch_timer;
     _scanner_ctx_sched_time = _local_state->_scanner_ctx_sched_time;
     _scale_up_scanners_counter = _local_state->_scale_up_scanners_counter;
+    _scanner_memory_used_counter = _local_state->_memory_used_counter;
 
 #ifndef BE_TEST
     // 3. get thread token
@@ -169,6 +173,7 @@ vectorized::BlockUPtr ScannerContext::get_free_block(bool force) {
     if (_free_blocks.try_dequeue(block)) {
         DCHECK(block->mem_reuse());
         _block_memory_usage -= block->allocated_bytes();
+        _scanner_memory_used_counter->set(_block_memory_usage);
         // A free block is reused, so the memory usage should be decreased
         // The caller of get_free_block will increase the memory usage
         update_peak_memory_usage(-block->allocated_bytes());
@@ -184,6 +189,7 @@ void ScannerContext::return_free_block(vectorized::BlockUPtr block) {
     if (block->mem_reuse() && _block_memory_usage < _max_bytes_in_queue) {
         size_t block_size_to_reuse = block->allocated_bytes();
         _block_memory_usage += block_size_to_reuse;
+        _scanner_memory_used_counter->set(_block_memory_usage);
         block->clear_column_data();
         if (_free_blocks.enqueue(std::move(block))) {
             update_peak_memory_usage(block_size_to_reuse);

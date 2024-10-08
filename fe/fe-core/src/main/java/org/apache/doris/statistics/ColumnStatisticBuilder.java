@@ -199,8 +199,7 @@ public class ColumnStatisticBuilder {
         // When defining SQL schemas, users often tend to set the length of string \
         // fields much longer than actually needed for storage.
         if (slot.getDataType() instanceof CharacterType) {
-            avgSizeByte = Math.min(avgSizeByte,
-                    CharacterType.DEFAULT_SLOT_SIZE);
+            avgSizeByte = Math.min(avgSizeByte, CharacterType.DEFAULT_WIDTH);
         }
     }
 }

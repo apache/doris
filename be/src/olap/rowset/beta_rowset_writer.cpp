@@ -288,6 +288,14 @@ Status BaseBetaRowsetWriter::_generate_delete_bitmap(int32_t segment_id) {
     return Status::OK();
 }
 
+Status BetaRowsetWriter::init(const RowsetWriterContext& rowset_writer_context) {
+    RETURN_IF_ERROR(BaseBetaRowsetWriter::init(rowset_writer_context));
+    if (_segcompaction_worker) {
+        _segcompaction_worker->init_mem_tracker(rowset_writer_context.txn_id);
+    }
+    return Status::OK();
+}
+
 Status BetaRowsetWriter::_load_noncompacted_segment(segment_v2::SegmentSharedPtr& segment,
                                                     int32_t segment_id) {
     DCHECK(_rowset_meta->is_local());
@@ -515,26 +523,27 @@ Status BetaRowsetWriter::_rename_compacted_indices(int64_t begin, int64_t end, u
     return Status::OK();
 }
 
-// return true if there isn't any flying segcompaction, otherwise return false
-bool BetaRowsetWriter::_check_and_set_is_doing_segcompaction() {
-    return !_is_doing_segcompaction.exchange(true);
-}
-
 Status BetaRowsetWriter::_segcompaction_if_necessary() {
     Status status = Status::OK();
-    // leave _check_and_set_is_doing_segcompaction as the last condition
-    // otherwise _segcompacting_cond will never get notified
+    // if not doing segcompaction, just check segment number
     if (!config::enable_segcompaction || !_context.enable_segcompaction ||
         !_context.tablet_schema->cluster_key_idxes().empty() ||
-        _context.tablet_schema->num_variant_columns() > 0 ||
-        !_check_and_set_is_doing_segcompaction()) {
+        _context.tablet_schema->num_variant_columns() > 0) {
+        return _check_segment_number_limit(_num_segment);
+    }
+    // leave _is_doing_segcompaction as the last condition
+    // otherwise _segcompacting_cond will never get notified
+    if (_is_doing_segcompaction.exchange(true)) {
         return status;
     }
     if (_segcompaction_status.load() != OK) {
         status = Status::Error<SEGCOMPACTION_FAILED>(
                 "BetaRowsetWriter::_segcompaction_if_necessary meet invalid state, error code: {}",
                 _segcompaction_status.load());
-    } else if ((_num_segment - _segcompacted_point) >= config::segcompaction_batch_size) {
+    } else {
+        status = _check_segment_number_limit(_num_segcompacted);
+    }
+    if (status.ok() && (_num_segment - _segcompacted_point) >= config::segcompaction_batch_size) {
         SegCompactionCandidatesSharedPtr segments;
         status = _find_longest_consecutive_small_segment(segments);
         if (LIKELY(status.ok()) && (!segments->empty())) {
@@ -720,7 +729,8 @@ Status BetaRowsetWriter::_close_file_writers() {
 Status BetaRowsetWriter::build(RowsetSharedPtr& rowset) {
     RETURN_IF_ERROR(_close_file_writers());
 
-    RETURN_NOT_OK_STATUS_WITH_WARN(_check_segment_number_limit(),
+    const auto total_segment_num = _num_segment - _segcompacted_point + 1 + _num_segcompacted;
+    RETURN_NOT_OK_STATUS_WITH_WARN(_check_segment_number_limit(total_segment_num),
                                    "too many segments when build new rowset");
     RETURN_IF_ERROR(_build_rowset_meta(_rowset_meta.get(), true));
     if (_is_pending) {
@@ -909,28 +919,28 @@ Status BetaRowsetWriter::_create_segment_writer_for_segcompaction(
     return Status::OK();
 }
 
-Status BaseBetaRowsetWriter::_check_segment_number_limit() {
-    size_t total_segment_num = _num_segment + 1;
+Status BaseBetaRowsetWriter::_check_segment_number_limit(size_t segnum) {
     DBUG_EXECUTE_IF("BetaRowsetWriter._check_segment_number_limit_too_many_segments",
-                    { total_segment_num = dp->param("segnum", 1024); });
-    if (UNLIKELY(total_segment_num > config::max_segment_num_per_rowset)) {
+                    { segnum = dp->param("segnum", 1024); });
+    if (UNLIKELY(segnum > config::max_segment_num_per_rowset)) {
         return Status::Error<TOO_MANY_SEGMENTS>(
                 "too many segments in rowset. tablet_id:{}, rowset_id:{}, max:{}, "
-                "_num_segment:{}, rowset_num_rows:{}",
+                "_num_segment:{}, rowset_num_rows:{}. Please check if the bucket number is too "
+                "small or if the data is skewed.",
                 _context.tablet_id, _context.rowset_id.to_string(),
                 config::max_segment_num_per_rowset, _num_segment, get_rowset_num_rows());
     }
     return Status::OK();
 }
 
-Status BetaRowsetWriter::_check_segment_number_limit() {
-    size_t total_segment_num = _num_segment - _segcompacted_point + 1 + _num_segcompacted;
+Status BetaRowsetWriter::_check_segment_number_limit(size_t segnum) {
     DBUG_EXECUTE_IF("BetaRowsetWriter._check_segment_number_limit_too_many_segments",
-                    { total_segment_num = dp->param("segnum", 1024); });
-    if (UNLIKELY(total_segment_num > config::max_segment_num_per_rowset)) {
+                    { segnum = dp->param("segnum", 1024); });
+    if (UNLIKELY(segnum > config::max_segment_num_per_rowset)) {
         return Status::Error<TOO_MANY_SEGMENTS>(
                 "too many segments in rowset. tablet_id:{}, rowset_id:{}, max:{}, _num_segment:{}, "
-                "_segcompacted_point:{}, _num_segcompacted:{}, rowset_num_rows:{}",
+                "_segcompacted_point:{}, _num_segcompacted:{}, rowset_num_rows:{}. Please check if "
+                "the bucket number is too small or if the data is skewed.",
                 _context.tablet_id, _context.rowset_id.to_string(),
                 config::max_segment_num_per_rowset, _num_segment, _segcompacted_point,
                 _num_segcompacted, get_rowset_num_rows());

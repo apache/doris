@@ -1351,7 +1351,7 @@ public class NativeInsertStmt extends InsertStmt {
             return;
         }
         OlapTable olapTable = (OlapTable) targetTable;
-        if (olapTable.getKeysType() != KeysType.UNIQUE_KEYS) {
+        if (olapTable.getKeysType() != KeysType.UNIQUE_KEYS || olapTable.isUniqKeyMergeOnWriteWithClusterKeys()) {
             return;
         }
         // when enable_unique_key_partial_update = true,
