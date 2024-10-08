@@ -704,10 +704,42 @@ public class BindExpression implements AnalysisRuleFactory {
     }
 
     /**
-     * qualify -> project
-     * qualify -> project(distinct)
-     * qualify -> project(distinct) -> agg
-     * qualify -> project(distinct) -> having -> agg
+     * there a dup table sales
+     * CREATE TABLE sales (
+     *    year INT,
+     *    country STRING,
+     *    product STRING,
+     *    profit INT
+     * )
+     * DISTRIBUTED BY HASH(`year`)
+     * PROPERTIES (
+     * "replication_num" = "1"
+     * );
+     * 1.qualify -> project
+     * for example :
+     * select year + 1 as year from sales qualify row_number() over (order by year, country) = 1;
+     * We are binding the year field of table sales. Instead of renaming year
+     * -----------------------------------------------------------------------------------------------------------------
+     * 2.qualify -> project(distinct)
+     * for example:
+     * select distinct year + 1, country from sales qualify row_number() over (order by year + 1) > 1;
+     * We are binding the year field of table sales.
+     * -----------------------------------------------------------------------------------------------------------------
+     * 3.qualify -> project(distinct) -> agg
+     * for example:
+     * select distinct year + 1 as year from sales group by year qualify row_number() over (order by year) = 1;
+     * We are binding the year field of group by output. Instead of renaming year
+     * -----------------------------------------------------------------------------------------------------------------
+     * 4.qualify -> project(distinct) -> having -> agg
+     * for example:
+     * select distinct year,country from sales group by year,country having year > 2000
+     * qualify row_number() over (order by year + 1) > 1;
+     * We are binding the year field of group output.
+     *-----------------------------------------------------------------------------------------------------------------
+     * Note: For the query without agg, we first bind slot from the child of the project.
+     * If it cannot be bound in the child, then bind slot from the project.
+     * If query with agg, we bind slot from the group by first. if not then bind slot from the group output
+     * or not bind slot from the agg child output finally.
      */
     private Plan bindQualifyProject(MatchingContext<LogicalQualify<LogicalProject<Plan>>> ctx) {
         LogicalQualify<LogicalProject<Plan>> qualify = ctx.root;
@@ -720,8 +752,12 @@ public class BindExpression implements AnalysisRuleFactory {
             bindQualifyByAggregate(aggregate, cascadesContext, qualify, boundConjuncts);
         } else if (project.child() instanceof LogicalHaving) {
             LogicalHaving<Plan> having = (LogicalHaving<Plan>) project.child();
-            Aggregate<Plan> aggregate = (Aggregate<Plan>) having.child();
-            bindQualifyByAggregate(aggregate, cascadesContext, qualify, boundConjuncts);
+            if (having.child() instanceof Aggregate) {
+                Aggregate<Plan> aggregate = (Aggregate<Plan>) having.child();
+                bindQualifyByAggregate(aggregate, cascadesContext, qualify, boundConjuncts);
+            } else {
+                throw new AnalysisException("unknown query structure");
+            }
         } else {
             bindQualifyByProject(project, cascadesContext, qualify, boundConjuncts);
         }
@@ -729,9 +765,22 @@ public class BindExpression implements AnalysisRuleFactory {
     }
 
     /**
-     * qualify -> having -> agg
-     * qualify -> having -> project
-     * qualify -> having -> project(distinct)
+     * 1.qualify -> having -> agg
+     * for example:
+     * select country, sum(profit) as total, row_number() over (order by country) as rk from sales where year >= 2000
+     * group by country having sum(profit) > 100 qualify rk = 1
+     * We are binding the country field from group by.
+     * -----------------------------------------------------------------------------------------------------------------
+     * 2.qualify -> having -> project
+     * for example:
+     * select year, country, profit, row_number() over (partition by year, country order by profit desc) as rk from
+     * (select * from sales) a where year >= 2000 having profit > 200 qualify rk = 1 order by profit,country limit 3
+     * We are binding year/country/profit from sales
+     * -----------------------------------------------------------------------------------------------------------------
+     * 3.qualify -> having -> project(distinct)
+     * for example:
+     * select distinct year + 1 as year from sales qualify row_number() over (order by year) = 1;
+     * we are binding year from sales. Instead of renaming year
      */
     private Plan bindQualifyHaving(MatchingContext<LogicalQualify<LogicalHaving<Plan>>> ctx) {
         LogicalQualify<LogicalHaving<Plan>> qualify = ctx.root;
@@ -751,6 +800,9 @@ public class BindExpression implements AnalysisRuleFactory {
 
     /**
      * qualify -> agg
+     * for example:
+     * select country, sum(profit) as total, row_number() over (order by country) as rk from sales qualify rk > 1
+     * we are binding the country field from group by.
      */
     private Plan bindQualifyAggregate(MatchingContext<LogicalQualify<Aggregate<Plan>>> ctx) {
         LogicalQualify<Aggregate<Plan>> qualify = ctx.root;

@@ -47,7 +47,45 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 
 /**
- * fill up missing slot for qualify
+ * We don't fill the missing slots in FillUpMissingSlots.
+ * Because for distinct queries,
+ * for example:
+ * select distinct year,country from sales having year > 2000 qualify row_number() over (order by year + 1) > 1;
+ * It would be converted into the form of agg.
+ * before logical plan:
+ * qualify
+ *   |
+ * project(distinct)
+ *   |
+ * scan
+ * apply ProjectWithDistinctToAggregate rule
+ * after logical plan:
+ * qualify
+ *   |
+ *  agg
+ *   |
+ * scan
+ * if fill the missing slots in FillUpMissingSlots(after ProjectWithDistinctToAggregate). qualify could hardly be
+ * pushed under the agg of distinct.
+ * But apply FillUpQualifyMissingSlot rule before ProjectWithDistinctToAggregate
+ * logical plan:
+ * project(distinct)
+ *   |
+ * qualify
+ *   |
+ * project
+ *   |
+ * scan
+ * and then apply ProjectWithDistinctToAggregate rule
+ * logical plan:
+ * agg
+ *   |
+ * qualify
+ *   |
+ * project
+ *   |
+ * scan
+ * So it is easy to handle.
  */
 public class FillUpQualifyMissingSlot extends FillUpMissingSlots {
     @Override
