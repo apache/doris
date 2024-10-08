@@ -22,8 +22,10 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.CatalogMgr;
 
+import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -47,8 +49,8 @@ public class MTMVPartitionInfo {
     private String partitionCol;
     @SerializedName("expr")
     private Expr expr;
-    @SerializedName("oprt")
-    private List<MTMVPartitionCol> otherPartitionRefreshTables;
+    @SerializedName("prt")
+    private List<MTMVPartitionCol> partitionRefreshTablesNotIncludeRelatedTable;
 
     public MTMVPartitionInfo() {
     }
@@ -105,6 +107,17 @@ public class MTMVPartitionInfo {
 
     public void setExpr(Expr expr) {
         this.expr = expr;
+    }
+
+    public List<MTMVPartitionCol> getPartitionRefreshTablesNotIncludeRelatedTable() {
+        return partitionRefreshTablesNotIncludeRelatedTable;
+    }
+
+    public List<MTMVPartitionCol> getPartitionRefreshTables() {
+        ArrayList<MTMVPartitionCol> partitionRefreshTables = Lists.newArrayList(
+                partitionRefreshTablesNotIncludeRelatedTable);
+        partitionRefreshTables.add(new MTMVPartitionCol(this.relatedTable, this.relatedCol));
+        return partitionRefreshTables;
     }
 
     /**

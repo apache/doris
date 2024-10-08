@@ -28,9 +28,11 @@ import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.job.common.TaskStatus;
 import org.apache.doris.job.extensions.mtmv.MTMVTask;
+import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVCache;
 import org.apache.doris.mtmv.MTMVJobInfo;
 import org.apache.doris.mtmv.MTMVJobManager;
+import org.apache.doris.mtmv.MTMVPartitionCol;
 import org.apache.doris.mtmv.MTMVPartitionInfo;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.mtmv.MTMVPartitionUtil;
@@ -55,6 +57,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.IOException;
+import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Optional;
@@ -399,24 +402,38 @@ public class MTMV extends OlapTable {
      * @return mvPartitionName ==> relationPartitionNames
      * @throws AnalysisException
      */
-    public Map<String, Set<String>> calculatePartitionMappings() throws AnalysisException {
+    public Map<String, Map<BaseTableInfo, Set<String>>> calculatePartitionMappings() throws AnalysisException {
         if (mvPartitionInfo.getPartitionType() == MTMVPartitionType.SELF_MANAGE) {
             return Maps.newHashMap();
         }
         long start = System.currentTimeMillis();
-        Map<String, Set<String>> res = Maps.newHashMap();
-        Map<PartitionKeyDesc, Set<String>> relatedPartitionDescs = MTMVPartitionUtil
-                .generateRelatedPartitionDescs(mvPartitionInfo, mvProperties);
+        Map<String, Map<BaseTableInfo, Set<String>>> res = Maps.newHashMap();
+        Map<BaseTableInfo, Map<PartitionKeyDesc, Set<String>>> refreshPartitionDescs = getRefreshPartitionDescs();
+        List<MTMVPartitionCol> partitionRefreshTables = mvPartitionInfo.getPartitionRefreshTables();
+
         Map<String, PartitionItem> mvPartitionItems = getAndCopyPartitionItems();
         for (Entry<String, PartitionItem> entry : mvPartitionItems.entrySet()) {
-            res.put(entry.getKey(),
-                    relatedPartitionDescs.getOrDefault(entry.getValue().toPartitionKeyDesc(), Sets.newHashSet()));
+            PartitionKeyDesc mvPartitionKeyDesc = entry.getValue().toPartitionKeyDesc();
+            Map<BaseTableInfo, Set<String>> tablePartitions = Maps.newHashMap();
+            for (MTMVPartitionCol partitionCol : partitionRefreshTables) {
+                tablePartitions.put(partitionCol.getTable(), refreshPartitionDescs.get(partitionCol.getTable())
+                        .getOrDefault(mvPartitionKeyDesc, Sets.newHashSet()));
+            }
+            res.put(entry.getKey(), tablePartitions);
         }
         if (LOG.isDebugEnabled()) {
             LOG.debug("calculatePartitionMappings use [{}] mills, mvName is [{}]",
                     System.currentTimeMillis() - start, name);
         }
         return res;
+    }
+
+    private Map<BaseTableInfo, Map<PartitionKeyDesc, Set<String>>> getRefreshPartitionDescs() throws AnalysisException {
+        // TODO: 2024/10/8 foreach
+        List<MTMVPartitionCol> partitionRefreshTables = mvPartitionInfo.getPartitionRefreshTables();
+        Map<PartitionKeyDesc, Set<String>> relatedPartitionDescs = MTMVPartitionUtil
+                .generateRelatedPartitionDescs(mvPartitionInfo, mvProperties);
+        return null;
     }
 
     public ConcurrentLinkedQueue<MTMVTask> getHistoryTasks() {

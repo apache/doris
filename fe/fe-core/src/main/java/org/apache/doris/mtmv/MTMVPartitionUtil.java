@@ -85,7 +85,7 @@ public class MTMVPartitionUtil {
             Set<BaseTableInfo> tables,
             Set<String> excludedTriggerTables) throws AnalysisException {
         MTMV mtmv = refreshContext.getMtmv();
-        Set<String> relatedPartitionNames = refreshContext.getPartitionMappings().get(partitionName);
+        Map<BaseTableInfo, Set<String>> relatedPartitionNames = refreshContext.getPartitionMappings().get(partitionName);
         boolean isSyncWithPartition = true;
         if (mtmv.getMvPartitionInfo().getPartitionType() != MTMVPartitionType.SELF_MANAGE) {
             MTMVRelatedTableIf relatedTable = mtmv.getMvPartitionInfo().getRelatedTable();
