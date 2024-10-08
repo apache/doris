@@ -110,7 +110,7 @@ public:
 
     [[nodiscard]] int get_fragment_id() const { return _fragment_id; }
 
-    void close_a_pipeline();
+    virtual void close_a_pipeline(PipelineId pipeline_id);
 
     virtual void clear_finished_tasks() {}
 
