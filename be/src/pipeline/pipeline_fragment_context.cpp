@@ -371,7 +371,7 @@ Status PipelineFragmentContext::_build_pipeline_tasks(const doris::TPipelineFrag
     }
     auto pipeline_id_to_profile = _runtime_state->build_pipeline_profile(_pipelines.size());
 
-    auto pre_and_submit = [&](int64_t i, PipelineFragmentContext* ctx) {
+    auto pre_and_submit = [&](int i, PipelineFragmentContext* ctx) {
         const auto& local_params = request.local_params[i];
         auto fragment_instance_id = local_params.fragment_instance_id;
         _fragment_instance_ids[i] = fragment_instance_id;
@@ -540,7 +540,7 @@ Status PipelineFragmentContext::_build_pipeline_tasks(const doris::TPipelineFrag
         std::mutex m;
         std::condition_variable cv;
         int prepare_done = 0;
-        for (size_t i = 0; i < target_size; i++) {
+        for (int i = 0; i < target_size; i++) {
             RETURN_IF_ERROR(thread_pool->submit_func([&, i]() {
                 SCOPED_ATTACH_TASK(_query_ctx.get());
                 prepare_status[i] = pre_and_submit(i, this);
@@ -554,14 +554,14 @@ Status PipelineFragmentContext::_build_pipeline_tasks(const doris::TPipelineFrag
         std::unique_lock<std::mutex> lock(m);
         if (prepare_done != target_size) {
             cv.wait(lock);
-            for (size_t i = 0; i < target_size; i++) {
+            for (int i = 0; i < target_size; i++) {
                 if (!prepare_status[i].ok()) {
                     return prepare_status[i];
                 }
             }
         }
     } else {
-        for (size_t i = 0; i < target_size; i++) {
+        for (int i = 0; i < target_size; i++) {
             RETURN_IF_ERROR(pre_and_submit(i, this));
         }
     }
