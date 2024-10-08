@@ -136,6 +136,13 @@ void WorkloadGroupMgr::delete_workload_group_by_ids(std::set<uint64_t> used_wg_i
               << ", before wg size=" << old_wg_size << ", after wg size=" << new_wg_size;
 }
 
+void WorkloadGroupMgr::do_sweep() {
+    std::shared_lock<std::shared_mutex> r_lock(_group_mutex);
+    for (auto& [wg_id, wg] : _workload_groups) {
+        wg->do_sweep();
+    }
+}
+
 struct WorkloadGroupMemInfo {
     int64_t total_mem_used = 0;
     std::list<std::shared_ptr<MemTrackerLimiter>> tracker_snapshots =
@@ -145,6 +152,10 @@ struct WorkloadGroupMemInfo {
 void WorkloadGroupMgr::refresh_wg_weighted_memory_limit() {
     std::shared_lock<std::shared_mutex> r_lock(_group_mutex);
 
+    // Need do sweep periodly, to clear some objects, for example memtracker limiter in workload group
+    for (auto& [wg_id, wg] : _workload_groups) {
+        wg->do_sweep();
+    }
     // 1. make all workload groups memory snapshots(refresh workload groups total memory used at the same time)
     // and calculate total memory used of all queries.
     int64_t all_workload_groups_mem_usage = 0;
