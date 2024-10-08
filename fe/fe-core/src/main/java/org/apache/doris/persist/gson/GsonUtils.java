@@ -976,4 +976,12 @@ public class GsonUtils {
         }
     }
 
+    public static <T> T cloneUsingGson(T object, Class<T> clazz) {
+        Gson gson = new Gson();
+        // 将对象序列化为 JSON 字符串
+        String jsonString = gson.toJson(object);
+        // 从 JSON 字符串反序列化为对象
+        return gson.fromJson(jsonString, clazz);
+    }
+
 }
