@@ -173,6 +173,10 @@ private:
     const std::vector<TExpr> _partition_exprs;
 
     const bool _need_local_merge;
+
+    std::vector<SlotId> _hash_output_slot_ids;
+    std::vector<bool> _should_keep_column_flags;
+    bool _should_keep_hash_key_column = false;
 };
 
 template <class HashTableContext>
