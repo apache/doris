@@ -236,7 +236,7 @@ protected:
 
     // for scaling up the running scanners
     size_t _estimated_block_size = 0;
-    std::atomic_long _block_memory_usage = 0;
+    std::atomic<int64_t> _block_memory_usage = 0;
     int64_t _last_scale_up_time = 0;
     int64_t _last_fetch_time = 0;
     int64_t _total_wait_block_time = 0;
