@@ -146,6 +146,8 @@ PipelineFragmentContext::~PipelineFragmentContext() {
             runtime_state.reset();
         }
     }
+    _dag.clear();
+    _pip_id_to_pipeline.clear();
     _pipelines.clear();
     _sink.reset();
     _root_op.reset();
@@ -365,6 +367,7 @@ Status PipelineFragmentContext::_build_pipeline_tasks(const doris::TPipelineFrag
     _task_runtime_states.resize(_pipelines.size());
     for (size_t pip_idx = 0; pip_idx < _pipelines.size(); pip_idx++) {
         _task_runtime_states[pip_idx].resize(_pipelines[pip_idx]->num_tasks());
+        _pip_id_to_pipeline[_pipelines[pip_idx]->id()] = _pipelines[pip_idx].get();
     }
     auto pipeline_id_to_profile = _runtime_state->build_pipeline_profile(_pipelines.size());
 
@@ -469,6 +472,7 @@ Status PipelineFragmentContext::_build_pipeline_tasks(const doris::TPipelineFrag
                                                            task_runtime_state.get(), this,
                                                            pipeline_id_to_profile[pip_idx].get(),
                                                            get_local_exchange_state(pipeline), i);
+                pipeline->incr_created_tasks(i, task.get());
                 task_runtime_state->set_task(task.get());
                 pipeline_id_to_task.insert({pipeline->id(), task.get()});
                 _tasks[i].emplace_back(std::move(task));
@@ -562,7 +566,6 @@ Status PipelineFragmentContext::_build_pipeline_tasks(const doris::TPipelineFrag
         }
     }
     _pipeline_parent_map.clear();
-    _dag.clear();
     _op_id_to_le_state.clear();
 
     return Status::OK();
@@ -1752,7 +1755,16 @@ void PipelineFragmentContext::_close_fragment_instance() {
             std::dynamic_pointer_cast<PipelineFragmentContext>(shared_from_this()));
 }
 
-void PipelineFragmentContext::close_a_pipeline() {
+void PipelineFragmentContext::close_a_pipeline(PipelineId pipeline_id) {
+    // If all tasks of this pipeline has been closed, upstream tasks is never needed, and we just make those runnable here
+    DCHECK(_pip_id_to_pipeline.contains(pipeline_id));
+    if (_pip_id_to_pipeline[pipeline_id]->close_task()) {
+        if (_dag.contains(pipeline_id)) {
+            for (auto dep : _dag[pipeline_id]) {
+                _pip_id_to_pipeline[dep]->make_all_runnable();
+            }
+        }
+    }
     std::lock_guard<std::mutex> l(_task_mutex);
     ++_closed_tasks;
     if (_closed_tasks == _total_tasks) {
