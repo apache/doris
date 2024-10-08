@@ -158,6 +158,11 @@ enum TIndexType {
   NGRAM_BF = 3
 }
 
+enum TPartialUpdateNewRowPolicy {
+    APPEND = 0,
+    ERROR = 1
+}
+
 // Mapping from names defined by Avro to the enum.
 // We permit gzip and bzip2 in addition.
 const map<string, THdfsCompression> COMPRESSION_MAP = {
@@ -255,6 +260,7 @@ struct TOlapTableSchemaParam {
     11: optional string auto_increment_column
     12: optional i32 auto_increment_column_unique_id = -1
     13: optional Types.TInvertedIndexFileStorageFormat inverted_index_file_storage_format = Types.TInvertedIndexFileStorageFormat.V1
+    14: optional TPartialUpdateNewRowPolicy partial_update_new_key_policy
 }
 
 struct TTabletLocation {

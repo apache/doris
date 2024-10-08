@@ -33,6 +33,7 @@ import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
+import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
 import org.apache.doris.thrift.TStreamLoadPutRequest;
 import org.apache.doris.thrift.TUniqueId;
 
@@ -84,6 +85,7 @@ public class StreamLoadTask implements LoadTaskInfo {
     private List<String> hiddenColumns;
     private boolean trimDoubleQuotes = false;
     private boolean isPartialUpdate = false;
+    private TPartialUpdateNewRowPolicy partialUpdateNewKeyPolicy = TPartialUpdateNewRowPolicy.APPEND;
 
     private int skipLines = 0;
     private boolean enableProfile = false;
@@ -302,6 +304,11 @@ public class StreamLoadTask implements LoadTaskInfo {
     }
 
     @Override
+    public TPartialUpdateNewRowPolicy getPartialUpdateNewRowPolicy() {
+        return partialUpdateNewKeyPolicy;
+    }
+
+    @Override
     public boolean isMemtableOnSinkNode() {
         return memtableOnSinkNode;
     }
@@ -453,6 +460,9 @@ public class StreamLoadTask implements LoadTaskInfo {
         }
         if (request.isSetPartialUpdate()) {
             isPartialUpdate = request.isPartialUpdate();
+        }
+        if (request.isSetPartialUpdateNewKeyPolicy()) {
+            partialUpdateNewKeyPolicy = request.getPartialUpdateNewKeyPolicy();
         }
         if (request.isSetMemtableOnSinkNode()) {
             this.memtableOnSinkNode = request.isMemtableOnSinkNode();

@@ -73,6 +73,7 @@ import org.apache.doris.thrift.TOlapTablePartitionParam;
 import org.apache.doris.thrift.TOlapTableSchemaParam;
 import org.apache.doris.thrift.TOlapTableSink;
 import org.apache.doris.thrift.TPaloNodesInfo;
+import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
 import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TTabletLocation;
 import org.apache.doris.thrift.TUniqueId;
@@ -108,6 +109,7 @@ public class OlapTableSink extends DataSink {
     // partial update input columns
     private boolean isPartialUpdate = false;
     private HashSet<String> partialUpdateInputColumns;
+    private TPartialUpdateNewRowPolicy partialUpdateNewKeyPolicy;
 
     // set after init called
     protected TDataSink tDataSink;
@@ -183,6 +185,10 @@ public class OlapTableSink extends DataSink {
         this.partialUpdateInputColumns = columns;
     }
 
+    public void setPartialUpdateNewRowPolicy(TPartialUpdateNewRowPolicy policy) {
+        this.partialUpdateNewKeyPolicy = policy;
+    }
+
     public void updateLoadId(TUniqueId newLoadId) {
         tDataSink.getOlapTableSink().setLoadId(newLoadId);
     }
@@ -239,6 +245,9 @@ public class OlapTableSink extends DataSink {
         strBuilder.append(prefix + "  TUPLE ID: " + tupleDescriptor.getId() + "\n");
         strBuilder.append(prefix + "  " + DataPartition.RANDOM.getExplainString(explainLevel));
         strBuilder.append(prefix + "  IS_PARTIAL_UPDATE: " + isPartialUpdate);
+        if (isPartialUpdate) {
+            strBuilder.append("\n" + prefix + "  PARTIAL_UPDATE_NEW_KEY_POLICY: " + partialUpdateNewKeyPolicy);
+        }
         return strBuilder.toString();
     }
 
@@ -313,6 +322,9 @@ public class OlapTableSink extends DataSink {
             schemaParam.addToIndexes(indexSchema);
         }
         schemaParam.setIsPartialUpdate(isPartialUpdate);
+        if (isPartialUpdate) {
+            schemaParam.setPartialUpdateNewKeyPolicy(partialUpdateNewKeyPolicy);
+        }
         if (isPartialUpdate) {
             for (String s : partialUpdateInputColumns) {
                 schemaParam.addToPartialUpdateInputColumns(s);
