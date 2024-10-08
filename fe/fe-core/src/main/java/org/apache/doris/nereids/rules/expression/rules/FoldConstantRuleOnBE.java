@@ -192,7 +192,7 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
 
     private static void collectConst(Expression expr, Map<String, Expression> constMap,
             Map<String, TExpr> tExprMap, IdGenerator<ExprId> idGenerator) {
-        if (expr.isConstant() && !shouldSkipFold(expr)) {
+        if (expr.isConstant() && !expr.anyMatch(e -> shouldSkipFold((Expression) e))) {
             String id = idGenerator.getNextId().toString();
             constMap.put(id, expr);
             Expr staleExpr;
