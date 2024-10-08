@@ -60,16 +60,14 @@ ColumnChunkReader::ColumnChunkReader(io::BufferedStreamReader* reader,
 
 Status ColumnChunkReader::init() {
     size_t start_offset =
-            _metadata.__isset.dictionary_page_offset && _metadata.dictionary_page_offset > 0
-                    ? _metadata.dictionary_page_offset
-                    : _metadata.data_page_offset;
+            _has_dict_page() ? _metadata.dictionary_page_offset : _metadata.data_page_offset;
     size_t chunk_size = _metadata.total_compressed_size;
     // create page reader
     _page_reader = create_page_reader(_stream_reader, _io_ctx, start_offset, chunk_size,
                                       _metadata.num_values, _offset_index);
     // get the block compression codec
     RETURN_IF_ERROR(get_block_compression_codec(_metadata.codec, &_block_compress_codec));
-    if (_metadata.__isset.dictionary_page_offset && _metadata.dictionary_page_offset > 0) {
+    if (_has_dict_page()) {
         // seek to the directory page
         _page_reader->seek_to_page(_metadata.dictionary_page_offset);
         // Parse dictionary data when reading
@@ -81,6 +79,10 @@ Status ColumnChunkReader::init() {
     }
     _state = INITIALIZED;
     return Status::OK();
+}
+
+bool ColumnChunkReader::_has_dict_page() const {
+    return _metadata.__isset.dictionary_page_offset && _metadata.dictionary_page_offset > 0;
 }
 
 Status ColumnChunkReader::next_page() {
