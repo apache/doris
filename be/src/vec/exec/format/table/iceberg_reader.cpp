@@ -96,6 +96,8 @@ IcebergTableReader::IcebergTableReader(std::unique_ptr<GenericReader> file_forma
             ADD_CHILD_TIMER(_profile, "DeleteRowsSortTime", iceberg_profile);
     if (range.table_format_params.iceberg_params.__isset.row_count) {
         _remaining_push_down_count = range.table_format_params.iceberg_params.row_count;
+    } else {
+        _remaining_push_down_count = -1;
     }
 }
 
