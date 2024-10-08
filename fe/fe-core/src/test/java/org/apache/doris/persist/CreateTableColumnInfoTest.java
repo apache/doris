@@ -46,7 +46,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 
-public class CreateTableInfoTest {
+public class CreateTableColumnInfoTest {
     private Env env;
 
     private FakeEnv fakeEnv;

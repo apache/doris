@@ -20,7 +20,7 @@ package org.apache.doris.nereids.rules.exploration.mv;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.mtmv.BaseTableInfo;
-import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewUtils.RelatedTableInfo;
+import org.apache.doris.nereids.rules.exploration.mv.RelatedTableInfo.TableColumnInfo;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.utframe.TestWithFeService;
@@ -899,7 +899,10 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
             String expectColumnName,
             boolean pctPossible) {
         Assertions.assertNotNull(relatedTableInfo);
-        BaseTableInfo relatedBaseTableInfo = relatedTableInfo.getTableInfo();
+        Assertions.assertTrue(pctPossible);
+
+        TableColumnInfo columnInfo = relatedTableInfo.getTableColumnInfos().get(0);
+        BaseTableInfo relatedBaseTableInfo = columnInfo.getTableInfo();
         try {
             TableIf tableIf = Env.getCurrentEnv().getCatalogMgr()
                     .getCatalogOrAnalysisException(relatedBaseTableInfo.getCtlId())
@@ -909,7 +912,6 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
         } catch (Exception exception) {
             Assertions.fail();
         }
-        Assertions.assertEquals(relatedTableInfo.getColumn().toLowerCase(), expectColumnName.toLowerCase());
-        Assertions.assertTrue(pctPossible);
+        Assertions.assertEquals(columnInfo.getColumn().toLowerCase(), expectColumnName.toLowerCase());
     }
 }

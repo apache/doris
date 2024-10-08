@@ -18,7 +18,7 @@
 package org.apache.doris.nereids.rules.exploration.mv;
 
 import org.apache.doris.common.Pair;
-import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewUtils.RelatedTableInfo;
+import org.apache.doris.nereids.rules.exploration.mv.RelatedTableInfo.TableColumnInfo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DateTrunc;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -99,10 +99,10 @@ public class PartitionColumnTraceTest extends TestWithFeService {
                                 + "        group by l1.l_shipdate, l2.L_ORDERKEY",
                         nereidsPlanner -> {
                             Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
-                            Set<RelatedTableInfo> relatedTableInfos =
+                            RelatedTableInfo relatedTableInfo =
                                     MaterializedViewUtils.getRelatedTableInfos("l_shipdate", null,
                                             rewrittenPlan, nereidsPlanner.getCascadesContext());
-                            successWith(relatedTableInfos, ImmutableSet.of(Pair.of("lineitem", "l_shipdate")),
+                            successWith(relatedTableInfo, ImmutableSet.of(Pair.of("lineitem", "l_shipdate")),
                                     "");
                         });
     }
@@ -137,10 +137,10 @@ public class PartitionColumnTraceTest extends TestWithFeService {
                                 + "        group by l2.l_shipdate, l1.L_ORDERKEY",
                         nereidsPlanner -> {
                             Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
-                            Set<RelatedTableInfo> relatedTableInfos =
+                            RelatedTableInfo relatedTableInfo =
                                     MaterializedViewUtils.getRelatedTableInfos("l_shipdate", null,
                                             rewrittenPlan, nereidsPlanner.getCascadesContext());
-                            successWith(relatedTableInfos, ImmutableSet.of(Pair.of("lineitem", "l_shipdate")),
+                            successWith(relatedTableInfo, ImmutableSet.of(Pair.of("lineitem", "l_shipdate")),
                                     "");
                         });
     }
@@ -156,10 +156,10 @@ public class PartitionColumnTraceTest extends TestWithFeService {
                                 + "        group by l1.l_shipdate, l2.L_ORDERKEY",
                         nereidsPlanner -> {
                             Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
-                            Set<RelatedTableInfo> relatedTableInfos =
+                            RelatedTableInfo relatedTableInfo =
                                     MaterializedViewUtils.getRelatedTableInfos("l_shipdate", null,
                                             rewrittenPlan, nereidsPlanner.getCascadesContext());
-                            failWith(relatedTableInfos,
+                            failWith(relatedTableInfo,
                                     "partition column is in join invalid side, but is not in join condition");
                         });
     }
@@ -175,10 +175,10 @@ public class PartitionColumnTraceTest extends TestWithFeService {
                                 + "        group by l2.l_shipdate, l1.L_ORDERKEY",
                         nereidsPlanner -> {
                             Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
-                            Set<RelatedTableInfo> relatedTableInfos =
+                            RelatedTableInfo relatedTableInfo =
                                     MaterializedViewUtils.getRelatedTableInfos("l_shipdate", null,
                                             rewrittenPlan, nereidsPlanner.getCascadesContext());
-                            failWith(relatedTableInfos,
+                            failWith(relatedTableInfo,
                                     "partition column is in join invalid side, but is not in join condition");
                         });
     }
@@ -194,10 +194,10 @@ public class PartitionColumnTraceTest extends TestWithFeService {
                                 + "        group by l_shipdate, o_orderdate",
                         nereidsPlanner -> {
                             Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
-                            Set<RelatedTableInfo> relatedTableInfos =
+                            RelatedTableInfo relatedTableInfo =
                                     MaterializedViewUtils.getRelatedTableInfos("l_shipdate", null,
                                             rewrittenPlan, nereidsPlanner.getCascadesContext());
-                            successWith(relatedTableInfos,
+                            successWith(relatedTableInfo,
                                     ImmutableSet.of(Pair.of("lineitem", "l_shipdate"),
                                             Pair.of("orders", "o_orderdate")), "");
                         });
@@ -213,10 +213,10 @@ public class PartitionColumnTraceTest extends TestWithFeService {
                                 + "        group by l_shipdate, o.o_orderdate_alias",
                         nereidsPlanner -> {
                             Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
-                            Set<RelatedTableInfo> relatedTableInfos =
+                            RelatedTableInfo relatedTableInfo =
                                     MaterializedViewUtils.getRelatedTableInfos("l_shipdate", null,
                                             rewrittenPlan, nereidsPlanner.getCascadesContext());
-                            failWith(relatedTableInfos, "partition rollup expressions is not consistent");
+                            failWith(relatedTableInfo, "partition rollup expressions is not consistent");
                         });
     }
 
@@ -230,10 +230,10 @@ public class PartitionColumnTraceTest extends TestWithFeService {
                                 + "        group by l_shipdate_alias, o.o_orderdate_alias",
                         nereidsPlanner -> {
                             Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
-                            Set<RelatedTableInfo> relatedTableInfos =
+                            RelatedTableInfo relatedTableInfo =
                                     MaterializedViewUtils.getRelatedTableInfos("l_shipdate_alias", "month",
                                             rewrittenPlan, nereidsPlanner.getCascadesContext());
-                            successWith(relatedTableInfos,
+                            successWith(relatedTableInfo,
                                     ImmutableSet.of(Pair.of("lineitem", "l_shipdate")), "month");
                         });
     }
@@ -249,10 +249,10 @@ public class PartitionColumnTraceTest extends TestWithFeService {
                                 + "        group by l_shipdate, o_orderdate",
                         nereidsPlanner -> {
                             Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
-                            Set<RelatedTableInfo> relatedTableInfos =
+                            RelatedTableInfo relatedTableInfo =
                                     MaterializedViewUtils.getRelatedTableInfos("o_orderdate", null,
                                             rewrittenPlan, nereidsPlanner.getCascadesContext());
-                            successWith(relatedTableInfos,
+                            successWith(relatedTableInfo,
                                     ImmutableSet.of(Pair.of("lineitem", "l_shipdate"),
                                             Pair.of("orders", "o_orderdate")), "");
                         });
@@ -269,10 +269,10 @@ public class PartitionColumnTraceTest extends TestWithFeService {
                                 + "        group by l_shipdate, o_orderdate",
                         nereidsPlanner -> {
                             Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
-                            Set<RelatedTableInfo> relatedTableInfos =
+                            RelatedTableInfo relatedTableInfo =
                                     MaterializedViewUtils.getRelatedTableInfos("l_shipdate", null,
                                             rewrittenPlan, nereidsPlanner.getCascadesContext());
-                            successWith(relatedTableInfos,
+                            successWith(relatedTableInfo,
                                     ImmutableSet.of(Pair.of("lineitem", "l_shipdate")), "");
                         });
     }
@@ -288,10 +288,10 @@ public class PartitionColumnTraceTest extends TestWithFeService {
                                 + "        group by l_shipdate, o_orderdate",
                         nereidsPlanner -> {
                             Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
-                            Set<RelatedTableInfo> relatedTableInfos =
+                            RelatedTableInfo relatedTableInfo =
                                     MaterializedViewUtils.getRelatedTableInfos("o_orderdate", null,
                                             rewrittenPlan, nereidsPlanner.getCascadesContext());
-                            successWith(relatedTableInfos,
+                            successWith(relatedTableInfo,
                                     ImmutableSet.of(Pair.of("orders", "o_orderdate")), "");
                         });
     }
@@ -309,11 +309,11 @@ public class PartitionColumnTraceTest extends TestWithFeService {
                                 + "        group by l1.l_shipdate, l2.L_ORDERKEY",
                         nereidsPlanner -> {
                             Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
-                            Set<RelatedTableInfo> relatedTableInfos =
+                            RelatedTableInfo relatedTableInfo =
                                     MaterializedViewUtils.getRelatedTableInfos("l_shipdate", null,
                                             rewrittenPlan, nereidsPlanner.getCascadesContext());
                             // tmp, wait equal set ignore null ready
-                            failWith(relatedTableInfos,
+                            failWith(relatedTableInfo,
                                     "partition column is in join invalid side, but is not in join condition");
                         });
     }
@@ -329,11 +329,11 @@ public class PartitionColumnTraceTest extends TestWithFeService {
                                 + "        group by l2.l_shipdate, l1.L_ORDERKEY",
                         nereidsPlanner -> {
                             Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
-                            Set<RelatedTableInfo> relatedTableInfos =
+                            RelatedTableInfo relatedTableInfo =
                                     MaterializedViewUtils.getRelatedTableInfos("l_shipdate", null,
                                             rewrittenPlan, nereidsPlanner.getCascadesContext());
                             // tmp, wait equal set ignore null ready
-                            failWith(relatedTableInfos,
+                            failWith(relatedTableInfo,
                                     "partition column is in join invalid side, but is not in join condition");
                         });
     }
@@ -349,10 +349,10 @@ public class PartitionColumnTraceTest extends TestWithFeService {
                                 + "        group by l1.l_shipdate, l2.L_ORDERKEY",
                         nereidsPlanner -> {
                             Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
-                            Set<RelatedTableInfo> relatedTableInfos =
+                            RelatedTableInfo relatedTableInfo =
                                     MaterializedViewUtils.getRelatedTableInfos("l_shipdate", null,
                                             rewrittenPlan, nereidsPlanner.getCascadesContext());
-                            failWith(relatedTableInfos,
+                            failWith(relatedTableInfo,
                                     "partition column is in join invalid side, but is not in join condition");
                         });
     }
@@ -368,10 +368,10 @@ public class PartitionColumnTraceTest extends TestWithFeService {
                                 + "        group by l2.l_shipdate, l1.L_ORDERKEY",
                         nereidsPlanner -> {
                             Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
-                            Set<RelatedTableInfo> relatedTableInfos =
+                            RelatedTableInfo relatedTableInfo =
                                     MaterializedViewUtils.getRelatedTableInfos("l_shipdate", null,
                                             rewrittenPlan, nereidsPlanner.getCascadesContext());
-                            failWith(relatedTableInfos,
+                            failWith(relatedTableInfo,
                                     "partition column is in un supported join null generate side");
                         });
     }
@@ -387,10 +387,10 @@ public class PartitionColumnTraceTest extends TestWithFeService {
                                 + "        group by l_shipdate, o_orderdate",
                         nereidsPlanner -> {
                             Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
-                            Set<RelatedTableInfo> relatedTableInfos =
+                            RelatedTableInfo relatedTableInfo =
                                     MaterializedViewUtils.getRelatedTableInfos("l_shipdate", null,
                                             rewrittenPlan, nereidsPlanner.getCascadesContext());
-                            successWith(relatedTableInfos,
+                            successWith(relatedTableInfo,
                                     ImmutableSet.of(Pair.of("lineitem", "l_shipdate")), "");
                         });
     }
@@ -406,10 +406,10 @@ public class PartitionColumnTraceTest extends TestWithFeService {
                                 + "        group by l_shipdate, o_orderdate",
                         nereidsPlanner -> {
                             Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
-                            Set<RelatedTableInfo> relatedTableInfos =
+                            RelatedTableInfo relatedTableInfo =
                                     MaterializedViewUtils.getRelatedTableInfos("o_orderdate", null,
                                             rewrittenPlan, nereidsPlanner.getCascadesContext());
-                            failWith(relatedTableInfos,
+                            failWith(relatedTableInfo,
                                     "partition column is in un supported join null generate side");
                         });
     }
@@ -425,10 +425,10 @@ public class PartitionColumnTraceTest extends TestWithFeService {
                                 + "        group by l_shipdate, o_orderdate",
                         nereidsPlanner -> {
                             Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
-                            Set<RelatedTableInfo> relatedTableInfos =
+                            RelatedTableInfo relatedTableInfo =
                                     MaterializedViewUtils.getRelatedTableInfos("l_shipdate", null,
                                             rewrittenPlan, nereidsPlanner.getCascadesContext());
-                            successWith(relatedTableInfos,
+                            successWith(relatedTableInfo,
                                     ImmutableSet.of(Pair.of("lineitem", "l_shipdate")), "");
                         });
     }
@@ -444,10 +444,10 @@ public class PartitionColumnTraceTest extends TestWithFeService {
                                 + "        group by l_shipdate, o_orderdate",
                         nereidsPlanner -> {
                             Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
-                            Set<RelatedTableInfo> relatedTableInfos =
+                            RelatedTableInfo relatedTableInfo =
                                     MaterializedViewUtils.getRelatedTableInfos("o_orderdate", null,
                                             rewrittenPlan, nereidsPlanner.getCascadesContext());
-                            failWith(relatedTableInfos,
+                            failWith(relatedTableInfo,
                                     "partition column is in un supported join null generate side");
                         });
     }
@@ -464,11 +464,11 @@ public class PartitionColumnTraceTest extends TestWithFeService {
                                 + "        group by l1.l_shipdate, l2.L_ORDERKEY",
                         nereidsPlanner -> {
                             Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
-                            Set<RelatedTableInfo> relatedTableInfos =
+                            RelatedTableInfo relatedTableInfo =
                                     MaterializedViewUtils.getRelatedTableInfos("l_shipdate", null,
                                             rewrittenPlan, nereidsPlanner.getCascadesContext());
                             // tmp, wait equal set ignore null ready
-                            failWith(relatedTableInfos,
+                            failWith(relatedTableInfo,
                                     "partition column is in join invalid side, but is not in join condition");
                         });
     }
@@ -484,11 +484,11 @@ public class PartitionColumnTraceTest extends TestWithFeService {
                                 + "        group by l2.l_shipdate, l1.L_ORDERKEY",
                         nereidsPlanner -> {
                             Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
-                            Set<RelatedTableInfo> relatedTableInfos =
+                            RelatedTableInfo relatedTableInfo =
                                     MaterializedViewUtils.getRelatedTableInfos("l_shipdate", null,
                                             rewrittenPlan, nereidsPlanner.getCascadesContext());
                             // tmp, wait equal set ignore null ready
-                            failWith(relatedTableInfos,
+                            failWith(relatedTableInfo,
                                     "partition column is in join invalid side, but is not in join condition");
                         });
     }
@@ -504,10 +504,10 @@ public class PartitionColumnTraceTest extends TestWithFeService {
                                 + "        group by l1.l_shipdate, l2.L_ORDERKEY",
                         nereidsPlanner -> {
                             Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
-                            Set<RelatedTableInfo> relatedTableInfos =
+                            RelatedTableInfo relatedTableInfo =
                                     MaterializedViewUtils.getRelatedTableInfos("l_shipdate", null,
                                             rewrittenPlan, nereidsPlanner.getCascadesContext());
-                            failWith(relatedTableInfos,
+                            failWith(relatedTableInfo,
                                     "partition column is in un supported join null generate side");
                         });
     }
@@ -523,10 +523,10 @@ public class PartitionColumnTraceTest extends TestWithFeService {
                                 + "        group by l2.l_shipdate, l1.L_ORDERKEY",
                         nereidsPlanner -> {
                             Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
-                            Set<RelatedTableInfo> relatedTableInfos =
+                            RelatedTableInfo relatedTableInfo =
                                     MaterializedViewUtils.getRelatedTableInfos("l_shipdate", null,
                                             rewrittenPlan, nereidsPlanner.getCascadesContext());
-                            failWith(relatedTableInfos,
+                            failWith(relatedTableInfo,
                                     "partition column is in join invalid side, but is not in join condition");
                         });
     }
@@ -542,10 +542,10 @@ public class PartitionColumnTraceTest extends TestWithFeService {
                                 + "        group by l_shipdate, o_orderdate",
                         nereidsPlanner -> {
                             Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
-                            Set<RelatedTableInfo> relatedTableInfos =
+                            RelatedTableInfo relatedTableInfo =
                                     MaterializedViewUtils.getRelatedTableInfos("l_shipdate", null,
                                             rewrittenPlan, nereidsPlanner.getCascadesContext());
-                            failWith(relatedTableInfos,
+                            failWith(relatedTableInfo,
                                     "partition column is in un supported join null generate side");
                         });
     }
@@ -561,10 +561,10 @@ public class PartitionColumnTraceTest extends TestWithFeService {
                                 + "        group by l_shipdate, o_orderdate",
                         nereidsPlanner -> {
                             Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
-                            Set<RelatedTableInfo> relatedTableInfos =
+                            RelatedTableInfo relatedTableInfo =
                                     MaterializedViewUtils.getRelatedTableInfos("o_orderdate", null,
                                             rewrittenPlan, nereidsPlanner.getCascadesContext());
-                            successWith(relatedTableInfos,
+                            successWith(relatedTableInfo,
                                     ImmutableSet.of(Pair.of("orders", "o_orderdate")), "");
                         });
     }
@@ -580,10 +580,10 @@ public class PartitionColumnTraceTest extends TestWithFeService {
                                 + "        group by l_shipdate, o_orderdate",
                         nereidsPlanner -> {
                             Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
-                            Set<RelatedTableInfo> relatedTableInfos =
+                            RelatedTableInfo relatedTableInfo =
                                     MaterializedViewUtils.getRelatedTableInfos("l_shipdate", null,
                                             rewrittenPlan, nereidsPlanner.getCascadesContext());
-                            failWith(relatedTableInfos,
+                            failWith(relatedTableInfo,
                                     "partition column is in un supported join null generate side");
                         });
     }
@@ -599,10 +599,10 @@ public class PartitionColumnTraceTest extends TestWithFeService {
                                 + "        group by l_shipdate, o_orderdate",
                         nereidsPlanner -> {
                             Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
-                            Set<RelatedTableInfo> relatedTableInfos =
+                            RelatedTableInfo relatedTableInfo =
                                     MaterializedViewUtils.getRelatedTableInfos("o_orderdate", null,
                                             rewrittenPlan, nereidsPlanner.getCascadesContext());
-                            successWith(relatedTableInfos,
+                            successWith(relatedTableInfo,
                                     ImmutableSet.of(Pair.of("orders", "o_orderdate")), "");
                         });
     }
@@ -619,11 +619,11 @@ public class PartitionColumnTraceTest extends TestWithFeService {
                                 + "        group by l1.l_shipdate, l2.L_ORDERKEY",
                         nereidsPlanner -> {
                             Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
-                            Set<RelatedTableInfo> relatedTableInfos =
+                            RelatedTableInfo relatedTableInfo =
                                     MaterializedViewUtils.getRelatedTableInfos("l_shipdate", null,
                                             rewrittenPlan, nereidsPlanner.getCascadesContext());
                             // tmp, wait equal set ignore null ready
-                            failWith(relatedTableInfos,
+                            failWith(relatedTableInfo,
                                     "partition column is in un supported join null generate side");
                         });
     }
@@ -639,11 +639,11 @@ public class PartitionColumnTraceTest extends TestWithFeService {
                                 + "        group by l2.l_shipdate, l1.L_ORDERKEY",
                         nereidsPlanner -> {
                             Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
-                            Set<RelatedTableInfo> relatedTableInfos =
+                            RelatedTableInfo relatedTableInfo =
                                     MaterializedViewUtils.getRelatedTableInfos("l_shipdate", null,
                                             rewrittenPlan, nereidsPlanner.getCascadesContext());
                             // tmp, wait equal set ignore null ready
-                            failWith(relatedTableInfos,
+                            failWith(relatedTableInfo,
                                     "partition column is in un supported join null generate side");
                         });
     }
@@ -659,10 +659,10 @@ public class PartitionColumnTraceTest extends TestWithFeService {
                                 + "        group by l1.l_shipdate, l2.L_ORDERKEY",
                         nereidsPlanner -> {
                             Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
-                            Set<RelatedTableInfo> relatedTableInfos =
+                            RelatedTableInfo relatedTableInfo =
                                     MaterializedViewUtils.getRelatedTableInfos("l_shipdate", null,
                                             rewrittenPlan, nereidsPlanner.getCascadesContext());
-                            failWith(relatedTableInfos,
+                            failWith(relatedTableInfo,
                                     "partition column is in un supported join null generate side");
                         });
     }
@@ -678,10 +678,10 @@ public class PartitionColumnTraceTest extends TestWithFeService {
                                 + "        group by l2.l_shipdate, l1.L_ORDERKEY",
                         nereidsPlanner -> {
                             Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
-                            Set<RelatedTableInfo> relatedTableInfos =
+                            RelatedTableInfo relatedTableInfo =
                                     MaterializedViewUtils.getRelatedTableInfos("l_shipdate", null,
                                             rewrittenPlan, nereidsPlanner.getCascadesContext());
-                            failWith(relatedTableInfos,
+                            failWith(relatedTableInfo,
                                     "partition column is in un supported join null generate side");
                         });
     }
@@ -697,10 +697,10 @@ public class PartitionColumnTraceTest extends TestWithFeService {
                                 + "        group by l_shipdate, o_orderdate",
                         nereidsPlanner -> {
                             Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
-                            Set<RelatedTableInfo> relatedTableInfos =
+                            RelatedTableInfo relatedTableInfo =
                                     MaterializedViewUtils.getRelatedTableInfos("l_shipdate", null,
                                             rewrittenPlan, nereidsPlanner.getCascadesContext());
-                            failWith(relatedTableInfos,
+                            failWith(relatedTableInfo,
                                     "partition column is in un supported join null generate side");
                         });
     }
@@ -716,10 +716,10 @@ public class PartitionColumnTraceTest extends TestWithFeService {
                                 + "        group by l_shipdate, o_orderdate",
                         nereidsPlanner -> {
                             Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
-                            Set<RelatedTableInfo> relatedTableInfos =
+                            RelatedTableInfo relatedTableInfo =
                                     MaterializedViewUtils.getRelatedTableInfos("o_orderdate", null,
                                             rewrittenPlan, nereidsPlanner.getCascadesContext());
-                            failWith(relatedTableInfos,
+                            failWith(relatedTableInfo,
                                     "partition column is in un supported join null generate side");
                         });
     }
@@ -735,10 +735,10 @@ public class PartitionColumnTraceTest extends TestWithFeService {
                                 + "        group by l_shipdate, o_orderdate",
                         nereidsPlanner -> {
                             Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
-                            Set<RelatedTableInfo> relatedTableInfos =
+                            RelatedTableInfo relatedTableInfo =
                                     MaterializedViewUtils.getRelatedTableInfos("l_shipdate", null,
                                             rewrittenPlan, nereidsPlanner.getCascadesContext());
-                            failWith(relatedTableInfos,
+                            failWith(relatedTableInfo,
                                     "partition column is in un supported join null generate side");
                         });
     }
@@ -754,20 +754,22 @@ public class PartitionColumnTraceTest extends TestWithFeService {
                                 + "        group by l_shipdate, o_orderdate",
                         nereidsPlanner -> {
                             Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
-                            Set<RelatedTableInfo> relatedTableInfos =
+                            RelatedTableInfo relatedTableInfo =
                                     MaterializedViewUtils.getRelatedTableInfos("o_orderdate", null,
                                             rewrittenPlan, nereidsPlanner.getCascadesContext());
-                            failWith(relatedTableInfos,
+                            failWith(relatedTableInfo,
                                     "partition column is in un supported join null generate side");
                         });
     }
 
-    private static void successWith(Set<RelatedTableInfo> relatedTableInfos,
+    private static void successWith(RelatedTableInfo relatedTableInfo,
             Set<Pair<String, String>> expectTableColumnPairSet, String timeUnit) {
-        Assertions.assertFalse(relatedTableInfos.isEmpty());
+        Assertions.assertFalse(relatedTableInfo.getTableColumnInfos().isEmpty());
+        Assertions.assertTrue(relatedTableInfo.isPctPossible());
+
         Set<Pair<String, String>> relatedTableColumnPairs = new HashSet<>();
-        for (RelatedTableInfo info : relatedTableInfos) {
-            Assertions.assertTrue(info.isPctPossible());
+        List<TableColumnInfo> tableColumnInfos = relatedTableInfo.getTableColumnInfos();
+        for (TableColumnInfo info : tableColumnInfos) {
             Optional<Expression> partitionExpression = info.getPartitionExpression();
             if (StringUtils.isNotEmpty(timeUnit)) {
                 Assertions.assertTrue(partitionExpression.isPresent());
@@ -789,9 +791,9 @@ public class PartitionColumnTraceTest extends TestWithFeService {
         Assertions.assertEquals(expectTableColumnPairSet, relatedTableColumnPairs);
     }
 
-    private static void failWith(Set<RelatedTableInfo> relatedTableInfos,
+    private static void failWith(RelatedTableInfo relatedTableInfo,
             String failInfo) {
-        Assertions.assertEquals(1, relatedTableInfos.size());
-        Assertions.assertTrue(relatedTableInfos.iterator().next().getFailReason().contains(failInfo));
+        Assertions.assertFalse(relatedTableInfo.isPctPossible());
+        Assertions.assertTrue(relatedTableInfo.getFailReason().contains(failInfo));
     }
 }

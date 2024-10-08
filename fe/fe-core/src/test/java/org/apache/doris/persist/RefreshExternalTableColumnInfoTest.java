@@ -38,7 +38,7 @@ import java.io.FileOutputStream;
 import java.util.ArrayList;
 import java.util.List;
 
-public class RefreshExternalTableInfoTest {
+public class RefreshExternalTableColumnInfoTest {
     private Env env;
 
     private FakeEnv fakeEnv;

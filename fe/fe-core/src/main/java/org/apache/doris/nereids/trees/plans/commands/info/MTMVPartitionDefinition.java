@@ -39,7 +39,8 @@ import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewUtils;
-import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewUtils.RelatedTableInfo;
+import org.apache.doris.nereids.rules.exploration.mv.RelatedTableInfo;
+import org.apache.doris.nereids.rules.exploration.mv.RelatedTableInfo.TableColumnInfo;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -100,13 +101,18 @@ public class MTMVPartitionDefinition {
         }
         mtmvPartitionInfo.setPartitionCol(partitionColName);
         RelatedTableInfo relatedTableInfo = getRelatedTableInfo(planner, ctx, logicalQuery, partitionColName, timeUnit);
-        mtmvPartitionInfo.setRelatedCol(relatedTableInfo.getColumn());
-        mtmvPartitionInfo.setRelatedTable(relatedTableInfo.getTableInfo());
-        if (relatedTableInfo.getPartitionExpression().isPresent()) {
+        if (!relatedTableInfo.isPctPossible() || relatedTableInfo.getTableColumnInfos().isEmpty()) {
+            return mtmvPartitionInfo;
+        }
+        // todo Should get multi column
+        TableColumnInfo columnInfo = relatedTableInfo.getTableColumnInfos().get(0);
+        mtmvPartitionInfo.setRelatedCol(columnInfo.getColumn());
+        mtmvPartitionInfo.setRelatedTable(columnInfo.getTableInfo());
+        if (columnInfo.getPartitionExpression().isPresent()) {
             // Set mv partition expr by relatedTableInfo, this is used for partition rollup and so on
-            if (relatedTableInfo.getPartitionExpression().get().getExpressionName()
+            if (columnInfo.getPartitionExpression().get().getExpressionName()
                     .equalsIgnoreCase(PARTITION_BY_FUNCTION_NAME)) {
-                DateTrunc dateTrunc = (DateTrunc) relatedTableInfo.getPartitionExpression().get();
+                DateTrunc dateTrunc = (DateTrunc) columnInfo.getPartitionExpression().get();
                 // todo use new expression?
                 mtmvPartitionInfo.setExpr(new FunctionCallExpr(dateTrunc.getName(),
                         new FunctionParams(convertToLegacyArguments(dateTrunc.children()))));
@@ -144,7 +150,9 @@ public class MTMVPartitionDefinition {
                 throw new AnalysisException(String.format("Unable to find a suitable base table for partitioning,"
                         + " the fail reason is %s", relatedTableInfo.getFailReason()));
             }
-            MTMVRelatedTableIf mtmvBaseRealtedTable = MTMVUtil.getRelatedTable(relatedTableInfo.getTableInfo());
+            // todo Should get multi column
+            TableColumnInfo columnInfo = relatedTableInfo.getTableColumnInfos().get(0);
+            MTMVRelatedTableIf mtmvBaseRealtedTable = MTMVUtil.getRelatedTable(columnInfo.getTableInfo());
             Set<String> partitionColumnNames = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
             try {
                 partitionColumnNames.addAll(mtmvBaseRealtedTable.getPartitionColumnNames());
@@ -152,8 +160,8 @@ public class MTMVPartitionDefinition {
                 throw new AnalysisException(e.getMessage(), e);
             }
 
-            if (!partitionColumnNames.contains(relatedTableInfo.getColumn())) {
-                throw new AnalysisException("error related column: " + relatedTableInfo.getColumn());
+            if (!partitionColumnNames.contains(columnInfo.getColumn())) {
+                throw new AnalysisException("error related column: " + columnInfo.getColumn());
             }
             if (!(mtmvBaseRealtedTable instanceof HMSExternalTable)
                     && partitionColumnNames.size() != 1) {

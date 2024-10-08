@@ -37,6 +37,7 @@ import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.analysis.BindRelation;
+import org.apache.doris.nereids.rules.exploration.mv.RelatedTableInfo.TableColumnInfo;
 import org.apache.doris.nereids.rules.expression.ExpressionNormalization;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.rules.rewrite.EliminateSort;
@@ -144,13 +145,14 @@ public class MaterializedViewUtils {
                                 + "expressions map is %s",
                         checkContext.getPartitionAndRollupExpressionChecked()));
             }
+            // Compatible old logic, only return the table column info which isOriginalPartition is true
             if (entry.getValue().value()) {
                 return RelatedTableInfo.successWith(
-                        partitionColumn.getTable().map(BaseTableInfo::new).get(),
-                        true,
-                        extractColumn(partitionColumn).getName(),
-                        entry.getValue().key().orElse(null),
-                        entry.getValue().value());
+                        ImmutableList.of(
+                                new TableColumnInfo(partitionColumn.getTable().map(BaseTableInfo::new).get(),
+                                        extractColumn(partitionColumn).getName(),
+                                        entry.getValue().key().orElse(null),
+                                        entry.getValue().value())));
             }
         }
         return RelatedTableInfo.failWith("can't not find valid partition track column finally");
@@ -163,10 +165,9 @@ public class MaterializedViewUtils {
      * @param materializedViewPlan this should be rewritten or analyzed plan, should not be physical plan.
      * @param column ref column name.
      */
-    public static Set<RelatedTableInfo> getRelatedTableInfos(String column, String timeUnit,
+    public static RelatedTableInfo getRelatedTableInfos(String column, String timeUnit,
             Plan materializedViewPlan, CascadesContext cascadesContext) {
 
-        Set<RelatedTableInfo> relatedTableInfos = new HashSet<>();
         List<Slot> outputExpressions = materializedViewPlan.getOutput();
         NamedExpression columnExpr = null;
         // get column slot
@@ -177,8 +178,7 @@ public class MaterializedViewUtils {
             }
         }
         if (columnExpr == null) {
-            return ImmutableSet.of(
-                    RelatedTableInfo.failWith("partition column can not find from sql select column"));
+            return RelatedTableInfo.failWith("partition column can not find from sql select column");
         }
         if (timeUnit != null) {
             Expression dateTrunc = new DateTrunc(columnExpr, new VarcharLiteral(timeUnit));
@@ -190,35 +190,33 @@ public class MaterializedViewUtils {
         checkContext.addPartitionAndRollupExpressionMap(columnExpr, null, true);
         materializedViewPlan.accept(MaterializedViewIncrementChecker.INSTANCE, checkContext);
         if (checkContext.getPartitionAndRollupExpressionChecked().isEmpty()) {
-            return ImmutableSet.of(
-                    RelatedTableInfo.failWith(String.format("can't not find valid partition track column, because %s",
-                            String.join(",", checkContext.getFailReasons()))));
+            return RelatedTableInfo.failWith(String.format("can't not find valid partition track column, because %s",
+                    String.join(",", checkContext.getFailReasons())));
         }
         if (!checkRollupExpression(checkContext.getPartitionAndRollupExpressionChecked().values())) {
-            return ImmutableSet.of(RelatedTableInfo.failWith(String.format(
+            return RelatedTableInfo.failWith(String.format(
                     "partition rollup expressions is not consistent, partition rollup expressions map is %s",
-                    checkContext.getPartitionAndRollupExpressionChecked())));
+                    checkContext.getPartitionAndRollupExpressionChecked()));
         }
+        List<TableColumnInfo> tableColumnInfos = new ArrayList<>();
         for (Map.Entry<SlotReference, Pair<Optional<Expression>, Boolean>> entry
                 : checkContext.getPartitionAndRollupExpressionChecked().entrySet()) {
             SlotReference partitionColumn = entry.getKey();
             if (!partitionColumn.isColumnFromTable()) {
-                return ImmutableSet.of(RelatedTableInfo.failWith(String.format(
+                return RelatedTableInfo.failWith(String.format(
                         "partition checked is not from table, partition rollup expressions map is %s",
-                        checkContext.getPartitionAndRollupExpressionChecked())));
+                        checkContext.getPartitionAndRollupExpressionChecked()));
             }
-            relatedTableInfos.add(RelatedTableInfo.successWith(
-                    partitionColumn.getTable().map(BaseTableInfo::new).get(),
-                    true,
+            tableColumnInfos.add(new TableColumnInfo(partitionColumn.getTable().map(BaseTableInfo::new).get(),
                     extractColumn(partitionColumn).getName(),
                     entry.getValue().key().orElse(null),
                     entry.getValue().value()));
         }
-        if (!relatedTableInfos.isEmpty()) {
-            return relatedTableInfos;
+        if (!tableColumnInfos.isEmpty()) {
+            return RelatedTableInfo.successWith(tableColumnInfos);
         }
-        return ImmutableSet.of(
-                RelatedTableInfo.failWith("can't not find valid partition track column finally"));
+        return RelatedTableInfo.failWith("can't not find valid partition track column finally, "
+                + checkContext.getFailReasons());
     }
 
     private static boolean checkRollupExpression(Collection<Pair<Optional<Expression>, Boolean>> rollupExpressions) {
@@ -953,76 +951,6 @@ public class MaterializedViewUtils {
                     return null;
                 }
             }, this.invalidCatalogRelation);
-        }
-    }
-
-    /**
-     * The related table info that mv relate
-     */
-    public static final class RelatedTableInfo {
-        private final BaseTableInfo tableInfo;
-        private final boolean pctPossible;
-        private final String column;
-        private final Set<String> failReasons = new HashSet<>();
-        // This records the partition rollup expression if exist
-        private Optional<Expression> partitionExpression;
-        // This record the partition column is original or derived from equal set
-        private final boolean isOriginalPartition;
-
-        private RelatedTableInfo(BaseTableInfo tableInfo, boolean pctPossible, String column, String failReason,
-                Expression partitionExpression, boolean isOriginalPartition) {
-            this.tableInfo = tableInfo;
-            this.pctPossible = pctPossible;
-            this.column = column;
-            this.failReasons.add(failReason);
-            this.partitionExpression = Optional.ofNullable(partitionExpression);
-            this.isOriginalPartition = isOriginalPartition;
-        }
-
-        public static RelatedTableInfo failWith(String failReason) {
-            return new RelatedTableInfo(null, false, null, failReason,
-                    null, true);
-        }
-
-        public static RelatedTableInfo successWith(BaseTableInfo tableInfo, boolean pctPossible, String column,
-                Expression partitionExpression, boolean isOriginalPartition) {
-            return new RelatedTableInfo(tableInfo, pctPossible, column, "", partitionExpression,
-                    isOriginalPartition);
-        }
-
-        public BaseTableInfo getTableInfo() {
-            return tableInfo;
-        }
-
-        public boolean isPctPossible() {
-            return pctPossible;
-        }
-
-        public String getColumn() {
-            return column;
-        }
-
-        public void addFailReason(String failReason) {
-            this.failReasons.add(failReason);
-        }
-
-        public String getFailReason() {
-            return String.join(",", failReasons);
-        }
-
-        public Optional<Expression> getPartitionExpression() {
-            return partitionExpression;
-        }
-
-        public boolean isOriginalPartition() {
-            return isOriginalPartition;
-        }
-
-        @Override
-        public String toString() {
-            return "RelatedTableInfo{" + "tableInfo=" + tableInfo + ", pctPossible=" + pctPossible
-                    + ", column='" + column + '\'' + ", failReasons=" + failReasons + ", partitionExpression="
-                    + partitionExpression + ", isOriginalPartition=" + isOriginalPartition + '}';
         }
     }
 }
