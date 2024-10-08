@@ -291,6 +291,10 @@ public:
 
     std::string task_name() const { return fmt::format("task{}({})", _index, _pipeline->_name); }
 
+    PipelineId pipeline_id() const { return _pipeline->id(); }
+
+    virtual void clear_blocking_state(bool wake_up_by_downstream = false) {}
+
 protected:
     void _finish_p_dependency() {
         for (const auto& p : _pipeline->_parents) {

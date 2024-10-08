@@ -116,6 +116,8 @@ public:
 
     std::string debug_string() override;
 
+    void close_a_pipeline(PipelineId pipeline_id) override;
+
 private:
     void _close_fragment_instance() override;
     Status _build_pipeline_x_tasks(const doris::TPipelineFragmentParams& request,
@@ -222,6 +224,7 @@ private:
     std::map<int, std::pair<std::shared_ptr<LocalExchangeSharedState>, std::shared_ptr<Dependency>>>
             _op_id_to_le_state;
 
+    std::map<PipelineId, Pipeline*> _pip_id_to_pipeline;
     // UniqueId -> runtime mgr
     std::map<UniqueId, std::unique_ptr<RuntimeFilterMgr>> _runtime_filter_mgr_map;
 

@@ -66,7 +66,6 @@ PipelineXTask::PipelineXTask(
     if (shared_state) {
         _sink_shared_state = shared_state;
     }
-    pipeline->incr_created_tasks();
 }
 
 Status PipelineXTask::prepare(const TPipelineInstanceParams& local_params, const TDataSink& tsink,
@@ -248,7 +247,7 @@ Status PipelineXTask::execute(bool* eos) {
             cpu_qs->add_cpu_nanos(delta_cpu_time);
         }
     }};
-    *eos = _sink->is_finished(_state);
+    *eos = _sink->is_finished(_state) || _wake_up_by_downstream || is_final_state(_cur_state);
     if (*eos) {
         return Status::OK();
     }
