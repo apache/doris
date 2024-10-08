@@ -834,8 +834,9 @@ Status VerticalSegmentWriter::_merge_rows_for_sequence_column(
         vectorized::IOlapColumnDataAccessor* seq_column,
         const std::vector<RowsetSharedPtr>& specified_rowsets,
         std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches) {
-    LOG_INFO("VerticalSegmentWriter::_merge_rows_for_sequence_column enter: data.block:{}\n",
-             data.block->dump_data());
+    VLOG_DEBUG << fmt::format(
+            "VerticalSegmentWriter::_merge_rows_for_sequence_column enter: data.block:{}\n",
+            data.block->dump_data());
     auto seq_col_unique_id = _tablet_schema->column(_tablet_schema->sequence_col_idx()).unique_id();
     std::string previous_key {};
     bool previous_has_seq_col {false};
@@ -886,7 +887,7 @@ Status VerticalSegmentWriter::_merge_rows_for_sequence_column(
             _encode_seq_column(seq_column, rid_with_seq, &cur_encoded_seq_value);
             // the encoded value is order-preserving, so we can use Slice::compare() to compare them
             int res = previous_seq_slice.compare(Slice {cur_encoded_seq_value});
-            LOG_INFO(
+            VLOG_DEBUG << fmt::format(
                     "VerticalSegmentWriter::_merge_rows_for_sequence_column: rid_with_seq={}, "
                     "rid_missing_seq={}, res={}",
                     rid_with_seq, rid_missing_seq, res);
@@ -908,7 +909,7 @@ Status VerticalSegmentWriter::_merge_rows_for_sequence_column(
                        "__dup_key_filter_col__"});
         RETURN_IF_ERROR(vectorized::Block::filter_block(block, num_cols, num_cols));
         int merged_rows = data.num_rows - block->rows();
-        LOG_INFO(
+        VLOG_DEBUG << fmt::format(
                 "VerticalSegmentWriter::_merge_rows_for_sequence_column after filter: "
                 "data.block:{}\n",
                 data.block->dump_data());

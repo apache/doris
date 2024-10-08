@@ -986,7 +986,7 @@ Status SegmentWriter::merge_rows_for_sequence_column(
             std::string cur_encoded_seq_value {};
             _encode_seq_column(seq_column, rid_with_seq, &cur_encoded_seq_value);
             int res = Slice {previous_encoded_seq_value}.compare(Slice {cur_encoded_seq_value});
-            LOG_INFO(
+            VLOG_DEBUG << fmt::format(
                     "SegmentWriter::merge_rows_for_sequence_column: rid_with_seq={}, "
                     "rid_missing_seq={}, res={}",
                     rid_with_seq, rid_missing_seq, res);
