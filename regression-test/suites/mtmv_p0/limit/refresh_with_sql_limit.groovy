@@ -75,8 +75,8 @@ suite("refresh_with_sql_limit") {
 
 
     sql """DROP MATERIALIZED VIEW IF EXISTS mv_1"""
-    sql """set global default_order_by_limit = 2;"""
-    sql """set global sql_select_limit = 2;"""
+    sql """set default_order_by_limit = 2;"""
+    sql """set sql_select_limit = 2;"""
     sql"""
         CREATE MATERIALIZED VIEW mv_1
         BUILD DEFERRED REFRESH COMPLETE ON MANUAL
@@ -89,15 +89,15 @@ suite("refresh_with_sql_limit") {
     waitingMTMVTaskFinished(job_name)
 
     // Reset and test mv data is right or not
-    sql """set global default_order_by_limit = -1;"""
-    sql """set global sql_select_limit = -1;"""
+    sql """set default_order_by_limit = -1;"""
+    sql """set sql_select_limit = -1;"""
     order_qt_query_mv_1 "select * from mv_1"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv_1"""
 
 
     sql """DROP MATERIALIZED VIEW IF EXISTS mv_2"""
-    sql """set global default_order_by_limit = 2"""
-    sql """set global sql_select_limit = 2"""
+    sql """set default_order_by_limit = 2"""
+    sql """set sql_select_limit = 2"""
     sql"""
         CREATE MATERIALIZED VIEW mv_2
         BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL
@@ -108,8 +108,8 @@ suite("refresh_with_sql_limit") {
     waitingMTMVTaskFinished(getJobName(db, "mv_2"))
 
     // Reset and test mv data is right or not
-    sql """set global default_order_by_limit = -1;"""
-    sql """set global sql_select_limit = -1;"""
+    sql """set default_order_by_limit = -1;"""
+    sql """set sql_select_limit = -1;"""
     order_qt_query_mv_2 "select * from mv_2"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv_2"""
 }
