@@ -147,7 +147,7 @@ public class StatisticsUtil {
             return Collections.emptyList();
         }
         boolean useFileCacheForStat = (enableFileCache && Config.allow_analyze_statistics_info_polluting_file_cache);
-        try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext(false, useFileCacheForStat)) {
+        try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext(useFileCacheForStat)) {
             if (Config.isCloudMode()) {
                 try {
                     r.connectContext.getCloudCluster();
@@ -164,7 +164,7 @@ public class StatisticsUtil {
 
     public static QueryState execUpdate(String sql) throws Exception {
         StmtExecutor stmtExecutor = null;
-        AutoCloseConnectContext r = StatisticsUtil.buildConnectContext();
+        AutoCloseConnectContext r = StatisticsUtil.buildConnectContext(false);
         try {
             stmtExecutor = new StmtExecutor(r.connectContext, sql);
             r.connectContext.setExecutor(stmtExecutor);
@@ -202,11 +202,7 @@ public class StatisticsUtil {
         return PartitionColumnStatistic.fromResultRow(resultBatches);
     }
 
-    public static AutoCloseConnectContext buildConnectContext() {
-        return buildConnectContext(false, false);
-    }
-
-    public static AutoCloseConnectContext buildConnectContext(boolean limitScan, boolean useFileCacheForStat) {
+    public static AutoCloseConnectContext buildConnectContext(boolean useFileCacheForStat) {
         ConnectContext connectContext = new ConnectContext();
         SessionVariable sessionVariable = connectContext.getSessionVariable();
         sessionVariable.internalSession = true;
@@ -218,7 +214,6 @@ public class StatisticsUtil {
         sessionVariable.enableProfile = Config.enable_profile_when_analyze;
         sessionVariable.parallelExecInstanceNum = Config.statistics_sql_parallel_exec_instance_num;
         sessionVariable.parallelPipelineTaskNum = Config.statistics_sql_parallel_exec_instance_num;
-        sessionVariable.enableScanRunSerial = limitScan;
         sessionVariable.setQueryTimeoutS(StatisticsUtil.getAnalyzeTimeout());
         sessionVariable.insertTimeoutS = StatisticsUtil.getAnalyzeTimeout();
         sessionVariable.enableFileCache = false;
@@ -248,7 +243,7 @@ public class StatisticsUtil {
     }
 
     public static void analyze(StatementBase statementBase) throws UserException {
-        try (AutoCloseConnectContext r = buildConnectContext()) {
+        try (AutoCloseConnectContext r = buildConnectContext(false)) {
             Analyzer analyzer = new Analyzer(Env.getCurrentEnv(), r.connectContext);
             statementBase.analyze(analyzer);
         }
@@ -496,7 +491,7 @@ public class StatisticsUtil {
                 LOG.info("there are no available backends");
                 return false;
             }
-            try (AutoCloseConnectContext r = buildConnectContext()) {
+            try (AutoCloseConnectContext r = buildConnectContext(false)) {
                 try {
                     r.connectContext.getCloudCluster();
                 } catch (ComputeGroupException e) {
