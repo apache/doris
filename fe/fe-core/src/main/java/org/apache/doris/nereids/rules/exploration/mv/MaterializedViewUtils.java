@@ -71,6 +71,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.nereids.trees.plans.visitor.NondeterministicFunctionCollector;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
@@ -199,16 +200,23 @@ public class MaterializedViewUtils {
                     checkContext.getPartitionAndRollupExpressionChecked()));
         }
         List<TableColumnInfo> tableColumnInfos = new ArrayList<>();
+        Set<DataType> dataTypeSet = new HashSet<>();
         for (Map.Entry<SlotReference, Pair<Optional<Expression>, Boolean>> entry
                 : checkContext.getPartitionAndRollupExpressionChecked().entrySet()) {
             SlotReference partitionColumn = entry.getKey();
+            dataTypeSet.add(partitionColumn.getDataType());
+            if (dataTypeSet.size() > 1) {
+                return RelatedTableInfo.failWith(String.format(
+                        "multi partition column data types are different, data type are %s", dataTypeSet));
+            }
             if (!partitionColumn.isColumnFromTable()) {
                 return RelatedTableInfo.failWith(String.format(
                         "partition checked is not from table, partition rollup expressions map is %s",
                         checkContext.getPartitionAndRollupExpressionChecked()));
             }
+            Column relatedColumn = extractColumn(partitionColumn);
             tableColumnInfos.add(new TableColumnInfo(partitionColumn.getTable().map(BaseTableInfo::new).get(),
-                    extractColumn(partitionColumn).getName(),
+                    relatedColumn.getName(),
                     entry.getValue().key().orElse(null),
                     entry.getValue().value()));
         }
