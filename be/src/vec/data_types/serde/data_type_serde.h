@@ -243,6 +243,7 @@ public:
     virtual Status deserialize_column_from_fixed_json(IColumn& column, Slice& slice, int rows,
                                                       int* num_deserialized,
                                                       const FormatOptions& options) const {
+        //In this function implementation, we need to consider the case where rows is 0, 1, and other larger integers.
         if (rows < 1) [[unlikely]] {
             return Status::OK();
         }
