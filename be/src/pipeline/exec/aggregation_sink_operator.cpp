@@ -77,8 +77,8 @@ Status AggSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     _hash_table_input_counter = ADD_COUNTER(Base::profile(), "HashTableInputCount", TUnit::UNIT);
     _max_row_size_counter = ADD_COUNTER(Base::profile(), "MaxRowSizeInBytes", TUnit::UNIT);
 
-    _container_memory_usage = ADD_COUNTER(profile(), "ContainerMemoryUsage", TUnit::BYTES);
-    _arena_memory_usage = ADD_COUNTER(profile(), "ArenaMemoryUsage", TUnit::BYTES);
+    _memory_usage_container = ADD_COUNTER(profile(), "MemoryUsageContainer", TUnit::BYTES);
+    _memory_usage_arena = ADD_COUNTER(profile(), "MemoryUsageArena", TUnit::BYTES);
 
     return Status::OK();
 }
@@ -230,36 +230,35 @@ size_t AggSinkLocalState::_memory_usage() const {
 }
 
 void AggSinkLocalState::_update_memusage_with_serialized_key() {
-    std::visit(
-            vectorized::Overload {
-                    [&](std::monostate& arg) -> void {
-                        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "uninited hash table");
-                    },
-                    [&](auto& agg_method) -> void {
-                        auto& data = *agg_method.hash_table;
-                        auto arena_memory_usage =
-                                _agg_arena_pool->size() +
-                                Base::_shared_state->aggregate_data_container->memory_usage() -
-                                Base::_shared_state->mem_usage_record.used_in_arena;
-                        Base::_mem_tracker->consume(arena_memory_usage);
-                        Base::_mem_tracker->consume(
-                                data.get_buffer_size_in_bytes() -
-                                Base::_shared_state->mem_usage_record.used_in_state);
-                        _serialize_key_arena_memory_usage->add(arena_memory_usage);
-                        COUNTER_SET(_container_memory_usage,
-                                    Base::_shared_state->aggregate_data_container->memory_usage());
-                        COUNTER_SET(_arena_memory_usage,
-                                    static_cast<int64_t>(_agg_arena_pool->size()));
-                        COUNTER_UPDATE(_hash_table_memory_usage,
-                                       data.get_buffer_size_in_bytes() -
-                                               Base::_shared_state->mem_usage_record.used_in_state);
-                        Base::_shared_state->mem_usage_record.used_in_state =
-                                data.get_buffer_size_in_bytes();
-                        Base::_shared_state->mem_usage_record.used_in_arena =
-                                _agg_arena_pool->size() +
-                                Base::_shared_state->aggregate_data_container->memory_usage();
-                    }},
-            _agg_data->method_variant);
+    std::visit(vectorized::Overload {
+                       [&](std::monostate& arg) -> void {
+                           throw doris::Exception(ErrorCode::INTERNAL_ERROR, "uninited hash table");
+                       },
+                       [&](auto& agg_method) -> void {
+                           auto& data = *agg_method.hash_table;
+                           auto arena_memory_usage =
+                                   _agg_arena_pool->size() +
+                                   Base::_shared_state->aggregate_data_container->memory_usage() -
+                                   Base::_shared_state->mem_usage_record.used_in_arena;
+                           Base::_mem_tracker->consume(arena_memory_usage);
+                           Base::_mem_tracker->consume(
+                                   data.get_buffer_size_in_bytes() -
+                                   Base::_shared_state->mem_usage_record.used_in_state);
+                           _serialize_key_arena_memory_usage->add(arena_memory_usage);
+                           COUNTER_SET(
+                                   _memory_usage_container,
+                                   Base::_shared_state->aggregate_data_container->memory_usage());
+                           COUNTER_SET(_memory_usage_arena,
+                                       static_cast<int64_t>(_agg_arena_pool->size()));
+                           COUNTER_SET(_hash_table_memory_usage,
+                                       int64_t(data.get_buffer_size_in_bytes()));
+                           Base::_shared_state->mem_usage_record.used_in_state =
+                                   data.get_buffer_size_in_bytes();
+                           Base::_shared_state->mem_usage_record.used_in_arena =
+                                   _agg_arena_pool->size() +
+                                   Base::_shared_state->aggregate_data_container->memory_usage();
+                       }},
+               _agg_data->method_variant);
 }
 
 Status AggSinkLocalState::_destroy_agg_status(vectorized::AggregateDataPtr data) {

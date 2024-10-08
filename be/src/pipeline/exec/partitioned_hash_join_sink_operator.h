@@ -61,6 +61,8 @@ protected:
     Status _revoke_unpartitioned_block(RuntimeState* state,
                                        const std::shared_ptr<SpillContext>& spill_context);
 
+    Status _finish_spilling();
+
     friend class PartitionedHashJoinSinkOperatorX;
 
     std::atomic_int _spilling_streams_count {0};
@@ -80,6 +82,7 @@ protected:
     RuntimeProfile::Counter* _partition_shuffle_timer = nullptr;
     RuntimeProfile::Counter* _spill_build_timer = nullptr;
     RuntimeProfile::Counter* _in_mem_rows_counter = nullptr;
+    RuntimeProfile::Counter* _memory_usage_reserved = nullptr;
 };
 
 class PartitionedHashJoinSinkOperatorX

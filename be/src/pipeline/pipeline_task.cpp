@@ -383,7 +383,6 @@ Status PipelineTask::execute(bool* eos) {
                     std::max(sink_reserve_size, _state->minimum_operator_memory_required_bytes());
             reserve_size = _root->get_reserve_mem_size(_state) + sink_reserve_size;
             _root->reset_reserve_mem_size(_state);
-            DCHECK_EQ(_root->get_reserve_mem_size(_state), 0);
 
             auto workload_group = _state->get_query_ctx()->workload_group();
             if (workload_group && reserve_size > 0) {

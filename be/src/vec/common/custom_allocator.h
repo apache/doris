@@ -20,7 +20,7 @@
 #include "vec/common/allocator.h"
 #include "vec/common/allocator_fwd.h"
 
-template <class T, typename MemoryAllocator = Allocator<true>>
+template <class T, typename MemoryAllocator = Allocator<false>>
 class CustomStdAllocator;
 
 template <typename T>

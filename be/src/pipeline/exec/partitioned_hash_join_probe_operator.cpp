@@ -20,6 +20,10 @@
 #include <gen_cpp/Metrics_types.h>
 #include <glog/logging.h>
 
+#include <algorithm>
+#include <utility>
+
+#include "common/status.h"
 #include "pipeline/pipeline_task.h"
 #include "runtime/fragment_mgr.h"
 #include "util/mem_info.h"
@@ -63,6 +67,8 @@ Status PartitionedHashJoinProbeLocalState::init(RuntimeState* state, LocalStateI
     _spill_probe_timer = ADD_TIMER_WITH_LEVEL(profile(), "SpillProbeTime", 1);
     _recovery_probe_blocks = ADD_COUNTER(profile(), "SpillRecoveryProbeBlocks", TUnit::UNIT);
     _recovery_probe_timer = ADD_TIMER_WITH_LEVEL(profile(), "SpillRecoveryProbeTime", 1);
+    _memory_usage_reserved =
+            ADD_COUNTER_WITH_LEVEL(profile(), "MemoryUsageReserved", TUnit::UNIT, 1);
 
     _probe_blocks_bytes = ADD_COUNTER_WITH_LEVEL(profile(), "ProbeBlocksBytes", TUnit::BYTES, 1);
 
@@ -294,28 +300,20 @@ Status PartitionedHashJoinProbeLocalState::finish_spilling(uint32_t partition_in
     return Status::OK();
 }
 
-Status PartitionedHashJoinProbeLocalState::recovery_build_blocks_from_disk(RuntimeState* state,
-                                                                           uint32_t partition_index,
-                                                                           bool& has_data) {
+Status PartitionedHashJoinProbeLocalState::recover_build_blocks_from_disk(RuntimeState* state,
+                                                                          uint32_t partition_index,
+                                                                          bool& has_data) {
     VLOG_DEBUG << "query: " << print_id(state->query_id()) << ", node: " << _parent->node_id()
                << ", task id: " << state->task_id() << ", partition: " << partition_index
-               << " recovery_build_blocks_from_disk";
+               << " recover_build_blocks_from_disk";
     auto& spilled_stream = _shared_state->spilled_streams[partition_index];
     has_data = false;
     if (!spilled_stream) {
         return Status::OK();
     }
 
-    RETURN_IF_ERROR(spilled_stream->spill_eof());
     spilled_stream->set_read_counters(_spill_read_data_time, _spill_deserialize_time,
                                       _spill_read_bytes, _spill_read_wait_io_timer);
-
-    auto& mutable_block = _shared_state->partitioned_build_blocks[partition_index];
-    if (!mutable_block) {
-        ExecEnv::GetInstance()->spill_stream_mgr()->delete_spill_stream(spilled_stream);
-        spilled_stream.reset();
-        return Status::OK();
-    }
 
     std::weak_ptr<PartitionedHashJoinSharedState> shared_state_holder =
             _shared_state->shared_from_this();
@@ -325,8 +323,8 @@ Status PartitionedHashJoinProbeLocalState::recovery_build_blocks_from_disk(Runti
     MonotonicStopWatch submit_timer;
     submit_timer.start();
 
-    auto read_func = [this, query_id, state, spilled_stream = spilled_stream, &mutable_block,
-                      shared_state_holder, submit_timer, partition_index] {
+    auto read_func = [this, query_id, state, spilled_stream = spilled_stream, shared_state_holder,
+                      submit_timer, partition_index] {
         auto shared_state_sptr = shared_state_holder.lock();
         if (!shared_state_sptr || state->is_cancelled()) {
             LOG(INFO) << "query: " << print_id(query_id)
@@ -368,25 +366,31 @@ Status PartitionedHashJoinProbeLocalState::recovery_build_blocks_from_disk(Runti
                 break;
             }
 
-            if (mutable_block->empty()) {
-                *mutable_block = std::move(block);
+            if (!_recovered_build_block) {
+                _recovered_build_block = vectorized::MutableBlock::create_unique(std::move(block));
             } else {
-                DCHECK_EQ(mutable_block->columns(), block.columns());
-                st = mutable_block->merge(std::move(block));
+                DCHECK_EQ(_recovered_build_block->columns(), block.columns());
+                st = _recovered_build_block->merge(std::move(block));
                 if (!st.ok()) {
                     _spill_status_ok = false;
                     _spill_status = std::move(st);
                     break;
                 }
             }
+
+            if (_recovered_build_block->allocated_bytes() >=
+                vectorized::SpillStream::MAX_SPILL_WRITE_BATCH_MEM) {
+                break;
+            }
         }
 
-        ExecEnv::GetInstance()->spill_stream_mgr()->delete_spill_stream(spilled_stream);
-        shared_state_sptr->spilled_streams[partition_index].reset();
-        const size_t rows = mutable_block ? mutable_block->rows() : 0;
-        VLOG_DEBUG << "query: " << print_id(state->query_id()) << ", node: " << _parent->node_id()
-                   << ", task id: " << state->task_id() << ", partition: " << partition_index
-                   << ", recovery build data done, rows: " << rows;
+        if (eos) {
+            ExecEnv::GetInstance()->spill_stream_mgr()->delete_spill_stream(spilled_stream);
+            shared_state_sptr->spilled_streams[partition_index].reset();
+            VLOG_DEBUG << "query: " << print_id(state->query_id())
+                       << ", node: " << _parent->node_id() << ", task id: " << state->task_id()
+                       << ", partition: " << partition_index;
+        }
     };
 
     auto exception_catch_func = [read_func, query_id, this]() {
@@ -433,7 +437,7 @@ Status PartitionedHashJoinProbeLocalState::recovery_build_blocks_from_disk(Runti
                                                           exception_catch_func);
     VLOG_DEBUG << "query: " << print_id(state->query_id()) << ", node: " << _parent->node_id()
                << ", task id: " << state->task_id() << ", partition: " << partition_index
-               << " recovery_build_blocks_from_disk submit func";
+               << " recover_build_blocks_from_disk submit func";
     return spill_io_pool->submit(std::move(spill_runnable));
 }
 
@@ -459,9 +463,9 @@ std::string PartitionedHashJoinProbeLocalState::debug_string(int indentation_lev
     return fmt::to_string(debug_string_buffer);
 }
 
-Status PartitionedHashJoinProbeLocalState::recovery_probe_blocks_from_disk(RuntimeState* state,
-                                                                           uint32_t partition_index,
-                                                                           bool& has_data) {
+Status PartitionedHashJoinProbeLocalState::recover_probe_blocks_from_disk(RuntimeState* state,
+                                                                          uint32_t partition_index,
+                                                                          bool& has_data) {
     auto& spilled_stream = _probe_spilling_streams[partition_index];
     has_data = false;
     if (!spilled_stream) {
@@ -485,18 +489,24 @@ Status PartitionedHashJoinProbeLocalState::recovery_probe_blocks_from_disk(Runti
             st = Status::Error<INTERNAL_ERROR>(
                     "fault_inject partitioned_hash_join_probe recover_probe_blocks failed");
         });
-        if (st.ok()) {
-            st = spilled_stream->read_next_block_sync(&block, &eos);
-        }
-        if (!st.ok()) {
-            _spill_status_ok = false;
-            _spill_status = std::move(st);
-        } else {
-            COUNTER_UPDATE(_recovery_probe_rows, block.rows());
-            COUNTER_UPDATE(_recovery_probe_blocks, 1);
-            blocks.emplace_back(std::move(block));
-        }
 
+        size_t read_size = 0;
+        while (!eos && !_state->is_cancelled() && st.ok()) {
+            st = spilled_stream->read_next_block_sync(&block, &eos);
+            if (!st.ok()) {
+                _spill_status_ok = false;
+                _spill_status = std::move(st);
+            } else {
+                COUNTER_UPDATE(_recovery_probe_rows, block.rows());
+                COUNTER_UPDATE(_recovery_probe_blocks, 1);
+                read_size += block.allocated_bytes();
+                blocks.emplace_back(std::move(block));
+            }
+
+            if (read_size >= vectorized::SpillStream::MAX_SPILL_WRITE_BATCH_MEM) {
+                break;
+            }
+        }
         if (eos) {
             VLOG_DEBUG << "query: " << print_id(query_id)
                        << ", recovery probe data done: " << spilled_stream->get_spill_dir();
@@ -739,15 +749,27 @@ Status PartitionedHashJoinProbeOperatorX::pull(doris::RuntimeState* state,
 
     const auto partition_index = local_state._partition_cursor;
     auto& probe_blocks = local_state._probe_blocks[partition_index];
+
+    if (local_state._recovered_build_block && !local_state._recovered_build_block->empty()) {
+        local_state._estimate_memory_usage += local_state._recovered_build_block->allocated_bytes();
+        auto& mutable_block = local_state._shared_state->partitioned_build_blocks[partition_index];
+        if (!mutable_block) {
+            mutable_block = std::move(local_state._recovered_build_block);
+        } else {
+            RETURN_IF_ERROR(mutable_block->merge(local_state._recovered_build_block->to_block()));
+            local_state._recovered_build_block.reset();
+        }
+    }
+
     if (local_state._need_to_setup_internal_operators) {
-        *eos = false;
         bool has_data = false;
-        RETURN_IF_ERROR(local_state.recovery_build_blocks_from_disk(
+        RETURN_IF_ERROR(local_state.recover_build_blocks_from_disk(
                 state, local_state._partition_cursor, has_data));
         if (has_data) {
             return Status::OK();
         }
 
+        *eos = false;
         RETURN_IF_ERROR(local_state.finish_spilling(partition_index));
         RETURN_IF_ERROR(_setup_internal_operators(local_state, state));
         local_state._need_to_setup_internal_operators = false;
@@ -763,7 +785,7 @@ Status PartitionedHashJoinProbeOperatorX::pull(doris::RuntimeState* state,
             *eos = false;
             bool has_data = false;
             RETURN_IF_ERROR(
-                    local_state.recovery_probe_blocks_from_disk(state, partition_index, has_data));
+                    local_state.recover_probe_blocks_from_disk(state, partition_index, has_data));
             if (!has_data) {
                 vectorized::Block block;
                 RETURN_IF_ERROR(_inner_probe_operator->push(runtime_state, &block, true));
@@ -916,6 +938,12 @@ Status PartitionedHashJoinProbeOperatorX::get_block(RuntimeState* state, vectori
         }
     });
 #endif
+
+    Defer defer([&]() {
+        COUNTER_SET(local_state._memory_usage_reserved,
+                    int64_t(local_state.estimate_memory_usage()));
+    });
+
     if (need_more_input_data(state)) {
         RETURN_IF_ERROR(_child->get_block_after_projects(state, local_state._child_block.get(),
                                                          &local_state._child_eos));

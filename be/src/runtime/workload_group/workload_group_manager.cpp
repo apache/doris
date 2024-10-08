@@ -563,6 +563,19 @@ bool WorkloadGroupMgr::handle_single_query(std::shared_ptr<QueryContext> query_c
                         query_id, memory_usage, query_ctx->get_mem_limit()));
             }
         } else {
+            if (!GlobalMemoryArbitrator::is_exceed_hard_mem_limit()) {
+                LOG(INFO) << "query: " << query_id
+                          << ", process limit not exceeded now, resume this query"
+                          << ", process memory info: "
+                          << GlobalMemoryArbitrator::process_memory_used_details_str()
+                          << ", wg info: " << query_ctx->workload_group()->memory_debug_string();
+                query_ctx->set_memory_sufficient(true);
+                return true;
+            }
+
+            LOG(INFO) << "query: " << query_id << ", process limit exceeded, info: "
+                      << GlobalMemoryArbitrator::process_memory_used_details_str()
+                      << ", wg info: " << query_ctx->workload_group()->memory_debug_string();
             query_ctx->cancel(doris::Status::Error<ErrorCode::MEM_LIMIT_EXCEEDED>(
                     "The query({}) reserved memory failed because process limit exceeded, and "
                     "there is no cache now. And could not find task to spill. Maybe you should set "

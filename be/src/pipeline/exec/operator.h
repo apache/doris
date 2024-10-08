@@ -196,8 +196,6 @@ public:
     Status filter_block(const vectorized::VExprContextSPtrs& expr_contexts,
                         vectorized::Block* block, size_t column_to_keep);
 
-    void update_estimate_memory_usage(size_t usage) { _estimate_memory_usage += usage; }
-
     int64_t& estimate_memory_usage() { return _estimate_memory_usage; }
 
     void reset_estimate_memory_usage() { _estimate_memory_usage = 0; }
