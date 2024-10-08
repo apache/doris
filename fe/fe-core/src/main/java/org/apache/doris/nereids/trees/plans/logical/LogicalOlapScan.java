@@ -557,7 +557,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
         if (getTable() instanceof MTMV) {
             MTMV mtmv = (MTMV) getTable();
             MTMVCache cache = mtmv.getCache();
-            if (cache == null) {
+            if (cache == null || this.getSelectedIndexId() != this.getTable().getBaseIndexId()) {
                 return;
             }
             Plan originalPlan = cache.getOriginalPlan();
