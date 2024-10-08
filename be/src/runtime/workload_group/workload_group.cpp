@@ -159,9 +159,9 @@ int64_t WorkloadGroup::make_memory_tracker_snapshots(
                 if (tracker_snapshots != nullptr) {
                     tracker_snapshots->insert(tracker_snapshots->end(), tracker);
                 }
+                used_memory += tracker->consumption();
                 ++trackerWptr;
             }
-            used_memory += tracker->consumption();
         }
     }
     // refresh total memory used.
