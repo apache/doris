@@ -107,10 +107,12 @@ void PartitionedAggSinkLocalState::_init_counters() {
     _hash_table_emplace_timer = ADD_TIMER(Base::profile(), "HashTableEmplaceTime");
     _hash_table_input_counter = ADD_COUNTER(Base::profile(), "HashTableInputCount", TUnit::UNIT);
     _max_row_size_counter = ADD_COUNTER(Base::profile(), "MaxRowSizeInBytes", TUnit::UNIT);
-    _container_memory_usage =
-            ADD_COUNTER_WITH_LEVEL(Base::profile(), "ContainerMemoryUsage", TUnit::BYTES, 1);
-    _arena_memory_usage =
-            ADD_COUNTER_WITH_LEVEL(Base::profile(), "ArenaMemoryUsage", TUnit::BYTES, 1);
+    _memory_usage_container =
+            ADD_COUNTER_WITH_LEVEL(Base::profile(), "MemoryUsageContainer", TUnit::BYTES, 1);
+    _memory_usage_arena =
+            ADD_COUNTER_WITH_LEVEL(Base::profile(), "MemoryUsageArena", TUnit::BYTES, 1);
+    _memory_usage_reserved =
+            ADD_COUNTER_WITH_LEVEL(Base::profile(), "MemoryUsageReserved", TUnit::BYTES, 1);
     COUNTER_SET(_max_row_size_counter, (int64_t)0);
 
     _spill_serialize_hash_table_timer =
@@ -137,8 +139,8 @@ void PartitionedAggSinkLocalState::update_profile(RuntimeProfile* child_profile)
     UPDATE_PROFILE(_hash_table_emplace_timer, "HashTableEmplaceTime");
     UPDATE_PROFILE(_hash_table_input_counter, "HashTableInputCount");
     UPDATE_PROFILE(_max_row_size_counter, "MaxRowSizeInBytes");
-    UPDATE_PROFILE(_container_memory_usage, "ContainerMemoryUsage");
-    UPDATE_PROFILE(_arena_memory_usage, "ArenaMemoryUsage");
+    UPDATE_PROFILE(_memory_usage_container, "MemoryUsageContainer");
+    UPDATE_PROFILE(_memory_usage_arena, "MemoryUsageArena");
 
     update_max_min_rows_counter();
 }
@@ -255,7 +257,9 @@ Status PartitionedAggSinkLocalState::setup_in_memory_agg_op(RuntimeState* state)
 size_t PartitionedAggSinkOperatorX::get_reserve_mem_size(RuntimeState* state) {
     auto& local_state = get_local_state(state);
     auto* runtime_state = local_state._runtime_state.get();
-    return _agg_sink_operator->get_reserve_mem_size(runtime_state);
+    auto size = _agg_sink_operator->get_reserve_mem_size(runtime_state);
+    COUNTER_SET(local_state._memory_usage_reserved, int64_t(size));
+    return size;
 }
 
 Status PartitionedAggSinkLocalState::revoke_memory(

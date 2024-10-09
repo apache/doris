@@ -122,7 +122,11 @@ size_t HashJoinBuildSinkLocalState::get_reserve_mem_size(RuntimeState* state) {
     size_t size_to_reserve = 0;
 
     if (!_build_side_mutable_block.empty()) {
-        size_to_reserve += _build_side_mutable_block.allocated_bytes();
+        const auto bytes = _build_side_mutable_block.bytes();
+        const auto allocated_bytes = _build_side_mutable_block.allocated_bytes();
+        if (allocated_bytes != 0 && ((bytes * 100) / allocated_bytes) >= 85) {
+            size_to_reserve += bytes;
+        }
     }
 
     const size_t rows = _build_side_mutable_block.rows() + state->batch_size();
@@ -277,6 +281,10 @@ Status HashJoinBuildSinkLocalState::process_build_block(RuntimeState* state,
     if (UNLIKELY(rows == 0)) {
         return Status::OK();
     }
+
+    LOG(INFO) << "build block rows: " << block.rows() << ", columns count: " << block.columns()
+              << ", bytes/allocated_bytes: " << block.bytes() << "/" << block.allocated_bytes();
+
     COUNTER_UPDATE(_build_rows_counter, rows);
     block.replace_if_overflow();
 

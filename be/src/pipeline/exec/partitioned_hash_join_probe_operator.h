@@ -50,10 +50,10 @@ public:
     Status spill_probe_blocks(RuntimeState* state,
                               const std::shared_ptr<SpillContext>& spill_context = nullptr);
 
-    Status recovery_build_blocks_from_disk(RuntimeState* state, uint32_t partition_index,
-                                           bool& has_data);
-    Status recovery_probe_blocks_from_disk(RuntimeState* state, uint32_t partition_index,
-                                           bool& has_data);
+    Status recover_build_blocks_from_disk(RuntimeState* state, uint32_t partition_index,
+                                          bool& has_data);
+    Status recover_probe_blocks_from_disk(RuntimeState* state, uint32_t partition_index,
+                                          bool& has_data);
 
     Status finish_spilling(uint32_t partition_index);
 
@@ -81,6 +81,7 @@ private:
     std::atomic<bool> _spill_status_ok {true};
 
     std::vector<std::unique_ptr<vectorized::MutableBlock>> _partitioned_blocks;
+    std::unique_ptr<vectorized::MutableBlock> _recovered_build_block;
     std::map<uint32_t, std::vector<vectorized::Block>> _probe_blocks;
 
     std::vector<vectorized::SpillStreamSPtr> _probe_spilling_streams;
@@ -142,6 +143,7 @@ private:
     RuntimeProfile::Counter* _probe_rows_counter = nullptr;
     RuntimeProfile::Counter* _join_filter_timer = nullptr;
     RuntimeProfile::Counter* _build_output_block_timer = nullptr;
+    RuntimeProfile::Counter* _memory_usage_reserved = nullptr;
 };
 
 class PartitionedHashJoinProbeOperatorX final
