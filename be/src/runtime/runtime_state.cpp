@@ -392,6 +392,12 @@ bool RuntimeState::enable_page_cache() const {
 }
 
 bool RuntimeState::is_nereids() const {
+#ifdef BE_TEST
+    if (_query_ctx == nullptr) {
+        return false;
+    }
+#endif
+    DCHECK(_query_ctx);
     return _query_ctx->is_nereids();
 }
 } // end namespace doris
