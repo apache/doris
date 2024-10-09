@@ -289,6 +289,9 @@ public class InsertOverwriteManager extends MasterDaemon implements Writable {
      * @param table Run the table for insert overwrite
      */
     public void recordRunningTableOrException(DatabaseIf db, TableIf table) {
+        if (!(table instanceof OlapTable)) {
+            return;
+        }
         long dbId = db.getId();
         long tableId = table.getId();
         runningLock.writeLock().lock();
