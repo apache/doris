@@ -667,7 +667,7 @@ Status PipelineFragmentContext::_create_tree_helper(ObjectPool* pool,
                                                     const DescriptorTbl& descs, OperatorPtr parent,
                                                     int* node_idx, OperatorPtr* root,
                                                     PipelinePtr& cur_pipe, int child_idx,
-                                                    const bool followed_by_shuffled_join) {
+                                                    const bool followed_by_shuffled_operator) {
     // propagate error case
     if (*node_idx >= tnodes.size()) {
         return Status::InternalError(
@@ -677,11 +677,11 @@ Status PipelineFragmentContext::_create_tree_helper(ObjectPool* pool,
     const TPlanNode& tnode = tnodes[*node_idx];
 
     int num_children = tnodes[*node_idx].num_children;
-    bool current_followed_by_shuffled_join = followed_by_shuffled_join;
+    bool current_followed_by_shuffled_operator = followed_by_shuffled_operator;
     OperatorPtr op = nullptr;
     RETURN_IF_ERROR(_create_operator(pool, tnodes[*node_idx], request, descs, op, cur_pipe,
                                      parent == nullptr ? -1 : parent->node_id(), child_idx,
-                                     followed_by_shuffled_join));
+                                     followed_by_shuffled_operator));
 
     // assert(parent != nullptr || (node_idx == 0 && root_expr != nullptr));
     if (parent != nullptr) {
@@ -691,7 +691,7 @@ Status PipelineFragmentContext::_create_tree_helper(ObjectPool* pool,
         *root = op;
     }
     /**
-     * `ExchangeType::HASH_SHUFFLE` should be used if an operator is followed by a shuffled hash join.
+     * `ExchangeType::HASH_SHUFFLE` should be used if an operator is followed by a shuffled operator (shuffled hash join, union operator followed by co-located operators).
      *
      * For plan:
      * LocalExchange(id=0) -> Aggregation(id=1) -> ShuffledHashJoin(id=2)
@@ -704,15 +704,15 @@ Status PipelineFragmentContext::_create_tree_helper(ObjectPool* pool,
     auto require_shuffled_data_distribution =
             cur_pipe->operators().empty() ? cur_pipe->sink()->require_shuffled_data_distribution()
                                           : op->require_shuffled_data_distribution();
-    current_followed_by_shuffled_join =
-            (followed_by_shuffled_join || op->is_shuffled_hash_join()) &&
+    current_followed_by_shuffled_operator =
+            (followed_by_shuffled_operator || op->is_shuffled_operator()) &&
             require_shuffled_data_distribution;
 
     // rely on that tnodes is preorder of the plan
     for (int i = 0; i < num_children; i++) {
         ++*node_idx;
         RETURN_IF_ERROR(_create_tree_helper(pool, tnodes, request, descs, op, node_idx, nullptr,
-                                            cur_pipe, i, current_followed_by_shuffled_join));
+                                            cur_pipe, i, current_followed_by_shuffled_operator));
 
         // we are expecting a child, but have used all nodes
         // this means we have been given a bad tree and must fail
@@ -753,13 +753,13 @@ Status PipelineFragmentContext::_add_local_exchange_impl(
      * `bucket_seq_to_instance_idx` is empty if no scan operator is contained in this fragment.
      * So co-located operators(e.g. Agg, Analytic) should use `HASH_SHUFFLE` instead of `BUCKET_HASH_SHUFFLE`.
      */
-    const bool followed_by_shuffled_join = operators.size() > idx
-                                                   ? operators[idx]->followed_by_shuffled_join()
-                                                   : cur_pipe->sink()->followed_by_shuffled_join();
+    const bool followed_by_shuffled_operator =
+            operators.size() > idx ? operators[idx]->followed_by_shuffled_operator()
+                                   : cur_pipe->sink()->followed_by_shuffled_operator();
     const bool should_disable_bucket_shuffle =
             bucket_seq_to_instance_idx.empty() &&
             shuffle_idx_to_instance_idx.find(-1) == shuffle_idx_to_instance_idx.end() &&
-            followed_by_shuffled_join;
+            followed_by_shuffled_operator;
     sink.reset(new LocalExchangeSinkOperatorX(
             sink_id, local_exchange_id,
             should_disable_bucket_shuffle ? _total_instances : _num_instances,
@@ -1199,7 +1199,7 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
                                                  const DescriptorTbl& descs, OperatorPtr& op,
                                                  PipelinePtr& cur_pipe, int parent_idx,
                                                  int child_idx,
-                                                 const bool followed_by_shuffled_join) {
+                                                 const bool followed_by_shuffled_operator) {
     // We directly construct the operator from Thrift because the given array is in the order of preorder traversal.
     // Therefore, here we need to use a stack-like structure.
     _pipeline_parent_map.pop(cur_pipe, parent_idx, child_idx);
@@ -1321,7 +1321,7 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
 
                 op.reset(new DistinctStreamingAggOperatorX(pool, next_operator_id(), tnode, descs,
                                                            _require_bucket_distribution));
-                op->set_followed_by_shuffled_join(false);
+                op->set_followed_by_shuffled_operator(false);
                 _require_bucket_distribution = true;
                 RETURN_IF_ERROR(new_pipe->add_operator(op));
                 RETURN_IF_ERROR(cur_pipe->operators().front()->set_child(op));
@@ -1329,7 +1329,7 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
             } else {
                 op.reset(new DistinctStreamingAggOperatorX(pool, next_operator_id(), tnode, descs,
                                                            _require_bucket_distribution));
-                op->set_followed_by_shuffled_join(followed_by_shuffled_join);
+                op->set_followed_by_shuffled_operator(followed_by_shuffled_operator);
                 _require_bucket_distribution =
                         _require_bucket_distribution || op->require_data_distribution();
                 RETURN_IF_ERROR(cur_pipe->add_operator(op));
@@ -1384,7 +1384,7 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
                 sink.reset(new AggSinkOperatorX(pool, next_sink_operator_id(), tnode, descs,
                                                 _require_bucket_distribution));
             }
-            sink->set_followed_by_shuffled_join(followed_by_shuffled_join);
+            sink->set_followed_by_shuffled_operator(followed_by_shuffled_operator);
             _require_bucket_distribution =
                     _require_bucket_distribution || sink->require_data_distribution();
             sink->set_dests_id({op->operator_id()});
@@ -1434,8 +1434,8 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
 
             _pipeline_parent_map.push(op->node_id(), cur_pipe);
             _pipeline_parent_map.push(op->node_id(), build_side_pipe);
-            sink->set_followed_by_shuffled_join(sink->is_shuffled_hash_join());
-            op->set_followed_by_shuffled_join(op->is_shuffled_hash_join());
+            sink->set_followed_by_shuffled_operator(sink->is_shuffled_operator());
+            op->set_followed_by_shuffled_operator(op->is_shuffled_operator());
         } else {
             op.reset(new HashJoinProbeOperatorX(pool, tnode, next_operator_id(), descs));
             RETURN_IF_ERROR(cur_pipe->add_operator(op));
@@ -1456,8 +1456,8 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
 
             _pipeline_parent_map.push(op->node_id(), cur_pipe);
             _pipeline_parent_map.push(op->node_id(), build_side_pipe);
-            sink->set_followed_by_shuffled_join(sink->is_shuffled_hash_join());
-            op->set_followed_by_shuffled_join(op->is_shuffled_hash_join());
+            sink->set_followed_by_shuffled_operator(sink->is_shuffled_operator());
+            op->set_followed_by_shuffled_operator(op->is_shuffled_operator());
         }
         _require_bucket_distribution =
                 _require_bucket_distribution || op->require_data_distribution();
@@ -1487,6 +1487,7 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
     case TPlanNodeType::UNION_NODE: {
         int child_count = tnode.num_children;
         op.reset(new UnionSourceOperatorX(pool, tnode, next_operator_id(), descs));
+        op->set_followed_by_shuffled_operator(_require_bucket_distribution);
         RETURN_IF_ERROR(cur_pipe->add_operator(op));
 
         const auto downstream_pipeline_id = cur_pipe->id();
@@ -1498,6 +1499,7 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
             _dag[downstream_pipeline_id].push_back(build_side_pipe->id());
             DataSinkOperatorPtr sink;
             sink.reset(new UnionSinkOperatorX(i, next_sink_operator_id(), pool, tnode, descs));
+            sink->set_followed_by_shuffled_operator(_require_bucket_distribution);
             sink->set_dests_id({op->operator_id()});
             RETURN_IF_ERROR(build_side_pipe->set_sink(sink));
             RETURN_IF_ERROR(build_side_pipe->sink()->init(tnode, _runtime_state.get()));
@@ -1531,7 +1533,7 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
             sink.reset(new SortSinkOperatorX(pool, next_sink_operator_id(), tnode, descs,
                                              _require_bucket_distribution));
         }
-        sink->set_followed_by_shuffled_join(followed_by_shuffled_join);
+        sink->set_followed_by_shuffled_operator(followed_by_shuffled_operator);
         _require_bucket_distribution =
                 _require_bucket_distribution || sink->require_data_distribution();
         sink->set_dests_id({op->operator_id()});
@@ -1571,7 +1573,7 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
         DataSinkOperatorPtr sink;
         sink.reset(new AnalyticSinkOperatorX(pool, next_sink_operator_id(), tnode, descs,
                                              _require_bucket_distribution));
-        sink->set_followed_by_shuffled_join(followed_by_shuffled_join);
+        sink->set_followed_by_shuffled_operator(followed_by_shuffled_operator);
         _require_bucket_distribution =
                 _require_bucket_distribution || sink->require_data_distribution();
         sink->set_dests_id({op->operator_id()});
@@ -1582,11 +1584,13 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
     case TPlanNodeType::INTERSECT_NODE: {
         RETURN_IF_ERROR(_build_operators_for_set_operation_node<true>(
                 pool, tnode, descs, op, cur_pipe, parent_idx, child_idx));
+        op->set_followed_by_shuffled_operator(_require_bucket_distribution);
         break;
     }
     case TPlanNodeType::EXCEPT_NODE: {
         RETURN_IF_ERROR(_build_operators_for_set_operation_node<false>(
                 pool, tnode, descs, op, cur_pipe, parent_idx, child_idx));
+        op->set_followed_by_shuffled_operator(_require_bucket_distribution);
         break;
     }
     case TPlanNodeType::REPEAT_NODE: {
