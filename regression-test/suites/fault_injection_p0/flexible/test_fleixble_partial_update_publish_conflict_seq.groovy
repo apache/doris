@@ -39,7 +39,7 @@ suite("test_flexible_partial_update_publish_conflict_seq", "nonConcurrent") {
         "store_row_column" = "false"); """
     def show_res = sql "show create table ${tableName}"
     assertTrue(show_res.toString().contains('"enable_unique_key_skip_bitmap_column" = "true"'))
-    sql """insert into ${tableName} values(1,1,1,1,1),(2,2,2,2,2)"""
+    sql """insert into ${tableName} values(1,1,1,1,1),(2,2,2,2,2),(4,4,4,4,4),(5,5,5,5,5),(6,6,6,6,6);"""
     order_qt_sql "select k,v1,v2,v3,v4,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName};"
 
     def beNodes = sql_return_maparray("show backends;")

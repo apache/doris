@@ -688,7 +688,9 @@ Status BaseTablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
             }
 
             ++conflict_rows;
-            if (st.is<KEY_ALREADY_EXISTS>()) {
+            if (st.is<KEY_ALREADY_EXISTS>() &&
+                (!is_partial_update ||
+                 (partial_update_info->is_fixed_partial_update() && have_input_seq_column))) {
                 // `st.is<KEY_ALREADY_EXISTS>()` means that there exists a row with the same key and larger value
                 // in seqeunce column.
                 // - If the current load is not a partial update, we just delete current row.
@@ -701,18 +703,9 @@ Status BaseTablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
                 //       column value.
                 //     - Otherwise, we should combine the values of the missing columns in the previous row and the values
                 //       of the including columns in the current row into a new row.
-                if (!is_partial_update ||
-                    (partial_update_info->is_fixed_partial_update() && have_input_seq_column)) {
-                    delete_bitmap->add({rowset_id, seg->id(), DeleteBitmap::TEMP_VERSION_COMMON},
-                                       row_id);
-                    continue;
-                }
-                // For flexible partial update, we should use skip bitmap to determine wheather
-                // a row has specified the sequence column. But skip bitmap should be read from the segment.
-                // So we record these row ids and process and filter them in `generate_new_block_for_flexible_partial_update()`
-                if (partial_update_info->is_flexible_partial_update()) {
-                    rids_be_overwritten.insert(row_id);
-                }
+                delete_bitmap->add({rowset_id, seg->id(), DeleteBitmap::TEMP_VERSION_COMMON},
+                                   row_id);
+                continue;
             }
             if (is_partial_update && rowset_writer != nullptr) {
                 // In publish version, record rows to be deleted for concurrent update
@@ -731,8 +724,17 @@ Status BaseTablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
                 read_plan_ori.prepare_to_read(loc, pos);
                 read_plan_update.prepare_to_read(RowLocation {rowset_id, seg->id(), row_id}, pos);
 
+                // For flexible partial update, we should use skip bitmap to determine wheather
+                // a row has specified the sequence column. But skip bitmap should be read from the segment.
+                // So we record these row ids and process and filter them in `generate_new_block_for_flexible_partial_update()`
+                if (st.is<KEY_ALREADY_EXISTS>() &&
+                    partial_update_info->is_flexible_partial_update()) {
+                    rids_be_overwritten.insert(pos);
+                }
+
                 rsid_to_rowset[rowset_find->rowset_id()] = rowset_find;
                 ++pos;
+
                 // delete bitmap will be calculate when memtable flush and
                 // publish. The two stages may see different versions.
                 // When there is sequence column, the currently imported data
@@ -1107,10 +1109,18 @@ Status BaseTablet::generate_new_block_for_flexible_partial_update(
         // column value.
         for (auto it = rids_be_overwritten.begin(); it != rids_be_overwritten.end();) {
             auto rid = *it;
-            if (!(*skip_bitmaps)[rid].contains(seq_col_unique_id)) {
+            if (!skip_bitmaps->at(rid).contains(seq_col_unique_id)) {
+                VLOG_DEBUG << fmt::format(
+                        "BaseTablet::generate_new_block_for_flexible_partial_update: rid={} "
+                        "filtered",
+                        rid);
                 ++it;
             } else {
                 it = rids_be_overwritten.erase(it);
+                VLOG_DEBUG << fmt::format(
+                        "BaseTablet::generate_new_block_for_flexible_partial_update: rid={} "
+                        "keeped",
+                        rid);
             }
         }
     }
