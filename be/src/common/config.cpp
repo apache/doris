@@ -271,6 +271,11 @@ DEFINE_mInt64(column_dictionary_key_size_threshold, "0");
 DEFINE_mInt64(memory_limitation_per_thread_for_schema_change_bytes, "2147483648");
 DEFINE_mInt64(memory_limitation_per_thread_for_storage_migration_bytes, "100000000");
 
+// memory_limitation_per_thread_for_schema_change_internal_sorting_bytes unit bytes
+DEFINE_mInt64(memory_limitation_per_thread_for_schema_change_internal_sorting_bytes, "2147483648");
+// schema change internal sorting memory limit as a fraction of soft memory limit
+DEFINE_Double(schema_change_internal_sorting_mem_limit_frac_per_thread, "0.5");
+
 // the clean interval of file descriptor cache and segment cache
 DEFINE_mInt32(cache_clean_interval, "10");
 // the clean interval of tablet lookup cache

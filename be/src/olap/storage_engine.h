@@ -235,6 +235,8 @@ public:
 
     int64_t memory_limitation_bytes_per_thread_for_schema_change() const;
 
+    int64_t memory_limitation_bytes_per_thread_for_schema_change_internal_sorting() const;
+
 private:
     // Instance should be inited from `static open()`
     // MUST NOT be called in other circumstances.
