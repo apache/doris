@@ -174,6 +174,10 @@ suite("test_stream_load_where_delete_expr", "p0") {
         }
     }
 
+    /**
+     *  dupSql 
+     */
+
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql dupSql
     streamLoad {
@@ -222,7 +226,9 @@ suite("test_stream_load_where_delete_expr", "p0") {
         }
     }
 
-
+    /**
+     *  uniquePartition 
+     */
 
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql uniquePartitionSql
