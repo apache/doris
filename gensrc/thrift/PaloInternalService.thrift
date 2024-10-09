@@ -226,8 +226,8 @@ struct TQueryOptions {
   72: optional bool enable_orc_lazy_mat = true
 
   73: optional i64 scan_queue_mem_limit
-
-  74: optional bool enable_scan_node_run_serial = false; 
+  // deprecated
+  74: optional bool enable_scan_node_run_serial = false;
 
   75: optional bool enable_insert_strict = false;
 
