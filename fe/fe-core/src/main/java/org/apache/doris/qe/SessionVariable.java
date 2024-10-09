@@ -662,6 +662,7 @@ public class SessionVariable implements Serializable, Writable {
                                     "enable_adaptive_pipeline_task_serial_read_on_limit";
     public static final String ADAPTIVE_PIPELINE_TASK_SERIAL_READ_ON_LIMIT =
                                     "adaptive_pipeline_task_serial_read_on_limit";
+    public static final String SKIP_INSERT_SEQUENCE_CHECK = "skip_insert_sequence_check";
 
     public static final String ENABLE_PHRASE_QUERY_SEQUENYIAL_OPT = "enable_phrase_query_sequential_opt";
 
@@ -2177,6 +2178,13 @@ public class SessionVariable implements Serializable, Writable {
     })
     public boolean enablePhraseQuerySequentialOpt = true;
 
+    @VariableMgr.VarAttr(name = SKIP_INSERT_SEQUENCE_CHECK, needForward = true, description = {
+            "对于使用了sequence列的unique key表，insert into操作会要求必须提供每一行的sequence列的值，开启该变量后将跳过该检查",
+            "For unique key tables using a sequence column, the INSERT INTO operation requires a sequence value"
+                    + " to be provided for each row. When this variable is enabled, the check will be skipped"
+    })
+    public boolean skipInsertSequenceCheck = false;
+
     public void setEnableEsParallelScroll(boolean enableESParallelScroll) {
         this.enableESParallelScroll = enableESParallelScroll;
     }
@@ -3624,6 +3632,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean isEnableSegmentCache() {
         return this.enableSegmentCache;
+    }
+
+    public void setSkipInsertSequenceCheck(boolean value) {
+        this.skipInsertSequenceCheck = true;
+    }
+
+    public boolean isSkipInsertSequenceCheck() {
+        return this.skipInsertSequenceCheck;
     }
 
     /**
