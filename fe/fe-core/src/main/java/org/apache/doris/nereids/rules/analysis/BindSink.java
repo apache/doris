@@ -24,6 +24,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.GeneratedColumnInfo;
 import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TableIf;
@@ -35,6 +36,7 @@ import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.jdbc.JdbcExternalDatabase;
 import org.apache.doris.datasource.jdbc.JdbcExternalTable;
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.Scope;
 import org.apache.doris.nereids.analyzer.UnboundHiveTableSink;
 import org.apache.doris.nereids.analyzer.UnboundIcebergTableSink;
@@ -44,6 +46,7 @@ import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.pattern.MatchingContext;
+import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
@@ -54,11 +57,14 @@ import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Substring;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
+import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHiveTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalIcebergTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJdbcTableSink;
@@ -76,6 +82,7 @@ import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.OriginStatement;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -84,6 +91,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -230,7 +238,17 @@ public class BindSink implements AnalysisRuleFactory {
                 columns.add(col);
             }
         }
-        return boundSink.withChildAndUpdateOutput(fullOutputProject, columns);
+        Preconditions.checkArgument(fullOutputProject.getOutputs().size() == columns.size(),
+                "output's size should be same as columns's size");
+        int size = columns.size();
+        List<Slot> targetTableSlots = new ArrayList<>(size);
+        for (int i = 0; i < size; ++i) {
+            targetTableSlots.add(SlotReference.fromColumn(table, columns.get(i),
+                    table.getFullQualifiers()));
+        }
+        LegacyExprTranslator exprTranslator = new LegacyExprTranslator(table, targetTableSlots);
+        return boundSink.withChildAndUpdateOutput(fullOutputProject, exprTranslator.createPartitionExprList(),
+                exprTranslator.createSyncMvWhereClause(), targetTableSlots);
     }
 
     private LogicalProject<?> getOutputProjectByCoercion(List<Column> tableSchema, LogicalPlan child,
@@ -724,6 +742,67 @@ public class BindSink implements AnalysisRuleFactory {
                 throw new AnalysisException("cannot find column from target table " + unboundSlot.getNameParts());
             }
             return slotBinder.get(unboundSlot.getName());
+        }
+    }
+
+    private static class LegacyExprTranslator {
+        private final Map<String, Slot> nereidsSlotReplaceMap = new HashMap<>();
+        private final OlapTable olapTable;
+
+        public LegacyExprTranslator(OlapTable table, List<Slot> outputs) {
+            for (Slot expression : outputs) {
+                String name = expression.getName();
+                nereidsSlotReplaceMap.put(name.toLowerCase(), expression.toSlot());
+            }
+            this.olapTable = table;
+        }
+
+        public List<Expression> createPartitionExprList() {
+            return olapTable.getPartitionInfo().getPartitionExprs().stream()
+                    .map(expr -> analyze(expr.toSql())).collect(Collectors.toList());
+        }
+
+        public Map<Long, Expression> createSyncMvWhereClause() {
+            Map<Long, Expression> mvWhereClauses = new HashMap<>();
+            long baseIndexId = olapTable.getBaseIndexId();
+            for (Map.Entry<Long, MaterializedIndexMeta> entry : olapTable.getVisibleIndexIdToMeta().entrySet()) {
+                if (entry.getKey() != baseIndexId && entry.getValue().getWhereClause() != null) {
+                    mvWhereClauses.put(entry.getKey(), analyze(entry.getValue().getWhereClause().toSql()));
+                }
+            }
+            return mvWhereClauses;
+        }
+
+        private Expression analyze(String exprSql) {
+            Expression expression = new NereidsParser().parseExpression(exprSql);
+            Expression boundSlotExpression =
+                    SlotReplacer.INSTANCE.replace(expression, nereidsSlotReplaceMap);
+            Scope scope = new Scope(Lists.newArrayList(nereidsSlotReplaceMap.values()));
+            LogicalEmptyRelation dummyPlan = new LogicalEmptyRelation(
+                    ConnectContext.get().getStatementContext().getNextRelationId(), new ArrayList<>());
+            CascadesContext cascadesContext = CascadesContext.initContext(
+                    new StatementContext(ConnectContext.get(), new OriginStatement(exprSql, 0)),
+                    dummyPlan, PhysicalProperties.ANY);
+            ExpressionAnalyzer analyzer = new ExpressionAnalyzer(null, scope, cascadesContext, false, false);
+            return analyzer.analyze(boundSlotExpression, new ExpressionRewriteContext(cascadesContext));
+        }
+
+        private static class SlotReplacer extends DefaultExpressionRewriter<Map<String, Slot>> {
+            public static final SlotReplacer INSTANCE = new SlotReplacer();
+
+            public Expression replace(Expression e, Map<String, Slot> replaceMap) {
+                return e.accept(this, replaceMap);
+            }
+
+            @Override
+            public Expression visitUnboundSlot(UnboundSlot unboundSlot,
+                                               Map<String, Slot> replaceMap) {
+                if (!replaceMap.containsKey(unboundSlot.getName().toLowerCase())) {
+                    throw new org.apache.doris.nereids.exceptions.AnalysisException(
+                            "Unknown column " + unboundSlot.getName());
+                }
+                return replaceMap.get(unboundSlot.getName().toLowerCase());
+            }
         }
     }
 }
