@@ -135,7 +135,7 @@ Status HashJoinBuildSinkLocalState::close(RuntimeState* state, Status exec_statu
         }
     }};
 
-    if (!_runtime_filter_slots || _runtime_filters.empty() || state->is_cancelled() || !_eos) {
+    if (!_runtime_filter_slots || _runtime_filters.empty() || state->is_cancelled()) {
         return Base::close(state, exec_status);
     }
     auto* block = _shared_state->build_block.get();
