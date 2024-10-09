@@ -20,6 +20,7 @@
 #include <fmt/format.h>
 #include <rapidjson/prettywriter.h>
 
+#include "common/logging.h"
 #include "common/status.h"
 #include "olap/calc_delete_bitmap_executor.h"
 #include "olap/delete_bitmap_calculator.h"
@@ -563,16 +564,27 @@ Status BaseTablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
     auto rowset_id = rowset->rowset_id();
     Version dummy_version(end_version + 1, end_version + 1);
     auto rowset_schema = rowset->tablet_schema();
+
+    PartialUpdateInfo* partial_update_info {nullptr};
     bool is_partial_update = rowset_writer && rowset_writer->is_partial_update();
+    // `have_input_seq_column` is for fixed partial update only. For flexible partial update, we should use
+    // the skip bitmap to determine wheather a row has specified the sequence column
     bool have_input_seq_column = false;
-    if (is_partial_update && rowset_schema->has_sequence_col()) {
-        std::vector<uint32_t> including_cids =
-                rowset_writer->get_partial_update_info()->update_cids;
-        have_input_seq_column =
-                rowset_schema->has_sequence_col() &&
-                (std::find(including_cids.cbegin(), including_cids.cend(),
-                           rowset_schema->sequence_col_idx()) != including_cids.cend());
+    // `rids_be_overwritten` is for flexible partial update only, it records row ids that is overwritten by
+    // another row with higher seqeucne value
+    std::set<uint32_t> rids_be_overwritten;
+    if (is_partial_update) {
+        partial_update_info = rowset_writer->get_partial_update_info().get();
+        if (partial_update_info->is_fixed_partial_update() && rowset_schema->has_sequence_col()) {
+            std::vector<uint32_t> including_cids =
+                    rowset_writer->get_partial_update_info()->update_cids;
+            have_input_seq_column =
+                    rowset_schema->has_sequence_col() &&
+                    (std::find(including_cids.cbegin(), including_cids.cend(),
+                               rowset_schema->sequence_col_idx()) != including_cids.cend());
+        }
     }
+
     if (rowset_schema->num_variant_columns() > 0) {
         // During partial updates, the extracted columns of a variant should not be included in the rowset schema.
         // This is because the partial update for a variant needs to ignore the extracted columns.
@@ -675,7 +687,8 @@ Status BaseTablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
                 continue;
             }
 
-            if (st.is<KEY_ALREADY_EXISTS>() && (!is_partial_update || have_input_seq_column)) {
+            ++conflict_rows;
+            if (st.is<KEY_ALREADY_EXISTS>()) {
                 // `st.is<KEY_ALREADY_EXISTS>()` means that there exists a row with the same key and larger value
                 // in seqeunce column.
                 // - If the current load is not a partial update, we just delete current row.
@@ -688,10 +701,18 @@ Status BaseTablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
                 //       column value.
                 //     - Otherwise, we should combine the values of the missing columns in the previous row and the values
                 //       of the including columns in the current row into a new row.
-                delete_bitmap->add({rowset_id, seg->id(), DeleteBitmap::TEMP_VERSION_COMMON},
-                                   row_id);
-                ++conflict_rows;
-                continue;
+                if (!is_partial_update ||
+                    (partial_update_info->is_fixed_partial_update() && have_input_seq_column)) {
+                    delete_bitmap->add({rowset_id, seg->id(), DeleteBitmap::TEMP_VERSION_COMMON},
+                                       row_id);
+                    continue;
+                }
+                // For flexible partial update, we should use skip bitmap to determine wheather
+                // a row has specified the sequence column. But skip bitmap should be read from the segment.
+                // So we record these row ids and process and filter them in `generate_new_block_for_flexible_partial_update()`
+                if (partial_update_info->is_flexible_partial_update()) {
+                    rids_be_overwritten.insert(row_id);
+                }
             }
             if (is_partial_update && rowset_writer != nullptr) {
                 // In publish version, record rows to be deleted for concurrent update
@@ -725,14 +746,12 @@ Status BaseTablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
                         loc.row_id);
                 delete_bitmap->add({rowset_id, seg->id(), DeleteBitmap::TEMP_VERSION_COMMON},
                                    row_id);
-                ++conflict_rows;
                 ++new_generated_rows;
                 continue;
             }
             // when st = ok
             delete_bitmap->add({loc.rowset_id, loc.segment_id, DeleteBitmap::TEMP_VERSION_COMMON},
                                loc.row_id);
-            ++conflict_rows;
         }
         remaining -= num_read;
     }
@@ -750,29 +769,31 @@ Status BaseTablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
     }
 
     if (pos > 0) {
-        auto partial_update_info = rowset_writer->get_partial_update_info();
         DCHECK(partial_update_info);
         if (partial_update_info->is_fixed_partial_update()) {
             RETURN_IF_ERROR(generate_new_block_for_partial_update(
-                    rowset_schema, partial_update_info.get(), read_plan_ori, read_plan_update,
+                    rowset_schema, partial_update_info, read_plan_ori, read_plan_update,
                     rsid_to_rowset, &block));
         } else {
             RETURN_IF_ERROR(generate_new_block_for_flexible_partial_update(
-                    rowset_schema, partial_update_info.get(), read_plan_ori, read_plan_update,
-                    rsid_to_rowset, &block));
+                    rowset_schema, partial_update_info, rids_be_overwritten, read_plan_ori,
+                    read_plan_update, rsid_to_rowset, &block));
         }
         RETURN_IF_ERROR(sort_block(block, ordered_block));
         RETURN_IF_ERROR(rowset_writer->flush_single_block(&ordered_block));
         if (new_generated_rows != rowset_writer->num_rows()) {
-            LOG(WARNING) << "partial update correctness warning: conflict new generated rows ("
-                         << new_generated_rows << ") not equal to the new flushed rows ("
-                         << rowset_writer->num_rows() << "), tablet: " << tablet_id();
+            LOG_WARNING(
+                    "{} correctness warning: new_generated_rows != flushed_rows, "
+                    "new_generated_rows={}, flushed_rows={}, filtered_rows={}, tablet={}",
+                    partial_update_info->partial_update_mode_str(), new_generated_rows,
+                    rowset_writer->num_rows(), rids_be_overwritten.size(), tablet_id());
         }
         LOG(INFO) << "calc segment delete bitmap for "
                   << partial_update_info->partial_update_mode_str() << ", tablet: " << tablet_id()
                   << " rowset: " << rowset_id << " seg_id: " << seg->id()
                   << " dummy_version: " << end_version + 1 << " rows: " << seg->num_rows()
                   << " conflict rows: " << conflict_rows
+                  << " filtered rows: " << rids_be_overwritten.size()
                   << " new generated rows: " << new_generated_rows
                   << " bimap num: " << delete_bitmap->delete_bitmap.size()
                   << " cost: " << watch.get_elapse_time_us() << "(us)";
@@ -1019,7 +1040,8 @@ Status BaseTablet::generate_new_block_for_partial_update(
 
 Status BaseTablet::generate_new_block_for_flexible_partial_update(
         TabletSchemaSPtr rowset_schema, const PartialUpdateInfo* partial_update_info,
-        const FixedReadPlan& read_plan_ori, const FixedReadPlan& read_plan_update,
+        std::set<uint32_t>& rids_be_overwritten, const FixedReadPlan& read_plan_ori,
+        const FixedReadPlan& read_plan_update,
         const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
         vectorized::Block* output_block) {
     CHECK(output_block);
@@ -1053,7 +1075,7 @@ Status BaseTablet::generate_new_block_for_flexible_partial_update(
     RETURN_IF_ERROR(read_plan_ori.read_columns_by_plan(*rowset_schema, non_sort_key_cids,
                                                        rsid_to_rowset, old_block, &read_index_old));
     size_t old_rows = read_index_old.size();
-    DCHECK(update_rows >= old_rows);
+    DCHECK(update_rows == old_rows);
     const auto* __restrict old_block_delete_signs =
             get_delete_sign_column_data(old_block, old_rows);
     DCHECK(old_block_delete_signs != nullptr);
@@ -1072,6 +1094,26 @@ Status BaseTablet::generate_new_block_for_flexible_partial_update(
             &(assert_cast<const vectorized::ColumnBitmap*, TypeCheckOnRelease::DISABLE>(
                       update_block.get_by_position(skip_bitmap_col_idx).column->get_ptr().get())
                       ->get_data());
+
+    VLOG_DEBUG << fmt::format(
+            "BaseTablet::generate_new_block_for_flexible_partial_update: "
+            "rids_be_overwritten.size()={}",
+            rids_be_overwritten.size());
+    if (rowset_schema->has_sequence_col() && !rids_be_overwritten.empty()) {
+        int32_t seq_col_unique_id =
+                rowset_schema->column(rowset_schema->sequence_col_idx()).unique_id();
+        // If the row specifies the sequence column, we should delete the current row becase the
+        // flexible partial update on the current row has been `overwritten` by the previous one with larger sequence
+        // column value.
+        for (auto it = rids_be_overwritten.begin(); it != rids_be_overwritten.end();) {
+            auto rid = *it;
+            if (!(*skip_bitmaps)[rid].contains(seq_col_unique_id)) {
+                ++it;
+            } else {
+                it = rids_be_overwritten.erase(it);
+            }
+        }
+    }
 
     auto fill_one_cell = [&read_index_old](const TabletColumn& tablet_column, std::size_t idx,
                                            vectorized::MutableColumnPtr& new_col,
@@ -1100,24 +1142,29 @@ Status BaseTablet::generate_new_block_for_flexible_partial_update(
     };
 
     for (std::size_t cid {0}; cid < rowset_schema->num_columns(); cid++) {
-        if (cid < rowset_schema->num_key_columns()) {
-            full_mutable_columns[cid] =
-                    std::move(*update_block.get_by_position(cid).column).mutate();
-        } else {
-            const auto& rs_column = rowset_schema->column(cid);
-            auto col_uid = rs_column.unique_id();
-
-            for (auto idx = 0; idx < update_rows; ++idx) {
-                fill_one_cell(
-                        rs_column, idx, full_mutable_columns[cid],
+        vectorized::MutableColumnPtr& new_col = full_mutable_columns[cid];
+        const vectorized::IColumn& cur_col = *update_block.get_by_position(cid).column;
+        const auto& rs_column = rowset_schema->column(cid);
+        auto col_uid = rs_column.unique_id();
+        for (auto idx = 0; idx < update_rows; ++idx) {
+            if (cid < rowset_schema->num_key_columns()) {
+                new_col->insert_from(cur_col, idx);
+            } else {
+                const vectorized::IColumn& default_value_col =
                         *default_value_block.get_by_position(cid - rowset_schema->num_key_columns())
-                                 .column,
-                        *old_block.get_by_position(cid - rowset_schema->num_key_columns()).column,
-                        *update_block.get_by_position(cid).column,
-                        skip_bitmaps->at(idx).contains(col_uid), old_block_delete_signs);
+                                 .column;
+                const vectorized::IColumn& old_value_col =
+                        *old_block.get_by_position(cid - rowset_schema->num_key_columns()).column;
+                if (rids_be_overwritten.contains(idx)) {
+                    new_col->insert_from(old_value_col, idx);
+                } else {
+                    fill_one_cell(rs_column, idx, new_col, default_value_col, old_value_col,
+                                  cur_col, skip_bitmaps->at(idx).contains(col_uid),
+                                  old_block_delete_signs);
+                }
             }
         }
-        DCHECK(full_mutable_columns[cid]->size() == update_rows);
+        DCHECK_EQ(full_mutable_columns[cid]->size(), update_rows);
     }
 
     output_block->set_columns(std::move(full_mutable_columns));
@@ -1432,7 +1479,8 @@ Status BaseTablet::update_delete_bitmap(const BaseTabletSPtr& self, TabletTxnInf
         auto old_segments = rowset->num_segments();
         rowset->merge_rowset_meta(*transient_rowset->rowset_meta());
         auto new_segments = rowset->num_segments();
-        ss << ", partial update flush rowset (old segment num: " << old_segments
+        ss << ", " << txn_info->partial_update_info->partial_update_mode_str()
+           << " flush rowset (old segment num: " << old_segments
            << ", new segment num: " << new_segments << ")"
            << ", cost:" << watch.get_elapse_time_us() - t4 << "(us)";
 
