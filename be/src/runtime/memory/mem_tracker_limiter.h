@@ -123,9 +123,6 @@ public:
     bool is_query_cancelled() { return _is_query_cancelled; }
     void set_is_query_cancelled(bool is_cancelled) { _is_query_cancelled.store(is_cancelled); }
 
-    // Iterator into mem_tracker_limiter_pool for this object. Stored to have O(1) remove.
-    std::list<std::weak_ptr<MemTrackerLimiter>>::iterator wg_tracker_limiter_group_it;
-
     /*
     * Part 3, Memory tracking method (use carefully!)
     *
