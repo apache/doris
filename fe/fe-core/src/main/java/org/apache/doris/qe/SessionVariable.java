@@ -485,8 +485,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_CTE_MATERIALIZE = "enable_cte_materialize";
 
-    public static final String ENABLE_SCAN_RUN_SERIAL = "enable_scan_node_run_serial";
-
     public static final String ENABLE_ANALYZE_COMPLEX_TYPE_COLUMN = "enable_analyze_complex_type_column";
 
     public static final String EXTERNAL_TABLE_ANALYZE_PART_NUM = "external_table_analyze_part_num";
@@ -1020,12 +1018,6 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_ODBC_TRANSCATION)
     public boolean enableOdbcTransaction = false;
-
-    @VariableMgr.VarAttr(name = ENABLE_SCAN_RUN_SERIAL,  description = {
-            "是否开启ScanNode串行读，以避免limit较小的情况下的读放大，可以提高查询的并发能力",
-            "Whether to enable ScanNode serial reading to avoid read amplification in cases of small limits"
-                + "which can improve query concurrency. default is false."})
-    public boolean enableScanRunSerial = false;
 
     @VariableMgr.VarAttr(name = ENABLE_SQL_CACHE, fuzzy = true)
     public boolean enableSqlCache = false;
@@ -3167,10 +3159,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setShowHiddenColumns(boolean showHiddenColumns) {
         this.showHiddenColumns = showHiddenColumns;
-    }
-
-    public boolean isEnableScanRunSerial() {
-        return enableScanRunSerial;
     }
 
     public boolean skipStorageEngineMerge() {
