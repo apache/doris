@@ -173,6 +173,8 @@ public:
         std::fill(data.data() + old_size, data.data() + old_size + n, val);
     }
 
+    void insert_many_from(const IColumn& src, size_t position, size_t length) override;
+
     void insert_range_of_integer(T begin, T end) {
         if constexpr (std::is_integral_v<T>) {
             auto old_size = data.size();
