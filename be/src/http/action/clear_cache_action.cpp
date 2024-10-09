@@ -30,10 +30,37 @@ namespace doris {
 
 const static std::string HEADER_JSON = "application/json";
 
-void ClearDataCacheAction::handle(HttpRequest* req) {
+void ClearCacheAction::handle(HttpRequest* req) {
     req->add_output_header(HttpHeaders::CONTENT_TYPE, "text/plain; version=0.0.4");
-    CacheManager::instance()->clear_once();
-    HttpChannel::send_reply(req, HttpStatus::OK, "");
+    std::string cache_type_str = req->param("type");
+    fmt::memory_buffer return_string_buffer;
+    int64_t freed_size = 0;
+    if (cache_type_str == "all") {
+        freed_size = CacheManager::instance()->for_each_cache_prune_all(nullptr, true);
+    } else {
+        CachePolicy::CacheType cache_type = CachePolicy::string_to_type(cache_type_str);
+        if (cache_type == CachePolicy::CacheType::NONE) {
+            fmt::format_to(return_string_buffer,
+                           "ClearCacheAction not match type:{} of cache policy", cache_type_str);
+            LOG(WARNING) << fmt::to_string(return_string_buffer);
+            HttpChannel::send_reply(req, HttpStatus::INTERNAL_SERVER_ERROR,
+                                    fmt::to_string(return_string_buffer));
+            return;
+        }
+        freed_size = CacheManager::instance()->cache_prune_all(cache_type, true);
+        if (freed_size == -1) {
+            fmt::format_to(return_string_buffer,
+                           "ClearCacheAction cache:{} is not allowed to be pruned", cache_type_str);
+            LOG(WARNING) << fmt::to_string(return_string_buffer);
+            HttpChannel::send_reply(req, HttpStatus::INTERNAL_SERVER_ERROR,
+                                    fmt::to_string(return_string_buffer));
+            return;
+        }
+    }
+    fmt::format_to(return_string_buffer, "ClearCacheAction cache:{} prune win, freed size {}",
+                   cache_type_str, freed_size);
+    LOG(WARNING) << fmt::to_string(return_string_buffer);
+    HttpChannel::send_reply(req, HttpStatus::OK, fmt::to_string(return_string_buffer));
 }
 
 } // end namespace doris

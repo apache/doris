@@ -35,14 +35,21 @@ import java.util.Map;
 
 // CREATE STORAGE VAULT vault_name
 // PROPERTIES (key1 = value1, ...)
-public class CreateStorageVaultStmt extends DdlStmt {
+public class CreateStorageVaultStmt extends DdlStmt implements NotFallbackInParser {
     private static final String TYPE = "type";
+
+    private static final String PATH_VERSION = "path_version";
+
+    private static final String SHARD_NUM = "shard_num";
+
     private static final String SET_AS_DEFAULT = "set_as_default";
 
     private final boolean ifNotExists;
     private final String vaultName;
     private final Map<String, String> properties;
     private boolean setAsDefault;
+    private int pathVersion = 0;
+    private int numShard = 0;
     private StorageVault.StorageVaultType vaultType;
 
     public CreateStorageVaultStmt(boolean ifNotExists, String vaultName, Map<String, String> properties) {
@@ -62,6 +69,14 @@ public class CreateStorageVaultStmt extends DdlStmt {
 
     public String getStorageVaultName() {
         return vaultName;
+    }
+
+    public int getNumShard() {
+        return numShard;
+    }
+
+    public int getPathVersion() {
+        return pathVersion;
     }
 
     public Map<String, String> getProperties() {
@@ -107,6 +122,16 @@ public class CreateStorageVaultStmt extends DdlStmt {
         String type = properties.get(TYPE);
         if (type == null) {
             throw new AnalysisException("Storage Vault type can't be null");
+        }
+        final String pathVersionString = properties.get(PATH_VERSION);
+        if (pathVersionString != null) {
+            this.pathVersion = Integer.parseInt(pathVersionString);
+            properties.remove(PATH_VERSION);
+        }
+        final String numShardString = properties.get(SHARD_NUM);
+        if (numShardString != null) {
+            this.numShard = Integer.parseInt(numShardString);
+            properties.remove(SHARD_NUM);
         }
         setAsDefault = Boolean.parseBoolean(properties.getOrDefault(SET_AS_DEFAULT, "false"));
         setStorageVaultType(StorageVault.StorageVaultType.fromString(type));

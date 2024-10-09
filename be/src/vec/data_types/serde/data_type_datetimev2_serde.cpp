@@ -49,7 +49,9 @@ Status DataTypeDateTimeV2SerDe::serialize_one_cell_to_json(const IColumn& column
     ColumnPtr ptr = result.first;
     row_num = result.second;
 
-    UInt64 int_val = assert_cast<const ColumnUInt64&>(*ptr).get_element(row_num);
+    UInt64 int_val =
+            assert_cast<const ColumnUInt64&, TypeCheckOnRelease::DISABLE>(*ptr).get_element(
+                    row_num);
     DateV2Value<DateTimeV2ValueType> val =
             binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(int_val);
 
@@ -76,7 +78,7 @@ Status DataTypeDateTimeV2SerDe::deserialize_column_from_json_vector(
 }
 Status DataTypeDateTimeV2SerDe::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
                                                                const FormatOptions& options) const {
-    auto& column_data = assert_cast<ColumnUInt64&>(column);
+    auto& column_data = assert_cast<ColumnUInt64&, TypeCheckOnRelease::DISABLE>(column);
     UInt64 val = 0;
     if (options.date_olap_format) {
         DateV2Value<DateTimeV2ValueType> datetimev2_value;

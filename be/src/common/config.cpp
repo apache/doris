@@ -37,6 +37,7 @@
 #include <utility>
 #include <vector>
 
+#include "cloud/config.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
@@ -137,9 +138,7 @@ DEFINE_mBool(disable_memory_gc, "false");
 
 DEFINE_mBool(enable_stacktrace, "true");
 
-DEFINE_mBool(enable_stacktrace_in_allocator_check_failed, "false");
-
-DEFINE_mInt64(large_memory_check_bytes, "2147483648");
+DEFINE_mInt64(stacktrace_in_alloc_large_memory_bytes, "2147483648");
 
 DEFINE_mBool(enable_memory_orphan_check, "false");
 
@@ -270,18 +269,13 @@ DEFINE_mInt32(doris_scan_range_row_count, "524288");
 DEFINE_mInt32(doris_scan_range_max_mb, "1024");
 // max bytes number for single scan block, used in segmentv2
 DEFINE_mInt32(doris_scan_block_max_mb, "67108864");
-// size of scanner queue between scanner thread and compute thread
-DEFINE_mInt32(doris_scanner_queue_size, "1024");
 // single read execute fragment row number
 DEFINE_mInt32(doris_scanner_row_num, "16384");
 // single read execute fragment row bytes
 DEFINE_mInt32(doris_scanner_row_bytes, "10485760");
+// single read execute fragment max run time millseconds
+DEFINE_mInt32(doris_scanner_max_run_time_ms, "1000");
 DEFINE_mInt32(min_bytes_in_scanner_queue, "67108864");
-// number of max scan keys
-DEFINE_mInt32(doris_max_scan_key_num, "48");
-// the max number of push down values of a single column.
-// if exceed, no conditions will be pushed down for that column.
-DEFINE_mInt32(max_pushdown_conditions_per_column, "1024");
 // (Advanced) Maximum size of per-query receive-side buffer
 DEFINE_mInt32(exchg_node_buffer_size_bytes, "20485760");
 DEFINE_mInt32(exchg_buffer_queue_capacity_factor, "64");
@@ -314,7 +308,7 @@ DEFINE_mInt32(default_num_rows_per_column_file_block, "1024");
 // pending data policy
 DEFINE_mInt32(pending_data_expire_time_sec, "1800");
 // inc_rowset snapshot rs sweep time interval
-DEFINE_mInt32(tablet_rowset_stale_sweep_time_sec, "300");
+DEFINE_mInt32(tablet_rowset_stale_sweep_time_sec, "600");
 // tablet stale rowset sweep by threshold size
 DEFINE_Bool(tablet_rowset_stale_sweep_by_size, "false");
 DEFINE_mInt32(tablet_rowset_stale_sweep_threshold_size, "100");
@@ -519,7 +513,7 @@ DEFINE_Int32(brpc_light_work_pool_max_queue_size, "-1");
 DEFINE_mBool(enable_bthread_transmit_block, "true");
 
 // The maximum amount of data that can be processed by a stream load
-DEFINE_mInt64(streaming_load_max_mb, "10240");
+DEFINE_mInt64(streaming_load_max_mb, "102400");
 // Some data formats, such as JSON, cannot be streamed.
 // Therefore, it is necessary to limit the maximum number of
 // such data when using stream load to prevent excessive memory consumption.
@@ -555,9 +549,9 @@ DEFINE_mInt32(olap_table_sink_send_interval_microseconds, "1000");
 DEFINE_mDouble(olap_table_sink_send_interval_auto_partition_factor, "0.001");
 
 // Fragment thread pool
-DEFINE_Int32(fragment_pool_thread_num_min, "64");
-DEFINE_Int32(fragment_pool_thread_num_max, "2048");
-DEFINE_Int32(fragment_pool_queue_size, "4096");
+DEFINE_Int32(fragment_mgr_asynic_work_pool_thread_num_min, "16");
+DEFINE_Int32(fragment_mgr_asynic_work_pool_thread_num_max, "512");
+DEFINE_Int32(fragment_mgr_asynic_work_pool_queue_size, "4096");
 
 // Control the number of disks on the machine.  If 0, this comes from the system settings.
 DEFINE_Int32(num_disks, "0");
@@ -633,6 +627,8 @@ DEFINE_Int32(load_process_safe_mem_permit_percent, "5");
 
 // result buffer cancelled time (unit: second)
 DEFINE_mInt32(result_buffer_cancelled_interval_time, "300");
+
+DEFINE_mInt32(arrow_flight_result_sink_buffer_size_rows, "32768");
 
 // the increased frequency of priority for remaining tasks in BlockingPriorityQueue
 DEFINE_mInt32(priority_queue_remaining_tasks_increased_frequency, "512");
@@ -812,14 +808,6 @@ DEFINE_Int32(load_stream_eagain_wait_seconds, "600");
 DEFINE_Int32(load_stream_flush_token_max_tasks, "15");
 // max wait flush token time in load stream
 DEFINE_Int32(load_stream_max_wait_flush_token_time_ms, "600000");
-
-// max send batch parallelism for OlapTableSink
-// The value set by the user for send_batch_parallelism is not allowed to exceed max_send_batch_parallelism_per_job,
-// if exceed, the value of send_batch_parallelism would be max_send_batch_parallelism_per_job
-DEFINE_mInt32(max_send_batch_parallelism_per_job, "5");
-DEFINE_Validator(max_send_batch_parallelism_per_job,
-                 [](const int config) -> bool { return config >= 1; });
-
 // number of send batch thread pool size
 DEFINE_Int32(send_batch_thread_pool_thread_num, "64");
 // number of send batch thread pool queue size
@@ -922,9 +910,8 @@ DEFINE_mInt32(orc_natural_read_size_mb, "8");
 DEFINE_mInt64(big_column_size_buffer, "65535");
 DEFINE_mInt64(small_column_size_buffer, "100");
 
-// When the rows number reached this limit, will check the filter rate the of bloomfilter
-// if it is lower than a specific threshold, the predicate will be disabled.
-DEFINE_mInt32(rf_predicate_check_row_num, "204800");
+// rf will decide whether the next sampling_frequency blocks need to be filtered based on the filtering rate of the current block.
+DEFINE_mInt32(runtime_filter_sampling_frequency, "64");
 
 // cooldown task configs
 DEFINE_Int32(cooldown_thread_num, "5");
@@ -936,7 +923,8 @@ DEFINE_mInt32(cold_data_compaction_interval_sec, "1800");
 
 DEFINE_String(tmp_file_dir, "tmp");
 
-DEFINE_Int32(s3_transfer_executor_pool_size, "2");
+DEFINE_Int32(min_s3_file_system_thread_num, "16");
+DEFINE_Int32(max_s3_file_system_thread_num, "64");
 
 DEFINE_Bool(enable_time_lut, "true");
 DEFINE_mBool(enable_simdjson_reader, "true");
@@ -1000,20 +988,26 @@ DEFINE_Int32(pipeline_executor_size, "0");
 DEFINE_Bool(enable_workload_group_for_scan, "false");
 DEFINE_mInt64(workload_group_scan_task_wait_timeout_ms, "10000");
 
-// Temp config. True to use optimization for bitmap_index apply predicate except leaf node of the and node.
-// Will remove after fully test.
-DEFINE_Bool(enable_index_apply_preds_except_leafnode_of_andnode, "true");
-
-DEFINE_mBool(variant_enable_flatten_nested, "false");
 DEFINE_mDouble(variant_ratio_of_defaults_as_sparse_column, "1");
-DEFINE_mInt64(variant_threshold_rows_to_estimate_sparse_column, "1000");
+DEFINE_mInt64(variant_threshold_rows_to_estimate_sparse_column, "2048");
 DEFINE_mBool(variant_throw_exeception_on_invalid_json, "false");
 
 // block file cache
 DEFINE_Bool(enable_file_cache, "false");
 // format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240}]
 // format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240},{"path":"/path/to/file_cache2","total_size":21474836480,"query_limit":10737418240}]
-DEFINE_String(file_cache_path, "");
+// format: {"path": "/path/to/file_cache", "total_size":53687091200, "normal_percent":85, "disposable_percent":10, "index_percent":5}
+// format: [{"path": "xxx", "total_size":53687091200, "storage": "memory"}]
+// Note1: storage is "disk" by default
+// Note2: when the storage is "memory", the path is ignored. So you can set xxx to anything you like
+// and doris will just reset the path to "memory" internally.
+// In a very wierd case when your storage is disk, and the directory, by accident, is named
+// "memory" for some reason, you should write the path as:
+//     {"path": "memory", "total_size":53687091200, "storage": "disk"}
+// or use the default storage value:
+//     {"path": "memory", "total_size":53687091200}
+// Both will use the directory "memory" on the disk instead of the real RAM.
+DEFINE_String(file_cache_path, "[{\"path\":\"${DORIS_HOME}/file_cache\"}]");
 DEFINE_Int64(file_cache_each_block_size, "1048576"); // 1MB
 
 DEFINE_Bool(clear_file_cache, "false");
@@ -1026,6 +1020,11 @@ DEFINE_mInt64(file_cache_ttl_valid_check_interval_second, "0"); // zero for not 
 // If true, evict the ttl cache using LRU when full.
 // Otherwise, only expiration can evict ttl and new data won't add to cache when full.
 DEFINE_Bool(enable_ttl_cache_evict_using_lru, "true");
+// rename ttl filename to new format during read, with some performance cost
+DEFINE_mBool(translate_to_new_ttl_format_during_read, "false");
+DEFINE_mBool(enbale_dump_error_file, "true");
+// limit the max size of error log on disk
+DEFINE_mInt64(file_cache_error_log_limit_bytes, "209715200"); // 200MB
 
 DEFINE_mInt32(index_cache_entry_stay_time_after_lookup_s, "1800");
 DEFINE_mInt32(inverted_index_cache_stale_sweep_time_sec, "600");
@@ -1051,7 +1050,7 @@ DEFINE_Int32(inverted_index_read_buffer_size, "4096");
 // tree depth for bkd index
 DEFINE_Int32(max_depth_in_bkd_tree, "32");
 // index compaction
-DEFINE_mBool(inverted_index_compaction_enable, "true");
+DEFINE_mBool(inverted_index_compaction_enable, "false");
 // Only for debug, do not use in production
 DEFINE_mBool(debug_inverted_index_compaction, "false");
 // index by RAM directory
@@ -1337,13 +1336,22 @@ DEFINE_mInt64(compaction_batch_size, "-1");
 // If set to false, the parquet reader will not use page index to filter data.
 // This is only for debug purpose, in case sometimes the page index
 // filter wrong data.
-DEFINE_mBool(enable_parquet_page_index, "true");
+DEFINE_mBool(enable_parquet_page_index, "false");
 
 DEFINE_mBool(ignore_not_found_file_in_external_table, "true");
 
 DEFINE_mBool(enable_hdfs_mem_limiter, "true");
 
 DEFINE_mInt16(topn_agg_limit_multiplier, "2");
+
+// Tablet meta size limit after serialization, 1.5GB
+DEFINE_mInt64(tablet_meta_serialize_size_limit, "1610612736");
+// Protobuf supports a maximum of 2GB, so the size of the tablet meta after serialization must be less than 2GB
+// 1717986918 = 2GB * 0.8
+DEFINE_Validator(tablet_meta_serialize_size_limit,
+                 [](const int64_t config) -> bool { return config < 1717986918; });
+
+DEFINE_mInt64(pipeline_task_leakage_detect_period_secs, "60");
 
 // clang-format off
 #ifdef BE_TEST
@@ -1679,6 +1687,11 @@ bool init(const char* conf_file, bool fill_conf_map, bool must_exist, bool set_t
         SET_FIELD(it.second, std::vector<int64_t>, fill_conf_map, set_to_default);
         SET_FIELD(it.second, std::vector<double>, fill_conf_map, set_to_default);
         SET_FIELD(it.second, std::vector<std::string>, fill_conf_map, set_to_default);
+    }
+
+    if (config::is_cloud_mode()) {
+        auto st = config::set_config("enable_file_cache", "true", true, true);
+        LOG(INFO) << "set config enable_file_cache " << "true" << " " << st;
     }
 
     return true;

@@ -157,6 +157,7 @@ set(BOOST_VERSION "1.81.0")
 
 if (NOT APPLE)
     find_package(Boost ${BOOST_VERSION} REQUIRED COMPONENTS system date_time)
+    find_package(Boost ${BOOST_VERSION} REQUIRED COMPONENTS system container)
 else()
     find_package(Boost ${BOOST_VERSION} COMPONENTS system date_time)
     find_package(Boost ${BOOST_VERSION} COMPONENTS system container)
@@ -298,12 +299,11 @@ if (COMPILER_CLANG)
                         -Wno-implicit-float-conversion
                         -Wno-implicit-int-conversion
                         -Wno-sign-conversion
+                        -Wno-missing-field-initializers
+                        -Wno-unused-const-variable
                         -Wno-shorten-64-to-32)
     if (USE_LIBCPP)
         add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-stdlib=libc++>)
-        if (NOT OS_MACOSX)
-            add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-lstdc++>)
-        endif()
         add_definitions(-DUSE_LIBCPP)
     endif()
 endif ()
@@ -373,29 +373,29 @@ endif()
 # For CMAKE_BUILD_TYPE=Debug
 if (OS_MACOSX AND ARCH_ARM)
     # Using -O0 may meet ARM64 branch out of range errors when linking with tcmalloc.
-    set(CXX_FLAGS_DEBUG "${CXX_GCC_FLAGS} -Og")
+    set(CXX_FLAGS_DEBUG "-Og")
 else()
-    set(CXX_FLAGS_DEBUG "${CXX_GCC_FLAGS} -O0")
+    set(CXX_FLAGS_DEBUG "-O0")
 endif()
 
 # For CMAKE_BUILD_TYPE=Release
 #   -O3: Enable all compiler optimizations
 #   -DNDEBUG: Turn off dchecks/asserts/debug only code.
-set(CXX_FLAGS_RELEASE "${CXX_GCC_FLAGS} -O3 -DNDEBUG")
-set(CXX_FLAGS_ASAN "${CXX_GCC_FLAGS} -O0 -fsanitize=address -fsanitize=undefined -fno-strict-aliasing -fno-sanitize=alignment,signed-integer-overflow,float-cast-overflow -DUNDEFINED_BEHAVIOR_SANITIZER -DADDRESS_SANITIZER")
-set(CXX_FLAGS_LSAN "${CXX_GCC_FLAGS} -O0 -fsanitize=leak -DLEAK_SANITIZER")
+set(CXX_FLAGS_RELEASE "-O3 -DNDEBUG")
+set(CXX_FLAGS_ASAN "-O0 -fsanitize=address -fsanitize=undefined -fno-strict-aliasing -fno-sanitize=alignment,signed-integer-overflow,float-cast-overflow -DUNDEFINED_BEHAVIOR_SANITIZER -DADDRESS_SANITIZER")
+set(CXX_FLAGS_LSAN "-O0 -fsanitize=leak -DLEAK_SANITIZER")
 ## Use for BE-UT
-set(CXX_FLAGS_ASAN_UT "${CXX_GCC_FLAGS} -O0 -fsanitize=address -DADDRESS_SANITIZER")
+set(CXX_FLAGS_ASAN_UT "-O0 -fsanitize=address -DADDRESS_SANITIZER")
 
 # Set the flags to the undefined behavior sanitizer, also known as "ubsan"
 # Turn on sanitizer and debug symbols to get stack traces:
-set(CXX_FLAGS_UBSAN "${CXX_GCC_FLAGS} -O0 -fno-wrapv -mcmodel=medium -fsanitize=undefined -DUNDEFINED_BEHAVIOR_SANITIZER")
+set(CXX_FLAGS_UBSAN "-O0 -fno-wrapv -mcmodel=medium -fsanitize=undefined -DUNDEFINED_BEHAVIOR_SANITIZER")
 
 # Set the flags to the thread sanitizer, also known as "tsan"
 # Turn on sanitizer and debug symbols to get stack traces:
 # Use -Wno-builtin-declaration-mismatch to mute warnings like "new declaration ‘__tsan_atomic16 __tsan_atomic16_fetch_nand(..."
 # If use -O0 to compile, BE will stack overflow when start. https://github.com/apache/doris/issues/8868
-set(CXX_FLAGS_TSAN "${CXX_GCC_FLAGS} -O1 -fsanitize=thread -DTHREAD_SANITIZER -Wno-missing-declarations")
+set(CXX_FLAGS_TSAN "-O1 -fsanitize=thread -DTHREAD_SANITIZER -Wno-missing-declarations")
 
 # Set compile flags based on the build type.
 if ("${CMAKE_BUILD_TYPE}" STREQUAL "DEBUG")
@@ -517,6 +517,7 @@ find_package(absl)
 # add it here first.
 set(COMMON_THIRDPARTY
     Boost::date_time
+    Boost::container
     ${COMMON_THIRDPARTY}
 )
 
@@ -559,7 +560,6 @@ endif()
 if (OS_MACOSX)
     set(COMMON_THIRDPARTY
         ${COMMON_THIRDPARTY}
-        Boost::container
         bfd
         iberty
         intl
@@ -603,9 +603,11 @@ if (NOT OS_MACOSX)
         ${DORIS_DEPENDENCIES}
         -static-libstdc++
         -static-libgcc
-        -lstdc++fs
         -lresolv
     )
+    if (NOT (USE_LIBCPP AND COMPILER_CLANG))
+        set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS} -lstdc++fs)
+    endif()
 else()
     set(DORIS_LINK_LIBS
         ${DORIS_LINK_LIBS}

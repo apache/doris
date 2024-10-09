@@ -33,7 +33,7 @@ import java.util.Map;
 
 // CREATE [EXTERNAL] RESOURCE resource_name
 // PROPERTIES (key1 = value1, ...)
-public class CreateResourceStmt extends DdlStmt {
+public class CreateResourceStmt extends DdlStmt implements NotFallbackInParser {
     private static final String TYPE = "type";
 
     private final boolean isExternal;

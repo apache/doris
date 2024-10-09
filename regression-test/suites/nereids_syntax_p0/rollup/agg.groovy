@@ -14,6 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+import java.util.concurrent.TimeUnit
+import org.awaitility.Awaitility
+
 suite("agg") {
 
     sql """set enable_nereids_planner=true"""
@@ -43,37 +46,28 @@ suite("agg") {
         """
     sql """ALTER TABLE ${tbName} ADD ROLLUP rollup_city(citycode, pv);"""
     int max_try_secs = 60
-    while (max_try_secs--) {
-        String res = getJobRollupState(tbName)
+    String res = "NOT_FINISHED"
+    Awaitility.await().atMost(max_try_secs, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).await().until(() -> {
+        res = getJobRollupState(tbName)
         if (res == "FINISHED" || res == "CANCELLED") {
             assertEquals("FINISHED", res)
-            sleep(3000)
-            break
-        } else {
-            Thread.sleep(2000)
-            if (max_try_secs < 1) {
-                println "test timeout," + "state:" + res
-                assertEquals("FINISHED",res)
-            }
+            return true;
         }
-    }
-    Thread.sleep(2000)
+        return false;
+    });
+    assertEquals("FINISHED",res)
+
     sql "ALTER TABLE ${tbName} ADD COLUMN vv BIGINT SUM NULL DEFAULT '0' TO rollup_city;"
     max_try_secs = 60
-    while (max_try_secs--) {
-        String res = getJobColumnState(tbName)
+    Awaitility.await().atMost(max_try_secs, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).await().until(() -> {
+        res = getJobColumnState(tbName)
         if (res == "FINISHED" || res == "CANCELLED") {
             assertEquals("FINISHED", res)
-            sleep(3000)
-            break
-        } else {
-            Thread.sleep(2000)
-            if (max_try_secs < 1) {
-                println "test timeout," + "state:" + res
-                assertEquals("FINISHED",res)
-            }
+            return true;
         }
-    }
+        return false;
+    });
+    assertEquals("FINISHED",res)
     sql "SHOW ALTER TABLE ROLLUP WHERE TableName='${tbName}';"
     qt_sql "DESC ${tbName} ALL;"
     sql "insert into ${tbName} values(1, 1, 'test1', 100,100,100);"

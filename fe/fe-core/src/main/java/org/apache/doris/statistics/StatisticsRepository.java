@@ -126,11 +126,20 @@ public class StatisticsRepository {
 
     public static ColumnStatistic queryColumnStatisticsByName(
             long ctlId, long dbId, long tableId, long indexId, String colName) {
+        ColumnStatistic columnStatistic = ColumnStatistic.UNKNOWN;
         ResultRow resultRow = queryColumnStatisticById(ctlId, dbId, tableId, indexId, colName);
         if (resultRow == null) {
-            return ColumnStatistic.UNKNOWN;
+            return columnStatistic;
         }
-        return ColumnStatistic.fromResultRow(resultRow);
+        try {
+            columnStatistic = ColumnStatistic.fromResultRow(resultRow);
+        } catch (Exception e) {
+            LOG.warn("Failed to deserialize column statistics. reason: [{}]. Row [{}]", e.getMessage(), resultRow);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug(e);
+            }
+        }
+        return columnStatistic;
     }
 
     public static List<ResultRow> queryColumnStatisticsByPartitions(TableIf table, Set<String> columnNames,

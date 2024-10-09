@@ -483,7 +483,7 @@ public class PropertyConverterTest extends TestWithFeService {
                 + "    'oss.secret_key' = 'skk'\n"
                 + ");";
         testS3CompatibleCatalogProperties(catalogName1, OssProperties.OSS_PREFIX,
-                "oss.oss-cn-beijing.aliyuncs.com", query1, 12, 17);
+                "oss.oss-cn-beijing.aliyuncs.com", query1, 12, 16);
 
         String catalogName2 = "hms_minio";
         String query2 = "create catalog " + catalogName2 + " properties (\n"

@@ -67,7 +67,7 @@ import java.util.Set;
  * ORDER BY column_name[, column_name ...])
  * [PROPERTIES ("key" = "value")]
  */
-public class CreateMaterializedViewStmt extends DdlStmt {
+public class CreateMaterializedViewStmt extends DdlStmt implements NotFallbackInParser {
     private static final Logger LOG = LogManager.getLogger(CreateMaterializedViewStmt.class);
 
     public static final String MATERIALIZED_VIEW_NAME_PREFIX = "mv_";

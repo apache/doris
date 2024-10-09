@@ -21,19 +21,19 @@ PhysicalCteAnchor ( cteId=CTEId#1 )
 ------------------------------------PhysicalProject
 --------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_promo_sk = promotion.p_promo_sk)) otherCondition=() build RFs:RF12 p_promo_sk->[ss_promo_sk]
 ----------------------------------------PhysicalProject
-------------------------------------------hashJoin[INNER_JOIN shuffle] hashCondition=((customer.c_current_cdemo_sk = cd2.cd_demo_sk)) otherCondition=(( not (cd_marital_status = cd_marital_status))) build RFs:RF11 cd_demo_sk->[c_current_cdemo_sk]
+------------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((customer.c_current_cdemo_sk = cd2.cd_demo_sk)) otherCondition=(( not (cd_marital_status = cd_marital_status))) build RFs:RF11 cd_demo_sk->[c_current_cdemo_sk]
 --------------------------------------------PhysicalProject
-----------------------------------------------hashJoin[INNER_JOIN shuffle] hashCondition=((store_sales.ss_cdemo_sk = cd1.cd_demo_sk)) otherCondition=() build RFs:RF10 cd_demo_sk->[ss_cdemo_sk]
+----------------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_cdemo_sk = cd1.cd_demo_sk)) otherCondition=() build RFs:RF10 cd_demo_sk->[ss_cdemo_sk]
 ------------------------------------------------PhysicalProject
 --------------------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((customer.c_first_shipto_date_sk = d3.d_date_sk)) otherCondition=() build RFs:RF9 d_date_sk->[c_first_shipto_date_sk]
 ----------------------------------------------------PhysicalProject
 ------------------------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((customer.c_first_sales_date_sk = d2.d_date_sk)) otherCondition=() build RFs:RF8 d_date_sk->[c_first_sales_date_sk]
 --------------------------------------------------------PhysicalProject
-----------------------------------------------------------hashJoin[INNER_JOIN shuffle] hashCondition=((store_sales.ss_customer_sk = customer.c_customer_sk)) otherCondition=() build RFs:RF7 c_customer_sk->[ss_customer_sk]
+----------------------------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_store_sk = store.s_store_sk)) otherCondition=() build RFs:RF7 s_store_sk->[ss_store_sk]
 ------------------------------------------------------------PhysicalProject
---------------------------------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_store_sk = store.s_store_sk)) otherCondition=() build RFs:RF6 s_store_sk->[ss_store_sk]
+--------------------------------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_sold_date_sk = d1.d_date_sk)) otherCondition=() build RFs:RF6 d_date_sk->[ss_sold_date_sk]
 ----------------------------------------------------------------PhysicalProject
-------------------------------------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_sold_date_sk = d1.d_date_sk)) otherCondition=() build RFs:RF5 d_date_sk->[ss_sold_date_sk]
+------------------------------------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_customer_sk = customer.c_customer_sk)) otherCondition=() build RFs:RF5 c_customer_sk->[ss_customer_sk]
 --------------------------------------------------------------------PhysicalProject
 ----------------------------------------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_item_sk = cs_ui.cs_item_sk)) otherCondition=() build RFs:RF4 cs_item_sk->[sr_item_sk,ss_item_sk]
 ------------------------------------------------------------------------PhysicalProject
@@ -54,12 +54,12 @@ PhysicalCteAnchor ( cteId=CTEId#1 )
 --------------------------------------------------------------------------------------PhysicalProject
 ----------------------------------------------------------------------------------------PhysicalOlapScan[catalog_returns] apply RFs: RF19
 --------------------------------------------------------------------PhysicalProject
-----------------------------------------------------------------------filter(d_year IN (2001, 2002))
-------------------------------------------------------------------------PhysicalOlapScan[date_dim]
+----------------------------------------------------------------------PhysicalOlapScan[customer] apply RFs: RF8 RF9 RF11 RF14 RF16
 ----------------------------------------------------------------PhysicalProject
-------------------------------------------------------------------PhysicalOlapScan[store]
+------------------------------------------------------------------filter(d_year IN (2001, 2002))
+--------------------------------------------------------------------PhysicalOlapScan[date_dim]
 ------------------------------------------------------------PhysicalProject
---------------------------------------------------------------PhysicalOlapScan[customer] apply RFs: RF8 RF9 RF11 RF14 RF16
+--------------------------------------------------------------PhysicalOlapScan[store]
 --------------------------------------------------------PhysicalProject
 ----------------------------------------------------------PhysicalOlapScan[date_dim]
 ----------------------------------------------------PhysicalProject

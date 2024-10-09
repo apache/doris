@@ -68,8 +68,24 @@ suite("test_hive_mtmv", "p0,external,hive,external_docker,external_docker_hive")
             waitingMTMVTaskFinished(jobName)
             order_qt_refresh_complete "SELECT * FROM ${mvName} order by id"
 
-            sql """drop materialized view if exists ${mvName};"""
+            order_qt_is_sync_before_rebuild "select SyncWithBaseTables from mv_infos('database'='${dbName}') where Name='${mvName}'"
+           // rebuild catalog, should not Affects MTMV
+            sql """drop catalog if exists ${catalog_name}"""
+            sql """create catalog if not exists ${catalog_name} properties (
+                "type"="hms",
+                'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}'
+            );"""
 
+            order_qt_is_sync_after_rebuild "select SyncWithBaseTables from mv_infos('database'='${dbName}') where Name='${mvName}'"
+
+            // should refresh normal after catalog rebuild
+            sql """
+                    REFRESH MATERIALIZED VIEW ${mvName} complete
+                """
+            waitingMTMVTaskFinished(jobName)
+            order_qt_refresh_complete_rebuild "SELECT * FROM ${mvName} order by id"
+
+            sql """drop materialized view if exists ${mvName};"""
             sql """drop catalog if exists ${catalog_name}"""
         } finally {
         }

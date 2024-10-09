@@ -18,6 +18,7 @@
 package org.apache.doris.backup;
 
 import org.apache.doris.analysis.BackupStmt.BackupContent;
+import org.apache.doris.analysis.RestoreStmt;
 import org.apache.doris.backup.BackupJobInfo.BackupIndexInfo;
 import org.apache.doris.backup.BackupJobInfo.BackupOlapTableInfo;
 import org.apache.doris.backup.BackupJobInfo.BackupPartitionInfo;
@@ -65,6 +66,7 @@ import org.apache.doris.common.util.DbUtil;
 import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.property.S3ClientBEProperties;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -86,6 +88,7 @@ import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.thrift.TTaskType;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ArrayListMultimap;
@@ -109,9 +112,12 @@ import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 public class RestoreJob extends AbstractJob implements GsonPostProcessable {
-    private static final String PROP_RESERVE_REPLICA = "reserve_replica";
-    private static final String PROP_RESERVE_DYNAMIC_PARTITION_ENABLE = "reserve_dynamic_partition_enable";
+    private static final String PROP_RESERVE_REPLICA = RestoreStmt.PROP_RESERVE_REPLICA;
+    private static final String PROP_RESERVE_DYNAMIC_PARTITION_ENABLE =
+            RestoreStmt.PROP_RESERVE_DYNAMIC_PARTITION_ENABLE;
     private static final String PROP_IS_BEING_SYNCED = PropertyAnalyzer.PROPERTIES_IS_BEING_SYNCED;
+    private static final String PROP_CLEAN_TABLES = RestoreStmt.PROP_CLEAN_TABLES;
+    private static final String PROP_CLEAN_PARTITIONS = RestoreStmt.PROP_CLEAN_PARTITIONS;
 
     private static final Logger LOG = LogManager.getLogger(RestoreJob.class);
 
@@ -191,6 +197,11 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
 
     private boolean isBeingSynced = false;
 
+    // Whether to delete existing tables that are not involved in the restore.
+    private boolean isCleanTables = false;
+    // Whether to delete existing partitions that are not involved in the restore.
+    private boolean isCleanPartitions = false;
+
     // restore properties
     @SerializedName("prop")
     private Map<String, String> properties = Maps.newHashMap();
@@ -201,7 +212,8 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
 
     public RestoreJob(String label, String backupTs, long dbId, String dbName, BackupJobInfo jobInfo, boolean allowLoad,
             ReplicaAllocation replicaAlloc, long timeoutMs, int metaVersion, boolean reserveReplica,
-            boolean reserveDynamicPartitionEnable, boolean isBeingSynced, Env env, long repoId) {
+            boolean reserveDynamicPartitionEnable, boolean isBeingSynced, boolean isCleanTables,
+            boolean isCleanPartitions, Env env, long repoId) {
         super(JobType.RESTORE, label, dbId, dbName, timeoutMs, env, repoId);
         this.backupTimestamp = backupTs;
         this.jobInfo = jobInfo;
@@ -216,16 +228,21 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         }
         this.reserveDynamicPartitionEnable = reserveDynamicPartitionEnable;
         this.isBeingSynced = isBeingSynced;
+        this.isCleanTables = isCleanTables;
+        this.isCleanPartitions = isCleanPartitions;
         properties.put(PROP_RESERVE_REPLICA, String.valueOf(reserveReplica));
         properties.put(PROP_RESERVE_DYNAMIC_PARTITION_ENABLE, String.valueOf(reserveDynamicPartitionEnable));
         properties.put(PROP_IS_BEING_SYNCED, String.valueOf(isBeingSynced));
+        properties.put(PROP_CLEAN_TABLES, String.valueOf(isCleanTables));
+        properties.put(PROP_CLEAN_PARTITIONS, String.valueOf(isCleanPartitions));
     }
 
     public RestoreJob(String label, String backupTs, long dbId, String dbName, BackupJobInfo jobInfo, boolean allowLoad,
             ReplicaAllocation replicaAlloc, long timeoutMs, int metaVersion, boolean reserveReplica,
-            boolean reserveDynamicPartitionEnable, boolean isBeingSynced, Env env, long repoId, BackupMeta backupMeta) {
+            boolean reserveDynamicPartitionEnable, boolean isBeingSynced, boolean isCleanTables,
+            boolean isCleanPartitions, Env env, long repoId, BackupMeta backupMeta) {
         this(label, backupTs, dbId, dbName, jobInfo, allowLoad, replicaAlloc, timeoutMs, metaVersion, reserveReplica,
-                reserveDynamicPartitionEnable, isBeingSynced, env, repoId);
+                reserveDynamicPartitionEnable, isBeingSynced, isCleanTables, isCleanPartitions, env, repoId);
         this.backupMeta = backupMeta;
     }
 
@@ -747,11 +764,15 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                     }
 
                     // reset all ids in this table
-                    Status st = remoteOlapTbl.resetIdsForRestore(env, db, replicaAlloc, reserveReplica);
+                    String srcDbName = jobInfo.dbName;
+                    Status st = remoteOlapTbl.resetIdsForRestore(env, db, replicaAlloc, reserveReplica, srcDbName);
                     if (!st.ok()) {
                         status = st;
                         return;
                     }
+
+                    // reset next version to visible version + 1 for all partitions
+                    remoteOlapTbl.resetVersionForRestore();
 
                     // Reset properties to correct values.
                     remoteOlapTbl.resetPropertiesForRestore(reserveDynamicPartitionEnable, reserveReplica,
@@ -783,7 +804,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                         return;
                     }
                 } else {
-                    String srcDbName = backupMeta.getDbName();
+                    String srcDbName = jobInfo.dbName;
                     remoteView.resetIdsForRestore(env, srcDbName, db.getFullName());
                     restoredTbls.add(remoteView);
                 }
@@ -893,7 +914,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
 
         if (ok) {
             if (LOG.isDebugEnabled()) {
-                LOG.debug("finished to create all restored replcias. {}", this);
+                LOG.debug("finished to create all restored replicas. {}", this);
             }
             // add restored partitions.
             // table should be in State RESTORE, so no other partitions can be
@@ -990,12 +1011,13 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                     Tablet tablet = index.getTablet(idChain.getTabletId());
                     Replica replica = tablet.getReplicaById(idChain.getReplicaId());
                     long signature = env.getNextId();
-                    SnapshotTask task = new SnapshotTask(null, replica.getBackendId(), signature, jobId, db.getId(),
+                    SnapshotTask task = new SnapshotTask(null, replica.getBackendIdWithoutException(),
+                            signature, jobId, db.getId(),
                             tbl.getId(), part.getId(), index.getId(), tablet.getId(), part.getVisibleVersion(),
                             tbl.getSchemaHashByIndexId(index.getId()), timeoutMs, true /* is restore task*/);
                     batchTask.addTask(task);
                     unfinishedSignatureToId.put(signature, tablet.getId());
-                    bePathsMap.put(replica.getBackendId(), replica.getPathHash());
+                    bePathsMap.put(replica.getBackendIdWithoutException(), replica.getPathHash());
                 } finally {
                     tbl.readUnlock();
                 }
@@ -1102,7 +1124,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                 Env.getCurrentInvertedIndex().addTablet(restoreTablet.getId(), tabletMeta);
                 for (Replica restoreReplica : restoreTablet.getReplicas()) {
                     Env.getCurrentInvertedIndex().addReplica(restoreTablet.getId(), restoreReplica);
-                    CreateReplicaTask task = new CreateReplicaTask(restoreReplica.getBackendId(), dbId,
+                    CreateReplicaTask task = new CreateReplicaTask(restoreReplica.getBackendIdWithoutException(), dbId,
                             localTbl.getId(), restorePart.getId(), restoredIdx.getId(),
                             restoreTablet.getId(), restoreReplica.getId(), indexMeta.getShortKeyColumnCount(),
                             indexMeta.getSchemaHash(), restoreReplica.getVersion(),
@@ -1128,7 +1150,8 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                             binlogConfig,
                             localTbl.getRowStoreColumnsUniqueIds(rowStoreColumns),
                             objectPool,
-                            localTbl.rowStorePageSize());
+                            localTbl.rowStorePageSize(),
+                            localTbl.variantEnableFlattenNested());
                     task.setInvertedIndexFileStorageFormat(localTbl.getInvertedIndexFileStorageFormat());
                     task.setInRestoreMode(true);
                     batchTask.addTask(task);
@@ -1139,8 +1162,9 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
 
     // reset remote partition.
     // reset all id in remote partition, but DO NOT modify any exist catalog objects.
-    private Partition resetPartitionForRestore(OlapTable localTbl, OlapTable remoteTbl, String partName,
-                                               ReplicaAllocation replicaAlloc) {
+    @VisibleForTesting
+    protected Partition resetPartitionForRestore(OlapTable localTbl, OlapTable remoteTbl, String partName,
+                                                 ReplicaAllocation replicaAlloc) {
         Preconditions.checkState(localTbl.getPartition(partName) == null);
         Partition remotePart = remoteTbl.getPartition(partName);
         Preconditions.checkNotNull(remotePart);
@@ -1170,6 +1194,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
 
         // save version info for creating replicas
         long visibleVersion = remotePart.getVisibleVersion();
+        remotePart.setNextVersion(visibleVersion + 1);
         LOG.info("reset partition {} for restore, visible version: {}, old partition id: {}",
                 newPartId, visibleVersion, oldPartId);
 
@@ -1478,7 +1503,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                                     return;
                                 }
 
-                                Tablet tablet  = idx.getTablet(info.getTabletId());
+                                Tablet tablet = idx.getTablet(info.getTabletId());
                                 if (tablet == null) {
                                     status = new Status(ErrCode.NOT_FOUND,
                                             "tablet " + info.getTabletId() + " does not exist in restored table "
@@ -1626,7 +1651,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                                     return;
                                 }
 
-                                Tablet tablet  = idx.getTablet(info.getTabletId());
+                                Tablet tablet = idx.getTablet(info.getTabletId());
                                 if (tablet == null) {
                                     status = new Status(ErrCode.NOT_FOUND,
                                             "tablet " + info.getTabletId() + " does not exist in restored table "
@@ -1830,6 +1855,14 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
             }
         }
 
+        // Drop the exists but non-restored table/partitions.
+        if (isCleanTables || isCleanPartitions) {
+            Status st = dropAllNonRestoredTableAndPartitions(db);
+            if (!st.ok()) {
+                return st;
+            }
+        }
+
         if (!isReplay) {
             restoredPartitions.clear();
             restoredTbls.clear();
@@ -1850,6 +1883,59 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
 
         LOG.info("job is finished. is replay: {}. {}", isReplay, this);
         return Status.OK;
+    }
+
+    private Status dropAllNonRestoredTableAndPartitions(Database db) {
+        try {
+            for (Table table : db.getTables()) {
+                long tableId = table.getId();
+                String tableName = table.getName();
+                TableType tableType = table.getType();
+                BackupOlapTableInfo backupTableInfo = jobInfo.backupOlapTableObjects.get(tableName);
+                if (tableType != TableType.OLAP && tableType != TableType.ODBC && tableType != TableType.VIEW) {
+                    continue;
+                }
+                if (tableType == TableType.OLAP && backupTableInfo != null) {
+                    // drop the non restored partitions.
+                    dropNonRestoredPartitions(db, (OlapTable) table, backupTableInfo);
+                } else if (isCleanTables) {
+                    // otherwise drop the entire table.
+                    LOG.info("drop non restored table {}({}). {}", tableName, tableId, this);
+                    boolean isForceDrop = false; // move this table into recyclebin.
+                    env.getInternalCatalog().dropTableWithoutCheck(db, table, isForceDrop);
+                }
+            }
+            return Status.OK;
+        } catch (Exception e) {
+            LOG.warn("drop all non restored table and partitions failed. {}", this, e);
+            return new Status(ErrCode.COMMON_ERROR, e.getMessage());
+        }
+    }
+
+    private void dropNonRestoredPartitions(
+            Database db, OlapTable table, BackupOlapTableInfo backupTableInfo) throws DdlException {
+        if (!isCleanPartitions || !table.writeLockIfExist()) {
+            return;
+        }
+
+        try {
+            long tableId = table.getId();
+            String tableName = table.getQualifiedName();
+            InternalCatalog catalog = env.getInternalCatalog();
+            for (String partitionName : table.getPartitionNames()) {
+                if (backupTableInfo.containsPart(partitionName)) {
+                    continue;
+                }
+
+                LOG.info("drop non restored partition {} of table {}({}). {}",
+                        partitionName, tableName, tableId, this);
+                boolean isTempPartition = false;
+                boolean isForceDrop = false; // move this partition into recyclebin.
+                catalog.dropPartitionWithoutCheck(db, table, partitionName, isTempPartition, isForceDrop);
+            }
+        } finally {
+            table.writeUnlock();
+        }
     }
 
     private void releaseSnapshots() {
@@ -2189,6 +2275,8 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         reserveReplica = Boolean.parseBoolean(properties.get(PROP_RESERVE_REPLICA));
         reserveDynamicPartitionEnable = Boolean.parseBoolean(properties.get(PROP_RESERVE_DYNAMIC_PARTITION_ENABLE));
         isBeingSynced = Boolean.parseBoolean(properties.get(PROP_IS_BEING_SYNCED));
+        isCleanTables = Boolean.parseBoolean(properties.get(PROP_CLEAN_TABLES));
+        isCleanPartitions = Boolean.parseBoolean(properties.get(PROP_CLEAN_PARTITIONS));
     }
 
     @Override
@@ -2196,6 +2284,8 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         reserveReplica = Boolean.parseBoolean(properties.get(PROP_RESERVE_REPLICA));
         reserveDynamicPartitionEnable = Boolean.parseBoolean(properties.get(PROP_RESERVE_DYNAMIC_PARTITION_ENABLE));
         isBeingSynced = Boolean.parseBoolean(properties.get(PROP_IS_BEING_SYNCED));
+        isCleanTables = Boolean.parseBoolean(properties.get(PROP_CLEAN_TABLES));
+        isCleanPartitions = Boolean.parseBoolean(properties.get(PROP_CLEAN_PARTITIONS));
     }
 
     @Override

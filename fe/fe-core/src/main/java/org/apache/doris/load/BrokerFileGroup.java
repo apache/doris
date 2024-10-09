@@ -29,6 +29,7 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.Partition.PartitionState;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
@@ -142,12 +143,25 @@ public class BrokerFileGroup implements Writable {
                         throw new DdlException("Unknown partition '" + pName
                                 + "' in table '" + olapTable.getName() + "'");
                     }
+                    // partition which need load data
+                    if (partition.getState() == PartitionState.RESTORE) {
+                        throw new DdlException("Table [" + olapTable.getName()
+                                + "], Partition[" + partition.getName() + "] is under restore");
+                    }
                     partitionIds.add(partition.getId());
                 }
             }
 
+            // only do check when here's restore on this table now
             if (olapTable.getState() == OlapTableState.RESTORE) {
-                throw new DdlException("Table [" + olapTable.getName() + "] is under restore");
+                boolean hasPartitionRestoring = olapTable.getPartitions().stream()
+                        .anyMatch(partition -> partition.getState() == PartitionState.RESTORE);
+                // tbl RESTORE && all partition NOT RESTORE -> whole table restore
+                // tbl RESTORE && some partition RESTORE -> just partitions restore, NOT WHOLE TABLE
+                // so check wether the whole table restore here
+                if (!hasPartitionRestoring) {
+                    throw new DdlException("Table [" + olapTable.getName() + "] is under restore");
+                }
             }
 
             if (olapTable.getKeysType() != KeysType.AGG_KEYS && dataDescription.isNegative()) {

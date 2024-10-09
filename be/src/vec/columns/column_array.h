@@ -171,11 +171,11 @@ public:
     const IColumn& get_offsets_column() const { return *offsets; }
 
     Offsets64& ALWAYS_INLINE get_offsets() {
-        return assert_cast<ColumnOffsets&>(*offsets).get_data();
+        return assert_cast<ColumnOffsets&, TypeCheckOnRelease::DISABLE>(*offsets).get_data();
     }
 
     const Offsets64& ALWAYS_INLINE get_offsets() const {
-        return assert_cast<const ColumnOffsets&>(*offsets).get_data();
+        return assert_cast<const ColumnOffsets&, TypeCheckOnRelease::DISABLE>(*offsets).get_data();
     }
 
     bool has_equal_offsets(const ColumnArray& other) const;

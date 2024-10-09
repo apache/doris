@@ -45,4 +45,12 @@ suite("fold_constant_by_be") {
     def res2 = sql " select /*+SET_VAR(enable_fold_constant_by_be=false)*/ ST_CIRCLE(121.510651, 31.234391, 1918.0); "
     log.info("result: {}, {}", res1, res2)
     assertEquals(res1[0][0], res2[0][0])
+
+    explain {
+         sql "select sleep(sign(1)*100);"
+         contains "sleep(100)"
+    }
+
+    sql 'set query_timeout=12;'
+    qt_sql "select sleep(sign(1)*5);"
 }

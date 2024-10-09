@@ -29,6 +29,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DataQualityException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.DuplicatedRequestException;
+import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.QuotaExceedException;
@@ -42,6 +43,7 @@ import org.apache.doris.common.util.LogKey;
 import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.common.util.ProfileManager.ProfileType;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.property.constants.S3Properties;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.BrokerFileGroupAggInfo.FileGroupAggKey;
@@ -241,10 +243,12 @@ public class BrokerLoadJob extends BulkLoadJob {
         // divide job into broker loading task by table
         List<LoadLoadingTask> newLoadingTasks = Lists.newArrayList();
         if (enableProfile) {
-            this.jobProfile = new Profile("BrokerLoadJob " + id + ". " + label, true,
-                    Integer.valueOf(sessionVariables.getOrDefault(SessionVariable.PROFILE_LEVEL, "3")));
-            // profile is registered in ProfileManager, so that we can get realtime profile
-            jobProfile.updateSummary(loadStartTimestamp, getSummaryInfo(false), false, null);
+            this.jobProfile = new Profile(
+                    true,
+                    Integer.valueOf(sessionVariables.getOrDefault(SessionVariable.PROFILE_LEVEL, "3")),
+                    Integer.valueOf(sessionVariables.getOrDefault(SessionVariable.AUTO_PROFILE_THRESHOLD_MS, "500")));
+            // TODO: 怎么给这些 load job 设置 profile 记录时间
+            // this.jobProfile.setId("BrokerLoadJob " + id + ". " + label);
         }
         ProgressManager progressManager = Env.getCurrentProgressManager();
         progressManager.registerProgressSimple(String.valueOf(id));
@@ -332,42 +336,59 @@ public class BrokerLoadJob extends BulkLoadJob {
         }
         Database db = null;
         List<Table> tableList = null;
-        try {
-            db = getDb();
-            tableList = db.getTablesOnIdOrderOrThrowException(Lists.newArrayList(fileGroupAggInfo.getAllTableIds()));
-            if (Config.isCloudMode()) {
-                MetaLockUtils.commitLockTables(tableList);
-            } else {
-                MetaLockUtils.writeLockTablesOrMetaException(tableList);
+        int retryTimes = 0;
+        while (true) {
+            try {
+                db = getDb();
+                tableList = db.getTablesOnIdOrderOrThrowException(
+                        Lists.newArrayList(fileGroupAggInfo.getAllTableIds()));
+                if (Config.isCloudMode()) {
+                    MetaLockUtils.commitLockTables(tableList);
+                } else {
+                    MetaLockUtils.writeLockTablesOrMetaException(tableList);
+                }
+            } catch (MetaNotFoundException e) {
+                LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
+                        .add("database_id", dbId)
+                        .add("error_msg", "db has been deleted when job is loading")
+                        .build(), e);
+                cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.LOAD_RUN_FAIL, e.getMessage()), true, true);
+                return;
             }
-        } catch (MetaNotFoundException e) {
-            LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
-                    .add("database_id", dbId)
-                    .add("error_msg", "db has been deleted when job is loading")
-                    .build(), e);
-            cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.LOAD_RUN_FAIL, e.getMessage()), true, true);
-            return;
-        }
-        try {
-            LOG.info(new LogBuilder(LogKey.LOAD_JOB, id)
-                    .add("txn_id", transactionId)
-                    .add("msg", "Load job try to commit txn")
-                    .build());
-            Env.getCurrentGlobalTransactionMgr().commitTransaction(
-                    dbId, tableList, transactionId, commitInfos, getLoadJobFinalOperation());
-            afterLoadingTaskCommitTransaction(tableList);
-            afterCommit();
-        } catch (UserException e) {
-            LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
-                    .add("database_id", dbId)
-                    .add("error_msg", "Failed to commit txn with error:" + e.getMessage())
-                    .build(), e);
-            cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.LOAD_RUN_FAIL, e.getMessage()), true, true);
-        } finally {
-            if (Config.isCloudMode()) {
-                MetaLockUtils.commitUnlockTables(tableList);
-            } else {
-                MetaLockUtils.writeUnlockTables(tableList);
+            try {
+                LOG.info(new LogBuilder(LogKey.LOAD_JOB, id)
+                        .add("txn_id", transactionId)
+                        .add("msg", "Load job try to commit txn")
+                        .build());
+                Env.getCurrentGlobalTransactionMgr().commitTransaction(
+                        dbId, tableList, transactionId, commitInfos, getLoadJobFinalOperation());
+                afterLoadingTaskCommitTransaction(tableList);
+                afterCommit();
+                return;
+            } catch (UserException e) {
+                LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
+                        .add("database_id", dbId)
+                        .add("retry_times", retryTimes)
+                        .add("error_msg", "Failed to commit txn with error:" + e.getMessage())
+                        .build(), e);
+                if (e.getErrorCode() == InternalErrorCode.DELETE_BITMAP_LOCK_ERR) {
+                    retryTimes++;
+                    if (retryTimes >= Config.mow_calculate_delete_bitmap_retry_times) {
+                        LOG.warn("cancelJob {} because up to max retry time,exception {}", id, e);
+                        cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.LOAD_RUN_FAIL, e.getMessage()), true,
+                                true);
+                        return;
+                    }
+                } else {
+                    cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.LOAD_RUN_FAIL, e.getMessage()), true, true);
+                    return;
+                }
+            } finally {
+                if (Config.isCloudMode()) {
+                    MetaLockUtils.commitUnlockTables(tableList);
+                } else {
+                    MetaLockUtils.writeUnlockTables(tableList);
+                }
             }
         }
     }
@@ -386,6 +407,7 @@ public class BrokerLoadJob extends BulkLoadJob {
     private Map<String, String> getSummaryInfo(boolean isFinished) {
         long currentTimestamp = System.currentTimeMillis();
         SummaryBuilder builder = new SummaryBuilder();
+        // Id of summary profile will be shown as the profile id in the web page
         builder.profileId(String.valueOf(id));
         if (Version.DORIS_BUILD_VERSION_MAJOR == 0) {
             builder.dorisVersion(Version.DORIS_BUILD_SHORT_HASH);
@@ -400,6 +422,7 @@ public class BrokerLoadJob extends BulkLoadJob {
         }
         builder.taskState(isFinished ? "FINISHED" : "RUNNING");
         builder.user(getUserInfo() != null ? getUserInfo().getQualifiedUser() : "N/A");
+        builder.defaultCatalog(InternalCatalog.INTERNAL_CATALOG_NAME);
         builder.defaultDb(getDefaultDb());
         builder.sqlStatement(getOriginStmt().originStmt);
         return builder.build();
@@ -457,7 +480,7 @@ public class BrokerLoadJob extends BulkLoadJob {
         if (!enableProfile) {
             return;
         }
-        jobProfile.updateSummary(createTimestamp, getSummaryInfo(true), true, null);
+        jobProfile.updateSummary(getSummaryInfo(true), true, null);
         // jobProfile has been pushed into ProfileManager, remove reference in brokerLoadJob
         jobProfile = null;
     }

@@ -28,6 +28,7 @@
 
 #include "common/status.h"
 #include "vec/aggregate_functions/helpers.h"
+#include "vec/columns/column_object.h"
 #include "vec/common/typeid_cast.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
@@ -38,6 +39,7 @@
 #include "vec/data_types/data_type_nothing.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
+#include "vec/data_types/data_type_object.h"
 #include "vec/data_types/data_type_string.h"
 
 namespace doris::vectorized {
@@ -173,6 +175,21 @@ void get_numeric_type(const TypeIndexSet& types, DataTypePtr* type) {
 }
 
 void get_least_supertype_jsonb(const DataTypes& types, DataTypePtr* type) {
+    // If there are Nothing types, skip them
+    {
+        DataTypes non_nothing_types;
+        non_nothing_types.reserve(types.size());
+
+        for (const auto& type : types) {
+            if (!WhichDataType(type).is_nothing()) {
+                non_nothing_types.emplace_back(type);
+            }
+        }
+
+        if (non_nothing_types.size() < types.size()) {
+            return get_least_supertype_jsonb(non_nothing_types, type);
+        }
+    }
     // For Nullable
     {
         bool have_nullable = false;
@@ -263,6 +280,10 @@ void get_least_supertype_jsonb(const TypeIndexSet& types, DataTypePtr* type) {
             *type = std::make_shared<DataTypeJsonb>();
             return;
         }
+        if (which.is_variant_type()) {
+            *type = std::make_shared<DataTypeObject>();
+            return;
+        }
         *type = std::make_shared<DataTypeJsonb>();
         return;
     }
@@ -283,6 +304,22 @@ void get_least_supertype_jsonb(const TypeIndexSet& types, DataTypePtr* type) {
         }
         *type = std::make_shared<DataTypeJsonb>();
         return;
+    }
+
+    // If there are Nothing types, skip them
+    {
+        TypeIndexSet non_nothing_types;
+        non_nothing_types.reserve(types.size());
+
+        for (const auto& type : types) {
+            if (type != TypeIndex::Nothing) {
+                non_nothing_types.emplace(type);
+            }
+        }
+
+        if (non_nothing_types.size() < types.size()) {
+            return get_least_supertype_jsonb(non_nothing_types, type);
+        }
     }
 
     /// For numeric types, the most complicated part.

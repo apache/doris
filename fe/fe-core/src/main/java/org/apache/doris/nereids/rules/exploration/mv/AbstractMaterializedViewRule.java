@@ -292,6 +292,17 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                     return rewriteResults;
                 }
                 boolean partitionNeedUnion = needUnionRewrite(invalidPartitions, cascadesContext);
+                boolean canUnionRewrite = canUnionRewrite(queryPlan,
+                        ((AsyncMaterializationContext) materializationContext).getMtmv(),
+                        cascadesContext);
+                if (partitionNeedUnion && !canUnionRewrite) {
+                    materializationContext.recordFailReason(queryStructInfo,
+                            "need compensate union all, but can not, because the query structInfo",
+                            () -> String.format("mv partition info is %s, and the query plan is %s",
+                                    ((AsyncMaterializationContext) materializationContext).getMtmv()
+                                            .getMvPartitionInfo(), queryPlan.treeString()));
+                    return rewriteResults;
+                }
                 final Pair<Map<BaseTableInfo, Set<String>>, Map<BaseTableInfo, Set<String>>> finalInvalidPartitions =
                         invalidPartitions;
                 if (partitionNeedUnion) {
@@ -377,6 +388,20 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                 && (!invalidPartitions.key().isEmpty() || !invalidPartitions.value().isEmpty());
     }
 
+    /**
+     * Not all query after rewritten successfully can compensate union all
+     * Such as:
+     * mv def sql is as following, partition column is a
+     * select a, b, count(*) from t1 group by a, b
+     * Query is as following:
+     * select b, count(*) from t1 group by b, after rewritten by materialized view successfully
+     * If mv part partition is invalid, can not compensate union all, because result is wrong after
+     * compensate union all.
+     */
+    protected boolean canUnionRewrite(Plan queryPlan, MTMV mtmv, CascadesContext cascadesContext) {
+        return true;
+    }
+
     // Normalize expression such as nullable property and output slot id
     protected Plan normalizeExpressions(Plan rewrittenPlan, Plan originPlan) {
         if (rewrittenPlan.getOutput().size() != originPlan.getOutput().size()) {
@@ -431,6 +456,10 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
         Map<BaseTableInfo, Set<Partition>> queryUsedBaseTablePartitions = new LinkedHashMap<>();
         queryUsedBaseTablePartitions.put(relatedPartitionTable, new HashSet<>());
         queryPlan.accept(new StructInfo.QueryScanPartitionsCollector(), queryUsedBaseTablePartitions);
+        // Bail out, not check invalid partition if not olap scan, support later
+        if (queryUsedBaseTablePartitions.isEmpty()) {
+            return Pair.of(ImmutableMap.of(), ImmutableMap.of());
+        }
         Set<String> queryUsedBaseTablePartitionNameSet = queryUsedBaseTablePartitions.get(relatedPartitionTable)
                 .stream()
                 .map(Partition::getName)
@@ -849,10 +878,12 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                         "View struct info is invalid", () -> String.format("view plan is %s",
                                 context.getStructInfo().getOriginalPlan().treeString()));
                 // tmp to location question
-                LOG.debug(String.format("View struct info is invalid, mv identifier is %s, query plan is %s,"
-                                + "view plan is %s",
-                        context.generateMaterializationIdentifier(), queryPlan.treeString(),
-                        context.getStructInfo().getTopPlan().treeString()));
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug(String.format("View struct info is invalid, mv identifier is %s, query plan is %s,"
+                                    + "view plan is %s",
+                            context.generateMaterializationIdentifier(), queryPlan.treeString(),
+                            context.getStructInfo().getTopPlan().treeString()));
+                }
                 cascadesContext.getMemo().recordMaterializationCheckResult(this.getClass(), materializationId,
                         false);
                 return false;
@@ -864,20 +895,24 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             context.recordFailReason(context.getStructInfo(),
                     "View struct info is invalid", () -> String.format("view plan is %s",
                             context.getStructInfo().getOriginalPlan().treeString()));
-            LOG.debug(String.format("View struct info is invalid, mv identifier is %s, query plan is %s,"
-                            + "view plan is %s",
-                    context.generateMaterializationIdentifier(), queryPlan.treeString(),
-                    context.getStructInfo().getTopPlan().treeString()));
+            if (LOG.isDebugEnabled()) {
+                LOG.debug(String.format("View struct info is invalid, mv identifier is %s, query plan is %s,"
+                                + "view plan is %s",
+                        context.generateMaterializationIdentifier(), queryPlan.treeString(),
+                        context.getStructInfo().getTopPlan().treeString()));
+            }
             return false;
         }
         if (!context.getStructInfo().isValid()) {
             context.recordFailReason(context.getStructInfo(),
                     "View original struct info is invalid", () -> String.format("view plan is %s",
                             context.getStructInfo().getOriginalPlan().treeString()));
-            LOG.debug(String.format("View struct info is invalid, mv identifier is %s,  query plan is %s,"
-                            + "view plan is %s",
-                    context.generateMaterializationIdentifier(), queryPlan.treeString(),
-                    context.getStructInfo().getTopPlan().treeString()));
+            if (LOG.isDebugEnabled()) {
+                LOG.debug(String.format("View struct info is invalid, mv identifier is %s,  query plan is %s,"
+                                + "view plan is %s",
+                        context.generateMaterializationIdentifier(), queryPlan.treeString(),
+                        context.getStructInfo().getTopPlan().treeString()));
+            }
             return false;
         }
         return true;

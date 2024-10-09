@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.analysis.StmtType;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.info.ShowCreateMTMVInfo;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -28,7 +29,7 @@ import java.util.Objects;
 /**
  * resume mtmv
  */
-public class ShowCreateMTMVCommand extends Command implements ForwardWithSync, NotAllowFallback {
+public class ShowCreateMTMVCommand extends Command implements NoForward, NotAllowFallback {
     private final ShowCreateMTMVInfo showCreateMTMVInfo;
 
     public ShowCreateMTMVCommand(ShowCreateMTMVInfo showCreateMTMVInfo) {
@@ -45,5 +46,10 @@ public class ShowCreateMTMVCommand extends Command implements ForwardWithSync, N
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitShowCreateMTMVCommand(this, context);
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.SHOW;
     }
 }

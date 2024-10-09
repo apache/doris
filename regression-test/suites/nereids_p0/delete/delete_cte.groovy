@@ -113,6 +113,9 @@ suite('nereids_delete_cte') {
             """
 
             qt_sql "select * from ${t1} order by id, id1"
+
+            // test cte != null and using == null
+            sql """with cte as (select 1) delete from ${t1} where ${t1}.id = 100"""
         }
     }
 }

@@ -395,13 +395,13 @@ suite("test_analyze_mv") {
         );
     """
 
-    createMV("create materialized view mv1 as select key1 from mvTestUni;")
-    createMV("create materialized view mv6 as select key2, value2, value3 from mvTestUni;")
+    createMV("create materialized view mv1 as select key1, key2 from mvTestUni;")
+    createMV("create materialized view mv6 as select key1, key2, value2, value3 from mvTestUni;")
     sql """insert into mvTestUni values (1, 2, 3, 4, 5), (1, 2, 3, 7, 8), (1, 11, 22, 33, 44), (10, 20, 30, 40, 50), (10, 20, 30, 40, 50), (100, 200, 300, 400, 500), (1001, 2001, 3001, 4001, 5001);"""
 
     sql """analyze table mvTestUni with sync;"""
     result_sample = sql """show column stats mvTestUni"""
-    assertEquals(9, result_sample.size())
+    assertEquals(11, result_sample.size())
 
     result_sample = sql """show column stats mvTestUni(key1)"""
     assertEquals(1, result_sample.size())
@@ -414,10 +414,9 @@ suite("test_analyze_mv") {
     assertEquals("FULL", result_sample[0][9])
 
     result_sample = sql """show column stats mvTestUni(mv_key1)"""
-    assertEquals(1, result_sample.size())
+    assertEquals(2, result_sample.size())
     assertEquals("mv_key1", result_sample[0][0])
-    assertEquals("mv1", result_sample[0][1])
-    assertEquals("4.0", result_sample[0][2])
+    assertEquals("5.0", result_sample[0][2])
     assertEquals("4.0", result_sample[0][3])
     assertEquals("1", result_sample[0][7])
     assertEquals("1001", result_sample[0][8])

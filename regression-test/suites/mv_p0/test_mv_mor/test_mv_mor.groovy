@@ -34,7 +34,7 @@ suite ("test_mv_mor") {
         """
     sql "insert into u_table select 1,1,1,1;"
     sql "insert into u_table select 1,2,1,1;"
-    createMV("create materialized view k123p as select k1,k2+k3 from u_table;")
+    createMV("create materialized view k123p as select k1,k2,k3,k2+k3 from u_table;")
 
     sql "insert into u_table select 1,1,1,2;"
     sql "insert into u_table select 1,2,1,2;"

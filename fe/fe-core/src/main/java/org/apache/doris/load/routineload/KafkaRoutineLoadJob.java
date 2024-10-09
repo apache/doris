@@ -174,7 +174,6 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
 
     @Override
     public void prepare() throws UserException {
-        super.prepare();
         // should reset converted properties each time the job being prepared.
         // because the file info can be changed anytime.
         convertCustomProperties(true);
@@ -235,7 +234,8 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
                                 ((KafkaProgress) progress).getOffsetByPartition(kafkaPartition));
                     }
                     KafkaTaskInfo kafkaTaskInfo = new KafkaTaskInfo(UUID.randomUUID(), id,
-                            maxBatchIntervalS * 2 * 1000, 0, taskKafkaProgress, isMultiTable());
+                            maxBatchIntervalS * Config.routine_load_task_timeout_multiplier * 1000,
+                            taskKafkaProgress, isMultiTable());
                     routineLoadTaskInfoList.add(kafkaTaskInfo);
                     result.add(kafkaTaskInfo);
                 }
@@ -281,7 +281,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         }
 
         RLTaskTxnCommitAttachment commitAttach = new RLTaskTxnCommitAttachment(response.getCommitAttach());
-        updateProgress(commitAttach);
+        updateCloudProgress(commitAttach);
     }
 
     @Override
@@ -336,13 +336,19 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
 
     @Override
     protected void updateProgress(RLTaskTxnCommitAttachment attachment) throws UserException {
-        super.updateProgress(attachment);
         updateProgressAndOffsetsCache(attachment);
+        super.updateProgress(attachment);
     }
 
     @Override
     protected void replayUpdateProgress(RLTaskTxnCommitAttachment attachment) {
         super.replayUpdateProgress(attachment);
+        updateProgressAndOffsetsCache(attachment);
+    }
+
+    @Override
+    protected void updateCloudProgress(RLTaskTxnCommitAttachment attachment) {
+        super.updateCloudProgress(attachment);
         updateProgressAndOffsetsCache(attachment);
     }
 
@@ -713,22 +719,51 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
                 customKafkaProperties = dataSourceProperties.getCustomKafkaProperties();
             }
 
-            // modify partition offset first
+            // convertCustomProperties and check partitions before reset progress to make modify operation atomic
+            if (!customKafkaProperties.isEmpty()) {
+                this.customProperties.putAll(customKafkaProperties);
+                convertCustomProperties(true);
+            }
+
+            if (!kafkaPartitionOffsets.isEmpty()) {
+                ((KafkaProgress) progress).checkPartitions(kafkaPartitionOffsets);
+            }
+
+            if (Config.isCloudMode()) {
+                Cloud.ResetRLProgressRequest.Builder builder = Cloud.ResetRLProgressRequest.newBuilder();
+                builder.setCloudUniqueId(Config.cloud_unique_id);
+                builder.setDbId(dbId);
+                builder.setJobId(id);
+                if (!kafkaPartitionOffsets.isEmpty()) {
+                    Map<Integer, Long> partitionOffsetMap = new HashMap<>();
+                    for (Pair<Integer, Long> pair : kafkaPartitionOffsets) {
+                        // The reason why the value recorded in MS in cloud mode needs to be subtracted by one is
+                        // this value will be incremented
+                        // when pulling MS persistent progress data and updating memory
+                        // in routineLoadJob.updateCloudProgress().
+                        partitionOffsetMap.put(pair.first, pair.second - 1);
+                    }
+                    builder.putAllPartitionToOffset(partitionOffsetMap);
+                }
+                resetCloudProgress(builder);
+            }
+
+            // It is necessary to reset the Kafka progress cache if topic change,
+            // and should reset cache before modifying partition offset.
+            if (!Strings.isNullOrEmpty(dataSourceProperties.getTopic())) {
+                this.topic = dataSourceProperties.getTopic();
+                this.progress = new KafkaProgress();
+            }
+
+            // modify partition offset
             if (!kafkaPartitionOffsets.isEmpty()) {
                 // we can only modify the partition that is being consumed
                 ((KafkaProgress) progress).modifyOffset(kafkaPartitionOffsets);
             }
 
-            if (!customKafkaProperties.isEmpty()) {
-                this.customProperties.putAll(customKafkaProperties);
-                convertCustomProperties(true);
-            }
-            // modify broker list and topic
+            // modify broker list
             if (!Strings.isNullOrEmpty(dataSourceProperties.getBrokerList())) {
                 this.brokerList = dataSourceProperties.getBrokerList();
-            }
-            if (!Strings.isNullOrEmpty(dataSourceProperties.getTopic())) {
-                this.topic = dataSourceProperties.getTopic();
             }
         }
         if (!jobProperties.isEmpty()) {
@@ -741,6 +776,25 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         }
         LOG.info("modify the properties of kafka routine load job: {}, jobProperties: {}, datasource properties: {}",
                 this.id, jobProperties, dataSourceProperties);
+    }
+
+    private void resetCloudProgress(Cloud.ResetRLProgressRequest.Builder builder) throws DdlException {
+        Cloud.ResetRLProgressResponse response;
+        try {
+            response = MetaServiceProxy.getInstance().resetRLProgress(builder.build());
+            if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
+                LOG.warn("failed to reset cloud progress, response: {}", response);
+                if (response.getStatus().getCode() == Cloud.MetaServiceCode.ROUTINE_LOAD_PROGRESS_NOT_FOUND) {
+                    LOG.warn("not found routine load progress, response: {}", response);
+                    return;
+                } else {
+                    throw new DdlException(response.getStatus().getMsg());
+                }
+            }
+        } catch (RpcException e) {
+            LOG.info("failed to reset cloud progress {}", e);
+            throw new DdlException(e.getMessage());
+        }
     }
 
     @Override

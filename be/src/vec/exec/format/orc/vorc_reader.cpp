@@ -1136,8 +1136,9 @@ Status OrcReader::_decode_string_non_dict_encoded_column(const std::string& col_
         if (cvb->hasNulls) {
             for (int i = 0; i < num_values; ++i) {
                 if (cvb->notNull[i]) {
-                    string_values.emplace_back(cvb->data[i],
-                                               trim_right(cvb->data[i], cvb->length[i]));
+                    size_t length = trim_right(cvb->data[i], cvb->length[i]);
+                    string_values.emplace_back((length > 0) ? cvb->data[i] : empty_string.data(),
+                                               length);
                 } else {
                     // Orc doesn't fill null values in new batch, but the former batch has been release.
                     // Other types like int/long/timestamp... are flat types without pointer in them,
@@ -1147,21 +1148,26 @@ Status OrcReader::_decode_string_non_dict_encoded_column(const std::string& col_
             }
         } else {
             for (int i = 0; i < num_values; ++i) {
-                string_values.emplace_back(cvb->data[i], trim_right(cvb->data[i], cvb->length[i]));
+                size_t length = trim_right(cvb->data[i], cvb->length[i]);
+                string_values.emplace_back((length > 0) ? cvb->data[i] : empty_string.data(),
+                                           length);
             }
         }
     } else {
         if (cvb->hasNulls) {
             for (int i = 0; i < num_values; ++i) {
                 if (cvb->notNull[i]) {
-                    string_values.emplace_back(cvb->data[i], cvb->length[i]);
+                    string_values.emplace_back(
+                            (cvb->length[i] > 0) ? cvb->data[i] : empty_string.data(),
+                            cvb->length[i]);
                 } else {
                     string_values.emplace_back(empty_string.data(), 0);
                 }
             }
         } else {
             for (int i = 0; i < num_values; ++i) {
-                string_values.emplace_back(cvb->data[i], cvb->length[i]);
+                string_values.emplace_back(
+                        (cvb->length[i] > 0) ? cvb->data[i] : empty_string.data(), cvb->length[i]);
             }
         }
     }
@@ -1200,7 +1206,8 @@ Status OrcReader::_decode_string_dict_encoded_column(const std::string& col_name
                     if (length > max_value_length) {
                         max_value_length = length;
                     }
-                    string_values.emplace_back(val_ptr, length);
+                    string_values.emplace_back((length > 0) ? val_ptr : EMPTY_STRING_FOR_OVERFLOW,
+                                               length);
                 } else {
                     // Orc doesn't fill null values in new batch, but the former batch has been release.
                     // Other types like int/long/timestamp... are flat types without pointer in them,
@@ -1223,7 +1230,8 @@ Status OrcReader::_decode_string_dict_encoded_column(const std::string& col_name
                 if (length > max_value_length) {
                     max_value_length = length;
                 }
-                string_values.emplace_back(val_ptr, length);
+                string_values.emplace_back((length > 0) ? val_ptr : EMPTY_STRING_FOR_OVERFLOW,
+                                           length);
             }
         }
     } else {
@@ -1242,7 +1250,8 @@ Status OrcReader::_decode_string_dict_encoded_column(const std::string& col_name
                     if (length > max_value_length) {
                         max_value_length = length;
                     }
-                    string_values.emplace_back(val_ptr, length);
+                    string_values.emplace_back((length > 0) ? val_ptr : EMPTY_STRING_FOR_OVERFLOW,
+                                               length);
                 } else {
                     string_values.emplace_back(EMPTY_STRING_FOR_OVERFLOW, 0);
                 }
@@ -1261,7 +1270,8 @@ Status OrcReader::_decode_string_dict_encoded_column(const std::string& col_name
                 if (length > max_value_length) {
                     max_value_length = length;
                 }
-                string_values.emplace_back(val_ptr, length);
+                string_values.emplace_back((length > 0) ? val_ptr : EMPTY_STRING_FOR_OVERFLOW,
+                                           length);
             }
         }
     }
@@ -1641,7 +1651,7 @@ Status OrcReader::get_next_block_impl(Block* block, size_t* read_rows, bool* eof
             RETURN_IF_ERROR(_convert_dict_cols_to_string_cols(block, &batch_vec));
             RETURN_IF_CATCH_EXCEPTION(
                     RETURN_IF_ERROR(VExprContext::execute_conjuncts_and_filter_block(
-                            _not_single_slot_filter_conjuncts, nullptr, block, columns_to_filter,
+                            _not_single_slot_filter_conjuncts, block, columns_to_filter,
                             column_to_keep)));
         } else {
             Block::erase_useless_column(block, column_to_keep);
@@ -1768,8 +1778,8 @@ Status OrcReader::get_next_block_impl(Block* block, size_t* read_rows, bool* eof
                 RETURN_IF_ERROR(_convert_dict_cols_to_string_cols(block, &batch_vec));
                 RETURN_IF_CATCH_EXCEPTION(
                         RETURN_IF_ERROR(VExprContext::execute_conjuncts_and_filter_block(
-                                _not_single_slot_filter_conjuncts, nullptr, block,
-                                columns_to_filter, column_to_keep)));
+                                _not_single_slot_filter_conjuncts, block, columns_to_filter,
+                                column_to_keep)));
             } else {
                 Block::erase_useless_column(block, column_to_keep);
                 RETURN_IF_ERROR(_convert_dict_cols_to_string_cols(block, &batch_vec));
@@ -2065,7 +2075,7 @@ Status OrcReader::on_string_dicts_loaded(
             char* val_ptr;
             int64_t length;
             dict->getValueByIndex(i, val_ptr, length);
-            StringRef dict_value(val_ptr, length);
+            StringRef dict_value((length > 0) ? val_ptr : "", length);
             if (length > max_value_length) {
                 max_value_length = length;
             }
@@ -2118,7 +2128,7 @@ Status OrcReader::on_string_dicts_loaded(
             temp_block.get_by_position(0).column->assume_mutable()->resize(dict_value_column_size);
         }
         RETURN_IF_CATCH_EXCEPTION(RETURN_IF_ERROR(VExprContext::execute_conjuncts_and_filter_block(
-                ctxs, nullptr, &temp_block, columns_to_filter, column_to_keep)));
+                ctxs, &temp_block, columns_to_filter, column_to_keep)));
         if (dict_pos != 0) {
             // We have to clean the first column to insert right data.
             temp_block.get_by_position(0).column->assume_mutable()->clear();
@@ -2337,7 +2347,8 @@ MutableColumnPtr OrcReader::_convert_dict_column_to_string_column(
                     if (length > max_value_length) {
                         max_value_length = length;
                     }
-                    string_values.emplace_back(val_ptr, length);
+                    string_values.emplace_back((length > 0) ? val_ptr : EMPTY_STRING_FOR_OVERFLOW,
+                                               length);
                 } else {
                     // Orc doesn't fill null values in new batch, but the former batch has been release.
                     // Other types like int/long/timestamp... are flat types without pointer in them,
@@ -2355,7 +2366,8 @@ MutableColumnPtr OrcReader::_convert_dict_column_to_string_column(
                 if (length > max_value_length) {
                     max_value_length = length;
                 }
-                string_values.emplace_back(val_ptr, length);
+                string_values.emplace_back((length > 0) ? val_ptr : EMPTY_STRING_FOR_OVERFLOW,
+                                           length);
             }
         }
     } else {
@@ -2370,7 +2382,8 @@ MutableColumnPtr OrcReader::_convert_dict_column_to_string_column(
                     if (length > max_value_length) {
                         max_value_length = length;
                     }
-                    string_values.emplace_back(val_ptr, length);
+                    string_values.emplace_back((length > 0) ? val_ptr : EMPTY_STRING_FOR_OVERFLOW,
+                                               length);
                 } else {
                     string_values.emplace_back(EMPTY_STRING_FOR_OVERFLOW, 0);
                 }
@@ -2384,7 +2397,8 @@ MutableColumnPtr OrcReader::_convert_dict_column_to_string_column(
                 if (length > max_value_length) {
                     max_value_length = length;
                 }
-                string_values.emplace_back(val_ptr, length);
+                string_values.emplace_back((length > 0) ? val_ptr : EMPTY_STRING_FOR_OVERFLOW,
+                                           length);
             }
         }
     }

@@ -44,7 +44,7 @@ build_fe_meta_version=0
 unset LANG
 unset LC_CTYPE
 
-date="$(date +"%a, %d %b %Y %H:%M:%S %Z")"
+date="$(date +"%a, %d %b %Y %H:%M:%S %qZ")"
 hostname="$(hostname)"
 
 cwd="$(pwd)"

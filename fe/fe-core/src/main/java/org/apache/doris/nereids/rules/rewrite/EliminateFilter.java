@@ -24,6 +24,7 @@ import org.apache.doris.nereids.rules.expression.rules.FoldConstantRule;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
@@ -43,12 +44,13 @@ public class EliminateFilter implements RewriteRuleFactory {
     @Override
     public List<Rule> buildRules() {
         return ImmutableList.of(logicalFilter().when(
-                filter -> ExpressionUtils.containsType(filter.getConjuncts(), BooleanLiteral.class))
+                filter -> ExpressionUtils.containsType(filter.getConjuncts(), BooleanLiteral.class)
+                || ExpressionUtils.containsType(filter.getConjuncts(), NullLiteral.class))
                 .thenApply(ctx -> {
                     LogicalFilter<Plan> filter = ctx.root;
                     ImmutableSet.Builder<Expression> newConjuncts = ImmutableSet.builder();
                     for (Expression expression : filter.getConjuncts()) {
-                        if (expression == BooleanLiteral.FALSE) {
+                        if (expression == BooleanLiteral.FALSE || expression.isNullLiteral()) {
                             return new LogicalEmptyRelation(ctx.statementContext.getNextRelationId(),
                                     filter.getOutput());
                         } else if (expression != BooleanLiteral.TRUE) {
@@ -75,7 +77,7 @@ public class EliminateFilter implements RewriteRuleFactory {
                         Expression newExpr = ExpressionUtils.replace(expression, replaceMap);
                         Expression foldExpression = FoldConstantRule.evaluate(newExpr, context);
 
-                        if (foldExpression == BooleanLiteral.FALSE) {
+                        if (foldExpression == BooleanLiteral.FALSE || expression.isNullLiteral()) {
                             return new LogicalEmptyRelation(
                                     ctx.statementContext.getNextRelationId(), filter.getOutput());
                         } else if (foldExpression != BooleanLiteral.TRUE) {

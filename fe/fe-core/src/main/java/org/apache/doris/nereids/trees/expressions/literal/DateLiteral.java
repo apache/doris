@@ -336,7 +336,7 @@ public class DateLiteral extends Literal {
     }
 
     protected static boolean isDateOutOfRange(LocalDateTime dateTime) {
-        return dateTime.isBefore(START_OF_A_DAY) || dateTime.isAfter(END_OF_A_DAY);
+        return dateTime == null || dateTime.isBefore(START_OF_A_DAY) || dateTime.isAfter(END_OF_A_DAY);
     }
 
     private boolean checkDatetime(TemporalAccessor dateTime) {

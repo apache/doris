@@ -110,7 +110,7 @@ public class InsertStreamTxnExecutor {
             throw new UserException("No available backend to match the policy: " + policy);
         }
 
-        Backend backend = Env.getCurrentSystemInfo().getIdToBackend().get(beIds.get(0));
+        Backend backend = Env.getCurrentSystemInfo().getBackendsByCurrentCluster().get(beIds.get(0));
         txnConf.setUserIp(backend.getHost());
         txnEntry.setBackend(backend);
         TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());

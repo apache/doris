@@ -19,6 +19,7 @@ package org.apache.doris.clone;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Replica;
+import org.apache.doris.common.UserException;
 import org.apache.doris.system.Backend;
 
 import com.google.common.collect.Maps;
@@ -37,10 +38,10 @@ public class BalanceStatistic {
         this.backendTotalReplicaNum = backendTotalReplicaNum;
     }
 
-    public static BalanceStatistic getCurrentBalanceStatistic() {
+    public static BalanceStatistic getCurrentBalanceStatistic() throws UserException {
         Map<Long, Long> backendTotalDataSize = Maps.newHashMap();
         Map<Long, Integer> backendTotalReplicaNum = Maps.newHashMap();
-        List<Backend> backends = Env.getCurrentSystemInfo().getIdToBackend().values().asList();
+        List<Backend> backends = Env.getCurrentSystemInfo().getAllBackendsByAllCluster().values().asList();
         backends.forEach(be -> {
             backendTotalDataSize.put(be.getId(), 0L);
             backendTotalReplicaNum.put(be.getId(), 0);

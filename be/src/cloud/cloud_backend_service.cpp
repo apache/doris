@@ -180,6 +180,11 @@ void CloudBackendService::check_warm_up_cache_async(TCheckWarmUpCacheAsyncRespon
                                                     const TCheckWarmUpCacheAsyncRequest& request) {
     std::map<int64_t, bool> task_done;
     _engine.file_cache_block_downloader().check_download_task(request.tablets, &task_done);
+    DBUG_EXECUTE_IF("CloudBackendService.check_warm_up_cache_async.return_task_false", {
+        for (auto& it : task_done) {
+            it.second = false;
+        }
+    });
     response.__set_task_done(task_done);
 
     Status st = Status::OK();

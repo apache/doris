@@ -5,11 +5,11 @@ PhysicalResultSink
 ----PhysicalDistribute[DistributionSpecGather]
 ------PhysicalTopN[LOCAL_SORT]
 --------PhysicalProject
-----------hashJoin[INNER_JOIN colocated] hashCondition=((sb.ss_store_sk = sc.ss_store_sk)) otherCondition=((cast(revenue as DOUBLE) <= cast((0.1 * ave) as DOUBLE))) build RFs:RF4 ss_store_sk->[s_store_sk,ss_store_sk]
+----------hashJoin[INNER_JOIN shuffleBucket] hashCondition=((sb.ss_store_sk = sc.ss_store_sk)) otherCondition=((cast(revenue as DOUBLE) <= cast((0.1 * ave) as DOUBLE))) build RFs:RF4 ss_store_sk->[s_store_sk,ss_store_sk]
 ------------PhysicalProject
---------------hashJoin[INNER_JOIN shuffle] hashCondition=((store.s_store_sk = sc.ss_store_sk)) otherCondition=() build RFs:RF3 s_store_sk->[ss_store_sk]
+--------------hashJoin[INNER_JOIN broadcast] hashCondition=((item.i_item_sk = sc.ss_item_sk)) otherCondition=() build RFs:RF3 i_item_sk->[ss_item_sk]
 ----------------PhysicalProject
-------------------hashJoin[INNER_JOIN broadcast] hashCondition=((item.i_item_sk = sc.ss_item_sk)) otherCondition=() build RFs:RF2 i_item_sk->[ss_item_sk]
+------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store.s_store_sk = sc.ss_store_sk)) otherCondition=() build RFs:RF2 s_store_sk->[ss_store_sk]
 --------------------hashAgg[GLOBAL]
 ----------------------PhysicalDistribute[DistributionSpecHash]
 ------------------------hashAgg[LOCAL]
@@ -21,9 +21,9 @@ PhysicalResultSink
 --------------------------------filter((date_dim.d_month_seq <= 1232) and (date_dim.d_month_seq >= 1221))
 ----------------------------------PhysicalOlapScan[date_dim]
 --------------------PhysicalProject
-----------------------PhysicalOlapScan[item]
+----------------------PhysicalOlapScan[store] apply RFs: RF4
 ----------------PhysicalProject
-------------------PhysicalOlapScan[store] apply RFs: RF4
+------------------PhysicalOlapScan[item]
 ------------hashAgg[GLOBAL]
 --------------PhysicalDistribute[DistributionSpecHash]
 ----------------hashAgg[LOCAL]

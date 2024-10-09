@@ -20,6 +20,7 @@ package org.apache.doris.alter;
 import org.apache.doris.analysis.AddPartitionClause;
 import org.apache.doris.analysis.AddPartitionLikeClause;
 import org.apache.doris.analysis.AlterClause;
+import org.apache.doris.analysis.AlterMultiPartitionClause;
 import org.apache.doris.analysis.AlterSystemStmt;
 import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.AlterViewStmt;
@@ -79,8 +80,10 @@ import org.apache.doris.thrift.TSortType;
 import org.apache.doris.thrift.TTabletType;
 
 import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -89,24 +92,25 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 public class Alter {
     private static final Logger LOG = LogManager.getLogger(Alter.class);
 
     private AlterHandler schemaChangeHandler;
     private AlterHandler materializedViewHandler;
-    private SystemHandler clusterHandler;
+    private SystemHandler systemHandler;
 
     public Alter() {
         schemaChangeHandler = Config.isCloudMode() ? new CloudSchemaChangeHandler() : new SchemaChangeHandler();
         materializedViewHandler = new MaterializedViewHandler();
-        clusterHandler = new SystemHandler();
+        systemHandler = new SystemHandler();
     }
 
     public void start() {
         schemaChangeHandler.start();
         materializedViewHandler.start();
-        clusterHandler.start();
+        systemHandler.start();
     }
 
     public void processCreateMaterializedView(CreateMaterializedViewStmt stmt)
@@ -168,6 +172,7 @@ public class Alter {
 
         olapTable.checkNormalStateForAlter();
         boolean needProcessOutsideTableLock = false;
+        String oldTableName = olapTable.getName();
         if (currentAlterOps.checkTableStoragePolicy(alterClauses)) {
             String tableStoragePolicy = olapTable.getStoragePolicy();
             String currentStoragePolicy = currentAlterOps.getTableStoragePolicy(alterClauses);
@@ -187,7 +192,19 @@ public class Alter {
             }
             // check currentStoragePolicy resource exist.
             Env.getCurrentEnv().getPolicyMgr().checkStoragePolicyExist(currentStoragePolicy);
-
+            boolean enableUniqueKeyMergeOnWrite;
+            olapTable.readLock();
+            try {
+                enableUniqueKeyMergeOnWrite = olapTable.getEnableUniqueKeyMergeOnWrite();
+            } finally {
+                olapTable.readUnlock();
+            }
+            // must check here whether you can set the policy, otherwise there will be inconsistent metadata
+            if (enableUniqueKeyMergeOnWrite && !Strings.isNullOrEmpty(currentStoragePolicy)) {
+                throw new UserException(
+                    "Can not set UNIQUE KEY table that enables Merge-On-write"
+                        + " with storage policy(" + currentStoragePolicy + ")");
+            }
             olapTable.setStoragePolicy(currentStoragePolicy);
             needProcessOutsideTableLock = true;
         } else if (currentAlterOps.checkIsBeingSynced(alterClauses)) {
@@ -250,7 +267,8 @@ public class Alter {
                     } else if (alterClause instanceof DropPartitionFromIndexClause) {
                         // do nothing
                     } else if (alterClause instanceof AddPartitionClause
-                            || alterClause instanceof AddPartitionLikeClause) {
+                            || alterClause instanceof AddPartitionLikeClause
+                            || alterClause instanceof AlterMultiPartitionClause) {
                         needProcessOutsideTableLock = true;
                     } else {
                         throw new DdlException("Invalid alter operation: " + alterClause.getOpType());
@@ -280,7 +298,7 @@ public class Alter {
             throw new DdlException("Invalid alter operations: " + currentAlterOps);
         }
         if (needChangeMTMVState(alterClauses)) {
-            Env.getCurrentEnv().getMtmvService().alterTable(olapTable);
+            Env.getCurrentEnv().getMtmvService().alterTable(olapTable, oldTableName);
         }
         return needProcessOutsideTableLock;
     }
@@ -506,6 +524,12 @@ public class Alter {
             } else if (alterClause instanceof ModifyTablePropertiesClause) {
                 Map<String, String> properties = alterClause.getProperties();
                 ((SchemaChangeHandler) schemaChangeHandler).updateTableProperties(db, tableName, properties);
+            } else if (alterClause instanceof AlterMultiPartitionClause) {
+                if (!((AlterMultiPartitionClause) alterClause).isTempPartition()) {
+                    DynamicPartitionUtil.checkAlterAllowed(
+                             (OlapTable) db.getTableOrMetaException(tableName, TableType.OLAP));
+                }
+                Env.getCurrentEnv().addMultiPartitions(db, tableName, (AlterMultiPartitionClause) alterClause);
             } else {
                 throw new DdlException("Invalid alter operation: " + alterClause.getOpType());
             }
@@ -669,12 +693,11 @@ public class Alter {
         try {
             String viewName = view.getName();
             view.setInlineViewDefWithSqlMode(inlineViewDef, alterViewInfo.getSqlMode());
-            try {
-                view.init();
-            } catch (UserException e) {
-                throw new DdlException("failed to init view stmt, reason=" + e.getMessage());
-            }
             view.setNewFullSchema(newFullSchema);
+
+            // We do not need to init view here.
+            // During the `init` phase, some `Alter-View` statements will access the remote file system,
+            // but they should not access it during the metadata replay phase.
 
             db.unregisterTable(viewName);
             db.registerTable(view);
@@ -686,8 +709,8 @@ public class Alter {
         }
     }
 
-    public void processAlterCluster(AlterSystemStmt stmt) throws UserException {
-        clusterHandler.process(Collections.singletonList(stmt.getAlterClause()), null, null);
+    public void processAlterSystem(AlterSystemStmt stmt) throws UserException {
+        systemHandler.process(Collections.singletonList(stmt.getAlterClause()), null, null);
     }
 
     private void processRename(Database db, OlapTable table, List<AlterClause> alterClauses) throws DdlException {
@@ -905,6 +928,27 @@ public class Alter {
         }
     }
 
+    public Set<Long> getUnfinishedAlterTableIds() {
+        Set<Long> unfinishedTableIds = Sets.newHashSet();
+        for (AlterJobV2 job : schemaChangeHandler.getAlterJobsV2().values()) {
+            if (!job.isDone()) {
+                unfinishedTableIds.add(job.getTableId());
+            }
+        }
+        for (IndexChangeJob job : ((SchemaChangeHandler) schemaChangeHandler).getIndexChangeJobs().values()) {
+            if (!job.isDone()) {
+                unfinishedTableIds.add(job.getTableId());
+            }
+        }
+        for (AlterJobV2 job : materializedViewHandler.getAlterJobsV2().values()) {
+            if (!job.isDone()) {
+                unfinishedTableIds.add(job.getTableId());
+            }
+        }
+
+        return unfinishedTableIds;
+    }
+
     public AlterHandler getSchemaChangeHandler() {
         return schemaChangeHandler;
     }
@@ -913,8 +957,8 @@ public class Alter {
         return materializedViewHandler;
     }
 
-    public AlterHandler getClusterHandler() {
-        return clusterHandler;
+    public AlterHandler getSystemHandler() {
+        return systemHandler;
     }
 
     public void processAlterMTMV(AlterMTMV alterMTMV, boolean isReplay) {
@@ -923,8 +967,6 @@ public class Alter {
         try {
             Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(tbl.getDb());
             mtmv = (MTMV) db.getTableOrMetaException(tbl.getTbl(), TableType.MATERIALIZED_VIEW);
-
-            mtmv.writeMvLock();
             switch (alterMTMV.getOpType()) {
                 case ALTER_REFRESH_INFO:
                     mtmv.alterRefreshInfo(alterMTMV.getRefreshInfo());
@@ -937,8 +979,6 @@ public class Alter {
                     break;
                 case ADD_TASK:
                     mtmv.addTaskResult(alterMTMV.getTask(), alterMTMV.getRelation(), alterMTMV.getPartitionSnapshots());
-                    Env.getCurrentEnv().getMtmvService()
-                            .refreshComplete(mtmv, alterMTMV.getRelation(), alterMTMV.getTask());
                     break;
                 default:
                     throw new RuntimeException("Unknown type value: " + alterMTMV.getOpType());
@@ -951,10 +991,6 @@ public class Alter {
         } catch (UserException e) {
             // if MTMV has been dropped, ignore this exception
             LOG.warn(e);
-        } finally {
-            if (mtmv != null) {
-                mtmv.writeMvUnlock();
-            }
         }
     }
 }

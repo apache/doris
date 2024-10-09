@@ -115,6 +115,9 @@ public class MetastoreEventsProcessor extends MasterDaemon {
             CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogId);
             if (catalog instanceof HMSExternalCatalog) {
                 HMSExternalCatalog hmsExternalCatalog = (HMSExternalCatalog) catalog;
+                if (!hmsExternalCatalog.isEnableHmsEventsIncrementalSync()) {
+                    continue;
+                }
                 try {
                     List<NotificationEvent> events = getNextHMSEvents(hmsExternalCatalog);
                     if (!events.isEmpty()) {
@@ -125,6 +128,8 @@ public class MetastoreEventsProcessor extends MasterDaemon {
                 } catch (MetastoreNotificationFetchException e) {
                     LOG.warn("Failed to fetch hms events on {}. msg: ", hmsExternalCatalog.getName(), e);
                 } catch (Exception ex) {
+                    hmsExternalCatalog.onRefreshCache(true);
+                    updateLastSyncedEventId(hmsExternalCatalog, -1);
                     LOG.warn("Failed to process hive metastore [{}] events .",
                             hmsExternalCatalog.getName(), ex);
                 }
@@ -147,7 +152,7 @@ public class MetastoreEventsProcessor extends MasterDaemon {
             response = getNextEventResponseForSlave(hmsExternalCatalog);
         }
 
-        if (response == null) {
+        if (response == null || response.getEventsSize() == 0) {
             return Collections.emptyList();
         }
         return response.getEvents();
@@ -207,9 +212,15 @@ public class MetastoreEventsProcessor extends MasterDaemon {
             return null;
         }
 
+        int batchSize = hmsExternalCatalog.getHmsEventsBatchSizePerRpc();
         try {
-            return hmsExternalCatalog.getClient().getNextNotification(lastSyncedEventId,
-                        Config.hms_events_batch_size_per_rpc, null);
+            NotificationEventResponse notificationEventResponse =
+                    hmsExternalCatalog.getClient().getNextNotification(lastSyncedEventId, batchSize, null);
+            LOG.info("CatalogName = {}, lastSyncedEventId = {}, currentEventId = {},"
+                            + "batchSize = {}, getEventsSize = {}", hmsExternalCatalog.getName(), lastSyncedEventId,
+                            currentEventId, batchSize, notificationEventResponse.getEvents().size());
+
+            return notificationEventResponse;
         } catch (MetastoreNotificationFetchException e) {
             // Need a fallback to handle this because this error state can not be recovered until restarting FE
             if (StringUtils.isNotEmpty(e.getMessage())

@@ -22,6 +22,11 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.CompletableFuture
 
 suite("txn_insert_concurrent_insert_mow") {
+    if (isCloudMode()) {
+        logger.info("cloud txn load does not support mow")
+        return
+    }
+
     def tableName = "txn_insert_concurrent_insert_mow"
     List<String> errors = new ArrayList<>()
 

@@ -32,7 +32,7 @@ import java.util.function.Supplier;
 public class BackendDistributedPlanWorkerManager implements DistributedPlanWorkerManager {
     private final Supplier<ImmutableMap<Long, Backend>> backends = Suppliers.memoize(() -> {
         try {
-            return Env.getCurrentSystemInfo().getBackendsWithIdByCurrentCluster();
+            return Env.getCurrentSystemInfo().getAllBackendsByAllCluster();
         } catch (Exception t) {
             throw new NereidsException("Can not get backends: " + t, t);
         }

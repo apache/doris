@@ -1420,4 +1420,38 @@ TEST(MetaServiceHttpTest, InvalidToken) {
     ASSERT_EQ(content, invalid_token_output);
 }
 
+TEST(MetaServiceHttpTest, TxnLazyCommit) {
+    HttpContext ctx;
+    {
+        auto [status_code, content] =
+                ctx.query<std::string>("txn_lazy_commit", "instance_id=test_instance", "");
+        std::string msg = "instance_id or txn_id is empty";
+        ASSERT_TRUE(content.find(msg) != std::string::npos);
+        ASSERT_EQ(status_code, 400);
+    }
+
+    {
+        auto [status_code, content] = ctx.query<std::string>("txn_lazy_commit", "txn_id=1000", "");
+        std::string msg = "instance_id or txn_id is empty";
+        ASSERT_TRUE(content.find(msg) != std::string::npos);
+        ASSERT_EQ(status_code, 400);
+    }
+
+    {
+        auto [status_code, content] = ctx.query<std::string>(
+                "txn_lazy_commit", "instance_id=test_instance&txn_id=1000", "");
+
+        std::string msg = "failed to get db id, txn_id=1000 err=KeyNotFound";
+        ASSERT_TRUE(content.find(msg) != std::string::npos);
+    }
+
+    {
+        auto [status_code, content] = ctx.query<std::string>(
+                "txn_lazy_commit", "instance_id=test_instance&txn_id=abc", "");
+
+        std::string msg = "txn_id abc must be a number";
+        ASSERT_TRUE(content.find(msg) != std::string::npos);
+    }
+}
+
 } // namespace doris::cloud

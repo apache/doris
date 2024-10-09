@@ -169,6 +169,61 @@ public class BackupJob extends AbstractJob {
         return BackupContent.ALL;
     }
 
+    private synchronized boolean tryNewTabletSnapshotTask(SnapshotTask task) {
+        Table table = env.getInternalCatalog().getTableByTableId(task.getTableId());
+        if (table == null) {
+            return false;
+        }
+        OlapTable tbl = (OlapTable) table;
+        tbl.readLock();
+        try {
+            if (tbl.getId() != task.getTableId()) {
+                return false;
+            }
+            Partition partition = tbl.getPartition(task.getPartitionId());
+            if (partition == null) {
+                return false;
+            }
+            MaterializedIndex index = partition.getIndex(task.getIndexId());
+            if (index == null) {
+                return false;
+            }
+            Tablet tablet = index.getTablet(task.getTabletId());
+            if (tablet == null) {
+                return false;
+            }
+            Replica replica = chooseReplica(tablet, task.getVersion());
+            if (replica == null) {
+                return false;
+            }
+
+            //clear old task
+            AgentTaskQueue.removeTaskOfType(TTaskType.MAKE_SNAPSHOT, task.getTabletId());
+            unfinishedTaskIds.remove(task.getTabletId());
+            taskProgress.remove(task.getTabletId());
+            taskErrMsg.remove(task.getTabletId());
+
+            SnapshotTask newTask = new SnapshotTask(null, replica.getBackendIdWithoutException(), task.getTabletId(),
+                    task.getJobId(), task.getDbId(), tbl.getId(), task.getPartitionId(),
+                    task.getIndexId(), task.getTabletId(),
+                    task.getVersion(),
+                    task.getSchemaHash(), timeoutMs, false /* not restore task */);
+            AgentBatchTask batchTask = new AgentBatchTask();
+            batchTask.addTask(newTask);
+            unfinishedTaskIds.put(tablet.getId(), replica.getBackendIdWithoutException());
+
+            //send task
+            AgentTaskQueue.addTask(newTask);
+            AgentTaskExecutor.submit(batchTask);
+
+        } finally {
+            tbl.readUnlock();
+        }
+
+        return true;
+    }
+
+
     public synchronized boolean finishTabletSnapshotTask(SnapshotTask task, TFinishTaskRequest request) {
         Preconditions.checkState(task.getJobId() == jobId);
 
@@ -181,6 +236,20 @@ public class BackupJob extends AbstractJob {
                         "make snapshot failed, version already merged");
                 cancelInternal();
             }
+
+            if (request.getTaskStatus().getStatusCode() == TStatusCode.TABLET_MISSING
+                    && !tryNewTabletSnapshotTask(task)) {
+                status = new Status(ErrCode.NOT_FOUND,
+                        "make snapshot failed, failed to ge tablet, table will be droped or truncated");
+                cancelInternal();
+            }
+
+            if (request.getTaskStatus().getStatusCode() == TStatusCode.NOT_IMPLEMENTED_ERROR) {
+                status = new Status(ErrCode.COMMON_ERROR,
+                    "make snapshot failed, currently not support backup tablet with cooldowned remote data");
+                cancelInternal();
+            }
+
             return false;
         }
 
@@ -454,7 +523,18 @@ public class BackupJob extends AbstractJob {
             }
         }
 
-        backupMeta = new BackupMeta(db.getName(), copiedTables, copiedResources);
+        // Limit the max num of tablets involved in a backup job, to avoid OOM.
+        if (unfinishedTaskIds.size() > Config.max_backup_tablets_per_job) {
+            String msg = String.format("the num involved tablets %d exceeds the limit %d, "
+                    + "which might cause the FE OOM, change config `max_backup_tablets_per_job` "
+                    + "to change this limitation",
+                    unfinishedTaskIds.size(), Config.max_backup_tablets_per_job);
+            LOG.warn(msg);
+            status = new Status(ErrCode.COMMON_ERROR, msg);
+            return;
+        }
+
+        backupMeta = new BackupMeta(copiedTables, copiedResources);
 
         // send tasks
         for (AgentTask task : batchTask.getAllTasks()) {
@@ -540,18 +620,18 @@ public class BackupJob extends AbstractJob {
                                         + ". visible version: " + visibleVersion);
                         return status;
                     }
-                    SnapshotTask task = new SnapshotTask(null, replica.getBackendId(), tablet.getId(),
+                    SnapshotTask task = new SnapshotTask(null, replica.getBackendIdWithoutException(), tablet.getId(),
                             jobId, dbId, olapTable.getId(), partition.getId(),
                             index.getId(), tablet.getId(),
                             visibleVersion,
                             schemaHash, timeoutMs, false /* not restore task */);
                     batchTask.addTask(task);
-                    unfinishedTaskIds.put(tablet.getId(), replica.getBackendId());
+                    unfinishedTaskIds.put(tablet.getId(), replica.getBackendIdWithoutException());
                 }
             }
 
-            LOG.info("snapshot for partition {}, version: {}",
-                    partition.getId(), visibleVersion);
+            LOG.info("snapshot for partition {}, version: {}, job: {}",
+                    partition.getId(), visibleVersion, label);
         }
         return Status.OK;
     }

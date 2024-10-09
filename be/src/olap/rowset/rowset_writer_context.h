@@ -140,6 +140,16 @@ struct RowsetWriterContext {
             return *storage_resource->fs;
         }
     }
+
+    io::FileWriterOptions get_file_writer_options() const {
+        io::FileWriterOptions opts {
+                .write_file_cache = write_file_cache,
+                .is_cold_data = is_hot_data,
+                .file_cache_expiration = file_cache_ttl_sec > 0 && newest_write_timestamp > 0
+                                                 ? newest_write_timestamp + file_cache_ttl_sec
+                                                 : 0};
+        return opts;
+    }
 };
 
 } // namespace doris

@@ -51,7 +51,7 @@ Status MultiCastDataStreamSourceLocalState::open(RuntimeState* state) {
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     RETURN_IF_ERROR(Base::open(state));
-    RETURN_IF_ERROR(_acquire_runtime_filter(true));
+    RETURN_IF_ERROR(_acquire_runtime_filter());
     auto& p = _parent->cast<Parent>();
     _output_expr_contexts.resize(p._output_expr_contexts.size());
     for (size_t i = 0; i < p._output_expr_contexts.size(); i++) {

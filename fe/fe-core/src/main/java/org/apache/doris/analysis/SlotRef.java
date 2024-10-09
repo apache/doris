@@ -679,6 +679,11 @@ public class SlotRef extends Expr {
 
     @Override
     public void replaceSlot(TupleDescriptor tuple) {
+        // do not analyze slot after replaceSlot to avoid duplicate columns in desc
         desc = tuple.getColumnSlot(col);
+        type = desc.getType();
+        if (!isAnalyzed) {
+            analysisDone();
+        }
     }
 }

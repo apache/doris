@@ -26,7 +26,14 @@
 #if defined(USE_JEMALLOC)
 #include <jemalloc/jemalloc.h>
 #endif // defined(USE_JEMALLOC)
+
+#ifdef __APPLE__
+#include <malloc/malloc.h>
+#define GET_MALLOC_SIZE(ptr) malloc_size(ptr)
+#else
 #include <malloc.h>
+#define GET_MALLOC_SIZE(ptr) malloc_usable_size(ptr)
+#endif
 #include <stdint.h>
 #include <string.h>
 
@@ -62,6 +69,14 @@
 /// Required for older Darwin builds, that lack definition of MAP_ANONYMOUS
 #ifndef MAP_ANONYMOUS
 #define MAP_ANONYMOUS MAP_ANON
+#endif
+
+#ifndef __THROW
+#if __cplusplus
+#define __THROW noexcept
+#else
+#define __THROW
+#endif
 #endif
 
 static constexpr size_t MMAP_MIN_ALIGNMENT = 4096;
@@ -106,7 +121,7 @@ public:
 
     static constexpr bool need_record_actual_size() { return true; }
 
-    static size_t allocated_size(void* ptr) { return malloc_usable_size(ptr); }
+    static size_t allocated_size(void* ptr) { return GET_MALLOC_SIZE(ptr); }
 
     static int posix_memalign(void** ptr, size_t alignment, size_t size) __THROW {
         return ::posix_memalign(ptr, alignment, size);

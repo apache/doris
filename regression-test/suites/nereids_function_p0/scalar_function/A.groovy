@@ -77,4 +77,76 @@ suite("nereids_scalar_fn_A") {
 	qt_sql_atan_Double_notnull "select atan(kdbl) from fn_test_not_nullable order by kdbl"
 	qt_sql_atan2_Double "select atan2(kdbl, kdbl*kdbl) from fn_test order by kdbl"
 	qt_sql_atan2_Double_notnull "select atan2(kdbl, kdbl*kdbl) from fn_test_not_nullable order by kdbl"
+	qt_sql_auto_partition_name_list_column_type_mixed "select auto_partition_name('list', kchrs1, kbool) from fn_test_not_nullable where id < 3 order by kchrs1"
+	qt_sql_auto_partition_name_list_column_literal_mixed "select auto_partition_name('list', kstr, 'hello') from fn_test_not_nullable where id < 3 order by kstr"
+	qt_sql_auto_partition_name_list_column "select auto_partition_name('list', kchrs1, kvchrs1) from fn_test_not_nullable where id < 3 order by kchrs1"
+	qt_sql_auto_partition_name_list_literal_empty "select auto_partition_name('list', '')"
+	qt_sql_auto_partition_name_list_literal_mixed "select auto_partition_name('list', '你好', true, false)"
+	qt_sql_auto_partition_name_list_literal_mixed "select auto_partition_name('list', '-hello')"
+	qt_sql_auto_partition_name_list_literal_mixed "select auto_partition_name('list', '@#￥%~|world11111....')"
+	qt_sql_auto_partition_name_range_literal_notnull "select auto_partition_name('range', 'day', '2022-12-12 19:20:30')"
+	qt_sql_auto_partition_name_range_literal_notnull "select auto_partition_name('range', 'month', '2022-12-12 19:20:30')"
+	qt_sql_auto_partition_name_range_literal_notnull "select auto_partition_name('range', 'year', '2022-12-12 19:20:30')"
+	qt_sql_auto_partition_name_range_literal_notnull "select auto_partition_name('range', 'hour', '2022-12-12 19:20:30')"
+	qt_sql_auto_partition_name_range_literal_notnull "select auto_partition_name('range', 'minute', '2022-12-12 19:20:30')"
+	qt_sql_auto_partition_name_range_literal_notnull "select auto_partition_name('range', 'second', '2022-12-12 19:20:30')"
+	qt_sql_auto_partition_name_range_notnull "select auto_partition_name('range', 'day', kdt) from fn_test_not_nullable order by kdt"
+	qt_sql_auto_partition_name_range_notnull "select auto_partition_name('range', 'month', kdt) from fn_test_not_nullable order by kdt"
+	qt_sql_auto_partition_name_range_notnull "select auto_partition_name('range', 'year', kdt) from fn_test_not_nullable order by kdt"
+	qt_sql_auto_partition_name_range_notnull "select auto_partition_name('range', 'hour', kdt) from fn_test_not_nullable order by kdt"
+	qt_sql_auto_partition_name_range_notnull "select auto_partition_name('range', 'minute', kdt) from fn_test_not_nullable order by kdt"
+	qt_sql_auto_partition_name_range_notnull "select auto_partition_name('range', 'second', kdt) from fn_test_not_nullable order by kdt"
+
+	test{
+		sql """select auto_partition_name('hello');"""
+		exception "function auto_partition_name must contains at least two arguments"
+	}
+	test{
+		sql """select auto_partition_name('range', 'day', '123-12-12 19:20:30', '123-12-12 19:20:30');"""
+		exception "range auto_partition_name must contains three arguments"
+	}
+	test{
+		sql """select auto_partition_name(kdt, 'day', kdt) from fn_test_not_nullable order by kdt"""
+		exception "auto_partition_name must accept literal for 1nd argument"
+	}
+	test{
+		sql """select auto_partition_name('range', kdt, kdt) from fn_test_not_nullable order by kdt"""
+		exception "auto_partition_name must accept literal for 2nd argument"
+	}
+	test{
+		sql """select auto_partition_name('range', 'second', '')"""
+		exception "The range partition only support DATE|DATETIME"
+	}
+	test{
+		sql """select auto_partition_name('range', 'second', '123-12-12 19:20:30')"""
+		exception "The range partition only support DATE|DATETIME"
+	}
+	test{
+		sql """select auto_partition_name('range', 'second', '123-12-12')"""
+		exception "The range partition only support DATE|DATETIME"
+	}
+	test{
+		sql """select auto_partition_name('range', 'second', '2011-12-12 123:12:12')"""
+		exception "The range partition only support DATE|DATETIME"
+	}
+	test{
+		sql """select auto_partition_name('range', 'day', 1);"""
+		exception "The range partition only support DATE|DATETIME"
+	}
+	test{
+		sql """select auto_partition_name('range', 'year', 'hello');"""
+		exception "The range partition only support DATE|DATETIME"
+	}
+	test{
+		sql """select auto_partition_name('ranges', 'year', 'hello');"""
+		exception "function auto_partition_name must accept range|list for 1nd argument"
+	}
+	test{
+		sql """select auto_partition_name('range', 'years', 'hello');"""
+		exception "range auto_partition_name must accept year|month|day|hour|minute|second for 2nd argument"
+	}
+	test{
+		sql "select auto_partition_name('list', '你好', 'hello!@#￥%~|world11111....', '世界')"
+		exception "The list partition name cannot exceed 50 characters"
+	}
 }

@@ -105,7 +105,7 @@ Status CloudDeleteTask::execute(CloudStorageEngine& engine, const TPushReq& requ
                 request.timeout, nullptr);
     }
 
-    return Status::OK();
+    return st;
 }
 
 } // namespace doris

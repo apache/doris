@@ -976,8 +976,10 @@ void VNodeChannel::mark_close(bool hang_wait) {
     _eos_is_produced = true;
 }
 
-VTabletWriter::VTabletWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs)
-        : AsyncResultWriter(output_exprs), _t_sink(t_sink) {
+VTabletWriter::VTabletWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs,
+                             std::shared_ptr<pipeline::Dependency> dep,
+                             std::shared_ptr<pipeline::Dependency> fin_dep)
+        : AsyncResultWriter(output_exprs, dep, fin_dep), _t_sink(t_sink) {
     _transfer_large_data_by_brpc = config::transfer_large_data_by_brpc;
 }
 
@@ -1075,10 +1077,8 @@ Status VTabletWriter::open(doris::RuntimeState* state, doris::RuntimeProfile* pr
 
         RETURN_IF_ERROR(index_channel->check_intolerable_failure());
     }
-    int32_t send_batch_parallelism =
-            MIN(_send_batch_parallelism, config::max_send_batch_parallelism_per_job);
     _send_batch_thread_pool_token = state->exec_env()->send_batch_thread_pool()->new_token(
-            ThreadPool::ExecutionMode::CONCURRENT, send_batch_parallelism);
+            ThreadPool::ExecutionMode::CONCURRENT, _send_batch_parallelism);
 
     // start to send batch continually. this must be called after _init
     if (bthread_start_background(&_sender_thread, nullptr, periodic_send_batch, (void*)this) != 0) {

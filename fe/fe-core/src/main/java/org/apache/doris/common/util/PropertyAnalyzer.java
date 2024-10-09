@@ -142,6 +142,8 @@ public class PropertyAnalyzer {
 
     public static final String PROPERTIES_DISABLE_AUTO_COMPACTION = "disable_auto_compaction";
 
+    public static final String PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED = "variant_enable_flatten_nested";
+
     public static final String PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION = "enable_single_replica_compaction";
 
     public static final String PROPERTIES_STORE_ROW_COLUMN = "store_row_column"; // deprecated
@@ -743,6 +745,24 @@ public class PropertyAnalyzer {
                 + " must be `true` or `false`");
     }
 
+    public static Boolean analyzeVariantFlattenNested(Map<String, String> properties) throws AnalysisException {
+        if (properties == null || properties.isEmpty()) {
+            return false;
+        }
+        String value = properties.get(PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED);
+        if (null == value) {
+            return false;
+        }
+        properties.remove(PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED);
+        if (value.equalsIgnoreCase("true")) {
+            return true;
+        } else if (value.equalsIgnoreCase("false")) {
+            return false;
+        }
+        throw new AnalysisException(PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED
+                + " must be `true` or `false`");
+    }
+
     public static Boolean analyzeEnableSingleReplicaCompaction(Map<String, String> properties)
             throws AnalysisException {
         if (properties == null || properties.isEmpty()) {
@@ -1215,7 +1235,7 @@ public class PropertyAnalyzer {
             tagMap.put(tag.type, tag.value);
             iter.remove();
         }
-        if (tagMap.isEmpty() && defaultValue != null) {
+        if (defaultValue != null && !tagMap.containsKey(defaultValue.type)) {
             tagMap.put(defaultValue.type, defaultValue.value);
         }
         return tagMap;
@@ -1601,7 +1621,7 @@ public class PropertyAnalyzer {
 
     private static Map<String, String> rewriteReplicaAllocationPropertiesByDatabase(
             String ctl, String database, Map<String, String> properties) {
-        // if table contain `replication_allocation` or `replication_allocation`,not need rewrite by db
+        // if table contain `replication_allocation` or `replication_num`,not need rewrite by db
         if (properties != null && (properties.containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION)
                 || properties.containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM))) {
             return properties;

@@ -114,6 +114,40 @@
         __VA_ARGS__;                                                       \
     } while (0)
 
+#define LIMIT_LOCAL_SCAN_IO(data_dir, bytes_read)                     \
+    std::shared_ptr<IOThrottle> iot = nullptr;                        \
+    auto* t_ctx = doris::thread_context(true);                        \
+    if (t_ctx) {                                                      \
+        iot = t_ctx->get_local_scan_io_throttle(data_dir);            \
+    }                                                                 \
+    if (iot) {                                                        \
+        iot->acquire(-1);                                             \
+    }                                                                 \
+    Defer defer {                                                     \
+        [&]() {                                                       \
+            if (iot) {                                                \
+                iot->update_next_io_time(*bytes_read);                \
+                t_ctx->update_total_local_scan_io_adder(*bytes_read); \
+            }                                                         \
+        }                                                             \
+    }
+
+#define LIMIT_REMOTE_SCAN_IO(bytes_read)               \
+    std::shared_ptr<IOThrottle> iot = nullptr;         \
+    if (auto* t_ctx = doris::thread_context(true)) {   \
+        iot = t_ctx->get_remote_scan_io_throttle();    \
+    }                                                  \
+    if (iot) {                                         \
+        iot->acquire(-1);                              \
+    }                                                  \
+    Defer defer {                                      \
+        [&]() {                                        \
+            if (iot) {                                 \
+                iot->update_next_io_time(*bytes_read); \
+            }                                          \
+        }                                              \
+    }
+
 namespace doris {
 
 class ThreadContext;
@@ -230,6 +264,26 @@ public:
 
     std::weak_ptr<WorkloadGroup> workload_group() { return _wg_wptr; }
 
+    std::shared_ptr<IOThrottle> get_local_scan_io_throttle(const std::string& data_dir) {
+        if (std::shared_ptr<WorkloadGroup> wg_ptr = _wg_wptr.lock()) {
+            return wg_ptr->get_local_scan_io_throttle(data_dir);
+        }
+        return nullptr;
+    }
+
+    std::shared_ptr<IOThrottle> get_remote_scan_io_throttle() {
+        if (std::shared_ptr<WorkloadGroup> wg_ptr = _wg_wptr.lock()) {
+            return wg_ptr->get_remote_scan_io_throttle();
+        }
+        return nullptr;
+    }
+
+    void update_total_local_scan_io_adder(size_t bytes_read) {
+        if (std::shared_ptr<WorkloadGroup> wg_ptr = _wg_wptr.lock()) {
+            wg_ptr->update_total_local_scan_io_adder(bytes_read);
+        }
+    }
+
     int thread_local_handle_count = 0;
     int skip_memory_check = 0;
     int skip_large_memory_check = 0;
@@ -295,7 +349,7 @@ public:
 };
 
 // must call create_thread_local_if_not_exits() before use thread_context().
-static ThreadContext* thread_context() {
+static ThreadContext* thread_context(bool allow_return_null = false) {
     if (pthread_context_ptr_init) {
         // in pthread
         DCHECK(bthread_self() == 0);
@@ -308,6 +362,9 @@ static ThreadContext* thread_context() {
         auto* bthread_context = static_cast<ThreadContext*>(bthread_getspecific(btls_key));
         DCHECK(bthread_context != nullptr);
         return bthread_context;
+    }
+    if (allow_return_null) {
+        return nullptr;
     }
     // It means that use thread_context() but this thread not attached a query/load using SCOPED_ATTACH_TASK macro.
     LOG(FATAL) << "__builtin_unreachable, " << doris::memory_orphan_check_msg;

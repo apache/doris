@@ -16,3 +16,4 @@
 #
 be/src/io/* @platoneko @gavinchou @dataroaring
 fe/fe-core/src/main/java/org/apache/doris/catalog/Env.java @dataroaring @CalvinKirs @morningman
+**/pom.xml @CalvinKirs @morningman

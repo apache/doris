@@ -31,7 +31,7 @@ import lombok.Getter;
 
 import java.util.Map;
 
-public class AdminSetTableStatusStmt extends DdlStmt {
+public class AdminSetTableStatusStmt extends DdlStmt implements NotFallbackInParser {
 
     public static final String TABLE_STATE = "state";
 

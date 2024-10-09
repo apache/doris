@@ -542,6 +542,11 @@ public class MasterImpl {
     private void finishClone(AgentTask task, TFinishTaskRequest request) {
         CloneTask cloneTask = (CloneTask) task;
         if (cloneTask.getTaskVersion() == CloneTask.VERSION_2) {
+            if (request.isSetReportVersion()) {
+                long reportVersion = request.getReportVersion();
+                Env.getCurrentSystemInfo().updateBackendReportVersion(
+                        task.getBackendId(), reportVersion, task.getDbId(), task.getTableId());
+            }
             Env.getCurrentEnv().getTabletScheduler().finishCloneTask(cloneTask, request);
         } else {
             LOG.warn("invalid clone task, ignore it. {}", task);

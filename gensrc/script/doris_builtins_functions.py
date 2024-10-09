@@ -1619,12 +1619,14 @@ visible_functions = {
         [['rpad'], 'VARCHAR', ['VARCHAR', 'INT', 'VARCHAR'], 'ALWAYS_NULLABLE'],
         [['append_trailing_char_if_absent'], 'VARCHAR', ['VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
         [['length'], 'INT', ['VARCHAR'], ''],
+        [['crc32'], 'BIGINT', ['VARCHAR'], ''],
         [['bit_length'], 'INT', ['VARCHAR'], ''],
 
         [['char_length', 'character_length'], 'INT', ['VARCHAR'], ''],
         [['lower', 'lcase'], 'VARCHAR', ['VARCHAR'], ''],
         [['upper', 'ucase'], 'VARCHAR', ['VARCHAR'], ''],
         [['quote'], 'VARCHAR', ['VARCHAR'], ''],
+        [['auto_partition_name'], 'VARCHAR', ['VARCHAR', '...'], ''],
         [['initcap'], 'VARCHAR', ['VARCHAR'], ''],
         [['trim'], 'VARCHAR', ['VARCHAR','VARCHAR'], ''],
         [['trim'], 'VARCHAR', ['VARCHAR'], ''],
@@ -1685,6 +1687,7 @@ visible_functions = {
         [['rpad'], 'STRING', ['STRING', 'INT', 'STRING'], 'ALWAYS_NULLABLE'],
         [['append_trailing_char_if_absent'], 'STRING', ['STRING', 'STRING'], 'ALWAYS_NULLABLE'],
         [['length'], 'INT', ['STRING'], ''],
+        [['crc32'], 'BIGINT', ['STRING'], ''],
         [['bit_length'], 'INT', ['STRING'], ''],
 
         [['char_length', 'character_length'], 'INT', ['STRING'], ''],
@@ -1697,6 +1700,7 @@ visible_functions = {
         [['ltrim'], 'STRING', ['STRING','STRING'], ''],
         [['rtrim'], 'STRING', ['STRING'], ''],
         [['rtrim'], 'STRING', ['STRING','STRING'], ''],
+        [['auto_partition_name'], 'STRING', ['STRING', '...'], ''],
         [['ascii'], 'INT', ['STRING'], ''],
         [['instr'], 'INT', ['STRING', 'STRING'], ''],
         [['locate'], 'INT', ['STRING', 'STRING'], ''],
@@ -2258,7 +2262,7 @@ visible_functions = {
 
     # multi match functions
     "MultiMatch": [
-        [['multi_match'], 'BOOLEAN', ['STRING', 'STRING', 'STRING', 'STRING'], 'ALWAYS_NOT_NULLABLE']
+        [['multi_match'], 'BOOLEAN', ['STRING', '...'], 'ALWAYS_NOT_NULLABLE']
     ]
 }
 

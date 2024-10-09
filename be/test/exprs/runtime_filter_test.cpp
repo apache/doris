@@ -48,8 +48,10 @@ private:
     // std::unique_ptr<IRuntimeFilter> _runtime_filter;
 };
 
-IRuntimeFilter* create_runtime_filter(TRuntimeFilterType::type type, TQueryOptions* options,
-                                      RuntimeState* _runtime_stat, ObjectPool* _obj_pool) {
+std::shared_ptr<IRuntimeFilter> create_runtime_filter(TRuntimeFilterType::type type,
+                                                      TQueryOptions* options,
+                                                      RuntimeState* _runtime_stat,
+                                                      ObjectPool* _obj_pool) {
     TRuntimeFilterDesc desc;
     desc.__set_filter_id(0);
     desc.__set_expr_order(0);
@@ -96,10 +98,10 @@ IRuntimeFilter* create_runtime_filter(TRuntimeFilterType::type type, TQueryOptio
         desc.__set_planId_to_target_expr(planid_to_target_expr);
     }
 
-    IRuntimeFilter* runtime_filter = nullptr;
-    Status status = IRuntimeFilter::create(RuntimeFilterParamsContext::create(_runtime_stat),
-                                           _obj_pool, &desc, options, RuntimeFilterRole::PRODUCER,
-                                           -1, &runtime_filter);
+    std::shared_ptr<IRuntimeFilter> runtime_filter;
+    Status status =
+            IRuntimeFilter::create(RuntimeFilterParamsContext::create(_runtime_stat), &desc,
+                                   options, RuntimeFilterRole::PRODUCER, -1, &runtime_filter);
 
     EXPECT_TRUE(status.ok()) << status.to_string();
 

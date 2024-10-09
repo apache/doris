@@ -214,7 +214,7 @@ public class MinidumpUtils {
         }
         NereidsPlanner nereidsPlanner = new NereidsPlanner(
                 new StatementContext(ConnectContext.get(), new OriginStatement(sql, 0)));
-        nereidsPlanner.plan(LogicalPlanAdapter.of(parsed));
+        nereidsPlanner.planWithLock(LogicalPlanAdapter.of(parsed));
         return ((AbstractPlan) nereidsPlanner.getOptimizedPlan()).toJson();
     }
 

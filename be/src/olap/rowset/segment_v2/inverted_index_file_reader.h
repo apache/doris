@@ -51,10 +51,12 @@ public:
             std::map<std::pair<int64_t, std::string>, std::unique_ptr<EntriesType>>;
 
     InvertedIndexFileReader(io::FileSystemSPtr fs, std::string index_path_prefix,
-                            InvertedIndexStorageFormatPB storage_format)
+                            InvertedIndexStorageFormatPB storage_format,
+                            InvertedIndexFileInfo idx_file_info = InvertedIndexFileInfo())
             : _fs(std::move(fs)),
               _index_path_prefix(std::move(index_path_prefix)),
-              _storage_format(storage_format) {}
+              _storage_format(storage_format),
+              _idx_file_info(idx_file_info) {}
 
     Status init(int32_t read_buffer_size = config::inverted_index_read_buffer_size,
                 bool open_idx_file_cache = false);
@@ -65,6 +67,8 @@ public:
     Status index_file_exist(const TabletIndex* index_meta, bool* res) const;
     Status has_null(const TabletIndex* index_meta, bool* res) const;
     Result<InvertedIndexDirectoryMap> get_all_directories();
+    // open file v2, init _stream
+    int64_t get_inverted_file_size() const { return _stream == nullptr ? 0 : _stream->length(); }
 
 private:
     Status _init_from_v2(int32_t read_buffer_size);
@@ -72,13 +76,15 @@ private:
                                                        const std::string& index_suffix) const;
 
     IndicesEntriesMap _indices_entries;
-    std::unique_ptr<CL_NS(store)::IndexInput> _stream;
+    std::unique_ptr<CL_NS(store)::IndexInput> _stream = nullptr;
     const io::FileSystemSPtr _fs;
     std::string _index_path_prefix;
     int32_t _read_buffer_size = -1;
     bool _open_idx_file_cache = false;
     InvertedIndexStorageFormatPB _storage_format;
     mutable std::shared_mutex _mutex; // Use mutable for const read operations
+    bool _inited = false;
+    InvertedIndexFileInfo _idx_file_info;
 };
 
 } // namespace segment_v2

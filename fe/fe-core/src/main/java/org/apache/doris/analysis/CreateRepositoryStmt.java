@@ -27,7 +27,7 @@ import org.apache.doris.qe.ConnectContext;
 
 import java.util.Map;
 
-public class CreateRepositoryStmt extends DdlStmt {
+public class CreateRepositoryStmt extends DdlStmt implements NotFallbackInParser {
     private boolean isReadOnly;
     private String name;
     private StorageBackend storage;

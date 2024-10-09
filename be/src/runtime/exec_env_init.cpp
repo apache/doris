@@ -44,6 +44,7 @@
 #include "io/cache/block_file_cache_factory.h"
 #include "io/cache/fs_file_cache_storage.h"
 #include "io/fs/file_meta_cache.h"
+#include "io/fs/local_file_reader.h"
 #include "olap/memtable_memory_limiter.h"
 #include "olap/olap_define.h"
 #include "olap/options.h"
@@ -245,17 +246,6 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     // min num equal to fragment pool's min num
     // max num is useless because it will start as many as requested in the past
     // queue size is useless because the max thread num is very large
-    static_cast<void>(ThreadPoolBuilder("SendReportThreadPool")
-                              .set_min_threads(config::fragment_pool_thread_num_min)
-                              .set_max_threads(std::numeric_limits<int>::max())
-                              .set_max_queue_size(config::fragment_pool_queue_size)
-                              .build(&_send_report_thread_pool));
-
-    static_cast<void>(ThreadPoolBuilder("JoinNodeThreadPool")
-                              .set_min_threads(config::fragment_pool_thread_num_min)
-                              .set_max_threads(std::numeric_limits<int>::max())
-                              .set_max_queue_size(config::fragment_pool_queue_size)
-                              .build(&_join_node_thread_pool));
     static_cast<void>(ThreadPoolBuilder("LazyReleaseMemoryThreadPool")
                               .set_min_threads(1)
                               .set_max_threads(1)
@@ -265,12 +255,20 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
                               .set_min_threads(config::min_nonblock_close_thread_num)
                               .set_max_threads(config::max_nonblock_close_thread_num)
                               .build(&_non_block_close_thread_pool));
+    static_cast<void>(ThreadPoolBuilder("S3FileSystemThreadPool")
+                              .set_min_threads(config::min_s3_file_system_thread_num)
+                              .set_max_threads(config::max_s3_file_system_thread_num)
+                              .build(&_s3_file_system_thread_pool));
 
     // NOTE: runtime query statistics mgr could be visited by query and daemon thread
     // so it should be created before all query begin and deleted after all query and daemon thread stoppped
     _runtime_query_statistics_mgr = new RuntimeQueryStatisticsMgr();
+    CgroupCpuCtl::init_doris_cgroup_path();
     _file_cache_factory = new io::FileCacheFactory();
-    init_file_cache_factory();
+    std::vector<doris::CachePath> cache_paths;
+    init_file_cache_factory(cache_paths);
+    doris::io::BeConfDataDirReader::init_be_conf_data_dir(store_paths, spill_store_paths,
+                                                          cache_paths);
     _pipeline_tracer_ctx = std::make_unique<pipeline::PipelineTracerContext>(); // before query
     RETURN_IF_ERROR(init_pipeline_task_scheduler());
     _workload_group_manager = new WorkloadGroupMgr();
@@ -289,7 +287,10 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     _load_stream_mgr = std::make_unique<LoadStreamMgr>(num_flush_threads);
     _new_load_stream_mgr = NewLoadStreamMgr::create_shared();
     _internal_client_cache = new BrpcClientCache<PBackendService_Stub>();
-    _function_client_cache = new BrpcClientCache<PFunctionService_Stub>();
+    _streaming_client_cache =
+            new BrpcClientCache<PBackendService_Stub>("baidu_std", "single", "streaming");
+    _function_client_cache =
+            new BrpcClientCache<PFunctionService_Stub>(config::function_service_protocol);
     if (config::is_cloud_mode()) {
         _stream_load_executor = std::make_shared<CloudStreamLoadExecutor>(this);
     } else {
@@ -387,53 +388,59 @@ Status ExecEnv::init_pipeline_task_scheduler() {
     return Status::OK();
 }
 
-void ExecEnv::init_file_cache_factory() {
+void ExecEnv::init_file_cache_factory(std::vector<doris::CachePath>& cache_paths) {
     // Load file cache before starting up daemon threads to make sure StorageEngine is read.
-    if (doris::config::enable_file_cache) {
-        if (config::file_cache_each_block_size > config::s3_write_buffer_size ||
-            config::s3_write_buffer_size % config::file_cache_each_block_size != 0) {
-            LOG_FATAL(
-                    "The config file_cache_each_block_size {} must less than or equal to config "
-                    "s3_write_buffer_size {} and config::s3_write_buffer_size % "
-                    "config::file_cache_each_block_size must be zero",
-                    config::file_cache_each_block_size, config::s3_write_buffer_size);
+    if (!config::enable_file_cache) {
+        if (config::is_cloud_mode()) {
+            LOG(FATAL) << "Cloud mode requires to enable file cache, plz set "
+                          "config::enable_file_cache "
+                          "= true";
             exit(-1);
         }
-        std::unordered_set<std::string> cache_path_set;
-        std::vector<doris::CachePath> cache_paths;
-        Status rest = doris::parse_conf_cache_paths(doris::config::file_cache_path, cache_paths);
-        if (!rest) {
-            LOG(FATAL) << "parse config file cache path failed, path="
-                       << doris::config::file_cache_path;
+        return;
+    }
+    if (config::file_cache_each_block_size > config::s3_write_buffer_size ||
+        config::s3_write_buffer_size % config::file_cache_each_block_size != 0) {
+        LOG_FATAL(
+                "The config file_cache_each_block_size {} must less than or equal to config "
+                "s3_write_buffer_size {} and config::s3_write_buffer_size % "
+                "config::file_cache_each_block_size must be zero",
+                config::file_cache_each_block_size, config::s3_write_buffer_size);
+        exit(-1);
+    }
+    std::unordered_set<std::string> cache_path_set;
+    Status rest = doris::parse_conf_cache_paths(doris::config::file_cache_path, cache_paths);
+    if (!rest) {
+        LOG(FATAL) << "parse config file cache path failed, path="
+                   << doris::config::file_cache_path;
+        exit(-1);
+    }
+    std::vector<std::thread> file_cache_init_threads;
+
+    std::list<doris::Status> cache_status;
+    for (auto& cache_path : cache_paths) {
+        if (cache_path_set.find(cache_path.path) != cache_path_set.end()) {
+            LOG(WARNING) << fmt::format("cache path {} is duplicate", cache_path.path);
+            continue;
+        }
+
+        file_cache_init_threads.emplace_back([&, status = &cache_status.emplace_back()]() {
+            *status = doris::io::FileCacheFactory::instance()->create_file_cache(
+                    cache_path.path, cache_path.init_settings());
+        });
+
+        cache_path_set.emplace(cache_path.path);
+    }
+
+    for (std::thread& thread : file_cache_init_threads) {
+        if (thread.joinable()) {
+            thread.join();
+        }
+    }
+    for (const auto& status : cache_status) {
+        if (!status.ok()) {
+            LOG(FATAL) << "failed to init file cache, err: " << status;
             exit(-1);
-        }
-        std::vector<std::thread> file_cache_init_threads;
-
-        std::list<doris::Status> cache_status;
-        for (auto& cache_path : cache_paths) {
-            if (cache_path_set.find(cache_path.path) != cache_path_set.end()) {
-                LOG(WARNING) << fmt::format("cache path {} is duplicate", cache_path.path);
-                continue;
-            }
-
-            file_cache_init_threads.emplace_back([&, status = &cache_status.emplace_back()]() {
-                *status = doris::io::FileCacheFactory::instance()->create_file_cache(
-                        cache_path.path, cache_path.init_settings());
-            });
-
-            cache_path_set.emplace(cache_path.path);
-        }
-
-        for (std::thread& thread : file_cache_init_threads) {
-            if (thread.joinable()) {
-                thread.join();
-            }
-        }
-        for (const auto& status : cache_status) {
-            if (!status.ok()) {
-                LOG(FATAL) << "failed to init file cache, err: " << status;
-                exit(-1);
-            }
         }
     }
 }
@@ -608,6 +615,8 @@ void ExecEnv::init_mem_tracker() {
             MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::GLOBAL, "SubcolumnsTree");
     _s3_file_buffer_tracker =
             MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::GLOBAL, "S3FileBuffer");
+    _stream_load_pipe_tracker =
+            MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::GLOBAL, "StreamLoadPipe");
 }
 
 void ExecEnv::_register_metrics() {
@@ -673,10 +682,9 @@ void ExecEnv::destroy() {
     }
     SAFE_SHUTDOWN(_buffered_reader_prefetch_thread_pool);
     SAFE_SHUTDOWN(_s3_file_upload_thread_pool);
-    SAFE_SHUTDOWN(_join_node_thread_pool);
     SAFE_SHUTDOWN(_lazy_release_obj_pool);
     SAFE_SHUTDOWN(_non_block_close_thread_pool);
-    SAFE_SHUTDOWN(_send_report_thread_pool);
+    SAFE_SHUTDOWN(_s3_file_system_thread_pool);
     SAFE_SHUTDOWN(_send_batch_thread_pool);
 
     _deregister_metrics();
@@ -708,6 +716,7 @@ void ExecEnv::destroy() {
     SAFE_DELETE(_routine_load_task_executor);
     // _stream_load_executor
     SAFE_DELETE(_function_client_cache);
+    SAFE_DELETE(_streaming_client_cache);
     SAFE_DELETE(_internal_client_cache);
 
     SAFE_DELETE(_bfd_parser);
@@ -718,10 +727,9 @@ void ExecEnv::destroy() {
     SAFE_DELETE(_file_cache_factory);
     SAFE_DELETE(_runtime_filter_timer_queue);
     // TODO(zhiqiang): Maybe we should call shutdown before release thread pool?
-    _join_node_thread_pool.reset(nullptr);
     _lazy_release_obj_pool.reset(nullptr);
     _non_block_close_thread_pool.reset(nullptr);
-    _send_report_thread_pool.reset(nullptr);
+    _s3_file_system_thread_pool.reset(nullptr);
     _send_table_stats_thread_pool.reset(nullptr);
     _buffered_reader_prefetch_thread_pool.reset(nullptr);
     _s3_file_upload_thread_pool.reset(nullptr);

@@ -124,18 +124,20 @@ Status DeleteHandler::generate_delete_predicate(const TabletSchema& schema,
         } else {
             // write sub predicate v1 for compactbility
             std::string condition_str = construct_sub_predicate(condition);
-            if (TCondition tmp; !DeleteHandler::parse_condition(condition_str, &tmp)) {
+            VLOG_NOTICE << __PRETTY_FUNCTION__ << " condition_str: " << condition_str;
+            del_pred->add_sub_predicates(condition_str);
+            DeleteSubPredicatePB* sub_predicate = del_pred->add_sub_predicates_v2();
+            if (condition.__isset.column_unique_id) {
+                // only light schema change capable table set this field
+                sub_predicate->set_column_unique_id(condition.column_unique_id);
+            } else if (TCondition tmp; !DeleteHandler::parse_condition(condition_str, &tmp)) {
+                // for non light shema change tables, check regex match for condition str
                 LOG(WARNING) << "failed to parse condition_str, condtion="
                              << ThriftDebugString(condition);
                 return Status::Error<ErrorCode::INVALID_ARGUMENT>(
                         "failed to parse condition_str, condtion={}", ThriftDebugString(condition));
             }
-            VLOG_NOTICE << __PRETTY_FUNCTION__ << " condition_str: " << condition_str;
-            del_pred->add_sub_predicates(condition_str);
-            DeleteSubPredicatePB* sub_predicate = del_pred->add_sub_predicates_v2();
-            if (condition.__isset.column_unique_id) {
-                sub_predicate->set_column_unique_id(condition.column_unique_id);
-            }
+
             sub_predicate->set_column_name(condition.column_name);
             sub_predicate->set_op(trans_op(condition.condition_op));
             sub_predicate->set_cond_value(condition.condition_values[0]);
@@ -389,8 +391,7 @@ template Status DeleteHandler::_parse_column_pred<std::string>(
         DeleteConditions* delete_conditions);
 
 Status DeleteHandler::init(TabletSchemaSPtr tablet_schema,
-                           const std::vector<RowsetMetaSharedPtr>& delete_preds, int64_t version,
-                           bool with_sub_pred_v2) {
+                           const std::vector<RowsetMetaSharedPtr>& delete_preds, int64_t version) {
     DCHECK(!_is_inited) << "reinitialize delete handler.";
     DCHECK(version >= 0) << "invalid parameters. version=" << version;
     _predicate_arena = std::make_unique<vectorized::Arena>();
@@ -405,7 +406,7 @@ Status DeleteHandler::init(TabletSchemaSPtr tablet_schema,
         const auto& delete_condition = delete_pred->delete_predicate();
         DeleteConditions temp;
         temp.filter_version = delete_pred->version().first;
-        if (with_sub_pred_v2 && !delete_condition.sub_predicates_v2().empty()) {
+        if (!delete_condition.sub_predicates_v2().empty()) {
             RETURN_IF_ERROR(_parse_column_pred(tablet_schema, delete_pred_related_schema,
                                                delete_condition.sub_predicates_v2(), &temp));
         } else {

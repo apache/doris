@@ -51,7 +51,6 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -92,14 +91,6 @@ public class MaxComputeExternalTable extends ExternalTable {
                 .getRecordCount();
     }
 
-    @Override
-    public Set<String> getPartitionNames() {
-        makeSureInitialized();
-        Optional<SchemaCacheValue> schemaCacheValue = getSchemaCacheValue();
-        return schemaCacheValue.map(value -> ((MaxComputeSchemaCacheValue) value).getPartitionColNames())
-                .orElse(Collections.emptySet());
-    }
-
     public List<Column> getPartitionColumns() {
         makeSureInitialized();
         Optional<SchemaCacheValue> schemaCacheValue = getSchemaCacheValue();
@@ -129,7 +120,8 @@ public class MaxComputeExternalTable extends ExternalTable {
         TablePartitionValues partitionValues = new TablePartitionValues();
         partitionValues.addPartitions(partitionSpecs,
                 partitionSpecs.stream()
-                        .map(p -> parsePartitionValues(new ArrayList<>(getPartitionNames()), p))
+                        .map(p -> parsePartitionValues(getPartitionColumns().stream().map(c -> c.getName()).collect(
+                                Collectors.toList()), p))
                         .collect(Collectors.toList()),
                 partitionTypes);
         return partitionValues;

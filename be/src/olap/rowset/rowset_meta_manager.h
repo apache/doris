@@ -18,6 +18,8 @@
 #ifndef DORIS_BE_SRC_OLAP_ROWSET_ROWSET_META_MANAGER_H
 #define DORIS_BE_SRC_OLAP_ROWSET_ROWSET_META_MANAGER_H
 
+#include <gen_cpp/olap_file.pb.h>
+
 #include <cstdint>
 #include <functional>
 #include <string>
@@ -32,11 +34,15 @@
 namespace doris {
 class OlapMeta;
 class RowsetMetaPB;
+class PartialUpdateInfoPB;
 } // namespace doris
 
 namespace doris {
 namespace {
 const std::string ROWSET_PREFIX = "rst_";
+
+constexpr std::string_view PARTIAL_UPDATE_INFO_PREFIX = "pui_";
+
 } // namespace
 
 // Helper class for managing rowset meta of one root path.
@@ -79,6 +85,21 @@ public:
     static Status remove(OlapMeta* meta, TabletUid tablet_uid, const RowsetId& rowset_id);
 
     static Status load_json_rowset_meta(OlapMeta* meta, const std::string& rowset_meta_path);
+
+    static Status save_partial_update_info(OlapMeta* meta, int64_t tablet_id, int64_t partition_id,
+                                           int64_t txn_id,
+                                           const PartialUpdateInfoPB& partial_update_info_pb);
+    static Status try_get_partial_update_info(OlapMeta* meta, int64_t tablet_id,
+                                              int64_t partition_id, int64_t txn_id,
+                                              PartialUpdateInfoPB* partial_update_info_pb);
+    static Status traverse_partial_update_info(
+            OlapMeta* meta,
+            std::function<bool(int64_t, int64_t, int64_t, std::string_view)> const& func);
+    static Status remove_partial_update_info(OlapMeta* meta, int64_t tablet_id,
+                                             int64_t partition_id, int64_t txn_id);
+    static Status remove_partial_update_infos(
+            OlapMeta* meta, const std::vector<std::tuple<int64_t, int64_t, int64_t>>& keys);
+    static Status remove_tablet_related_partial_update_info(OlapMeta* meta, int64_t tablet_id);
 
 private:
     static Status _save(OlapMeta* meta, TabletUid tablet_uid, const RowsetId& rowset_id,

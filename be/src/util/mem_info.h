@@ -75,6 +75,8 @@ public:
 
     static void refresh_proc_meminfo();
 
+    static void refresh_memory_bvar();
+
     static inline int64_t sys_mem_available_low_water_mark() {
         return _s_sys_mem_available_low_water_mark;
     }

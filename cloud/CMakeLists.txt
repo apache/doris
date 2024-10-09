@@ -165,7 +165,7 @@ if (NOT CUSTUM_LINKER_COMMAND STREQUAL "ld")
 endif()
 
 if (USE_LIBCPP AND COMPILER_CLANG)
-    set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -stdlib=libc++ -lstdc++")
+    set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -stdlib=libc++")
     add_definitions(-DUSE_LIBCPP)
 endif()
 
@@ -337,13 +337,16 @@ set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS}
     ${DORIS_DEPENDENCIES}
     -static-libstdc++
     -static-libgcc
-    -lstdc++fs
     -lresolv
 )
 if (ENABLE_HDFS)
     set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS}
         -L${DORIS_JAVA_HOME}/lib/server
         -ljvm)
+endif()
+
+if (NOT (USE_LIBCPP AND COMPILER_CLANG))
+    set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS} -lstdc++fs)
 endif()
 
 if (USE_JEMALLOC)
@@ -459,6 +462,9 @@ if (NOT EXISTS ${THIRDPARTY_DIR}/include/foundationdb)
     endif ()
     execute_process(COMMAND "tar" "xf" "${THIRDPARTY_SRC}/${FDB_LIB}" "-C" "${THIRDPARTY_DIR}/")
 endif ()
+
+# enable glog custom prefix
+add_definitions(-DGLOG_CUSTOM_PREFIX_SUPPORT)
 
 set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -lfdb_c -L${THIRDPARTY_DIR}/lib")
 

@@ -239,7 +239,7 @@ suite("test_point_query_cluster_key") {
                 sql """CREATE TABLE ${tableName} (
                         `customer_key` bigint(20) NULL,
                         `customer_btm_value_0` text NULL,
-                        `customer_btm_value_1` text NULL,
+                        `customer_btm_value_1` VARCHAR(1000) NULL,
                         `customer_btm_value_2` text NULL
                     ) ENGINE=OLAP
                     UNIQUE KEY(`customer_key`)

@@ -21,7 +21,6 @@ import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.nereids.stats.FilterEstimation.EstimationContext;
-import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
@@ -34,6 +33,7 @@ import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.Like;
+import org.apache.doris.nereids.trees.expressions.Match;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Or;
@@ -60,7 +60,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.function.Predicate;
 
 /**
  * Calculate selectivity of expression that produces boolean value.
@@ -69,8 +68,6 @@ import java.util.function.Predicate;
 public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationContext> {
     public static final double DEFAULT_INEQUALITY_COEFFICIENT = 0.5;
     public static final double DEFAULT_IN_COEFFICIENT = 1.0 / 3.0;
-
-    public static final double DEFAULT_HAVING_COEFFICIENT = 0.01;
 
     public static final double DEFAULT_LIKE_COMPARISON_SELECTIVITY = 0.2;
     public static final double DEFAULT_ISNULL_SELECTIVITY = 0.005;
@@ -163,24 +160,6 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
         }
         ColumnStatistic statsForLeft = ExpressionEstimation.estimate(left, context.statistics);
         ColumnStatistic statsForRight = ExpressionEstimation.estimate(right, context.statistics);
-        if (aggSlots != null) {
-            Predicate<TreeNode<Expression>> containsAggSlot = e -> {
-                if (e instanceof SlotReference) {
-                    SlotReference slot = (SlotReference) e;
-                    return aggSlots.contains(slot);
-                }
-                return false;
-            };
-            boolean leftAgg = left.anyMatch(containsAggSlot);
-            boolean rightAgg = right.anyMatch(containsAggSlot);
-            // It means this predicate appears in HAVING clause.
-            if (leftAgg || rightAgg) {
-                double rowCount = context.statistics.getRowCount();
-                double newRowCount = Math.max(rowCount * DEFAULT_HAVING_COEFFICIENT,
-                        Math.max(statsForLeft.ndv, statsForRight.ndv));
-                return context.statistics.withRowCount(newRowCount);
-            }
-        }
         if (!left.isConstant() && !right.isConstant()) {
             return calculateWhenBothColumn(cp, context, statsForLeft, statsForRight);
         } else {
@@ -486,7 +465,8 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
                         child instanceof EqualPredicate
                                 || child instanceof InPredicate
                                 || child instanceof IsNull
-                                || child instanceof Like,
+                                || child instanceof Like
+                                || child instanceof Match,
                         "Not-predicate meet unexpected child: %s", child.toSql());
                 if (child instanceof Like) {
                     rowCount = context.statistics.getRowCount() - childStats.getRowCount();
@@ -509,6 +489,9 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
                             .setMinExpr(originColStats.minExpr)
                             .setMaxValue(originColStats.maxValue)
                             .setMaxExpr(originColStats.maxExpr);
+                } else if (child instanceof Match) {
+                    rowCount = context.statistics.getRowCount() - childStats.getRowCount();
+                    colBuilder.setNdv(Math.max(1.0, originColStats.ndv - childColStats.ndv));
                 }
                 if (not.child().getInputSlots().size() == 1 && !(child instanceof IsNull)) {
                     // only consider the single column numNull, otherwise, ignore

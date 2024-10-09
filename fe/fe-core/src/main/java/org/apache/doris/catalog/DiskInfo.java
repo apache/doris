@@ -151,6 +151,10 @@ public class DiskInfo implements Writable {
         return pathHash != 0;
     }
 
+    public boolean isAlive() {
+        return state == DiskState.ONLINE;
+    }
+
     public boolean isStorageMediumMatch(TStorageMedium storageMedium) {
         return this.storageMedium == storageMedium;
     }

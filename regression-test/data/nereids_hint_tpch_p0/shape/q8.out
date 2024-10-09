@@ -11,11 +11,11 @@ PhysicalResultSink
 ----------------PhysicalProject
 ------------------hashJoin[INNER_JOIN broadcast] hashCondition=((supplier.s_nationkey = n2.n_nationkey)) otherCondition=()
 --------------------PhysicalProject
-----------------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((supplier.s_suppkey = lineitem.l_suppkey)) otherCondition=()
+----------------------hashJoin[INNER_JOIN broadcast] hashCondition=((supplier.s_suppkey = lineitem.l_suppkey)) otherCondition=()
 ------------------------PhysicalProject
 --------------------------PhysicalOlapScan[supplier]
 ------------------------PhysicalProject
---------------------------hashJoin[INNER_JOIN shuffle] hashCondition=((orders.o_custkey = customer.c_custkey)) otherCondition=()
+--------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((orders.o_custkey = customer.c_custkey)) otherCondition=()
 ----------------------------PhysicalProject
 ------------------------------hashJoin[INNER_JOIN colocated] hashCondition=((lineitem.l_orderkey = orders.o_orderkey)) otherCondition=()
 --------------------------------PhysicalProject

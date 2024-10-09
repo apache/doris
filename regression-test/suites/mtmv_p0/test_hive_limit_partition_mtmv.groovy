@@ -115,34 +115,23 @@ suite("test_hive_limit_partition_mtmv", "p0,external,hive,external_docker,extern
 
     // date trunc
     sql """drop materialized view if exists ${mvName};"""
-    sql """
-        CREATE MATERIALIZED VIEW ${mvName}
-            BUILD DEFERRED REFRESH AUTO ON MANUAL
-            partition by (date_trunc(`day`,'month'))
-            DISTRIBUTED BY RANDOM BUCKETS 2
-            PROPERTIES (
-                        'replication_num' = '1',
-                        'partition_sync_limit'='2',
-                        'partition_sync_time_unit'='MONTH',
-                        'partition_date_format'='%Y%m%d'
-                        )
-            AS
-            SELECT k1,day,region FROM ${catalog_name}.${hive_database}.${hive_table};
-        """
-    showPartitionsResult = sql """show partitions from ${mvName}"""
-    logger.info("showPartitionsResult: " + showPartitionsResult.toString())
-    assertEquals(1, showPartitionsResult.size())
-    assertTrue(showPartitionsResult.toString().contains("_20380101"))
-    assertTrue(showPartitionsResult.toString().contains("_20380102"))
-
-    // refresh complete
-    sql """
-         REFRESH MATERIALIZED VIEW ${mvName} complete
-     """
-    jobName = getJobName(dbName, mvName);
-    waitingMTMVTaskFinished(jobName)
-    order_qt_mtmv_datetrunc "SELECT * FROM ${mvName} order by k1,day,region"
-
+    test {
+          sql """
+              CREATE MATERIALIZED VIEW ${mvName}
+              BUILD DEFERRED REFRESH AUTO ON MANUAL
+              partition by (date_trunc(`day`,'month'))
+              DISTRIBUTED BY RANDOM BUCKETS 2
+              PROPERTIES (
+                          'replication_num' = '1',
+                          'partition_sync_limit'='2',
+                          'partition_sync_time_unit'='MONTH',
+                          'partition_date_format'='%Y%m%d'
+                          )
+              AS
+              SELECT k1,day,region FROM ${catalog_name}.${hive_database}.${hive_table};
+          """
+          exception "only support"
+      }
 
     // date type
     sql """drop materialized view if exists ${mvName};"""

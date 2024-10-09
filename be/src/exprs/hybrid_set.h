@@ -17,7 +17,13 @@
 
 #pragma once
 
+#include <glog/logging.h>
+
+#include <type_traits>
+
+#include "common/exception.h"
 #include "common/object_pool.h"
+#include "common/status.h"
 #include "exprs/runtime_filter.h"
 #include "runtime/decimalv2_value.h"
 #include "runtime/define_primitive_type.h"
@@ -60,8 +66,16 @@ public:
         }
     }
 
+    void check_size() {
+        if (N != _size) {
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                   "invalid size of FixedContainer<{}>: {}", N, _size);
+        }
+    }
+
     // Use '|' instead of '||' has better performance by test.
     ALWAYS_INLINE bool find(const T& value) const {
+        DCHECK_EQ(N, _size);
         if constexpr (N == 0) {
             return false;
         }
@@ -143,6 +157,12 @@ private:
     std::array<T, N> _data;
     size_t _size {};
 };
+
+template <typename T>
+struct IsFixedContainer : std::false_type {};
+
+template <typename T, size_t N>
+struct IsFixedContainer<FixedContainer<T, N>> : std::true_type {};
 
 /**
  * Dynamic Container uses phmap::flat_hash_set.
@@ -354,6 +374,11 @@ public:
         if constexpr (is_nullable) {
             null_map_data = null_map->data();
         }
+
+        if constexpr (IsFixedContainer<ContainerType>::value) {
+            _set.check_size();
+        }
+
         auto* __restrict result_data = results.data();
         for (size_t i = 0; i < rows; ++i) {
             if constexpr (!is_nullable && !is_negative) {
@@ -507,6 +532,11 @@ public:
         if constexpr (is_nullable) {
             null_map_data = null_map->data();
         }
+
+        if constexpr (IsFixedContainer<ContainerType>::value) {
+            _set.check_size();
+        }
+
         auto* __restrict result_data = results.data();
         for (size_t i = 0; i < rows; ++i) {
             const auto& string_data = col.get_data_at(i).to_string();
@@ -675,6 +705,11 @@ public:
         if constexpr (is_nullable) {
             null_map_data = null_map->data();
         }
+
+        if constexpr (IsFixedContainer<ContainerType>::value) {
+            _set.check_size();
+        }
+
         auto* __restrict result_data = results.data();
         for (size_t i = 0; i < rows; ++i) {
             uint32_t len = offset[i] - offset[i - 1];

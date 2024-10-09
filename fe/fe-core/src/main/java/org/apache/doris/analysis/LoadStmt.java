@@ -85,7 +85,7 @@ import java.util.Map.Entry;
 //      resource_desc:
 //          WITH RESOURCE name
 //          (key3=value3, ...)
-public class LoadStmt extends DdlStmt {
+public class LoadStmt extends DdlStmt implements NotFallbackInParser {
     private static final Logger LOG = LogManager.getLogger(LoadStmt.class);
 
     public static final String TIMEOUT_PROPERTY = "timeout";

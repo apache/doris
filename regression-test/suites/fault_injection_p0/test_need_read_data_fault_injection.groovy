@@ -73,6 +73,7 @@ suite("test_need_read_data_fault_injection", "nonConcurrent") {
       load_httplogs_data.call(indexTbName, 'test_need_read_data_fault_injection', 'true', 'json', 'documents-1000.json')
 
       sql "sync"
+      sql """ set enable_common_expr_pushdown = true """
 
       try {
         GetDebugPoint().enableDebugPointForAllBEs("segment_iterator._read_columns_by_index")

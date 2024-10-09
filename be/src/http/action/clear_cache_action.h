@@ -17,17 +17,18 @@
 
 #pragma once
 
-#include "http/http_handler.h"
+#include "http/http_handler_with_auth.h"
 
 namespace doris {
 
 class HttpRequest;
+class ExecEnv;
 
-class ClearDataCacheAction : public HttpHandler {
+class ClearCacheAction : public HttpHandlerWithAuth {
 public:
-    ClearDataCacheAction() = default;
+    ClearCacheAction(ExecEnv* exec_env) : HttpHandlerWithAuth(exec_env) {}
 
-    ~ClearDataCacheAction() override = default;
+    ~ClearCacheAction() override = default;
 
     void handle(HttpRequest* req) override;
 };

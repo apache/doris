@@ -207,5 +207,5 @@ suite("limit_push_down") {
     qt_limit_right_outer_join_full_outer_join_cross_join """explain shape plan SELECT t1.id FROM t1 RIGHT OUTER JOIN t2 ON t1.id = t2.id FULL OUTER JOIN t3 ON t1.id = t3.id CROSS JOIN t4 LIMIT 1;"""
 
     // `limit 1, left outer join, right outer join, full outer join, cross join`:
-    qt_limit_left_outer_join_right_outer_join_full_outer_join_cross_join """explain shape plan SELECT * FROM t1 LEFT OUTER JOIN t2 ON t1.id = t2.id RIGHT OUTER JOIN t3 ON t1.id = t3.id FULL OUTER JOIN t4 ON t1.id = t4.id inner JOIN t4 on TRUE LIMIT 1;"""
+    qt_limit_left_outer_join_right_outer_join_full_outer_join_cross_join """explain shape plan SELECT * FROM t1 LEFT OUTER JOIN t2 ON t1.id = t2.id RIGHT OUTER JOIN t3 ON t1.id = t3.id FULL OUTER JOIN t4 ON t1.id = t4.id inner JOIN t4 as x on TRUE LIMIT 1;"""
 }

@@ -17,11 +17,6 @@
 
 package org.apache.doris.qe;
 
-import org.apache.doris.analysis.ExecuteStmt;
-import org.apache.doris.analysis.LiteralExpr;
-import org.apache.doris.analysis.NullLiteral;
-import org.apache.doris.analysis.PrepareStmt;
-import org.apache.doris.analysis.QueryStmt;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.catalog.MysqlColType;
 import org.apache.doris.common.ConnectionException;
@@ -88,73 +83,6 @@ public class MysqlConnectProcessor extends ConnectProcessor {
         }
         if (LOG.isDebugEnabled()) {
             LOG.debug("debug packet {}", printB.toString().substring(0, 200));
-        }
-    }
-
-    private void handleExecute(PrepareStmt prepareStmt, long stmtId) {
-        if (prepareStmt.getInnerStmt() instanceof QueryStmt) {
-            ctx.getState().setIsQuery(true);
-        }
-        prepareStmt.setIsPrepared();
-        int paramCount = prepareStmt.getParmCount();
-        LOG.debug("execute prepared statement {}, paramCount {}", stmtId, paramCount);
-        // null bitmap
-        String stmtStr = "";
-        try {
-            List<LiteralExpr> realValueExprs = new ArrayList<>();
-            if (paramCount > 0) {
-                byte[] nullbitmapData = new byte[(paramCount + 7) / 8];
-                packetBuf.get(nullbitmapData);
-                // new_params_bind_flag
-                if ((int) packetBuf.get() != 0) {
-                    // parse params's types
-                    for (int i = 0; i < paramCount; ++i) {
-                        int typeCode = packetBuf.getChar();
-                        LOG.debug("code {}", typeCode);
-                        prepareStmt.placeholders().get(i).setTypeCode(typeCode);
-                    }
-                }
-                // parse param data
-                for (int i = 0; i < paramCount; ++i) {
-                    if (isNull(nullbitmapData, i)) {
-                        realValueExprs.add(new NullLiteral());
-                        continue;
-                    }
-                    LiteralExpr l = prepareStmt.placeholders().get(i).createLiteralFromType();
-                    boolean isUnsigned = prepareStmt.placeholders().get(i).isUnsigned();
-                    l.setupParamFromBinary(packetBuf, isUnsigned);
-                    realValueExprs.add(l);
-                }
-            }
-            ExecuteStmt executeStmt = new ExecuteStmt(String.valueOf(stmtId), realValueExprs);
-            // TODO set real origin statement
-            executeStmt.setOrigStmt(new OriginStatement("null", 0));
-            executeStmt.setUserInfo(ctx.getCurrentUserIdentity());
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("executeStmt {}", executeStmt);
-            }
-            executor = new StmtExecutor(ctx, executeStmt);
-            ctx.setExecutor(executor);
-            executor.execute();
-            //For the `insert into` statements during group commit load via JDBC.
-            //Printing audit logs can severely impact performance.
-            //Therefore, we have introduced a session variable to control whether to print audit logs.
-            //It is recommended to turn off audit logs only during group commit load via JDBC.
-            if (ctx.getSessionVariable().isEnablePreparedStmtAuditLog()) {
-                PrepareStmtContext preparedStmtContext = ConnectContext.get().getPreparedStmt(String.valueOf(stmtId));
-                if (preparedStmtContext != null) {
-                    stmtStr = executeStmt.toSql();
-                }
-            }
-        } catch (Throwable e) {
-            // Catch all throwable.
-            // If reach here, maybe doris bug.
-            LOG.warn("Process one query failed because unknown reason: ", e);
-            ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR,
-                    e.getClass().getSimpleName() + ", msg: " + e.getMessage());
-        }
-        if (ctx.getSessionVariable().isEnablePreparedStmtAuditLog()) {
-            auditAfterExec(stmtStr, executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog(), true);
         }
     }
 
@@ -239,24 +167,18 @@ public class MysqlConnectProcessor extends ConnectProcessor {
             LOG.debug("execute prepared statement {}", stmtId);
         }
 
-        PrepareStmtContext prepareCtx = ctx.getPreparedStmt(String.valueOf(stmtId));
         ctx.setStartTime();
-        if (prepareCtx != null) {
-            // get from lagacy planner context, to be removed
-            handleExecute((PrepareStmt) prepareCtx.stmt, stmtId);
-        } else {
-            // nererids
-            PreparedStatementContext preparedStatementContext = ctx.getPreparedStementContext(String.valueOf(stmtId));
-            if (preparedStatementContext == null) {
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("No such statement in context, stmtId:{}", stmtId);
-                }
-                ctx.getState().setError(ErrorCode.ERR_UNKNOWN_COM_ERROR,
-                        "msg: Not supported such prepared statement");
-                return;
+        // nererids
+        PreparedStatementContext preparedStatementContext = ctx.getPreparedStementContext(String.valueOf(stmtId));
+        if (preparedStatementContext == null) {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("No such statement in context, stmtId:{}", stmtId);
             }
-            handleExecute(preparedStatementContext.command, stmtId, preparedStatementContext);
+            ctx.getState().setError(ErrorCode.ERR_UNKNOWN_COM_ERROR,
+                    "msg: Not supported such prepared statement");
+            return;
         }
+        handleExecute(preparedStatementContext.command, stmtId, preparedStatementContext);
     }
 
     // Process COM_QUERY statement,
@@ -343,6 +265,11 @@ public class MysqlConnectProcessor extends ConnectProcessor {
             if (packetBuf == null) {
                 LOG.warn("Null packet received from network. remote: {}", channel.getRemoteHostPortString());
                 throw new IOException("Error happened when receiving packet.");
+            }
+            if (!packetBuf.hasRemaining()) {
+                LOG.info("No more data to be read. Close connection. remote={}", channel.getRemoteHostPortString());
+                ctx.setKilled();
+                return;
             }
         } catch (AsynchronousCloseException e) {
             // when this happened, timeout checker close this channel

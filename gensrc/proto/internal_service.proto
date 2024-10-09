@@ -707,9 +707,6 @@ message PFetchTableSchemaResult {
 }
 
 message POutfileWriteSuccessRequest {
-    // optional string file_path = 1;
-    // optional string success_file_name = 2;
-    // map<string, string> broker_properties = 4; // only for remote file
     optional bytes result_file_sink = 1;
 }
 
@@ -954,6 +951,19 @@ message PAlterVaultSyncRequest {
 message PAlterVaultSyncResponse {
 }
 
+message PGetBeResourceRequest {
+}
+
+message PGlobalResourceUsage {
+    optional int64 mem_limit = 1;
+    optional int64 mem_usage = 2;
+}
+
+message PGetBeResourceResponse {
+    optional PStatus status = 1;
+    optional PGlobalResourceUsage global_be_resource_usage = 2;
+}
+
 service PBackendService {
     rpc transmit_data(PTransmitDataParams) returns (PTransmitDataResult);
     rpc transmit_data_by_http(PEmptyRequest) returns (PTransmitDataResult);
@@ -1004,5 +1014,6 @@ service PBackendService {
     rpc fetch_remote_tablet_schema(PFetchRemoteSchemaRequest) returns (PFetchRemoteSchemaResponse);
     rpc test_jdbc_connection(PJdbcTestConnectionRequest) returns (PJdbcTestConnectionResult);
     rpc alter_vault_sync(PAlterVaultSyncRequest) returns (PAlterVaultSyncResponse);
+    rpc get_be_resource(PGetBeResourceRequest) returns (PGetBeResourceResponse);
 };
 

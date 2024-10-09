@@ -1345,27 +1345,11 @@ PhysicalResultSink
 
 -- !const_value_and_join_column_type128 --
 PhysicalResultSink
---PhysicalProject
-----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_tinyint as DECIMALV3(21, 16)) = t.c1)) otherCondition=()
-------PhysicalLimit[GLOBAL]
---------PhysicalLimit[LOCAL]
-----------PhysicalProject
-------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
-------PhysicalProject
---------filter(NULL and d_tinyint IS NULL)
-----------PhysicalOlapScan[test_types]
+--PhysicalEmptyRelation
 
 -- !const_value_and_join_column_type129 --
 PhysicalResultSink
---PhysicalProject
-----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_smallint as DECIMALV3(21, 16)) = t.c1)) otherCondition=()
-------PhysicalLimit[GLOBAL]
---------PhysicalLimit[LOCAL]
-----------PhysicalProject
-------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
-------PhysicalProject
---------filter(NULL and d_smallint IS NULL)
-----------PhysicalOlapScan[test_types]
+--PhysicalEmptyRelation
 
 -- !const_value_and_join_column_type130 --
 PhysicalResultSink

@@ -25,9 +25,6 @@ suite("test_drop_column_with_format_v2", "inverted_index_format_v2"){
     }
     def tableName = "test_drop_column_with_format_v2"
 
-    def calc_file_crc_on_tablet = { ip, port, tablet ->
-        return curl("GET", String.format("http://%s:%s/api/calc_crc?tablet_id=%s", ip, port, tablet))
-    }
     def backendId_to_backendIP = [:]
     def backendId_to_backendHttpPort = [:]
     getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
@@ -98,6 +95,7 @@ suite("test_drop_column_with_format_v2", "inverted_index_format_v2"){
     sql """ INSERT INTO ${tableName} VALUES (2, "bason", 99); """
     sql """ INSERT INTO ${tableName} VALUES (3, "andy", 100); """
     sql """ INSERT INTO ${tableName} VALUES (3, "bason", 99); """
+    sql """ set enable_common_expr_pushdown = true """
 
     qt_sql "SELECT * FROM $tableName WHERE name match 'andy' order by id, name, score;"
 
@@ -106,50 +104,23 @@ suite("test_drop_column_with_format_v2", "inverted_index_format_v2"){
     String backend_id = tablets[0].BackendId
     String ip = backendId_to_backendIP.get(backend_id)
     String port = backendId_to_backendHttpPort.get(backend_id)
-    def (code, out, err) = calc_file_crc_on_tablet(ip, port, tablet_id)
-    logger.info("Run calc_file_crc_on_tablet: code=" + code + ", out=" + out + ", err=" + err)
-    assertTrue(code == 0)
-    assertTrue(out.contains("crc_value"))
-    assertTrue(out.contains("used_time_ms"))
-    assertEquals("0", parseJson(out.trim()).start_version)
-    assertEquals("7", parseJson(out.trim()).end_version)
-    assertEquals("7", parseJson(out.trim()).rowset_count)
-    assertEquals("12", parseJson(out.trim()).file_count)
+    check_nested_index_file(ip, port, tablet_id, 7, 2, "V2")
 
     // drop column
     sql """ ALTER TABLE ${tableName} DROP COLUMN score; """
     wait_for_latest_op_on_table_finish(tableName, timeout)
 
-    // select to sync rowset meta in cloud mode
-    sql """ select * from ${tableName} limit 1; """
-
     tablets = sql_return_maparray """ show tablets from ${tableName}; """
     tablet_id = tablets[0].TabletId
-    (code, out, err) = calc_file_crc_on_tablet(ip, port, tablet_id)
-    logger.info("Run calc_file_crc_on_tablet: code=" + code + ", out=" + out + ", err=" + err)
-    assertTrue(code == 0)
-    assertTrue(out.contains("crc_value"))
-    assertTrue(out.contains("used_time_ms"))
-    assertEquals("0", parseJson(out.trim()).start_version)
-    assertEquals("7", parseJson(out.trim()).end_version)
-    assertEquals("7", parseJson(out.trim()).rowset_count)
-    assertEquals("12", parseJson(out.trim()).file_count)
+    // when drop column, the index files will not be deleted, so the index files count is still 2
+    check_nested_index_file(ip, port, tablet_id, 7, 2, "V2")
 
     sql """ ALTER TABLE ${tableName} DROP COLUMN name; """
     wait_for_latest_op_on_table_finish(tableName, timeout)
 
-    // select to sync rowset meta in cloud mode
-    sql """ select * from ${tableName} limit 1; """
-    
     tablets = sql_return_maparray """ show tablets from ${tableName}; """
     tablet_id = tablets[0].TabletId
-    (code, out, err) = calc_file_crc_on_tablet(ip, port, tablet_id)
-    logger.info("Run calc_file_crc_on_tablet: code=" + code + ", out=" + out + ", err=" + err)
-    assertTrue(code == 0)
-    assertTrue(out.contains("crc_value"))
-    assertTrue(out.contains("used_time_ms"))
-    assertEquals("0", parseJson(out.trim()).start_version)
-    assertEquals("7", parseJson(out.trim()).end_version)
-    assertEquals("7", parseJson(out.trim()).rowset_count)
-    assertEquals("6", parseJson(out.trim()).file_count)
+    // when drop column, the index files will not be deleted, so the index files count is still 2
+    // when all index columns are dropped, the index files will be deleted by GC later
+    check_nested_index_file(ip, port, tablet_id, 7, 2, "V2")
 }

@@ -216,7 +216,8 @@ Status PreparedFunctionImpl::default_implementation_for_nulls(
         }
         RETURN_IF_ERROR(execute_without_low_cardinality_columns(context, block, new_args, result,
                                                                 block.rows(), dry_run));
-        // after run with nested, wrap them in null.
+        // After run with nested, wrap them in null. Before this, block.get_by_position(result).type
+        // is not compatible with get_by_position(result).column
         block.get_by_position(result).column = wrap_in_nullable(
                 block.get_by_position(result).column, block, args, result, input_rows_count);
 

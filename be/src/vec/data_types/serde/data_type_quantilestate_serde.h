@@ -147,7 +147,7 @@ Status DataTypeQuantileStateSerDe::_write_column_to_mysql(const IColumn& column,
         const auto col_index = index_check_const(row_idx, col_const);
         auto& quantile_value = const_cast<QuantileState&>(data_column.get_element(col_index));
         size_t size = quantile_value.get_serialized_size();
-        std::unique_ptr<char[]> buf = std::make_unique<char[]>(size);
+        std::unique_ptr<char[]> buf = std::make_unique_for_overwrite<char[]>(size);
         quantile_value.serialize((uint8_t*)buf.get());
         if (0 != result.push_string(buf.get(), size)) {
             return Status::InternalError("pack mysql buffer failed.");

@@ -135,12 +135,14 @@ Status DataTypeNullableSerDe::deserialize_column_from_fixed_json(
     if (!st.ok()) {
         return st;
     }
-    auto& null_map = col.get_null_map_data();
-    auto& nested_column = col.get_nested_column();
-
-    null_map.resize_fill(
-            rows, null_map.back()); // data_type_nullable::insert_column_last_value_multiple_times()
     if (rows - 1 != 0) {
+        auto& null_map = col.get_null_map_data();
+        auto& nested_column = col.get_nested_column();
+
+        uint8_t val = null_map.back();
+        size_t new_sz = null_map.size() + rows - 1;
+        null_map.resize_fill(new_sz,
+                             val); // data_type_nullable::insert_column_last_value_multiple_times()
         nested_serde->insert_column_last_value_multiple_times(nested_column, rows - 1);
     }
     *num_deserialized = rows;

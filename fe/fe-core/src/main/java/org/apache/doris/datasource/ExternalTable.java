@@ -187,13 +187,13 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
 
     @Override
     public long getRowCount() {
-        // Return 0 if makeSureInitialized throw exception.
+        // Return -1 if makeSureInitialized throw exception.
         // For example, init hive table may throw NotSupportedException.
         try {
             makeSureInitialized();
         } catch (Exception e) {
             LOG.warn("Failed to initialize table {}.{}.{}", catalog.getName(), dbName, name, e);
-            return 0;
+            return -1;
         }
         // All external table should get external row count from cache.
         return Env.getCurrentEnv().getExtMetaCacheMgr().getRowCountCache().getCachedRowCount(catalog.getId(), dbId, id);
@@ -201,24 +201,24 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
 
     @Override
     public long getCachedRowCount() {
-        // Return 0 if makeSureInitialized throw exception.
+        // Return -1 if makeSureInitialized throw exception.
         // For example, init hive table may throw NotSupportedException.
         try {
             makeSureInitialized();
         } catch (Exception e) {
             LOG.warn("Failed to initialize table {}.{}.{}", catalog.getName(), dbName, name, e);
-            return 0;
+            return -1;
         }
         return Env.getCurrentEnv().getExtMetaCacheMgr().getRowCountCache().getCachedRowCount(catalog.getId(), dbId, id);
     }
 
     @Override
     /**
-     * Default return 0. Subclass need to implement this interface.
+     * Default return -1. Subclass need to implement this interface.
      * This is called by ExternalRowCountCache to load row count cache.
      */
     public long fetchRowCount() {
-        return 0;
+        return -1;
     }
 
     @Override

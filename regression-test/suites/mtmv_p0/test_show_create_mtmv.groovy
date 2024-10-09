@@ -60,7 +60,7 @@ suite("test_show_create_mtmv","mtmv") {
     assertTrue(showCreateMTMVResult.toString().contains("DUPLICATE KEY(`k1`, `k2`)"))
     assertTrue(showCreateMTMVResult.toString().contains("PARTITION BY (date_trunc(`k2`, 'month'))"))
     assertTrue(showCreateMTMVResult.toString().contains("DISTRIBUTED BY RANDOM BUCKETS 2"))
-    assertTrue(showCreateMTMVResult.toString().contains("SELECT * FROM"))
+    assertTrue(showCreateMTMVResult.toString().contains("SELECT"))
     assertTrue(showCreateMTMVResult.toString().contains("grace_period"))
 
     sql """drop materialized view if exists ${mvName};"""

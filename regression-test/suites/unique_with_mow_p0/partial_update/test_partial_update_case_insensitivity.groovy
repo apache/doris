@@ -26,11 +26,9 @@ suite("test_partial_update_case_insensitivity", "p0") {
             connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url = context.config.jdbcUrl) {
                 sql "use ${db};"
                 if (use_nereids_planner) {
-                    sql """ set enable_nereids_dml = true; """
                     sql """ set enable_nereids_planner=true; """
                     sql """ set enable_fallback_to_original_planner=false; """
                 } else {
-                    sql """ set enable_nereids_dml = false; """
                     sql """ set enable_nereids_planner = false; """
                 }
 
