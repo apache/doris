@@ -108,6 +108,14 @@ suite("test_hdfs_tvf","external,hive,tvf,external_docker") {
                             "hadoop.username" = "${hdfsUserName}",
                             "format" = "${format}") order by s_suppkey limit 20; """
 
+            // test parquet decimal256
+            uri = "${defaultFS}" + "/user/doris/preinstalled_data/hdfs_tvf/test_parquet_decimal256.parquet"
+            format = "parquet"
+            qt_parquet_decimal256 """ select * from HDFS(
+                            "uri" = "${uri}",
+                            "hadoop.username" = "${hdfsUserName}",
+                            "format" = "${format}") order by id; """
+
             // test orc
             uri = "${defaultFS}" + "/user/doris/preinstalled_data/hdfs_tvf/test_orc.snappy.orc"
             format = "orc"
