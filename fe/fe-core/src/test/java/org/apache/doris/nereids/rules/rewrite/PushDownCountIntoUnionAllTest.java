@@ -78,6 +78,22 @@ public class PushDownCountIntoUnionAllTest extends TestWithFeService implements 
     }
 
     @Test
+    void testPush2CountColumn() {
+        String sql = "select count(id), count(b), a from (select id,b,a from t1 union all select id,a,b from t1 where id>10) t group by a;";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .matches(
+                        logicalAggregate(
+                                logicalUnion(logicalAggregate().when(agg -> ExpressionUtils.containsType(agg.getOutputExpressions(), Count.class)
+                                                && agg.getGroupByExpressions().size() == 1)
+                                        ,logicalAggregate().when(agg -> ExpressionUtils.containsType(agg.getOutputExpressions(), Count.class)
+                                                && agg.getGroupByExpressions().size() == 1))
+                        ).when(agg -> ExpressionUtils.containsType(agg.getOutputExpressions(), Sum0.class))
+                );
+    }
+
+    @Test
     void testNotPushCountBecauseOtherAggFunc() {
         String sql = "select count(1), sum(id) from (select id,a from t1 union all select id,a from t1 where id>10) t;";
         PlanChecker.from(connectContext)
