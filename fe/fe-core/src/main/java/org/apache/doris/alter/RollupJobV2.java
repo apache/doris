@@ -912,7 +912,8 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
             stmt.analyze(analyzer);
         } catch (Exception e) {
             // Under normal circumstances, the stmt will not fail to analyze.
-            // In some cases (such as drop table force), analyze may fail because cancel is not included in the checkpoint.
+            // In some cases (such as drop table force), analyze may fail because cancel is
+            // not included in the checkpoint.
             jobState = JobState.CANCELLED;
             LOG.warn("error happens when parsing create materialized view stmt: " + stmt, e);
             return;
