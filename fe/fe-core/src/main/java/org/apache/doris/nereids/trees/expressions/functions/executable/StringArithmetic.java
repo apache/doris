@@ -114,7 +114,7 @@ public class StringArithmetic {
      */
     @ExecFunction(name = "length")
     public static Expression lengthVarchar(StringLikeLiteral first) {
-        return new IntegerLiteral(first.getValue().length());
+        return new IntegerLiteral(first.getValue().getBytes(StandardCharsets.UTF_8).length);
     }
 
     /**
