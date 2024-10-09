@@ -34,6 +34,7 @@
 #include "gutil/strings/substitute.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/segment_v2/column_writer.h"
+#include "olap/rowset/segment_v2/inverted_index_file_writer.h"
 #include "olap/tablet.h"
 #include "olap/tablet_schema.h"
 #include "util/faststring.h"
@@ -82,7 +83,7 @@ public:
     explicit VerticalSegmentWriter(io::FileWriter* file_writer, uint32_t segment_id,
                                    TabletSchemaSPtr tablet_schema, BaseTabletSPtr tablet,
                                    DataDir* data_dir, const VerticalSegmentWriterOptions& opts,
-                                   io::FileWriterPtr inverted_file_writer = nullptr);
+                                   InvertedIndexFileWriter* inverted_file_writer);
     ~VerticalSegmentWriter();
 
     VerticalSegmentWriter(const VerticalSegmentWriter&) = delete;
@@ -99,9 +100,7 @@ public:
     [[nodiscard]] std::string data_dir_path() const {
         return _data_dir == nullptr ? "" : _data_dir->path();
     }
-    [[nodiscard]] InvertedIndexFileInfo get_inverted_index_file_info() const {
-        return _inverted_index_file_info;
-    }
+
     [[nodiscard]] uint32_t num_rows_written() const { return _num_rows_written; }
 
     // for partial update
@@ -122,9 +121,18 @@ public:
 
     TabletSchemaSPtr flush_schema() const { return _flush_schema; };
 
-    int64_t get_inverted_index_total_size();
-
     void clear();
+
+    Status close_inverted_index(int64_t* inverted_index_file_size) {
+        // no inverted index
+        if (_inverted_index_file_writer == nullptr) {
+            *inverted_index_file_size = 0;
+            return Status::OK();
+        }
+        RETURN_IF_ERROR(_inverted_index_file_writer->close());
+        *inverted_index_file_size = _inverted_index_file_writer->get_index_file_total_size();
+        return Status::OK();
+    }
 
 private:
     void _init_column_meta(ColumnMetaPB* meta, uint32_t column_id, const TabletColumn& column);
@@ -213,14 +221,15 @@ private:
 
     // Not owned. owned by RowsetWriter
     io::FileWriter* _file_writer = nullptr;
-    std::unique_ptr<InvertedIndexFileWriter> _inverted_index_file_writer;
+    // Not owned. owned by RowsetWriter or SegmentFlusher
+    InvertedIndexFileWriter* _inverted_index_file_writer = nullptr;
 
     SegmentFooterPB _footer;
     // for mow tables with cluster key, the sort key is the cluster keys not unique keys
     // for other tables, the sort key is the keys
     size_t _num_sort_key_columns;
     size_t _num_short_key_columns;
-    InvertedIndexFileInfo _inverted_index_file_info;
+
     std::unique_ptr<ShortKeyIndexBuilder> _short_key_index_builder;
     std::unique_ptr<PrimaryKeyIndexBuilder> _primary_key_index_builder;
     std::vector<std::unique_ptr<ColumnWriter>> _column_writers;
