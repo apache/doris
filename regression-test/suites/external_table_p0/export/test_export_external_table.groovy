@@ -113,7 +113,7 @@ suite("test_export_external_table", "p0,external,mysql,external_docker,external_
     String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-java-8.0.25.jar"
 
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
-        String catalog_name = "mysql_jdbc_catalog";
+        String catalog_name = "test_export_external_table";
         String internal_db_name = "regression_test_external_table_p0_export";
         String ex_db_name = "doris_test";
         String mysql_port = context.config.otherConfigs.get("mysql_57_port");
