@@ -337,7 +337,8 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
 
     private List<NamedExpression> adjustNullableForOutputs(List<NamedExpression> outputs, boolean alwaysNullable) {
         return ExpressionUtils.rewriteDownShortCircuit(outputs, output -> {
-            if (output instanceof NullableAggregateFunction) {
+            if (output instanceof NullableAggregateFunction
+                    && ((NullableAggregateFunction) output).isAlwaysNullable() != alwaysNullable) {
                 return ((NullableAggregateFunction) output).withAlwaysNullable(alwaysNullable);
             } else {
                 return output;
