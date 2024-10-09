@@ -45,7 +45,6 @@ import org.apache.doris.datasource.iceberg.IcebergExternalDatabase;
 import org.apache.doris.datasource.infoschema.ExternalInfoSchemaDatabase;
 import org.apache.doris.datasource.infoschema.ExternalMysqlDatabase;
 import org.apache.doris.datasource.jdbc.JdbcExternalDatabase;
-import org.apache.doris.datasource.mapping.IdentifierMapping;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalDatabase;
 import org.apache.doris.datasource.metacache.MetaCache;
 import org.apache.doris.datasource.operations.ExternalMetadataOps;
@@ -143,9 +142,6 @@ public abstract class ExternalCatalog
     protected Optional<Boolean> useMetaCache = Optional.empty();
     protected MetaCache<ExternalDatabase<? extends ExternalTable>> metaCache;
 
-    protected IdentifierMapping identifierMapping;
-    private boolean mappingsInitialized = false;
-
     public ExternalCatalog() {
     }
 
@@ -178,10 +174,6 @@ public abstract class ExternalCatalog
         }
     }
 
-    // only for forward to master
-    protected void buildDatabaseMapping() {
-    }
-
     // Will be called when creating catalog(so when as replaying)
     // to add some default properties if missing.
     public void setDefaultPropsIfMissing(boolean isReplay) {
@@ -209,10 +201,6 @@ public abstract class ExternalCatalog
      * @return names of tables in specified database
      */
     public abstract List<String> listTableNames(SessionContext ctx, String dbName);
-
-    // only for forward to master
-    protected void buildTableMapping(SessionContext ctx, String dbName) {
-    }
 
     /**
      * check if the specified table exist.
@@ -277,10 +265,6 @@ public abstract class ExternalCatalog
                 init();
             }
             initialized = true;
-        }
-        if (!mappingsInitialized) {
-            buildDatabaseMapping();
-            mappingsInitialized = true;
         }
     }
 
@@ -407,7 +391,6 @@ public abstract class ExternalCatalog
     public void onRefresh(boolean invalidCache) {
         this.objectCreated = false;
         this.initialized = false;
-        this.mappingsInitialized = false;
         synchronized (this.propLock) {
             this.convertedProperties = null;
         }
@@ -733,7 +716,6 @@ public abstract class ExternalCatalog
         }
         this.propLock = new byte[0];
         this.initialized = false;
-        this.mappingsInitialized = false;
         setDefaultPropsIfMissing(true);
     }
 
