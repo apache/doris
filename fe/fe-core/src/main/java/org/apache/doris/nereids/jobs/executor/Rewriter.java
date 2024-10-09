@@ -331,17 +331,6 @@ public class Rewriter extends AbstractBatchJobExecutor {
                 ),
                 // this rule should invoke after ColumnPruning
                 custom(RuleType.ELIMINATE_UNNECESSARY_PROJECT, EliminateUnnecessaryProject::new),
-                topic("Set operation optimization",
-                        // Do MergeSetOperation first because we hope to match pattern of Distinct SetOperator.
-                        topDown(new PushProjectThroughUnion(), new MergeProjects()),
-                        bottomUp(new MergeSetOperations(), new MergeSetOperationsExcept()),
-                        bottomUp(new PushProjectIntoOneRowRelation()),
-                        topDown(new PushCountIntoUnionAll()),
-                        topDown(new MergeOneRowRelationIntoUnion()),
-                        topDown(new PushProjectIntoUnion()),
-                        costBased(topDown(new InferSetOperatorDistinct())),
-                        topDown(new BuildAggForUnion())
-                ),
 
                 topic("Eliminate GroupBy",
                         topDown(new EliminateGroupBy(),
@@ -355,7 +344,8 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                 new PushDownAggThroughJoinOneSide(),
                                 new PushDownAggThroughJoin()
                         )),
-                        costBased(custom(RuleType.PUSH_DOWN_DISTINCT_THROUGH_JOIN, PushDownDistinctThroughJoin::new))
+                        costBased(custom(RuleType.PUSH_DOWN_DISTINCT_THROUGH_JOIN, PushDownDistinctThroughJoin::new)),
+                        topDown(new PushCountIntoUnionAll())
                 ),
 
                 // this rule should invoke after infer predicate and push down distinct, and before push down limit
