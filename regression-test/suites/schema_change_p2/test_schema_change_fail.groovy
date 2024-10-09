@@ -49,6 +49,8 @@ suite('test_schema_change_fail', 'p0,p2,nonConcurrent') {
     def followFeUrl =  "jdbc:mysql://${followFe.Host}:${followFe.QueryPort}/?useLocalSessionState=false&allowLoadLocalInfile=false"
     followFeUrl = context.config.buildUrlWithDb(followFeUrl, context.dbName)
 
+    log.info("followFeUrl: ${followFeUrl}")
+
     try {
         setFeConfig('disable_tablet_scheduler', true)
 
