@@ -105,7 +105,7 @@ public:
 
     DataDistribution required_data_distribution() const override {
         if (_needs_finalize || (!_probe_expr_ctxs.empty() && !_is_streaming_preagg)) {
-            return _is_colocate && _require_bucket_distribution && !_followed_by_shuffled_join
+            return _is_colocate && _require_bucket_distribution && !_followed_by_shuffled_operator
                            ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE, _partition_exprs)
                            : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
         }

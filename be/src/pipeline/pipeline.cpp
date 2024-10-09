@@ -22,6 +22,7 @@
 #include <utility>
 
 #include "pipeline/exec/operator.h"
+#include "pipeline/pipeline_task.h"
 
 namespace doris::pipeline {
 
@@ -63,6 +64,14 @@ Status Pipeline::set_sink(DataSinkOperatorPtr& sink) {
     }
     _sink = sink;
     return Status::OK();
+}
+
+void Pipeline::make_all_runnable() {
+    for (auto* task : _tasks) {
+        if (task) {
+            task->clear_blocking_state(true);
+        }
+    }
 }
 
 } // namespace doris::pipeline

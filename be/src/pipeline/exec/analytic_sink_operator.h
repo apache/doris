@@ -53,7 +53,7 @@ private:
         return need_more_input;
     }
     BlockRowPos _get_partition_by_end();
-    BlockRowPos _compare_row_to_find_end(int idx, BlockRowPos start, BlockRowPos end,
+    BlockRowPos _compare_row_to_find_end(int64_t idx, BlockRowPos start, BlockRowPos end,
                                          bool need_check_first = false);
     bool _whether_need_next_partition(BlockRowPos& found_partition_end);
 
@@ -81,7 +81,7 @@ public:
         if (_partition_by_eq_expr_ctxs.empty()) {
             return {ExchangeType::PASSTHROUGH};
         } else if (_order_by_eq_expr_ctxs.empty()) {
-            return _is_colocate && _require_bucket_distribution && !_followed_by_shuffled_join
+            return _is_colocate && _require_bucket_distribution && !_followed_by_shuffled_operator
                            ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE, _partition_exprs)
                            : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
         }
