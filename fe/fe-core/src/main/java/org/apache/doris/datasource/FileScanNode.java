@@ -43,7 +43,9 @@ import org.apache.doris.thrift.TPushAggOp;
 import org.apache.doris.thrift.TScanRangeLocations;
 
 import com.google.common.base.Preconditions;
+import com.google.common.base.Verify;
 import com.google.common.collect.ArrayListMultimap;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Multimap;
 import org.apache.hadoop.fs.BlockLocation;
@@ -65,11 +67,16 @@ public abstract class FileScanNode extends ExternalScanNode {
 
     public static final long DEFAULT_SPLIT_SIZE = 64 * 1024 * 1024; // 64MB
 
+    private static final long MAX_INITIAL_SPLIT_SIZE = 32L * 1024L * 1024L; // 32 MB
+    private static final long MAX_SPLIT_SIZE = 64L * 1024L * 1024L; // 64 MB
+
     // For explain
     protected long totalFileSize = 0;
     protected long totalPartitionNum = 0;
     protected long fileSplitSize;
     protected boolean isSplitSizeSetBySession = false;
+
+    private int remainingInitialSplits = 200;
 
     public FileScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName, StatisticalType statisticalType,
             boolean needCheckColumnPriv) {
@@ -258,6 +265,60 @@ public abstract class FileScanNode extends ExternalScanNode {
         }
     }
 
+    private static class InternalBlock {
+        private final long start;
+        private final long end;
+        private final String[] hosts;
+
+        public InternalBlock(long start, long end, String[] hosts) {
+            Preconditions.checkArgument(start <= end, "block end cannot be before block start");
+            this.start = start;
+            this.end = end;
+            this.hosts = hosts;
+        }
+
+        public long getStart() {
+            return start;
+        }
+
+        public long getEnd() {
+            return end;
+        }
+
+        public String[] getHosts() {
+            return hosts;
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) {
+                return true;
+            }
+            if (o == null || getClass() != o.getClass()) {
+                return false;
+            }
+            InternalBlock that = (InternalBlock) o;
+            return start == that.start && end == that.end && Arrays.equals(hosts, that.hosts);
+        }
+
+        @Override
+        public int hashCode() {
+            int result = Objects.hash(start, end);
+            result = 31 * result + Arrays.hashCode(hosts);
+            return result;
+        }
+
+        @Override
+        public String toString() {
+            final StringBuilder sb = new StringBuilder("InternalBlock{");
+            sb.append("start=").append(start);
+            sb.append(", end=").append(end);
+            sb.append(", hosts=").append(Arrays.toString(hosts));
+            sb.append('}');
+            return sb.toString();
+        }
+    }
+
     protected List<Split> splitFile(LocationPath path, long blockSize, BlockLocation[] blockLocations, long length,
             long modificationTime, boolean splittable, List<String> partitionValues, SplitCreator splitCreator)
             throws IOException {
@@ -270,28 +331,79 @@ public abstract class FileScanNode extends ExternalScanNode {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("Path {} is not splittable.", path);
             }
+            if (remainingInitialSplits > 0) {
+                --remainingInitialSplits;
+            }
             String[] hosts = blockLocations.length == 0 ? null : blockLocations[0].getHosts();
             result.add(splitCreator.create(path, 0, length, length, modificationTime, hosts, partitionValues));
             return result;
         }
         // if file split size is set by session variable, use session variable.
         // Otherwise, use max(file split size, block size)
-        if (!isSplitSizeSetBySession) {
-            fileSplitSize = Math.max(fileSplitSize, blockSize);
+        // if (!isSplitSizeSetBySession) {
+        //     fileSplitSize = Math.max(fileSplitSize, blockSize);
+        // }
+        // long bytesRemaining;
+        // for (bytesRemaining = length; (double) bytesRemaining / (double) fileSplitSize > 1.1D;
+        //         bytesRemaining -= fileSplitSize) {
+        //     int location = getBlockIndex(blockLocations, length - bytesRemaining);
+        //     String[] hosts = location == -1 ? null : blockLocations[location].getHosts();
+        //     result.add(splitCreator.create(path, length - bytesRemaining, fileSplitSize,
+        //             length, modificationTime, hosts, partitionValues));
+        // }
+        // if (bytesRemaining != 0L) {
+        //     int location = getBlockIndex(blockLocations, length - bytesRemaining);
+        //     String[] hosts = location == -1 ? null : blockLocations[location].getHosts();
+        //     result.add(splitCreator.create(path, length - bytesRemaining, bytesRemaining,
+        //             length, modificationTime, hosts, partitionValues));
+        // }
+
+        long start = 0;
+        ImmutableList.Builder<InternalBlock> blockBuilder = ImmutableList.builder();
+        for (BlockLocation blockLocation : blockLocations) {
+            // clamp the block range
+            long blockStart = Math.max(start, blockLocation.getOffset());
+            long blockEnd = Math.min(start + length, blockLocation.getOffset() + blockLocation.getLength());
+            if (blockStart > blockEnd) {
+                // block is outside split range
+                continue;
+            }
+            if (blockStart == blockEnd && !(blockStart == start && blockEnd == start + length)) {
+                // skip zero-width block, except in the special circumstance:
+                // slice is empty, and the block covers the empty slice interval.
+                continue;
+            }
+            blockBuilder.add(new InternalBlock(blockStart, blockEnd, blockLocation.getHosts()));
         }
-        long bytesRemaining;
-        for (bytesRemaining = length; (double) bytesRemaining / (double) fileSplitSize > 1.1D;
-                bytesRemaining -= fileSplitSize) {
-            int location = getBlockIndex(blockLocations, length - bytesRemaining);
-            String[] hosts = location == -1 ? null : blockLocations[location].getHosts();
-            result.add(splitCreator.create(path, length - bytesRemaining, fileSplitSize,
-                    length, modificationTime, hosts, partitionValues));
-        }
-        if (bytesRemaining != 0L) {
-            int location = getBlockIndex(blockLocations, length - bytesRemaining);
-            String[] hosts = location == -1 ? null : blockLocations[location].getHosts();
-            result.add(splitCreator.create(path, length - bytesRemaining, bytesRemaining,
-                    length, modificationTime, hosts, partitionValues));
+        List<InternalBlock> blocks = blockBuilder.build();
+
+        long splitStart = start;
+        int currentBlockIdx = 0;
+        while (splitStart < start + length) {
+            long maxSplitBytes = MAX_SPLIT_SIZE;
+            if (remainingInitialSplits > 0) {
+                --remainingInitialSplits;
+                maxSplitBytes = MAX_INITIAL_SPLIT_SIZE;
+            }
+            long splitBytes;
+            long remainingBlockBytes = blocks.get(currentBlockIdx).getEnd() - splitStart;
+            if (remainingBlockBytes <= maxSplitBytes) {
+                splitBytes = remainingBlockBytes;
+            } else if (maxSplitBytes * 2 >= remainingBlockBytes) {
+                //  Second to last split in this block, generate two evenly sized splits
+                splitBytes = remainingBlockBytes / 2;
+            } else {
+                splitBytes = maxSplitBytes;
+            }
+            result.add(splitCreator.create(path, splitStart, splitBytes,
+                            length, modificationTime, blocks.get(currentBlockIdx).getHosts(), partitionValues));
+            splitStart += splitBytes;
+            if (splitStart == blocks.get(currentBlockIdx).getEnd()) {
+                currentBlockIdx++;
+                if (currentBlockIdx != blocks.size()) {
+                    Verify.verify(splitStart == blocks.get(currentBlockIdx).getStart());
+                }
+            }
         }
 
         if (LOG.isDebugEnabled()) {
