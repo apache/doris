@@ -28,7 +28,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
-public class TableColumnInfoTest {
+public class TableInfoTest {
     @Test
     public void testSerialization() throws IOException, AnalysisException {
         // 1. Write objects to file
