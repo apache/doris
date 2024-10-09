@@ -47,6 +47,7 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.coercion.RangeScalable;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.ColumnStatisticBuilder;
 import org.apache.doris.statistics.StatisticRange;
@@ -605,10 +606,14 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
             double sel = leftRange.getDistinctValues() == 0
                     ? 1.0
                     : intersectRange.getDistinctValues() / leftRange.getDistinctValues();
+            double lowerBound = RANGE_SELECTIVITY_THRESHOLD;
+            if (ConnectContext.get() != null) {
+                lowerBound = ConnectContext.get().getSessionVariable().rangeFilterLowerBound;
+            }
             if (!(dataType instanceof RangeScalable) && (sel != 0.0 && sel != 1.0)) {
                 sel = DEFAULT_INEQUALITY_COEFFICIENT;
             } else {
-                sel = Math.max(sel, RANGE_SELECTIVITY_THRESHOLD);
+                sel = Math.max(sel, lowerBound);
             }
             sel = getNotNullSelectivity(leftStats, sel);
             updatedStatistics = context.statistics.withSel(sel);
