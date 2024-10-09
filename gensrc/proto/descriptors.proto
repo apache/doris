@@ -70,5 +70,8 @@ message POlapTableSchemaParam {
     optional bool is_strict_mode = 9 [default = false];
     optional int64 timestamp_ms = 11 [default = 0];
     optional string timezone = 12;
+    // not used, for upgrade compatibility
+    optional int32 auto_increment_column_unique_id = 13 [default = -1];
+    optional int32 nano_seconds = 14 [default = 0];
 };
 

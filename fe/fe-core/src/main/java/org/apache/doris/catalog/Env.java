@@ -78,6 +78,7 @@ import org.apache.doris.analysis.TableRenameClause;
 import org.apache.doris.analysis.TruncateTableStmt;
 import org.apache.doris.analysis.UninstallPluginStmt;
 import org.apache.doris.backup.BackupHandler;
+import org.apache.doris.backup.RestoreJob;
 import org.apache.doris.binlog.BinlogGcer;
 import org.apache.doris.binlog.BinlogManager;
 import org.apache.doris.blockrule.SqlBlockRuleMgr;
@@ -924,8 +925,7 @@ public class Env {
         createTxnCleaner();
 
         // 6. start state listener thread
-        createStateListener();
-        listener.start();
+        startStateListener();
 
         if (!Config.edit_log_type.equalsIgnoreCase("bdb")) {
             // If not using bdb, we need to notify the FE type transfer manually.
@@ -1478,11 +1478,22 @@ public class Env {
      * 2. register some hook.
      * If there is, add them here.
      */
-    public void postProcessAfterMetadataReplayed(boolean waitCatalogReady) {
+    public boolean postProcessAfterMetadataReplayed(boolean waitCatalogReady) {
         if (waitCatalogReady) {
             while (!isReady()) {
+                // Avoid endless waiting if the state has changed.
+                //
+                // Consider the following situation:
+                // 1. The follower replay journals and is not set to ready because the synchronization internval
+                //    exceeds meta delay toleration seconds.
+                // 2. The underlying BEBJE node of this follower is selected as the master, but the state listener
+                //    thread is waiting for catalog ready.
+                if (typeTransferQueue.peek() != null) {
+                    return false;
+                }
+
                 try {
-                    Thread.sleep(10 * 1000);
+                    Thread.sleep(100);
                 } catch (InterruptedException e) {
                     LOG.warn("", e);
                 }
@@ -1491,6 +1502,7 @@ public class Env {
 
         auth.rectifyPrivs();
         catalogMgr.registerCatalogRefreshListener(this);
+        return true;
     }
 
     // start all daemon threads only running on Master
@@ -1608,7 +1620,10 @@ public class Env {
             }
 
             // 'isReady' will be set to true in 'setCanRead()' method
-            postProcessAfterMetadataReplayed(true);
+            if (!postProcessAfterMetadataReplayed(true)) {
+                // the state has changed, exit early.
+                return;
+            }
 
             checkLowerCaseTableNames();
 
@@ -2465,7 +2480,7 @@ public class Env {
         }
     }
 
-    public void createStateListener() {
+    public void startStateListener() {
         listener = new Daemon("stateListener", STATE_CHANGE_CHECK_INTERVAL_MS) {
             @Override
             protected synchronized void runOneCycle() {
@@ -2573,6 +2588,7 @@ public class Env {
         };
 
         listener.setMetaContext(metaContext);
+        listener.start();
     }
 
     public synchronized boolean replayJournal(long toJournalId) {
@@ -3307,6 +3323,10 @@ public class Env {
             // enable mow light delete
             sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_LIGHT_DELETE).append("\" = \"");
             sb.append(olapTable.getEnableMowLightDelete()).append("\"");
+
+            if (olapTable.isInAtomicRestore()) {
+                sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_IN_ATOMIC_RESTORE).append("\" = \"true\"");
+            }
 
             sb.append("\n)");
         } else if (table.getType() == TableType.MYSQL) {
@@ -4132,6 +4152,9 @@ public class Env {
                 if (db.getTable(newTableName).isPresent()) {
                     throw new DdlException("Table name[" + newTableName + "] is already used");
                 }
+                if (db.getTable(RestoreJob.tableAliasWithAtomicRestore(newTableName)).isPresent()) {
+                    throw new DdlException("Table name[" + newTableName + "] is already used (in restoring)");
+                }
 
                 if (table.getType() == TableType.OLAP) {
                     // olap table should also check if any rollup has same name as "newTableName"
@@ -4528,11 +4551,7 @@ public class Env {
                     indexIdToSchemaVersion);
             editLog.logColumnRename(info);
             LOG.info("rename coloumn[{}] to {}", colName, newColName);
-            try {
-                Env.getCurrentEnv().getAnalysisManager().dropStats(table);
-            } catch (Exception e) {
-                LOG.info("Failed to drop stats after rename column. Reason: {}", e.getMessage());
-            }
+            Env.getCurrentEnv().getAnalysisManager().dropStats(table);
         }
     }
 
@@ -5620,6 +5639,7 @@ public class Env {
             BinlogManager binlogManager = Env.getCurrentEnv().getBinlogManager();
             dbMeta.setDroppedPartitions(binlogManager.getDroppedPartitions(db.getId()));
             dbMeta.setDroppedTables(binlogManager.getDroppedTables(db.getId()));
+            dbMeta.setDroppedIndexes(binlogManager.getDroppedIndexes(db.getId()));
         }
 
         result.setDbMeta(dbMeta);

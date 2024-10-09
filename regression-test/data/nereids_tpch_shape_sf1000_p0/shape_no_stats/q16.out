@@ -9,17 +9,14 @@ PhysicalResultSink
 ------------hashAgg[LOCAL]
 --------------PhysicalProject
 ----------------hashJoin[INNER_JOIN](part.p_partkey = partsupp.ps_partkey)
-------------------PhysicalDistribute
---------------------hashJoin[LEFT_ANTI_JOIN](partsupp.ps_suppkey = supplier.s_suppkey)
-----------------------PhysicalDistribute
-------------------------PhysicalProject
---------------------------PhysicalOlapScan[partsupp]
-----------------------PhysicalDistribute
-------------------------PhysicalProject
---------------------------filter((s_comment like '%Customer%Complaints%'))
-----------------------------PhysicalOlapScan[supplier]
-------------------PhysicalDistribute
+------------------hashJoin[LEFT_ANTI_JOIN](partsupp.ps_suppkey = supplier.s_suppkey)
 --------------------PhysicalProject
-----------------------filter(( not (p_type like 'MEDIUM POLISHED%'))( not (p_brand = 'Brand#45'))p_size IN (3, 9, 14, 19, 23, 36, 45, 49))
-------------------------PhysicalOlapScan[part]
+----------------------PhysicalOlapScan[partsupp]
+--------------------PhysicalDistribute
+----------------------PhysicalProject
+------------------------filter((s_comment like '%Customer%Complaints%'))
+--------------------------PhysicalOlapScan[supplier]
+------------------PhysicalProject
+--------------------filter(( not (p_brand = 'Brand#45'))( not (p_type like 'MEDIUM POLISHED%'))p_size IN (3, 9, 14, 19, 23, 36, 45, 49))
+----------------------PhysicalOlapScan[part]
 

@@ -101,13 +101,6 @@ public class CatalogMgrTest extends TestWithFeService {
         // grant with no catalog is switched, internal catalog works.
         CreateRoleStmt createRole1 = (CreateRoleStmt) parseAndAnalyzeStmt("create role role1;", rootCtx);
         auth.createRole(createRole1);
-        GrantStmt grantRole1 = (GrantStmt) parseAndAnalyzeStmt("grant grant_priv on tpch.* to role 'role1';", rootCtx);
-        auth.grant(grantRole1);
-        // grant with ctl.db.tbl. grant can succeed even if the catalog does not exist
-        GrantStmt grantRole1WithCtl = (GrantStmt) parseAndAnalyzeStmt(
-                "grant select_priv on testc.testdb.* to role 'role1';", rootCtx);
-        auth.grant(grantRole1WithCtl);
-        // user1 can't switch to hive
         auth.createUser((CreateUserStmt) parseAndAnalyzeStmt(
                 "create user 'user1'@'%' identified by 'pwd1' default role 'role1';", rootCtx));
         user1 = new UserIdentity("user1", "%");
@@ -152,7 +145,8 @@ public class CatalogMgrTest extends TestWithFeService {
         env.changeCatalog(rootCtx, switchHive.getCatalogName());
         CreateRoleStmt createRole2 = (CreateRoleStmt) parseAndAnalyzeStmt("create role role2;", rootCtx);
         auth.createRole(createRole2);
-        GrantStmt grantRole2 = (GrantStmt) parseAndAnalyzeStmt("grant grant_priv on tpch.customer to role 'role2';",
+        GrantStmt grantRole2 = (GrantStmt) parseAndAnalyzeStmt(
+                "grant grant_priv, select_priv on hive.*.* to role 'role2';",
                 rootCtx);
         auth.grant(grantRole2);
         auth.createUser((CreateUserStmt) parseAndAnalyzeStmt(
@@ -366,7 +360,7 @@ public class CatalogMgrTest extends TestWithFeService {
         Assert.assertEquals(user2Ctx.getDefaultCatalog(), "hive");
         // user2 can grant select_priv to tpch.customer
         GrantStmt user2GrantHiveTable = (GrantStmt) parseAndAnalyzeStmt(
-                "grant select_priv on tpch.customer to 'user2'@'%';", user2Ctx);
+                "grant select_priv on hive.*.* to 'user2'@'%';", user2Ctx);
         auth.grant(user2GrantHiveTable);
 
         showCatalogSql = "SHOW CATALOGS";

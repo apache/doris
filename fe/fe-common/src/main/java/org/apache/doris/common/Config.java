@@ -1146,6 +1146,12 @@ public class Config extends ConfigBase {
     public static int max_routine_load_task_num_per_be = 1024;
 
     /**
+     * routine load timeout is equal to maxBatchIntervalS * routine_load_task_timeout_multiplier.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int routine_load_task_timeout_multiplier = 10;
+
+    /**
      * the max timeout of get kafka meta.
      */
     @ConfField(mutable = true, masterOnly = true)
@@ -2461,4 +2467,8 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true)
     public static boolean enable_cooldown_replica_affinity = true;
+
+    @ConfField(mutable = true, description = {
+            "设置为 true，root 和 admin 将跳过 sql block rule", "Set to true, root and admin will skip SQL block rule"})
+    public static boolean sql_block_rule_ignore_admin = false;
 }
