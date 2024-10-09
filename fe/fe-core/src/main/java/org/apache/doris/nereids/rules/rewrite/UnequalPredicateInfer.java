@@ -410,7 +410,7 @@ public class UnequalPredicateInfer {
 
         // A new edge from hub1 to hub2 has been added to the graph.
         // Use this edge to extend the connectivity between the graph nodes
-        private void expand_graph(Relation[][] graph, int hub1, int hub2) {
+        private void expandGraph(Relation[][] graph, int hub1, int hub2) {
             //Update the path from all nodes to hub2 (use hub1->hub2)
             for (int left = 0; left < size; ++left) {
                 connect(graph, left, hub2, hub1);
@@ -449,9 +449,9 @@ public class UnequalPredicateInfer {
                 } else if (deduced[left][right] != type) {
                     keep[i] = true;
                     set(deduced, left, right, Relation.EQ);
-                    expand_graph(deduced, left, right);
+                    expandGraph(deduced, left, right);
                     if (type == Relation.EQ) {
-                        expand_graph(deduced, right, left);
+                        expandGraph(deduced, right, left);
                     }
                 }
             }
