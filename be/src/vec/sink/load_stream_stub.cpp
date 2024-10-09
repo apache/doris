@@ -201,7 +201,7 @@ Status LoadStreamStub::open(BrpcClientCache<PBackendService_Stub>* client_cache,
     if (cntl.Failed()) {
         brpc::StreamClose(_stream_id);
         _status = Status::InternalError("Failed to connect to backend {}: {}", _dst_id,
-                                         cntl.ErrorText());
+                                        cntl.ErrorText());
         return _status;
     }
     LOG(INFO) << "open load stream to host=" << node_info.host << ", port=" << node_info.brpc_port
