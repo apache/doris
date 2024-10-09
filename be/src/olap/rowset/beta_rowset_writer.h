@@ -42,6 +42,7 @@
 #include "olap/rowset/rowset_writer.h"
 #include "olap/rowset/rowset_writer_context.h"
 #include "olap/rowset/segment_creator.h"
+#include "segment_v2/inverted_index_file_writer.h"
 #include "segment_v2/segment.h"
 #include "util/spinlock.h"
 
@@ -84,58 +85,33 @@ private:
     bool _closed {false};
 };
 
-// Collect the size of the inverted index files
-class InvertedIndexFilesInfo {
+class InvertedIndexFileCollection {
 public:
+    ~InvertedIndexFileCollection();
+
+    // `seg_id` -> inverted index file writer
+    Status add(int seg_id, InvertedIndexFileWriterPtr&& writer);
+
+    // Close all file writers
+    // If the inverted index file writer is not closed, an error will be thrown during destruction
+    Status close();
+
     // Get inverted index file info in segment id order.
-    // Return the info of inverted index files from seg_id_offset to the last one.
-    Result<std::vector<InvertedIndexFileInfo>> get_inverted_files_info(int seg_id_offset) {
-        std::lock_guard lock(_lock);
+    // `seg_id_offset` is the offset of the segment id relative to the subscript of `_inverted_index_file_writers`,
+    // for more details, see `Tablet::create_transient_rowset_writer`.
+    Result<std::vector<const InvertedIndexFileInfo*>> inverted_index_file_info(int seg_id_offset);
 
-        Status st;
-        std::vector<InvertedIndexFileInfo> inverted_files_info(_inverted_index_files_info.size());
-        bool succ = std::all_of(
-                _inverted_index_files_info.begin(), _inverted_index_files_info.end(),
-                [&](auto&& it) {
-                    auto&& [seg_id, info] = it;
-
-                    int idx = seg_id - seg_id_offset;
-                    if (idx >= inverted_files_info.size()) [[unlikely]] {
-                        auto err_msg = fmt::format(
-                                "invalid seg_id={} num_inverted_files_info={} seg_id_offset={}",
-                                seg_id, inverted_files_info.size(), seg_id_offset);
-                        DCHECK(false) << err_msg;
-                        st = Status::InternalError(err_msg);
-                        return false;
-                    }
-
-                    auto& finfo = inverted_files_info[idx];
-                    if (finfo.has_index_size() || finfo.index_info_size() > 0) [[unlikely]] {
-                        // File size should not been set
-                        auto err_msg = fmt::format("duplicate seg_id={}", seg_id);
-                        DCHECK(false) << err_msg;
-                        st = Status::InternalError(err_msg);
-                        return false;
-                    }
-                    finfo = info;
-                    return true;
-                });
-
-        if (succ) {
-            return inverted_files_info;
-        }
-
-        return ResultError(st);
+    // return all inverted index file writers
+    std::unordered_map<int, InvertedIndexFileWriterPtr>& get_file_writers() {
+        return _inverted_index_file_writers;
     }
 
-    void add_file_info(int seg_id, InvertedIndexFileInfo file_info) {
-        std::lock_guard lock(_lock);
-        _inverted_index_files_info.emplace(seg_id, file_info);
-    }
+    int64_t get_total_index_size() const { return _total_size; }
 
 private:
-    std::unordered_map<int /* seg_id */, InvertedIndexFileInfo> _inverted_index_files_info;
     mutable SpinLock _lock;
+    std::unordered_map<int /* seg_id */, InvertedIndexFileWriterPtr> _inverted_index_file_writers;
+    int64_t _total_size = 0;
 };
 
 class BaseBetaRowsetWriter : public RowsetWriter {
@@ -155,6 +131,9 @@ public:
 
     Status create_file_writer(uint32_t segment_id, io::FileWriterPtr& writer,
                               FileType file_type = FileType::SEGMENT_FILE) override;
+
+    Status create_inverted_index_file_writer(uint32_t segment_id,
+                                             InvertedIndexFileWriterPtr* writer) override;
 
     Status add_segment(uint32_t segment_id, const SegmentStatistics& segstat,
                        TabletSchemaSPtr flush_schema) override;
@@ -215,7 +194,9 @@ public:
         return _seg_files.get_file_writers();
     }
 
-    InvertedIndexFilesInfo& get_inverted_index_files_info() { return _idx_files_info; }
+    std::unordered_map<int, InvertedIndexFileWriterPtr>& inverted_index_file_writers() {
+        return this->_idx_files.get_file_writers();
+    }
 
 private:
     void update_rowset_schema(TabletSchemaSPtr flush_schema);
@@ -235,6 +216,16 @@ protected:
         std::lock_guard l(_segid_statistics_map_mutex);
         return std::accumulate(_segment_num_rows.begin(), _segment_num_rows.end(), uint64_t(0));
     }
+    // Only during vertical compaction is this method called
+    // Some index files are written during normal compaction and some files are written during index compaction.
+    // After all index writes are completed, call this method to write the final compound index file.
+    Status _close_inverted_index_file_writers() {
+        RETURN_NOT_OK_STATUS_WITH_WARN(_idx_files.close(),
+                                       "failed to close index file when build new rowset");
+        this->_total_index_size += _idx_files.get_total_index_size();
+        this->_total_data_size += _idx_files.get_total_index_size();
+        return Status::OK();
+    }
 
     std::atomic<int32_t> _num_segment; // number of consecutive flushed segments
     roaring::Roaring _segment_set;     // bitmap set to record flushed segment id
@@ -242,6 +233,7 @@ protected:
     int32_t _segment_start_id;         // basic write start from 0, partial update may be different
 
     SegmentFileCollection _seg_files;
+    InvertedIndexFileCollection _idx_files;
 
     // record rows number of every segment already written, using for rowid
     // conversion when compaction in unique key with MoW model
@@ -269,9 +261,6 @@ protected:
 
     int64_t _delete_bitmap_ns = 0;
     int64_t _segment_writer_ns = 0;
-
-    // map<segment_id, inverted_index_file_info>
-    InvertedIndexFilesInfo _idx_files_info;
 };
 
 class SegcompactionWorker;
