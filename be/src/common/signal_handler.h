@@ -54,6 +54,7 @@ namespace doris::signal {
 inline thread_local uint64 query_id_hi;
 inline thread_local uint64 query_id_lo;
 inline thread_local int64_t tablet_id = 0;
+inline thread_local bool is_nereids = false;
 
 namespace {
 
@@ -243,6 +244,9 @@ void DumpTimeInfo() {
     formatter.AppendUint64(query_id_hi, 16);
     formatter.AppendString("-");
     formatter.AppendUint64(query_id_lo, 16);
+    formatter.AppendString(" ***\n");
+    formatter.AppendString("*** is nereids: ");
+    formatter.AppendUint64(is_nereids, 10);
     formatter.AppendString(" ***\n");
     formatter.AppendString("*** tablet id: ");
     formatter.AppendUint64(tablet_id, 10);
@@ -434,6 +438,10 @@ inline void set_signal_task_id(PUniqueId tid) {
 inline void set_signal_task_id(TUniqueId tid) {
     query_id_hi = tid.hi;
     query_id_lo = tid.lo;
+}
+
+inline void set_signal_is_nereids(bool is_nereids_arg) {
+    is_nereids = is_nereids_arg;
 }
 
 inline void InstallFailureSignalHandler() {

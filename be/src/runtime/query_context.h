@@ -51,8 +51,10 @@ class QueryContext {
     ENABLE_FACTORY_CREATOR(QueryContext);
 
 public:
-    QueryContext(int total_fragment_num, ExecEnv* exec_env, const TQueryOptions& query_options)
-            : fragment_num(total_fragment_num),
+    QueryContext(int total_fragment_num, ExecEnv* exec_env, const TQueryOptions& query_options,
+                 bool is_nereids)
+            : _is_nereids(is_nereids),
+              fragment_num(total_fragment_num),
               timeout_second(-1),
               _exec_env(exec_env),
               _runtime_filter_mgr(new RuntimeFilterMgr(TUniqueId(), this)),
@@ -222,12 +224,16 @@ public:
 public:
     TUniqueId query_id;
     DescriptorTbl* desc_tbl;
+
+    bool is_nereids() const { return _is_nereids; }
+
     bool set_rsc_info = false;
     std::string user;
     std::string group;
     TNetworkAddress coord_addr;
     TNetworkAddress current_connect_fe;
     TQueryGlobals query_globals;
+    const bool _is_nereids;
 
     /// In the current implementation, for multiple fragments executed by a query on the same BE node,
     /// we store some common components in QueryContext, and save QueryContext in FragmentMgr.
