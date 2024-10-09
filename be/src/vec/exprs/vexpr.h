@@ -120,7 +120,7 @@ public:
 
     // execute current expr with inverted index to filter block. Given a roaring bitmap of match rows
     virtual Status evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) {
-        return Status::NotSupported("Not supported execute_with_inverted_index");
+        return Status::OK();
     }
 
     Status _evaluate_inverted_index(VExprContext* context, const FunctionBasePtr& function,
