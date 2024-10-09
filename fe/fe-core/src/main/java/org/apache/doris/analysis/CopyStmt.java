@@ -51,7 +51,7 @@ import java.util.Map;
 /**
  * Copy statement
  */
-public class CopyStmt extends DdlStmt {
+public class CopyStmt extends DdlStmt implements NotFallbackInParser {
     private static final Logger LOG = LogManager.getLogger(CopyStmt.class);
 
     private static final ShowResultSetMetaData COPY_INTO_META_DATA =

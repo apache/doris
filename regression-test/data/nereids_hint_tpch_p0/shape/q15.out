@@ -5,9 +5,9 @@ PhysicalResultSink
 ----PhysicalDistribute[DistributionSpecGather]
 ------PhysicalQuickSort[LOCAL_SORT]
 --------PhysicalProject
-----------hashJoin[INNER_JOIN shuffle] hashCondition=((revenue0.total_revenue = max(total_revenue))) otherCondition=()
+----------hashJoin[INNER_JOIN broadcast] hashCondition=((revenue0.total_revenue = max(total_revenue))) otherCondition=()
 ------------PhysicalProject
---------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((supplier.s_suppkey = revenue0.supplier_no)) otherCondition=()
+--------------hashJoin[INNER_JOIN broadcast] hashCondition=((supplier.s_suppkey = revenue0.supplier_no)) otherCondition=()
 ----------------PhysicalProject
 ------------------PhysicalOlapScan[supplier]
 ----------------PhysicalProject

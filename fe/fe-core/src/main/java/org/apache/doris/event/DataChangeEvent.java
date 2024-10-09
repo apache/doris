@@ -17,8 +17,10 @@
 
 package org.apache.doris.event;
 
+import org.apache.doris.common.AnalysisException;
+
 public class DataChangeEvent extends TableEvent {
-    public DataChangeEvent(long ctlId, long dbId, long tableId) {
+    public DataChangeEvent(long ctlId, long dbId, long tableId) throws AnalysisException {
         super(EventType.DATA_CHANGE, ctlId, dbId, tableId);
     }
 }

@@ -17,9 +17,9 @@ PhysicalResultSink
 ------------------------filter((date_dim.d_qoy = 1) and (date_dim.d_year = 2001))
 --------------------------PhysicalOlapScan[date_dim]
 ------------------PhysicalProject
---------------------hashJoin[INNER_JOIN shuffle] hashCondition=((customer.c_current_addr_sk = customer_address.ca_address_sk)) otherCondition=() build RFs:RF0 ca_address_sk->[c_current_addr_sk]
+--------------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((customer.c_current_addr_sk = customer_address.ca_address_sk)) otherCondition=() build RFs:RF0 c_current_addr_sk->[ca_address_sk]
 ----------------------PhysicalProject
-------------------------PhysicalOlapScan[customer] apply RFs: RF0
+------------------------PhysicalOlapScan[customer_address] apply RFs: RF0
 ----------------------PhysicalProject
-------------------------PhysicalOlapScan[customer_address]
+------------------------PhysicalOlapScan[customer]
 

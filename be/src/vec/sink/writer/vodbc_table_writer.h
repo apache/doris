@@ -36,7 +36,9 @@ class VOdbcTableWriter final : public AsyncResultWriter, public ODBCConnector {
 public:
     static ODBCConnectorParam create_connect_param(const TDataSink&);
 
-    VOdbcTableWriter(const doris::TDataSink& t_sink, const VExprContextSPtrs& output_exprs);
+    VOdbcTableWriter(const doris::TDataSink& t_sink, const VExprContextSPtrs& output_exprs,
+                     std::shared_ptr<pipeline::Dependency> dep,
+                     std::shared_ptr<pipeline::Dependency> fin_dep);
 
     // connect to odbc server
     Status open(RuntimeState* state, RuntimeProfile* profile) override {

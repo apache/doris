@@ -28,6 +28,7 @@
 
 #include "exec/schema_scanner/schema_active_queries_scanner.h"
 #include "exec/schema_scanner/schema_backend_active_tasks.h"
+#include "exec/schema_scanner/schema_catalog_meta_cache_stats_scanner.h"
 #include "exec/schema_scanner/schema_charsets_scanner.h"
 #include "exec/schema_scanner/schema_collations_scanner.h"
 #include "exec/schema_scanner/schema_columns_scanner.h"
@@ -43,11 +44,14 @@
 #include "exec/schema_scanner/schema_schemata_scanner.h"
 #include "exec/schema_scanner/schema_table_options_scanner.h"
 #include "exec/schema_scanner/schema_table_privileges_scanner.h"
+#include "exec/schema_scanner/schema_table_properties_scanner.h"
 #include "exec/schema_scanner/schema_tables_scanner.h"
 #include "exec/schema_scanner/schema_user_privileges_scanner.h"
 #include "exec/schema_scanner/schema_user_scanner.h"
 #include "exec/schema_scanner/schema_variables_scanner.h"
 #include "exec/schema_scanner/schema_views_scanner.h"
+#include "exec/schema_scanner/schema_workload_group_privileges.h"
+#include "exec/schema_scanner/schema_workload_group_resource_usage_scanner.h"
 #include "exec/schema_scanner/schema_workload_groups_scanner.h"
 #include "exec/schema_scanner/schema_workload_sched_policy_scanner.h"
 #include "olap/hll.h"
@@ -227,6 +231,14 @@ std::unique_ptr<SchemaScanner> SchemaScanner::create(TSchemaTableType::type type
         return SchemaWorkloadSchedulePolicyScanner::create_unique();
     case TSchemaTableType::SCH_TABLE_OPTIONS:
         return SchemaTableOptionsScanner::create_unique();
+    case TSchemaTableType::SCH_WORKLOAD_GROUP_PRIVILEGES:
+        return SchemaWorkloadGroupPrivilegesScanner::create_unique();
+    case TSchemaTableType::SCH_WORKLOAD_GROUP_RESOURCE_USAGE:
+        return SchemaBackendWorkloadGroupResourceUsage::create_unique();
+    case TSchemaTableType::SCH_TABLE_PROPERTIES:
+        return SchemaTablePropertiesScanner::create_unique();
+    case TSchemaTableType::SCH_CATALOG_META_CACHE_STATISTICS:
+        return SchemaCatalogMetaCacheStatsScanner::create_unique();
     default:
         return SchemaDummyScanner::create_unique();
         break;
@@ -437,6 +449,17 @@ Status SchemaScanner::insert_block_column(TCell cell, int col_index, vectorized:
         break;
     }
 
+    case TYPE_DATETIME: {
+        std::vector<void*> datas(1);
+        VecDateTimeValue src[1];
+        src[0].from_date_str(cell.stringVal.data(), cell.stringVal.size());
+        datas[0] = src;
+        auto data = datas[0];
+        reinterpret_cast<vectorized::ColumnVector<vectorized::Int64>*>(col_ptr)->insert_data(
+                reinterpret_cast<char*>(data), 0);
+        nullable_column->get_null_map_data().emplace_back(0);
+        break;
+    }
     default: {
         std::stringstream ss;
         ss << "unsupported column type:" << type;

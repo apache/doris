@@ -49,7 +49,7 @@ suite("test_routine_load_offset","p0") {
     }
 
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
-        def tableName = "test_show_routine_load"
+        def tableName = "test_routine_load_offset"
         def job = "test_offset"
 
         sql """ DROP TABLE IF EXISTS ${tableName} """

@@ -68,7 +68,7 @@ public class ModifyBackendTest {
     @Test
     public void testModifyBackendTag() throws Exception {
         SystemInfoService infoService = Env.getCurrentSystemInfo();
-        List<Backend> backends = infoService.getAllBackends();
+        List<Backend> backends = infoService.getAllBackendsByAllCluster().values().asList();
         Assert.assertEquals(1, backends.size());
         String beHostPort = backends.get(0).getHost() + ":" + backends.get(0).getHeartbeatPort();
 
@@ -76,7 +76,7 @@ public class ModifyBackendTest {
         String stmtStr = "alter system modify backend \"" + beHostPort + "\" set ('tag.location' = 'zone1')";
         AlterSystemStmt stmt = (AlterSystemStmt) UtFrameUtils.parseAndAnalyzeStmt(stmtStr, connectContext);
         DdlExecutor.execute(Env.getCurrentEnv(), stmt);
-        backends = infoService.getAllBackends();
+        backends = infoService.getAllBackendsByAllCluster().values().asList();
         Assert.assertEquals(1, backends.size());
 
         // create table
@@ -154,8 +154,8 @@ public class ModifyBackendTest {
         String partName = tbl.getPartitionNames().stream().findFirst().get();
         String wrongAlterStr = "alter table test.tbl4 modify partition " + partName
                 + " set ('replication_allocation' = 'tag.location.zonex:1')";
-        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class, "errCode = 2, detailMessage = "
-                        + "errCode = 2, detailMessage = Failed to find enough backend, "
+        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class, "errCode = 2,"
+                        + " detailMessage = Failed to find enough backend, "
                         + "please check the replication num,replication tag and storage medium and avail capacity of backends "
                         + "or maybe all be on same host.\n"
                         + "Create failed replications:\n"
@@ -175,13 +175,13 @@ public class ModifyBackendTest {
     @Test
     public void testModifyBackendAvailableProperty() throws Exception {
         SystemInfoService infoService = Env.getCurrentSystemInfo();
-        List<Backend> backends = infoService.getAllBackends();
+        List<Backend> backends = infoService.getAllBackendsByAllCluster().values().asList();
         String beHostPort = backends.get(0).getHost() + ":" + backends.get(0).getHeartbeatPort();
         // modify backend available property
         String stmtStr = "alter system modify backend \"" + beHostPort + "\" set ('disable_query' = 'true', 'disable_load' = 'true')";
         AlterSystemStmt stmt = (AlterSystemStmt) UtFrameUtils.parseAndAnalyzeStmt(stmtStr, connectContext);
         DdlExecutor.execute(Env.getCurrentEnv(), stmt);
-        Backend backend = infoService.getAllBackends().get(0);
+        Backend backend = infoService.getAllBackendsByAllCluster().values().asList().get(0);
         Assert.assertFalse(backend.isQueryAvailable());
         Assert.assertFalse(backend.isLoadAvailable());
 

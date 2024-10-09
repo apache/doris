@@ -542,7 +542,9 @@ namespace doris::vectorized {
 // write result to file
 class VTabletWriter final : public AsyncResultWriter {
 public:
-    VTabletWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs);
+    VTabletWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs,
+                  std::shared_ptr<pipeline::Dependency> dep,
+                  std::shared_ptr<pipeline::Dependency> fin_dep);
 
     Status write(RuntimeState* state, Block& block) override;
 

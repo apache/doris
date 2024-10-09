@@ -34,7 +34,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionRegistry;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.cloud.proto.Cloud;
+import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
@@ -58,7 +58,7 @@ import org.apache.doris.nereids.stats.StatsErrorEstimator;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.plsql.Exec;
 import org.apache.doris.plsql.executor.PlSqlOperation;
-import org.apache.doris.plugin.audit.AuditEvent.AuditEventBuilder;
+import org.apache.doris.plugin.AuditEvent.AuditEventBuilder;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.service.arrowflight.results.FlightSqlChannel;
 import org.apache.doris.statistics.ColumnStatistic;
@@ -263,9 +263,6 @@ public class ConnectContext {
 
     private StatementContext statementContext;
 
-    // legacy planner
-    private Map<String, PrepareStmtContext> preparedStmtCtxs = Maps.newHashMap();
-
     // new planner
     private Map<String, PreparedStatementContext> preparedStatementContextMap = Maps.newHashMap();
 
@@ -410,11 +407,10 @@ public class ConnectContext {
         return txnEntry != null && txnEntry.isInsertValuesTxnIniting();
     }
 
-    public void addPreparedStmt(String stmtName, PrepareStmtContext ctx) {
-        this.preparedStmtCtxs.put(stmtName, ctx);
-    }
-
     public void addPreparedStatementContext(String stmtName, PreparedStatementContext ctx) throws UserException {
+        if (!sessionVariable.enableServeSidePreparedStatement) {
+            throw new UserException("Failed to do prepared command, server side prepared statement is disabled");
+        }
         if (this.preparedStatementContextMap.size() > sessionVariable.maxPreparedStmtCount) {
             throw new UserException("Failed to create a server prepared statement"
                     + "possibly because there are too many active prepared statements on server already."
@@ -424,12 +420,7 @@ public class ConnectContext {
     }
 
     public void removePrepareStmt(String stmtName) {
-        this.preparedStmtCtxs.remove(stmtName);
         this.preparedStatementContextMap.remove(stmtName);
-    }
-
-    public PrepareStmtContext getPreparedStmt(String stmtName) {
-        return this.preparedStmtCtxs.get(stmtName);
     }
 
     public PreparedStatementContext getPreparedStementContext(String stmtName) {
@@ -558,7 +549,7 @@ public class ConnectContext {
             } else if (literalExpr instanceof NullLiteral) {
                 return Literal.of(null);
             } else {
-                return Literal.of("");
+                return Literal.of(literalExpr.getStringValue());
             }
         } else {
             // If there are no such user defined var, just return the NULL value.
@@ -587,7 +578,7 @@ public class ConnectContext {
                 desc.setIsNull();
             } else {
                 desc.setType(Type.VARCHAR);
-                desc.setStringValue("");
+                desc.setStringValue(literalExpr.getStringValue());
             }
         } else {
             // If there are no such user defined var, just fill the NULL value.
@@ -1121,7 +1112,7 @@ public class ConnectContext {
 
     // maybe user set cluster by SQL hint of session variable: cloud_cluster
     // so first check it and then get from connect context.
-    public String getCurrentCloudCluster() {
+    public String getCurrentCloudCluster() throws ComputeGroupException {
         String cluster = getSessionVariable().getCloudCluster();
         if (Strings.isNullOrEmpty(cluster)) {
             cluster = getCloudCluster();
@@ -1133,7 +1124,7 @@ public class ConnectContext {
         this.cloudCluster = cluster;
     }
 
-    public String getCloudCluster() {
+    public String getCloudCluster() throws ComputeGroupException {
         return getCloudCluster(true);
     }
 
@@ -1162,30 +1153,6 @@ public class ConnectContext {
         }
     }
 
-    public static String cloudNoBackendsReason() {
-        StringBuilder sb = new StringBuilder();
-        if (ConnectContext.get() != null) {
-            String clusterName = ConnectContext.get().getCloudCluster();
-            String hits = "or you may not have permission to access the current cluster = ";
-            sb.append(" ");
-            if (Strings.isNullOrEmpty(clusterName)) {
-                return sb.append(hits).append("cluster name empty").toString();
-            }
-            String clusterStatus = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
-                    .getCloudStatusByName(clusterName);
-            if (!Strings.isNullOrEmpty(clusterStatus)
-                    && Cloud.ClusterStatus.valueOf(clusterStatus)
-                        == Cloud.ClusterStatus.MANUAL_SHUTDOWN) {
-                LOG.warn("auto start cluster {} in manual shutdown status", clusterName);
-                sb.append("cluster ").append(clusterName)
-                    .append(" is shutdown manually, please start it first");
-            } else {
-                sb.append(hits).append(clusterName);
-            }
-        }
-        return sb.toString();
-    }
-
     // can't get cluster from context, use the following strategy to obtain the cluster name
     // 当用户有多个集群的权限时，会按照如下策略进行拉取：
     // 如果当前mysql用户没有指定cluster(没有default 或者 use), 选择有权限的cluster。
@@ -1202,12 +1169,12 @@ public class ConnectContext {
                 // valid
                 r = new CloudClusterResult(defaultCloudCluster,
                     CloudClusterResult.Comment.FOUND_BY_DEFAULT_CLUSTER);
-                LOG.info("use default cluster {}", defaultCloudCluster);
+                LOG.info("use default compute group {}", defaultCloudCluster);
             } else {
                 // invalid
                 r = new CloudClusterResult(defaultCloudCluster,
                     CloudClusterResult.Comment.DEFAULT_CLUSTER_SET_BUT_NOT_EXIST);
-                LOG.warn("default cluster {} current invalid, please change it", r);
+                LOG.warn("default compute group {} current invalid, please change it", r);
             }
             return r;
         }
@@ -1223,7 +1190,7 @@ public class ConnectContext {
                         .getBackendsByClusterName(cloudClusterName);
                 AtomicBoolean hasAliveBe = new AtomicBoolean(false);
                 bes.stream().filter(Backend::isAlive).findAny().ifPresent(backend -> {
-                    LOG.debug("get a clusterName {}, it's has more than one alive be {}", cloudCluster, backend);
+                    LOG.debug("get a compute group {}, it's has more than one alive be {}", cloudCluster, backend);
                     hasAliveBe.set(true);
                 });
                 if (hasAliveBe.get()) {
@@ -1248,18 +1215,19 @@ public class ConnectContext {
      *
      * @param updateErr whether set the connect state to error if the returned cluster is null or empty
      * @return non-empty cluster name if a cluster has been chosen otherwise null or empty string
+     * @throws ComputeGroupException, outer get reason by exception
      */
-    public String getCloudCluster(boolean updateErr) {
+    public String getCloudCluster(boolean updateErr) throws ComputeGroupException {
         if (!Config.isCloudMode()) {
-            return null;
+            throw new ComputeGroupException("not cloud mode", ComputeGroupException.FailedTypeEnum.NOT_CLOUD_MODE);
         }
 
         String cluster = null;
         String choseWay = null;
         if (!Strings.isNullOrEmpty(this.cloudCluster)) {
             cluster = this.cloudCluster;
-            choseWay = "use @cluster";
-            LOG.debug("finally set context cluster name {} for user {} with chose way '{}'",
+            choseWay = "use context cluster";
+            LOG.debug("finally set context compute group name {} for user {} with chose way '{}'",
                     cloudCluster, getCurrentUserIdentity(), choseWay);
             return cluster;
         }
@@ -1267,24 +1235,32 @@ public class ConnectContext {
         String defaultCluster = getDefaultCloudCluster();
         if (!Strings.isNullOrEmpty(defaultCluster)) {
             cluster = defaultCluster;
-            choseWay = "default cluster";
+            choseWay = "default compute group";
+            if (!Env.getCurrentEnv().getAuth().checkCloudPriv(getCurrentUserIdentity(),
+                    cluster, PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER)) {
+                throw new ComputeGroupException(String.format("default compute group %s check auth failed", cluster),
+                    ComputeGroupException.FailedTypeEnum.CURRENT_USER_NO_AUTH_TO_USE_DEFAULT_COMPUTE_GROUP);
+            }
         } else {
-            String authorizedCluster = getAuthorizedCloudCluster();
-            if (!Strings.isNullOrEmpty(authorizedCluster)) {
-                cluster = authorizedCluster;
+            CloudClusterResult cloudClusterTypeAndName = getCloudClusterByPolicy();
+            if (cloudClusterTypeAndName != null && !Strings.isNullOrEmpty(cloudClusterTypeAndName.clusterName)) {
+                cluster = cloudClusterTypeAndName.clusterName;
                 choseWay = "authorized cluster";
             }
         }
 
         if (Strings.isNullOrEmpty(cluster)) {
-            LOG.warn("cant get a valid cluster for user {} to use", getCurrentUserIdentity());
+            LOG.warn("cant get a valid compute group for user {} to use", getCurrentUserIdentity());
+            ComputeGroupException exception = new ComputeGroupException(
+                    "the user is not granted permission to the compute group",
+                    ComputeGroupException.FailedTypeEnum.CURRENT_USER_NO_AUTH_TO_USE_ANY_COMPUTE_GROUP);
             if (updateErr) {
-                getState().setError(ErrorCode.ERR_NO_CLUSTER_ERROR,
-                        "Cant get a Valid cluster for you to use, plz connect admin");
+                getState().setError(ErrorCode.ERR_CLOUD_CLUSTER_ERROR, exception.getMessage());
             }
+            throw exception;
         } else {
             this.cloudCluster = cluster;
-            LOG.info("finally set context cluster name {} for user {} with chose way '{}'",
+            LOG.info("finally set context compute group name {} for user {} with chose way '{}'",
                     cloudCluster, getCurrentUserIdentity(), choseWay);
         }
 
@@ -1297,35 +1273,6 @@ public class ConnectContext {
         String defaultCluster = Env.getCurrentEnv().getAuth().getDefaultCloudCluster(getQualifiedUser());
         if (!Strings.isNullOrEmpty(defaultCluster) && cloudClusterNames.contains(defaultCluster)) {
             return defaultCluster;
-        }
-
-        return null;
-    }
-
-    public String getAuthorizedCloudCluster() {
-        List<String> cloudClusterNames = ((CloudSystemInfoService) Env.getCurrentSystemInfo()).getCloudClusterNames();
-        // get all available cluster of the user
-        for (String cloudClusterName : cloudClusterNames) {
-            if (!Env.getCurrentEnv().getAuth().checkCloudPriv(getCurrentUserIdentity(),
-                    cloudClusterName, PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER)) {
-                continue;
-            }
-            // find a cluster has more than one alive be
-            List<Backend> bes = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
-                    .getBackendsByClusterName(cloudClusterName);
-            AtomicBoolean hasAliveBe = new AtomicBoolean(false);
-            bes.stream().filter(Backend::isAlive).findAny().ifPresent(backend -> {
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("get a clusterName {}, it's has more than one alive be {}", cloudClusterName, backend);
-                }
-                hasAliveBe.set(true);
-            });
-            if (hasAliveBe.get()) {
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("set context cluster name {}", cloudClusterName);
-                }
-                return cloudClusterName;
-            }
         }
 
         return null;

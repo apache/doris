@@ -29,16 +29,7 @@ ARG JDK_IMAGE=openjdk:17-jdk-slim
 
 FROM ${JDK_IMAGE}
 
-RUN <<EOF
-    if [ -d "/usr/local/openjdk-17" ]; then
-        ln -s /usr/local/openjdk-17  /usr/local/openjdk
-    else \
-        ln -s /usr/local/openjdk-8  /usr/local/openjdk
-    fi
-EOF
-
 # set environment variables
-ENV JAVA_HOME="/usr/local/openjdk"
 ENV JACOCO_VERSION 0.8.8
 
 RUN mkdir -p /opt/apache-doris/coverage
@@ -58,12 +49,10 @@ RUN curl -f https://repo1.maven.org/maven2/org/jacoco/jacoco/${JACOCO_VERSION}/j
 
 # cloud
 COPY cloud/CMakeLists.txt cloud/output* output/ms* /opt/apache-doris/cloud/
-RUN <<EOF
-    mkdir /opt/apache-doris/fdb
-    if [ -d /opt/apache-doris/cloud/bin ]; then
-        sed -i 's/\<chmod\>/echo/g' /opt/apache-doris/cloud/bin/start.sh
+RUN mkdir /opt/apache-doris/fdb
+RUN if [ -d /opt/apache-doris/cloud/bin ]; then                            \
+        sed -i 's/\<chmod\>/echo/g' /opt/apache-doris/cloud/bin/start.sh ; \
     fi
-EOF
 
 # fe and be
 COPY output /opt/apache-doris/

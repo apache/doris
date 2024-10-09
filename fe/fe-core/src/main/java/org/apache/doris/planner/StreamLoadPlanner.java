@@ -147,6 +147,13 @@ public class StreamLoadPlanner {
         if (isPartialUpdate && !destTable.getEnableUniqueKeyMergeOnWrite()) {
             throw new UserException("Only unique key merge on write support partial update");
         }
+
+        // try to convert to upsert if only has missing auto-increment key column
+        boolean hasMissingColExceptAutoIncKey = false;
+        if (taskInfo.getColumnExprDescs().descs.isEmpty()) {
+            isPartialUpdate = false;
+        }
+
         HashSet<String> partialUpdateInputColumns = new HashSet<>();
         if (isPartialUpdate) {
             for (Column col : destTable.getFullSchema()) {
@@ -171,9 +178,16 @@ public class StreamLoadPlanner {
                         break;
                     }
                 }
-                if (col.isKey() && !existInExpr) {
-                    throw new UserException("Partial update should include all key columns, missing: " + col.getName());
+                if (!existInExpr) {
+                    if (col.isKey() && !col.isAutoInc()) {
+                        throw new UserException("Partial update should include all key columns, missing: "
+                                + col.getName());
+                    }
+                    if (!(col.isKey() && col.isAutoInc()) && col.isVisible()) {
+                        hasMissingColExceptAutoIncKey = true;
+                    }
                 }
+
                 if (!col.getGeneratedColumnsThatReferToThis().isEmpty()
                         && col.getGeneratedColumnInfo() == null && !existInExpr) {
                     throw new UserException("Partial update should include"
@@ -184,6 +198,9 @@ public class StreamLoadPlanner {
             if (taskInfo.getMergeType() == LoadTask.MergeType.DELETE) {
                 partialUpdateInputColumns.add(Column.DELETE_SIGN);
             }
+        }
+        if (isPartialUpdate && !hasMissingColExceptAutoIncKey) {
+            isPartialUpdate = false;
         }
         // here we should be full schema to fill the descriptor table
         for (Column col : destTable.getFullSchema()) {
@@ -252,7 +269,7 @@ public class StreamLoadPlanner {
         // The load id will pass to csv reader to find the stream load context from new load stream manager
         fileScanNode.setLoadInfo(loadId, taskInfo.getTxnId(), destTable, BrokerDesc.createForStreamLoad(),
                 fileGroup, fileStatus, taskInfo.isStrictMode(), taskInfo.getFileType(), taskInfo.getHiddenColumns(),
-                taskInfo.isPartialUpdate());
+                isPartialUpdate);
         scanNode = fileScanNode;
 
         scanNode.init(analyzer);

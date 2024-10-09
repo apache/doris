@@ -37,8 +37,15 @@ public class CommonSubExpressionCollector extends ExpressionVisitor<Integer, Voi
         if (expr.children().isEmpty()) {
             return 0;
         }
-        return collectCommonExpressionByDepth(expr.children().stream().map(child ->
-                child.accept(this, context)).reduce(Math::max).map(m -> m + 1).orElse(1), expr);
+        return collectCommonExpressionByDepth(
+                expr.children()
+                        .stream()
+                        .map(child -> child.accept(this, context))
+                        .reduce(Math::max)
+                        .map(m -> m + 1)
+                        .orElse(1),
+                expr
+        );
     }
 
     private int collectCommonExpressionByDepth(int depth, Expression expr) {
@@ -53,7 +60,6 @@ public class CommonSubExpressionCollector extends ExpressionVisitor<Integer, Voi
 
     public static Set<Expression> getExpressionsFromDepthMap(
             int depth, Map<Integer, Set<Expression>> depthMap) {
-        depthMap.putIfAbsent(depth, new LinkedHashSet<>());
-        return depthMap.get(depth);
+        return depthMap.computeIfAbsent(depth, d -> new LinkedHashSet<>());
     }
 }

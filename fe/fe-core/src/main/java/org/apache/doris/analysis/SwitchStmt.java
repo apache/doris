@@ -25,7 +25,7 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
-public class SwitchStmt extends StatementBase {
+public class SwitchStmt extends StatementBase implements NotFallbackInParser {
     private final String catalogName;
 
     public SwitchStmt(String catalogName) {

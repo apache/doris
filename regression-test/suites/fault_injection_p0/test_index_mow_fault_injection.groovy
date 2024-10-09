@@ -47,6 +47,7 @@ suite("test_index_mow_fault_injection", "nonConcurrent") {
     try {
       sql "DROP TABLE IF EXISTS ${testTable_unique}"
       create_httplogs_unique_table.call(testTable_unique)
+      sql """ set enable_common_expr_pushdown = true """
 
       sql """ INSERT INTO ${testTable_unique} VALUES (893964617, '40.135.0.0', 'GET /images/hm_bg.jpg HTTP/1.0', 200, 24736); """
       sql """ INSERT INTO ${testTable_unique} VALUES (893964653, '232.0.0.0', 'GET /images/hm_bg.jpg HTTP/1.0', 200, 3781); """

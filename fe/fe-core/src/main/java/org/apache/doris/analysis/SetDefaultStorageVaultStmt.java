@@ -29,7 +29,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
 // SET vault_name DEFAULT STORAGE VAULT
-public class SetDefaultStorageVaultStmt extends DdlStmt {
+public class SetDefaultStorageVaultStmt extends DdlStmt implements NotFallbackInParser {
     public final String vaultName;
 
     public SetDefaultStorageVaultStmt(String vaultName) {

@@ -136,6 +136,7 @@ public:
     bool is_finalized() const { return _finalized; }
 
     void clear_blocking_state() {
+        _state->get_query_ctx()->get_execution_dependency()->set_always_ready();
         // We use a lock to assure all dependencies are not deconstructed here.
         std::unique_lock<std::mutex> lc(_dependency_lock);
         if (!_finalized) {

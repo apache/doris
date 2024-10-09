@@ -236,8 +236,9 @@ struct EncryptionAndDecryptTwoImpl {
         if (mode_arg.size != 0) {
             if (!aes_mode_map.contains(mode_str)) {
                 all_insert_null = true;
+            } else {
+                encryption_mode = aes_mode_map.at(mode_str);
             }
-            encryption_mode = aes_mode_map.at(mode_str);
         }
         const ColumnString::Offsets* offsets_column = &column->get_offsets();
         const ColumnString::Chars* chars_column = &column->get_chars();
@@ -335,7 +336,7 @@ struct EncryptionAndDecryptFourImpl {
         return Status::OK();
     }
 
-    static void vector_const(const ColumnString* column, StringRef iv_arg, StringRef key_arg,
+    static void vector_const(const ColumnString* column, StringRef key_arg, StringRef iv_arg,
                              StringRef mode_arg, size_t input_rows_count,
                              ColumnString::Chars& result_data, ColumnString::Offsets& result_offset,
                              NullMap& null_map) {
@@ -346,13 +347,15 @@ struct EncryptionAndDecryptFourImpl {
             if constexpr (is_sm_mode) {
                 if (sm4_mode_map.count(mode_str) == 0) {
                     all_insert_null = true;
+                } else {
+                    encryption_mode = sm4_mode_map.at(mode_str);
                 }
-                encryption_mode = sm4_mode_map.at(mode_str);
             } else {
                 if (aes_mode_map.count(mode_str) == 0) {
                     all_insert_null = true;
+                } else {
+                    encryption_mode = aes_mode_map.at(mode_str);
                 }
-                encryption_mode = aes_mode_map.at(mode_str);
             }
         }
 

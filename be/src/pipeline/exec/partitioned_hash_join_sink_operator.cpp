@@ -447,7 +447,7 @@ Status PartitionedHashJoinSinkOperatorX::_setup_internal_operator(RuntimeState* 
 
     local_state._shared_state->inner_runtime_state->set_desc_tbl(&state->desc_tbl());
     local_state._shared_state->inner_runtime_state->resize_op_id_to_local_state(-1);
-    local_state._shared_state->inner_runtime_state->set_pipeline_x_runtime_filter_mgr(
+    local_state._shared_state->inner_runtime_state->set_runtime_filter_mgr(
             state->local_runtime_filter_mgr());
 
     local_state._shared_state->inner_shared_state = std::dynamic_pointer_cast<HashJoinSharedState>(

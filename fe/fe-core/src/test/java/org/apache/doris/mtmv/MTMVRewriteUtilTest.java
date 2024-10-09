@@ -103,7 +103,7 @@ public class MTMVRewriteUtilTest {
                 minTimes = 0;
                 result = true;
 
-                MTMVPartitionUtil.isMTMVPartitionSync((MTMV) any, anyString, (Set<String>) any,
+                MTMVPartitionUtil.isMTMVPartitionSync((MTMVRefreshContext) any, anyString,
                         (Set<BaseTableInfo>) any,
                         (Set<String>) any);
                 minTimes = 0;
@@ -124,7 +124,7 @@ public class MTMVRewriteUtilTest {
                 minTimes = 0;
                 result = 2L;
 
-                MTMVPartitionUtil.isMTMVPartitionSync((MTMV) any, anyString, (Set<String>) any,
+                MTMVPartitionUtil.isMTMVPartitionSync((MTMVRefreshContext) any, anyString,
                         (Set<BaseTableInfo>) any,
                         (Set<String>) any);
                 minTimes = 0;
@@ -154,7 +154,7 @@ public class MTMVRewriteUtilTest {
                 minTimes = 0;
                 result = 2L;
 
-                MTMVPartitionUtil.isMTMVPartitionSync((MTMV) any, anyString, (Set<String>) any,
+                MTMVPartitionUtil.isMTMVPartitionSync((MTMVRefreshContext) any, anyString,
                         (Set<BaseTableInfo>) any,
                         (Set<String>) any);
                 minTimes = 0;
@@ -175,7 +175,7 @@ public class MTMVRewriteUtilTest {
                 minTimes = 0;
                 result = 1L;
 
-                MTMVPartitionUtil.isMTMVPartitionSync((MTMV) any, anyString, (Set<String>) any,
+                MTMVPartitionUtil.isMTMVPartitionSync((MTMVRefreshContext) any, anyString,
                         (Set<BaseTableInfo>) any,
                         (Set<String>) any);
                 minTimes = 0;
@@ -208,7 +208,7 @@ public class MTMVRewriteUtilTest {
     public void testGetMTMVCanRewritePartitionsNotSync() throws AnalysisException {
         new Expectations() {
             {
-                MTMVPartitionUtil.isMTMVPartitionSync((MTMV) any, anyString, (Set<String>) any,
+                MTMVPartitionUtil.isMTMVPartitionSync((MTMVRefreshContext) any, anyString,
                         (Set<BaseTableInfo>) any,
                         (Set<String>) any);
                 minTimes = 0;

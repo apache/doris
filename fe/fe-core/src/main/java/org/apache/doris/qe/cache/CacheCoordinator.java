@@ -18,6 +18,7 @@
 package org.apache.doris.qe.cache;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.UserException;
 import org.apache.doris.proto.Types;
 import org.apache.doris.qe.SimpleScheduler;
 import org.apache.doris.system.Backend;
@@ -110,7 +111,7 @@ public class CacheCoordinator {
         }
         try {
             belock.lock();
-            ImmutableMap<Long, Backend> idToBackend = Env.getCurrentSystemInfo().getIdToBackend();
+            ImmutableMap<Long, Backend> idToBackend = Env.getCurrentSystemInfo().getAllBackendsByAllCluster();
             if (idToBackend != null) {
                 if (!debugModel) {
                     clearBackend(idToBackend);
@@ -120,6 +121,9 @@ public class CacheCoordinator {
                 }
             }
             this.lastRefreshTime = System.currentTimeMillis();
+        } catch (UserException e) {
+            LOG.warn("cant get backend", e);
+            throw new RuntimeException(e);
         } finally {
             belock.unlock();
         }

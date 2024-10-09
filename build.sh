@@ -271,6 +271,12 @@ else
     fi
 fi
 
+ARCH="$(uname -m)"
+if [[ "${ARCH}" == "aarch64" ]]; then
+    echo "WARNING: Cloud module is not supported on ARM platform, will skip building it."
+    BUILD_CLOUD=0
+fi
+
 if [[ "${HELP}" -eq 1 ]]; then
     usage
 fi
@@ -968,6 +974,9 @@ if [[ ${BUILD_CLOUD} -eq 1 ]]; then
     ln -srf "${DORIS_HOME}/output/ms/lib/doris_cloud" "${DORIS_HOME}/output/ms/lib/selectdb_cloud"
     mv "${DORIS_HOME}/output/ms/conf/doris_cloud.conf" "${DORIS_HOME}/output/ms/conf/selectdb_cloud.conf"
 fi
+
+mkdir -p "${DORIS_HOME}/output/tools"
+cp -r -p tools/fdb "${DORIS_HOME}/output/tools"
 
 echo "***************************************"
 echo "Successfully build Doris"

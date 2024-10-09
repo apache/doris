@@ -98,19 +98,33 @@ void DataTypeObjectSerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWr
     JsonbParser json_parser;
     // encode as jsonb
     bool succ = json_parser.parse(value_str.data(), value_str.size());
-    // maybe more graceful, it is ok to check here since data could be parsed
-    CHECK(succ);
-    result.writeStartBinary();
-    result.writeBinary(json_parser.getWriter().getOutput()->getBuffer(),
-                       json_parser.getWriter().getOutput()->getSize());
-    result.writeEndBinary();
+    if (!succ) {
+        // not a valid json insert raw text
+        result.writeStartString();
+        result.writeString(value_str.data(), value_str.size());
+        result.writeEndString();
+    } else {
+        // write a json binary
+        result.writeStartBinary();
+        result.writeBinary(json_parser.getWriter().getOutput()->getBuffer(),
+                           json_parser.getWriter().getOutput()->getSize());
+        result.writeEndBinary();
+    }
 }
 
 void DataTypeObjectSerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const {
     auto& variant = assert_cast<ColumnObject&>(column);
     Field field;
-    auto blob = static_cast<const JsonbBlobVal*>(arg);
-    field.assign_jsonb(blob->getBlob(), blob->getBlobLen());
+    if (arg->isBinary()) {
+        const auto* blob = static_cast<const JsonbBlobVal*>(arg);
+        field.assign_jsonb(blob->getBlob(), blob->getBlobLen());
+    } else if (arg->isString()) {
+        // not a valid jsonb type, insert as string
+        const auto* str = static_cast<const JsonbStringVal*>(arg);
+        field.assign_string(str->getBlob(), str->getBlobLen());
+    } else {
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Invalid jsonb type");
+    }
     variant.insert(field);
 }
 
@@ -144,6 +158,37 @@ void DataTypeObjectSerDe::write_column_to_arrow(const IColumn& column, const Nul
                              column.get_name(), array_builder->type()->name());
         }
     }
+}
+
+Status DataTypeObjectSerDe::write_one_cell_to_json(const IColumn& column, rapidjson::Value& result,
+                                                   rapidjson::Document::AllocatorType& allocator,
+                                                   Arena& mem_pool, int row_num) const {
+    const auto& var = assert_cast<const ColumnObject&>(column);
+    if (!var.is_finalized()) {
+        var.assume_mutable()->finalize();
+    }
+    result.SetObject();
+    // sort to make output stable, todo add a config
+    auto subcolumns = schema_util::get_sorted_subcolumns(var.get_subcolumns());
+    for (const auto& entry : subcolumns) {
+        const auto& subcolumn = entry->data.get_finalized_column();
+        const auto& subtype_serde = entry->data.get_least_common_type_serde();
+        if (subcolumn.is_null_at(row_num)) {
+            continue;
+        }
+        rapidjson::Value key;
+        key.SetString(entry->path.get_path().data(), entry->path.get_path().size());
+        rapidjson::Value val;
+        RETURN_IF_ERROR(subtype_serde->write_one_cell_to_json(subcolumn, val, allocator, mem_pool,
+                                                              row_num));
+        if (val.IsNull() && entry->path.empty()) {
+            // skip null value with empty key, indicate the null json value of root in variant map,
+            // usally padding in nested arrays
+            continue;
+        }
+        result.AddMember(key, val, allocator);
+    }
+    return Status::OK();
 }
 
 } // namespace vectorized

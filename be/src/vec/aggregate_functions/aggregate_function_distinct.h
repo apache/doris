@@ -65,9 +65,11 @@ struct AggregateFunctionDistinctSingleNumericData {
     Container data;
 
     void add(const IColumn** columns, size_t /* columns_num */, size_t row_num, Arena*) {
-        const auto& vec = assert_cast<const ColumnVector<T>&>(*columns[0]).get_data();
+        const auto& vec =
+                assert_cast<const ColumnVector<T>&, TypeCheckOnRelease::DISABLE>(*columns[0])
+                        .get_data();
         if constexpr (stable) {
-            data.insert_or_assign(vec[row_num], data.size());
+            data.emplace(vec[row_num], data.size());
         } else {
             data.insert(vec[row_num]);
         }
@@ -170,7 +172,7 @@ struct AggregateFunctionDistinctSingleGenericData
         key.data = arena->insert(key.data, key.size);
 
         if constexpr (stable) {
-            data.insert_or_assign(key, data.size());
+            data.emplace(key, data.size());
         } else {
             typename Base::Container::LookupResult it;
             bool inserted;
@@ -214,7 +216,7 @@ struct AggregateFunctionDistinctMultipleGenericData
         }
 
         if constexpr (stable) {
-            data.insert_or_assign(key, data.size());
+            data.emplace(key, data.size());
         } else {
             typename Base::Container::LookupResult it;
             bool inserted;
@@ -335,8 +337,6 @@ public:
     String get_name() const override { return nested_func->get_name() + "Distinct"; }
 
     DataTypePtr get_return_type() const override { return nested_func->get_return_type(); }
-
-    bool allocates_memory_in_arena() const override { return true; }
 
     AggregateFunctionPtr transmit_to_stable() override {
         return AggregateFunctionPtr(new AggregateFunctionDistinct<Data, true>(

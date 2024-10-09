@@ -181,21 +181,7 @@ public class OneRangePartitionEvaluator
 
     @Override
     public EvaluateRangeResult visit(Expression expr, EvaluateRangeInput context) {
-        EvaluateRangeResult result = evaluateChildrenThenThis(expr, context);
-
-        // NOTE: if children exist empty range return false
-        //       !!! this is different from `returnFalseIfExistEmptyRange` !!!
-        expr = result.result;
-        if (expr.getDataType() instanceof BooleanType && !(expr instanceof Literal)
-                && result.childrenResult.stream().anyMatch(childResult ->
-                childResult.columnRanges.values().stream().anyMatch(ColumnRange::isEmptyRange))) {
-            // this assumes that for expression: func(A)
-            // if A reject partition, then func(A) reject partition.
-            // implement visitFunc for Func if Func does not satisfy the above assumption.
-            return new EvaluateRangeResult(BooleanLiteral.FALSE, result.columnRanges, result.childrenResult);
-        }
-        // assumption: for func(A), if A accept range (n, m), then func(A) accept range (n, m).
-        return result;
+        return evaluateChildrenThenThis(expr, context);
     }
 
     @Override

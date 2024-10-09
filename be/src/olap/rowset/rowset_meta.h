@@ -357,6 +357,16 @@ public:
     // Used for partial update, when publish, partial update may add a new rowset and we should update rowset meta
     void merge_rowset_meta(const RowsetMeta& other);
 
+    InvertedIndexFileInfo inverted_index_file_info(int seg_id);
+
+    const auto& inverted_index_file_info() const {
+        return _rowset_meta_pb.inverted_index_file_info();
+    }
+
+    void add_inverted_index_files_info(const std::vector<InvertedIndexFileInfo>& idx_file_info);
+
+    void update_inverted_index_files_info(const std::vector<InvertedIndexFileInfo>& idx_file_info);
+
     // Because the member field '_handle' is a raw pointer, use member func 'init' to replace copy ctor
     RowsetMeta(const RowsetMeta&) = delete;
     RowsetMeta operator=(const RowsetMeta&) = delete;

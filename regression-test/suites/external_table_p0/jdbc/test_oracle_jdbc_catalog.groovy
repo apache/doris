@@ -21,6 +21,7 @@ suite("test_oracle_jdbc_catalog", "p0,external,oracle,external_docker,external_d
     String s3_endpoint = getS3Endpoint()
     String bucket = getS3BucketName()
     String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/ojdbc8.jar"
+    String driver6_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/ojdbc6.jar"
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String catalog_name = "oracle_catalog";
         String internal_db_name = "regression_test_jdbc_catalog_p0";
@@ -281,5 +282,20 @@ suite("test_oracle_jdbc_catalog", "p0,external,oracle,external_docker,external_d
         qt_query_lower_3 """ select doris_3 from doris_test.lower_test; """
 
         sql """drop catalog if exists ${catalog_name} """
+
+        // test for ojdbc6
+        sql """drop catalog if exists oracle_ojdbc6; """
+        sql """create catalog if not exists oracle_ojdbc6 properties(
+                    "type"="jdbc",
+                    "user"="doris_test",
+                    "password"="123456",
+                    "jdbc_url" = "jdbc:oracle:thin:@${externalEnvIp}:${oracle_port}:${SID}",
+                    "driver_url" = "${driver6_url}",
+                    "driver_class" = "oracle.jdbc.OracleDriver"
+        );"""
+        sql """ use oracle_ojdbc6.DORIS_TEST; """
+        qt_query_ojdbc6_all_types """ select * from oracle_ojdbc6.DORIS_TEST.TEST_ALL_TYPES order by 1; """
+
+        sql """drop catalog if exists oracle_ojdbc6; """
     }
 }

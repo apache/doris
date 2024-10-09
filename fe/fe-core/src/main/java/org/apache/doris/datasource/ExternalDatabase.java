@@ -145,7 +145,7 @@ public abstract class ExternalDatabase<T extends ExternalTable>
                             name,
                             OptionalLong.of(86400L),
                             OptionalLong.of(Config.external_cache_expire_time_minutes_after_access * 60L),
-                            Config.max_hive_table_cache_num,
+                            Config.max_meta_object_cache_num,
                             ignored -> listTableNames(),
                             tableName -> Optional.ofNullable(
                                     buildTableForInit(tableName,
@@ -451,13 +451,14 @@ public abstract class ExternalDatabase<T extends ExternalTable>
 
     @Override
     public void unregisterTable(String tableName) {
+        makeSureInitialized();
         if (LOG.isDebugEnabled()) {
             LOG.debug("create table [{}]", tableName);
         }
 
         if (extCatalog.getUseMetaCache().get()) {
             if (isInitialized()) {
-                metaCache.invalidate(tableName);
+                metaCache.invalidate(tableName, Util.genIdByName(getQualifiedName(tableName)));
             }
         } else {
             Long tableId = tableNameToId.remove(tableName);
@@ -480,6 +481,7 @@ public abstract class ExternalDatabase<T extends ExternalTable>
     // Only used for sync hive metastore event
     @Override
     public boolean registerTable(TableIf tableIf) {
+        makeSureInitialized();
         long tableId = tableIf.getId();
         String tableName = tableIf.getName();
         if (LOG.isDebugEnabled()) {
@@ -487,11 +489,13 @@ public abstract class ExternalDatabase<T extends ExternalTable>
         }
         if (extCatalog.getUseMetaCache().get()) {
             if (isInitialized()) {
-                metaCache.updateCache(tableName, (T) tableIf);
+                metaCache.updateCache(tableName, (T) tableIf, Util.genIdByName(getQualifiedName(tableName)));
             }
         } else {
-            tableNameToId.put(tableName, tableId);
-            idToTbl.put(tableId, buildTableForInit(tableName, tableId, extCatalog));
+            if (!tableNameToId.containsKey(tableName)) {
+                tableNameToId.put(tableName, tableId);
+                idToTbl.put(tableId, buildTableForInit(tableName, tableId, extCatalog));
+            }
         }
         setLastUpdateTime(System.currentTimeMillis());
         return true;

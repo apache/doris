@@ -18,7 +18,6 @@
 package org.apache.doris.datasource.hudi.source;
 
 import org.apache.hudi.common.config.HoodieMetadataConfig;
-import org.apache.hudi.common.engine.HoodieLocalEngineContext;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.common.table.timeline.HoodieTimeline;
 import org.apache.hudi.common.table.timeline.TimelineUtils;
@@ -50,7 +49,7 @@ public abstract class HudiPartitionProcessor {
                 .build();
 
         HoodieTableMetadata newTableMetadata = HoodieTableMetadata.create(
-                new HoodieLocalEngineContext(tableMetaClient.getHadoopConf()), metadataConfig,
+                new HudiLocalEngineContext(tableMetaClient.getHadoopConf()), metadataConfig,
                 tableMetaClient.getBasePathV2().toString(), true);
 
         return newTableMetadata.getAllPartitionPaths();

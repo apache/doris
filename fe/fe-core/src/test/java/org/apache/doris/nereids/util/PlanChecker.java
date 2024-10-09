@@ -181,7 +181,7 @@ public class PlanChecker {
         LogicalPlan command = parser.parseSingle(sql);
         NereidsPlanner planner = new NereidsPlanner(
                 new StatementContext(connectContext, new OriginStatement(sql, 0)));
-        planner.plan(command, PhysicalProperties.ANY, ExplainLevel.ALL_PLAN, true);
+        planner.planWithLock(command, PhysicalProperties.ANY, ExplainLevel.ALL_PLAN, true);
         this.cascadesContext = planner.getCascadesContext();
         return cascadesContext.getPlanProcesses();
     }
@@ -560,7 +560,7 @@ public class PlanChecker {
                 new StatementContext(connectContext, new OriginStatement(sql, 0)));
         LogicalPlanAdapter adapter = LogicalPlanAdapter.of(parsed);
         adapter.setIsExplain(new ExplainOptions(ExplainLevel.ALL_PLAN, false));
-        nereidsPlanner.plan(adapter);
+        nereidsPlanner.planWithLock(adapter);
         consumer.accept(nereidsPlanner);
         return this;
     }
@@ -569,7 +569,7 @@ public class PlanChecker {
         LogicalPlan parsed = new NereidsParser().parseSingle(sql);
         NereidsPlanner nereidsPlanner = new NereidsPlanner(
                 new StatementContext(connectContext, new OriginStatement(sql, 0)));
-        nereidsPlanner.plan(LogicalPlanAdapter.of(parsed));
+        nereidsPlanner.planWithLock(LogicalPlanAdapter.of(parsed));
         consumer.accept(nereidsPlanner);
         return this;
     }

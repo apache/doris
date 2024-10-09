@@ -34,7 +34,6 @@ suite("test_unique_table_sequence") {
             "replication_allocation" = "tag.location.default: 1"
             );
         """
-        sql """ set enable_nereids_dml = ${enable_nereids_planner}; """
         sql """ set enable_nereids_planner=${enable_nereids_planner}; """
         sql "set enable_fallback_to_original_planner=false; "
         // test streamload with seq col
@@ -172,6 +171,8 @@ suite("test_unique_table_sequence") {
             exception "Table ${tableName} has sequence column, need to specify the sequence column"
         }
         sql "commit;"
+
+        sql """set enable_nereids_planner=true"""
 
         sql "begin;"
         sql "insert into ${tableName} (k1, v1, v2, v3, `or`, __doris_sequence_col__) values (1,1,1,1,1,1),(2,2,2,2,2,2),(3,3,3,3,3,3);"

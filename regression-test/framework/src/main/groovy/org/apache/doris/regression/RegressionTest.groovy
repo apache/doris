@@ -453,6 +453,9 @@ class RegressionTest {
             log.warn("install doris compose requirements failed: code=${proc.exitValue()}, "
                     + "output: ${sout.toString()}, error: ${serr.toString()}")
         }
+
+        def pipList = 'pip list'.execute().text
+        log.info("python library: ${pipList}")
     }
 
     static void printPassed() {

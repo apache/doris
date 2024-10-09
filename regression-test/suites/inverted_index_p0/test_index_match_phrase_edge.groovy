@@ -16,7 +16,7 @@
 // under the License.
 
 
-suite("test_index_match_phrase_edge", "p0"){
+suite("test_index_match_phrase_edge", "nonConcurrent"){
     def indexTbName1 = "test_index_match_phrase_edge"
 
     sql "DROP TABLE IF EXISTS ${indexTbName1}"
@@ -56,6 +56,8 @@ suite("test_index_match_phrase_edge", "p0"){
 
     try {
         sql "sync"
+        sql """ set enable_common_expr_pushdown = true; """
+        GetDebugPoint().enableDebugPointForAllBEs("VMatchPredicate.execute")
 
         qt_sql """ select * from ${indexTbName1} where b match_phrase_edge 'x.h'; """
         qt_sql """ select * from ${indexTbName1} where b match_phrase_edge 'v_i'; """
@@ -75,6 +77,6 @@ suite("test_index_match_phrase_edge", "p0"){
         qt_sql """ select count() from ${indexTbName1} where c match_phrase_edge 'b'; """
 
     } finally {
-        //try_sql("DROP TABLE IF EXISTS ${testTable}")
+        GetDebugPoint().disableDebugPointForAllBEs("VMatchPredicate.execute")
     }
 }

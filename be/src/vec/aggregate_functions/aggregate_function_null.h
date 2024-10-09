@@ -176,10 +176,6 @@ public:
             nested_function->insert_result_into(nested_place(place), to);
         }
     }
-
-    bool allocates_memory_in_arena() const override {
-        return nested_function->allocates_memory_in_arena();
-    }
 };
 
 /** There are two cases: for single argument and variadic.
@@ -200,7 +196,8 @@ public:
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena* arena) const override {
-        const ColumnNullable* column = assert_cast<const ColumnNullable*>(columns[0]);
+        const ColumnNullable* column =
+                assert_cast<const ColumnNullable*, TypeCheckOnRelease::DISABLE>(columns[0]);
         if (!column->is_null_at(row_num)) {
             this->set_flag(place);
             const IColumn* nested_column = &column->get_nested_column();
@@ -308,7 +305,9 @@ public:
 
         for (size_t i = 0; i < number_of_arguments; ++i) {
             if (is_nullable[i]) {
-                const auto& nullable_col = assert_cast<const ColumnNullable&>(*columns[i]);
+                const auto& nullable_col =
+                        assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(
+                                *columns[i]);
                 if (nullable_col.is_null_at(row_num)) {
                     /// If at least one column has a null value in the current row,
                     /// we don't process this row.
@@ -323,10 +322,6 @@ public:
         this->set_flag(place);
         this->nested_function->add(this->nested_place(place), nested_columns.data(), row_num,
                                    arena);
-    }
-
-    bool allocates_memory_in_arena() const override {
-        return this->nested_function->allocates_memory_in_arena();
     }
 
 private:

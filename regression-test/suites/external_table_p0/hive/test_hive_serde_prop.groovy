@@ -45,6 +45,24 @@ suite("test_hive_serde_prop", "external_docker,hive,external_docker_hive,p0,exte
         qt_5 """select * from ${catalog_name}.regression.serde_test4 order by id;"""
         qt_6 """select * from ${catalog_name}.regression.serde_test5 order by id;"""
         qt_7 """select * from ${catalog_name}.regression.serde_test6 order by id;"""
+
+        def success = true;
+        try {
+            sql """select * from ${catalog_name}.regression.serde_test7 order by id;"""
+        } catch(Exception e) {
+            assertTrue(e.getMessage().contains("not support serde prop"), e.getMessage())
+            success = false;
+        }
+        assertEquals(success, false)
+
+        success = true;
+        try {
+            sql """select * from ${catalog_name}.regression.serde_test8 order by id;"""
+        } catch(Exception e) {
+            assertTrue(e.getMessage().contains("not support serde prop"), e.getMessage())
+            success = false;
+        }
+        assertEquals(success, false)
     }
 }
 

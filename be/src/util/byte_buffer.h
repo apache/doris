@@ -23,19 +23,27 @@
 #include <memory>
 
 #include "common/logging.h"
+#include "common/status.h"
+#include "vec/common/allocator.h"
+#include "vec/common/allocator_fwd.h"
 
 namespace doris {
 
 struct ByteBuffer;
 using ByteBufferPtr = std::shared_ptr<ByteBuffer>;
 
-struct ByteBuffer {
+struct ByteBuffer : private Allocator<false> {
     static ByteBufferPtr allocate(size_t size) {
         ByteBufferPtr ptr(new ByteBuffer(size));
         return ptr;
     }
 
-    ~ByteBuffer() { delete[] ptr; }
+    static Status create_and_allocate(ByteBufferPtr& ptr, size_t size) {
+        ptr = ByteBufferPtr(new ByteBuffer(size));
+        return Status::OK();
+    }
+
+    ~ByteBuffer() { Allocator<false>::free(ptr, capacity); }
 
     void put_bytes(const char* data, size_t size) {
         memcpy(ptr + pos, data, size);
@@ -56,14 +64,15 @@ struct ByteBuffer {
     size_t remaining() const { return limit - pos; }
     bool has_remaining() const { return limit > pos; }
 
-    char* const ptr;
+    char* ptr;
     size_t pos;
     size_t limit;
     size_t capacity;
 
 private:
-    ByteBuffer(size_t capacity_)
-            : ptr(new char[capacity_]), pos(0), limit(capacity_), capacity(capacity_) {}
+    ByteBuffer(size_t capacity_) : pos(0), limit(capacity_), capacity(capacity_) {
+        ptr = reinterpret_cast<char*>(Allocator<false>::alloc(capacity_));
+    }
 };
 
 } // namespace doris

@@ -213,11 +213,7 @@ static HttpResponse process_get_obj_store_info(MetaServiceImpl* service, brpc::C
 static HttpResponse process_alter_obj_store_info(MetaServiceImpl* service, brpc::Controller* ctrl) {
     static std::unordered_map<std::string_view, AlterObjStoreInfoRequest::Operation> operations {
             {"add_obj_info", AlterObjStoreInfoRequest::ADD_OBJ_INFO},
-            {"legacy_update_ak_sk", AlterObjStoreInfoRequest::LEGACY_UPDATE_AK_SK},
-            {"drop_s3_vault", AlterObjStoreInfoRequest::DROP_S3_VAULT},
-            {"add_s3_vault", AlterObjStoreInfoRequest::ADD_S3_VAULT},
-            {"drop_hdfs_vault", AlterObjStoreInfoRequest::DROP_HDFS_INFO},
-            {"add_hdfs_vault", AlterObjStoreInfoRequest::ADD_HDFS_INFO}};
+            {"legacy_update_ak_sk", AlterObjStoreInfoRequest::LEGACY_UPDATE_AK_SK}};
 
     auto& path = ctrl->http_request().unresolved_path();
     auto it = operations.find(remove_version_prefix(path));
@@ -232,6 +228,29 @@ static HttpResponse process_alter_obj_store_info(MetaServiceImpl* service, brpc:
 
     AlterObjStoreInfoResponse resp;
     service->alter_obj_store_info(ctrl, &req, &resp, nullptr);
+    return http_json_reply(resp.status());
+}
+
+static HttpResponse process_alter_storage_vault(MetaServiceImpl* service, brpc::Controller* ctrl) {
+    static std::unordered_map<std::string_view, AlterObjStoreInfoRequest::Operation> operations {
+            {"drop_s3_vault", AlterObjStoreInfoRequest::DROP_S3_VAULT},
+            {"add_s3_vault", AlterObjStoreInfoRequest::ADD_S3_VAULT},
+            {"drop_hdfs_vault", AlterObjStoreInfoRequest::DROP_HDFS_INFO},
+            {"add_hdfs_vault", AlterObjStoreInfoRequest::ADD_HDFS_INFO}};
+
+    auto& path = ctrl->http_request().unresolved_path();
+    auto it = operations.find(remove_version_prefix(path));
+    if (it == operations.end()) {
+        std::string msg = "not supportted alter storage vault operation: " + path;
+        return http_json_reply(MetaServiceCode::INVALID_ARGUMENT, msg);
+    }
+
+    AlterObjStoreInfoRequest req;
+    PARSE_MESSAGE_OR_RETURN(ctrl, req);
+    req.set_op(it->second);
+
+    AlterObjStoreInfoResponse resp;
+    service->alter_storage_vault(ctrl, &req, &resp, nullptr);
     return http_json_reply(resp.status());
 }
 
@@ -465,6 +484,35 @@ static HttpResponse process_get_cluster_status(MetaServiceImpl* service, brpc::C
     return http_json_reply_message(resp.status(), resp);
 }
 
+static HttpResponse process_txn_lazy_commit(MetaServiceImpl* service, brpc::Controller* ctrl) {
+    auto& uri = ctrl->http_request().uri();
+    std::string instance_id(http_query(uri, "instance_id"));
+    std::string txn_id_str(http_query(uri, "txn_id"));
+    if (instance_id.empty() || txn_id_str.empty()) {
+        return http_json_reply(MetaServiceCode::INVALID_ARGUMENT, "instance_id or txn_id is empty");
+    }
+
+    int64_t txn_id = 0;
+    try {
+        txn_id = std::stol(txn_id_str);
+    } catch (const std::exception& e) {
+        auto msg = fmt::format("txn_id {} must be a number, meet error={}", txn_id_str, e.what());
+        LOG(WARNING) << msg;
+        return http_json_reply(MetaServiceCode::UNDEFINED_ERR, msg);
+    }
+
+    DCHECK_GT(txn_id, 0);
+
+    auto txn_lazy_committer = service->txn_lazy_committer();
+    if (!txn_lazy_committer) {
+        return http_json_reply(MetaServiceCode::UNDEFINED_ERR, "txn lazy committer is nullptr");
+    }
+
+    std::shared_ptr<TxnLazyCommitTask> task = txn_lazy_committer->submit(instance_id, txn_id);
+    auto [code, msg] = task->wait();
+    return http_json_reply(code, msg);
+}
+
 static HttpResponse process_unknown(MetaServiceImpl*, brpc::Controller*) {
     // ATTN: To be compatible with cloud manager versions higher than this MS
     return http_json_reply(MetaServiceCode::OK, "");
@@ -516,19 +564,22 @@ void MetaServiceImpl::http(::google::protobuf::RpcController* controller,
             {"v1/legacy_update_ak_sk", process_alter_obj_store_info},
             {"v1/update_ak_sk", process_update_ak_sk},
             {"show_storage_vaults", process_get_obj_store_info},
-            {"add_hdfs_vault", process_alter_obj_store_info},
-            {"add_s3_vault", process_alter_obj_store_info},
-            {"drop_s3_vault", process_alter_obj_store_info},
-            {"drop_hdfs_vault", process_alter_obj_store_info},
+            {"add_hdfs_vault", process_alter_storage_vault},
+            {"add_s3_vault", process_alter_storage_vault},
+            {"alter_s3_vault", process_alter_storage_vault},
+            {"drop_s3_vault", process_alter_storage_vault},
+            {"drop_hdfs_vault", process_alter_storage_vault},
             // for tools
             {"decode_key", process_decode_key},
             {"encode_key", process_encode_key},
             {"get_value", process_get_value},
             {"show_meta_ranges", process_show_meta_ranges},
+            {"txn_lazy_commit", process_txn_lazy_commit},
             {"v1/decode_key", process_decode_key},
             {"v1/encode_key", process_encode_key},
             {"v1/get_value", process_get_value},
             {"v1/show_meta_ranges", process_show_meta_ranges},
+            {"v1/txn_lazy_commit", process_txn_lazy_commit},
             // for get
             {"get_instance", process_get_instance_info},
             {"get_obj_store_info", process_get_obj_store_info},

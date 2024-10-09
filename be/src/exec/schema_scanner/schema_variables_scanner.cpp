@@ -40,7 +40,8 @@ std::vector<SchemaScanner::ColumnDesc> SchemaVariablesScanner::_s_vars_columns =
         //   name,       type,          size
         {"VARIABLE_NAME", TYPE_VARCHAR, sizeof(StringRef), false},
         {"VARIABLE_VALUE", TYPE_VARCHAR, sizeof(StringRef), false},
-};
+        {"DEFAULT_VALUE", TYPE_VARCHAR, sizeof(StringRef), false},
+        {"CHANGED", TYPE_VARCHAR, sizeof(StringRef), false}};
 
 SchemaVariablesScanner::SchemaVariablesScanner(TVarType::type type)
         : SchemaScanner(_s_vars_columns, TSchemaTableType::SCH_VARIABLES), _type(type) {}
@@ -94,7 +95,7 @@ Status SchemaVariablesScanner::_fill_block_impl(vectorized::Block* block) {
         std::vector<StringRef> strs(row_num);
         int idx = 0;
         for (auto& it : _var_result.variables) {
-            strs[idx] = StringRef(it.first.c_str(), it.first.size());
+            strs[idx] = StringRef(it[0].c_str(), it[0].size());
             datas[idx] = strs.data() + idx;
             ++idx;
         }
@@ -105,11 +106,33 @@ Status SchemaVariablesScanner::_fill_block_impl(vectorized::Block* block) {
         std::vector<StringRef> strs(row_num);
         int idx = 0;
         for (auto& it : _var_result.variables) {
-            strs[idx] = StringRef(it.second.c_str(), it.second.size());
+            strs[idx] = StringRef(it[1].c_str(), it[1].size());
             datas[idx] = strs.data() + idx;
             ++idx;
         }
         RETURN_IF_ERROR(fill_dest_column_for_range(block, 1, datas));
+    }
+    // default value
+    {
+        std::vector<StringRef> strs(row_num);
+        int idx = 0;
+        for (auto& it : _var_result.variables) {
+            strs[idx] = StringRef(it[2].c_str(), it[2].size());
+            datas[idx] = strs.data() + idx;
+            ++idx;
+        }
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 2, datas));
+    }
+    // changed
+    {
+        std::vector<StringRef> strs(row_num);
+        int idx = 0;
+        for (auto& it : _var_result.variables) {
+            strs[idx] = StringRef(it[3].c_str(), it[3].size());
+            datas[idx] = strs.data() + idx;
+            ++idx;
+        }
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 3, datas));
     }
     return Status::OK();
 }

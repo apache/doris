@@ -49,7 +49,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-public class ShowTableStatsStmt extends ShowStmt {
+public class ShowTableStatsStmt extends ShowStmt implements NotFallbackInParser {
 
     private static final ImmutableList<String> TABLE_TITLE_NAMES =
             new ImmutableList.Builder<String>()

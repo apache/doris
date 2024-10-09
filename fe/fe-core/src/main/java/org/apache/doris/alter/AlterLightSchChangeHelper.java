@@ -27,6 +27,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.UserException;
 import org.apache.doris.persist.AlterLightSchemaChangeInfo;
 import org.apache.doris.proto.InternalService.PFetchColIdsRequest;
 import org.apache.doris.proto.InternalService.PFetchColIdsRequest.Builder;
@@ -156,14 +157,14 @@ public class AlterLightSchChangeHelper {
         Map<Long, Future<PFetchColIdsResponse>> beIdToRespFuture = new HashMap<>();
         try {
             for (Long beId : beIdToRequest.keySet()) {
-                final Backend backend = Env.getCurrentSystemInfo().getIdToBackend().get(beId);
+                final Backend backend = Env.getCurrentSystemInfo().getAllBackendsByAllCluster().get(beId);
                 final TNetworkAddress address =
                         new TNetworkAddress(Objects.requireNonNull(backend).getHost(), backend.getBrpcPort());
                 final Future<PFetchColIdsResponse> responseFuture = BackendServiceProxy.getInstance()
                         .getColumnIdsByTabletIds(address, beIdToRequest.get(beId));
                 beIdToRespFuture.put(beId, responseFuture);
             }
-        } catch (RpcException e) {
+        } catch (RpcException | UserException e) {
             throw new IllegalStateException("fetch columnIds RPC failed", e);
         }
         // wait for and get results

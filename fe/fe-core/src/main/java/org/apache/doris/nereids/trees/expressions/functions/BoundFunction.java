@@ -18,8 +18,12 @@
 package org.apache.doris.nereids.trees.expressions.functions;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.OrderExpression;
+import org.apache.doris.nereids.trees.expressions.functions.agg.GroupConcat;
+import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctGroupConcat;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.util.Utils;
 
@@ -97,5 +101,18 @@ public abstract class BoundFunction extends Function implements ComputeSignature
                 .map(Expression::toString)
                 .collect(Collectors.joining(", "));
         return getName() + "(" + args + ")";
+    }
+
+    /**
+     * checkOrderExprIsValid.
+     */
+    public void checkOrderExprIsValid() {
+        for (Expression child : children) {
+            if (child instanceof OrderExpression
+                    && !(this instanceof GroupConcat || this instanceof MultiDistinctGroupConcat)) {
+                throw new AnalysisException(
+                        String.format("%s doesn't support order by expression", getName()));
+            }
+        }
     }
 }

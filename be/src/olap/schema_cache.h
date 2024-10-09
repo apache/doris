@@ -46,22 +46,15 @@ using SegmentIteratorUPtr = std::unique_ptr<SegmentIterator>;
 // with high concurrency, where queries are executed simultaneously.
 class SchemaCache : public LRUCachePolicyTrackingManual {
 public:
-    enum class Type { TABLET_SCHEMA = 0, SCHEMA = 1 };
-
     static SchemaCache* instance();
 
     static void create_global_instance(size_t capacity);
 
-    // get cache schema key, delimiter with SCHEMA_DELIMITER
-    static std::string get_schema_key(int64_t tablet_id, const TabletSchemaSPtr& schema,
-                                      const std::vector<uint32_t>& column_ids, int32_t version,
-                                      Type type);
     static std::string get_schema_key(int64_t tablet_id, const std::vector<TColumn>& columns,
-                                      int32_t version, Type type);
+                                      int32_t version);
 
     // Get a shared cached schema from cache, schema_key is a subset of column unique ids
-    template <typename SchemaType>
-    SchemaType get_schema(const std::string& schema_key) {
+    TabletSchemaSPtr get_schema(const std::string& schema_key) {
         if (!instance() || schema_key.empty()) {
             return {};
         }
@@ -70,44 +63,26 @@ public:
             Defer release([cache = this, lru_handle] { cache->release(lru_handle); });
             auto* value = (CacheValue*)LRUCachePolicy::value(lru_handle);
             VLOG_DEBUG << "use cache schema";
-            if constexpr (std::is_same_v<SchemaType, TabletSchemaSPtr>) {
-                return value->tablet_schema;
-            }
-            if constexpr (std::is_same_v<SchemaType, SchemaSPtr>) {
-                return value->schema;
-            }
+            return value->tablet_schema;
         }
         return {};
     }
 
     // Insert a shared Schema into cache, schema_key is full column unique ids
-    template <typename SchemaType>
-    void insert_schema(const std::string& key, SchemaType schema) {
+    void insert_schema(const std::string& key, TabletSchemaSPtr schema) {
         if (!instance() || key.empty()) {
             return;
         }
         auto* value = new CacheValue;
-        if constexpr (std::is_same_v<SchemaType, TabletSchemaSPtr>) {
-            value->type = Type::TABLET_SCHEMA;
-            value->tablet_schema = schema;
-        } else if constexpr (std::is_same_v<SchemaType, SchemaSPtr>) {
-            value->type = Type::SCHEMA;
-            value->schema = schema;
-        }
+        value->tablet_schema = schema;
 
-        auto lru_handle = insert(key, value, 1, schema->mem_size(), CachePriority::NORMAL);
+        auto* lru_handle = insert(key, value, 1, schema->mem_size(), CachePriority::NORMAL);
         release(lru_handle);
     }
 
-    // Try to prune the cache if expired.
-    Status prune();
-
     class CacheValue : public LRUCacheValueBase {
     public:
-        Type type;
-        // either tablet_schema or schema
         TabletSchemaSPtr tablet_schema = nullptr;
-        SchemaSPtr schema = nullptr;
     };
 
     SchemaCache(size_t capacity)

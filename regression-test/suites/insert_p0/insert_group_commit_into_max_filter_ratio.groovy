@@ -185,11 +185,10 @@ suite("insert_group_commit_into_max_filter_ratio") {
         sql """ truncate table ${tableName} """
         connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url = context.config.jdbcUrl) {
             if (item == "nereids") {
-                sql """ set enable_nereids_dml = true; """
                 sql """ set enable_nereids_planner=true; """
                 sql """ set enable_fallback_to_original_planner=false; """
             } else {
-                sql """ set enable_nereids_dml = false; """
+                sql """ set enable_nereids_planner = false; """
             }
 
             sql """ set group_commit = sync_mode; """
@@ -238,7 +237,7 @@ suite("insert_group_commit_into_max_filter_ratio") {
             }
             sql """ set group_commit = async_mode; """
             sql """ set enable_insert_strict = false; """
-            group_commit_insert """ insert into ${dbTableName} values (9, 'a', 'a'); """, 0
+            group_commit_insert """ insert into ${dbTableName} values (9, 'a', 'a'); """, 1
         }
         if (item == "nereids") {
             get_row_count_with_retry(6)

@@ -188,6 +188,10 @@ public class BackendServiceClient {
         return stub.alterVaultSync(request);
     }
 
+    public Future<InternalService.PGetBeResourceResponse> getBeResource(InternalService.PGetBeResourceRequest request,
+            int timeoutSec) {
+        return stub.withDeadlineAfter(timeoutSec, TimeUnit.SECONDS).getBeResource(request);
+    }
 
     public void shutdown() {
         ConnectivityState state = channel.getState(false);

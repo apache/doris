@@ -45,6 +45,7 @@ excludeSuites = "000_the_start_sentinel_do_not_touch," + // keep this line as th
     "test_query_sys_rowsets," + // rowsets sys table
     "test_unique_table_debug_data," + // disable auto compaction
     "test_insert," + // txn insert
+    "test_delta_writer_v2_back_pressure_fault_injection," +
     "zzz_the_end_sentinel_do_not_touch" // keep this line as the last line
 
 excludeDirectories = "000_the_start_sentinel_do_not_touch," + // keep this line as the first line
@@ -53,9 +54,7 @@ excludeDirectories = "000_the_start_sentinel_do_not_touch," + // keep this line 
     "cloud_p0/cache," +
     "workload_manager_p1," +
     "nereids_rules_p0/subquery," +
-    "unique_with_mow_p0/cluster_key," +
-    "unique_with_mow_p0/ssb_unique_sql_zstd_cluster," +
-    "unique_with_mow_p0/ssb_unique_load_zstd_c," +
+    "unique_with_mow_c_p0," +
     "backup_restore," + // not a case for cloud mode, no need to run
     "cold_heat_separation," +
     "storage_medium_p0," +
@@ -65,7 +64,7 @@ excludeDirectories = "000_the_start_sentinel_do_not_touch," + // keep this line 
     "inject_hdfs_vault_p0," +
     "zzz_the_end_sentinel_do_not_touch" // keep this line as the last line
 
-max_failure_num = 100
+max_failure_num = 50
 
 // test_routine_load
 enableKafkaTest=true

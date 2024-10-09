@@ -37,6 +37,7 @@
 #include "vec/functions/function_const.h"
 #include "vec/functions/function_math_log.h"
 #include "vec/functions/function_math_unary.h"
+#include "vec/functions/function_math_unary_alway_nullable.h"
 #include "vec/functions/function_string.h"
 #include "vec/functions/function_totype.h"
 #include "vec/functions/function_unary_arithmetic.h"
@@ -53,13 +54,19 @@ struct Log2Impl;
 namespace doris::vectorized {
 struct AcosName {
     static constexpr auto name = "acos";
+    // https://dev.mysql.com/doc/refman/8.4/en/mathematical-functions.html#function_acos
+    static constexpr bool is_invalid_input(Float64 x) { return x < -1 || x > 1; }
 };
-using FunctionAcos = FunctionMathUnary<UnaryFunctionPlain<AcosName, std::acos>>;
+using FunctionAcos =
+        FunctionMathUnaryAlwayNullable<UnaryFunctionPlainAlwayNullable<AcosName, std::acos>>;
 
 struct AsinName {
     static constexpr auto name = "asin";
+    // https://dev.mysql.com/doc/refman/8.4/en/mathematical-functions.html#function_asin
+    static constexpr bool is_invalid_input(Float64 x) { return x < -1 || x > 1; }
 };
-using FunctionAsin = FunctionMathUnary<UnaryFunctionPlain<AsinName, std::asin>>;
+using FunctionAsin =
+        FunctionMathUnaryAlwayNullable<UnaryFunctionPlainAlwayNullable<AsinName, std::asin>>;
 
 struct AtanName {
     static constexpr auto name = "atan";
@@ -242,8 +249,11 @@ using FunctionSin = FunctionMathUnary<UnaryFunctionPlainSin>;
 
 struct SqrtName {
     static constexpr auto name = "sqrt";
+    // https://dev.mysql.com/doc/refman/8.4/en/mathematical-functions.html#function_sqrt
+    static constexpr bool is_invalid_input(Float64 x) { return x < 0; }
 };
-using FunctionSqrt = FunctionMathUnary<UnaryFunctionPlain<SqrtName, std::sqrt>>;
+using FunctionSqrt =
+        FunctionMathUnaryAlwayNullable<UnaryFunctionPlainAlwayNullable<SqrtName, std::sqrt>>;
 
 struct CbrtName {
     static constexpr auto name = "cbrt";

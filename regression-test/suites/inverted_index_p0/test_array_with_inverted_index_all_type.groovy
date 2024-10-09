@@ -16,7 +16,6 @@
 // under the License.
 
 suite("test_array_with_inverted_index_all_type"){
-    sql """ ADMIN SET FRONTEND CONFIG ("enable_create_inverted_index_for_array" = "true"); """
     // 1. mor|dup|mow
     // 2. index with english or standard parser (only string | variant type support english parser now)
     // 3. all types
@@ -90,9 +89,9 @@ suite("test_array_with_inverted_index_all_type"){
                 c_char ARRAY<CHAR>,
                 c_varchar ARRAY<VARCHAR(1)>,
                 c_string ARRAY<STRING>,
-                INDEX index_inverted_c_char(c_char) USING INVERTED PROPERTIES("parser"="english") COMMENT 'c_char index',
-                INDEX index_inverted_c_varchar(c_varchar) USING INVERTED PROPERTIES("parser"="english") COMMENT 'c_varchar index',
-                INDEX index_inverted_c_string(c_string) USING INVERTED PROPERTIES("parser"="english") COMMENT 'c_string index'
+                INDEX index_inverted_c_char(c_char) USING INVERTED PROPERTIES("parser"="none") COMMENT 'c_char index',
+                INDEX index_inverted_c_varchar(c_varchar) USING INVERTED PROPERTIES("parser"="none") COMMENT 'c_varchar index',
+                INDEX index_inverted_c_string(c_string) USING INVERTED PROPERTIES("parser"="none") COMMENT 'c_string index'
             ) ENGINE=OLAP
             DUPLICATE KEY(`k1`)
             COMMENT 'OLAP'
@@ -160,9 +159,9 @@ suite("test_array_with_inverted_index_all_type"){
                 c_char ARRAY<CHAR>,
                 c_varchar ARRAY<VARCHAR(1)>,
                 c_string ARRAY<STRING>,
-                INDEX index_inverted_c_char(c_char) USING INVERTED PROPERTIES("parser"="english") COMMENT 'c_char index',
-                INDEX index_inverted_c_varchar(c_varchar) USING INVERTED PROPERTIES("parser"="english") COMMENT 'c_varchar index',
-                INDEX index_inverted_c_string(c_string) USING INVERTED PROPERTIES("parser"="english") COMMENT 'c_string index'
+                INDEX index_inverted_c_char(c_char) USING INVERTED PROPERTIES("parser"="none") COMMENT 'c_char index',
+                INDEX index_inverted_c_varchar(c_varchar) USING INVERTED PROPERTIES("parser"="none") COMMENT 'c_varchar index',
+                INDEX index_inverted_c_string(c_string) USING INVERTED PROPERTIES("parser"="none") COMMENT 'c_string index'
     ) ENGINE=OLAP
     UNIQUE KEY(`k1`)
     DISTRIBUTED BY HASH(`k1`) BUCKETS 3
@@ -230,9 +229,9 @@ suite("test_array_with_inverted_index_all_type"){
                 c_char ARRAY<CHAR>,
                 c_varchar ARRAY<VARCHAR(1)>,
                 c_string ARRAY<STRING>,
-                INDEX index_inverted_c_char(c_char) USING INVERTED PROPERTIES("parser"="english") COMMENT 'c_char index',
-                INDEX index_inverted_c_varchar(c_varchar) USING INVERTED PROPERTIES("parser"="english") COMMENT 'c_varchar index',
-                INDEX index_inverted_c_string(c_string) USING INVERTED PROPERTIES("parser"="english") COMMENT 'c_string index'
+                INDEX index_inverted_c_char(c_char) USING INVERTED PROPERTIES("parser"="none") COMMENT 'c_char index',
+                INDEX index_inverted_c_varchar(c_varchar) USING INVERTED PROPERTIES("parser"="none") COMMENT 'c_varchar index',
+                INDEX index_inverted_c_string(c_string) USING INVERTED PROPERTIES("parser"="none") COMMENT 'c_string index'
     ) ENGINE=OLAP
     UNIQUE KEY(`k1`)
     DISTRIBUTED BY HASH(`k1`) BUCKETS 3
@@ -280,6 +279,7 @@ suite("test_array_with_inverted_index_all_type"){
     }
 
     // query test
+    sql """ set enable_common_expr_pushdown = true """
 
     for (int i = 0; i < 6; i+=1) {
         def indexTblName = indexTblNames[i]

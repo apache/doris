@@ -60,17 +60,18 @@
 
 namespace doris::vectorized {
 
-VFileResultWriter::VFileResultWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs)
-        : AsyncResultWriter(output_exprs) {}
+VFileResultWriter::VFileResultWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs,
+                                     std::shared_ptr<pipeline::Dependency> dep,
+                                     std::shared_ptr<pipeline::Dependency> fin_dep)
+        : AsyncResultWriter(output_exprs, dep, fin_dep) {}
 
-VFileResultWriter::VFileResultWriter(const pipeline::ResultFileOptions* file_opts,
-                                     const TStorageBackendType::type storage_type,
-                                     const TUniqueId fragment_instance_id,
-                                     const VExprContextSPtrs& output_vexpr_ctxs,
-                                     std::shared_ptr<BufferControlBlock> sinker,
-                                     Block* output_block, bool output_object_data,
-                                     const RowDescriptor& output_row_descriptor)
-        : AsyncResultWriter(output_vexpr_ctxs),
+VFileResultWriter::VFileResultWriter(
+        const pipeline::ResultFileOptions* file_opts, const TStorageBackendType::type storage_type,
+        const TUniqueId fragment_instance_id, const VExprContextSPtrs& output_vexpr_ctxs,
+        std::shared_ptr<BufferControlBlock> sinker, Block* output_block, bool output_object_data,
+        const RowDescriptor& output_row_descriptor, std::shared_ptr<pipeline::Dependency> dep,
+        std::shared_ptr<pipeline::Dependency> fin_dep)
+        : AsyncResultWriter(output_vexpr_ctxs, dep, fin_dep),
           _file_opts(file_opts),
           _storage_type(storage_type),
           _fragment_instance_id(fragment_instance_id),

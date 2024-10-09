@@ -15,13 +15,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import java.util.concurrent.TimeUnit
+import org.awaitility.Awaitility
+
 suite("test_alter_table_column_with_delete_drop_column_unique_key", "schema_change") {
     def tbName1 = "alter_table_column_dup_with_delete_drop_column_unique_key"
     def getJobState = { tableName ->
         def jobStateResult = sql """  SHOW ALTER TABLE COLUMN WHERE IndexName='${tableName}' ORDER BY createtime DESC LIMIT 1 """
         return jobStateResult[0][9]
     }
-
 //=========================Test Normal Schema Change
     sql "DROP TABLE IF EXISTS ${tbName1}"
     sql """
@@ -49,20 +51,15 @@ suite("test_alter_table_column_with_delete_drop_column_unique_key", "schema_chan
             DROP COLUMN value3;
         """
     int max_try_secs = 1200
-    while (max_try_secs--) {
-        String res = getJobState(tbName1)
+    String res = "NOT_FINISHED"
+    Awaitility.await().atMost(max_try_secs, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).await().until(() -> {
+        res = getJobState(tbName1)
         if (res == "FINISHED" || res == "CANCELLED") {
             assertEquals("FINISHED", res)
-            sleep(3000)
-            break
-        } else {
-            Thread.sleep(100)
-            if (max_try_secs < 1) {
-                println "test timeout," + "state:" + res
-                assertEquals("FINISHED",res)
-            }
+            return true;
         }
-    }
+        return false;
+    });
     qt_sql "select * from ${tbName1} order by k1;"
 
      // drop value3
@@ -70,21 +67,15 @@ suite("test_alter_table_column_with_delete_drop_column_unique_key", "schema_chan
             ALTER TABLE ${tbName1} 
             ADD COLUMN value3 CHAR(100) DEFAULT 'A';
         """
-    max_try_secs = 1200
-    while (max_try_secs--) {
-        String res = getJobState(tbName1)
+    Awaitility.await().atMost(max_try_secs, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).await().until(() -> {
+        res = getJobState(tbName1)
         if (res == "FINISHED" || res == "CANCELLED") {
             assertEquals("FINISHED", res)
-            sleep(3000)
-            break
-        } else {
-            Thread.sleep(100)
-            if (max_try_secs < 1) {
-                println "test timeout," + "state:" + res
-                assertEquals("FINISHED",res)
-            }
+            return true;
         }
-    }
+        return false;
+    });
+
     qt_sql "select * from ${tbName1} order by k1;"
 
     sql "insert into ${tbName1} values(5,5,5,'B');"
@@ -124,21 +115,14 @@ suite("test_alter_table_column_with_delete_drop_column_unique_key", "schema_chan
             ALTER TABLE ${tbName1} 
             DROP COLUMN k2;
         """
-    max_try_secs = 1200
-    while (max_try_secs--) {
-        String res = getJobState(tbName1)
+    Awaitility.await().atMost(max_try_secs, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).await().until(() -> {
+        res = getJobState(tbName1)
         if (res == "FINISHED" || res == "CANCELLED") {
             assertEquals("FINISHED", res)
-            sleep(3000)
-            break
-        } else {
-            Thread.sleep(100)
-            if (max_try_secs < 1) {
-                println "test timeout," + "state:" + res
-                assertEquals("FINISHED",res)
-            }
+            return true;
         }
-    }
+        return false;
+    });
     qt_sql "select * from ${tbName1} where value1=3 order by k1;"
 
     // drop value3
@@ -146,21 +130,14 @@ suite("test_alter_table_column_with_delete_drop_column_unique_key", "schema_chan
             ALTER TABLE ${tbName1} 
             ADD COLUMN value3 CHAR(100) DEFAULT 'A';
         """
-    max_try_secs = 1200
-    while (max_try_secs--) {
-        String res = getJobState(tbName1)
+    Awaitility.await().atMost(max_try_secs, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).await().until(() -> {
+        res = getJobState(tbName1)
         if (res == "FINISHED" || res == "CANCELLED") {
             assertEquals("FINISHED", res)
-            sleep(3000)
-            break
-        } else {
-            Thread.sleep(100)
-            if (max_try_secs < 1) {
-                println "test timeout," + "state:" + res
-                assertEquals("FINISHED",res)
-            }
+            return true;
         }
-    }
+        return false;
+    });
     qt_sql "select * from ${tbName1} where value1=4 order by k1;"
 
     sql "insert into ${tbName1} values(5,5,5,'B');"
@@ -171,21 +148,14 @@ suite("test_alter_table_column_with_delete_drop_column_unique_key", "schema_chan
             ALTER TABLE ${tbName1} 
             ADD COLUMN k2 CHAR(10) KEY DEFAULT 'A';
         """
-    max_try_secs = 1200
-    while (max_try_secs--) {
-        String res = getJobState(tbName1)
+    Awaitility.await().atMost(max_try_secs, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).await().until(() -> {
+        res = getJobState(tbName1)
         if (res == "FINISHED" || res == "CANCELLED") {
             assertEquals("FINISHED", res)
-            sleep(3000)
-            break
-        } else {
-            Thread.sleep(100)
-            if (max_try_secs < 1) {
-                println "test timeout," + "state:" + res
-                assertEquals("FINISHED",res)
-            }
+            return true;
         }
-    }
+        return false;
+    });
     qt_sql "select * from ${tbName1} where value1=4 order by k1;"
     sql "DROP TABLE ${tbName1} FORCE;"
 

@@ -65,16 +65,12 @@ using EntriesType =
                                 lucene::util::Deletor::Object<ReaderFileEntry>>;
 class CLUCENE_EXPORT DorisCompoundReader : public lucene::store::Directory {
 private:
-    int32_t readBufferSize;
-    // base info
-    lucene::store::Directory* dir = nullptr;
-    lucene::store::RAMDirectory* ram_dir = nullptr;
-    std::string directory;
-    std::string file_name;
-    CL_NS(store)::IndexInput* stream = nullptr;
-    EntriesType* entries = nullptr;
+    lucene::store::RAMDirectory* _ram_dir = nullptr;
+    CL_NS(store)::IndexInput* _stream = nullptr;
+    EntriesType* _entries = nullptr;
     std::mutex _this_lock;
     bool _closed = false;
+    int32_t _read_buffer_size = CL_NS(store)::BufferedIndexInput::BUFFER_SIZE;
 
 protected:
     /** Removes an existing file in the directory-> */
@@ -83,10 +79,10 @@ protected:
 public:
     explicit DorisCompoundReader(
             CL_NS(store)::IndexInput* stream, EntriesType* entries_clone,
-            int32_t _readBufferSize = CL_NS(store)::BufferedIndexInput::BUFFER_SIZE)
-            : readBufferSize(_readBufferSize),
-              stream(stream),
-              entries(_CLNEW EntriesType(true, true)) {
+            int32_t read_buffer_size = CL_NS(store)::BufferedIndexInput::BUFFER_SIZE)
+            : _stream(stream),
+              _entries(_CLNEW EntriesType(true, true)),
+              _read_buffer_size(read_buffer_size) {
         for (auto& e : *entries_clone) {
             auto* origin_entry = e.second;
             auto* entry = _CLNEW ReaderFileEntry();
@@ -94,17 +90,15 @@ public:
             entry->file_name = origin_entry->file_name;
             entry->offset = origin_entry->offset;
             entry->length = origin_entry->length;
-            entries->put(aid, entry);
+            _entries->put(aid, entry);
         }
     };
-    DorisCompoundReader(lucene::store::Directory* dir, const char* name,
-                        int32_t _readBufferSize = CL_NS(store)::BufferedIndexInput::BUFFER_SIZE,
-                        bool open_idx_file_cache = false);
+    DorisCompoundReader(CL_NS(store)::IndexInput* stream,
+                        int32_t read_buffer_size = CL_NS(store)::BufferedIndexInput::BUFFER_SIZE);
     ~DorisCompoundReader() override;
     void copyFile(const char* file, int64_t file_length, uint8_t* buffer, int64_t buffer_length);
     bool list(std::vector<std::string>* names) const override;
     bool fileExists(const char* name) const override;
-    lucene::store::Directory* getDirectory();
     int64_t fileModified(const char* name) const override;
     int64_t fileLength(const char* name) const override;
     bool openInput(const char* name, lucene::store::IndexInput*& ret, CLuceneError& err,
@@ -116,7 +110,6 @@ public:
     lucene::store::IndexOutput* createOutput(const char* name) override;
     void close() override;
     std::string toString() const override;
-    std::string getFileName() { return file_name; }
     std::string getPath() const;
     static const char* getClassName();
     const char* getObjectName() const override;

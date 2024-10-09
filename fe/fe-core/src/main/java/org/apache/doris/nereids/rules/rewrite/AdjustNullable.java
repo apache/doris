@@ -26,12 +26,12 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
+import org.apache.doris.nereids.trees.plans.logical.LogicalExternalRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalGenerate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
@@ -59,7 +59,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * because some rule could change output's nullable.
@@ -168,8 +167,10 @@ public class AdjustNullable extends DefaultPlanRewriter<Map<ExprId, Slot>> imple
         ImmutableList.Builder<List<SlotReference>> newChildrenOutputs = ImmutableList.builder();
         List<Boolean> inputNullable = null;
         if (!setOperation.children().isEmpty()) {
-            inputNullable = setOperation.getRegularChildOutput(0).stream()
-                    .map(ExpressionTrait::nullable).collect(Collectors.toList());
+            inputNullable = Lists.newArrayListWithCapacity(setOperation.getOutputs().size());
+            for (int i = 0; i < setOperation.getOutputs().size(); i++) {
+                inputNullable.add(false);
+            }
             for (int i = 0; i < setOperation.arity(); i++) {
                 List<Slot> childOutput = setOperation.child(i).getOutput();
                 List<SlotReference> setChildOutput = setOperation.getRegularChildOutput(i);
@@ -271,6 +272,17 @@ public class AdjustNullable extends DefaultPlanRewriter<Map<ExprId, Slot>> imple
             replaceMap.put(newConsumerOutputSlot.getExprId(), newConsumerOutputSlot);
         }
         return cteConsumer.withTwoMaps(consumerToProducerOutputMap, producerToConsumerOutputMap);
+    }
+
+    @Override
+    public Plan visitLogicalExternalRelation(LogicalExternalRelation relation, Map<ExprId, Slot> replaceMap) {
+        if (!relation.getConjuncts().isEmpty()) {
+            relation.getOutputSet().forEach(s -> replaceMap.put(s.getExprId(), s));
+            Set<Expression> conjuncts = updateExpressions(relation.getConjuncts(), replaceMap);
+            return relation.withConjuncts(conjuncts).recomputeLogicalProperties();
+        } else {
+            return relation;
+        }
     }
 
     private <T extends Expression> T updateExpression(T input, Map<ExprId, Slot> replaceMap) {

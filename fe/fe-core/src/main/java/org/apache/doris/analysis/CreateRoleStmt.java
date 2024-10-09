@@ -30,7 +30,7 @@ import org.apache.doris.qe.ConnectContext;
 import com.google.common.base.Strings;
 import org.apache.commons.lang3.StringUtils;
 
-public class CreateRoleStmt extends DdlStmt {
+public class CreateRoleStmt extends DdlStmt implements NotFallbackInParser {
 
     private boolean ifNotExists;
     private String role;

@@ -15,13 +15,13 @@ PhysicalResultSink
 ------------------------PhysicalDistribute[DistributionSpecHash]
 --------------------------hashAgg[LOCAL]
 ----------------------------PhysicalProject
-------------------------------hashJoin[RIGHT_OUTER_JOIN bucketShuffle] hashCondition=((store_sales.ss_item_sk = store_returns.sr_item_sk) and (store_sales.ss_ticket_number = store_returns.sr_ticket_number)) otherCondition=() build RFs:RF4 ss_item_sk->[sr_item_sk];RF5 ss_ticket_number->[sr_ticket_number]
+------------------------------hashJoin[RIGHT_OUTER_JOIN colocated] hashCondition=((store_sales.ss_item_sk = store_returns.sr_item_sk) and (store_sales.ss_ticket_number = store_returns.sr_ticket_number)) otherCondition=() build RFs:RF4 ss_item_sk->[sr_item_sk];RF5 ss_ticket_number->[sr_ticket_number]
 --------------------------------PhysicalProject
 ----------------------------------PhysicalOlapScan[store_returns] apply RFs: RF4 RF5
 --------------------------------PhysicalProject
 ----------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_store_sk = store.s_store_sk)) otherCondition=() build RFs:RF3 s_store_sk->[ss_store_sk]
 ------------------------------------PhysicalProject
---------------------------------------hashJoin[INNER_JOIN shuffleBucket] hashCondition=((store_sales.ss_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF2 i_item_sk->[ss_item_sk]
+--------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF2 i_item_sk->[ss_item_sk]
 ----------------------------------------PhysicalProject
 ------------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_promo_sk = promotion.p_promo_sk)) otherCondition=() build RFs:RF1 p_promo_sk->[ss_promo_sk]
 --------------------------------------------PhysicalProject
@@ -46,11 +46,11 @@ PhysicalResultSink
 ----------------------------PhysicalProject
 ------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((catalog_sales.cs_catalog_page_sk = catalog_page.cp_catalog_page_sk)) otherCondition=() build RFs:RF11 cp_catalog_page_sk->[cs_catalog_page_sk]
 --------------------------------PhysicalProject
-----------------------------------hashJoin[RIGHT_OUTER_JOIN bucketShuffle] hashCondition=((catalog_sales.cs_item_sk = catalog_returns.cr_item_sk) and (catalog_sales.cs_order_number = catalog_returns.cr_order_number)) otherCondition=() build RFs:RF9 cs_item_sk->[cr_item_sk];RF10 cs_order_number->[cr_order_number]
+----------------------------------hashJoin[RIGHT_OUTER_JOIN colocated] hashCondition=((catalog_sales.cs_item_sk = catalog_returns.cr_item_sk) and (catalog_sales.cs_order_number = catalog_returns.cr_order_number)) otherCondition=() build RFs:RF9 cs_item_sk->[cr_item_sk];RF10 cs_order_number->[cr_order_number]
 ------------------------------------PhysicalProject
 --------------------------------------PhysicalOlapScan[catalog_returns] apply RFs: RF9 RF10
 ------------------------------------PhysicalProject
---------------------------------------hashJoin[INNER_JOIN shuffleBucket] hashCondition=((catalog_sales.cs_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF8 i_item_sk->[cs_item_sk]
+--------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((catalog_sales.cs_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF8 i_item_sk->[cs_item_sk]
 ----------------------------------------PhysicalProject
 ------------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((catalog_sales.cs_promo_sk = promotion.p_promo_sk)) otherCondition=() build RFs:RF7 p_promo_sk->[cs_promo_sk]
 --------------------------------------------PhysicalProject
@@ -73,13 +73,13 @@ PhysicalResultSink
 ------------------------PhysicalDistribute[DistributionSpecHash]
 --------------------------hashAgg[LOCAL]
 ----------------------------PhysicalProject
-------------------------------hashJoin[RIGHT_OUTER_JOIN bucketShuffle] hashCondition=((web_sales.ws_item_sk = web_returns.wr_item_sk) and (web_sales.ws_order_number = web_returns.wr_order_number)) otherCondition=() build RFs:RF16 ws_item_sk->[wr_item_sk];RF17 ws_order_number->[wr_order_number]
+------------------------------hashJoin[RIGHT_OUTER_JOIN colocated] hashCondition=((web_sales.ws_item_sk = web_returns.wr_item_sk) and (web_sales.ws_order_number = web_returns.wr_order_number)) otherCondition=() build RFs:RF16 ws_item_sk->[wr_item_sk];RF17 ws_order_number->[wr_order_number]
 --------------------------------PhysicalProject
 ----------------------------------PhysicalOlapScan[web_returns] apply RFs: RF16 RF17
 --------------------------------PhysicalProject
 ----------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((web_sales.ws_web_site_sk = web_site.web_site_sk)) otherCondition=() build RFs:RF15 web_site_sk->[ws_web_site_sk]
 ------------------------------------PhysicalProject
---------------------------------------hashJoin[INNER_JOIN shuffleBucket] hashCondition=((web_sales.ws_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF14 i_item_sk->[ws_item_sk]
+--------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((web_sales.ws_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF14 i_item_sk->[ws_item_sk]
 ----------------------------------------PhysicalProject
 ------------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((web_sales.ws_promo_sk = promotion.p_promo_sk)) otherCondition=() build RFs:RF13 p_promo_sk->[ws_promo_sk]
 --------------------------------------------PhysicalProject

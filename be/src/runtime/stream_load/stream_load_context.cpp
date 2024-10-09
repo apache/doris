@@ -107,6 +107,8 @@ std::string StreamLoadContext::to_json() const {
     writer.Int64(read_data_cost_nanos / 1000000);
     writer.Key("WriteDataTimeMs");
     writer.Int(write_data_cost_nanos / 1000000);
+    writer.Key("ReceiveDataTimeMs");
+    writer.Int((receive_and_read_data_cost_nanos - read_data_cost_nanos) / 1000000);
     if (!group_commit) {
         writer.Key("CommitAndPublishTimeMs");
         writer.Int64(commit_and_publish_txn_cost_nanos / 1000000);

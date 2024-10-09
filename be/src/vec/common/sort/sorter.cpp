@@ -66,6 +66,7 @@ void MergeSorterState::reset() {
     unsorted_block_ = Block::create_unique(unsorted_block_->clone_empty());
     in_mem_sorted_bocks_size_ = 0;
 }
+
 Status MergeSorterState::add_sorted_block(Block& block) {
     auto rows = block.rows();
     if (0 == rows) {
@@ -279,6 +280,7 @@ Status FullSorter::_do_sort() {
     }
     return Status::OK();
 }
+
 size_t FullSorter::data_size() const {
     return _state->data_size();
 }

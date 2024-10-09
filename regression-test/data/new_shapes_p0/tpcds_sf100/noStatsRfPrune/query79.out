@@ -5,7 +5,7 @@ PhysicalResultSink
 ----PhysicalDistribute[DistributionSpecGather]
 ------PhysicalTopN[LOCAL_SORT]
 --------PhysicalProject
-----------hashJoin[INNER_JOIN shuffle] hashCondition=((ms.ss_customer_sk = customer.c_customer_sk)) otherCondition=()
+----------hashJoin[INNER_JOIN broadcast] hashCondition=((ms.ss_customer_sk = customer.c_customer_sk)) otherCondition=()
 ------------PhysicalProject
 --------------hashAgg[GLOBAL]
 ----------------PhysicalDistribute[DistributionSpecHash]

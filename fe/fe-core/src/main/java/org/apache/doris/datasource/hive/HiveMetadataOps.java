@@ -126,7 +126,7 @@ public class HiveMetadataOps implements ExternalMetadataOps {
             catalogDatabase.setProperties(properties);
             catalogDatabase.setComment(properties.getOrDefault("comment", ""));
             client.createDatabase(catalogDatabase);
-            catalog.onRefresh(true);
+            catalog.onRefreshCache(true);
         } catch (Exception e) {
             throw new RuntimeException(e.getMessage(), e);
         }
@@ -146,7 +146,7 @@ public class HiveMetadataOps implements ExternalMetadataOps {
         }
         try {
             client.dropDatabase(dbName);
-            catalog.onRefresh(true);
+            catalog.onRefreshCache(true);
         } catch (Exception e) {
             throw new RuntimeException(e.getMessage(), e);
         }

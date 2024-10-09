@@ -93,6 +93,11 @@ struct AggregateFunctionGroupArrayIntersectData {
     Set value;
     bool init = false;
 
+    void reset() {
+        init = false;
+        value = std::make_unique<NullableNumericOrDateSetType>();
+    }
+
     void process_col_data(auto& column_data, size_t offset, size_t arr_size, bool& init, Set& set) {
         const bool is_column_data_nullable = column_data.is_nullable();
 
@@ -102,7 +107,8 @@ struct AggregateFunctionGroupArrayIntersectData {
         if (is_column_data_nullable) {
             auto* const_col_data = const_cast<IColumn*>(&column_data);
             col_null = static_cast<ColumnNullable*>(const_col_data);
-            nested_column_data = &assert_cast<const ColVecType&>(col_null->get_nested_column());
+            nested_column_data = &assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(
+                    col_null->get_nested_column());
         } else {
             nested_column_data = &static_cast<const ColVecType&>(column_data);
         }
@@ -162,7 +168,7 @@ public:
 
     DataTypePtr get_return_type() const override { return argument_type; }
 
-    bool allocates_memory_in_arena() const override { return false; }
+    void reset(AggregateDataPtr __restrict place) const override { this->data(place).reset(); }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena*) const override {
@@ -172,10 +178,12 @@ public:
 
         const bool col_is_nullable = (*columns[0]).is_nullable();
         const ColumnArray& column =
-                col_is_nullable ? assert_cast<const ColumnArray&>(
-                                          assert_cast<const ColumnNullable&>(*columns[0])
-                                                  .get_nested_column())
-                                : assert_cast<const ColumnArray&>(*columns[0]);
+                col_is_nullable
+                        ? assert_cast<const ColumnArray&, TypeCheckOnRelease::DISABLE>(
+                                  assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(
+                                          *columns[0])
+                                          .get_nested_column())
+                        : assert_cast<const ColumnArray&, TypeCheckOnRelease::DISABLE>(*columns[0]);
 
         const auto& offsets = column.get_offsets();
         const auto offset = offsets[row_num - 1];
@@ -328,6 +336,11 @@ struct AggregateFunctionGroupArrayIntersectGenericData {
             : value(std::make_unique<NullableStringSet>()) {}
     Set value;
     bool init = false;
+
+    void reset() {
+        init = false;
+        value = std::make_unique<NullableStringSet>();
+    }
 };
 
 /** Template parameter with true value should be used for columns that store their elements in memory continuously.
@@ -354,7 +367,7 @@ public:
 
     DataTypePtr get_return_type() const override { return input_data_type; }
 
-    bool allocates_memory_in_arena() const override { return true; }
+    void reset(AggregateDataPtr __restrict place) const override { this->data(place).reset(); }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena* arena) const override {
@@ -364,10 +377,12 @@ public:
 
         const bool col_is_nullable = (*columns[0]).is_nullable();
         const ColumnArray& column =
-                col_is_nullable ? assert_cast<const ColumnArray&>(
-                                          assert_cast<const ColumnNullable&>(*columns[0])
-                                                  .get_nested_column())
-                                : assert_cast<const ColumnArray&>(*columns[0]);
+                col_is_nullable
+                        ? assert_cast<const ColumnArray&, TypeCheckOnRelease::DISABLE>(
+                                  assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(
+                                          *columns[0])
+                                          .get_nested_column())
+                        : assert_cast<const ColumnArray&, TypeCheckOnRelease::DISABLE>(*columns[0]);
 
         const auto nested_column_data = column.get_data_ptr();
         const auto& offsets = column.get_offsets();

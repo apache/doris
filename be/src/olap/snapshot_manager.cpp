@@ -83,6 +83,9 @@ Status SnapshotManager::make_snapshot(const TSnapshotRequest& request, string* s
     }
 
     TabletSharedPtr ref_tablet = _engine.tablet_manager()->get_tablet(request.tablet_id);
+
+    DBUG_EXECUTE_IF("SnapshotManager::make_snapshot.inject_failure", { ref_tablet = nullptr; })
+
     if (ref_tablet == nullptr) {
         return Status::Error<TABLE_NOT_FOUND>("failed to get tablet. tablet={}", request.tablet_id);
     }
