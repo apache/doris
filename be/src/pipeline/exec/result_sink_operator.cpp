@@ -18,6 +18,7 @@
 #include "result_sink_operator.h"
 
 #include <fmt/format.h>
+#include <sys/select.h>
 
 #include <memory>
 
@@ -80,7 +81,8 @@ Status ResultSinkLocalState::open(RuntimeState* state) {
     }
     case TResultSinkType::ARROW_FLIGHT_PROTOCAL: {
         std::shared_ptr<arrow::Schema> arrow_schema;
-        RETURN_IF_ERROR(convert_expr_ctxs_arrow_schema(_output_vexpr_ctxs, &arrow_schema));
+        RETURN_IF_ERROR(convert_expr_ctxs_arrow_schema(_output_vexpr_ctxs, &arrow_schema,
+                                                       state->timezone()));
         if (state->query_options().enable_parallel_result_sink) {
             state->exec_env()->result_mgr()->register_arrow_schema(state->query_id(), arrow_schema);
         } else {
