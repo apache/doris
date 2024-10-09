@@ -150,7 +150,8 @@ Status OlapTableSchemaParam::init(const POlapTableSchemaParam& pschema) {
     for (const auto& col : pschema.partial_update_input_columns()) {
         _partial_update_input_columns.insert(col);
     }
-    std::unordered_map<std::pair<std::string, FieldType>, SlotDescriptor*> slots_map;
+    std::unordered_map<std::string, SlotDescriptor*> slots_map;
+
     _tuple_desc = _obj_pool.add(new TupleDescriptor(pschema.tuple_desc()));
 
     for (const auto& p_slot_desc : pschema.slot_descs()) {
@@ -158,8 +159,8 @@ Status OlapTableSchemaParam::init(const POlapTableSchemaParam& pschema) {
         _tuple_desc->add_slot(slot_desc);
         string data_type;
         EnumToString(TPrimitiveType, to_thrift(slot_desc->col_type()), data_type);
-        slots_map.emplace(std::make_pair(to_lower(slot_desc->col_name()),
-                                         TabletColumn::get_field_type_by_string(data_type)),
+        std::string is_null_str = slot_desc->is_nullable() ? "true" : "false";
+        slots_map.emplace(to_lower(slot_desc->col_name()) + to_lower(data_type) + is_null_str,
                           slot_desc);
     }
 
@@ -170,9 +171,13 @@ Status OlapTableSchemaParam::init(const POlapTableSchemaParam& pschema) {
         for (const auto& pcolumn_desc : p_index.columns_desc()) {
             if (_unique_key_update_mode != UniqueKeyUpdateModePB::UPDATE_FIXED_COLUMNS ||
                 _partial_update_input_columns.contains(pcolumn_desc.name())) {
-                auto it = slots_map.find(std::make_pair(
-                        to_lower(pcolumn_desc.name()),
-                        TabletColumn::get_field_type_by_string(pcolumn_desc.type())));
+
+                std::string is_null_str = pcolumn_desc.is_nullable() ? "true" : "false";
+
+                auto it = slots_map.find(
+                        to_lower(pcolumn_desc.name()) +
+                        to_lower(has_invalid_type ? "INVALID_TYPE" : pcolumn_desc.type()) +
+                        is_null_str);
                 if (it == std::end(slots_map)) {
                     return Status::InternalError("unknown index column, column={}, type={}",
                                                  pcolumn_desc.name(), pcolumn_desc.type());
