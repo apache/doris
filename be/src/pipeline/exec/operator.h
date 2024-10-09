@@ -108,17 +108,20 @@ public:
     virtual Status revoke_memory(RuntimeState* state) { return Status::OK(); }
     [[nodiscard]] virtual bool require_data_distribution() const { return false; }
     OperatorPtr child() { return _child; }
-    [[nodiscard]] bool followed_by_shuffled_join() const { return _followed_by_shuffled_join; }
-    void set_followed_by_shuffled_join(bool followed_by_shuffled_join) {
-        _followed_by_shuffled_join = followed_by_shuffled_join;
+    [[nodiscard]] bool followed_by_shuffled_operator() const {
+        return _followed_by_shuffled_operator;
     }
+    void set_followed_by_shuffled_operator(bool followed_by_shuffled_operator) {
+        _followed_by_shuffled_operator = followed_by_shuffled_operator;
+    }
+    [[nodiscard]] virtual bool is_shuffled_operator() const { return false; }
     [[nodiscard]] virtual bool require_shuffled_data_distribution() const { return false; }
 
 protected:
     OperatorPtr _child = nullptr;
 
     bool _is_closed;
-    bool _followed_by_shuffled_join = false;
+    bool _followed_by_shuffled_operator = false;
 };
 
 class PipelineXLocalStateBase {
@@ -356,6 +359,7 @@ protected:
     // Set to true after close() has been called. subclasses should check and set this in
     // close().
     bool _closed = false;
+    std::atomic<bool> _eos = false;
     //NOTICE: now add a faker profile, because sometimes the profile record is useless
     //so we want remove some counters and timers, eg: in join node, if it's broadcast_join
     //and shared hash table, some counter/timer about build hash table is useless,
@@ -475,8 +479,6 @@ public:
 
     [[nodiscard]] virtual std::shared_ptr<BasicSharedState> create_shared_state() const = 0;
     [[nodiscard]] virtual DataDistribution required_data_distribution() const;
-
-    [[nodiscard]] virtual bool is_shuffled_hash_join() const { return false; }
 
     Status close(RuntimeState* state) override {
         return Status::InternalError("Should not reach here!");
@@ -661,8 +663,6 @@ public:
 
     [[nodiscard]] virtual Status get_block(RuntimeState* state, vectorized::Block* block,
                                            bool* eos) = 0;
-
-    [[nodiscard]] virtual bool is_shuffled_hash_join() const { return false; }
 
     Status close(RuntimeState* state) override;
 
