@@ -256,8 +256,10 @@ public class DocGenerator {
             }
             sb.append("\n\n");
         }
-        sb.append(VAR_READ_ONLY[lang.idx]).append("`").append(varAttr.flag() == VariableMgr.READ_ONLY).append("`\n\n");
-        sb.append(VAR_GLOBAL_ONLY[lang.idx]).append("`").append(varAttr.flag() == VariableMgr.GLOBAL).append("`\n\n");
+        sb.append(VAR_READ_ONLY[lang.idx]).append("`")
+                .append((varAttr.flag() & VariableMgr.READ_ONLY) != 0).append("`\n\n");
+        sb.append(VAR_GLOBAL_ONLY[lang.idx]).append("`")
+                .append((varAttr.flag() & VariableMgr.GLOBAL) != 0).append("`\n\n");
         return sb.toString();
     }
 
