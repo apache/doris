@@ -22,6 +22,8 @@ import org.apache.doris.mysql.authenticate.AuthenticatorFactory;
 import org.apache.doris.mysql.privilege.AccessControllerFactory;
 
 import org.apache.commons.collections.map.HashedMap;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.File;
 import java.io.IOException;
@@ -57,6 +59,7 @@ import java.util.ServiceLoader;
  * @see ChildFirstClassLoader
  */
 public class ClassLoaderUtils {
+    private static final Logger LOG = LogManager.getLogger(ClassLoaderUtils.class);
     // A mapping of service class simple names to their respective plugin directories.
     private static final Map<String, String> pluginDirMapping = new HashedMap();
 
@@ -99,7 +102,8 @@ public class ClassLoaderUtils {
 
         File[] jarFiles = jarDir.listFiles((dir, name) -> name.endsWith(".jar"));
         if (jarFiles == null || jarFiles.length == 0) {
-            throw new IOException("No JAR files found in the specified directory: " + pluginDir);
+            LOG.info("No JAR files found in the plugin directory: {}", pluginDir);
+            return new ArrayList<>();
         }
 
         List<T> services = new ArrayList<>();
