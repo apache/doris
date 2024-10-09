@@ -533,6 +533,10 @@ public class PropertyConverter {
             // glue ak sk for iceberg
             props.putIfAbsent(GlueProperties.ACCESS_KEY, credential.getAccessKey());
             props.putIfAbsent(GlueProperties.SECRET_KEY, credential.getSecretKey());
+            props.putIfAbsent(GlueProperties.CLIENT_CREDENTIALS_PROVIDER,
+                    "com.amazonaws.glue.catalog.credentials.ConfigurationAWSCredentialsProvider2x");
+            props.putIfAbsent(GlueProperties.CLIENT_CREDENTIALS_PROVIDER_AK, credential.getAccessKey());
+            props.putIfAbsent(GlueProperties.CLIENT_CREDENTIALS_PROVIDER_SK, credential.getSecretKey());
         }
         // set glue client metadata
         if (props.containsKey(GlueProperties.ENDPOINT)) {
