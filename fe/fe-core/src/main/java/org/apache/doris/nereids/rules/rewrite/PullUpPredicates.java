@@ -18,13 +18,17 @@
 package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -46,13 +50,14 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.PredicateInferUtils;
+import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.IdentityHashMap;
 import java.util.LinkedHashSet;
@@ -274,24 +279,30 @@ public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void
     public ImmutableSet<Expression> visitLogicalAggregate(LogicalAggregate<? extends Plan> aggregate, Void context) {
         return cacheOrElse(aggregate, () -> {
             ImmutableSet<Expression> childPredicates = aggregate.child().accept(this, context);
-            // TODO
             List<NamedExpression> outputExpressions = aggregate.getOutputExpressions();
-
-            Map<Expression, Slot> expressionSlotMap
-                    = Maps.newLinkedHashMapWithExpectedSize(outputExpressions.size());
+            Map<Expression, List<Slot>> expressionSlotMap
+                    = Maps.newHashMapWithExpectedSize(outputExpressions.size());
             for (NamedExpression output : outputExpressions) {
-                if (hasAgg(output)) {
-                    expressionSlotMap.putIfAbsent(
-                            output instanceof Alias ? output.child(0) : output, output.toSlot()
-                    );
+                if (output instanceof Alias && supportPullUpAgg(output.child(0))) {
+                    expressionSlotMap.computeIfAbsent(output.child(0).child(0),
+                            k -> new ArrayList<>()).add(output.toSlot());
                 }
             }
-            Expression expression = ExpressionUtils.replace(
-                    ExpressionUtils.and(Lists.newArrayList(childPredicates)),
-                    expressionSlotMap
-            );
-            Set<Expression> predicates = Sets.newLinkedHashSet(ExpressionUtils.extractConjunction(expression));
-            return getAvailableExpressions(predicates, aggregate);
+            Set<Expression> pullPredicates = new LinkedHashSet<>(childPredicates);
+            for (Expression childPredicate : childPredicates) {
+                if (childPredicate instanceof ComparisonPredicate) {
+                    ComparisonPredicate cmp = (ComparisonPredicate) childPredicate;
+                    if (cmp.left() instanceof SlotReference && cmp.right() instanceof Literal
+                            && expressionSlotMap.containsKey(cmp.left())) {
+                        for (Slot slot : expressionSlotMap.get(cmp.left())) {
+                            Expression genPredicates = TypeCoercionUtils.processComparisonPredicate(
+                                     (ComparisonPredicate) cmp.withChildren(slot, cmp.right()));
+                            pullPredicates.add(genPredicates);
+                        }
+                    }
+                }
+            }
+            return getAvailableExpressions(pullPredicates, aggregate);
         });
     }
 
@@ -326,8 +337,8 @@ public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void
         return ImmutableSet.copyOf(newPredicates);
     }
 
-    private boolean hasAgg(Expression expression) {
-        return expression.anyMatch(AggregateFunction.class::isInstance);
+    private boolean supportPullUpAgg(Expression expr) {
+        return expr instanceof Min || expr instanceof Max || expr instanceof Avg;
     }
 
     private ImmutableSet<Expression> getFiltersFromUnionChild(LogicalUnion union, Void context) {
