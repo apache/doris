@@ -45,8 +45,7 @@ suite("test_mysql_all_types_select", "p0,external,mysql,external_docker,external
         qt_select_varchar """select * from t_varchar order by 1;"""
         qt_select_char """select * from t_char order by 1;"""
 
-        sql """set dry_run_query=true"""
-        qt_select_all_types_multi_block """select * from all_types_multi_block;"""
+        qt_select_all_types_multi_block """select count(`int`),count(`varchar`) from all_types_multi_block;"""
 
         sql """drop catalog if exists mysql_all_type_test """
     }

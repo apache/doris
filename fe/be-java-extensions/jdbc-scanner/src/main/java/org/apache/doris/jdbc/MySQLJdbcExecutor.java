@@ -203,16 +203,7 @@ public class MySQLJdbcExecutor extends BaseJdbcExecutor {
             return null;
         }
         java.lang.reflect.Type listType = getListTypeForArray(columnType);
-        if (columnType.getType() == Type.ARRAY) {
-            ColumnType childType = columnType.getChildTypes().get(0);
-            List<?> rawList = gson.fromJson((String) input, List.class);
-            return rawList.stream()
-                    .map(element -> {
-                        String elementJson = gson.toJson(element);
-                        return convertArray(elementJson, childType);
-                    })
-                    .collect(Collectors.toList());
-        } else if (columnType.getType() == Type.BOOLEAN) {
+        if (columnType.getType() == Type.BOOLEAN) {
             List<?> list = gson.fromJson((String) input, List.class);
             return list.stream().map(item -> {
                 if (item instanceof Boolean) {
@@ -258,6 +249,15 @@ public class MySQLJdbcExecutor extends BaseJdbcExecutor {
                     throw new IllegalArgumentException("Cannot convert " + item + " to BigInteger.");
                 }
             }).collect(Collectors.toList());
+        } else if (columnType.getType() == Type.ARRAY) {
+            ColumnType childType = columnType.getChildTypes().get(0);
+            List<?> rawList = gson.fromJson((String) input, List.class);
+            return rawList.stream()
+                    .map(element -> {
+                        String elementJson = gson.toJson(element);
+                        return convertArray(elementJson, childType);
+                    })
+                    .collect(Collectors.toList());
         } else {
             return gson.fromJson((String) input, listType);
         }
