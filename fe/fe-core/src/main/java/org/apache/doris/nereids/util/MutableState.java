@@ -34,6 +34,7 @@ public interface MutableState {
     <T> Optional<T> get(String key);
 
     MutableState set(String key, Object value);
+
     MutableState clone();
 
     /** EmptyMutableState */
@@ -53,7 +54,7 @@ public interface MutableState {
         }
 
         @Override
-        public MutableState clone () {
+        public MutableState clone() {
             return INSTANCE;
         }
     }
