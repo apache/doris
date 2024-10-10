@@ -416,7 +416,7 @@ suite("variant_mv") {
     """
     order_qt_query3_0_before "${query3_0}"
     // condition in join other conjuects is not supported now, suppport later
-//    async_mv_rewrite_success(db, mv3_0, query3_0, "mv3_0")
+    async_mv_rewrite_success(db, mv3_0, query3_0, "mv3_0")
     order_qt_query3_0_after "${query3_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv3_0"""
 
@@ -555,7 +555,7 @@ suite("variant_mv") {
     """
     order_qt_query3_4_before "${query3_4}"
     // condition in join other conjuects is not supported now, suppport later
-//    async_mv_rewrite_success(db, mv3_4, query3_4, "mv3_4")
+    async_mv_rewrite_success(db, mv3_4, query3_4, "mv3_4")
     order_qt_query3_4_after "${query3_4}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv3_4"""
 
