@@ -145,12 +145,13 @@ suite("test_unique_table_sequence") {
         sql "SET show_hidden_columns=false"
 
         def tableNameClone = tableName + "_clone"
+        sql "DROP TABLE IF EXISTS ${tableNameClone}"
         sql "create table ${tableNameClone} like ${tableName}"
 
         // test insert into select *
         test {
             sql "INSERT INTO ${tableNameClone} select * from ${tableName}"
-            exception "Table ${tableName} has sequence column, need to specify the sequence column"
+            exception "Table ${tableNameClone} has sequence column, need to specify the sequence column"
         }
 
         // with `skip_insert_sequence_check=true`, previous insert operation should success
