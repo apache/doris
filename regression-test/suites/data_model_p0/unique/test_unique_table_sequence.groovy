@@ -129,7 +129,7 @@ suite("test_unique_table_sequence") {
 
         sql "INSERT INTO ${tableName} (k1, v1, v2, v3, v4) values(15, 8, 19, 20, 21)"
 
-        sql "SET require_sequence_in_insert=false"
+        sql "SET require_sequence_in_insert=true"
 
         // correct way of insert into with seq col
         sql "INSERT INTO ${tableName} (k1, v1, v2, v3, v4, __DORIS_SEQUENCE_COL__) values(15, 8, 19, 20, 21, 3)"
