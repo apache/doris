@@ -69,9 +69,11 @@ using namespace ErrorCode;
 
 SegcompactionWorker::SegcompactionWorker(BetaRowsetWriter* writer) : _writer(writer) {}
 
-void SegcompactionWorker::init_mem_tracker(int64_t txn_id) {
+void SegcompactionWorker::init_mem_tracker(int64_t txn_id, PUniqueId load_id) {
     _seg_compact_mem_tracker = MemTrackerLimiter::create_shared(
-            MemTrackerLimiter::Type::COMPACTION, "segcompaction-" + std::to_string(txn_id));
+            MemTrackerLimiter::Type::COMPACTION,
+            fmt::format("segcompaction-txnID_{}-loadID_{}", std::to_string(txn_id),
+                        print_id(load_id)));
 }
 
 Status SegcompactionWorker::_get_segcompaction_reader(
