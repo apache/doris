@@ -1368,7 +1368,6 @@ public class SessionVariable implements Serializable, Writable {
             description = {"", ""})
 
     public double rangeFilterLowerBound = 0.01;
-    
     @VariableMgr.VarAttr(name = STATS_INSERT_MERGE_ITEM_COUNT, flag = VariableMgr.GLOBAL, description = {
             "控制统计信息相关INSERT攒批数量", "Controls the batch size for stats INSERT merging."
     }
