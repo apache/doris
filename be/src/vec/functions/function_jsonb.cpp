@@ -1738,7 +1738,7 @@ private:
                 continue;
             }
             const auto& json_doc = col_json_string(i);
-            if (!parser.parse(json_doc.data, json_doc.size, root_element)) {
+            if (!parser.parse({json_doc.data, json_doc.size}, root_element)) {
                 return Status::InvalidArgument(
                         "the json_doc argument {} is not a valid json document", json_doc);
             }
