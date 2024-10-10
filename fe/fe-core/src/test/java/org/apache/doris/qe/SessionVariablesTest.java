@@ -27,9 +27,11 @@ import org.apache.doris.common.ExperimentalUtil.ExperimentalType;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.PatternMatcherWrapper;
+import org.apache.doris.common.VariableAnnotation;
 import org.apache.doris.common.util.ProfileManager;
 import org.apache.doris.common.util.RuntimeProfile;
 import org.apache.doris.load.ExportJob;
+import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.task.ExportExportingTask;
 import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.utframe.TestWithFeService;
@@ -228,5 +230,12 @@ public class SessionVariablesTest extends TestWithFeService {
             Assertions.fail(e.getMessage());
         }
 
+    }
+
+    @Test
+    public void testSetVarInHint() {
+        String sql = "insert into test_t1 select /*+ set_var(enable_nereids_dml_with_pipeline=false)*/ * from test_t1 where enable_nereids_dml_with_pipeline=true";
+        new NereidsParser().parseSQL(sql);
+        Assertions.assertEquals(false, connectContext.getSessionVariable().enableNereidsDmlWithPipeline);
     }
 }
