@@ -193,7 +193,7 @@ public class MaxComputeColumnValue implements ColumnValue {
 
     public String getChar() {
         VarCharVector varcharCol = (VarCharVector) column;
-        return varcharCol.getObject(idx).toString().stripTrailing();
+        return varcharCol.getObject(idx).toString().replaceAll("\\s+$", "");
     }
 
     // Maybe I can use `appendBytesAndOffset(byte[] src, int offset, int length)` to reduce the creation of byte[].
