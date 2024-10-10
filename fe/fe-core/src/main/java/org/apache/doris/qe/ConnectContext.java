@@ -949,8 +949,10 @@ public class ConnectContext {
         return getMysqlChannel().getRemoteHostPortString();
     }
 
-    // kill operation with no protect.
-    public void kill(boolean killConnection) {
+    // kill operation with no protect by user.
+    // killConnection: If true, close the connection, so client need to re-connect
+    // to doris to send stmt.
+    public void killByUser(boolean killConnection) {
         LOG.warn("kill query from {}, kill mysql connection: {}", getRemoteHostPortString(), killConnection);
 
         if (killConnection) {
@@ -959,6 +961,11 @@ public class ConnectContext {
             closeChannel();
         }
         // Now, cancel running query.
+        StmtExecutor executorRef = executor;
+        if (executorRef != null) {
+            executorRef.setCancelSource(getRemoteHostPortString());
+            executorRef.setCancelledByUser();
+        }
         cancelQuery(new Status(TStatusCode.CANCELLED, "cancel query by user"));
     }
 

@@ -466,7 +466,13 @@ public abstract class ConnectProcessor {
             ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Doris process failed: " + throwable.getMessage());
         } else if (throwable instanceof UserException) {
             LOG.warn("Process one query failed because.", throwable);
-            ctx.getState().setError(((UserException) throwable).getMysqlErrorCode(), throwable.getMessage());
+            StmtExecutor executor = ctx.getExecutor();
+            if (executor != null && executor.cancelledByUser()) {
+                ctx.getState().setError(((UserException) throwable).getMysqlErrorCode(),
+                        "Cancelled by user from " + executor.getCancelledSource());
+            } else {
+                ctx.getState().setError(((UserException) throwable).getMysqlErrorCode(), throwable.getMessage());
+            }
             // set it as ANALYSIS_ERR so that it won't be treated as a query failure.
             ctx.getState().setErrType(QueryState.ErrType.ANALYSIS_ERR);
         } else if (throwable instanceof NotSupportedException) {

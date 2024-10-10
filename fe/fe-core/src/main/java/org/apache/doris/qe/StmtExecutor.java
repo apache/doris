@@ -245,6 +245,7 @@ import java.util.UUID;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -283,6 +284,16 @@ public class StmtExecutor {
     private boolean isHandleQueryInFe = false;
     // The profile of this execution
     private final Profile profile;
+
+    // cancelledByUser could be accessed by two threads:
+    // 1. thread that executes kill query command has write operation.
+    // 2. thread that executes query will read this field.
+    private AtomicBoolean cancelledByUser = new AtomicBoolean(false);
+    // Kill query command comes from this source.
+    // cancelSource will be set before cancelledByUser is set to true.
+    // cancelSource will be read after cancelledByUser is set to true.
+    // So no need to use lock to protect cancelSource.
+    private String cancelSource = "";
 
     // The result schema if "dry_run_query" is true.
     // Only one column to indicate the real return row numbers.
@@ -1632,7 +1643,7 @@ public class StmtExecutor {
                 ErrorReport.reportDdlException(ErrorCode.ERR_KILL_DENIED_ERROR, id);
             }
 
-            killCtx.kill(killStmt.isConnectionKill());
+            killCtx.killByUser(killStmt.isConnectionKill());
         }
         context.getState().setOk();
     }
@@ -3620,5 +3631,21 @@ public class StmtExecutor {
             context.getMysqlChannel().sendOnePacket(byteBuffer);
         }
         return true;
+    }
+
+    public void setCancelledByUser() {
+        cancelledByUser.set(true);
+    }
+
+    public boolean cancelledByUser() {
+        return cancelledByUser.get();
+    }
+
+    public void setCancelSource(String source) {
+        cancelSource = source;
+    }
+
+    public String getCancelledSource() {
+        return cancelSource;
     }
 }

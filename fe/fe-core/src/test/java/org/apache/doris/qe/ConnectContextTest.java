@@ -159,9 +159,9 @@ public class ConnectContextTest {
         Assert.assertTrue(ctx.isKilled());
 
         // Kill
-        ctx.kill(true);
+        ctx.killByUser(true);
         Assert.assertTrue(ctx.isKilled());
-        ctx.kill(false);
+        ctx.killByUser(false);
         Assert.assertTrue(ctx.isKilled());
 
         // clean up
@@ -187,7 +187,7 @@ public class ConnectContextTest {
         Assert.assertFalse(ctx.isKilled());
 
         // Kill
-        ctx.kill(true);
+        ctx.killByUser(true);
         Assert.assertTrue(ctx.isKilled());
 
         // clean up

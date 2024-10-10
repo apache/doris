@@ -389,7 +389,7 @@ public class StmtExecutorTest {
                 minTimes = 0;
                 result = "blockUser";
 
-                killCtx.kill(true);
+                killCtx.killByUser(true);
                 minTimes = 0;
 
                 killCtx.getConnectType();
@@ -450,7 +450,7 @@ public class StmtExecutorTest {
                 minTimes = 0;
                 result = "killUser";
 
-                killCtx.kill(true);
+                killCtx.killByUser(true);
                 minTimes = 0;
 
                 killCtx.getConnectType();
