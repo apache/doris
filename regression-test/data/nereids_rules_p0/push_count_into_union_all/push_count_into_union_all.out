@@ -9,29 +9,21 @@
 
 -- !count_group_by_shape --
 PhysicalResultSink
---PhysicalDistribute[DistributionSpecGather]
-----hashAgg[GLOBAL]
-------PhysicalDistribute[DistributionSpecHash]
---------hashAgg[LOCAL]
-----------PhysicalUnion
-------------hashAgg[GLOBAL]
---------------PhysicalDistribute[DistributionSpecHash]
-----------------hashAgg[LOCAL]
-------------------PhysicalProject
---------------------filter((mal_test_push_count.a > 1))
-----------------------PhysicalOlapScan[mal_test_push_count]
-------------hashAgg[GLOBAL]
---------------PhysicalDistribute[DistributionSpecHash]
-----------------hashAgg[LOCAL]
-------------------PhysicalProject
---------------------filter((mal_test_push_count.a < 100))
-----------------------PhysicalOlapScan[mal_test_push_count]
-------------hashAgg[GLOBAL]
---------------PhysicalDistribute[DistributionSpecHash]
-----------------hashAgg[LOCAL]
-------------------PhysicalProject
---------------------filter((mal_test_push_count.a = 1))
-----------------------PhysicalOlapScan[mal_test_push_count]
+--hashAgg[GLOBAL]
+----hashAgg[LOCAL]
+------PhysicalUnion
+--------hashAgg[GLOBAL]
+----------hashAgg[LOCAL]
+------------filter((mal_test_push_count.a > 1))
+--------------PhysicalOlapScan[mal_test_push_count]
+--------hashAgg[GLOBAL]
+----------hashAgg[LOCAL]
+------------filter((mal_test_push_count.a < 100))
+--------------PhysicalOlapScan[mal_test_push_count]
+--------hashAgg[GLOBAL]
+----------hashAgg[LOCAL]
+------------filter((mal_test_push_count.a = 1))
+--------------PhysicalOlapScan[mal_test_push_count]
 
 -- !count_group_by_none --
 32
@@ -39,30 +31,20 @@ PhysicalResultSink
 -- !count_group_by_none_shape --
 PhysicalResultSink
 --hashAgg[GLOBAL]
-----PhysicalDistribute[DistributionSpecGather]
-------hashAgg[LOCAL]
---------PhysicalUnion
-----------PhysicalDistribute[DistributionSpecExecutionAny]
-------------hashAgg[GLOBAL]
---------------PhysicalDistribute[DistributionSpecGather]
-----------------hashAgg[LOCAL]
-------------------PhysicalProject
---------------------filter((mal_test_push_count.a > 1))
-----------------------PhysicalOlapScan[mal_test_push_count]
-----------PhysicalDistribute[DistributionSpecExecutionAny]
-------------hashAgg[GLOBAL]
---------------PhysicalDistribute[DistributionSpecGather]
-----------------hashAgg[LOCAL]
-------------------PhysicalProject
---------------------filter((mal_test_push_count.a < 100))
-----------------------PhysicalOlapScan[mal_test_push_count]
-----------PhysicalDistribute[DistributionSpecExecutionAny]
-------------hashAgg[GLOBAL]
---------------PhysicalDistribute[DistributionSpecGather]
-----------------hashAgg[LOCAL]
-------------------PhysicalProject
---------------------filter((mal_test_push_count.a = 1))
-----------------------PhysicalOlapScan[mal_test_push_count]
+----hashAgg[LOCAL]
+------PhysicalUnion
+--------hashAgg[GLOBAL]
+----------hashAgg[LOCAL]
+------------filter((mal_test_push_count.a > 1))
+--------------PhysicalOlapScan[mal_test_push_count]
+--------hashAgg[GLOBAL]
+----------hashAgg[LOCAL]
+------------filter((mal_test_push_count.a < 100))
+--------------PhysicalOlapScan[mal_test_push_count]
+--------hashAgg[GLOBAL]
+----------hashAgg[LOCAL]
+------------filter((mal_test_push_count.a = 1))
+--------------PhysicalOlapScan[mal_test_push_count]
 
 -- !count_expr_group_by_none --
 32
@@ -70,30 +52,20 @@ PhysicalResultSink
 -- !count_expr_group_by_none_shape --
 PhysicalResultSink
 --hashAgg[GLOBAL]
-----PhysicalDistribute[DistributionSpecGather]
-------hashAgg[LOCAL]
---------PhysicalUnion
-----------PhysicalDistribute[DistributionSpecExecutionAny]
-------------hashAgg[GLOBAL]
---------------PhysicalDistribute[DistributionSpecGather]
-----------------hashAgg[LOCAL]
-------------------PhysicalProject
---------------------filter((mal_test_push_count.a > 1))
-----------------------PhysicalOlapScan[mal_test_push_count]
-----------PhysicalDistribute[DistributionSpecExecutionAny]
-------------hashAgg[GLOBAL]
---------------PhysicalDistribute[DistributionSpecGather]
-----------------hashAgg[LOCAL]
-------------------PhysicalProject
---------------------filter((mal_test_push_count.a < 100))
-----------------------PhysicalOlapScan[mal_test_push_count]
-----------PhysicalDistribute[DistributionSpecExecutionAny]
-------------hashAgg[GLOBAL]
---------------PhysicalDistribute[DistributionSpecGather]
-----------------hashAgg[LOCAL]
-------------------PhysicalProject
---------------------filter((mal_test_push_count.a = 1))
-----------------------PhysicalOlapScan[mal_test_push_count]
+----hashAgg[LOCAL]
+------PhysicalUnion
+--------hashAgg[GLOBAL]
+----------hashAgg[LOCAL]
+------------filter((mal_test_push_count.a > 1))
+--------------PhysicalOlapScan[mal_test_push_count]
+--------hashAgg[GLOBAL]
+----------hashAgg[LOCAL]
+------------filter((mal_test_push_count.a < 100))
+--------------PhysicalOlapScan[mal_test_push_count]
+--------hashAgg[GLOBAL]
+----------hashAgg[LOCAL]
+------------filter((mal_test_push_count.a = 1))
+--------------PhysicalOlapScan[mal_test_push_count]
 
 -- !union_const --
 28
@@ -101,51 +73,26 @@ PhysicalResultSink
 -- !union_const_shape --
 PhysicalResultSink
 --hashAgg[GLOBAL]
-----PhysicalDistribute[DistributionSpecGather]
-------hashAgg[LOCAL]
---------PhysicalUnion
-----------PhysicalDistribute[DistributionSpecExecutionAny]
-------------hashAgg[GLOBAL]
---------------PhysicalDistribute[DistributionSpecGather]
-----------------hashAgg[LOCAL]
-------------------PhysicalProject
---------------------filter((mal_test_push_count.a > 1))
-----------------------PhysicalOlapScan[mal_test_push_count]
-----------PhysicalDistribute[DistributionSpecExecutionAny]
-------------hashAgg[GLOBAL]
---------------PhysicalDistribute[DistributionSpecGather]
-----------------hashAgg[LOCAL]
-------------------PhysicalProject
---------------------filter((mal_test_push_count.a < 100))
-----------------------PhysicalOlapScan[mal_test_push_count]
-----------PhysicalDistribute[DistributionSpecExecutionAny]
-------------hashAgg[GLOBAL]
---------------hashAgg[LOCAL]
-----------------PhysicalOneRowRelation
+----hashAgg[LOCAL]
+------PhysicalUnion
+--------filter((mal_test_push_count.a > 1))
+----------PhysicalOlapScan[mal_test_push_count]
+--------filter((mal_test_push_count.a < 100))
+----------PhysicalOlapScan[mal_test_push_count]
 
 -- !count_expr_group_by_ditinct_none_shape --
 PhysicalResultSink
---PhysicalProject
-----hashAgg[DISTINCT_GLOBAL]
-------PhysicalDistribute[DistributionSpecGather]
---------hashAgg[DISTINCT_LOCAL]
-----------hashAgg[GLOBAL]
-------------PhysicalDistribute[DistributionSpecHash]
---------------hashAgg[LOCAL]
-----------------PhysicalProject
-------------------PhysicalUnion
---------------------PhysicalDistribute[DistributionSpecExecutionAny]
-----------------------PhysicalProject
-------------------------filter((mal_test_push_count.a > 1))
---------------------------PhysicalOlapScan[mal_test_push_count]
---------------------PhysicalDistribute[DistributionSpecExecutionAny]
-----------------------PhysicalProject
-------------------------filter((mal_test_push_count.a < 100))
---------------------------PhysicalOlapScan[mal_test_push_count]
---------------------PhysicalDistribute[DistributionSpecExecutionAny]
-----------------------PhysicalProject
-------------------------filter((mal_test_push_count.a = 1))
---------------------------PhysicalOlapScan[mal_test_push_count]
+--hashAgg[DISTINCT_GLOBAL]
+----hashAgg[DISTINCT_LOCAL]
+------hashAgg[GLOBAL]
+--------hashAgg[LOCAL]
+----------PhysicalUnion
+------------filter((mal_test_push_count.a > 1))
+--------------PhysicalOlapScan[mal_test_push_count]
+------------filter((mal_test_push_count.a < 100))
+--------------PhysicalOlapScan[mal_test_push_count]
+------------filter((mal_test_push_count.a = 1))
+--------------PhysicalOlapScan[mal_test_push_count]
 
 -- !union_all_child_alias --
 1	10
@@ -157,29 +104,21 @@ PhysicalResultSink
 
 -- !union_all_child_alias_shape --
 PhysicalResultSink
---PhysicalDistribute[DistributionSpecGather]
-----hashAgg[GLOBAL]
-------PhysicalDistribute[DistributionSpecHash]
---------hashAgg[LOCAL]
-----------PhysicalUnion
-------------hashAgg[GLOBAL]
---------------PhysicalDistribute[DistributionSpecHash]
-----------------hashAgg[LOCAL]
-------------------PhysicalProject
---------------------filter((mal_test_push_count.a > 1))
-----------------------PhysicalOlapScan[mal_test_push_count]
-------------hashAgg[GLOBAL]
---------------PhysicalDistribute[DistributionSpecHash]
-----------------hashAgg[LOCAL]
-------------------PhysicalProject
---------------------filter((mal_test_push_count.a < 100))
-----------------------PhysicalOlapScan[mal_test_push_count]
-------------hashAgg[GLOBAL]
---------------PhysicalDistribute[DistributionSpecHash]
-----------------hashAgg[LOCAL]
-------------------PhysicalProject
---------------------filter((mal_test_push_count.a = 1))
-----------------------PhysicalOlapScan[mal_test_push_count]
+--hashAgg[GLOBAL]
+----hashAgg[LOCAL]
+------PhysicalUnion
+--------hashAgg[GLOBAL]
+----------hashAgg[LOCAL]
+------------filter((mal_test_push_count.a > 1))
+--------------PhysicalOlapScan[mal_test_push_count]
+--------hashAgg[GLOBAL]
+----------hashAgg[LOCAL]
+------------filter((mal_test_push_count.a < 100))
+--------------PhysicalOlapScan[mal_test_push_count]
+--------hashAgg[GLOBAL]
+----------hashAgg[LOCAL]
+------------filter((mal_test_push_count.a = 1))
+--------------PhysicalOlapScan[mal_test_push_count]
 
 -- !union_all_child_expr --
 1	5
@@ -206,30 +145,22 @@ PhysicalResultSink
 -- !count_group_by_count_other_shape --
 PhysicalResultSink
 --PhysicalQuickSort[MERGE_SORT]
-----PhysicalDistribute[DistributionSpecGather]
-------PhysicalQuickSort[LOCAL_SORT]
---------hashAgg[GLOBAL]
-----------PhysicalDistribute[DistributionSpecHash]
-------------hashAgg[LOCAL]
---------------PhysicalUnion
-----------------hashAgg[GLOBAL]
-------------------PhysicalDistribute[DistributionSpecHash]
---------------------hashAgg[LOCAL]
-----------------------PhysicalProject
-------------------------filter((mal_test_push_count.a > 1))
---------------------------PhysicalOlapScan[mal_test_push_count]
-----------------hashAgg[GLOBAL]
-------------------PhysicalDistribute[DistributionSpecHash]
---------------------hashAgg[LOCAL]
-----------------------PhysicalProject
-------------------------filter((mal_test_push_count.a < 100))
---------------------------PhysicalOlapScan[mal_test_push_count]
-----------------hashAgg[GLOBAL]
-------------------PhysicalDistribute[DistributionSpecHash]
---------------------hashAgg[LOCAL]
-----------------------PhysicalProject
-------------------------filter((mal_test_push_count.a = 1))
---------------------------PhysicalOlapScan[mal_test_push_count]
+----PhysicalQuickSort[LOCAL_SORT]
+------hashAgg[GLOBAL]
+--------hashAgg[LOCAL]
+----------PhysicalUnion
+------------hashAgg[GLOBAL]
+--------------hashAgg[LOCAL]
+----------------filter((mal_test_push_count.a > 1))
+------------------PhysicalOlapScan[mal_test_push_count]
+------------hashAgg[GLOBAL]
+--------------hashAgg[LOCAL]
+----------------filter((mal_test_push_count.a < 100))
+------------------PhysicalOlapScan[mal_test_push_count]
+------------hashAgg[GLOBAL]
+--------------hashAgg[LOCAL]
+----------------filter((mal_test_push_count.a = 1))
+------------------PhysicalOlapScan[mal_test_push_count]
 
 -- !count_group_by_multi_col --
 1	4
@@ -245,25 +176,19 @@ PhysicalResultSink
 -- !count_group_by_multi_col_shape --
 PhysicalResultSink
 --PhysicalQuickSort[MERGE_SORT]
-----PhysicalDistribute[DistributionSpecGather]
-------PhysicalQuickSort[LOCAL_SORT]
---------PhysicalProject
-----------hashAgg[GLOBAL]
-------------PhysicalDistribute[DistributionSpecHash]
---------------hashAgg[LOCAL]
-----------------PhysicalUnion
-------------------PhysicalDistribute[DistributionSpecExecutionAny]
---------------------hashAgg[LOCAL]
-----------------------filter((mal_test_push_count.a > 1))
-------------------------PhysicalOlapScan[mal_test_push_count]
-------------------PhysicalDistribute[DistributionSpecExecutionAny]
---------------------hashAgg[LOCAL]
-----------------------filter((mal_test_push_count.a < 100))
-------------------------PhysicalOlapScan[mal_test_push_count]
-------------------PhysicalDistribute[DistributionSpecExecutionAny]
---------------------hashAgg[LOCAL]
-----------------------filter((mal_test_push_count.a = 1))
-------------------------PhysicalOlapScan[mal_test_push_count]
+----PhysicalQuickSort[LOCAL_SORT]
+------hashAgg[GLOBAL]
+--------hashAgg[LOCAL]
+----------PhysicalUnion
+------------hashAgg[LOCAL]
+--------------filter((mal_test_push_count.a > 1))
+----------------PhysicalOlapScan[mal_test_push_count]
+------------hashAgg[LOCAL]
+--------------filter((mal_test_push_count.a < 100))
+----------------PhysicalOlapScan[mal_test_push_count]
+------------hashAgg[LOCAL]
+--------------filter((mal_test_push_count.a = 1))
+----------------PhysicalOlapScan[mal_test_push_count]
 
 -- !test_upper_refer --
 1	10
@@ -276,52 +201,36 @@ PhysicalResultSink
 -- !test_upper_refer_shape --
 PhysicalResultSink
 --PhysicalQuickSort[MERGE_SORT]
-----PhysicalDistribute[DistributionSpecGather]
-------PhysicalQuickSort[LOCAL_SORT]
---------hashAgg[GLOBAL]
-----------PhysicalDistribute[DistributionSpecHash]
-------------hashAgg[LOCAL]
---------------PhysicalUnion
-----------------hashAgg[GLOBAL]
-------------------PhysicalDistribute[DistributionSpecHash]
---------------------hashAgg[LOCAL]
-----------------------PhysicalProject
-------------------------filter((mal_test_push_count.a > 1))
---------------------------PhysicalOlapScan[mal_test_push_count]
-----------------hashAgg[GLOBAL]
-------------------PhysicalDistribute[DistributionSpecHash]
---------------------hashAgg[LOCAL]
-----------------------PhysicalProject
-------------------------filter((mal_test_push_count.a < 100))
---------------------------PhysicalOlapScan[mal_test_push_count]
-----------------hashAgg[GLOBAL]
-------------------PhysicalDistribute[DistributionSpecHash]
---------------------hashAgg[LOCAL]
-----------------------PhysicalProject
-------------------------filter((mal_test_push_count.a = 1))
---------------------------PhysicalOlapScan[mal_test_push_count]
+----PhysicalQuickSort[LOCAL_SORT]
+------hashAgg[GLOBAL]
+--------hashAgg[LOCAL]
+----------PhysicalUnion
+------------hashAgg[GLOBAL]
+--------------hashAgg[LOCAL]
+----------------filter((mal_test_push_count.a > 1))
+------------------PhysicalOlapScan[mal_test_push_count]
+------------hashAgg[GLOBAL]
+--------------hashAgg[LOCAL]
+----------------filter((mal_test_push_count.a < 100))
+------------------PhysicalOlapScan[mal_test_push_count]
+------------hashAgg[GLOBAL]
+--------------hashAgg[LOCAL]
+----------------filter((mal_test_push_count.a = 1))
+------------------PhysicalOlapScan[mal_test_push_count]
 
 -- !unsupport_agg_func --
 PhysicalResultSink
 --PhysicalQuickSort[MERGE_SORT]
-----PhysicalDistribute[DistributionSpecGather]
-------PhysicalQuickSort[LOCAL_SORT]
---------hashAgg[GLOBAL]
-----------PhysicalDistribute[DistributionSpecHash]
-------------hashAgg[LOCAL]
---------------PhysicalUnion
-----------------PhysicalDistribute[DistributionSpecExecutionAny]
-------------------PhysicalProject
---------------------filter((mal_test_push_count.a > 1))
-----------------------PhysicalOlapScan[mal_test_push_count]
-----------------PhysicalDistribute[DistributionSpecExecutionAny]
-------------------PhysicalProject
---------------------filter((mal_test_push_count.a < 100))
-----------------------PhysicalOlapScan[mal_test_push_count]
-----------------PhysicalDistribute[DistributionSpecExecutionAny]
-------------------PhysicalProject
---------------------filter((mal_test_push_count.a = 1))
-----------------------PhysicalOlapScan[mal_test_push_count]
+----PhysicalQuickSort[LOCAL_SORT]
+------hashAgg[GLOBAL]
+--------hashAgg[LOCAL]
+----------PhysicalUnion
+------------filter((mal_test_push_count.a > 1))
+--------------PhysicalOlapScan[mal_test_push_count]
+------------filter((mal_test_push_count.a < 100))
+--------------PhysicalOlapScan[mal_test_push_count]
+------------filter((mal_test_push_count.a = 1))
+--------------PhysicalOlapScan[mal_test_push_count]
 
 -- !test_upper_refer_count_star --
 1	10
@@ -334,28 +243,20 @@ PhysicalResultSink
 -- !test_upper_refer_count_star_shape --
 PhysicalResultSink
 --PhysicalQuickSort[MERGE_SORT]
-----PhysicalDistribute[DistributionSpecGather]
-------PhysicalQuickSort[LOCAL_SORT]
---------hashAgg[GLOBAL]
-----------PhysicalDistribute[DistributionSpecHash]
-------------hashAgg[LOCAL]
---------------PhysicalUnion
-----------------hashAgg[GLOBAL]
-------------------PhysicalDistribute[DistributionSpecHash]
---------------------hashAgg[LOCAL]
-----------------------PhysicalProject
-------------------------filter((mal_test_push_count.a > 1))
---------------------------PhysicalOlapScan[mal_test_push_count]
-----------------hashAgg[GLOBAL]
-------------------PhysicalDistribute[DistributionSpecHash]
---------------------hashAgg[LOCAL]
-----------------------PhysicalProject
-------------------------filter((mal_test_push_count.a < 100))
---------------------------PhysicalOlapScan[mal_test_push_count]
-----------------hashAgg[GLOBAL]
-------------------PhysicalDistribute[DistributionSpecHash]
---------------------hashAgg[LOCAL]
-----------------------PhysicalProject
-------------------------filter((mal_test_push_count.a = 1))
---------------------------PhysicalOlapScan[mal_test_push_count]
+----PhysicalQuickSort[LOCAL_SORT]
+------hashAgg[GLOBAL]
+--------hashAgg[LOCAL]
+----------PhysicalUnion
+------------hashAgg[GLOBAL]
+--------------hashAgg[LOCAL]
+----------------filter((mal_test_push_count.a > 1))
+------------------PhysicalOlapScan[mal_test_push_count]
+------------hashAgg[GLOBAL]
+--------------hashAgg[LOCAL]
+----------------filter((mal_test_push_count.a < 100))
+------------------PhysicalOlapScan[mal_test_push_count]
+------------hashAgg[GLOBAL]
+--------------hashAgg[LOCAL]
+----------------filter((mal_test_push_count.a = 1))
+------------------PhysicalOlapScan[mal_test_push_count]
 
