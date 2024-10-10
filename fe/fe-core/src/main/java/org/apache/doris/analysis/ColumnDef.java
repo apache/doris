@@ -106,6 +106,7 @@ public class ColumnDef {
         public static String CURRENT_TIMESTAMP = "CURRENT_TIMESTAMP";
         public static String NOW = "now";
         public static String HLL_EMPTY = "HLL_EMPTY";
+        public static String BITMAP_EMPTY = "BITMAP_EMPTY";
         public static DefaultValue CURRENT_TIMESTAMP_DEFAULT_VALUE = new DefaultValue(true, CURRENT_TIMESTAMP, NOW);
         // no default value
         public static DefaultValue NOT_SET = new DefaultValue(false, null);
@@ -115,7 +116,7 @@ public class ColumnDef {
         // default "value", "0" means empty hll
         public static DefaultValue HLL_EMPTY_DEFAULT_VALUE = new DefaultValue(true, ZERO, HLL_EMPTY);
         // default "value", "0" means empty bitmap
-        public static DefaultValue BITMAP_EMPTY_DEFAULT_VALUE = new DefaultValue(true, ZERO);
+        public static DefaultValue BITMAP_EMPTY_DEFAULT_VALUE = new DefaultValue(true, ZERO, BITMAP_EMPTY);
         // default "value", "[]" means empty array
         public static DefaultValue ARRAY_EMPTY_DEFAULT_VALUE = new DefaultValue(true, "[]");
 
@@ -315,6 +316,12 @@ public class ColumnDef {
         return new ColumnDef(Column.VERSION_COL, TypeDef.create(PrimitiveType.BIGINT), false, aggregateType,
                 ColumnNullableType.NOT_NULLABLE, -1, new ColumnDef.DefaultValue(true, "0"),
                 "doris version hidden column", false, Optional.empty());
+    }
+
+    public static ColumnDef newSkipBitmapColumnDef(AggregateType aggregateType) {
+        return new ColumnDef(Column.SKIP_BITMAP_COL, TypeDef.create(PrimitiveType.BITMAP), false, aggregateType,
+                ColumnNullableType.NOT_NULLABLE, -1, DefaultValue.BITMAP_EMPTY_DEFAULT_VALUE,
+                "doris skip bitmap hidden column", false, Optional.empty());
     }
 
     public boolean isAllowNull() {
