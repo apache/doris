@@ -142,6 +142,11 @@ public:
 
     Status load_pk_index_and_bf();
 
+    // The segment is loaded into SegmentCache and then will load indices, if there are something wrong
+    // during loading indices, should remove it from SegmentCache. If not, it will always report error during
+    // query. So we add a healthy status API, the caller should check the healhty status before using the segment.
+    Status healthy_status();
+
     std::string min_key() {
         DCHECK(_tablet_schema->keys_type() == UNIQUE_KEYS && _pk_index_meta != nullptr);
         return _pk_index_meta->min_key();
