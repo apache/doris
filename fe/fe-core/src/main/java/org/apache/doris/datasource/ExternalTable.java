@@ -22,6 +22,7 @@ import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableAttributes;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.TableIndexes;
 import org.apache.doris.catalog.constraint.Constraint;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
@@ -356,5 +357,10 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
     protected Optional<SchemaCacheValue> getSchemaCacheValue() {
         ExternalSchemaCache cache = Env.getCurrentEnv().getExtMetaCacheMgr().getSchemaCache(catalog);
         return cache.getSchemaValue(dbName, name);
+    }
+
+    @Override
+    public TableIndexes getTableIndexes() {
+        return new TableIndexes();
     }
 }
