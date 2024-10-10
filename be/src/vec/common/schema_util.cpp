@@ -237,10 +237,11 @@ void get_column_by_type(const vectorized::DataTypePtr& data_type, const std::str
     }
     if (WhichDataType(*data_type).is_decimal()) {
         column.set_precision_frac(data_type->get_precision(), data_type->get_scale());
+        column.set_is_decimal(true);
         return;
     }
     if (WhichDataType(*data_type).is_date_time_v2()) {
-        column.set_precision_frac(-1, data_type->get_scale(), false);
+        column.set_precision_frac(-1, data_type->get_scale());
         return;
     }
 }

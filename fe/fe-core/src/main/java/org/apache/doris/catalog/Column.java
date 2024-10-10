@@ -667,6 +667,7 @@ public class Column implements GsonPostProcessable {
 
     private void addChildren(Column column, TColumn tColumn) {
         List<Column> childrenColumns = column.getChildren();
+        tColumn.setChildrenColumn(new ArrayList<>());
         for (Column c : childrenColumns) {
             setChildrenTColumn(c, tColumn);
         }
