@@ -126,11 +126,13 @@ Status Decoder::get_decoder(tparquet::Type::type type, tparquet::Encoding::type 
         case tparquet::Type::FLOAT:
         case tparquet::Type::DOUBLE:
         case tparquet::Type::FIXED_LEN_BYTE_ARRAY:
-            decoder.reset(new ByteStreamSplitDecoder);
+            decoder.reset(new ByteStreamSplitDecoder());
             break;
         default:
-            return Status::InternalError("BYTE_STREAM_SPLIT only supports FLOAT and DOUBLE.");
+            return Status::InternalError("Unsupported type {}(encoding={}) in parquet decoder",
+                                         tparquet::to_string(type), tparquet::to_string(encoding));
         }
+        break;
     default:
         return Status::InternalError("Unsupported encoding {}(type={}) in parquet decoder",
                                      tparquet::to_string(encoding), tparquet::to_string(type));
