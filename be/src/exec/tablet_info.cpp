@@ -31,6 +31,7 @@
 #include <memory>
 #include <ostream>
 #include <tuple>
+#include <string>
 
 #include "common/exception.h"
 #include "common/logging.h"
@@ -160,7 +161,9 @@ Status OlapTableSchemaParam::init(const POlapTableSchemaParam& pschema) {
         string data_type;
         EnumToString(TPrimitiveType, to_thrift(slot_desc->col_type()), data_type);
         std::string is_null_str = slot_desc->is_nullable() ? "true" : "false";
-        slots_map.emplace(to_lower(slot_desc->col_name()) + to_lower(data_type) + is_null_str,
+        std::string data_type_str =
+                std::to_string(int64_t(TabletColumn::get_field_type_by_string(data_type)));
+        slots_map.emplace(to_lower(slot_desc->col_name()) + "+" + data_type_str + is_null_str,
                           slot_desc);
     }
 
@@ -173,11 +176,11 @@ Status OlapTableSchemaParam::init(const POlapTableSchemaParam& pschema) {
                 _partial_update_input_columns.contains(pcolumn_desc.name())) {
 
                 std::string is_null_str = pcolumn_desc.is_nullable() ? "true" : "false";
-
-                auto it = slots_map.find(
-                        to_lower(pcolumn_desc.name()) +
-                        to_lower(has_invalid_type ? "INVALID_TYPE" : pcolumn_desc.type()) +
-                        is_null_str);
+                std::string data_type_str =
+                        std::to_string(int64_t(TabletColumn::get_field_type_by_string(
+                                has_invalid_type ? "INVALID_TYPE" : pcolumn_desc.type())));
+                auto it = slots_map.find(to_lower(pcolumn_desc.name()) + "+" + data_type_str +
+                                         is_null_str);
                 if (it == std::end(slots_map)) {
                     return Status::InternalError("unknown index column, column={}, type={}",
                                                  pcolumn_desc.name(), pcolumn_desc.type());
