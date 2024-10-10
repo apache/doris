@@ -130,7 +130,8 @@ public:
     }
 
     Status lookup_row_key(const Slice& key, const TabletSchema* latest_schema, bool with_seq_col,
-                          bool with_rowid, RowLocation* row_location);
+                          bool with_rowid, RowLocation* row_location,
+                          std::string* encoded_seq_value = nullptr);
 
     Status read_key_by_rowid(uint32_t row_id, std::string* key);
 

@@ -141,7 +141,7 @@ public:
     }
 
     bool is_partial_update() override {
-        return _context.partial_update_info && _context.partial_update_info->is_partial_update;
+        return _context.partial_update_info && _context.partial_update_info->is_partial_update();
     }
 
 private:
