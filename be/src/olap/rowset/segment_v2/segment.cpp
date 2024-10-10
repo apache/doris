@@ -464,7 +464,7 @@ Status Segment::load_pk_index_and_bf() {
     return Status::OK();
 }
 
-Status Segment::load_index()() {
+Status Segment::load_index() {
     return _load_index_once.call([this] {
         if (_tablet_schema->keys_type() == UNIQUE_KEYS && _pk_index_meta != nullptr) {
             _pk_index_reader = std::make_unique<PrimaryKeyIndexReader>();
