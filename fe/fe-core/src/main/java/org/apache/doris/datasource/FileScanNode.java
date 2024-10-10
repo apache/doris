@@ -53,10 +53,13 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
 /**
@@ -67,6 +70,8 @@ public abstract class FileScanNode extends ExternalScanNode {
 
     public static final long DEFAULT_SPLIT_SIZE = 64 * 1024 * 1024; // 64MB
 
+    private static final int maxInitialSplits = 200;
+
     private static final long MAX_INITIAL_SPLIT_SIZE = 32L * 1024L * 1024L; // 32 MB
     private static final long MAX_SPLIT_SIZE = 64L * 1024L * 1024L; // 64 MB
 
@@ -76,7 +81,7 @@ public abstract class FileScanNode extends ExternalScanNode {
     protected long fileSplitSize;
     protected boolean isSplitSizeSetBySession = false;
 
-    private int remainingInitialSplits = 200;
+    private final AtomicInteger remainingInitialSplits = new AtomicInteger(maxInitialSplits);
 
     public FileScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName, StatisticalType statisticalType,
             boolean needCheckColumnPriv) {
@@ -331,11 +336,15 @@ public abstract class FileScanNode extends ExternalScanNode {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("Path {} is not splittable.", path);
             }
-            if (remainingInitialSplits > 0) {
-                --remainingInitialSplits;
+            if (remainingInitialSplits.get() > 0) {
+                remainingInitialSplits.getAndDecrement();
             }
             String[] hosts = blockLocations.length == 0 ? null : blockLocations[0].getHosts();
             result.add(splitCreator.create(path, 0, length, length, modificationTime, hosts, partitionValues));
+            return result;
+        }
+        if (blockLocations.length == 0) {
+            result.add(splitCreator.create(path, 0, length, length, modificationTime, null, partitionValues));
             return result;
         }
         // if file split size is set by session variable, use session variable.
@@ -376,14 +385,19 @@ public abstract class FileScanNode extends ExternalScanNode {
             blockBuilder.add(new InternalBlock(blockStart, blockEnd, blockLocation.getHosts()));
         }
         List<InternalBlock> blocks = blockBuilder.build();
+        if (blocks.isEmpty()) {
+            result.add(splitCreator.create(path, 0, length, length, modificationTime, null, partitionValues));
+            return result;
+        }
 
         long splitStart = start;
         int currentBlockIdx = 0;
         while (splitStart < start + length) {
             long maxSplitBytes = MAX_SPLIT_SIZE;
-            if (remainingInitialSplits > 0) {
-                --remainingInitialSplits;
-                maxSplitBytes = MAX_INITIAL_SPLIT_SIZE;
+            if (remainingInitialSplits.get() > 0) {
+                if (remainingInitialSplits.getAndDecrement() > 0) {
+                    maxSplitBytes = MAX_INITIAL_SPLIT_SIZE;
+                }
             }
             long splitBytes;
             long remainingBlockBytes = blocks.get(currentBlockIdx).getEnd() - splitStart;
