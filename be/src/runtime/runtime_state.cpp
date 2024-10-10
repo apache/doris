@@ -34,6 +34,7 @@
 #include "runtime/load_path_mgr.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/memory/thread_mem_tracker_mgr.h"
+#include "runtime/query_context.h"
 #include "runtime/runtime_filter_mgr.h"
 #include "runtime/thread_context.h"
 #include "util/timezone_utils.h"
@@ -390,4 +391,13 @@ bool RuntimeState::enable_page_cache() const {
            (_query_options.__isset.enable_page_cache && _query_options.enable_page_cache);
 }
 
+bool RuntimeState::is_nereids() const {
+#ifdef BE_TEST
+    if (_query_ctx == nullptr) {
+        return false;
+    }
+#endif
+    DCHECK(_query_ctx);
+    return _query_ctx->is_nereids();
+}
 } // end namespace doris
