@@ -34,6 +34,7 @@ public interface MutableState {
     <T> Optional<T> get(String key);
 
     MutableState set(String key, Object value);
+    MutableState clone();
 
     /** EmptyMutableState */
     class EmptyMutableState implements MutableState {
@@ -49,6 +50,11 @@ public interface MutableState {
         @Override
         public MutableState set(String key, Object value) {
             return new SingleMutableState(key, value);
+        }
+
+        @Override
+        public MutableState clone () {
+            return INSTANCE;
         }
     }
 
@@ -80,6 +86,11 @@ public interface MutableState {
             multiMutableState.set(key, value);
             return multiMutableState;
         }
+
+        @Override
+        public MutableState clone() {
+            return new SingleMutableState(key, value);
+        }
     }
 
     /** MultiMutableState */
@@ -95,6 +106,15 @@ public interface MutableState {
         public MutableState set(String key, Object value) {
             states.put(key, value);
             return this;
+        }
+
+        @Override
+        public MutableState clone() {
+            MutableState target = new MultiMutableState();
+            for (String key : states.keySet()) {
+                target = target.set(key, states.get(key));
+            }
+            return target;
         }
     }
 }

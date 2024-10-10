@@ -76,4 +76,8 @@ public abstract class AbstractTreeNode<NODE_TYPE extends TreeNode<NODE_TYPE>>
     public int arity() {
         return children.size();
     }
+
+    public void transferState(AbstractTreeNode target) {
+        target.mutableState = mutableState.clone();
+    }
 }
