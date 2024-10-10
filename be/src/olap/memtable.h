@@ -253,7 +253,7 @@ private:
     Status _sort_by_cluster_keys();
     void _sort_one_column(std::vector<RowInBlock*>& row_in_blocks, Tie& tie,
                           std::function<int(const RowInBlock*, const RowInBlock*)> cmp);
-    template <bool is_final>
+    template <bool is_final, bool clear_arena = true>
     void _finalize_one_row(RowInBlock* row, const vectorized::ColumnsWithTypeAndName& block_data,
                            int row_pos);
     template <bool is_final, bool has_skip_bitmap_col = false>
@@ -268,8 +268,10 @@ private:
     std::vector<RowInBlock*> _row_in_blocks;
 
     size_t _num_columns;
-    int32_t _seq_col_idx_in_block = -1;
+    int32_t _seq_col_idx_in_block {-1};
     int32_t _skip_bitmap_col_idx {-1};
+    int32_t _delete_sign_col_idx {-1};
+    int32_t _delete_sign_col_unique_id {-1};
     int32_t _seq_col_unique_id {-1};
 
     bool _is_partial_update_and_auto_inc = false;
