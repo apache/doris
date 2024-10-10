@@ -691,9 +691,8 @@ public class SessionVariable implements Serializable, Writable {
     public boolean jdbcClickhouseQueryFinal = false;
 
     @VariableMgr.VarAttr(name = JDBC_ORACLE_NULL_PREDICATE_PUSHDOWN, needForward = true,
-            description = {"是否启用 Oracle JDBC 外部表时，Scan 节点的 NULL 谓词下推。",
-                    "Whether to enable NULL predicate pushdown for the Scan node "
-                            + "when Oracle JDBC external tables are enabled."})
+            description = {"是否允许将 NULL 谓词下推到 Oracle JDBC 外部表。",
+                    "Whether to allow NULL predicates to be pushed down to Oracle JDBC external tables."})
     public boolean jdbcOracleNullPredicatePushdown = false;
 
     @VariableMgr.VarAttr(name = ROUND_PRECISE_DECIMALV2_VALUE)
