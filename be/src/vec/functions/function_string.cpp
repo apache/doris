@@ -21,6 +21,7 @@
 #include <math.h>
 #include <re2/stringpiece.h>
 
+#include <bitset>
 #include <cstddef>
 #include <string_view>
 
@@ -508,6 +509,15 @@ struct NameLTrim {
 struct NameRTrim {
     static constexpr auto name = "rtrim";
 };
+struct NameTrimIn {
+    static constexpr auto name = "trim_in";
+};
+struct NameLTrimIn {
+    static constexpr auto name = "ltrim_in";
+};
+struct NameRTrimIn {
+    static constexpr auto name = "rtrim_in";
+};
 template <bool is_ltrim, bool is_rtrim, bool trim_single>
 struct TrimUtil {
     static Status vector(const ColumnString::Chars& str_data,
@@ -530,6 +540,42 @@ struct TrimUtil {
             }
 
             res_data.insert_assume_reserved(str_begin, str_end);
+            res_offsets[i] = res_data.size();
+        }
+        return Status::OK();
+    }
+};
+template <bool is_ltrim_in, bool is_rtrim_in, bool trim_single>
+struct TrimInUtil {
+    static Status vector(const ColumnString::Chars& str_data,
+                         const ColumnString::Offsets& str_offsets, const StringRef& remove_str,
+                         ColumnString::Chars& res_data, ColumnString::Offsets& res_offsets) {
+        const size_t offset_size = str_offsets.size();
+        res_offsets.resize(offset_size);
+        res_data.reserve(str_data.size());
+        std::bitset<256> char_lookup;
+        for (size_t i = 0; i < remove_str.size; ++i) {
+            char_lookup[static_cast<unsigned char>(remove_str.data[i])] = true;
+        }
+
+        for (size_t i = 0; i < offset_size; ++i) {
+            const auto* str_begin = str_data.data() + str_offsets[i - 1];
+            const auto* str_end = str_data.data() + str_offsets[i];
+            const auto* p = str_begin;
+
+            if constexpr (is_ltrim_in) {
+                while (p < str_end && char_lookup[static_cast<unsigned char>(*p)]) {
+                    p++;
+                }
+            }
+            const auto* str_end_trimmed = str_end;
+            if constexpr (is_rtrim_in) {
+                while (str_end_trimmed > p &&
+                       char_lookup[static_cast<unsigned char>(*(str_end_trimmed - 1))]) {
+                    str_end_trimmed--;
+                }
+            }
+            res_data.insert_assume_reserved(p, str_end_trimmed);
             res_offsets[i] = res_data.size();
         }
         return Status::OK();
@@ -583,14 +629,23 @@ struct Trim2Impl {
                 const auto* remove_str_raw = col_right->get_chars().data();
                 const ColumnString::Offset remove_str_size = col_right->get_offsets()[0];
                 const StringRef remove_str(remove_str_raw, remove_str_size);
+
                 if (remove_str.size == 1) {
                     RETURN_IF_ERROR((TrimUtil<is_ltrim, is_rtrim, true>::vector(
                             col->get_chars(), col->get_offsets(), remove_str, col_res->get_chars(),
                             col_res->get_offsets())));
                 } else {
-                    RETURN_IF_ERROR((TrimUtil<is_ltrim, is_rtrim, false>::vector(
-                            col->get_chars(), col->get_offsets(), remove_str, col_res->get_chars(),
-                            col_res->get_offsets())));
+                    if constexpr (std::is_same<Name, NameTrimIn>::value ||
+                                  std::is_same<Name, NameLTrimIn>::value ||
+                                  std::is_same<Name, NameRTrimIn>::value) {
+                        RETURN_IF_ERROR((TrimInUtil<is_ltrim, is_rtrim, false>::vector(
+                                col->get_chars(), col->get_offsets(), remove_str,
+                                col_res->get_chars(), col_res->get_offsets())));
+                    } else {
+                        RETURN_IF_ERROR((TrimUtil<is_ltrim, is_rtrim, false>::vector(
+                                col->get_chars(), col->get_offsets(), remove_str,
+                                col_res->get_chars(), col_res->get_offsets())));
+                    }
                 }
                 block.replace_by_position(result, std::move(col_res));
             } else {
@@ -613,6 +668,38 @@ class FunctionTrim : public IFunction {
 public:
     static constexpr auto name = impl::name;
     static FunctionPtr create() { return std::make_shared<FunctionTrim<impl>>(); }
+    String get_name() const override { return impl::name; }
+
+    size_t get_number_of_arguments() const override {
+        return get_variadic_argument_types_impl().size();
+    }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        if (!is_string_or_fixed_string(arguments[0])) {
+            throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                                   "Illegal type {} of argument of function {}",
+                                   arguments[0]->get_name(), get_name());
+        }
+        return arguments[0];
+    }
+    // The second parameter of "trim" is a constant.
+    ColumnNumbers get_arguments_that_are_always_constant() const override { return {1}; }
+
+    DataTypes get_variadic_argument_types_impl() const override {
+        return impl::get_variadic_argument_types();
+    }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        size_t result, size_t input_rows_count) const override {
+        return impl::execute(context, block, arguments, result, input_rows_count);
+    }
+};
+
+template <typename impl>
+class FunctionTrimIn : public IFunction {
+public:
+    static constexpr auto name = impl::name;
+    static FunctionPtr create() { return std::make_shared<FunctionTrimIn<impl>>(); }
     String get_name() const override { return impl::name; }
 
     size_t get_number_of_arguments() const override {
@@ -1023,6 +1110,12 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionTrim<Trim2Impl<true, true, NameTrim>>>();
     factory.register_function<FunctionTrim<Trim2Impl<true, false, NameLTrim>>>();
     factory.register_function<FunctionTrim<Trim2Impl<false, true, NameRTrim>>>();
+    factory.register_function<FunctionTrimIn<Trim1Impl<true, true, NameTrimIn>>>();
+    factory.register_function<FunctionTrimIn<Trim1Impl<true, false, NameLTrimIn>>>();
+    factory.register_function<FunctionTrimIn<Trim1Impl<false, true, NameRTrimIn>>>();
+    factory.register_function<FunctionTrimIn<Trim2Impl<true, true, NameTrimIn>>>();
+    factory.register_function<FunctionTrimIn<Trim2Impl<true, false, NameLTrimIn>>>();
+    factory.register_function<FunctionTrimIn<Trim2Impl<false, true, NameRTrimIn>>>();
     factory.register_function<FunctionConvertTo>();
     factory.register_function<FunctionSubstring<Substr3Impl>>();
     factory.register_function<FunctionSubstring<Substr2Impl>>();
