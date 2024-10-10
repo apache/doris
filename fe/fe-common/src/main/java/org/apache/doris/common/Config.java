@@ -580,7 +580,7 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true, description = {
             "内部攒批的超时时间为table的group_commit_interval_ms的倍数",
             "The internal group commit timeout is the multiple of table's group_commit_interval_ms"})
-    public static int group_commit_timeout_multiple = 10;
+    public static int group_commit_timeout_multipler = 10;
 
     @ConfField(mutable = true, masterOnly = true, description = {"Stream load 的默认超时时间，单位是秒。",
             "Default timeout for stream load job, in seconds."})

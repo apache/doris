@@ -68,9 +68,9 @@ public class GroupCommitTableValuedFunction extends ExternalFileTableValuedFunct
             throw new AnalysisException("Only support OLAP table, but table type of table_id "
                     + tableId + " is " + table.getType());
         }
-        if (Config.group_commit_timeout_multiple > 0) {
+        if (Config.group_commit_timeout_multipler > 0) {
             int timeoutS = Math.max((int) (((OlapTable) table).getGroupCommitIntervalMs() / 1000.0
-                    * Config.group_commit_timeout_multiple), 600);
+                    * Config.group_commit_timeout_multipler), 600);
             ConnectContext.get().getSessionVariable().setInsertTimeoutS(timeoutS);
             ConnectContext.get().getSessionVariable().setQueryTimeoutS(timeoutS);
         }
