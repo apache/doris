@@ -282,19 +282,19 @@ Status BaseRowsetBuilder::submit_calc_delete_bitmap_task() {
     // For partial update, we need to fill in the entire row of data, during the calculation
     // of the delete bitmap. This operation is resource-intensive, and we need to minimize
     // the number of times it occurs. Therefore, we skip this operation here.
-    if (_partial_update_info->is_partial_update) {
+    if (_partial_update_info->is_partial_update()) {
         // for partial update, the delete bitmap calculation is done while append_block()
         // we print it's summarize logs here before commit.
         LOG(INFO) << fmt::format(
-                "partial update calc delete bitmap summary before commit: tablet({}), txn_id({}), "
+                "{} calc delete bitmap summary before commit: tablet({}), txn_id({}), "
                 "rowset_ids({}), cur max_version({}), bitmap num({}), bitmap_cardinality({}), num "
                 "rows updated({}), num rows new added({}), num rows deleted({}), total rows({})",
-                tablet()->tablet_id(), _req.txn_id, _rowset_ids.size(),
-                rowset_writer()->context().mow_context->max_version,
+                _partial_update_info->partial_update_mode_str(), tablet()->tablet_id(), _req.txn_id,
+                _rowset_ids.size(), rowset_writer()->context().mow_context->max_version,
                 _delete_bitmap->get_delete_bitmap_count(), _delete_bitmap->cardinality(),
                 rowset_writer()->num_rows_updated(), rowset_writer()->num_rows_new_added(),
                 rowset_writer()->num_rows_deleted(), rowset_writer()->num_rows());
-        return Status::OK();
+        \ return Status::OK();
     }
 
     LOG(INFO) << "submit calc delete bitmap task to executor, tablet_id: " << tablet()->tablet_id()
@@ -305,7 +305,7 @@ Status BaseRowsetBuilder::submit_calc_delete_bitmap_task() {
 }
 
 Status BaseRowsetBuilder::wait_calc_delete_bitmap() {
-    if (!_tablet->enable_unique_key_merge_on_write() || _partial_update_info->is_partial_update) {
+    if (!_tablet->enable_unique_key_merge_on_write() || _partial_update_info->is_partial_update()) {
         return Status::OK();
     }
     std::lock_guard<std::mutex> l(_lock);
@@ -427,11 +427,12 @@ Status BaseRowsetBuilder::_build_current_tablet_schema(
     _partial_update_info = std::make_shared<PartialUpdateInfo>();
     RETURN_IF_ERROR(_partial_update_info->init(
             tablet()->tablet_id(), _req.txn_id, *_tablet_schema,
-            table_schema_param->is_partial_update(),
+            table_schema_param->unique_key_update_mode(),
             table_schema_param->partial_update_input_columns(),
             table_schema_param->is_strict_mode(), table_schema_param->timestamp_ms(),
             table_schema_param->nano_seconds(), table_schema_param->timezone(),
-            table_schema_param->auto_increment_coulumn(), _max_version_in_flush_phase));
+            table_schema_param->auto_increment_coulumn(),
+            table_schema_param->sequence_map_col_uid(), _max_version_in_flush_phase));
     return Status::OK();
 }
 

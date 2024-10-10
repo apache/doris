@@ -68,6 +68,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.task.LoadTaskInfo;
 import org.apache.doris.thrift.TEtlState;
 import org.apache.doris.thrift.TFileFormatType;
+import org.apache.doris.thrift.TUniqueKeyUpdateMode;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -253,7 +254,8 @@ public class Load {
      */
     public static void initColumns(Table tbl, List<ImportColumnDesc> columnExprs,
             Map<String, Pair<String, List<String>>> columnToHadoopFunction) throws UserException {
-        initColumns(tbl, columnExprs, columnToHadoopFunction, null, null, null, null, null, null, null, false, false);
+        initColumns(tbl, columnExprs, columnToHadoopFunction, null, null, null, null, null, null, null, false,
+                TUniqueKeyUpdateMode.UPSERT);
     }
 
     /*
@@ -263,11 +265,12 @@ public class Load {
     public static void initColumns(Table tbl, LoadTaskInfo.ImportColumnDescs columnDescs,
             Map<String, Pair<String, List<String>>> columnToHadoopFunction, Map<String, Expr> exprsByName,
             Analyzer analyzer, TupleDescriptor srcTupleDesc, Map<String, SlotDescriptor> slotDescByName,
-            List<Integer> srcSlotIds, TFileFormatType formatType, List<String> hiddenColumns, boolean isPartialUpdate)
+            List<Integer> srcSlotIds, TFileFormatType formatType, List<String> hiddenColumns,
+            TUniqueKeyUpdateMode uniquekeyUpdateMode)
             throws UserException {
         rewriteColumns(columnDescs);
         initColumns(tbl, columnDescs.descs, columnToHadoopFunction, exprsByName, analyzer, srcTupleDesc, slotDescByName,
-                srcSlotIds, formatType, hiddenColumns, true, isPartialUpdate);
+                srcSlotIds, formatType, hiddenColumns, true, uniquekeyUpdateMode);
     }
 
     /*
@@ -282,7 +285,7 @@ public class Load {
             Map<String, Pair<String, List<String>>> columnToHadoopFunction, Map<String, Expr> exprsByName,
             Analyzer analyzer, TupleDescriptor srcTupleDesc, Map<String, SlotDescriptor> slotDescByName,
             List<Integer> srcSlotIds, TFileFormatType formatType, List<String> hiddenColumns,
-            boolean needInitSlotAndAnalyzeExprs, boolean isPartialUpdate) throws UserException {
+            boolean needInitSlotAndAnalyzeExprs, TUniqueKeyUpdateMode uniquekeyUpdateMode) throws UserException {
         // We make a copy of the columnExprs so that our subsequent changes
         // to the columnExprs will not affect the original columnExprs.
         // skip the mapping columns not exist in schema
@@ -298,10 +301,15 @@ public class Load {
                 copiedColumnExprs.add(importColumnDesc);
             }
         }
-        // check whether the OlapTable has sequenceCol
+        // check whether the OlapTable has sequenceCol and skipBitmapCol
         boolean hasSequenceCol = false;
-        if (tbl instanceof OlapTable && ((OlapTable) tbl).hasSequenceCol()) {
-            hasSequenceCol = true;
+        boolean hasSequenceMapCol = false;
+        boolean hasSkipBitmapColumn = false;
+        if (tbl instanceof OlapTable) {
+            OlapTable olapTable = (OlapTable) tbl;
+            hasSequenceCol = olapTable.hasSequenceCol();
+            hasSequenceMapCol = (olapTable.getSequenceMapCol() != null);
+            hasSkipBitmapColumn = olapTable.hasSkipBitmapColumn();
         }
 
         // If user does not specify the file field names, generate it by using base schema of table.
@@ -324,6 +332,25 @@ public class Load {
                     LOG.debug("add base column {} to stream load task", column.getName());
                 }
                 copiedColumnExprs.add(columnDesc);
+            }
+            if (hasSkipBitmapColumn && uniquekeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS) {
+                Preconditions.checkArgument(!specifyFileFieldNames);
+                Preconditions.checkArgument(hiddenColumns == null);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("add hidden column {} to stream load task", Column.DELETE_SIGN);
+                }
+                copiedColumnExprs.add(new ImportColumnDesc(Column.DELETE_SIGN));
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("add hidden column {} to stream load task", Column.SKIP_BITMAP_COL);
+                }
+                // allow to specify __DORIS_SEQUENCE_COL__ if table has sequence type column
+                if (hasSequenceCol && !hasSequenceMapCol) {
+                    copiedColumnExprs.add(new ImportColumnDesc(Column.SEQUENCE_COL));
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("add hidden column {} to stream load task", Column.SEQUENCE_COL);
+                    }
+                }
+                copiedColumnExprs.add(new ImportColumnDesc(Column.SKIP_BITMAP_COL));
             }
             if (hiddenColumns != null) {
                 for (String columnName : hiddenColumns) {
@@ -365,7 +392,7 @@ public class Load {
                 exprsByName.put(column.getName(), NullLiteral.create(column.getType()));
                 continue;
             }
-            if (isPartialUpdate) {
+            if (uniquekeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS) {
                 continue;
             }
             if (column.isAutoInc()) {
@@ -437,9 +464,32 @@ public class Load {
                 if (formatType == TFileFormatType.FORMAT_ARROW) {
                     slotDesc.setColumn(new Column(realColName, colToType.get(realColName)));
                 } else {
-                    // columns default be varchar type
-                    slotDesc.setType(ScalarType.createType(PrimitiveType.VARCHAR));
-                    slotDesc.setColumn(new Column(realColName, PrimitiveType.VARCHAR));
+                    if (uniquekeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS && hasSkipBitmapColumn) {
+                        // we store the unique ids of missing columns in skip bitmap column in flexible partial update
+                        int colUniqueId = tblColumn.getUniqueId();
+                        Column slotColumn = null;
+                        if (realColName.equals(Column.SKIP_BITMAP_COL)) {
+                            // don't change the skip_bitmap_col's type to varchar becasue we will fill this column
+                            // in NewJsonReader manually rather than reading them from files as varchar type and then
+                            // converting them to their real type
+                            slotColumn = new Column(realColName, PrimitiveType.BITMAP);
+                        } else {
+                            // columns default be varchar type
+                            slotColumn = new Column(realColName, PrimitiveType.VARCHAR);
+                        }
+                        // In flexible partial update, every row can update different columns, we should check
+                        // key columns intergrity for every row in XXXReader on BE rather than checking it on FE
+                        // directly for all rows like in fixed columns partial update. So we should set if a slot
+                        // is key column here
+                        slotColumn.setIsKey(tblColumn.isKey());
+                        slotColumn.setUniqueId(colUniqueId);
+                        slotDesc.setAutoInc(tblColumn.isAutoInc());
+                        slotDesc.setColumn(slotColumn);
+                    } else {
+                        // columns default be varchar type
+                        slotDesc.setType(ScalarType.createType(PrimitiveType.VARCHAR));
+                        slotDesc.setColumn(new Column(realColName, PrimitiveType.VARCHAR));
+                    }
                 }
 
                 // ISSUE A: src slot should be nullable even if the column is not nullable.
