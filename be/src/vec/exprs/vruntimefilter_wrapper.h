@@ -88,10 +88,6 @@ public:
     void do_judge_selectivity(int64_t filter_rows, int64_t input_rows) override {
         update_counters(filter_rows, input_rows);
 
-        if (_judge_counter.fetch_sub(1) == 0) {
-            reset_judge_selectivity();
-        }
-
         if (!_always_true) {
             _judge_filter_rows += filter_rows;
             _judge_input_rows += input_rows;
