@@ -258,6 +258,7 @@ struct TFileTextScanRangeParams {
     4: optional string mapkv_delimiter;
     5: optional i8 enclose;
     6: optional i8 escape;
+    7: optional string null_format;
 }
 
 struct TFileScanSlotInfo {
