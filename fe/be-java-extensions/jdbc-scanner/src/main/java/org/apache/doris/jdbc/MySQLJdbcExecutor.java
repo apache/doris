@@ -136,6 +136,8 @@ public class MySQLJdbcExecutor extends BaseJdbcExecutor {
                     return resultSet.getObject(columnIndex + 1, String.class);
                 case STRING: {
                     int jdbcType = resultSetMetaData.getColumnType(columnIndex + 1);
+                    // If it is a time type.
+                    // We need to obtain the string directly to ensure that we can obtain a time other than 24 hours.
                     if (jdbcType == Types.TIME) {
                         return resultSet.getString(columnIndex + 1);
                     } else {
