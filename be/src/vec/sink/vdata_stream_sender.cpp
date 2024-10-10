@@ -200,7 +200,8 @@ Status Channel<Parent>::send_local_block(Status exec_status, bool eos) {
 
         _local_recvr->add_block(&block, _parent->sender_id(), true);
         if (eos) {
-            _local_recvr->remove_sender(_parent->sender_id(), _be_number, exec_status);
+            _local_recvr->remove_sender(_parent->sender_id(), _be_number,
+                                        _parent->close_sender_number(), exec_status);
         }
         return Status::OK();
     } else {
@@ -326,7 +327,8 @@ Status Channel<Parent>::close_internal(Status exec_status) {
         SCOPED_CONSUME_MEM_TRACKER(_parent->mem_tracker());
         if (is_local()) {
             if (_recvr_is_valid()) {
-                _local_recvr->remove_sender(_parent->sender_id(), _be_number, exec_status);
+                _local_recvr->remove_sender(_parent->sender_id(), _be_number,
+                                            _parent->close_sender_number(), exec_status);
             }
         } else {
             // Non pipeline engine will send an empty eos block

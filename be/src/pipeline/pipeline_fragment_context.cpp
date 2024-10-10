@@ -825,6 +825,14 @@ Status PipelineFragmentContext::_add_local_exchange_impl(
                             : 0);
         }
         break;
+    case ExchangeType::PASS_TO_ONE_EXCHANGE: {
+        shared_state->exchanger = PassToOneExchanger::create_unique(
+                cur_pipe->num_tasks(), _num_instances,
+                _runtime_state->query_options().__isset.local_exchange_free_blocks_limit
+                        ? _runtime_state->query_options().local_exchange_free_blocks_limit
+                        : 0);
+        break;
+    }
     case ExchangeType::LOCAL_MERGE_SORT: {
         auto child_op = cur_pipe->sink()->child();
         auto sort_source = std::dynamic_pointer_cast<SortSourceOperatorX>(child_op);
@@ -913,6 +921,14 @@ Status PipelineFragmentContext::_add_local_exchange_impl(
 
     // 7. Inherit properties from current pipeline.
     _inherit_pipeline_properties(data_distribution, cur_pipe, new_pip);
+
+    if (data_distribution.distribution_type == ExchangeType::PASS_TO_ONE_EXCHANGE) {
+        if (auto* ex_sink = typeid_cast<ExchangeSinkOperatorX*>(cur_pipe->sink())) {
+            ex_sink->set_close_sender_number(cur_pipe->num_tasks());
+            cur_pipe->set_num_tasks(1);
+        }
+    }
+
     return Status::OK();
 }
 
@@ -1166,10 +1182,10 @@ Status PipelineFragmentContext::_create_data_sink(ObjectPool* pool, const TDataS
             // 2. create and set sink operator of data stream sender for new pipeline
 
             DataSinkOperatorPtr sink_op;
-            sink_op.reset(
-                    new ExchangeSinkOperatorX(state, *_row_desc, next_sink_operator_id(),
-                                              thrift_sink.multi_cast_stream_sink.sinks[i],
-                                              thrift_sink.multi_cast_stream_sink.destinations[i]));
+            sink_op.reset(new ExchangeSinkOperatorX(
+                    state, *_row_desc, next_sink_operator_id(),
+                    thrift_sink.multi_cast_stream_sink.sinks[i],
+                    thrift_sink.multi_cast_stream_sink.destinations[i], true));
 
             RETURN_IF_ERROR(new_pipeline->set_sink(sink_op));
             {
