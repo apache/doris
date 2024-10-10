@@ -305,9 +305,7 @@ void ColumnDecimal<T>::insert_many_from(const IColumn& src, size_t position, siz
     auto old_size = data.size();
     data.resize(old_size + length);
     auto& vals = assert_cast<const Self&>(src).get_data();
-    for (auto i = 0; i < length; ++i) {
-        data[old_size + i] = vals[position];
-    }
+    std::fill(&data[old_size], &data[old_size + length], vals[position]);
 }
 
 template <typename T>
