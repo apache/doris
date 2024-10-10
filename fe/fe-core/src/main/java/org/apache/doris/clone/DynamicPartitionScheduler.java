@@ -171,8 +171,8 @@ public class DynamicPartitionScheduler extends MasterDaemon {
         }
 
         boolean isAscending = true;
-        List<Long> ascendingDeltaSize = List.newArrayList();
-        for (int i = math.max(1, historyPartitionsSize.size() - 7); i < historyPartitionsSize.size(); i++) {
+        ArrayList<Long> ascendingDeltaSize = new ArrayList<Long>();
+        for (int i = Math.max(1, historyPartitionsSize.size() - 7); i < historyPartitionsSize.size(); i++) {
             long delta = historyPartitionsSize.get(i) - historyPartitionsSize.get(i - 1);
             if (delta < 0) {
                 isAscending = false;
