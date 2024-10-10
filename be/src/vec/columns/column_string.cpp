@@ -179,9 +179,11 @@ void ColumnStr<T>::insert_many_from(const IColumn& src, size_t position, size_t 
 
     auto start_pos = old_size;
     auto end_pos = old_size + length;
+    auto prev_pos = old_chars_size;
     for (; start_pos < end_pos; ++start_pos) {
-        offsets[start_pos] = offsets[start_pos - 1] + data_length;
-        memcpy(chars.data() + offsets[start_pos], data_val, data_length);
+        memcpy(&chars[prev_pos], data_val, data_length);
+        offsets[start_pos] = prev_pos + data_length;
+        prev_pos = prev_pos + data_length;
     }
 }
 
