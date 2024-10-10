@@ -20,6 +20,7 @@ package org.apache.doris.jdbc;
 import com.zaxxer.hikari.HikariDataSource;
 import org.apache.log4j.Logger;
 
+import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
@@ -31,6 +32,7 @@ public class JdbcDataSource {
     private static final Logger LOG = Logger.getLogger(JdbcDataSource.class);
     private static final JdbcDataSource jdbcDataSource = new JdbcDataSource();
     private final Map<String, HikariDataSource> sourcesMap = new ConcurrentHashMap<>();
+    private final Map<Long, String> catalogId2CacheKey = new ConcurrentHashMap<>();
     private final Map<String, Long> lastAccessTimeMap = new ConcurrentHashMap<>();
     private final ScheduledExecutorService executor = Executors.newSingleThreadScheduledExecutor();
     private long cleanupInterval = 8 * 60 * 60 * 1000; // 8 hours
@@ -49,8 +51,9 @@ public class JdbcDataSource {
         return sourcesMap.get(cacheKey);
     }
 
-    public void putSource(String cacheKey, HikariDataSource ds) {
+    public void putSource(Long catalogId, String cacheKey, HikariDataSource ds) {
         sourcesMap.put(cacheKey, ds);
+        catalogId2CacheKey.put(catalogId, cacheKey);
         lastAccessTimeMap.put(cacheKey, System.currentTimeMillis());
     }
 
@@ -92,5 +95,18 @@ public class JdbcDataSource {
         if (cleanupTask == null || cleanupTask.isCancelled()) {
             restartCleanupTask();
         }
+    }
+
+    public static Map<String, String> getConnectionPercent() {
+        Map<String, String> result = new HashMap<>();
+        for (Map.Entry<Long, String> entry : getDataSource().catalogId2CacheKey.entrySet()) {
+            HikariDataSource ds = getDataSource().sourcesMap.get(entry.getValue());
+            int percent = 0;
+            if (ds != null) {
+                percent = ds.getHikariPoolMXBean().getActiveConnections() * 100 / ds.getMaximumPoolSize();
+            }
+            result.put(String.valueOf(entry.getKey()), String.valueOf(percent));
+        }
+        return result;
     }
 }
