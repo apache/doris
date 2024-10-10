@@ -1150,12 +1150,6 @@ Status SchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParams& sc
         context.segments_overlap = rs_reader->rowset()->rowset_meta()->segments_overlap();
         context.tablet_schema = _new_tablet_schema;
         context.newest_write_timestamp = rs_reader->newest_write_timestamp();
-
-        if (!rs_reader->rowset()->is_local()) {
-            context.storage_resource =
-                    *DORIS_TRY(rs_reader->rowset()->rowset_meta()->remote_storage_resource());
-        }
-
         context.write_type = DataWriteType::TYPE_SCHEMA_CHANGE;
         auto result = _new_tablet->create_rowset_writer(context, false);
         if (!result.has_value()) {
