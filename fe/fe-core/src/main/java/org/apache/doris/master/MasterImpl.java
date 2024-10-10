@@ -439,6 +439,9 @@ public class MasterImpl {
         } catch (MetaNotFoundException e) {
             AgentTaskQueue.removeTask(backendId, TTaskType.REALTIME_PUSH, signature);
             LOG.warn("finish push replica error", e);
+            if (pushTask.getPushType() == TPushType.DELETE) {
+                pushTask.countDownLatch(backendId, pushTabletId);
+            }
         } finally {
             olapTable.writeUnlock();
         }
