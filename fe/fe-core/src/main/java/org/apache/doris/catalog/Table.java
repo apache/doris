@@ -640,4 +640,9 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
     public boolean autoAnalyzeEnabled() {
         return true;
     }
+
+    @Override
+    public TableIndexes getTableIndexes() {
+        return new TableIndexes();
+    }
 }
