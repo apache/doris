@@ -22,6 +22,7 @@ import org.apache.doris.common.jni.vec.ColumnType.Type;
 import org.apache.doris.common.jni.vec.ColumnValueConverter;
 import org.apache.doris.common.jni.vec.VectorTable;
 import org.apache.doris.thrift.TJdbcOperation;
+import org.apache.doris.thrift.TOdbcTableType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.util.concurrent.MoreExecutors;
@@ -136,9 +137,11 @@ public class MySQLJdbcExecutor extends BaseJdbcExecutor {
                     return resultSet.getObject(columnIndex + 1, String.class);
                 case STRING: {
                     int jdbcType = resultSetMetaData.getColumnType(columnIndex + 1);
-                    // If it is a time type.
+                    // If it is a time type in mysql, or use mysql driver connect mariadb
                     // We need to obtain the string directly to ensure that we can obtain a time other than 24 hours.
-                    if (jdbcType == Types.TIME) {
+                    // If it is another database, such as oceanbase, this processing will lose precision information,
+                    // so the original processing method will be maintained for the time being.
+                    if (jdbcType == Types.TIME && config.getTableType() == TOdbcTableType.MYSQL) {
                         return resultSet.getString(columnIndex + 1);
                     } else {
                         return resultSet.getObject(columnIndex + 1);
