@@ -407,7 +407,11 @@ public:
     std::shared_ptr<MetricEntity> register_entity(
             const std::string& name, const Labels& labels = {},
             MetricEntityType type = MetricEntityType::kServer);
+    std::shared_ptr<MetricEntity> register_entity_unlocked(
+            const std::string& name, const Labels& labels = {},
+            MetricEntityType type = MetricEntityType::kServer);
     void deregister_entity(const std::shared_ptr<MetricEntity>& entity);
+    void deregister_entity_unlocked(const std::shared_ptr<MetricEntity>& entity);
     std::shared_ptr<MetricEntity> get_entity(const std::string& name, const Labels& labels = {},
                                              MetricEntityType type = MetricEntityType::kServer);
 

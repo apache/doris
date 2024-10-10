@@ -587,6 +587,9 @@ DEFINE_mBool(enable_token_check, "true");
 // to open/close system metrics
 DEFINE_Bool(enable_system_metrics, "true");
 
+// to open/close jni metrics
+DEFINE_Bool(enable_jni_metrics, "true");
+
 // Number of cores Doris will used, this will effect only when it's greater than 0.
 // Otherwise, Doris will use all cores returned from "/proc/cpuinfo".
 DEFINE_Int32(num_cores, "0");

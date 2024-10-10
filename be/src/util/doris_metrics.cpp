@@ -336,6 +336,12 @@ void DorisMetrics::init_jvm_metrics(JNIEnv* env) {
     _jvm_metrics.reset(new JvmMetrics(&_metric_registry, env));
 }
 
+void DorisMetrics::init_jni_metrics() {
+    if (config::enable_jni_metrics) {
+        _jni_metrics.reset(new JniMetrics(&_metric_registry));
+    }
+}
+
 void DorisMetrics::_update() {
     _update_process_thread_num();
     _update_process_fd_num();

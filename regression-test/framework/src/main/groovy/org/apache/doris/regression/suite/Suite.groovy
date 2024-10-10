@@ -2127,7 +2127,7 @@ class Suite implements GroovyInterceptable {
         def js = jsonOutput.toJson(map)
         log.info("get be metric req: ${js} ".toString())
 
-        def ret = 0;
+        def ret = Integer.MAX_VALUE
         metric_api.call(js) {
             respCode, body ->
                 log.info("get be metric resp: ${respCode}".toString())
