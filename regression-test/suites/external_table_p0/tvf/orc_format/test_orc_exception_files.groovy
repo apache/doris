@@ -27,7 +27,7 @@ suite("test_orc_exception_files","external,hive,tvf,external_docker") {
 
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         test {
-            uri = "${defaultFS}" + "/user/doris/preinstalled_data/orc_exception_files/corrupted.orc"
+            uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_orc/group5/corrupted.orc"
             sql """ select * from HDFS(
                         "uri" = "${uri}",
                         "hadoop.username" = "${hdfsUserName}",
@@ -36,7 +36,7 @@ suite("test_orc_exception_files","external,hive,tvf,external_docker") {
         }
 
         test {
-            uri = "${defaultFS}" + "/user/doris/preinstalled_data/orc_exception_files/DwrfStripeCache_BOTH_AllStripes.orc"
+            uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_orc/group3/DwrfStripeCache_BOTH_AllStripes.orc"
             sql """ select * from HDFS(
                         "uri" = "${uri}",
                         "hadoop.username" = "${hdfsUserName}",
@@ -45,7 +45,7 @@ suite("test_orc_exception_files","external,hive,tvf,external_docker") {
         }
 
         test {
-            uri = "${defaultFS}" + "/user/doris/preinstalled_data/orc_exception_files/DwrfStripeCache_FOOTER_AllStripes.orc"
+            uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_orc/group3/DwrfStripeCache_FOOTER_AllStripes.orc"
             sql """ select * from HDFS(
                         "uri" = "${uri}",
                         "hadoop.username" = "${hdfsUserName}",
@@ -54,17 +54,7 @@ suite("test_orc_exception_files","external,hive,tvf,external_docker") {
         }
 
         test {
-            uri = "${defaultFS}" + "/user/doris/preinstalled_data/orc_exception_files/DwrfStripeCache_FOOTER_HalfStripes.orc"
-            sql """ select * from HDFS(
-                        "uri" = "${uri}",
-                        "hadoop.username" = "${hdfsUserName}",
-                        "format" = "orc"); """
-            exception "Init OrcReader failed. reason = Failed to parse the footer from"
-        }
-
-
-        test {
-            uri = "${defaultFS}" + "/user/doris/preinstalled_data/orc_exception_files/DwrfStripeCache_BOTH_HalfStripes.orc"
+            uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_orc/group3/DwrfStripeCache_FOOTER_HalfStripes.orc"
             sql """ select * from HDFS(
                         "uri" = "${uri}",
                         "hadoop.username" = "${hdfsUserName}",
@@ -74,25 +64,7 @@ suite("test_orc_exception_files","external,hive,tvf,external_docker") {
 
 
         test {
-            uri = "${defaultFS}" + "/user/doris/preinstalled_data/orc_exception_files/DwrfStripeCache_INDEX_AllStripes.orc"
-            sql """ select * from HDFS(
-                        "uri" = "${uri}",
-                        "hadoop.username" = "${hdfsUserName}",
-                        "format" = "orc"); """
-            exception "Init OrcReader failed. reason = Failed to parse the footer from"
-        }
-
-        test {
-            uri = "${defaultFS}" + "/user/doris/preinstalled_data/orc_exception_files/DwrfStripeCache_INDEX_HalfStripes.orc"
-            sql """ select * from HDFS(
-                        "uri" = "${uri}",
-                        "hadoop.username" = "${hdfsUserName}",
-                        "format" = "orc"); """
-            exception "Init OrcReader failed. reason = Failed to parse the footer from"
-        }
-
-        test {
-            uri = "${defaultFS}" + "/user/doris/preinstalled_data/orc_exception_files/DwrfStripeCache_NONE.orc"
+            uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_orc/group3/DwrfStripeCache_BOTH_HalfStripes.orc"
             sql """ select * from HDFS(
                         "uri" = "${uri}",
                         "hadoop.username" = "${hdfsUserName}",
@@ -102,7 +74,35 @@ suite("test_orc_exception_files","external,hive,tvf,external_docker") {
 
 
         test {
-            uri = "${defaultFS}" + "/user/doris/preinstalled_data/orc_exception_files/before_1582_ts_v2_4.snappy.orc"
+            uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_orc/group3/DwrfStripeCache_INDEX_AllStripes.orc"
+            sql """ select * from HDFS(
+                        "uri" = "${uri}",
+                        "hadoop.username" = "${hdfsUserName}",
+                        "format" = "orc"); """
+            exception "Init OrcReader failed. reason = Failed to parse the footer from"
+        }
+
+        test {
+            uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_orc/group3/DwrfStripeCache_INDEX_HalfStripes.orc"
+            sql """ select * from HDFS(
+                        "uri" = "${uri}",
+                        "hadoop.username" = "${hdfsUserName}",
+                        "format" = "orc"); """
+            exception "Init OrcReader failed. reason = Failed to parse the footer from"
+        }
+
+        test {
+            uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_orc/group3/DwrfStripeCache_NONE.orc"
+            sql """ select * from HDFS(
+                        "uri" = "${uri}",
+                        "hadoop.username" = "${hdfsUserName}",
+                        "format" = "orc"); """
+            exception "Init OrcReader failed. reason = Failed to parse the footer from"
+        }
+
+
+        test {
+            uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_orc/group2/before_1582_ts_v2_4.snappy.orc"
             sql """ select * from HDFS(
                         "uri" = "${uri}",
                         "hadoop.username" = "${hdfsUserName}",
@@ -111,7 +111,7 @@ suite("test_orc_exception_files","external,hive,tvf,external_docker") {
         }
 
         test {
-            uri = "${defaultFS}" + "/user/doris/preinstalled_data/orc_exception_files/missing_blob_stream_in_string_dict.orc"
+            uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_orc/group0/missing_blob_stream_in_string_dict.orc"
             sql """ select * from HDFS(
                         "uri" = "${uri}",
                         "hadoop.username" = "${hdfsUserName}",
@@ -121,7 +121,7 @@ suite("test_orc_exception_files","external,hive,tvf,external_docker") {
 
 
         test {
-            uri = "${defaultFS}" + "/user/doris/preinstalled_data/orc_exception_files/missing_length_stream_in_string_dict.orc"
+            uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_orc/group0/missing_length_stream_in_string_dict.orc"
             sql """ select * from HDFS(
                         "uri" = "${uri}",
                         "hadoop.username" = "${hdfsUserName}",
@@ -130,7 +130,7 @@ suite("test_orc_exception_files","external,hive,tvf,external_docker") {
         }
 
         test {
-            uri = "${defaultFS}" + "/user/doris/preinstalled_data/orc_exception_files/negative_dict_entry_lengths.orc"
+            uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_orc/group0/negative_dict_entry_lengths.orc"
             sql """ select * from HDFS(
                         "uri" = "${uri}",
                         "hadoop.username" = "${hdfsUserName}",
@@ -139,7 +139,7 @@ suite("test_orc_exception_files","external,hive,tvf,external_docker") {
         }
 
         test {
-            uri = "${defaultFS}" + "/user/doris/preinstalled_data/orc_exception_files/stripe_footer_bad_column_encodings.orc"
+            uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_orc/group0/stripe_footer_bad_column_encodings.orc"
             sql """ select * from HDFS(
                         "uri" = "${uri}",
                         "hadoop.username" = "${hdfsUserName}",
