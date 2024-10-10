@@ -177,8 +177,8 @@ public:
 
 private:
     bool _reach_limit() {
-        return _enable_spill && (_state->unsorted_block_->rows() > buffered_block_size_ ||
-                                 _state->unsorted_block_->bytes() > buffered_block_bytes_);
+        return _state->unsorted_block_->rows() > buffered_block_size_ ||
+               _state->unsorted_block_->bytes() > buffered_block_bytes_;
     }
 
     Status _do_sort();
