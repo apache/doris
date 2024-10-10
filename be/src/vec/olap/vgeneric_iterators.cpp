@@ -17,6 +17,7 @@
 
 #include <vec/olap/vgeneric_iterators.h>
 
+#include <algorithm>
 #include <memory>
 #include <queue>
 #include <utility>
@@ -321,13 +322,13 @@ Status VMergeIterator::init(const StorageReadOptions& opts) {
     _record_rowids = opts.record_rowids;
 
     for (auto iter : _origin_iters) {
-        auto ctx = std::make_unique<VMergeIteratorContext>(
+        auto ctx = std::make_shared<VMergeIteratorContext>(
                 iter, _sequence_id_idx, _is_unique, _is_reverse, opts.read_orderby_key_columns);
         RETURN_IF_ERROR(ctx->init(opts));
         if (!ctx->valid()) {
             continue;
         }
-        _merge_heap.push(ctx.release());
+        _merge_heap.push(ctx);
     }
 
     _origin_iters.clear();
