@@ -26,6 +26,7 @@
 #include <gen_cpp/Metrics_types.h>
 #include <gen_cpp/olap_file.pb.h>
 #include <gen_cpp/types.pb.h>
+#include <glog/logging.h>
 #include <rapidjson/document.h>
 #include <rapidjson/encodings.h>
 #include <rapidjson/prettywriter.h>
@@ -35,6 +36,7 @@
 #include <algorithm>
 #include <atomic>
 #include <boost/container/detail/std_fwd.hpp>
+#include <cstdint>
 #include <roaring/roaring.hh>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
@@ -333,23 +335,130 @@ void Tablet::save_meta() {
     if (config::enable_table_size_correctness_check) {
         const std::vector<RowsetMetaSharedPtr>& all_rs_metas = _tablet_meta->all_rs_metas();
         for (const auto& rs_meta : all_rs_metas) {
+            const auto& fs = rs_meta->fs();
+            if (!fs) {
+                LOG(WARNING) << "get fs failed, resource_id={}" << rs_meta->resource_id();
+            }
+            int64_t total_segment_size = 0;
+            int64_t total_inverted_index_size = 0;
+            for (int64_t seg_id = 0; seg_id < rs_meta->num_segments(); seg_id++) {
+                std::string segment_path = fmt::format("{}/{}_{}.dat", _tablet_path,
+                                                       rs_meta->rowset_id().to_string(), seg_id);
+                int64_t segment_file_size = 0;
+                auto st = fs->file_size(segment_path, &segment_file_size);
+                if (!st.ok()) {
+                    segment_file_size = 0;
+                    LOG(WARNING) << "table size correctness check get segment size failed! msg:"
+                                 << st.msg() << ", segment path:" << segment_path;
+                }
+                total_segment_size += segment_file_size;
+            }
+
+            if (tablet_schema()->get_inverted_index_storage_format() ==
+                InvertedIndexStorageFormatPB::V1) {
+                auto indices = tablet_schema()->indexes();
+                for (auto& index : indices) {
+                    // only get file_size for inverted index
+                    if (index.index_type() != IndexType::INVERTED) {
+                        continue;
+                    }
+                    for (int seg_id = 0; seg_id < rs_meta->num_segments(); ++seg_id) {
+                        std::string segment_path =
+                                fmt::format("{}/{}_{}.dat", _tablet_path,
+                                            rs_meta->rowset_id().to_string(), seg_id);
+                        int64_t file_size = 0;
+
+                        std::string inverted_index_file_path =
+                                InvertedIndexDescriptor::get_index_file_path_v1(
+                                        InvertedIndexDescriptor::get_index_file_path_prefix(
+                                                segment_path),
+                                        index.index_id(), index.get_index_suffix());
+                        auto st = fs->file_size(inverted_index_file_path, &file_size);
+                        if (!st.ok()) {
+                            file_size = 0;
+                            LOG(WARNING) << "table size correctness check get inverted index v1 "
+                                            "size failed! msg:"
+                                         << st.msg()
+                                         << ", inverted index path:" << inverted_index_file_path;
+                        }
+                        total_inverted_index_size += file_size;
+                    }
+                }
+            } else {
+                for (int seg_id = 0; seg_id < rs_meta->num_segments(); ++seg_id) {
+                    int64_t file_size = 0;
+                    std::string segment_path = fmt::format(
+                            "{}/{}_{}.dat", _tablet_path, rs_meta->rowset_id().to_string(), seg_id);
+
+                    std::string inverted_index_file_path =
+                            InvertedIndexDescriptor::get_index_file_path_v2(
+                                    InvertedIndexDescriptor::get_index_file_path_prefix(
+                                            segment_path));
+                    auto st = fs->file_size(inverted_index_file_path, &file_size);
+                    if (!st.ok()) {
+                        file_size = 0;
+                        LOG(WARNING)
+                                << "table size correctness check get inverted index v2 size "
+                                   "failed! msg:"
+                                << st.msg() << ", inverted index path:" << inverted_index_file_path;
+                    }
+                    total_inverted_index_size += file_size;
+                }
+            }
+            LOG(INFO) << "[Local table segment size info]:"
+                      << " tablet id: " << get_tablet_info().tablet_id
+                      << ", rowset id:" << rs_meta->rowset_id()
+                      << ", rowset data disk size:" << rs_meta->data_disk_size()
+                      << ", rowset real data disk size:" << total_segment_size
+                      << ", rowset index disk size:" << rs_meta->index_disk_size()
+                      << ", rowset real index disk size:" << total_inverted_index_size
+                      << ", rowset total disk size:" << rs_meta->total_disk_size()
+                      << ", rowset segment path:"
+                      << fmt::format("{}/{}_x.dat", _tablet_path, rs_meta->rowset_id().to_string())
+                      << ".";
+            if (rs_meta->data_disk_size() != total_segment_size) {
+                LOG(WARNING) << "[Local table segment size check failed]:"
+                             << " tablet id: " << get_tablet_info().tablet_id
+                             << ", rowset id:" << rs_meta->rowset_id()
+                             << ", rowset data disk size:" << rs_meta->data_disk_size()
+                             << ", rowset real data disk size:" << total_segment_size
+                             << ", rowset index disk size:" << rs_meta->index_disk_size()
+                             << ", rowset real index disk size:" << total_inverted_index_size
+                             << ", rowset total disk size:" << rs_meta->total_disk_size()
+                             << ", rowset segment path:"
+                             << fmt::format("{}/{}_x.dat", _tablet_path,
+                                            rs_meta->rowset_id().to_string())
+                             << ".";
+                DCHECK(false);
+            }
+            if (rs_meta->index_disk_size() != total_inverted_index_size) {
+                LOG(WARNING) << "[Local table index size check failed]:"
+                             << " tablet id: " << get_tablet_info().tablet_id
+                             << ", rowset id:" << rs_meta->rowset_id()
+                             << ", rowset data disk size:" << rs_meta->data_disk_size()
+                             << ", rowset real data disk size:" << total_segment_size
+                             << ", rowset index disk size:" << rs_meta->index_disk_size()
+                             << ", rowset real index disk size:" << total_inverted_index_size
+                             << ", rowset total disk size:" << rs_meta->total_disk_size()
+                             << ", rowset segment path:"
+                             << fmt::format("{}/{}_x.dat", _tablet_path,
+                                            rs_meta->rowset_id().to_string())
+                             << ".";
+                DCHECK(false);
+            }
             if (rs_meta->data_disk_size() + rs_meta->index_disk_size() !=
                 rs_meta->total_disk_size()) {
-                LOG(FATAL) << "[Local table size check failed]:"
-                           << " tablet id: " << get_tablet_info().tablet_id
-                           << ", rowset id:" << rs_meta->rowset_id()
-                           << ", rowset data disk size:" << rs_meta->data_disk_size()
-                           << ", rowset index disk size:" << rs_meta->index_disk_size()
-                           << ", rowset total disk size:" << rs_meta->total_disk_size() << ".";
-            }
-            if (rs_meta->index_disk_size() >
-                config::max_table_index_data_ratio * rs_meta->data_disk_size()) {
-                LOG(FATAL) << "[Local table index size check failed]:"
-                           << " tablet id: " << get_tablet_info().tablet_id
-                           << ", rowset id:" << rs_meta->rowset_id()
-                           << ", rowset data disk size:" << rs_meta->data_disk_size()
-                           << ", rowset index disk size:" << rs_meta->index_disk_size()
-                           << ", rowset total disk size:" << rs_meta->total_disk_size() << ".";
+                LOG(WARNING) << "[Local table size check failed]:"
+                             << " tablet id: " << get_tablet_info().tablet_id
+                             << ", rowset id:" << rs_meta->rowset_id()
+                             << ", rowset data disk size:" << rs_meta->data_disk_size()
+                             << ", rowset index disk size:" << rs_meta->index_disk_size()
+                             << ", rowset total disk size:" << rs_meta->total_disk_size()
+                             << ", rowset segment path:"
+                             << fmt::format("{}/{}_x.dat", _tablet_path,
+                                            rs_meta->rowset_id().to_string())
+                             << ".";
+                DCHECK(false);
             }
         }
     }
