@@ -66,7 +66,6 @@ Status AggSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
 
     _build_timer = ADD_TIMER(Base::profile(), "BuildTime");
     _serialize_key_timer = ADD_TIMER(Base::profile(), "SerializeKeyTime");
-    _exec_timer = ADD_TIMER(Base::profile(), "ExecTime");
     _merge_timer = ADD_TIMER(Base::profile(), "MergeTime");
     _expr_timer = ADD_TIMER(Base::profile(), "ExprTime");
     _serialize_data_timer = ADD_TIMER(Base::profile(), "SerializeDataTime");

@@ -150,10 +150,6 @@ public:
         auto status = spill_partition->get_spill_stream(state, Base::_parent->node_id(),
                                                         Base::profile(), spill_stream);
         RETURN_IF_ERROR(status);
-        spill_stream->set_write_counters(Base::_spill_serialize_block_timer,
-                                         Base::_spill_block_count, Base::_spill_data_size,
-                                         Base::_spill_write_disk_timer,
-                                         Base::_spill_write_wait_io_timer, memory_used_counter());
 
         status = to_block(context, keys, values, null_key_data);
         RETURN_IF_ERROR(status);
@@ -168,14 +164,9 @@ public:
             keys.clear();
             values.clear();
         }
-        status = spill_stream->prepare_spill();
+        status = spill_stream->spill_block(state, block_, false);
         RETURN_IF_ERROR(status);
 
-        {
-            SCOPED_TIMER(_spill_write_disk_timer);
-            status = spill_stream->spill_block(state, block_, false);
-        }
-        RETURN_IF_ERROR(status);
         status = spill_partition->flush_if_full();
         _reset_tmp_data();
         return status;

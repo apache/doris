@@ -95,7 +95,6 @@ Status StreamingAggLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     _build_timer = ADD_TIMER(Base::profile(), "BuildTime");
     _build_table_convert_timer = ADD_TIMER(Base::profile(), "BuildConvertToPartitionedTime");
     _serialize_key_timer = ADD_TIMER(Base::profile(), "SerializeKeyTime");
-    _exec_timer = ADD_TIMER(Base::profile(), "ExecTime");
     _merge_timer = ADD_TIMER(Base::profile(), "MergeTime");
     _expr_timer = ADD_TIMER(Base::profile(), "ExprTime");
     _serialize_data_timer = ADD_TIMER(Base::profile(), "SerializeDataTime");
