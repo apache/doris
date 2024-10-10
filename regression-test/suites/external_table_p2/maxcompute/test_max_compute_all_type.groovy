@@ -346,7 +346,7 @@ suite("test_max_compute_all_type", "p2,external,maxcompute,external_remote,exter
         qt_test_2 """ select * from ${table_name} where id = 1 ; """ 
         
         qt_test_3 """ select id,boolean_col from ${table_name}  order by id """
-        qt_test_4 """ select id,boolean_col from ${table_name} where boolean_col is false order by  id; """ 
+        qt_test_4 """ select id,boolean_col from ${table_name} where !boolean_col  order by  id; """ 
         
         qt_test_5 """ select id,tinyint_col from ${table_name}  order by id """
         qt_test_5 """ select id,tinyint_col from ${table_name} where  tinyint_col in (-127,-128) order by id """ 
