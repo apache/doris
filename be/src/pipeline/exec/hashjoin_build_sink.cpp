@@ -140,6 +140,9 @@ Status HashJoinBuildSinkLocalState::close(RuntimeState* state, Status exec_statu
     }
 
     if (!_eos) {
+        if (p._shared_hashtable_controller) {
+            _runtime_filter_slots->copy_to_shared_context(p._shared_hash_table_context);
+        }
         RETURN_IF_ERROR(_runtime_filter_slots->send_filter_size(state, 0, _finish_dependency));
         RETURN_IF_ERROR(_runtime_filter_slots->ignore_all_filters());
     } else {
