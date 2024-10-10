@@ -122,6 +122,12 @@ suite("test_unique_table_sequence") {
             exception "Table ${tableName} has sequence column, need to specify the sequence column"
         }
 
+        // with `skip_insert_sequence_check=true`, previous insert operation should success
+        sql "set skip_insert_sequence_check=true"
+        sql "INSERT INTO ${tableName} values(15, 8, 19, 20, 21)"
+        sql "INSERT INTO ${tableName} (k1, v1, v2, v3, v4) values(15, 8, 19, 20, 21)"
+        sql "set skip_insert_sequence_check=false"
+
         // correct way of insert into with seq col
         sql "INSERT INTO ${tableName} (k1, v1, v2, v3, v4, __DORIS_SEQUENCE_COL__) values(15, 8, 19, 20, 21, 3)"
 
@@ -133,7 +139,23 @@ suite("test_unique_table_sequence") {
 
         order_qt_all "SELECT k1, v1, v2, v3, v4,__DORIS_DELETE_SIGN__,__DORIS_VERSION_COL__,__DORIS_SEQUENCE_COL__ from ${tableName}"
 
+        def tableNameClone = tableName + "_clone"
+        sql "create table ${tableNameClone} like ${tableName}"
+
+        // test insert into select *
+        test {
+            sql "INSERT INTO ${tableNameClone} select * from ${tableName}"
+            exception "Table ${tableName} has sequence column, need to specify the sequence column"
+        }
+        // with `skip_insert_sequence_check=true`, previous insert operation should success
+        sql "set skip_insert_sequence_check=true"
+        sql "INSERT INTO ${tableNameClone} select * from ${tableName}"
+        sql "set skip_insert_sequence_check=false"
+
+        order_qt_all_clone_table "SELECT * from ${tableNameClone}"
+
         sql "DROP TABLE ${tableName}"
+        sql "DROP TABLE ${tableNameClone}"
 
         sql "DROP TABLE IF EXISTS ${tableName}"
         sql """
