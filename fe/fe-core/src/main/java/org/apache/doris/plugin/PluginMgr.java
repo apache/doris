@@ -293,6 +293,10 @@ public class PluginMgr implements Writable {
 
         m.values().forEach(d -> {
             if (d.getStatus() == PluginStatus.INSTALLED) {
+                if (d.getPlugin() == null) {
+                    LOG.warn("PluginLoader({}) status is INSTALLED, but plugin is null", d);
+                    return;
+                }
                 l.add(d.getPlugin());
             }
         });

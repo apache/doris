@@ -161,6 +161,9 @@ public class StreamLoadPlanner {
                 throw new DdlException("Can't do partial update on merge-on-write Unique table"
                         + " with sync materialized view.");
             }
+            if (destTable.isUniqKeyMergeOnWriteWithClusterKeys()) {
+                throw new UserException("Can't do partial update on merge-on-write Unique table with cluster keys");
+            }
         }
 
         HashSet<String> partialUpdateInputColumns = new HashSet<>();
