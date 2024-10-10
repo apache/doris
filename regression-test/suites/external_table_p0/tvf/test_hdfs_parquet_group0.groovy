@@ -223,13 +223,10 @@ suite("test_hdfs_parquet_group0","external,hive,tvf,external_docker") {
 
 
             uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_parquet/group0/dict-page-offset-zero.parquet"
-            test {
-                sql """ select * from HDFS(
+            order_qt_test_27 """ select * from HDFS(
                         "uri" = "${uri}",
                         "hadoop.username" = "${hdfsUserName}",
                         "format" = "parquet") limit 10; """
-                exception "Failed to deserialize parquet page header. offset: 0, header size: 40, end offset: 40, real header size: 40"
-            }
 
 
             uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_parquet/group0/repeated_no_annotation.parquet"
