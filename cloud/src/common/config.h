@@ -217,7 +217,4 @@ CONF_Int32(max_tablet_index_num_per_batch, "1000");
 
 // Max aborted txn num for the same label name
 CONF_mInt64(max_num_aborted_txn, "100");
-
-// Enables validation to check the correctness of table size in cloud mode.
-CONF_Bool(enable_cloud_table_size_correctness_check, "false");
 } // namespace doris::cloud::config
