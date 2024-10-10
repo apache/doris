@@ -458,14 +458,6 @@ Status Segment::_load_pk_bloom_filter() {
     });
 }
 
-void Segment::remove_from_segment_cache() const {
-    if (config::disable_segment_cache) {
-        return;
-    }
-    SegmentCache::CacheKey cache_key(_rowset_id, _segment_id);
-    SegmentLoader::instance()->erase_segment(cache_key);
-}
-
 Status Segment::load_pk_index_and_bf() {
     RETURN_IF_ERROR(load_index());
     RETURN_IF_ERROR(_load_pk_bloom_filter());
@@ -520,7 +512,8 @@ Status Segment::healthy_status() {
         if (_inverted_index_file_reader_open.has_called()) {
             RETURN_IF_ERROR(_inverted_index_file_reader_open.stored_result());
         }
-        return Status::OK();
+        // This status is set by running time, for example, if there is something wrong during read segment iterator.
+        return _healthy_status.status();
     } catch (const doris::Exception& e) {
         // If there is an exception during load_xxx, should not throw exception directly because
         // the caller may not exception safe.
