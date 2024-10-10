@@ -227,7 +227,6 @@ private:
     Status _write_error_file(size_t file_size, size_t offset, size_t bytes_read, char* data,
                              io::IOContext& io_ctx);
 
-    Status _load_index_impl();
     Status _open_inverted_index();
 
     Status _create_column_readers_once();
