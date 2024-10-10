@@ -91,6 +91,9 @@ public class LoadScanProvider {
         params.setFormatType(formatType(fileGroupInfo.getFileGroup().getFileFormat()));
         params.setCompressType(fileGroupInfo.getFileGroup().getCompressType());
         params.setStrictMode(fileGroupInfo.isStrictMode());
+        if (fileGroupInfo.getSequenceMapCol() != null) {
+            params.setSequenceMapCol(fileGroupInfo.getSequenceMapCol());
+        }
         params.setProperties(fileGroupInfo.getBrokerDesc().getBackendConfigProperties());
         if (fileGroupInfo.getBrokerDesc().getFileType() == TFileType.FILE_HDFS) {
             THdfsParams tHdfsParams = HdfsResource.generateHdfsParam(fileGroupInfo.getBrokerDesc()
@@ -197,7 +200,7 @@ public class LoadScanProvider {
                 if (foundCol.isPresent() || shouldAddSequenceColumn(columnDescs)) {
                     columnDescs.descs.add(new ImportColumnDesc(Column.SEQUENCE_COL,
                             new SlotRef(null, sequenceCol)));
-                } else if (!fileGroupInfo.isPartialUpdate()) {
+                } else if (!fileGroupInfo.isFixedPartialUpdate()) {
                     Column seqCol = olapTable.getFullSchema().stream()
                                     .filter(col -> col.getName().equals(olapTable.getSequenceMapCol()))
                                     .findFirst().get();
@@ -207,7 +210,7 @@ public class LoadScanProvider {
                                 + " has sequence column, need to specify the sequence column");
                     }
                 }
-            } else {
+            } else if (!fileGroupInfo.isFlexiblePartialUpdate()) {
                 sequenceCol = context.fileGroup.getSequenceCol();
                 columnDescs.descs.add(new ImportColumnDesc(Column.SEQUENCE_COL,
                         new SlotRef(null, sequenceCol)));
@@ -217,7 +220,7 @@ public class LoadScanProvider {
         Load.initColumns(fileGroupInfo.getTargetTable(), columnDescs, context.fileGroup.getColumnToHadoopFunction(),
                 context.exprMap, analyzer, context.srcTupleDescriptor, context.srcSlotDescByName, srcSlotIds,
                 formatType(context.fileGroup.getFileFormat()), fileGroupInfo.getHiddenColumns(),
-                fileGroupInfo.isPartialUpdate());
+                fileGroupInfo.getUniqueKeyUpdateMode());
 
         int columnCountFromPath = 0;
         if (context.fileGroup.getColumnNamesFromPath() != null) {
