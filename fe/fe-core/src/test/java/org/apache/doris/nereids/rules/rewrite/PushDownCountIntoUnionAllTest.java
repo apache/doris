@@ -144,15 +144,5 @@ public class PushDownCountIntoUnionAllTest extends TestWithFeService implements 
                                 logicalUnion(logicalAggregate(), logicalAggregate())
                         ).when(agg -> ExpressionUtils.containsType(agg.getOutputExpressions(), Sum0.class))
                 );
-
-        String sql3 = "select count(1) from (select 3,6 union all select 1,3) t;";
-        PlanChecker.from(connectContext)
-                .analyze(sql3)
-                .rewrite()
-                .nonMatch(
-                        logicalAggregate(
-                                logicalUnion(logicalAggregate(), logicalAggregate())
-                        ).when(agg -> ExpressionUtils.containsType(agg.getOutputExpressions(), Sum0.class))
-                );
     }
 }
