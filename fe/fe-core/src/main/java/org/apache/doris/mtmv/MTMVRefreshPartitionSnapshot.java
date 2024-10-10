@@ -37,6 +37,8 @@ public class MTMVRefreshPartitionSnapshot {
     private static final Logger LOG = LogManager.getLogger(MTMV.class);
     @SerializedName("p")
     private Map<String, MTMVSnapshotIf> partitions;
+    // TODO: 2024/10/9 SerializedName
+    private Map<BaseTableInfo, Map<String, MTMVSnapshotIf>> refreshTablePartitions;
     // old version only persist table id, we need `BaseTableInfo`, `tables` only for compatible old version
     @SerializedName("t")
     @Deprecated
@@ -50,8 +52,37 @@ public class MTMVRefreshPartitionSnapshot {
         this.tablesInfo = Maps.newConcurrentMap();
     }
 
-    public Map<String, MTMVSnapshotIf> getPartitions() {
-        return partitions;
+    public Map<String, MTMVSnapshotIf> getPartitions(BaseTableInfo baseTableInfo, boolean isOriginalTable) {
+        if (isOriginalTable) {
+            return partitions;
+        } else {
+            return refreshTablePartitions.containsKey(baseTableInfo) ? refreshTablePartitions.get(baseTableInfo)
+                    : Maps.newHashMap();
+        }
+    }
+
+    public void addPartitionSnapshot(String relatedPartitionName, MTMVSnapshotIf partitionSnapshot,
+            BaseTableInfo baseTableInfo, boolean isOriginalTable) {
+        if (isOriginalTable) {
+            partitions.put(relatedPartitionName, partitionSnapshot);
+        } else {
+            if (!refreshTablePartitions.containsKey(baseTableInfo)) {
+                refreshTablePartitions.put(baseTableInfo, Maps.newHashMap());
+            }
+            refreshTablePartitions.get(baseTableInfo).put(relatedPartitionName, partitionSnapshot);
+        }
+    }
+
+    public MTMVSnapshotIf getPartitionSnapshot(BaseTableInfo baseTableInfo, boolean isOriginalTable,
+            String relatedPartitionName) {
+        if (isOriginalTable) {
+            return partitions.get(relatedPartitionName);
+        } else {
+            if (!refreshTablePartitions.containsKey(baseTableInfo)) {
+                return null;
+            }
+            return refreshTablePartitions.get(baseTableInfo).get(relatedPartitionName);
+        }
     }
 
     public MTMVSnapshotIf getTableSnapshot(BaseTableInfo table) {

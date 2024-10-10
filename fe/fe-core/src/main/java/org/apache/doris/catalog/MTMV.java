@@ -436,6 +436,13 @@ public class MTMV extends OlapTable {
         return null;
     }
 
+    public boolean isOriginalTable(BaseTableInfo baseTableInfo) {
+        if (mvPartitionInfo.getPartitionType().equals(MTMVPartitionType.SELF_MANAGE)) {
+            return false;
+        }
+        return mvPartitionInfo.getRelatedTableInfo().equals(baseTableInfo);
+    }
+
     public ConcurrentLinkedQueue<MTMVTask> getHistoryTasks() {
         return jobInfo.getHistoryTasks();
     }
