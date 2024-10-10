@@ -26,7 +26,7 @@ import org.apache.doris.utframe.TestWithFeService;
 
 import org.junit.jupiter.api.Test;
 
-public class PushDownCountIntoUnionAllTest extends TestWithFeService implements MemoPatternMatchSupported {
+public class PushCountIntoUnionAllTest extends TestWithFeService implements MemoPatternMatchSupported {
     @Override
     protected void runBeforeAll() throws Exception {
         createDatabase("test");
@@ -42,7 +42,7 @@ public class PushDownCountIntoUnionAllTest extends TestWithFeService implements 
 
     @Test
     void testPushCountStar() {
-        String sql = "select count(1) from (select id,a from t1 union all select id,a from t1 where id>10) t;";
+        String sql = "select id,count(1) from (select id,a from t1 union all select id,a from t1 where id>10) t group by id;";
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .rewrite()
@@ -52,7 +52,7 @@ public class PushDownCountIntoUnionAllTest extends TestWithFeService implements 
                                       logicalAggregate().when(agg -> ExpressionUtils.containsType(agg.getOutputExpressions(), Count.class)))
                         ).when(agg -> ExpressionUtils.containsType(agg.getOutputExpressions(), Sum0.class))
                 );
-        String sql2 = "select count(*) from (select id,a from t1 union all select id,a from t1 where id>10) t;";
+        String sql2 = "select id,count(*) from (select id,a from t1 union all select id,a from t1 where id>10) t group by id;";
         PlanChecker.from(connectContext)
                 .analyze(sql2)
                 .rewrite()
@@ -60,6 +60,19 @@ public class PushDownCountIntoUnionAllTest extends TestWithFeService implements 
                         logicalAggregate(
                                 logicalUnion(logicalAggregate().when(agg -> ExpressionUtils.containsType(agg.getOutputExpressions(), Count.class)),
                                         logicalAggregate().when(agg -> ExpressionUtils.containsType(agg.getOutputExpressions(), Count.class)))
+                        ).when(agg -> ExpressionUtils.containsType(agg.getOutputExpressions(), Sum0.class))
+                );
+    }
+    // TODO: not push because after column prune, agg-union transform to agg-project(1)-union, not match rule pattern.
+    @Test
+    void testPushCountStarNotPush() {
+        String sql = "select count(1) from (select id,a from t1 union all select id,a from t1 where id>10) t;";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .nonMatch(
+                        logicalAggregate(
+                                logicalUnion(logicalAggregate(), logicalAggregate())
                         ).when(agg -> ExpressionUtils.containsType(agg.getOutputExpressions(), Sum0.class))
                 );
     }
