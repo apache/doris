@@ -21,9 +21,9 @@ namespace doris::vectorized {
 void ByteStreamSplitDecoder::set_data(Slice* slice) {
     Decoder::set_data(slice);
     auto byteSplitStreamNum = _data->get_size() / _type_length;
-    _byteSplitStreams = std::vector<char*>(byteSplitStreamNum);
-    for (size_t i = 0; i < byteSplitStreamNum; ++i) {
-        _byteSplitStreams[i] = _data->data + i * _type_length;
+    _byteSplitStreams = std::vector<char*>(_type_length);
+    for (size_t i = 0; i < _type_length; ++i) {
+        _byteSplitStreams[i] = _data->data + i * byteSplitStreamNum;
     }
 }
 
@@ -63,7 +63,7 @@ Status ByteStreamSplitDecoder::_decode_values(MutableColumnPtr& doris_column,
                 for (size_t j = 0; j < _type_length; ++j) {
                     // TODO: simd optimization
                     raw_data[data_index + i * _type_length + j] =
-                            _byteSplitStreams[_offset / _type_length + i][j];
+                            _byteSplitStreams[j][_offset / _type_length + i];
                 }
             }
             _offset += run_length * _type_length;
