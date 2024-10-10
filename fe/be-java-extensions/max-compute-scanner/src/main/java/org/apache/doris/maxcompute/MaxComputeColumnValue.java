@@ -193,7 +193,16 @@ public class MaxComputeColumnValue implements ColumnValue {
 
     public String getChar() {
         VarCharVector varcharCol = (VarCharVector) column;
-        return varcharCol.getObject(idx).toString().replaceAll("\\s+$", "");
+        String str = varcharCol.getObject(idx).toString();
+        if (str == null) {
+            return new String(new byte[0]);
+        }
+
+        int end = str.length();
+        while (end > 0 && Character.isWhitespace(str.charAt(end - 1))) {
+            end--;
+        }
+        return str.substring(0, end);
     }
 
     // Maybe I can use `appendBytesAndOffset(byte[] src, int offset, int length)` to reduce the creation of byte[].
