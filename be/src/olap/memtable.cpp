@@ -212,8 +212,10 @@ Status MemTable::insert(const vectorized::Block* input_block,
         }
         if (_partial_update_mode == UniqueKeyUpdateModePB::UPDATE_FLEXIBLE_COLUMNS &&
             _tablet_schema->has_skip_bitmap_col()) {
-            // init of _skip_bitmap_col_idx must be before _init_agg_functions()
+            // init of _skip_bitmap_col_idx and _delete_sign_col_idx must be before _init_agg_functions()
             _skip_bitmap_col_idx = _tablet_schema->skip_bitmap_col_idx();
+            _delete_sign_col_idx = _tablet_schema->delete_sign_idx();
+            _delete_sign_col_unique_id = _tablet_schema->column(_delete_sign_col_idx).unique_id();
             if (_seq_col_idx_in_block != -1) {
                 _seq_col_unique_id = _tablet_schema->column(_seq_col_idx_in_block).unique_id();
             }
@@ -483,7 +485,7 @@ void MemTable::_aggregate() {
         }
     };
 
-    if (!has_skip_bitmap_col || _seq_col_idx_in_block == -1) {
+    if constexpr (!has_skip_bitmap_col) {
         for (RowInBlock* cur_row : _row_in_blocks) {
             if (!temp_row_in_blocks.empty() && (*_vec_row_comparator)(prev_row, cur_row) == 0) {
                 if (!prev_row->has_init_agg()) {
@@ -506,68 +508,161 @@ void MemTable::_aggregate() {
             _finalize_one_row<is_final>(temp_row_in_blocks.back(), block_data, row_pos);
         }
     } else {
-        // For flexible partial update and the table has sequence column, considering the following situation:
-        // there are multiple rows with the same keys in memtable, some of them specify the sequence column,
-        // some of them don't. We can't do the de-duplication in memtable becasue we can only know the value
-        // of the sequence column of the row which don't specify seqeuence column in SegmentWriter after we
-        // probe the historical data. So at here we can only merge rows that have sequence column together and
-        // merge rows without sequence column together, and finally, perform deduplication on them in SegmentWriter.
-
-        // !!ATTENTION!!: there may be rows with the same keys after MemTable::_aggregate() in this situation.
-        RowInBlock* row_with_seq_col = nullptr;
-        int row_pos_with_seq = -1;
-        RowInBlock* row_without_seq_col = nullptr;
-        int row_pos_without_seq = -1;
-
-        auto finalize_rows = [&]() {
-            if (row_with_seq_col != nullptr) {
-                _finalize_one_row<is_final>(row_with_seq_col, block_data, row_pos_with_seq);
-                row_with_seq_col = nullptr;
-            }
-            if (row_without_seq_col != nullptr) {
-                _finalize_one_row<is_final>(row_without_seq_col, block_data, row_pos_without_seq);
-                row_without_seq_col = nullptr;
-            }
-        };
-        auto add_row = [&](RowInBlock* row, bool with_seq_col) {
-            temp_row_in_blocks.push_back(row);
-            row_pos++;
-            if (with_seq_col) {
-                row_with_seq_col = row;
-                row_pos_with_seq = row_pos;
-            } else {
-                row_without_seq_col = row;
-                row_pos_without_seq = row_pos;
-            }
-        };
+        VLOG_DEBUG << fmt::format("MemTable::_aggregate: in_block:\n{}", in_block.dump_data());
         auto& skip_bitmaps = assert_cast<vectorized::ColumnBitmap*>(
                                      mutable_block.mutable_columns()[_skip_bitmap_col_idx].get())
                                      ->get_data();
-        for (auto* cur_row : _row_in_blocks) {
-            const BitmapValue& skip_bitmap = skip_bitmaps[cur_row->_row_pos];
-            bool with_seq_col = !skip_bitmap.contains(_seq_col_unique_id);
-            // compare keys, the keys of row_with_seq_col and row_with_seq_col is the same,
-            // choose any of them if it's valid
-            prev_row = (row_with_seq_col == nullptr) ? row_without_seq_col : row_with_seq_col;
-            if (prev_row != nullptr && (*_vec_row_comparator)(prev_row, cur_row) == 0) {
-                prev_row = (with_seq_col ? row_with_seq_col : row_without_seq_col);
-                if (prev_row == nullptr) {
-                    add_row(cur_row, with_seq_col);
-                    continue;
+        if (_seq_col_idx_in_block == -1) {
+            DCHECK(_delete_sign_col_idx != -1);
+            auto& delete_signs =
+                    assert_cast<vectorized::ColumnInt8*>(
+                            mutable_block.mutable_columns()[_delete_sign_col_idx].get())
+                            ->get_data();
+            RowInBlock* row_with_delete_sign {nullptr};
+            int row_pos_with_delete_sign {-1};
+            RowInBlock* row_without_delete_sign {nullptr};
+            int row_pos_without_delete_sign {-1};
+
+            auto finalize_rows = [&]() {
+                if (row_with_delete_sign != nullptr) {
+                    _finalize_one_row<is_final>(row_with_delete_sign, block_data,
+                                                       row_pos_with_delete_sign);
+                    row_with_delete_sign = nullptr;
                 }
-                if (!prev_row->has_init_agg()) {
-                    init_for_agg(prev_row);
+                if (row_without_delete_sign != nullptr) {
+                    _finalize_one_row<is_final>(row_without_delete_sign, block_data,
+                                                       row_pos_without_delete_sign);
+                    row_without_delete_sign = nullptr;
                 }
-                _stat.merged_rows++;
-                _aggregate_two_row_in_block<has_skip_bitmap_col>(mutable_block, cur_row, prev_row);
-            } else {
-                // no more rows to merge for prev rows, finalize them
-                finalize_rows();
-                add_row(cur_row, with_seq_col);
+                _arena->clear();
+            };
+
+            auto add_row = [&](RowInBlock* row, bool with_delete_sign) {
+                temp_row_in_blocks.push_back(row);
+                row_pos++;
+                if (with_delete_sign) {
+                    row_with_delete_sign = row;
+                    row_pos_with_delete_sign = row_pos;
+                } else {
+                    row_without_delete_sign = row;
+                    row_pos_without_delete_sign = row_pos;
+                }
+            };
+            for (RowInBlock* cur_row : _row_in_blocks) {
+                const BitmapValue& skip_bitmap = skip_bitmaps[cur_row->_row_pos];
+                bool cur_row_has_delete_sign = (!skip_bitmap.contains(_delete_sign_col_unique_id) &&
+                                                delete_signs[cur_row->_row_pos] != 0);
+                prev_row = (row_with_delete_sign == nullptr) ? row_without_delete_sign
+                                                             : row_with_delete_sign;
+                // compare keys, the keys of row_with_delete_sign and row_without_delete_sign is the same,
+                // choose any of them if it's valid
+                if (prev_row != nullptr && (*_vec_row_comparator)(prev_row, cur_row) == 0) {
+                    if (cur_row_has_delete_sign) {
+                        if (row_without_delete_sign != nullptr) {
+                            // if there exits row without delete sign, remove it first
+                            if (row_without_delete_sign->has_init_agg()) {
+                                for (size_t i = _tablet_schema->num_key_columns(); i < _num_columns;
+                                     ++i) {
+                                    auto function = _agg_functions[i];
+                                    auto* agg_place = row_without_delete_sign->agg_places(i);
+                                    function->destroy(agg_place);
+                                }
+                                row_without_delete_sign->remove_init_agg();
+                            }
+                            temp_row_in_blocks.pop_back();
+                            --row_pos;
+                            _stat.merged_rows++;
+                            row_without_delete_sign = nullptr;
+                        }
+                        // and then unconditionally replace the previous row
+                        prev_row = row_with_delete_sign;
+                    } else {
+                        prev_row = row_without_delete_sign;
+                    }
+
+                    if (prev_row == nullptr) {
+                        add_row(cur_row, cur_row_has_delete_sign);
+                    } else {
+                        if (!prev_row->has_init_agg()) {
+                            init_for_agg(prev_row);
+                        }
+                        _stat.merged_rows++;
+                        _aggregate_two_row_in_block<has_skip_bitmap_col>(mutable_block, cur_row,
+                                                                         prev_row);
+                    }
+                } else {
+                    finalize_rows();
+                    add_row(cur_row, cur_row_has_delete_sign);
+                }
             }
+            // finalize the last lows
+            finalize_rows();
+
+        } else {
+            // For flexible partial update and the table has sequence column, considering the following situation:
+            // there are multiple rows with the same keys in memtable, some of them specify the sequence column,
+            // some of them don't. We can't do the de-duplication in memtable becasue we can only know the value
+            // of the sequence column of the row which don't specify seqeuence column in SegmentWriter after we
+            // probe the historical data. So at here we can only merge rows that have sequence column together and
+            // merge rows without sequence column together, and finally, perform deduplication on them in SegmentWriter.
+
+            // !!ATTENTION!!: there may be rows with the same keys after MemTable::_aggregate() in this situation.
+            RowInBlock* row_with_seq_col = nullptr;
+            int row_pos_with_seq = -1;
+            RowInBlock* row_without_seq_col = nullptr;
+            int row_pos_without_seq = -1;
+
+            auto finalize_rows = [&]() {
+                if (row_with_seq_col != nullptr) {
+                    _finalize_one_row<is_final>(row_with_seq_col, block_data,
+                                                       row_pos_with_seq);
+                    row_with_seq_col = nullptr;
+                }
+                if (row_without_seq_col != nullptr) {
+                    _finalize_one_row<is_final>(row_without_seq_col, block_data,
+                                                       row_pos_without_seq);
+                    row_without_seq_col = nullptr;
+                }
+                _arena->clear();
+            };
+            auto add_row = [&](RowInBlock* row, bool with_seq_col) {
+                temp_row_in_blocks.push_back(row);
+                row_pos++;
+                if (with_seq_col) {
+                    row_with_seq_col = row;
+                    row_pos_with_seq = row_pos;
+                } else {
+                    row_without_seq_col = row;
+                    row_pos_without_seq = row_pos;
+                }
+            };
+            for (auto* cur_row : _row_in_blocks) {
+                const BitmapValue& skip_bitmap = skip_bitmaps[cur_row->_row_pos];
+                bool with_seq_col = !skip_bitmap.contains(_seq_col_unique_id);
+                // compare keys, the keys of row_with_seq_col and row_with_seq_col is the same,
+                // choose any of them if it's valid
+                prev_row = (row_with_seq_col == nullptr) ? row_without_seq_col : row_with_seq_col;
+                if (prev_row != nullptr && (*_vec_row_comparator)(prev_row, cur_row) == 0) {
+                    prev_row = (with_seq_col ? row_with_seq_col : row_without_seq_col);
+                    if (prev_row == nullptr) {
+                        add_row(cur_row, with_seq_col);
+                        continue;
+                    }
+                    if (!prev_row->has_init_agg()) {
+                        init_for_agg(prev_row);
+                    }
+                    _stat.merged_rows++;
+                    _aggregate_two_row_in_block<has_skip_bitmap_col>(mutable_block, cur_row,
+                                                                     prev_row);
+                } else {
+                    // no more rows to merge for prev rows, finalize them
+                    finalize_rows();
+                    add_row(cur_row, with_seq_col);
+                }
+            }
+            // finalize the last lows
+            finalize_rows();
         }
-        // finalize the last lows
-        finalize_rows();
     }
     if constexpr (!is_final) {
         // if is not final, we collect the agg results to input_block and then continue to insert
@@ -639,6 +734,8 @@ Status MemTable::_to_block(std::unique_ptr<vectorized::Block>* res) {
 
 Status MemTable::to_block(std::unique_ptr<vectorized::Block>* res) {
     RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_to_block(res));
+    // bobhan1: delete log later!!!
+    VLOG_DEBUG << fmt::format("MemTable::to_block: block:\n{}", (*res)->dump_data());
     return Status::OK();
 }
 

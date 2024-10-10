@@ -398,7 +398,17 @@ Status VerticalSegmentWriter::_probe_key_for_mow(
     // 2. the one exception is when there are sequence columns in the table, we need to read
     //    the sequence columns, otherwise it may cause the merge-on-read based compaction
     //    policy to produce incorrect results
-    if (have_delete_sign && !_tablet_schema->has_sequence_col()) {
+    // TODO(bobhan1): only read seq col rather than all columns in this situation for
+    // partial update and flexible partial update
+
+    // 3. In flexible partial update, we may delete the existing rows before if there exists
+    //    insert after delete in one load. In this case, the insert should also be treated
+    //    as newly inserted rows
+    // TODO(bobhan1): handle sequence column here
+    if ((have_delete_sign && !_tablet_schema->has_sequence_col()) ||
+        (_opts.rowset_ctx->partial_update_info->is_flexible_partial_update() &&
+         _mow_context->delete_bitmap->contains(
+                 {loc.rowset_id, loc.segment_id, DeleteBitmap::TEMP_VERSION_COMMON}, loc.row_id))) {
         has_default_or_nullable = true;
         use_default_or_null_flag.emplace_back(true);
     } else {
@@ -626,6 +636,32 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
     return Status::OK();
 }
 
+Status VerticalSegmentWriter::_filter_block_for_flexible_partial_update(
+        RowsInBlock& data, vectorized::MutableColumnPtr filter_column, int duplicate_rows,
+        std::string col_name) {
+    auto num_cols = data.block->columns();
+    auto* block = const_cast<vectorized::Block*>(data.block);
+    block->insert(
+            {std::move(filter_column), std::make_shared<vectorized::DataTypeUInt8>(), col_name});
+    RETURN_IF_ERROR(vectorized::Block::filter_block(block, num_cols, num_cols));
+    DCHECK_EQ(num_cols, data.block->columns());
+    int merged_rows = data.num_rows - block->rows();
+    VLOG_DEBUG << fmt::format(
+            "filter_block_for_flexible_partial_update[{}] after filter: "
+            "data.block:{}\n",
+            col_name, data.block->dump_data());
+    if (duplicate_rows != merged_rows) {
+        auto msg = fmt::format(
+                "filter_block_for_flexible_partial_update {}: duplicate_rows != merged_rows, "
+                "duplicate_keys={}, merged_rows={}, num_rows={}, mutable_block->rows()={}",
+                col_name, duplicate_rows, merged_rows, data.num_rows, block->rows());
+        DCHECK(false) << msg;
+        return Status::InternalError<false>(msg);
+    }
+    data.num_rows = block->rows();
+    return Status::OK();
+}
+
 Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(
         RowsInBlock& data, vectorized::Block& full_block) {
     RETURN_IF_ERROR(_partial_update_preconditions_check(data.row_pos, true));
@@ -709,11 +745,12 @@ Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(
     // a valid sequence column to encode the key with seq col.
     RETURN_IF_ERROR(encode_seq_column(seq_column));
 
+    std::size_t origin_rows = data.num_rows;
+
     // 3. merge duplicate rows when table has sequence column
     // When there are multiple rows with the same keys in memtable, some of them specify specify the sequence column,
     // some of them don't. We can't do the de-duplication in memtable. We must de-duplicate them here.
     if (schema_has_sequence_col) {
-        std::size_t origin_rows = data.num_rows;
         RETURN_IF_ERROR(_merge_rows_for_sequence_column(data, skip_bitmaps, key_columns, seq_column,
                                                         specified_rowsets, segment_caches));
         if (origin_rows != data.num_rows) {
@@ -729,7 +766,22 @@ Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(
             BaseTablet::get_delete_sign_column_data(*data.block, data.row_pos + data.num_rows);
     DCHECK(delete_sign_column_data != nullptr);
 
-    // 4. write key columns data
+    // 4. merge duplicate rows and mark delete for insert after delete
+    origin_rows = data.num_rows;
+    RETURN_IF_ERROR(_merge_rows_for_insert_after_delete(data, skip_bitmaps, key_columns, seq_column,
+                                                        delete_sign_column_data, specified_rowsets,
+                                                        segment_caches));
+    if (data.num_rows != origin_rows) {
+        // data in block has changed, should re-encode key columns, sequence column and re-get skip_bitmaps, delete signs
+        _olap_data_convertor->clear_source_content();
+        RETURN_IF_ERROR(encode_key_columns(key_columns));
+        RETURN_IF_ERROR(encode_seq_column(seq_column));
+        skip_bitmaps = get_skip_bitmaps(data.block);
+        delete_sign_column_data =
+                BaseTablet::get_delete_sign_column_data(*data.block, data.row_pos + data.num_rows);
+    }
+
+    // 5. write key columns data
     for (std::size_t cid {0}; cid < _num_sort_key_columns; cid++) {
         const auto& column = key_columns[cid];
         DCHECK(_column_writers[cid]->get_next_rowid() == _num_rows_written);
@@ -738,7 +790,7 @@ Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(
         DCHECK(_column_writers[cid]->get_next_rowid() == _num_rows_written + data.num_rows);
     }
 
-    // 5. genreate read plan
+    // 6. genreate read plan
     FlexibleReadPlan read_plan {_tablet_schema->has_row_store_for_all_columns()};
     PartialUpdateStats stats;
     RETURN_IF_ERROR(_generate_flexible_read_plan(
@@ -752,7 +804,7 @@ Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(
                                                     _mow_context->rowset_ids);
     }
 
-    // 6. read according plan to fill full_block
+    // 7. read according plan to fill full_block
     RETURN_IF_ERROR(read_plan.fill_non_primary_key_columns(
             _opts.rowset_ctx, _rsid_to_rowset, *_tablet_schema, full_block,
             use_default_or_null_flag, has_default_or_nullable, segment_start_pos, data.row_pos,
@@ -761,10 +813,10 @@ Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(
     // TODO(bobhan1): should we replace the skip bitmap column with empty bitmaps to reduce storage occupation?
     // this column is not needed in read path for merge-on-write table
 
-    // 7. fill row store column
+    // 8. fill row store column
     _serialize_block_to_row_column(full_block);
 
-    // 8. encode and write all non-primary key columns(including sequence column if exists)
+    // 9. encode and write all non-primary key columns(including sequence column if exists)
     for (auto cid = _num_sort_key_columns; cid < _tablet_schema->num_columns(); cid++) {
         RETURN_IF_ERROR(_olap_data_convertor->set_source_content_with_specifid_column(
                 full_block.get_by_position(cid), data.row_pos, data.num_rows, cid));
@@ -795,7 +847,7 @@ Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(
                 _num_rows_written, data.row_pos, _primary_key_index_builder->num_rows());
     }
 
-    // 9. build primary key index
+    // 10. build primary key index
     RETURN_IF_ERROR(_generate_primary_key_index(_key_coders, key_columns, seq_column, data.num_rows,
                                                 false));
 
@@ -968,25 +1020,71 @@ Status VerticalSegmentWriter::_merge_rows_for_sequence_column(
         previous_has_seq_col = row_has_sequence_col;
     }
     if (duplicate_keys > 0) {
-        auto num_cols = data.block->columns();
-        auto* block = const_cast<vectorized::Block*>(data.block);
-        block->insert({std::move(filter_column), std::make_shared<vectorized::DataTypeUInt8>(),
-                       "__dup_key_filter_col__"});
-        RETURN_IF_ERROR(vectorized::Block::filter_block(block, num_cols, num_cols));
-        int merged_rows = data.num_rows - block->rows();
-        VLOG_DEBUG << fmt::format(
-                "VerticalSegmentWriter::_merge_rows_for_sequence_column after filter: "
-                "data.block:{}\n",
-                data.block->dump_data());
-        if (duplicate_keys != merged_rows) {
-            auto msg = fmt::format(
-                    "duplicate_keys != merged_rows, duplicate_keys={}, merged_rows={}, "
-                    "num_rows={}, mutable_block->rows()={}",
-                    duplicate_keys, merged_rows, data.num_rows, block->rows());
-            DCHECK(false) << msg;
-            return Status::InternalError<false>(msg);
+        RETURN_IF_ERROR(_filter_block_for_flexible_partial_update(
+                data, std::move(filter_column), duplicate_keys, "__dup_key_filter_col__"));
+    }
+    return Status::OK();
+}
+
+Status VerticalSegmentWriter::_merge_rows_for_insert_after_delete(
+        RowsInBlock& data, std::vector<BitmapValue>* skip_bitmaps,
+        const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns,
+        vectorized::IOlapColumnDataAccessor* seq_column, const signed char* delete_signs,
+        const std::vector<RowsetSharedPtr>& specified_rowsets,
+        std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches) {
+    // TODO(bobhan1): handle sequence column later
+    VLOG_DEBUG << fmt::format(
+            "VerticalSegmentWriter::_merge_rows_for_insert_after_delete enter: data.block:{}\n",
+            data.block->dump_data());
+    auto filter_column = vectorized::ColumnUInt8::create(data.num_rows, 1);
+    auto* __restrict filter_map = filter_column->get_data().data();
+    std::string previous_key {};
+    bool previous_has_delete_sign {false};
+    int duplicate_rows {0};
+    int32_t delete_sign_col_unique_id =
+            _tablet_schema->column(_tablet_schema->delete_sign_idx()).unique_id();
+    for (size_t block_pos = data.row_pos; block_pos < data.row_pos + data.num_rows; block_pos++) {
+        size_t delta_pos = block_pos - data.row_pos;
+        auto& skip_bitmap = skip_bitmaps->at(block_pos);
+        std::string key = _full_encode_keys(key_columns, delta_pos);
+        bool have_delete_sign =
+                (!skip_bitmap.contains(delete_sign_col_unique_id) && delete_signs[block_pos] != 0);
+        if (delta_pos > 0 && previous_key == key) {
+            // !!ATTENTION!!: We can only remove the row with delete sign if there is a insert with the same key after this row.
+            // If there is only a row with delete sign, we should keep it and can't remove it from block, because
+            // compaction will not use the delete bitmap when reading data. So there may still be rows with delete sign
+            // in later process
+            DCHECK(previous_has_delete_sign);
+            DCHECK(!have_delete_sign);
+            ++duplicate_rows;
+            RowLocation loc;
+            RowsetSharedPtr rowset;
+            Status st = _tablet->lookup_row_key(key, _tablet_schema.get(), false, specified_rowsets,
+                                                &loc, _mow_context->max_version, segment_caches,
+                                                &rowset, true);
+            DCHECK(st.is<KEY_NOT_FOUND>() || st.ok());
+
+            Slice previous_seq_slice {};
+            if (st.ok()) {
+                // delete the existing row
+                _mow_context->delete_bitmap->add(
+                        {loc.rowset_id, loc.segment_id, DeleteBitmap::TEMP_VERSION_COMMON},
+                        loc.row_id);
+                VLOG_DEBUG << fmt::format(
+                        "_merge_rows_for_insert_after_delete: delete existing row, rowset_id={}, "
+                        "segment_id={}, row_id={}",
+                        loc.rowset_id.to_string(), loc.segment_id, loc.row_id);
+            }
+            // and remove the row with delete sign from the current block
+            filter_map[block_pos - 1] = 0;
         }
-        data.num_rows = block->rows();
+        previous_has_delete_sign = have_delete_sign;
+        previous_key = std::move(key);
+    }
+    if (duplicate_rows > 0) {
+        RETURN_IF_ERROR(_filter_block_for_flexible_partial_update(
+                data, std::move(filter_column), duplicate_rows,
+                "__filter_delete_after_insert_col__"));
     }
     return Status::OK();
 }

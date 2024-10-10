@@ -531,6 +531,8 @@ Status FlexibleReadPlan::fill_non_primary_key_columns(
                 segment_start_pos, block_start_pos, block, skip_bitmaps));
     }
     full_block.set_columns(std::move(mutable_full_columns));
+    VLOG_DEBUG << fmt::format("fill_non_primary_key_columns: full_block:\n{}",
+                              full_block.dump_data());
     return Status::OK();
 }
 
