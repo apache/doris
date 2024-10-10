@@ -136,6 +136,13 @@ void WorkloadGroupMgr::delete_workload_group_by_ids(std::set<uint64_t> used_wg_i
               << ", before wg size=" << old_wg_size << ", after wg size=" << new_wg_size;
 }
 
+void WorkloadGroupMgr::do_sweep() {
+    std::shared_lock<std::shared_mutex> r_lock(_group_mutex);
+    for (auto& [wg_id, wg] : _workload_groups) {
+        wg->do_sweep();
+    }
+}
+
 struct WorkloadGroupMemInfo {
     int64_t total_mem_used = 0;
     std::list<std::shared_ptr<MemTrackerLimiter>> tracker_snapshots =

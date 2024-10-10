@@ -49,6 +49,7 @@ import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.algebra.EmptyRelation;
 import org.apache.doris.nereids.trees.plans.algebra.Filter;
 import org.apache.doris.nereids.trees.plans.algebra.Generate;
+import org.apache.doris.nereids.trees.plans.algebra.Join;
 import org.apache.doris.nereids.trees.plans.algebra.Limit;
 import org.apache.doris.nereids.trees.plans.algebra.OlapScan;
 import org.apache.doris.nereids.trees.plans.algebra.PartitionTopN;
@@ -253,7 +254,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     private void estimate() {
         Plan plan = groupExpression.getPlan();
         Statistics newStats = plan.accept(this, null);
-        newStats.enforceValid();
+        newStats.normalizeColumnStatistics();
 
         // We ensure that the rowCount remains unchanged in order to make the cost of each plan comparable.
         if (groupExpression.getOwnerGroup().getStatistics() == null) {
@@ -350,10 +351,10 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     private long getSelectedPartitionRowCount(OlapScan olapScan) {
         long partRowCountSum = 0;
         for (long id : olapScan.getSelectedPartitionIds()) {
-            long partRowCount = olapScan.getTable().getPartition(id)
-                    .getIndex(olapScan.getSelectedIndexId()).getRowCount();
+            long partRowCount = olapScan.getTable()
+                    .getRowCountForPartitionIndex(id, olapScan.getSelectedIndexId(), true);
             // if we cannot get any partition's rowCount, return -1 to fallback to table level stats
-            if (partRowCount <= 0) {
+            if (partRowCount == -1) {
                 return -1;
             }
             partRowCountSum += partRowCount;
@@ -395,7 +396,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             rowCount = olapTable.getRowCountForIndex(olapScan.getSelectedIndexId(), true);
             if (rowCount == -1) {
                 if (tableMeta != null) {
-                    rowCount = tableMeta.getRowCount(olapScan.getSelectedIndexId());
+                    rowCount = tableMeta.getRowCount(olapScan.getSelectedIndexId()) + computeDeltaRowCount(olapScan);
                 }
             }
         }
@@ -488,7 +489,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                     builder.putColumnStatistics(slot, colStatsBuilder.build());
                 }
                 checkIfUnknownStatsUsedAsKey(builder);
-                builder.setRowCount(selectedPartitionsRowCount + deltaRowCount);
+                builder.setRowCount(selectedPartitionsRowCount);
             }
         }
         // 1. no partition is pruned, or
@@ -502,7 +503,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                 builder.putColumnStatistics(slot, colStatsBuilder.build());
             }
             checkIfUnknownStatsUsedAsKey(builder);
-            builder.setRowCount(tableRowCount + deltaRowCount);
+            builder.setRowCount(tableRowCount);
         }
         return builder.build();
     }
@@ -594,8 +595,9 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
 
     @Override
     public Statistics visitLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> join, Void context) {
-        Statistics joinStats = JoinEstimation.estimate(groupExpression.childStatistics(0),
-                groupExpression.childStatistics(1), join);
+        Statistics joinStats = computeJoin(join);
+        // NOTE: physical operator visiting doesn't need the following
+        // logic which will ONLY be used in no-stats estimation.
         joinStats = new StatisticsBuilder(joinStats).setWidthInJoinCluster(
                 groupExpression.childStatistics(0).getWidthInJoinCluster()
                         + groupExpression.childStatistics(1).getWidthInJoinCluster()).build();
@@ -739,16 +741,14 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     @Override
     public Statistics visitPhysicalHashJoin(
             PhysicalHashJoin<? extends Plan, ? extends Plan> hashJoin, Void context) {
-        return JoinEstimation.estimate(groupExpression.childStatistics(0),
-                groupExpression.childStatistics(1), hashJoin);
+        return computeJoin(hashJoin);
     }
 
     @Override
     public Statistics visitPhysicalNestedLoopJoin(
             PhysicalNestedLoopJoin<? extends Plan, ? extends Plan> nestedLoopJoin,
             Void context) {
-        return JoinEstimation.estimate(groupExpression.childStatistics(0),
-                groupExpression.childStatistics(1), nestedLoopJoin);
+        return computeJoin(nestedLoopJoin);
     }
 
     // TODO: We should subtract those pruned column, and consider the expression transformations in the node.
@@ -865,7 +865,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                         }
                         builder.setRowCount(isNullStats.getRowCount());
                         stats = builder.build();
-                        stats.enforceValid();
+                        stats.normalizeColumnStatistics();
                     }
                 }
             }
@@ -937,7 +937,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
 
                     newStats = ((Plan) newJoin).accept(statsCalculator, null);
                 }
-                newStats.enforceValid();
+                newStats.normalizeColumnStatistics();
 
                 double selectivity = Statistics.getValidSelectivity(
                         newStats.getRowCount() / (leftRowCount * rightRowCount));
@@ -1087,6 +1087,11 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         return builder.setRowCount(tableRowCount).build();
     }
 
+    private Statistics computeJoin(Join join) {
+        return JoinEstimation.estimate(groupExpression.childStatistics(0),
+                groupExpression.childStatistics(1), join);
+    }
+
     private Statistics computeTopN(TopN topN) {
         Statistics stats = groupExpression.childStatistics(0);
         return stats.withRowCountAndEnforceValid(Math.min(stats.getRowCount(), topN.getLimit()));
@@ -1190,7 +1195,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             slotToColumnStats.put(outputExpression.toSlot(), columnStat);
         }
         Statistics aggOutputStats = new Statistics(rowCount, 1, slotToColumnStats);
-        aggOutputStats.enforceValid();
+        aggOutputStats.normalizeColumnStatistics();
         return aggOutputStats;
     }
 

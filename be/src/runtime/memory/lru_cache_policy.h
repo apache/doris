@@ -132,6 +132,8 @@ public:
 
     int64_t get_usage() { return _cache->get_usage(); }
 
+    size_t get_element_count() { return _cache->get_element_count(); }
+
     size_t get_capacity() override { return _cache->get_capacity(); }
 
     uint64_t new_id() { return _cache->new_id(); };

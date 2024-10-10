@@ -279,6 +279,7 @@ class Suite implements GroovyInterceptable {
         )
     }
 
+    // more explaination can see example file: demo_p0/docker_action.groovy
     public void docker(ClusterOptions options = new ClusterOptions(), Closure actionSupplier) throws Exception {
         if (context.config.excludeDockerTest) {
             return
@@ -289,20 +290,30 @@ class Suite implements GroovyInterceptable {
                     + "see example demo_p0/docker_action.groovy")
         }
 
-        boolean pipelineIsCloud = isCloudMode()
-        boolean dockerIsCloud = false
         if (options.cloudMode == null) {
-            dockerIsCloud = pipelineIsCloud
+            if (context.config.runMode == RunMode.UNKNOWN) {
+                dockerImpl(options, false, actionSupplier)
+                dockerImpl(options, true, actionSupplier)
+            } else {
+                dockerImpl(options, context.config.runMode == RunMode.CLOUD, actionSupplier)
+            }
         } else {
-            dockerIsCloud = options.cloudMode
-            if (dockerIsCloud != pipelineIsCloud && options.skipRunWhenPipelineDiff) {
+            if (options.cloudMode == true && context.config.runMode == RunMode.NOT_CLOUD) {
                 return
             }
+            if (options.cloudMode == false && context.config.runMode == RunMode.CLOUD) {
+                return
+            }
+            dockerImpl(options, options.cloudMode, actionSupplier)
         }
+    }
 
+
+    private void dockerImpl(ClusterOptions options, boolean isCloud, Closure actionSupplier) throws Exception {
+        logger.info("=== start run suite {} in {} mode. ===", name, (isCloud ? "cloud" : "not_cloud"))
         try {
             cluster.destroy(true)
-            cluster.init(options, dockerIsCloud)
+            cluster.init(options, isCloud)
 
             def user = context.config.jdbcUser
             def password = context.config.jdbcPassword
@@ -318,7 +329,7 @@ class Suite implements GroovyInterceptable {
 
             logger.info("get fe {}", fe)
             assertNotNull(fe)
-            if (!dockerIsCloud) {
+            if (!isCloud) {
                 for (def be : cluster.getAllBackends()) {
                     be_report_disk(be.host, be.httpPort)
                 }
@@ -556,6 +567,14 @@ class Suite implements GroovyInterceptable {
                 }
             }
         }
+    }
+
+    String getCurDbName() {
+        return context.dbName
+    }
+
+    String getCurDbConnectUrl() {
+        return context.config.getConnectionUrlByDbName(getCurDbName())
     }
 
     long getDbId() {
@@ -1330,8 +1349,8 @@ class Suite implements GroovyInterceptable {
         } while (timeoutTimestamp > System.currentTimeMillis() && (status == 'PENDING' || status == 'RUNNING'  || status == 'NULL' || status == 'CANCELED'))
         if (status != "SUCCESS") {
             logger.info("status is not success")
+            assertTrue(result.toString().contains("same table"))
         }
-        Assert.assertEquals("SUCCESS", status)
     }
 
     void waitingPartitionIsExpected(String tableName, String partitionName, boolean expectedStatus) {
@@ -1459,7 +1478,11 @@ class Suite implements GroovyInterceptable {
     }
 
     boolean isCloudMode() {
-        return context.config.fetchRunMode()
+        if (cluster.isRunning()) {
+            return cluster.isCloudMode()
+        } else {
+            return context.config.isCloudMode()
+        }
     }
 
     boolean enableStoragevault() {

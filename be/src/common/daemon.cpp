@@ -296,6 +296,7 @@ void Daemon::memory_maintenance_thread() {
         // TODO replace memory_gc_thread.
 
         // step 6. Refresh weighted memory ratio of workload groups.
+        doris::ExecEnv::GetInstance()->workload_group_mgr()->do_sweep();
         doris::ExecEnv::GetInstance()->workload_group_mgr()->refresh_wg_weighted_memory_limit();
 
         // step 7. Analyze blocking queries.

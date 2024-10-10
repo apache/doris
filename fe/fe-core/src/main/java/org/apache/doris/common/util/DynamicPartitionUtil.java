@@ -258,7 +258,8 @@ public class DynamicPartitionUtil {
         } catch (DdlException e) {
             throw new DdlException("Failed to find enough backend for ssd storage medium. When setting "
                     + DynamicPartitionProperty.HOT_PARTITION_NUM + " > 0, the hot partitions will store "
-                    + "in ssd. Please check the replication num,replication tag and storage medium.");
+                    + "in ssd. Please check the replication num,replication tag and storage medium."
+                    + Env.getCurrentSystemInfo().getDetailsForCreateReplica(replicaAlloc));
         }
     }
 

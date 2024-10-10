@@ -505,7 +505,8 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
     RETURN_IF_ERROR(_apply_bitmap_index());
     {
         if (_opts.runtime_state &&
-            _opts.runtime_state->query_options().enable_inverted_index_query) {
+            _opts.runtime_state->query_options().enable_inverted_index_query &&
+            has_inverted_index_in_iterators()) {
             SCOPED_RAW_TIMER(&_opts.stats->inverted_index_filter_timer);
             size_t input_rows = _row_bitmap.cardinality();
             RETURN_IF_ERROR(_apply_inverted_index());

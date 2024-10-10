@@ -50,6 +50,7 @@ suite("fold_constant_string_arithmatic") {
     testFoldConst("SELECT  Concat_Ws('-', '2024', '09', '02')")
     testFoldConst("SELECT  Char(65)")
     testFoldConst("SELECT  Character_Length('Hello World')")
+    testFoldConst("SELECT  Length('你')")
     testFoldConst("SELECT  Initcap('hello world')")
     testFoldConst("SELECT  Md5('Hello World')")
     testFoldConst("SELECT  Md5Sum('Hello World')")

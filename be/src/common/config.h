@@ -332,6 +332,8 @@ DECLARE_mInt32(doris_scan_range_max_mb);
 DECLARE_mInt32(doris_scanner_row_num);
 // single read execute fragment row bytes
 DECLARE_mInt32(doris_scanner_row_bytes);
+// single read execute fragment max run time millseconds
+DECLARE_mInt32(doris_scanner_max_run_time_ms);
 // (Advanced) Maximum size of per-query receive-side buffer
 DECLARE_mInt32(exchg_node_buffer_size_bytes);
 DECLARE_mInt32(exchg_buffer_queue_capacity_factor);
@@ -1056,6 +1058,9 @@ DECLARE_mInt64(file_cache_ttl_valid_check_interval_second);
 DECLARE_Bool(enable_ttl_cache_evict_using_lru);
 // rename ttl filename to new format during read, with some performance cost
 DECLARE_Bool(translate_to_new_ttl_format_during_read);
+DECLARE_mBool(enbale_dump_error_file);
+// limit the max size of error log on disk
+DECLARE_mInt64(file_cache_error_log_limit_bytes);
 
 // inverted index searcher cache
 // cache entry stay time after lookup

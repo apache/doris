@@ -217,7 +217,7 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
 
     @Override
     public Plan visitLogicalSink(LogicalSink<? extends Plan> logicalSink, PruneContext context) {
-        return skipPruneThisAndFirstLevelChildren(logicalSink);
+        return pruneChildren(logicalSink, logicalSink.getOutputSet());
     }
 
     // the backend not support filter(project(agg)), so we can not prune the key set in the agg,

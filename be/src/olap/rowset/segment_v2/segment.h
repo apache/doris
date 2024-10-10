@@ -130,7 +130,8 @@ public:
     }
 
     Status lookup_row_key(const Slice& key, const TabletSchema* latest_schema, bool with_seq_col,
-                          bool with_rowid, RowLocation* row_location);
+                          bool with_rowid, RowLocation* row_location,
+                          std::string* encoded_seq_value = nullptr);
 
     Status read_key_by_rowid(uint32_t row_id, std::string* key);
 
@@ -219,6 +220,8 @@ private:
                                            std::unique_ptr<ColumnIterator>* iter,
                                            const SubcolumnColumnReaders::Node* root,
                                            vectorized::DataTypePtr target_type_hint);
+    Status _write_error_file(size_t file_size, size_t offset, size_t bytes_read, char* data,
+                             io::IOContext& io_ctx);
 
     Status _load_index_impl();
     Status _open_inverted_index();

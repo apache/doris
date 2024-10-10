@@ -411,13 +411,13 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
     string snapshot_id;
     RETURN_IF_ERROR(io::global_local_filesystem()->canonicalize(snapshot_id_path, &snapshot_id));
 
+    std::vector<RowsetSharedPtr> consistent_rowsets;
     do {
         TabletMetaSharedPtr new_tablet_meta(new (nothrow) TabletMeta());
         if (new_tablet_meta == nullptr) {
             res = Status::Error<MEM_ALLOC_FAILED>("fail to malloc TabletMeta.");
             break;
         }
-        std::vector<RowsetSharedPtr> consistent_rowsets;
         DeleteBitmap delete_bitmap_snapshot(new_tablet_meta->tablet_id());
 
         /// If set missing_version, try to get all missing version.
@@ -628,17 +628,16 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
         }
 
         RowsetBinlogMetasPB rowset_binlog_metas_pb;
-        if (request.__isset.missing_version) {
-            res = ref_tablet->get_rowset_binlog_metas(request.missing_version,
-                                                      &rowset_binlog_metas_pb);
-        } else {
-            std::vector<TVersion> missing_versions;
-            res = ref_tablet->get_rowset_binlog_metas(missing_versions, &rowset_binlog_metas_pb);
+        for (auto& rs : consistent_rowsets) {
+            if (!rs->is_local()) {
+                continue;
+            }
+            res = ref_tablet->get_rowset_binlog_metas(rs->version(), &rowset_binlog_metas_pb);
+            if (!res.ok()) {
+                break;
+            }
         }
-        if (!res.ok()) {
-            break;
-        }
-        if (rowset_binlog_metas_pb.rowset_binlog_metas_size() == 0) {
+        if (!res.ok() || rowset_binlog_metas_pb.rowset_binlog_metas_size() == 0) {
             break;
         }
 
