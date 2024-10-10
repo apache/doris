@@ -55,13 +55,10 @@ suite("test_hdfs_parquet_group0","external,hive,tvf,external_docker") {
 
 
             uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_parquet/group0/byte_stream_split_extended.gzip.parquet"
-            test {
-                sql """ select * from HDFS(
+            order_qt_test_4 """ select * from HDFS(
                         "uri" = "${uri}",
                         "hadoop.username" = "${hdfsUserName}",
                         "format" = "parquet") limit 10; """
-                exception "Unsupported encoding BYTE_STREAM_SPLIT(type=FIXED_LEN_BYTE_ARRAY) in parquet decoder"
-            }
 
 
             uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_parquet/group0/nested_maps.snappy.parquet"
@@ -258,13 +255,10 @@ suite("test_hdfs_parquet_group0","external,hive,tvf,external_docker") {
 
 
             uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_parquet/group0/byte_stream_split.zstd.parquet"
-            test{
-                sql """ select * from HDFS(
+            order_qt_test_32 """ select * from HDFS(
                         "uri" = "${uri}",
                         "hadoop.username" = "${hdfsUserName}",
                         "format" = "parquet") limit 10; """
-                exception "Unsupported encoding BYTE_STREAM_SPLIT(type=FLOAT) in parquet decoder"
-            }
 
 
             uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_parquet/group0/rle-dict-snappy-checksum.parquet"
