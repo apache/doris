@@ -50,7 +50,7 @@ statementBase
     | supportedCreateStatement          #supportedCreateStatementAlias
     | supportedAlterStatement           #supportedAlterStatementAlias
     | materializedViewStatement         #materializedViewStatementAlias
-    | jobScheduleStatement              #jobScheduleStatementAlias
+    | supportedJobStatement              #supportedJobStatementAlias
     | constraintStatement               #constraintStatementAlias
     | supportedDropStatement            #supportedDropStatementAlias
     | unsupportedStatement              #unsupported
@@ -103,7 +103,7 @@ materializedViewStatement
     | CANCEL MATERIALIZED VIEW TASK taskId=INTEGER_VALUE ON mvName=multipartIdentifier          #cancelMTMVTask
     | SHOW CREATE MATERIALIZED VIEW mvName=multipartIdentifier                                  #showCreateMTMV
     ;
-jobScheduleStatement
+supportedJobStatement
     : CREATE JOB label=multipartIdentifier ON SCHEDULE
         (
             (EVERY timeInterval=INTEGER_VALUE timeUnit=identifier
