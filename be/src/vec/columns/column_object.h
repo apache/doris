@@ -203,8 +203,6 @@ public:
     /// Checks that all subcolumns have consistent sizes.
     void check_consistency() const;
 
-    bool is_exclusive() const override;
-
     bool has_subcolumn(const PathInData& key) const;
 
     // return null if not found
