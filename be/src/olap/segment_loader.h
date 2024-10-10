@@ -165,10 +165,12 @@ public:
         if (segments.empty()) {
             return nullptr;
         }
-        if (segments.back()->healthy_status().ok()) {
+        auto& last_segment = segments.back();
+        if (last_segment->healthy_status().ok()) {
             return nullptr;
         }
-        return segments.pop_back();
+        segments.pop_back();
+        return last_segment;
     }
 
 private:
