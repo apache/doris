@@ -106,7 +106,9 @@ std::string LocalExchangeSourceLocalState::debug_string(int indentation_level) c
     size_t i = 0;
     fmt::format_to(debug_string_buffer, ", MemTrackers: ");
     for (auto* mem_tracker : _shared_state->mem_trackers) {
-        fmt::format_to(debug_string_buffer, "{}: {}, ", i, mem_tracker->consumption());
+        if (mem_tracker) {
+            fmt::format_to(debug_string_buffer, "{}: {}, ", i, mem_tracker->consumption());
+        }
         i++;
     }
     return fmt::to_string(debug_string_buffer);

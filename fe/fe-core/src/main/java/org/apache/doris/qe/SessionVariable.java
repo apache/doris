@@ -278,6 +278,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_LOCAL_MERGE_SORT = "enable_local_merge_sort";
 
+    public static final String ENABLE_PASS_TO_ONE_EXCHANGE = "enable_pass_to_one_exchange";
+
     public static final String ENABLE_AGG_STATE = "enable_agg_state";
 
     public static final String ENABLE_RPC_OPT_FOR_PIPELINE = "enable_rpc_opt_for_pipeline";
@@ -1057,6 +1059,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_LOCAL_MERGE_SORT)
     private boolean enableLocalMergeSort = true;
+
+    @VariableMgr.VarAttr(name = ENABLE_PASS_TO_ONE_EXCHANGE)
+    private boolean enablePassToOneExchange = true;
 
     @VariableMgr.VarAttr(name = ENABLE_AGG_STATE, fuzzy = false, varType = VariableAnnotation.EXPERIMENTAL,
             needForward = true)
@@ -3753,6 +3758,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setDataQueueMaxBlocks(dataQueueMaxBlocks);
 
         tResult.setEnableLocalMergeSort(enableLocalMergeSort);
+        tResult.setEnablePassToOneExchange(enablePassToOneExchange);
         tResult.setEnableParallelResultSink(enableParallelResultSink);
         tResult.setEnableParallelOutfile(enableParallelOutfile);
         tResult.setEnableShortCircuitQueryAccessColumnStore(enableShortCircuitQueryAcessColumnStore);

@@ -147,7 +147,10 @@ Status VDataStreamMgr::transmit_block(const PTransmitDataParams* request,
     if (eos) {
         Status exec_status =
                 request->has_exec_status() ? Status::create(request->exec_status()) : Status::OK();
-        recvr->remove_sender(request->sender_id(), request->be_number(), exec_status);
+        int close_sender_number =
+                request->has_close_sender_number() ? request->close_sender_number() : 1;
+        recvr->remove_sender(request->sender_id(), request->be_number(), close_sender_number,
+                             exec_status);
     }
     return Status::OK();
 }

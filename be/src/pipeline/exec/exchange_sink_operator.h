@@ -117,6 +117,8 @@ public:
     int current_channel_idx; // index of current channel to send to if _random == true
     bool only_local_exchange;
 
+    int close_sender_number() const { return _close_sender_number; }
+
     // for external table sink hash partition
     std::unique_ptr<vectorized::ScaleWriterPartitioningExchanger<HashPartitionFunction>>
             scale_writer_partitioning_exchanger;
@@ -202,13 +204,15 @@ private:
     // for external table sink hash partition
     std::unique_ptr<HashPartitionFunction> _partition_function = nullptr;
     std::atomic<bool> _reach_limit = false;
+    int _close_sender_number = 1;
 };
 
 class ExchangeSinkOperatorX final : public DataSinkOperatorX<ExchangeSinkLocalState> {
 public:
     ExchangeSinkOperatorX(RuntimeState* state, const RowDescriptor& row_desc, int operator_id,
                           const TDataStreamSink& sink,
-                          const std::vector<TPlanFragmentDestination>& destinations);
+                          const std::vector<TPlanFragmentDestination>& destinations,
+                          bool is_multi_cast = false);
     Status init(const TDataSink& tsink) override;
 
     RuntimeState* state() { return _state; }
@@ -220,6 +224,10 @@ public:
     Status serialize_block(ExchangeSinkLocalState& stete, vectorized::Block* src, PBlock* dest,
                            int num_receivers = 1);
     DataDistribution required_data_distribution() const override;
+
+    bool is_exchange_sink() const override { return true; };
+
+    void set_close_sender_number(int number) { _close_sender_number = number; }
 
 private:
     friend class ExchangeSinkLocalState;
@@ -276,6 +284,10 @@ private:
     size_t _data_processed = 0;
     int _writer_count = 1;
     const bool _enable_local_merge_sort;
+    const bool _is_multi_cast;
+    const bool _enable_pass_to_one_exchange;
+
+    int _close_sender_number = 1;
 };
 
 } // namespace pipeline
