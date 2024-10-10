@@ -162,8 +162,8 @@ public:
         // allocate memory again.
         if (!_inited) {
             auto* other_func = static_cast<BloomFilterFuncBase*>(bloomfilter_func);
-            if (_bloom_filter == nullptr) {
-                return Status::InternalError("_bloom_filter is nullptr");
+            if (_bloom_filter != nullptr) {
+                return Status::InternalError("_bloom_filter must is nullptr");
             }
             _bloom_filter = bloomfilter_func->_bloom_filter;
             _bloom_filter_alloced = other_func->_bloom_filter_alloced;
