@@ -727,6 +727,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
         TNetworkAddress address = null;
         Backend srcBackend = cloudSystemInfoService.getBackend(srcBe);
         Backend destBackend = cloudSystemInfoService.getBackend(destBe);
+        boolean ok = true;
         try {
             address = new TNetworkAddress(destBackend.getHost(), destBackend.getBePort());
             client = ClientPool.backendPool.borrowObject(address);
@@ -743,10 +744,14 @@ public class CloudTabletRebalancer extends MasterDaemon {
             }
         } catch (Exception e) {
             LOG.warn("send pre heating rpc error. backend[{}]", destBackend.getId(), e);
-            ClientPool.backendPool.invalidateObject(address, client);
+            ok = false;
             throw e;
         } finally {
-            ClientPool.backendPool.returnObject(address, client);
+            if (ok) {
+                ClientPool.backendPool.returnObject(address, client);
+            } else {
+                ClientPool.backendPool.invalidateObject(address, client);
+            }
         }
     }
 
@@ -754,6 +759,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
         BackendService.Client client = null;
         TNetworkAddress address = null;
         Backend destBackend = cloudSystemInfoService.getBackend(be);
+        boolean ok = true;
         try {
             address = new TNetworkAddress(destBackend.getHost(), destBackend.getBePort());
             client = ClientPool.backendPool.borrowObject(address);
@@ -770,9 +776,13 @@ public class CloudTabletRebalancer extends MasterDaemon {
             return result.getTaskDone();
         } catch (Exception e) {
             LOG.warn("send check pre cache rpc error. backend[{}]", destBackend.getId(), e);
-            ClientPool.backendPool.invalidateObject(address, client);
+            ok = false;
         } finally {
-            ClientPool.backendPool.returnObject(address, client);
+            if (ok) {
+                ClientPool.backendPool.returnObject(address, client);
+            } else {
+                ClientPool.backendPool.invalidateObject(address, client);
+            }
         }
         return null;
     }
