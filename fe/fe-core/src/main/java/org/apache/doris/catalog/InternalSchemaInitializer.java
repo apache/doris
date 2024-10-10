@@ -188,6 +188,7 @@ public class InternalSchemaInitializer extends Thread {
             {
                 put("replication_num", String.valueOf(
                         Math.max(1, Config.min_replication_num_per_tablet)));
+                put(PropertyAnalyzer.ENABLE_UNIQUE_KEY_SKIP_BITMAP_COLUMN, "false");
             }
         };
         CreateTableStmt createTableStmt = new CreateTableStmt(true, false,
