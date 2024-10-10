@@ -270,7 +270,9 @@ SegmentIterator::SegmentIterator(std::shared_ptr<Segment> segment, SchemaSPtr sc
 
 Status SegmentIterator::init(const StorageReadOptions& opts) {
     auto status = _init_impl(opts);
-    _segment->update_healthy_status(status);
+    if (!status.ok()) {
+        _segment->update_healthy_status(status);
+    }
     return status;
 }
 
