@@ -63,14 +63,23 @@ public class PushCountIntoUnionAllTest extends TestWithFeService implements Memo
                         ).when(agg -> ExpressionUtils.containsType(agg.getOutputExpressions(), Sum0.class))
                 );
     }
-    // TODO: not push because after column prune, agg-union transform to agg-project(1)-union, not match rule pattern.
+
     @Test
-    void testPushCountStarNotPush() {
+    void testPushCountStarNoOtherColumn() {
         String sql = "select count(1) from (select id,a from t1 union all select id,a from t1 where id>10) t;";
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .rewrite()
-                .nonMatch(
+                .matches(
+                        logicalAggregate(
+                                logicalUnion(logicalAggregate(), logicalAggregate())
+                        ).when(agg -> ExpressionUtils.containsType(agg.getOutputExpressions(), Sum0.class))
+                );
+        String sql2 = "select count(*) from (select id,a from t1 union all select id,a from t1 where id>10) t;";
+        PlanChecker.from(connectContext)
+                .analyze(sql2)
+                .rewrite()
+                .matches(
                         logicalAggregate(
                                 logicalUnion(logicalAggregate(), logicalAggregate())
                         ).when(agg -> ExpressionUtils.containsType(agg.getOutputExpressions(), Sum0.class))

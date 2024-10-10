@@ -260,3 +260,6 @@ PhysicalResultSink
 ----------------filter((mal_test_push_count.a = 1))
 ------------------PhysicalOlapScan[mal_test_push_count]
 
+-- !test_count_star --
+32
+

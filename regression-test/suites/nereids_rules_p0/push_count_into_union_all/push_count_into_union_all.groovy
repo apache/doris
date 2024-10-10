@@ -127,4 +127,8 @@ suite("push_count_into_union_all") {
         select a,c1 from (
         select a,count(*) c1 from (select a,b from mal_test_push_count where a>1 union all select a,b from mal_test_push_count where a<100 
         union all select a,b from mal_test_push_count where a=1 ) t group by a) outer_table order by 1,2;"""
+
+    qt_test_count_star """
+        select count(*) from (select a,b from mal_test_push_count where a>1 union all select a,b from mal_test_push_count where a<100 
+        union all select a,b from mal_test_push_count where a=1) t order by 1,2;"""
 }

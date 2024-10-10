@@ -28,9 +28,11 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum0;
+import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSetOperation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.util.ExpressionUtils;
@@ -61,13 +63,19 @@ import java.util.Set;
  *    +--LogicalAggregate (groupByExpr=[a#7], outputExpr=[a#7, count(a#7) AS `count(a)`#18]]
  *      +--child3
  */
-public class PushCountIntoUnionAll extends OneRewriteRuleFactory {
+public class PushCountIntoUnionAll implements RewriteRuleFactory {
     @Override
-    public Rule build() {
-        return logicalAggregate(logicalUnion().when(this::checkUnion))
+    public List<Rule> buildRules() {
+        return ImmutableList.of(logicalAggregate(logicalUnion().when(this::checkUnion))
                 .when(this::checkAgg)
                 .then(this::doPush)
-                .toRule(RuleType.PUSH_COUNT_INTO_UNION_ALL);
+                .toRule(RuleType.PUSH_COUNT_INTO_UNION_ALL),
+                logicalAggregate(logicalProject(logicalUnion().when(this::checkUnion)))
+                .when(this::checkAgg)
+                .when(this::checkProjectUseless)
+                .then(this::removeProjectAndPush)
+                .toRule(RuleType.PUSH_COUNT_INTO_UNION_ALL)
+                );
     }
 
     private Plan doPush(LogicalAggregate<LogicalUnion> agg) {
@@ -159,6 +167,31 @@ public class PushCountIntoUnionAll extends OneRewriteRuleFactory {
             return false;
         }
         return !hasUnsuportedAggFunc(aggregate);
+    }
+
+    private boolean checkProjectUseless(LogicalAggregate<LogicalProject<LogicalUnion>> agg) {
+        LogicalProject<LogicalUnion> project = agg.child();
+        if (project.getProjects().size() != 1) {
+            return false;
+        }
+        if (!(project.getProjects().get(0) instanceof Alias)) {
+            return false;
+        }
+        Alias alias = (Alias) project.getProjects().get(0);
+        if (!alias.child(0).equals(new TinyIntLiteral((byte) 1))) {
+            return false;
+        }
+        List<NamedExpression> aggOutputs = agg.getOutputExpressions();
+        Slot slot = project.getOutput().get(0);
+        if (ExpressionUtils.anyMatch(aggOutputs, expr -> expr.equals(slot))) {
+            return false;
+        }
+        return true;
+    }
+
+    private Plan removeProjectAndPush(LogicalAggregate<LogicalProject<LogicalUnion>> agg) {
+        Plan afterRemove = agg.withChildren(agg.child().child());
+        return doPush((LogicalAggregate<LogicalUnion>) afterRemove);
     }
 
     private boolean hasUnsuportedAggFunc(LogicalAggregate aggregate) {
