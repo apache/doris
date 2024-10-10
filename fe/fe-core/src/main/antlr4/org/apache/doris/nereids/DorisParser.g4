@@ -1003,7 +1003,7 @@ planType
     ;
 
 replayCommand
-    : REPLAYER replayType;
+    : PLAN REPLAYER replayType;
 
 replayType
     : DUMP query
@@ -2023,7 +2023,7 @@ nonReserved
     | REPEATABLE
     | REPLACE
     | REPLACE_IF_NOT_NULL
-    | REPLAY
+    | REPLAYER
     | REPOSITORIES
     | REPOSITORY
     | RESOURCE
