@@ -17,16 +17,11 @@
 
 #include "byte_stream_split_decoder.h"
 
+#include <cstdint>
+
+#include "util/byte_stream_split.h"
+
 namespace doris::vectorized {
-void ByteStreamSplitDecoder::set_data(Slice* slice) {
-    Decoder::set_data(slice);
-    DCHECK(_data->get_size() % _type_length == 0);
-    auto byteSplitStreamNum = _data->get_size() / _type_length;
-    _byteSplitStreams = std::vector<char*>(_type_length);
-    for (size_t i = 0; i < _type_length; ++i) {
-        _byteSplitStreams[i] = _data->data + i * byteSplitStreamNum;
-    }
-}
 
 Status ByteStreamSplitDecoder::decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
                                              ColumnSelectVector& select_vector,
@@ -45,7 +40,10 @@ Status ByteStreamSplitDecoder::_decode_values(MutableColumnPtr& doris_column,
                                               bool is_dict_filter) {
     size_t non_null_size = select_vector.num_values() - select_vector.num_nulls();
     if (UNLIKELY(_offset + non_null_size > _data->size)) {
-        return Status::IOError("Out-of-bounds access in parquet data decoder");
+        return Status::IOError(
+                "Out-of-bounds access in parquet data decoder: offset = {}, non_null_size = "
+                "{},size = {}",
+                _offset, non_null_size, _data->size);
     }
 
     size_t primitive_length = remove_nullable(data_type)->get_size_of_value_in_memory();
@@ -55,17 +53,15 @@ Status ByteStreamSplitDecoder::_decode_values(MutableColumnPtr& doris_column,
     doris_column->resize(doris_column->size() + scale_size);
     char* raw_data = const_cast<char*>(doris_column->get_raw_data().data);
     ColumnSelectVector::DataReadType read_type;
+    DCHECK(_data->get_size() % _type_length == 0);
+    int64_t stride = _data->get_size() / _type_length;
 
     while (size_t run_length = select_vector.get_next_run<has_filter>(&read_type)) {
         switch (read_type) {
         case ColumnSelectVector::CONTENT: {
-            for (int i = 0; i < run_length; ++i) {
-                // read byte split value from _byteSplitStreams
-                for (size_t j = 0; j < _type_length; ++j) {
-                    raw_data[data_index + i * _type_length + j] =
-                            _byteSplitStreams[j][_offset / _type_length + i];
-                }
-            }
+            byte_stream_split_decode(reinterpret_cast<const uint8_t*>(_data->get_data()),
+                                     _type_length, _offset / _type_length, run_length, stride,
+                                     reinterpret_cast<uint8_t*>(raw_data) + data_index);
             _offset += run_length * _type_length;
             data_index += run_length * _type_length;
             break;
@@ -90,7 +86,9 @@ Status ByteStreamSplitDecoder::_decode_values(MutableColumnPtr& doris_column,
 Status ByteStreamSplitDecoder::skip_values(size_t num_values) {
     _offset += _type_length * num_values;
     if (UNLIKELY(_offset > _data->size)) {
-        return Status::IOError("Out-of-bounds access in parquet data decoder");
+        return Status::IOError(
+                "Out-of-bounds access in parquet data decoder: offset = {}, size = {}", _offset,
+                _data->size);
     }
     return Status::OK();
 }

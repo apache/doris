@@ -17,22 +17,12 @@
 
 #pragma once
 
-#include "vec/exec/format/parquet/decoder.h"
+#include <cstdint>
 
-namespace doris::vectorized {
-class ByteStreamSplitDecoder final : public Decoder {
-public:
-    ByteStreamSplitDecoder() = default;
-    ~ByteStreamSplitDecoder() override = default;
+namespace doris {
 
-    Status decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
-                         ColumnSelectVector& select_vector, bool is_dict_filter) override;
+// Decode a byte stream that has been split into multiple streams.
+void byte_stream_split_decode(const uint8_t* src, int width, int64_t offset, int64_t num_values,
+                              int64_t stride, uint8_t* dest);
 
-    template <bool has_filter>
-    Status _decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
-                          ColumnSelectVector& select_vector, bool is_dict_filter);
-
-    Status skip_values(size_t num_values) override;
-};
-
-} // namespace doris::vectorized
+} // namespace doris
