@@ -994,6 +994,95 @@ Status VerticalSegmentWriter::_merge_rows_for_sequence_column(
             }
         }
     };
+
+    auto find_rows_to_filter = [&](const std::string& key) {
+        bool has_row_with_seq_col = (batched_rows[0] != -1 || batched_rows[1] != -1);
+        bool has_row_without_seq_col = (batched_rows[2] != -1 || batched_rows[3] != -1);
+        if (has_row_with_seq_col && has_row_without_seq_col) {
+            VLOG_DEBUG << fmt::format("batched_rows={}", batched_rows);
+            RowLocation loc;
+            RowsetSharedPtr rowset;
+            std::string previous_encoded_seq_value {};
+            std::string row_with_delete_sign_encoded_seq_value {};
+            std::string row_without_delete_sign_encoded_seq_value {};
+
+            Status st = _tablet->lookup_row_key(key, _tablet_schema.get(), false, specified_rowsets,
+                                                &loc, _mow_context->max_version, segment_caches,
+                                                &rowset, true, &previous_encoded_seq_value);
+            DCHECK(st.is<KEY_NOT_FOUND>() || st.ok());
+            Slice previous_seq_slice {};
+            if (st.is<KEY_NOT_FOUND>()) {
+                previous_seq_slice = Slice {encoded_default_seq_value};
+            } else {
+                // TODO(bobhan1): we can mark these rows in delete bitmap and eliminate reading them in later phase
+                _rsid_to_rowset.emplace(rowset->rowset_id(), rowset);
+                previous_seq_slice = Slice {previous_encoded_seq_value};
+            }
+            if (batched_rows[2] != -1) {
+                _encode_seq_column(seq_column, batched_rows[2],
+                                   &row_with_delete_sign_encoded_seq_value);
+            }
+            if (batched_rows[3] != -1) {
+                _encode_seq_column(seq_column, batched_rows[3],
+                                   &row_without_delete_sign_encoded_seq_value);
+            }
+
+            auto remove_rows_without_seq = [&]() {
+                if (batched_rows[0] != -1) {
+                    VLOG_DEBUG << fmt::format("filter pos={}", batched_rows[0]);
+                    filter_map[batched_rows[0]] = 0;
+                    ++duplicate_keys;
+                }
+                if (batched_rows[1] != -1) {
+                    VLOG_DEBUG << fmt::format("filter pos={}", batched_rows[1]);
+                    filter_map[batched_rows[1]] = 0;
+                    ++duplicate_keys;
+                }
+            };
+
+            // the encoded value is order-preserving, so we can use Slice::compare() to compare them
+            if (batched_rows[2] != -1 && batched_rows[3] != -1) {
+                if (previous_seq_slice.compare(Slice {row_with_delete_sign_encoded_seq_value}) <=
+                    0) {
+                    remove_rows_without_seq();
+                } else if (previous_seq_slice.compare(
+                                   Slice {row_without_delete_sign_encoded_seq_value}) <= 0) {
+                    remove_rows_without_seq();
+                    VLOG_DEBUG << fmt::format("filter pos={}", batched_rows[2]);
+                    filter_map[batched_rows[2]] = 0;
+                    ++duplicate_keys;
+                } else {
+                    VLOG_DEBUG << fmt::format("filter pos={}", batched_rows[2]);
+                    filter_map[batched_rows[2]] = 0;
+                    ++duplicate_keys;
+                    VLOG_DEBUG << fmt::format("filter pos={}", batched_rows[3]);
+                    filter_map[batched_rows[3]] = 0;
+                    ++duplicate_keys;
+                }
+            } else if (batched_rows[2] != -1) {
+                if (previous_seq_slice.compare(Slice {row_with_delete_sign_encoded_seq_value}) <=
+                    0) {
+                    remove_rows_without_seq();
+                } else {
+                    VLOG_DEBUG << fmt::format("filter pos={}", batched_rows[2]);
+                    filter_map[batched_rows[2]] = 0;
+                    ++duplicate_keys;
+                }
+            } else {
+                if (previous_seq_slice.compare(Slice {row_without_delete_sign_encoded_seq_value}) <=
+                    0) {
+                    remove_rows_without_seq();
+                } else {
+                    VLOG_DEBUG << fmt::format("filter pos={}", batched_rows[3]);
+                    filter_map[batched_rows[3]] = 0;
+                    ++duplicate_keys;
+                }
+            }
+        }
+        has_same_rows = false;
+        batched_rows.fill(-1);
+    };
+
     for (size_t block_pos = data.row_pos; block_pos < data.row_pos + data.num_rows; block_pos++) {
         size_t delta_pos = block_pos - data.row_pos;
         auto& skip_bitmap = skip_bitmaps->at(block_pos);
@@ -1001,6 +1090,8 @@ Status VerticalSegmentWriter::_merge_rows_for_sequence_column(
         bool row_has_sequence_col = (!skip_bitmap.contains(seq_col_unique_id));
         bool row_has_delete_sign =
                 (!skip_bitmap.contains(delete_sign_col_unique_id) && delete_signs[block_pos] != 0);
+        VLOG_DEBUG << fmt::format("block_pos={}, row_has_sequence_col={}, row_has_delete_sign={}",
+                                  block_pos, row_has_sequence_col, row_has_delete_sign);
         if (delta_pos > 0 && previous_key == key) {
             if (!has_same_rows) {
                 batched_rows[get_idx(previous_has_seq_col, previous_has_delete_sign)] =
@@ -1010,89 +1101,15 @@ Status VerticalSegmentWriter::_merge_rows_for_sequence_column(
             batched_rows[get_idx(row_has_sequence_col, row_has_delete_sign)] = block_pos;
         } else {
             if (has_same_rows) {
-                bool has_row_with_seq_col = (batched_rows[0] != -1 || batched_rows[1] != -1);
-                bool has_row_without_seq_col = (batched_rows[2] != -1 || batched_rows[3] != -1);
-                if (has_row_with_seq_col && has_row_without_seq_col) {
-                    RowLocation loc;
-                    RowsetSharedPtr rowset;
-                    std::string previous_encoded_seq_value {};
-                    std::string row_with_delete_sign_encoded_seq_value {};
-                    std::string row_without_delete_sign_encoded_seq_value {};
-
-                    Status st = _tablet->lookup_row_key(key, _tablet_schema.get(), false,
-                                                        specified_rowsets, &loc,
-                                                        _mow_context->max_version, segment_caches,
-                                                        &rowset, true, &previous_encoded_seq_value);
-                    DCHECK(st.is<KEY_NOT_FOUND>() || st.ok());
-                    Slice previous_seq_slice {};
-                    if (st.is<KEY_NOT_FOUND>()) {
-                        previous_seq_slice = Slice {encoded_default_seq_value};
-                    } else {
-                        // TODO(bobhan1): we can mark these rows in delete bitmap and eliminate reading them in later phase
-                        _rsid_to_rowset.emplace(rowset->rowset_id(), rowset);
-                        previous_seq_slice = Slice {previous_encoded_seq_value};
-                    }
-                    if (batched_rows[2] != -1) {
-                        _encode_seq_column(seq_column, batched_rows[2],
-                                           &row_with_delete_sign_encoded_seq_value);
-                    }
-                    if (batched_rows[3] != -1) {
-                        _encode_seq_column(seq_column, batched_rows[2],
-                                           &row_without_delete_sign_encoded_seq_value);
-                    }
-
-                    auto remove_rows_without_seq = [&]() {
-                        if (batched_rows[0] != -1) {
-                            filter_map[batched_rows[0]] = 0;
-                            ++duplicate_keys;
-                        }
-                        if (batched_rows[1] != -1) {
-                            filter_map[batched_rows[1]] = 0;
-                            ++duplicate_keys;
-                        }
-                    };
-
-                    // the encoded value is order-preserving, so we can use Slice::compare() to compare them
-                    if (batched_rows[2] != -1 && batched_rows[3] != -1) {
-                        if (previous_seq_slice.compare(
-                                    Slice {row_with_delete_sign_encoded_seq_value}) <= 0) {
-                            remove_rows_without_seq();
-                        } else if (previous_seq_slice.compare(Slice {
-                                           row_without_delete_sign_encoded_seq_value}) <= 0) {
-                            remove_rows_without_seq();
-                            filter_map[batched_rows[2]] = 0;
-                            ++duplicate_keys;
-                        } else {
-                            filter_map[batched_rows[2]] = 0;
-                            ++duplicate_keys;
-                            filter_map[batched_rows[3]] = 0;
-                            ++duplicate_keys;
-                        }
-                    } else if (batched_rows[2] != -1) {
-                        if (previous_seq_slice.compare(
-                                    Slice {row_with_delete_sign_encoded_seq_value}) <= 0) {
-                            remove_rows_without_seq();
-                        } else {
-                            filter_map[batched_rows[2]] = 0;
-                            ++duplicate_keys;
-                        }
-                    } else {
-                        if (previous_seq_slice.compare(
-                                    Slice {row_with_delete_sign_encoded_seq_value}) <= 0) {
-                            remove_rows_without_seq();
-                        } else {
-                            filter_map[batched_rows[3]] = 0;
-                            ++duplicate_keys;
-                        }
-                    }
-                }
-                has_same_rows = false;
-                batched_rows.fill(-1);
+                find_rows_to_filter(previous_key);
             }
         }
         previous_key = std::move(key);
         previous_has_seq_col = row_has_sequence_col;
         previous_has_delete_sign = row_has_delete_sign;
+    }
+    if (has_same_rows) {
+        find_rows_to_filter(previous_key);
     }
     if (duplicate_keys > 0) {
         RETURN_IF_ERROR(_filter_block_for_flexible_partial_update(

@@ -679,7 +679,7 @@ void MemTable::_aggregate() {
                             }
                         }
                         if (has_delete_sign) {
-                            RowInBlock*& row_without_delete_sign = batched_rows[1];
+                            RowInBlock*& row_without_delete_sign = batched_rows[3];
                             if (row_without_delete_sign != nullptr) {
                                 // if there exits row without delete sign, remove it first
                                 row_clear_agg(row_without_delete_sign);
