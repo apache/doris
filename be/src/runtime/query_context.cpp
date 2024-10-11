@@ -530,11 +530,11 @@ std::string QueryContext::debug_string() {
             "QueryId={}, Memory [Used={}, Limit={}, Peak={}], "
             "Spill[RunningSpillTaskCnt={}, TotalPausedPeriodSecs={}, "
             "MemorySufficient={}, LatestPausedReason={}]",
-            query_mem_tracker->label(),
+            print_id(_query_id),
             PrettyPrinter::print(query_mem_tracker->consumption(), TUnit::BYTES),
             PrettyPrinter::print(query_mem_tracker->limit(), TUnit::BYTES),
             PrettyPrinter::print(query_mem_tracker->peak_consumption(), TUnit::BYTES),
-            _revoking_tasks_count, _memory_sufficient_dependency->ready(), _paused_period_secs,
+            _revoking_tasks_count, _paused_period_secs, _memory_sufficient_dependency->ready(),
             _paused_reason.to_string());
 }
 
