@@ -504,7 +504,7 @@ suite("mv_tpch_test") {
     """
     // contains subquery, doesn't support now
     order_qt_query7_before "${query7}"
-    async_mv_rewrite_fail(db, mv7, query7, "mv7")
+    async_mv_rewrite_success(db, mv7, query7, "mv7")
     order_qt_query7_after "${query7}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv7"""
 
