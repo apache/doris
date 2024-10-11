@@ -124,20 +124,25 @@ Status HashJoinBuildSinkLocalState::close(RuntimeState* state, Status exec_statu
     if (!_runtime_filter_slots || _runtime_filters.empty() || state->is_cancelled()) {
         return Base::close(state, exec_status);
     }
-    auto* block = _shared_state->build_block.get();
-    uint64_t hash_table_size = block ? block->rows() : 0;
-    {
-        SCOPED_TIMER(_runtime_filter_init_timer);
-        if (_should_build_hash_table) {
-            RETURN_IF_ERROR(_runtime_filter_slots->init_filters(state, hash_table_size));
-        }
-        RETURN_IF_ERROR(_runtime_filter_slots->ignore_filters(state));
-    }
-    if (_should_build_hash_table && hash_table_size > 1) {
-        SCOPED_TIMER(_runtime_filter_compute_timer);
-        _runtime_filter_slots->insert(block);
-    }
 
+    if (!_eos) {
+        RETURN_IF_ERROR(_runtime_filter_slots->send_filter_size(state, 0, _finish_dependency));
+        RETURN_IF_ERROR(_runtime_filter_slots->ignore_all_filters());
+    } else {
+        auto* block = _shared_state->build_block.get();
+        uint64_t hash_table_size = block ? block->rows() : 0;
+        {
+            SCOPED_TIMER(_runtime_filter_init_timer);
+            if (_should_build_hash_table) {
+                RETURN_IF_ERROR(_runtime_filter_slots->init_filters(state, hash_table_size));
+            }
+            RETURN_IF_ERROR(_runtime_filter_slots->ignore_filters(state));
+        }
+        if (_should_build_hash_table && hash_table_size > 1) {
+            SCOPED_TIMER(_runtime_filter_compute_timer);
+            _runtime_filter_slots->insert(block);
+        }
+    }
     SCOPED_TIMER(_publish_runtime_filter_timer);
     RETURN_IF_ERROR(_runtime_filter_slots->publish(!_should_build_hash_table));
     return Base::close(state, exec_status);
