@@ -123,7 +123,6 @@ public:
     * Part 2, Constructors and property methods
     */
 
-    // Label cannot be repeated, because profile name must be unique when generating the runtime profile.
     static std::shared_ptr<MemTrackerLimiter> create_shared(MemTrackerLimiter::Type type,
                                                             const std::string& label,
                                                             int64_t byte_limit = -1);
@@ -301,6 +300,8 @@ private:
 
     // label used in the make snapshot, not guaranteed unique.
     std::string _label;
+    // For generate runtime profile, profile name must be unique.
+    UniqueId _uid;
 
     MemCounter _mem_counter;
     MemCounter _reserved_counter;

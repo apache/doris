@@ -63,6 +63,7 @@ MemTrackerLimiter::MemTrackerLimiter(Type type, const std::string& label, int64_
     _type = type;
     _label = label;
     _limit = byte_limit;
+    _uid = UniqueId::gen_uid();
     if (_type == Type::GLOBAL) {
         _group_num = 0;
     } else {
@@ -205,8 +206,8 @@ std::string MemTrackerLimiter::print_address_sanitizers() {
 }
 
 RuntimeProfile* MemTrackerLimiter::make_profile(RuntimeProfile* profile) const {
-    RuntimeProfile* profile_snapshot =
-            profile->create_child(fmt::format("{}@{}", _label, type_string(_type)), true, false);
+    RuntimeProfile* profile_snapshot = profile->create_child(
+            fmt::format("{}@{}@id={}", _label, type_string(_type), _uid.to_string()), true, false);
     RuntimeProfile::Counter* current_usage_counter =
             ADD_COUNTER(profile_snapshot, "CurrentUsage", TUnit::BYTES);
     RuntimeProfile::Counter* peak_usage_counter =
