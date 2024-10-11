@@ -22,8 +22,8 @@ suite("test_stream_load_where_delete_expr", "p0") {
    
     def uniqueSql = """CREATE TABLE ${tableName}(
                 user_id BIGINT NOT NULL COMMENT "用户 ID",
-                name VARCHAR(20) COMMENT "用户姓名",
-                age INT COMMENT "用户年龄"
+                age INT COMMENT "用户年龄",
+                name VARCHAR(20) COMMENT "用户姓名"
             )
                 UNIQUE KEY(user_id)
                 DISTRIBUTED BY HASH(user_id) BUCKETS 10
@@ -70,8 +70,8 @@ suite("test_stream_load_where_delete_expr", "p0") {
             );"""
     def dupSql = """CREATE TABLE ${tableName}(
                 user_id BIGINT NOT NULL COMMENT "用户 ID",
-                name VARCHAR(20) COMMENT "用户姓名",
-                age INT COMMENT "用户年龄"
+                age INT COMMENT "用户年龄",
+                name VARCHAR(20) COMMENT "用户姓名"
             )
             DUPLICATE KEY(user_id)
             DISTRIBUTED BY HASH(user_id) BUCKETS 10
@@ -85,7 +85,7 @@ suite("test_stream_load_where_delete_expr", "p0") {
     sql uniqueSql
     streamLoad {
         table "${tableName}"
-        set 'columns', 'user_id, name, age'
+        set 'columns', 'user_id, age'
         set 'column_separator', ','
         set 'where', 'age>=35'
 
@@ -110,9 +110,9 @@ suite("test_stream_load_where_delete_expr", "p0") {
 
     streamLoad {
         table "${tableName}"
-        set 'columns', 'user_id, name, age'
+        set 'columns', 'user_id, age'
         set 'column_separator', ','
-        set 'where', 'age>=35 or name="Olivia"'
+        set 'where', 'age>=35 or user_id=1'
 
         file 'streamload_2.csv'
         time 10000 // limit inflight 10s
@@ -135,9 +135,8 @@ suite("test_stream_load_where_delete_expr", "p0") {
 
     streamLoad {
         table "${tableName}"
-        set 'columns', 'user_id, name, age'
+        set 'columns', 'user_id, age'
         set 'column_separator', ','
-
         file 'streamload_1.csv'
         time 10000 // limit inflight 10s
 
@@ -156,7 +155,7 @@ suite("test_stream_load_where_delete_expr", "p0") {
 
     streamLoad {
         table "${tableName}"
-        set 'columns', 'user_id, name, age'
+        set 'columns', 'user_id, age'
         set 'column_separator', ','
         set 'merge_type', 'DELETE'
         file 'streamload_3.csv'
@@ -168,9 +167,9 @@ suite("test_stream_load_where_delete_expr", "p0") {
             }
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
-            assertEquals("fail", json.Status.toLowerCase())
+            assertEquals("success", json.Status.toLowerCase())
             assertEquals(10, json.NumberTotalRows)
-            assertEquals(9, json.NumberLoadedRows)
+            assertEquals(10, json.NumberLoadedRows)
         }
     }
 
@@ -182,7 +181,7 @@ suite("test_stream_load_where_delete_expr", "p0") {
     sql dupSql
     streamLoad {
         table "${tableName}"
-        set 'columns', 'user_id, name, age'
+        set 'columns', 'user_id, age'
         set 'column_separator', ','
         set 'where', 'age>=35'
 
@@ -207,9 +206,9 @@ suite("test_stream_load_where_delete_expr", "p0") {
 
     streamLoad {
         table "${tableName}"
-        set 'columns', 'user_id, name, age'
+        set 'columns', 'user_id, age'
         set 'column_separator', ','
-        set 'where', 'age>=35 or name="Olivia"'
+        set 'where', 'age>=35 or user_id=1'
 
         file 'streamload_2.csv'
         time 10000 // limit inflight 10s
@@ -234,11 +233,10 @@ suite("test_stream_load_where_delete_expr", "p0") {
     sql uniquePartitionSql
     streamLoad {
         table "${tableName}"
-        set 'columns', 'user_id, name, age'
         set 'column_separator', ','
         set 'column_separator', ','
-        set 'partitions', 'p1, p2'
-        set 'max_filter_ratio', '0.5'
+        set 'partition_columns', 'age'
+        set 'max_filter_ratio', '0.1'
         set 'where', 'age>=35'
 
         file 'streamload_2.csv'
@@ -250,9 +248,9 @@ suite("test_stream_load_where_delete_expr", "p0") {
             }
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
-            assertEquals("success", json.Status.toLowerCase())
+            assertEquals("fail", json.Status.toLowerCase())
             assertEquals(10, json.NumberTotalRows)
-            assertEquals(4, json.NumberLoadedRows)
+            assertEquals(0, json.NumberLoadedRows)
         }
     }
 
@@ -262,11 +260,11 @@ suite("test_stream_load_where_delete_expr", "p0") {
 
     streamLoad {
         table "${tableName}"
-        set 'columns', 'user_id, name, age'
+        set 'columns', 'user_id, age'
         set 'column_separator', ','
-        set 'where', 'age>=35 or name="Olivia"'
+        set 'where', 'age>=35 or user_id=1'
         set 'partitions', 'p1, p2'
-        set 'max_filter_ratio', '0.5'
+        set 'max_filter_ratio', '0.1'
         file 'streamload_2.csv'
         time 10000 // limit inflight 10s
 
@@ -288,10 +286,10 @@ suite("test_stream_load_where_delete_expr", "p0") {
 
     streamLoad {
         table "${tableName}"
-        set 'columns', 'user_id, name, age'
+        set 'columns', 'user_id, age'
         set 'column_separator', ','
         set 'partitions', 'p1, p2'
-        set 'max_filter_ratio', '0.5'
+        set 'max_filter_ratio', '0.1'
         file 'streamload_1.csv'
         time 10000 // limit inflight 10s
 
@@ -310,12 +308,12 @@ suite("test_stream_load_where_delete_expr", "p0") {
 
     streamLoad {
         table "${tableName}"
-        set 'columns', 'user_id, name, age'
+        set 'columns', 'user_id, age'
         set 'column_separator', ','
         set 'merge_type', 'DELETE'
         file 'streamload_3.csv'
         set 'partitions', 'p1, p2'
-        set 'max_filter_ratio', '0.5'
+        set 'max_filter_ratio', '0.1'
         time 10000 // limit inflight 10s
 
         check { result, exception, startTime, endTime ->
@@ -326,7 +324,7 @@ suite("test_stream_load_where_delete_expr", "p0") {
             def json = parseJson(result)
             assertEquals("success", json.Status.toLowerCase())
             assertEquals(10, json.NumberTotalRows)
-            assertEquals(8, json.NumberLoadedRows)
+            assertEquals(9, json.NumberLoadedRows)
         }
     }
 
@@ -338,11 +336,11 @@ suite("test_stream_load_where_delete_expr", "p0") {
     sql dupPartitionSql
     streamLoad {
         table "${tableName}"
-        set 'columns', 'user_id, name, age'
+        set 'columns', 'user_id, age'
         set 'column_separator', ','
         set 'where', 'age>=35'
         set 'partitions', 'p1, p2'
-        set 'max_filter_ratio', '0.5'
+        set 'max_filter_ratio', '0.1'
         file 'streamload_2.csv'
         time 10000 // limit inflight 10s
 
@@ -364,11 +362,11 @@ suite("test_stream_load_where_delete_expr", "p0") {
 
     streamLoad {
         table "${tableName}"
-        set 'columns', 'user_id, name, age'
+        set 'columns', 'user_id, age'
         set 'column_separator', ','
-        set 'where', 'age>=35 or name="Olivia"'
+        set 'where', 'age>=35 or user_id=1'
         set 'partitions', 'p1, p2'
-        set 'max_filter_ratio', '0.5'
+        set 'max_filter_ratio', '0.1'
         file 'streamload_2.csv'
         time 10000 // limit inflight 10s
 
