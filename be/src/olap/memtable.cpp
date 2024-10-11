@@ -604,11 +604,12 @@ void MemTable::_aggregate() {
             // !!ATTENTION!!: there may be rows with the same keys after MemTable::_aggregate() in this situation.
 
             // batched_rows store rows with the same key that have different pattern:
-            //   0 -> row has sequence col with delete sign
-            //   1 -> row has sequence col and without delete sign
-            //   2 -> row without sequence col and with delete sign
-            //   3 -> row without sequence col and without delete sign
+            //   0 -> row without sequence col and with delete sign
+            //   1 -> row without sequence col and without delete sign
+            //   2 -> row has sequence col with delete sign
+            //   3 -> row has sequence col and without delete sign
             std::array<RowInBlock*, 4> batched_rows {};
+            batched_rows.fill(nullptr);
             auto finalize_rows = [&]() {
                 for (auto& row : batched_rows) {
                     if (row != nullptr) {
@@ -620,7 +621,7 @@ void MemTable::_aggregate() {
                 batched_rows.fill(nullptr);
             };
             auto get_idx = [](bool with_seq_col, bool has_delete_sign) {
-                if (with_seq_col) {
+                if (!with_seq_col) {
                     if (has_delete_sign) {
                         return 0;
                     } else {
@@ -653,14 +654,38 @@ void MemTable::_aggregate() {
                     }
                 }
                 if (prev_row != nullptr && (*_vec_row_comparator)(prev_row, cur_row) == 0) {
-                    if (has_delete_sign) {
-                        RowInBlock*& row_without_delete_sign =
-                                (with_seq_col ? batched_rows[1] : batched_rows[3]);
-                        if (row_without_delete_sign != nullptr) {
-                            // if there exits row without delete sign, remove it first
-                            row_clear_agg(row_without_delete_sign);
-                            _stat.merged_rows++;
-                            row_without_delete_sign = nullptr;
+                    if (!with_seq_col) {
+                        if (has_delete_sign) {
+                            RowInBlock*& row_without_delete_sign = batched_rows[1];
+                            if (row_without_delete_sign != nullptr) {
+                                // if there exits row without delete sign, remove it first
+                                row_clear_agg(row_without_delete_sign);
+                                _stat.merged_rows++;
+                                row_without_delete_sign = nullptr;
+                            }
+                        }
+                    } else {
+                        // batched_rows[3]'s seq value >= batched_rows[2]'s seq value
+                        prev_row = (batched_rows[3] != nullptr ? batched_rows[3] : batched_rows[2]);
+                        if (prev_row != nullptr) {
+                            auto* col_ptr =
+                                    mutable_block.mutable_columns()[_seq_col_idx_in_block].get();
+                            int res = col_ptr->compare_at(prev_row->_row_pos, cur_row->_row_pos,
+                                                          *col_ptr, -1);
+                            if (res > 0) {
+                                // previous rows have higher sequence value, ignore this row
+                                _stat.merged_rows++;
+                                continue;
+                            }
+                        }
+                        if (has_delete_sign) {
+                            RowInBlock*& row_without_delete_sign = batched_rows[1];
+                            if (row_without_delete_sign != nullptr) {
+                                // if there exits row without delete sign, remove it first
+                                row_clear_agg(row_without_delete_sign);
+                                _stat.merged_rows++;
+                                row_without_delete_sign = nullptr;
+                            }
                         }
                     }
                     prev_row = batched_rows[get_idx(with_seq_col, has_delete_sign)];
