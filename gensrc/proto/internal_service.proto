@@ -29,6 +29,13 @@ import "olap_file.proto";
 
 option cc_generic_services = true;
 
+message PSenderBlockInfo {
+    required int32 sender_id = 1;
+    required bool eos = 2;
+    required PBlock block = 3;
+    required int64 packet_seq = 4;
+}
+
 // Transmit data when process SQL query
 message PTransmitDataParams {
     // non-change member
@@ -41,16 +48,17 @@ message PTransmitDataParams {
     // if set to true, indicates that no more row batches will be sent
     // for this dest_node_id
     required bool eos = 5;
-    optional PRowBatch row_batch = 6;
+    optional PRowBatch row_batch = 6 [deprecated = true];
     // different per packet
     required int64 packet_seq = 7;
-    optional PQueryStatistics query_statistics = 8;
+    optional PQueryStatistics query_statistics = 8 [deprecated = true];
 
     optional PBlock block = 9;
     // transfer the RowBatch to the Controller Attachment
     optional bool transfer_by_attachment = 10 [default = false];
     optional PUniqueId query_id = 11;
     optional PStatus exec_status = 12;
+    repeated PSenderBlockInfo multi_sender = 13;
 };
 
 message PTransmitDataResult {
