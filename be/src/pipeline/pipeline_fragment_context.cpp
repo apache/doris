@@ -1154,8 +1154,7 @@ Status PipelineFragmentContext::_create_data_sink(ObjectPool* pool, const TDataS
         }
 
         _sink.reset(new MultiCastDataStreamSinkOperatorX(
-                sink_id, sources, thrift_sink.multi_cast_stream_sink.sinks.size(), pool,
-                thrift_sink.multi_cast_stream_sink, row_desc));
+                sink_id, sources, pool, thrift_sink.multi_cast_stream_sink, row_desc));
         for (int i = 0; i < sender_size; ++i) {
             auto new_pipeline = add_pipeline();
             RowDescriptor* _row_desc = nullptr;
