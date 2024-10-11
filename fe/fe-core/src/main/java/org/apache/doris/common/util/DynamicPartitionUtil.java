@@ -46,6 +46,7 @@ import org.apache.doris.policy.StoragePolicy;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.thrift.TStorageMedium;
 
+import com.google.common.base.Objects;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
@@ -1000,6 +1001,23 @@ public class DynamicPartitionUtil {
         public String toString() {
             // TODO Auto-generated method stub
             return super.toString();
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) {
+                return true;
+            }
+            if (o == null || getClass() != o.getClass()) {
+                return false;
+            }
+            StartOfDate that = (StartOfDate) o;
+            return month == that.month && day == that.day && dayOfWeek == that.dayOfWeek;
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hashCode(month, day, dayOfWeek);
         }
     }
 }
