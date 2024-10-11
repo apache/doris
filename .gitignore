@@ -142,3 +142,4 @@ docker/runtime/be/resource/apache-doris/
 compile_commands.json
 .github
 
+core

@@ -19,6 +19,7 @@
 
 # check DORIS_HOME
 export LC_ALL=C
+export CUSTOM_NPM_REGISTRY="https://mirrors.huaweicloud.com/repository/npm/"
 
 if [[ -z "${DORIS_HOME}" ]]; then
     echo "Error: DORIS_HOME is not set"
