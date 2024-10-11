@@ -519,16 +519,8 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback
     }
 
     private void checkAuth(String command) throws DdlException {
-        if (authorizationInfo == null) {
-            // use the old method to check priv
-            checkAuthWithoutAuthInfo(command);
-            return;
-        }
-        if (!Env.getCurrentEnv().getAccessManager().checkPrivByAuthInfo(ConnectContext.get(), authorizationInfo,
-                PrivPredicate.LOAD)) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
-                    Privilege.LOAD_PRIV);
-        }
+        // use the old method to check priv
+        checkAuthWithoutAuthInfo(command);
     }
 
     /**
@@ -746,8 +738,6 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback
     }
 
     protected List<Comparable> getShowInfoUnderLock() throws DdlException {
-        // check auth
-        checkAuth("SHOW LOAD");
         List<Comparable> jobInfo = Lists.newArrayList();
         // jobId
         jobInfo.add(id);
