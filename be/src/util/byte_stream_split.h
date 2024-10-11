@@ -21,7 +21,16 @@
 
 namespace doris {
 
-// Decode a byte stream that has been split into multiple streams.
+/**
+ * @brief Decode a byte stream into a byte stream split format.
+ * 
+ * @param src The encoded data by byte stream split.
+ * @param width The width of type.
+ * @param offset The offset of encoded data.
+ * @param num_values The num of values to decode.
+ * @param stride The length of each stream.
+ * @param dest The buffer to store the decoded data.
+ */
 void byte_stream_split_decode(const uint8_t* src, int width, int64_t offset, int64_t num_values,
                               int64_t stride, uint8_t* dest);
 

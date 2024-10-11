@@ -102,7 +102,7 @@ void byte_stream_split_decode(const uint8_t* src, int width, int64_t offset, int
                               int64_t stride, uint8_t* dest) {
     switch (width) {
     case 1:
-        memcpy(dest, src, num_values);
+        memcpy(dest, src + offset * width, num_values);
         return;
     case 2:
         return byte_stream_split_decode_scalar<2>(src, width, offset, num_values, stride, dest);
