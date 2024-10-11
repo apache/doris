@@ -159,8 +159,6 @@ QueryContext::~QueryContext() {
     uint64_t group_id = 0;
     if (_workload_group) {
         group_id = _workload_group->id(); // before remove
-        _workload_group->remove_mem_tracker_limiter(query_mem_tracker);
-        _workload_group->remove_query(_query_id);
     }
 
     _exec_env->runtime_query_statistics_mgr()->set_query_finished(print_id(_query_id));

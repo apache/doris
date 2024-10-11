@@ -107,9 +107,8 @@ public:
                    const TupleDescriptor* output_tuple_desc,
                    const RowDescriptor* output_row_descriptor,
                    const std::list<std::shared_ptr<vectorized::ScannerDelegate>>& scanners,
-                   int64_t limit_, int64_t max_bytes_in_blocks_queue,
-                   std::shared_ptr<pipeline::Dependency> dependency,
-                   const int num_parallel_instances);
+                   int64_t limit_, std::shared_ptr<pipeline::Dependency> dependency,
+                   bool ignore_data_distribution);
 
     ~ScannerContext() override {
         SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_query_thread_context.query_mem_tracker);
@@ -162,9 +161,7 @@ public:
 
     bool empty_in_queue(int id);
 
-    SimplifiedScanScheduler* get_simple_scan_scheduler() { return _simple_scan_scheduler; }
-
-    SimplifiedScanScheduler* get_remote_scan_scheduler() { return _remote_scan_task_scheduler; }
+    SimplifiedScanScheduler* get_scan_scheduler() { return _scanner_scheduler; }
 
     void stop_scanners(RuntimeState* state);
 
@@ -212,17 +209,15 @@ protected:
     int64_t limit;
 
     int32_t _max_thread_num = 0;
-    int64_t _max_bytes_in_queue;
-    doris::vectorized::ScannerScheduler* _scanner_scheduler;
-    SimplifiedScanScheduler* _simple_scan_scheduler = nullptr;
-    SimplifiedScanScheduler* _remote_scan_task_scheduler = nullptr;
+    int64_t _max_bytes_in_queue = 0;
+    doris::vectorized::ScannerScheduler* _scanner_scheduler_global = nullptr;
+    SimplifiedScanScheduler* _scanner_scheduler = nullptr;
     moodycamel::ConcurrentQueue<std::weak_ptr<ScannerDelegate>> _scanners;
     int32_t _num_scheduled_scanners = 0;
     int32_t _num_finished_scanners = 0;
     int32_t _num_running_scanners = 0;
     // weak pointer for _scanners, used in stop function
     std::vector<std::weak_ptr<ScannerDelegate>> _all_scanners;
-    const int _num_parallel_instances;
     std::shared_ptr<RuntimeProfile> _scanner_profile;
     RuntimeProfile::Counter* _scanner_sched_counter = nullptr;
     // This counter refers to scan operator's local state
@@ -233,10 +228,11 @@ protected:
     RuntimeProfile::Counter* _scale_up_scanners_counter = nullptr;
     QueryThreadContext _query_thread_context;
     std::shared_ptr<pipeline::Dependency> _dependency = nullptr;
+    bool _ignore_data_distribution = false;
 
     // for scaling up the running scanners
     size_t _estimated_block_size = 0;
-    std::atomic_long _block_memory_usage = 0;
+    std::atomic<int64_t> _block_memory_usage = 0;
     int64_t _last_scale_up_time = 0;
     int64_t _last_fetch_time = 0;
     int64_t _total_wait_block_time = 0;

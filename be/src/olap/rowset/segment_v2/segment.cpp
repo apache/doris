@@ -450,25 +450,12 @@ Status Segment::_load_pk_bloom_filter() {
     DCHECK(_tablet_schema->keys_type() == UNIQUE_KEYS);
     DCHECK(_pk_index_meta != nullptr);
     DCHECK(_pk_index_reader != nullptr);
-    auto status = [this]() {
-        return _load_pk_bf_once.call([this] {
-            RETURN_IF_ERROR(_pk_index_reader->parse_bf(_file_reader, *_pk_index_meta));
-            // _meta_mem_usage += _pk_index_reader->get_bf_memory_size();
-            return Status::OK();
-        });
-    }();
-    if (!status.ok()) {
-        remove_from_segment_cache();
-    }
-    return status;
-}
 
-void Segment::remove_from_segment_cache() const {
-    if (config::disable_segment_cache) {
-        return;
-    }
-    SegmentCache::CacheKey cache_key(_rowset_id, _segment_id);
-    SegmentLoader::instance()->erase_segment(cache_key);
+    return _load_pk_bf_once.call([this] {
+        RETURN_IF_ERROR(_pk_index_reader->parse_bf(_file_reader, *_pk_index_meta));
+        // _meta_mem_usage += _pk_index_reader->get_bf_memory_size();
+        return Status::OK();
+    });
 }
 
 Status Segment::load_pk_index_and_bf() {
@@ -478,14 +465,6 @@ Status Segment::load_pk_index_and_bf() {
 }
 
 Status Segment::load_index() {
-    auto status = [this]() { return _load_index_impl(); }();
-    if (!status.ok()) {
-        remove_from_segment_cache();
-    }
-    return status;
-}
-
-Status Segment::_load_index_impl() {
     return _load_index_once.call([this] {
         if (_tablet_schema->keys_type() == UNIQUE_KEYS && _pk_index_meta != nullptr) {
             _pk_index_reader = std::make_unique<PrimaryKeyIndexReader>();
@@ -517,6 +496,32 @@ Status Segment::_load_index_impl() {
             return _sk_index_decoder->parse(body, footer.short_key_page_footer());
         }
     });
+}
+
+Status Segment::healthy_status() {
+    try {
+        if (_load_index_once.has_called()) {
+            RETURN_IF_ERROR(_load_index_once.stored_result());
+        }
+        if (_load_pk_bf_once.has_called()) {
+            RETURN_IF_ERROR(_load_pk_bf_once.stored_result());
+        }
+        if (_create_column_readers_once_call.has_called()) {
+            RETURN_IF_ERROR(_create_column_readers_once_call.stored_result());
+        }
+        if (_inverted_index_file_reader_open.has_called()) {
+            RETURN_IF_ERROR(_inverted_index_file_reader_open.stored_result());
+        }
+        // This status is set by running time, for example, if there is something wrong during read segment iterator.
+        return _healthy_status.status();
+    } catch (const doris::Exception& e) {
+        // If there is an exception during load_xxx, should not throw exception directly because
+        // the caller may not exception safe.
+        return e.to_status();
+    } catch (const std::exception& e) {
+        // The exception is not thrown by doris code.
+        return Status::InternalError("Unexcepted error during load segment: {}", e.what());
+    }
 }
 
 // Return the storage datatype of related column to field.
@@ -921,7 +926,8 @@ Status Segment::new_inverted_index_iterator(const TabletColumn& tablet_column,
 }
 
 Status Segment::lookup_row_key(const Slice& key, const TabletSchema* latest_schema,
-                               bool with_seq_col, bool with_rowid, RowLocation* row_location) {
+                               bool with_seq_col, bool with_rowid, RowLocation* row_location,
+                               std::string* encoded_seq_value) {
     RETURN_IF_ERROR(load_pk_index_and_bf());
     bool has_seq_col = latest_schema->has_sequence_col();
     bool has_rowid = !latest_schema->cluster_key_idxes().empty();
@@ -970,6 +976,7 @@ Status Segment::lookup_row_key(const Slice& key, const TabletSchema* latest_sche
     Slice sought_key_without_seq = Slice(
             sought_key.get_data(),
             sought_key.get_size() - (segment_has_seq_col ? seq_col_length : 0) - rowid_length);
+
     if (has_seq_col) {
         // compare key
         if (key_without_seq.compare(sought_key_without_seq) != 0) {
@@ -1007,6 +1014,16 @@ Status Segment::lookup_row_key(const Slice& key, const TabletSchema* latest_sche
                                                       (uint8_t*)&row_location->row_id));
     }
 
+    if (encoded_seq_value) {
+        if (!segment_has_seq_col) {
+            *encoded_seq_value = std::string {};
+        } else {
+            // include marker
+            *encoded_seq_value =
+                    Slice(sought_key.get_data() + sought_key_without_seq.get_size(), seq_col_length)
+                            .to_string();
+        }
+    }
     return Status::OK();
 }
 

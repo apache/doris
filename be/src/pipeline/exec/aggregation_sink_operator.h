@@ -109,7 +109,7 @@ protected:
     RuntimeProfile::Counter* _max_row_size_counter = nullptr;
     RuntimeProfile::Counter* _hash_table_memory_usage = nullptr;
     RuntimeProfile::Counter* _hash_table_size_counter = nullptr;
-    RuntimeProfile::HighWaterMarkCounter* _serialize_key_arena_memory_usage = nullptr;
+    RuntimeProfile::Counter* _serialize_key_arena_memory_usage = nullptr;
 
     bool _should_limit_output = false;
 
@@ -148,7 +148,7 @@ public:
                            ? DataDistribution(ExchangeType::PASSTHROUGH)
                            : DataSinkOperatorX<AggSinkLocalState>::required_data_distribution();
         }
-        return _is_colocate && _require_bucket_distribution && !_followed_by_shuffled_join
+        return _is_colocate && _require_bucket_distribution && !_followed_by_shuffled_operator
                        ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE, _partition_exprs)
                        : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
     }

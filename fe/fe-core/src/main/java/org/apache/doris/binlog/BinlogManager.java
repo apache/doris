@@ -318,7 +318,7 @@ public class BinlogManager {
         TruncateTableRecord record = new TruncateTableRecord(info);
         String data = record.toJson();
 
-        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false, info);
+        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false, record);
     }
 
     public void addTableRename(TableInfo info, long commitSeq) {

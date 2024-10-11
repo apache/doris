@@ -226,8 +226,8 @@ struct TQueryOptions {
   72: optional bool enable_orc_lazy_mat = true
 
   73: optional i64 scan_queue_mem_limit
-
-  74: optional bool enable_scan_node_run_serial = false; 
+  // deprecated
+  74: optional bool enable_scan_node_run_serial = false;
 
   75: optional bool enable_insert_strict = false;
 
@@ -317,10 +317,11 @@ struct TQueryOptions {
 
   118: optional TSerdeDialect serde_dialect = TSerdeDialect.DORIS;
 
-  119: optional bool keep_carriage_return = false; // \n,\r\n split line in CSV.
+  119: optional bool enable_match_without_inverted_index = true;
 
-  120: optional bool enable_match_without_inverted_index = true;
-  121: optional bool enable_fallback_on_missing_inverted_index = true;
+  120: optional bool enable_fallback_on_missing_inverted_index = true;
+
+  121: optional bool keep_carriage_return = false; // \n,\r\n split line in CSV.
 
   122: optional i32 runtime_bloom_filter_min_size = 1048576;
 
@@ -347,6 +348,8 @@ struct TQueryOptions {
   134: optional i32 partition_topn_pre_partition_rows = 1000;
 
   135: optional bool enable_parallel_outfile = false;
+
+  136: optional bool enable_phrase_query_sequential_opt = true;
 
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.

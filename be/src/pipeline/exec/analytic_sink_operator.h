@@ -58,7 +58,7 @@ private:
     bool _whether_need_next_partition(BlockRowPos& found_partition_end);
 
     RuntimeProfile::Counter* _evaluation_timer = nullptr;
-    RuntimeProfile::HighWaterMarkCounter* _blocks_memory_usage = nullptr;
+    RuntimeProfile::Counter* _blocks_memory_usage = nullptr;
 
     std::vector<vectorized::VExprContextSPtrs> _agg_expr_ctxs;
 };
@@ -81,7 +81,7 @@ public:
         if (_partition_by_eq_expr_ctxs.empty()) {
             return {ExchangeType::PASSTHROUGH};
         } else if (_order_by_eq_expr_ctxs.empty()) {
-            return _is_colocate && _require_bucket_distribution && !_followed_by_shuffled_join
+            return _is_colocate && _require_bucket_distribution && !_followed_by_shuffled_operator
                            ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE, _partition_exprs)
                            : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
         }

@@ -407,6 +407,8 @@ public:
             M(PrimitiveType::TYPE_CHAR)
             M(PrimitiveType::TYPE_VARCHAR)
             M(PrimitiveType::TYPE_STRING)
+            M(PrimitiveType::TYPE_DATEV2)
+            M(PrimitiveType::TYPE_DATETIMEV2)
 #undef M
         default:
             return Status::NotSupported("Unsupported primitive type {} for inverted index reader",

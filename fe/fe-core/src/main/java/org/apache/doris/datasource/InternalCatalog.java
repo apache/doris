@@ -2680,6 +2680,16 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
         olapTable.setEnableUniqueKeyMergeOnWrite(enableUniqueKeyMergeOnWrite);
 
+        boolean enableUniqueKeySkipBitmap = false;
+        if (keysType == KeysType.UNIQUE_KEYS && enableUniqueKeyMergeOnWrite) {
+            try {
+                enableUniqueKeySkipBitmap = PropertyAnalyzer.analyzeUniqueKeySkipBitmapColumn(properties);
+            } catch (AnalysisException e) {
+                throw new DdlException(e.getMessage());
+            }
+        }
+        olapTable.setEnableUniqueKeySkipBitmap(enableUniqueKeySkipBitmap);
+
         boolean enableDeleteOnDeletePredicate = false;
         try {
             enableDeleteOnDeletePredicate = PropertyAnalyzer.analyzeEnableDeleteOnDeletePredicate(properties,
@@ -3698,8 +3708,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             // write edit log
             TruncateTableInfo info =
                     new TruncateTableInfo(db.getId(), db.getFullName(), olapTable.getId(), olapTable.getName(),
-                            newPartitions,
-                            truncateEntireTable, truncateTableStmt.toSqlWithoutTable());
+                            newPartitions, truncateEntireTable, truncateTableStmt.toSqlWithoutTable(), oldPartitions);
             Env.getCurrentEnv().getEditLog().logTruncateTable(info);
         } catch (DdlException e) {
             failedCleanCallback.run();
