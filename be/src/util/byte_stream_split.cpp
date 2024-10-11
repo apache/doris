@@ -17,6 +17,8 @@
 
 #include "byte_stream_split.h"
 
+#include <glog/logging.h>
+
 #include <array>
 #include <cstring>
 #include <vector>
