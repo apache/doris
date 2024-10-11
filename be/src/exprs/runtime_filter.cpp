@@ -494,6 +494,9 @@ public:
         switch (_filter_type) {
         case RuntimeFilterType::IN_FILTER: {
             // try insert set
+            if (!_context->hybrid_set) {
+                return Status::InternalError("_context->hybrid_set is nullptr");
+            }
             _context->hybrid_set->insert(wrapper->_context->hybrid_set.get());
             if (_max_in_num >= 0 && _context->hybrid_set->size() >= _max_in_num) {
                 _context->ignored = true;
