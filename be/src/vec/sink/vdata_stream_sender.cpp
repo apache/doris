@@ -174,6 +174,12 @@ Status PipChannel::send_current_block(bool eos, Status exec_status) {
     return Status::OK();
 }
 
+void PipChannel::register_exchange_buffer(pipeline::ExchangeSinkBuffer* buffer) {
+    _buffer = buffer;
+    _buffer->register_sink(Channel<pipeline::ExchangeSinkLocalState>::_dest_fragment_instance_id,
+                           _parent->sender_id());
+}
+
 template <typename Parent>
 Status Channel<Parent>::send_current_block(bool eos, Status exec_status) {
     // FIXME: Now, local exchange will cause the performance problem is in a multi-threaded scenario
