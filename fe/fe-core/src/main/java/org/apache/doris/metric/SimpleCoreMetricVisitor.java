@@ -136,4 +136,9 @@ public class SimpleCoreMetricVisitor extends MetricVisitor {
         sb.append("doris_fe_backend_dead_num").append(" ").append(beDeadNum).append("\n");
         sb.append("doris_fe_broker_dead_num").append(" ").append(brokerDeadNum).append("\n");
     }
+
+    @Override
+    public void visitWorkloadGroup() {
+        return;
+    }
 }

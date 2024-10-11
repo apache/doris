@@ -686,6 +686,8 @@ public final class MetricRepo {
         // node info
         visitor.getNodeInfo();
 
+        visitor.visitWorkloadGroup();
+
         return visitor.finish();
     }
 
