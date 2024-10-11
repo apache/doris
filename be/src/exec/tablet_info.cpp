@@ -177,8 +177,7 @@ Status OlapTableSchemaParam::init(const POlapTableSchemaParam& pschema) {
 
                 std::string is_null_str = pcolumn_desc.is_nullable() ? "true" : "false";
                 std::string data_type_str =
-                        std::to_string(int64_t(TabletColumn::get_field_type_by_string(
-                                has_invalid_type ? "INVALID_TYPE" : pcolumn_desc.type())));
+                        std::to_string(int64_t(TabletColumn::get_field_type_by_string(pcolumn_desc.type())));
                 auto it = slots_map.find(to_lower(pcolumn_desc.name()) + "+" + data_type_str +
                                          is_null_str);
                 if (it == std::end(slots_map)) {
