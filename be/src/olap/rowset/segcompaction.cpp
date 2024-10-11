@@ -72,7 +72,7 @@ SegcompactionWorker::SegcompactionWorker(BetaRowsetWriter* writer) : _writer(wri
 void SegcompactionWorker::init_mem_tracker(const RowsetWriterContext& rowset_writer_context) {
     _seg_compact_mem_tracker = MemTrackerLimiter::create_shared(
             MemTrackerLimiter::Type::COMPACTION,
-            fmt::format("segcompaction-txnID_{}-loadID_{}-counter_{}-tabletID_{}-indexID_{}-"
+            fmt::format("segcompaction-txnID_{}-loadID_{}-tabletID_{}-indexID_{}-"
                         "partitionID_{}-version_{}",
                         std::to_string(rowset_writer_context.txn_id),
                         print_id(rowset_writer_context.load_id),
