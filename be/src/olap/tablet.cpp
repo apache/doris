@@ -2856,7 +2856,7 @@ Status Tablet::lookup_row_key(const Slice& encoded_key, TabletSchema* latest_sch
                               const std::vector<RowsetSharedPtr>& specified_rowsets,
                               RowLocation* row_location, uint32_t version,
                               std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
-                              RowsetSharedPtr* rowset, bool with_rowid,
+                              RowsetSharedPtr* rowset, bool with_rowid, bool is_partial_update,
                               std::string* encoded_seq_value) {
     SCOPED_BVAR_LATENCY(g_tablet_lookup_rowkey_latency);
     size_t seq_col_length = 0;
@@ -2873,6 +2873,8 @@ Status Tablet::lookup_row_key(const Slice& encoded_key, TabletSchema* latest_sch
     Slice key_without_seq =
             Slice(encoded_key.get_data(), encoded_key.get_size() - seq_col_length - rowid_length);
     RowLocation loc;
+
+    bool need_to_check_delete_bitmap = is_partial_update || with_seq_col;
 
     for (size_t i = 0; i < specified_rowsets.size(); i++) {
         auto& rs = specified_rowsets[i];
@@ -2912,15 +2914,19 @@ Status Tablet::lookup_row_key(const Slice& encoded_key, TabletSchema* latest_sch
             if (!s.ok() && !s.is<KEY_ALREADY_EXISTS>()) {
                 return s;
             }
-            if (s.ok() && _tablet_meta->delete_bitmap().contains_agg_without_cache(
-                                  {loc.rowset_id, loc.segment_id, version}, loc.row_id)) {
-                // if has sequence col, we continue to compare the sequence_id of
-                // all rowsets, util we find an existing key.
-                if (schema->has_sequence_col()) {
-                    continue;
+            if (s.ok() && need_to_check_delete_bitmap) {
+                // check if the key is already mark deleted
+                if (_tablet_meta->delete_bitmap().contains_agg_without_cache(
+                            {loc.rowset_id, loc.segment_id, version}, loc.row_id)) {
+                    // if has sequence col, we continue to compare the sequence_id of
+                    // all rowsets, util we find an existing key.
+                    if (with_seq_col) {
+                        continue;
+                    }
+                    // The key is deleted, we need to break the loop and return
+                    // KEY_NOT_FOUND.
+                    break;
                 }
-                // The key is deleted, we don't need to search for it any more.
-                break;
             }
             // `st` is either OK or KEY_ALREADY_EXISTS now.
             // for partial update, even if the key is already exists, we still need to
@@ -3097,7 +3103,8 @@ Status Tablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
 
             RowsetSharedPtr rowset_find;
             auto st = lookup_row_key(key, rowset_schema.get(), true, specified_rowsets, &loc,
-                                     dummy_version.first - 1, segment_caches, &rowset_find);
+                                     dummy_version.first - 1, segment_caches, &rowset_find, false,
+                                     is_partial_update);
             bool expected_st = st.ok() || st.is<KEY_NOT_FOUND>() || st.is<KEY_ALREADY_EXISTS>();
             // It's a defensive DCHECK, we need to exclude some common errors to avoid core-dump
             // while stress test

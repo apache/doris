@@ -316,7 +316,7 @@ Status VerticalSegmentWriter::_probe_key_for_mow(
     RowsetSharedPtr rowset;
     auto st = tablet->lookup_row_key(key, _tablet_schema.get(), have_input_seq_column,
                                      specified_rowsets, &loc, _mow_context->max_version,
-                                     segment_caches, &rowset);
+                                     segment_caches, &rowset, true, true);
     if (st.is<KEY_NOT_FOUND>()) {
         if (_opts.rowset_ctx->partial_update_info->is_strict_mode) {
             ++stats.num_rows_filtered;
@@ -860,7 +860,7 @@ Status VerticalSegmentWriter::_merge_rows_for_sequence_column(
             std::string previous_encoded_seq_value {};
             st = tablet->lookup_row_key(key, _tablet_schema.get(), false, specified_rowsets, &loc,
                                         _mow_context->max_version, segment_caches, &rowset, true,
-                                        &previous_encoded_seq_value);
+                                        true, &previous_encoded_seq_value);
             DCHECK(st.is<KEY_NOT_FOUND>() || st.ok());
 
             Slice previous_seq_slice {};
