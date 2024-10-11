@@ -39,7 +39,6 @@ namespace doris {
 
 static bvar::Adder<int64_t> memory_memtrackerlimiter_cnt("memory_memtrackerlimiter_cnt");
 
-std::atomic<long> mem_tracker_number_counter(0);
 std::atomic<long> mem_tracker_limiter_group_counter(0);
 constexpr auto GC_MAX_SEEK_TRACKER = 1000;
 
@@ -62,8 +61,7 @@ static RuntimeProfile::Counter* previously_canceling_tasks_counter =
 MemTrackerLimiter::MemTrackerLimiter(Type type, const std::string& label, int64_t byte_limit) {
     DCHECK_GE(byte_limit, -1);
     _type = type;
-    // MemTrackerLimiter labels cannot be repeated, otherwise generation Runtime Profile will fail.
-    _label = fmt::format("{}_{}", label, mem_tracker_number_counter.fetch_add(1));
+    _label = label;
     _limit = byte_limit;
     if (_type == Type::GLOBAL) {
         _group_num = 0;

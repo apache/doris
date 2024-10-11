@@ -40,6 +40,18 @@ public:
         return ss.str();
     }
 
+    std::string print_process_profile_no_root() const {
+        std::stringstream ss;
+        std::vector<RuntimeProfile*> profiles;
+        auto version_ptr = _process_profile.get();
+        auto* process_profile = const_cast<doris::RuntimeProfile*>(version_ptr.get());
+        process_profile->get_children(&profiles);
+        for (auto* profile : profiles) {
+            profile->pretty_print(&ss);
+        }
+        return ss.str();
+    }
+
     MemoryProfile* memory_profile() { return _memory_profile.get(); }
 
 private:

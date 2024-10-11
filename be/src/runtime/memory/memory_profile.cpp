@@ -41,6 +41,8 @@ static bvar::Adder<int64_t> memory_untracked_memory_bytes("memory_untracked_memo
 
 MemoryProfile::MemoryProfile() {
     _memory_overview_profile.set(std::make_unique<RuntimeProfile>("MemoryOverviewSnapshot"));
+    _global_memory_profile.set(std::make_unique<RuntimeProfile>("GlobalMemorySnapshot"));
+    _top_memory_tasks_profile.set(std::make_unique<RuntimeProfile>("TopMemoryTasksSnapshot"));
     _tasks_memory_profile.set(std::make_unique<RuntimeProfile>("TasksMemorySnapshot"));
 }
 
@@ -52,18 +54,16 @@ void MemoryProfile::refresh_memory_overview_profile() {
     std::unique_ptr<RuntimeProfile> memory_overview_profile =
             std::make_unique<RuntimeProfile>("MemoryOverviewSnapshot");
 #endif
+    std::unique_ptr<RuntimeProfile> global_memory_profile =
+            std::make_unique<RuntimeProfile>("GlobalMemorySnapshot");
+    std::unique_ptr<RuntimeProfile> top_memory_tasks_profile =
+            std::make_unique<RuntimeProfile>("TopMemoryTasksSnapshot");
 
     // 1. create profile
-    RuntimeProfile* basic_overview_profile =
-            memory_overview_profile->create_child("BasicOverview", true, false);
-    RuntimeProfile* top_memory_tasks_profile =
-            memory_overview_profile->create_child("TopMemoryTasks", true, false);
-    RuntimeProfile* global_memory_profile =
-            memory_overview_profile->create_child("GlobalMemory", true, false);
     RuntimeProfile* untracked_memory_profile =
-            basic_overview_profile->create_child("UntrackedMemory", true, false);
+            memory_overview_profile->create_child("UntrackedMemory", true, false);
     RuntimeProfile* tracked_memory_profile =
-            basic_overview_profile->create_child("TrackedMemory", true, false);
+            memory_overview_profile->create_child("TrackedMemory", true, false);
     RuntimeProfile* tasks_memory_overview_profile =
             tracked_memory_profile->create_child("TasksMemory", true, false);
     RuntimeProfile* tasks_memory_overview_details_profile =
@@ -78,13 +78,13 @@ void MemoryProfile::refresh_memory_overview_profile() {
     // 2. add counter
     // 2.1 add process memory counter
     RuntimeProfile::Counter* process_physical_memory_current_usage_counter =
-            ADD_COUNTER(basic_overview_profile, "PhysicalMemory(VmRSS)", TUnit::BYTES);
+            ADD_COUNTER(memory_overview_profile, "PhysicalMemory(VmRSS)", TUnit::BYTES);
     RuntimeProfile::Counter* process_physical_memory_peak_usage_counter =
-            basic_overview_profile->AddHighWaterMarkCounter("PhysicalMemoryPeak", TUnit::BYTES);
+            memory_overview_profile->AddHighWaterMarkCounter("PhysicalMemoryPeak", TUnit::BYTES);
     RuntimeProfile::Counter* process_virtual_memory_current_usage_counter =
-            ADD_COUNTER(basic_overview_profile, "VirtualMemory(VmSize)", TUnit::BYTES);
+            ADD_COUNTER(memory_overview_profile, "VirtualMemory(VmSize)", TUnit::BYTES);
     RuntimeProfile::Counter* process_virtual_memory_peak_usage_counter =
-            basic_overview_profile->AddHighWaterMarkCounter("VirtualMemoryPeak", TUnit::BYTES);
+            memory_overview_profile->AddHighWaterMarkCounter("VirtualMemoryPeak", TUnit::BYTES);
 
     // 2.2 add untracked memory counter
     RuntimeProfile::Counter* untracked_memory_current_usage_counter =
@@ -233,10 +233,11 @@ void MemoryProfile::refresh_memory_overview_profile() {
         }
     }
 
-    MemTrackerLimiter::make_type_trackers_profile(global_memory_profile,
+    MemTrackerLimiter::make_type_trackers_profile(global_memory_profile.get(),
                                                   MemTrackerLimiter::Type::GLOBAL);
 
-    MemTrackerLimiter::make_top_consumption_tasks_tracker_profile(top_memory_tasks_profile, 15);
+    MemTrackerLimiter::make_top_consumption_tasks_tracker_profile(top_memory_tasks_profile.get(),
+                                                                  15);
 
     COUNTER_SET(tasks_memory_current_usage_counter, tasks_trackers_mem_sum);
     COUNTER_SET(tasks_memory_peak_usage_counter, tasks_trackers_mem_sum);
@@ -287,6 +288,8 @@ void MemoryProfile::refresh_memory_overview_profile() {
 
     // 4. reset profile
     _memory_overview_profile.set(std::move(memory_overview_profile));
+    _global_memory_profile.set(std::move(global_memory_profile));
+    _top_memory_tasks_profile.set(std::move(top_memory_tasks_profile));
 }
 
 void MemoryProfile::refresh_tasks_memory_profile() {
@@ -297,15 +300,27 @@ void MemoryProfile::refresh_tasks_memory_profile() {
 }
 
 void MemoryProfile::make_memory_profile(RuntimeProfile* profile) const {
-    RuntimeProfile* memory_profile_snapshot =
-            profile->create_child("MemoryProfileSnapshot", true, false);
+    RuntimeProfile* memory_profile_snapshot = profile->create_child("MemoryProfile", true, false);
+
     auto memory_overview_version_ptr = _memory_overview_profile.get();
-    auto tasks_memory_version_ptr = _tasks_memory_profile.get();
     RuntimeProfile* memory_overview_profile =
             memory_profile_snapshot->create_child(memory_overview_version_ptr->name(), true, false);
+    memory_overview_profile->merge(const_cast<RuntimeProfile*>(memory_overview_version_ptr.get()));
+
+    auto global_memory_version_ptr = _global_memory_profile.get();
+    RuntimeProfile* global_memory_profile =
+            memory_profile_snapshot->create_child(global_memory_version_ptr->name(), true, false);
+    global_memory_profile->merge(const_cast<RuntimeProfile*>(global_memory_version_ptr.get()));
+
+    auto top_memory_tasks_version_ptr = _top_memory_tasks_profile.get();
+    RuntimeProfile* top_memory_tasks_profile = memory_profile_snapshot->create_child(
+            top_memory_tasks_version_ptr->name(), true, false);
+    top_memory_tasks_profile->merge(
+            const_cast<RuntimeProfile*>(top_memory_tasks_version_ptr.get()));
+
+    auto tasks_memory_version_ptr = _tasks_memory_profile.get();
     RuntimeProfile* tasks_memory_profile =
             memory_profile_snapshot->create_child(tasks_memory_version_ptr->name(), true, false);
-    memory_overview_profile->merge(const_cast<RuntimeProfile*>(memory_overview_version_ptr.get()));
     tasks_memory_profile->merge(const_cast<RuntimeProfile*>(tasks_memory_version_ptr.get()));
 }
 
@@ -328,10 +343,10 @@ int64_t MemoryProfile::other_current_usage() {
 void MemoryProfile::print_log_process_usage() {
     if (_enable_print_log_process_usage) {
         _enable_print_log_process_usage = false;
-        std::string detail;
-        detail += "\nProcess Memory Summary: " + GlobalMemoryArbitrator::process_mem_log_str();
-        detail += "\n" + print_memory_overview_profile();
-        LOG(WARNING) << detail;
+        LOG(WARNING) << "Process Memory Summary: " + GlobalMemoryArbitrator::process_mem_log_str();
+        LOG(WARNING) << "\n" << print_memory_overview_profile();
+        LOG(WARNING) << "\n" << print_global_memory_profile();
+        LOG(WARNING) << "\n" << print_top_memory_tasks_profile();
     }
 }
 

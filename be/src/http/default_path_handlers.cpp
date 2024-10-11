@@ -93,24 +93,17 @@ void config_handler(const WebPageHandler::ArgumentMap& args, std::stringstream* 
     (*output) << "</pre>";
 }
 
-// Registered to handle "/profile".
-void process_profile_handler(const WebPageHandler::ArgumentMap& args, std::stringstream* output) {
-    (*output) << "<h2 id=\"processProfileTitle\">Process Profile</h2>\n";
-    doris::ProcessProfile::instance()->refresh_profile();
-    (*output) << "<pre id=\"processProfile\">"
-              << doris::ProcessProfile::instance()->print_process_profile() << "</pre>";
-
+void memory_info_handler(std::stringstream* output) {
     (*output) << "<h2>Memory Info</h2>\n";
     (*output) << "<pre>";
-    (*output) << "<h4>Memory Documents</h4>\n"
+    (*output) << "<h4 id=\"memoryDocumentsTitle\">Memory Documents</h4>\n"
               << "<a "
                  "href=https://doris.apache.org/zh-CN/docs/dev/admin-manual/memory-management/"
-                 "overview>Memory Management Overview</a>"
-              << std::endl
+                 "overview>Memory Management Overview</a>\n"
               << "<a "
                  "href=https://doris.apache.org/zh-CN/docs/dev/admin-manual/memory-management/"
-                 "memory-issue-faq>Memory Issue FAQ</a>"
-              << std::endl;
+                 "memory-issue-faq>Memory Issue FAQ</a>\n"
+              << "\n---\n";
 
     (*output) << "<h4 id=\"memoryPropertiesTitle\">Memory Properties</h4>\n"
               << "System Physical Mem: "
@@ -128,7 +121,8 @@ void process_profile_handler(const WebPageHandler::ArgumentMap& args, std::strin
               << PrettyPrinter::print(MemInfo::cgroup_mem_limit(), TUnit::BYTES) << std::endl
               << "Cgroup Mem Usage: "
               << PrettyPrinter::print(MemInfo::cgroup_mem_usage(), TUnit::BYTES) << std::endl
-              << "Cgroup Mem Refresh State: " << MemInfo::cgroup_mem_refresh_state() << std::endl;
+              << "Cgroup Mem Refresh State: " << MemInfo::cgroup_mem_refresh_state() << std::endl
+              << "\n---\n";
 
     (*output) << "<h4 id=\"memoryOptionSettingsTitle\">Memory Option Settings</h4>\n";
     {
@@ -141,6 +135,7 @@ void process_profile_handler(const WebPageHandler::ArgumentMap& args, std::strin
             }
         }
     }
+    (*output) << "\n---\n";
 
     (*output) << "<h4 id=\"jemallocProfilesTitle\">Jemalloc Profiles</h4>\n";
 #if defined(ADDRESS_SANITIZER) || defined(LEAK_SANITIZER) || defined(THREAD_SANITIZER)
@@ -165,6 +160,15 @@ void process_profile_handler(const WebPageHandler::ArgumentMap& args, std::strin
     (*output) << "</pre>";
 }
 
+// Registered to handle "/profile".
+void process_profile_handler(const WebPageHandler::ArgumentMap& args, std::stringstream* output) {
+    (*output) << "<h2 id=\"processProfileTitle\">Process Profile</h2>\n";
+    doris::ProcessProfile::instance()->refresh_profile();
+    (*output) << "<pre id=\"processProfile\">"
+              << doris::ProcessProfile::instance()->print_process_profile_no_root() << "</pre>";
+    memory_info_handler(output);
+}
+
 void display_tablets_callback(const WebPageHandler::ArgumentMap& args, EasyJson* ej) {
     std::string tablet_num_to_return;
     auto it = args.find("limit");
@@ -179,7 +183,7 @@ void display_tablets_callback(const WebPageHandler::ArgumentMap& args, EasyJson*
 // Registered to handle "/mem_tracker", and prints out memory tracker information.
 void mem_tracker_handler(const WebPageHandler::ArgumentMap& args, std::stringstream* output) {
     (*output) << "<h2>mem_tracker webpage has been offline, please click <a "
-                 "href=../profile>Process Profile</a></h2>\n";
+                 "href=../profile>Process Profile</a>, see MemoryProfile and Memory Info</h2>\n";
 }
 
 void heap_handler(const WebPageHandler::ArgumentMap& args, std::stringstream* output) {

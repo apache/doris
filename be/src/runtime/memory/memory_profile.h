@@ -33,15 +33,29 @@ public:
     void make_memory_profile(RuntimeProfile* profile) const;
 
     std::string print_memory_overview_profile() const {
-        auto version_ptr = _memory_overview_profile.get();
         std::stringstream ss;
+        auto version_ptr = _memory_overview_profile.get();
+        version_ptr->pretty_print(&ss);
+        return ss.str();
+    }
+
+    std::string print_global_memory_profile() const {
+        std::stringstream ss;
+        auto version_ptr = _global_memory_profile.get();
+        version_ptr->pretty_print(&ss);
+        return ss.str();
+    }
+
+    std::string print_top_memory_tasks_profile() const {
+        std::stringstream ss;
+        auto version_ptr = _top_memory_tasks_profile.get();
         version_ptr->pretty_print(&ss);
         return ss.str();
     }
 
     std::string print_tasks_memory_profile() const {
-        auto version_ptr = _tasks_memory_profile.get();
         std::stringstream ss;
+        auto version_ptr = _tasks_memory_profile.get();
         version_ptr->pretty_print(&ss);
         return ss.str();
     }
@@ -58,6 +72,8 @@ public:
 
 private:
     MultiVersion<RuntimeProfile> _memory_overview_profile;
+    MultiVersion<RuntimeProfile> _global_memory_profile;
+    MultiVersion<RuntimeProfile> _top_memory_tasks_profile;
     MultiVersion<RuntimeProfile> _tasks_memory_profile;
 
     std::atomic<bool> _enable_print_log_process_usage {true};

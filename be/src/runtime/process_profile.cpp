@@ -24,7 +24,6 @@
 namespace doris {
 
 ProcessProfile::ProcessProfile() {
-    _process_profile.set(std::make_unique<RuntimeProfile>("ProcessProfile"));
     _memory_profile = std::make_unique<MemoryProfile>();
 }
 
@@ -38,8 +37,8 @@ void ProcessProfile::refresh_profile() {
     std::unique_ptr<RuntimeProfile> process_profile =
             std::make_unique<RuntimeProfile>("ProcessProfile");
     _memory_profile->make_memory_profile(process_profile.get());
-    // TODO make other profile
     _process_profile.set(std::move(process_profile));
+    // TODO make other profile
 }
 
 } // namespace doris
