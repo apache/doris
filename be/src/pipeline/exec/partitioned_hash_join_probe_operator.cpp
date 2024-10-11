@@ -23,6 +23,7 @@
 #include <algorithm>
 #include <utility>
 
+#include "common/logging.h"
 #include "common/status.h"
 #include "pipeline/pipeline_task.h"
 #include "runtime/fragment_mgr.h"
@@ -67,6 +68,8 @@ Status PartitionedHashJoinProbeLocalState::init(RuntimeState* state, LocalStateI
     _spill_probe_timer = ADD_TIMER_WITH_LEVEL(profile(), "SpillProbeTime", 1);
     _recovery_probe_blocks = ADD_COUNTER(profile(), "SpillRecoveryProbeBlocks", TUnit::UNIT);
     _recovery_probe_timer = ADD_TIMER_WITH_LEVEL(profile(), "SpillRecoveryProbeTime", 1);
+    _get_child_next_timer = ADD_TIMER_WITH_LEVEL(profile(), "GetChildNextTime", 1);
+
     _memory_usage_reserved =
             ADD_COUNTER_WITH_LEVEL(profile(), "MemoryUsageReserved", TUnit::UNIT, 1);
 
@@ -870,6 +873,35 @@ size_t PartitionedHashJoinProbeOperatorX::_revocable_mem_size(RuntimeState* stat
     return mem_size;
 }
 
+size_t PartitionedHashJoinProbeOperatorX::get_reserve_mem_size(RuntimeState* state) {
+    auto& local_state = get_local_state(state);
+    const auto need_to_spill = local_state._shared_state->need_to_spill;
+    if (!need_to_spill || !local_state._child_eos) {
+        return Base::get_reserve_mem_size(state);
+    }
+
+    size_t size_to_reserve = vectorized::SpillStream::MAX_SPILL_WRITE_BATCH_MEM;
+
+    if (local_state._need_to_setup_internal_operators) {
+        const size_t rows =
+                (local_state._recovered_build_block ? local_state._recovered_build_block->rows()
+                                                    : 0) +
+                state->batch_size();
+        size_t bucket_size = JoinHashTable<StringRef>::calc_bucket_size(rows);
+
+        size_to_reserve += bucket_size * sizeof(uint32_t); // JoinHashTable::first
+        size_to_reserve += rows * sizeof(uint32_t);        // JoinHashTable::next
+
+        if (_join_op == TJoinOp::FULL_OUTER_JOIN || _join_op == TJoinOp::RIGHT_OUTER_JOIN ||
+            _join_op == TJoinOp::RIGHT_ANTI_JOIN || _join_op == TJoinOp::RIGHT_SEMI_JOIN) {
+            size_to_reserve += rows * sizeof(uint8_t); // JoinHashTable::visited
+        }
+    }
+
+    COUNTER_SET(local_state._memory_usage_reserved, int64_t(size_to_reserve));
+    return size_to_reserve;
+}
+
 Status PartitionedHashJoinProbeOperatorX::revoke_memory(
         RuntimeState* state, const std::shared_ptr<SpillContext>& spill_context) {
     auto& local_state = get_local_state(state);
@@ -925,7 +957,6 @@ Status PartitionedHashJoinProbeOperatorX::get_block(RuntimeState* state, vectori
                                                     bool* eos) {
     *eos = false;
     auto& local_state = get_local_state(state);
-    SCOPED_TIMER(local_state.exec_time_counter());
     const auto need_to_spill = local_state._shared_state->need_to_spill;
 #ifndef NDEBUG
     Defer eos_check_defer([&] {
@@ -944,16 +975,19 @@ Status PartitionedHashJoinProbeOperatorX::get_block(RuntimeState* state, vectori
     });
 
     if (need_more_input_data(state)) {
-        RETURN_IF_ERROR(_child->get_block_after_projects(state, local_state._child_block.get(),
-                                                         &local_state._child_eos));
+        {
+            SCOPED_TIMER(local_state._get_child_next_timer);
+            RETURN_IF_ERROR(_child->get_block_after_projects(state, local_state._child_block.get(),
+                                                             &local_state._child_eos));
+        }
 
+        SCOPED_TIMER(local_state.exec_time_counter());
         if (local_state._child_block->rows() == 0 && !local_state._child_eos) {
             return Status::OK();
         }
 
         Defer defer([&] { local_state._child_block->clear_column_data(); });
         if (need_to_spill) {
-            SCOPED_TIMER(local_state.exec_time_counter());
             RETURN_IF_ERROR(push(state, local_state._child_block.get(), local_state._child_eos));
             if (_should_revoke_memory(state)) {
                 return _revoke_memory(state);

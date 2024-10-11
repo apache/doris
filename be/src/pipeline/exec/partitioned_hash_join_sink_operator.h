@@ -25,6 +25,7 @@
 #include "pipeline/exec/hashjoin_probe_operator.h"
 #include "pipeline/exec/join_build_sink_operator.h"
 #include "pipeline/exec/spill_utils.h"
+#include "vec/core/block.h"
 #include "vec/runtime/partitioner.h"
 
 namespace doris {
@@ -45,7 +46,7 @@ public:
     Status close(RuntimeState* state, Status exec_status) override;
     Status revoke_memory(RuntimeState* state, const std::shared_ptr<SpillContext>& spill_context);
     size_t revocable_mem_size(RuntimeState* state) const;
-    [[nodiscard]] size_t get_reserve_mem_size(RuntimeState* state);
+    [[nodiscard]] size_t get_reserve_mem_size(RuntimeState* state, bool eos);
 
 protected:
     PartitionedHashJoinSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
@@ -68,6 +69,8 @@ protected:
     std::atomic_int _spilling_streams_count {0};
     std::atomic<bool> _spill_status_ok {true};
     std::mutex _spill_lock;
+
+    vectorized::Block _pending_block;
 
     bool _child_eos {false};
 
@@ -110,7 +113,7 @@ public:
     Status revoke_memory(RuntimeState* state,
                          const std::shared_ptr<SpillContext>& spill_context) override;
 
-    size_t get_reserve_mem_size(RuntimeState* state) override;
+    size_t get_reserve_mem_size(RuntimeState* state, bool eos) override;
 
     DataDistribution required_data_distribution() const override {
         if (_join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {

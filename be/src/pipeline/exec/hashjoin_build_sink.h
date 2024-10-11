@@ -54,7 +54,7 @@ public:
 
     Status close(RuntimeState* state, Status exec_status) override;
 
-    [[nodiscard]] size_t get_reserve_mem_size(RuntimeState* state);
+    [[nodiscard]] size_t get_reserve_mem_size(RuntimeState* state, bool eos);
 
 protected:
     void _hash_table_init(RuntimeState* state);
@@ -124,7 +124,7 @@ public:
 
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
 
-    size_t get_reserve_mem_size(RuntimeState* state) override;
+    size_t get_reserve_mem_size(RuntimeState* state, bool eos) override;
 
     [[nodiscard]] size_t get_memory_usage(RuntimeState* state) const;
 
