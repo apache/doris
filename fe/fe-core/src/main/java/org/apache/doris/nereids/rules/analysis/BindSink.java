@@ -146,10 +146,8 @@ public class BindSink implements AnalysisRuleFactory {
                                         }
                                     }
 
-                                    if (!haveInputSeqCol && !isPartialUpdate && (
-                                            boundSink.getDmlCommandType() != DMLCommandType.INSERT
-                                                    || ConnectContext.get().getSessionVariable()
-                                                    .isRequireSequenceInInsert())) {
+                                    if (!haveInputSeqCol && !isPartialUpdate && (!sink.isFromNativeInsertStmt()
+                                            || ConnectContext.get().getSessionVariable().isRequireSequenceInInsert())) {
                                         if (!seqColInTable.isPresent() || seqColInTable.get().getDefaultValue() == null
                                                 || !seqColInTable.get().getDefaultValue()
                                                 .equals(DefaultValue.CURRENT_TIMESTAMP)) {
