@@ -260,7 +260,12 @@ public class PlanChecker {
     public PlanChecker optimize() {
         cascadesContext.setJobContext(PhysicalProperties.GATHER);
         double now = System.currentTimeMillis();
-        new Optimizer(cascadesContext).execute();
+        try {
+            new Optimizer(cascadesContext).execute();
+        } finally {
+            // Mv rewrite add lock manually, so need release manually
+            cascadesContext.getStatementContext().releasePlannerResources();
+        }
         System.out.println("cascades:" + (System.currentTimeMillis() - now));
         return this;
     }
