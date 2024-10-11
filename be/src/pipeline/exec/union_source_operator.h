@@ -82,12 +82,16 @@ public:
         return Status::OK();
     }
 
-    Status open(RuntimeState* state) override {
-        static_cast<void>(Base::open(state));
+    Status prepare(RuntimeState* state) override {
+        RETURN_IF_ERROR(Base::prepare(state));
         // Prepare const expr lists.
         for (const vectorized::VExprContextSPtrs& exprs : _const_expr_lists) {
             RETURN_IF_ERROR(vectorized::VExpr::prepare(exprs, state, _row_descriptor));
         }
+        return Status::OK();
+    }
+    Status open(RuntimeState* state) override {
+        static_cast<void>(Base::open(state));
         // open const expr lists.
         for (const auto& exprs : _const_expr_lists) {
             RETURN_IF_ERROR(vectorized::VExpr::open(exprs, state));
@@ -95,11 +99,6 @@ public:
         return Status::OK();
     }
     [[nodiscard]] int get_child_count() const { return _child_size; }
-    bool require_shuffled_data_distribution() const override {
-        return _followed_by_shuffled_operator;
-    }
-
-    bool is_shuffled_operator() const override { return _followed_by_shuffled_operator; }
 
 private:
     bool _has_data(RuntimeState* state) const {

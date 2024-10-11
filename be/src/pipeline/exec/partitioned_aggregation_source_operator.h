@@ -82,6 +82,7 @@ public:
     ~PartitionedAggSourceOperatorX() override = default;
 
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
+    Status prepare(RuntimeState* state) override;
 
     Status open(RuntimeState* state) override;
 

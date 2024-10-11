@@ -215,7 +215,7 @@ void TableFunctionLocalState::process_next_child_row() {
         }
 
         _child_block->clear_column_data(_parent->cast<TableFunctionOperatorX>()
-                                                ._child->row_desc()
+                                                ._child_x->row_desc()
                                                 .num_materialized_slots());
         _cur_child_offset = -1;
         return;
@@ -270,8 +270,9 @@ Status TableFunctionOperatorX::init(const TPlanNode& tnode, RuntimeState* state)
     return Status::OK();
 }
 
-Status TableFunctionOperatorX::open(doris::RuntimeState* state) {
-    RETURN_IF_ERROR(Base::open(state));
+Status TableFunctionOperatorX::prepare(RuntimeState* state) {
+    RETURN_IF_ERROR(Base::prepare(state));
+
     for (auto* fn : _fns) {
         RETURN_IF_ERROR(fn->prepare());
     }
@@ -285,7 +286,7 @@ Status TableFunctionOperatorX::open(doris::RuntimeState* state) {
     }
 
     // get all input slots
-    for (const auto& child_tuple_desc : _child->row_desc().tuple_descriptors()) {
+    for (const auto& child_tuple_desc : _child_x->row_desc().tuple_descriptors()) {
         for (const auto& child_slot_desc : child_tuple_desc->slots()) {
             _child_slots.push_back(child_slot_desc);
         }
@@ -299,6 +300,11 @@ Status TableFunctionOperatorX::open(doris::RuntimeState* state) {
         }
     }
 
+    return Status::OK();
+}
+
+Status TableFunctionOperatorX::open(doris::RuntimeState* state) {
+    RETURN_IF_ERROR(Base::open(state));
     return vectorized::VExpr::open(_vfn_ctxs, state);
 }
 

@@ -58,7 +58,7 @@ PipelineTask::PipelineTask(
           _state(state),
           _fragment_context(fragment_context),
           _parent_profile(parent_profile),
-          _operators(pipeline->operators()),
+          _operators(pipeline->operator_xs()),
           _source(_operators.front().get()),
           _root(_operators.back().get()),
           _sink(pipeline->sink_shared_pointer()),
@@ -71,6 +71,7 @@ PipelineTask::PipelineTask(
     if (shared_state) {
         _sink_shared_state = shared_state;
     }
+    pipeline->incr_created_tasks();
 }
 
 Status PipelineTask::prepare(const TPipelineInstanceParams& local_params, const TDataSink& tsink,
@@ -278,7 +279,7 @@ Status PipelineTask::execute(bool* eos) {
     SCOPED_TIMER(_task_profile->total_time_counter());
     SCOPED_TIMER(_exec_timer);
     SCOPED_ATTACH_TASK(_state);
-    _eos = _sink->is_finished(_state) || _eos || _wake_up_by_downstream;
+    _eos = _sink->is_finished(_state) || _eos;
     *eos = _eos;
     if (_eos) {
         // If task is waken up by finish dependency, `_eos` is set to true by last execution, and we should return here.
