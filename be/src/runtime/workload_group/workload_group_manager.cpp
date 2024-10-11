@@ -258,8 +258,9 @@ void WorkloadGroupMgr::add_paused_query(const std::shared_ptr<QueryContext>& que
     // Check if this is an invalid reserve, for example, if the reserve size is too large, larger than the query limit
     // if hard limit is enabled, then not need enable other queries hard limit.
     if (inserted) {
+        query_ctx->set_memory_sufficient(false);
         LOG(INFO) << "workload group " << wg->debug_string()
-                  << " insert one new paused query: " << it->query_id();
+                  << " insert one new paused query: " << query_ctx->debug_string();
     }
 }
 
