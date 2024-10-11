@@ -556,7 +556,7 @@ public class IcebergUtils {
         return Env.getCurrentEnv()
                 .getExtMetaCacheMgr()
                 .getIcebergMetadataCache()
-                .getRemoteTable(catalog, tableInfo.getDbName(), tableInfo.getTbName());
+                .getIcebergTable(catalog, tableInfo.getDbName(), tableInfo.getTbName());
     }
 
     private static org.apache.iceberg.Table getIcebergTableInternal(ExternalCatalog catalog, String dbName,

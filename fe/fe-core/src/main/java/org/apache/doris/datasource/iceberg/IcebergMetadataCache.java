@@ -94,11 +94,6 @@ public class IcebergMetadataCache {
         return restTable;
     }
 
-    public Table getRemoteTable(CatalogIf catalog, String dbName, String tbName) {
-        IcebergMetadataCacheKey key = IcebergMetadataCacheKey.of(catalog, dbName, tbName);
-        return loadTable(key);
-    }
-
     @NotNull
     private List<Snapshot> loadSnapshots(IcebergMetadataCacheKey key) {
         Table icebergTable = getIcebergTable(key.catalog, key.dbName, key.tableName);

@@ -114,11 +114,6 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
         return false;
     }
 
-    public boolean checkInitialized() {
-        return objectCreated;
-    }
-
-
     protected void makeSureInitialized() {
         try {
             // getDbOrAnalysisException will call makeSureInitialized in ExternalCatalog.
@@ -208,12 +203,12 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
 
     @Override
     public long getCachedRowCount() {
-        // Return -2 if uninitialized.
+        // Return -1 if uninitialized.
         // Before this, for uninitialized tables, we would call makeSureInitialized(), just like the implementation of
         // ExternalTable.getRowCount(), but this is not very meaningful and time-consuming.
         // The getCachedRowCount() function is only used when `show table` and querying `information_schema.tables`.
-        if (!checkInitialized()) {
-            return -2;
+        if (!isObjectCreated()) {
+            return -1;
         }
         // getExtMetaCacheMgr().getRowCountCache().getCachedRowCount() is an asynchronous non-blocking operation.
         // For tables that are not in the cache, it will load asynchronously and return -1.

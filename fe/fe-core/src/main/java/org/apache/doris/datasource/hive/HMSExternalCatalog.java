@@ -54,7 +54,6 @@ import com.google.common.collect.Maps;
 import lombok.Getter;
 import org.apache.commons.lang3.math.NumberUtils;
 import org.apache.hadoop.hive.conf.HiveConf;
-import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.hive.HiveCatalog;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -89,7 +88,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
     private boolean enableHmsEventsIncrementalSync = false;
 
     //for "type" = "hms" , but is iceberg table.
-    HiveCatalog icebergHiveCatalog;
+    private HiveCatalog icebergHiveCatalog;
 
     @VisibleForTesting
     public HMSExternalCatalog() {
@@ -200,6 +199,8 @@ public class HMSExternalCatalog extends ExternalCatalog {
         transactionManager = TransactionManagerFactory.createHiveTransactionManager(hiveOps, fileSystemProvider,
                 fileSystemExecutor);
         metadataOps = hiveOps;
+
+        icebergHiveCatalog = IcebergUtils.createIcebergHiveCatalog(this, getName());
     }
 
     @Override
@@ -336,10 +337,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
         return enableHmsEventsIncrementalSync;
     }
 
-    public Catalog getIcebergHiveCatalog() {
-        if (icebergHiveCatalog == null) {
-            icebergHiveCatalog = IcebergUtils.createIcebergHiveCatalog(this, getName());
-        }
+    public HiveCatalog getIcebergHiveCatalog() {
         return icebergHiveCatalog;
     }
 
