@@ -1510,8 +1510,15 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     }
 
     @Override
-    public Long getTransactionId(Long dbId, String label) throws AnalysisException {
-        throw new AnalysisException(NOT_SUPPORTED_MSG);
+    public Long getTransactionId(Long dbId, String label)  {
+        try {
+            TransactionStatus labelState = getLabelState(dbId, label);
+            List<TransactionStatus> statusList = Lists.newArrayList(labelState);
+            return getTransactionIdByLabel(dbId, label, statusList);
+        } catch (UserException e) {
+            LOG.warn("Get transaction id by label " + label + " failed", e);
+            return null;
+        }
     }
 
     @Override
@@ -1692,7 +1699,14 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
 
     @Override
     public List<List<String>> getSingleTranInfo(long dbId, long txnId) throws AnalysisException {
-        throw new AnalysisException(NOT_SUPPORTED_MSG);
+        List<List<String>> infos = new ArrayList<List<String>>();
+        TransactionState txnState = this.getTransactionState(dbId, txnId);
+        if (txnState == null) {
+            throw new AnalysisException("transaction with id " + txnId + " does not exist");
+        }
+        TxnUtil.checkAuth(dbId, txnState);
+        infos.add(TxnUtil.getTxnStateInfo(txnState, Lists.newArrayList()));
+        return infos;
     }
 
     @Override
