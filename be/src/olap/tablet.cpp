@@ -2856,7 +2856,7 @@ Status Tablet::lookup_row_key(const Slice& encoded_key, TabletSchema* latest_sch
                               const std::vector<RowsetSharedPtr>& specified_rowsets,
                               RowLocation* row_location, uint32_t version,
                               std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
-                              RowsetSharedPtr* rowset, bool with_rowid,
+                              RowsetSharedPtr* rowset, bool with_rowid, bool is_partial_update,
                               std::string* encoded_seq_value) {
     SCOPED_BVAR_LATENCY(g_tablet_lookup_rowkey_latency);
     size_t seq_col_length = 0;
