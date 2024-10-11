@@ -36,6 +36,7 @@ suite("test_show_transaction", "p0") {
     def uuid = UUID.randomUUID().toString().replaceAll("-", "");
     sql """ INSERT INTO ${testTable} WITH LABEL label_test_show_transaction_${uuid} VALUES(100, 'doris')  """
     def res = sql_return_maparray """ show transaction where label = 'label_test_show_transaction_${uuid}'  """
+    assertTrue(res.size() != 0)
     print("show transaction result : " + res)
     if (!isCloudMode()) {
         def reslike = sql_return_maparray """ show transaction where label like 'label_test_show_transaction_${uuid}%'  """
