@@ -190,8 +190,7 @@ private:
             bool schema_has_sequence_col, int32_t seq_map_col_unique_id,
             std::vector<BitmapValue>* skip_bitmaps,
             const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns,
-            vectorized::IOlapColumnDataAccessor* seq_column,
-            const signed char* delete_sign_column_data,
+            vectorized::IOlapColumnDataAccessor* seq_column, const signed char* delete_signs,
             const std::vector<RowsetSharedPtr>& specified_rowsets,
             std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
             bool& has_default_or_nullable, std::vector<bool>& use_default_or_null_flag,
@@ -199,7 +198,7 @@ private:
     Status _merge_rows_for_sequence_column(
             RowsInBlock& data, std::vector<BitmapValue>* skip_bitmaps,
             const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns,
-            vectorized::IOlapColumnDataAccessor* seq_column,
+            vectorized::IOlapColumnDataAccessor* seq_column, const signed char* delete_signs,
             const std::vector<RowsetSharedPtr>& specified_rowsets,
             std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches);
     Status _merge_rows_for_insert_after_delete(
