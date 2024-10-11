@@ -445,6 +445,74 @@ suite("other_join_conjuncts_outer") {
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv3_2"""
 
 
+    def mv3_3 =
+            """
+            select
+              o_orderdate,
+              l_shipdate,
+              o_comment,
+              l_orderkey,
+              ps_partkey
+            from
+              orders
+              left outer join lineitem on l_orderkey = o_orderkey and l_shipdate <= o_orderdate
+              left outer join partsupp on ps_partkey = l_partkey
+              where l_orderkey + o_orderkey != ps_availqty;
+            """
+    def query3_3 =
+            """
+            select
+              o_orderdate,
+              l_shipdate,
+              o_comment,
+              l_orderkey,
+              ps_partkey
+            from
+              orders
+              left outer join lineitem on l_orderkey = o_orderkey
+              left outer join partsupp on ps_partkey = l_partkey;
+            """
+    order_qt_query3_3_before "${query3_3}"
+    // mv has other conjuncts but query not
+    async_mv_rewrite_fail(db, mv3_3, query3_3, "mv3_3")
+    order_qt_query3_3_after "${query3_3}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv3_3"""
+
+
+    def mv3_4 =
+            """
+            select
+              o_orderdate,
+              l_shipdate,
+              o_comment,
+              l_orderkey,
+              ps_partkey
+            from
+              orders
+              left outer join lineitem on l_orderkey = o_orderkey 
+              left outer join partsupp on ps_partkey = l_partkey;
+            """
+    def query3_4 =
+            """
+            select
+              o_orderdate,
+              l_shipdate,
+              o_comment,
+              l_orderkey,
+              ps_partkey
+            from
+              orders
+              left outer join lineitem on l_orderkey = o_orderkey and l_shipdate < o_orderdate
+              left outer join partsupp on ps_partkey = l_partkey
+              where l_orderkey + o_orderkey != ps_availqty;
+            """
+    order_qt_query3_4_before "${query3_4}"
+    // query has other conjuncts but mv not
+    async_mv_rewrite_fail(db, mv3_4, query3_4, "mv3_4")
+    order_qt_query3_4_after "${query3_4}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv3_4"""
+
+
     // right outer join
     // other conjuncts in join condition
     def mv4_0 =
@@ -750,6 +818,73 @@ suite("other_join_conjuncts_outer") {
     order_qt_query6_2_after "${query6_2}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv6_2"""
 
+
+    def mv6_3 =
+            """
+            select
+              o_orderdate,
+              l_shipdate,
+              o_comment,
+              l_orderkey,
+              ps_partkey
+            from
+              orders
+              right outer join lineitem on l_orderkey = o_orderkey and l_shipdate <= o_orderdate
+              right outer join partsupp on ps_partkey = l_partkey
+              where l_orderkey + o_orderkey != ps_availqty;
+            """
+    def query6_3 =
+            """
+            select
+              o_orderdate,
+              l_shipdate,
+              o_comment,
+              l_orderkey,
+              ps_partkey
+            from
+              orders
+              right outer join lineitem on l_orderkey = o_orderkey
+              right outer join partsupp on ps_partkey = l_partkey;
+            """
+    order_qt_query6_3_before "${query6_3}"
+    // mv has other conjuncts but query not
+    async_mv_rewrite_fail(db, mv6_3, query6_3, "mv6_3")
+    order_qt_query6_3_after "${query6_3}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv6_3"""
+
+
+    def mv6_4 =
+            """
+            select
+              o_orderdate,
+              l_shipdate,
+              o_comment,
+              l_orderkey,
+              ps_partkey
+            from
+              orders
+              right outer join lineitem on l_orderkey = o_orderkey
+              right outer join partsupp on ps_partkey = l_partkey;
+            """
+    def query6_4 =
+            """
+            select
+              o_orderdate,
+              l_shipdate,
+              o_comment,
+              l_orderkey,
+              ps_partkey
+            from
+              orders
+              right outer join lineitem on l_orderkey = o_orderkey and l_shipdate < o_orderdate
+              right outer join partsupp on ps_partkey = l_partkey
+              where l_orderkey + o_orderkey != ps_availqty;
+            """
+    order_qt_query6_4_before "${query6_4}"
+    // query has other conjuncts but mv not
+    async_mv_rewrite_fail(db, mv6_4, query6_4, "mv6_4")
+    order_qt_query6_4_after "${query6_4}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv6_4"""
 
 
     // full outer join
@@ -1057,6 +1192,73 @@ suite("other_join_conjuncts_outer") {
     async_mv_rewrite_success(db, mv9_3, query9_3, "mv9_3")
     order_qt_query9_3_after "${query9_3}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv9_3"""
+
+    def mv9_4 =
+            """
+            select
+              o_orderdate,
+              l_shipdate,
+              o_comment,
+              l_orderkey,
+              ps_partkey
+            from
+              orders
+              full outer join lineitem on l_orderkey = o_orderkey and l_shipdate <= o_orderdate
+              full outer join partsupp on ps_partkey = l_partkey
+              where l_orderkey + o_orderkey != ps_availqty;
+            """
+    def query9_4 =
+            """
+            select
+              o_orderdate,
+              l_shipdate,
+              o_comment,
+              l_orderkey,
+              ps_partkey
+            from
+              orders
+              full outer join lineitem on l_orderkey = o_orderkey 
+              full outer join partsupp on ps_partkey = l_partkey;
+            """
+    order_qt_query9_4_before "${query9_4}"
+    // mv has other conjuncts but query not
+    async_mv_rewrite_fail(db, mv9_4, query9_4, "mv9_4")
+    order_qt_query9_4_after "${query9_4}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv9_4"""
+
+
+    def mv9_5 =
+            """
+            select
+              o_orderdate,
+              l_shipdate,
+              o_comment,
+              l_orderkey,
+              ps_partkey
+            from
+              orders
+              full outer join lineitem on l_orderkey = o_orderkey 
+              full outer join partsupp on ps_partkey = l_partkey;
+            """
+    def query9_5 =
+            """
+            select
+              o_orderdate,
+              l_shipdate,
+              o_comment,
+              l_orderkey,
+              ps_partkey
+            from
+              orders
+              full outer join lineitem on l_orderkey = o_orderkey and l_shipdate < o_orderdate
+              full outer join partsupp on ps_partkey = l_partkey
+              where l_orderkey + o_orderkey != ps_availqty;
+            """
+    order_qt_query9_5_before "${query9_5}"
+    // query has other conjuncts but mv not
+    async_mv_rewrite_fail(db, mv9_5, query9_5, "mv9_5")
+    order_qt_query9_5_after "${query9_5}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv9_5"""
 }
 
 
