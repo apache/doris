@@ -65,7 +65,7 @@ Status LoadStreamMgr::open_load_stream(const POpenLoadStreamRequest* request,
         load_stream->add_source(request->src_id());
         if (_known_connections.contains(conn_id)) {
             // detected retry open, increase total streams
-            load_stream->increase_use_count();
+            load_stream->increase_total_streams();
         } else {
             _known_connections.insert(conn_id);
         }
