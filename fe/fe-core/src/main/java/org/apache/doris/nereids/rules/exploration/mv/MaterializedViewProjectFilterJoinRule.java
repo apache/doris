@@ -31,6 +31,7 @@ import java.util.List;
 
 /**
  * This is responsible for join pattern such as project on filter on join
+ * Needed because variant data type would have filter on join directly, such as query query3_5 in variant_mv.groovy
  */
 public class MaterializedViewProjectFilterJoinRule extends AbstractMaterializedViewJoinRule {
 

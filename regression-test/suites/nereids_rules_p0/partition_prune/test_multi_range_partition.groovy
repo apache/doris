@@ -133,10 +133,10 @@ suite("test_multi_range_partition") {
         contains "partitions=2/3 (p2,p3)"
     }
 
-    //p3 is pruned, because k2<7 is inferred
+    //p3 NOT pruned
     explain {
         sql "select * from pt where k1=7 and (k1 > cast(k2 as bigint));"
-        contains "partitions=1/3 (p2)"
+        contains "partitions=2/3 (p2,p3)"
     }
 
     //fix BUG: p2 missed

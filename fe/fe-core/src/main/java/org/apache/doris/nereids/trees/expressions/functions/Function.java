@@ -35,11 +35,7 @@ public abstract class Function extends Expression {
     }
 
     public Function(String name, List<Expression> children) {
-        this(name, children, false);
-    }
-
-    public Function(String name, List<Expression> children, boolean inferred) {
-        super(children, inferred);
+        super(children);
         this.name = Objects.requireNonNull(name, "name can not be null");
     }
 
