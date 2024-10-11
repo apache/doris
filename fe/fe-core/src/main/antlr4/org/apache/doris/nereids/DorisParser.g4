@@ -68,12 +68,7 @@ statementBase
     | CREATE (EXTERNAL)? TABLE (IF NOT EXISTS)? name=multipartIdentifier
       LIKE existedTable=multipartIdentifier
       (WITH ROLLUP (rollupNames=identifierList)?)?           #createTableLike
-    | explain? cte? INSERT (INTO | OVERWRITE TABLE)
-        (tableName=multipartIdentifier | DORIS_INTERNAL_TABLE_ID LEFT_PAREN tableId=INTEGER_VALUE RIGHT_PAREN)
-        partitionSpec?  // partition define
-        (WITH LABEL labelName=identifier)? cols=identifierList?  // label and columns define
-        (LEFT_BRACKET hints=identifierSeq RIGHT_BRACKET)?  // hint define
-        query                                                          #insertTable
+    | insertIntoStatement                                    #insertTableAlines
     | explain? cte? UPDATE tableName=multipartIdentifier tableAlias
         SET updateAssignmentSeq
         fromClause?
@@ -121,9 +116,28 @@ statementBase
     | ALTER TABLE table=multipartIdentifier
         DROP CONSTRAINT constraintName=errorCapturingIdentifier           #dropConstraint
     | SHOW CONSTRAINTS FROM table=multipartIdentifier                     #showConstraint
+    | supportedJobStatement              #supportedJobStatementAlias
     | unsupportedStatement                                                #unsupported
     ;
-
+insertIntoStatement
+    : explain? cte? INSERT (INTO | OVERWRITE TABLE)
+              (tableName=multipartIdentifier | DORIS_INTERNAL_TABLE_ID LEFT_PAREN tableId=INTEGER_VALUE RIGHT_PAREN)
+              partitionSpec?  // partition define
+              (WITH LABEL labelName=identifier)? cols=identifierList?  // label and columns define
+              (LEFT_BRACKET hints=identifierSeq RIGHT_BRACKET)?  // hint define
+              query                                                          #insertTable
+    ;
+supportedJobStatement
+    : CREATE JOB label=multipartIdentifier ON SCHEDULE
+        (
+            (EVERY timeInterval=INTEGER_VALUE timeUnit=identifier
+            (STARTS (startTime=STRING_LITERAL | CURRENT_TIMESTAMP))?
+            (ENDS endsTime=STRING_LITERAL)?)
+            |
+            (AT (atTime=STRING_LITERAL | CURRENT_TIMESTAMP)))
+        commentSpec?
+        DO insertIntoStatement                                                               #createScheduledJob                                                                    
+   ;
 unsupportedStatement
     : SET identifier AS DEFAULT STORAGE VAULT                              #setDefaultStorageVault
     | SET PROPERTY (FOR user=identifierOrText)? propertyItemList           #setUserProperties
