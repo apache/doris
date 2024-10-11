@@ -130,14 +130,39 @@ get_session_variable() {
 }
 backup_session_variables_file="${CURDIR}/../conf/opt/backup_session_variables.sql"
 backup_session_variables() {
-    rm -f "${backup_session_variables_file}"
-    touch "${backup_session_variables_file}"
-    while IFS= read -r line; do
-        k="${line/set global /}"
-        k="${k%=*}"
-        v=$(get_session_variable "${k}")
-        echo "set global ${k}='${v}';" >>"${backup_session_variables_file}"
-    done < <(grep -v '^ *#' <"${TPCDS_OPT_CONF}")
+	if [[ -z "${backup_session_variables_file}" ]] || [[ -z "${TPCDS_OPT_CONF}" ]]; then
+		echo "Error: backup_session_variables_file or TPCDS_OPT_CONF is not set."
+		return 1
+	fi
+
+	# Create or clear the backup file
+	>"${backup_session_variables_file}"
+
+	# Process each line from the configuration file
+	while IFS= read -r line; do
+		# Skip empty lines and lines starting with #
+		[[ -z "$line" || "$line" =~ ^\s*# ]] && continue
+
+		# Remove 'set global ' and extract variable name
+		k="${line/set global /}"
+		k="${k%=*}"
+
+		# Get session variable value
+		v=$(get_session_variable "${k}")
+
+		# Check if value is empty or not
+		if [[ -z "${v}" ]]; then
+			echo "Warning: Variable '${k}' does not have a value."
+			continue
+		fi
+
+		# Ensure value is properly escaped (simple escaping shown here)
+		v=$(printf '%s' "${v}" | sed "s/'/\\'/g")
+
+		# Append to the backup file
+		echo "set global ${k}='${v}';" >>"${backup_session_variables_file}"
+
+	done <"${TPCDS_OPT_CONF}"
 }
 clean_up() {
     echo "restore session variables:"
