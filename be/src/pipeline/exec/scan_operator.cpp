@@ -45,6 +45,7 @@
 
 namespace doris::pipeline {
 
+#include "common/compile_check_begin.h"
 const static int32_t ADAPTIVE_PIPELINE_TASK_SERIAL_READ_ON_LIMIT_DEFAULT = 10000;
 
 #define RETURN_IF_PUSH_DOWN(stmt, status)    \
@@ -682,7 +683,7 @@ Status ScanLocalState<Derived>::_should_push_down_binary_predicate(
     DCHECK(constant_val->data == nullptr) << "constant_val should not have a value";
     const auto& children = fn_call->children();
     DCHECK(children.size() == 2);
-    for (size_t i = 0; i < children.size(); i++) {
+    for (int i = 0; i < 2; i++) {
         if (vectorized::VExpr::expr_without_cast(children[i])->node_type() !=
             TExprNodeType::SLOT_REF) {
             // not a slot ref(column)
@@ -996,16 +997,7 @@ Status ScanLocalState<Derived>::_start_scanners(
     auto& p = _parent->cast<typename Derived::Parent>();
     _scanner_ctx = vectorized::ScannerContext::create_shared(
             state(), this, p._output_tuple_desc, p.output_row_descriptor(), scanners, p.limit(),
-            state()->scan_queue_mem_limit(), _scan_dependency,
-            // NOTE: This will logic makes _max_thread_num of ScannerContext to be C(num of cores) * 2
-            // For a query with C/2 instance and M scan node, scan task of this query will be C/2 * M * C*2
-            // and will be C*C*N at most.
-            // 1. If data distribution is ignored , we use 1 instance to scan.
-            // 2. Else if this operator is not file scan operator, we use config::doris_scanner_thread_pool_thread_num scanners to scan.
-            // 3. Else, file scanner will consume much memory so we use config::doris_scanner_thread_pool_thread_num / query_parallel_instance_num scanners to scan.
-            p.ignore_data_distribution() || !p.is_file_scan_operator()
-                    ? 1
-                    : state()->query_parallel_instance_num());
+            _scan_dependency, p.ignore_data_distribution());
     return Status::OK();
 }
 

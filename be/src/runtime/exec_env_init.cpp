@@ -270,7 +270,6 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     init_file_cache_factory(cache_paths);
     doris::io::BeConfDataDirReader::init_be_conf_data_dir(store_paths, spill_store_paths,
                                                           cache_paths);
-
     _pipeline_tracer_ctx = std::make_unique<pipeline::PipelineTracerContext>(); // before query
     RETURN_IF_ERROR(init_pipeline_task_scheduler());
     _workload_group_manager = new WorkloadGroupMgr();
@@ -392,50 +391,57 @@ Status ExecEnv::init_pipeline_task_scheduler() {
 
 void ExecEnv::init_file_cache_factory(std::vector<doris::CachePath>& cache_paths) {
     // Load file cache before starting up daemon threads to make sure StorageEngine is read.
-    if (doris::config::enable_file_cache) {
-        if (config::file_cache_each_block_size > config::s3_write_buffer_size ||
-            config::s3_write_buffer_size % config::file_cache_each_block_size != 0) {
-            LOG_FATAL(
-                    "The config file_cache_each_block_size {} must less than or equal to config "
-                    "s3_write_buffer_size {} and config::s3_write_buffer_size % "
-                    "config::file_cache_each_block_size must be zero",
-                    config::file_cache_each_block_size, config::s3_write_buffer_size);
+    if (!config::enable_file_cache) {
+        if (config::is_cloud_mode()) {
+            LOG(FATAL) << "Cloud mode requires to enable file cache, plz set "
+                          "config::enable_file_cache "
+                          "= true";
             exit(-1);
         }
-        std::unordered_set<std::string> cache_path_set;
-        Status rest = doris::parse_conf_cache_paths(doris::config::file_cache_path, cache_paths);
-        if (!rest) {
-            LOG(FATAL) << "parse config file cache path failed, path="
-                       << doris::config::file_cache_path;
+        return;
+    }
+    if (config::file_cache_each_block_size > config::s3_write_buffer_size ||
+        config::s3_write_buffer_size % config::file_cache_each_block_size != 0) {
+        LOG_FATAL(
+                "The config file_cache_each_block_size {} must less than or equal to config "
+                "s3_write_buffer_size {} and config::s3_write_buffer_size % "
+                "config::file_cache_each_block_size must be zero",
+                config::file_cache_each_block_size, config::s3_write_buffer_size);
+        exit(-1);
+    }
+    std::unordered_set<std::string> cache_path_set;
+    Status rest = doris::parse_conf_cache_paths(doris::config::file_cache_path, cache_paths);
+    if (!rest) {
+        LOG(FATAL) << "parse config file cache path failed, path="
+                   << doris::config::file_cache_path;
+        exit(-1);
+    }
+    std::vector<std::thread> file_cache_init_threads;
+
+    std::list<doris::Status> cache_status;
+    for (auto& cache_path : cache_paths) {
+        if (cache_path_set.find(cache_path.path) != cache_path_set.end()) {
+            LOG(WARNING) << fmt::format("cache path {} is duplicate", cache_path.path);
+            continue;
+        }
+
+        file_cache_init_threads.emplace_back([&, status = &cache_status.emplace_back()]() {
+            *status = doris::io::FileCacheFactory::instance()->create_file_cache(
+                    cache_path.path, cache_path.init_settings());
+        });
+
+        cache_path_set.emplace(cache_path.path);
+    }
+
+    for (std::thread& thread : file_cache_init_threads) {
+        if (thread.joinable()) {
+            thread.join();
+        }
+    }
+    for (const auto& status : cache_status) {
+        if (!status.ok()) {
+            LOG(FATAL) << "failed to init file cache, err: " << status;
             exit(-1);
-        }
-        std::vector<std::thread> file_cache_init_threads;
-
-        std::list<doris::Status> cache_status;
-        for (auto& cache_path : cache_paths) {
-            if (cache_path_set.find(cache_path.path) != cache_path_set.end()) {
-                LOG(WARNING) << fmt::format("cache path {} is duplicate", cache_path.path);
-                continue;
-            }
-
-            file_cache_init_threads.emplace_back([&, status = &cache_status.emplace_back()]() {
-                *status = doris::io::FileCacheFactory::instance()->create_file_cache(
-                        cache_path.path, cache_path.init_settings());
-            });
-
-            cache_path_set.emplace(cache_path.path);
-        }
-
-        for (std::thread& thread : file_cache_init_threads) {
-            if (thread.joinable()) {
-                thread.join();
-            }
-        }
-        for (const auto& status : cache_status) {
-            if (!status.ok()) {
-                LOG(FATAL) << "failed to init file cache, err: " << status;
-                exit(-1);
-            }
         }
     }
 }

@@ -161,6 +161,18 @@ public:
         _init = true;
     }
 
+    segment_v2::SegmentSharedPtr pop_unhealthy_segment() {
+        if (segments.empty()) {
+            return nullptr;
+        }
+        segment_v2::SegmentSharedPtr last_segment = segments.back();
+        if (last_segment->healthy_status().ok()) {
+            return nullptr;
+        }
+        segments.pop_back();
+        return last_segment;
+    }
+
 private:
     std::vector<segment_v2::SegmentSharedPtr> segments;
     bool _init {false};

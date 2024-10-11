@@ -95,7 +95,6 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
                     channel_shared_ptrs[fragment_id_to_channel_index[fragment_instance_id.lo]]);
         }
     }
-    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
 
     // Make sure brpc stub is ready before execution.
     for (int i = 0; i < channels.size(); ++i) {
@@ -112,20 +111,20 @@ Status ExchangeSinkLocalState::open(RuntimeState* state) {
     SCOPED_TIMER(_open_timer);
     RETURN_IF_ERROR(Base::open(state));
     auto& p = _parent->cast<ExchangeSinkOperatorX>();
-    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
 
-    int local_size = 0;
-    for (int i = 0; i < channels.size(); ++i) {
-        RETURN_IF_ERROR(channels[i]->open(state));
-        if (channels[i]->is_local()) {
-            local_size++;
-        }
-    }
     if (_part_type == TPartitionType::UNPARTITIONED || _part_type == TPartitionType::RANDOM ||
         _part_type == TPartitionType::TABLE_SINK_RANDOM_PARTITIONED) {
         std::random_device rd;
         std::mt19937 g(rd());
         shuffle(channels.begin(), channels.end(), g);
+    }
+    int local_size = 0;
+    for (int i = 0; i < channels.size(); ++i) {
+        RETURN_IF_ERROR(channels[i]->open(state));
+        if (channels[i]->is_local()) {
+            local_size++;
+            _last_local_channel_idx = i;
+        }
     }
     only_local_exchange = local_size == channels.size();
 
@@ -338,7 +337,6 @@ Status ExchangeSinkOperatorX::init(const TDataSink& tsink) {
 Status ExchangeSinkOperatorX::open(RuntimeState* state) {
     RETURN_IF_ERROR(DataSinkOperatorX<ExchangeSinkLocalState>::open(state));
     _state = state;
-    _mem_tracker = std::make_unique<MemTracker>("ExchangeSinkOperatorX:");
     _compression_type = state->fragement_transmission_compression_type();
     if (_part_type == TPartitionType::TABLET_SINK_SHUFFLE_PARTITIONED) {
         if (_output_tuple_id == -1) {
@@ -368,7 +366,6 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)block->rows());
     COUNTER_UPDATE(local_state.rows_sent_counter(), (int64_t)block->rows());
     SCOPED_TIMER(local_state.exec_time_counter());
-    local_state._peak_memory_usage_counter->set(local_state._mem_tracker->peak_consumption());
     bool all_receiver_eof = true;
     for (auto* channel : local_state.channels) {
         if (!channel->is_receiver_eof()) {
@@ -379,6 +376,10 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
     if (all_receiver_eof) {
         return Status::EndOfFile("all data stream channels EOF");
     }
+    Defer defer([&]() {
+        COUNTER_SET(local_state._peak_memory_usage_counter,
+                    local_state._memory_used_counter->value());
+    });
 
     if (_part_type == TPartitionType::UNPARTITIONED || local_state.channels.size() == 1) {
         // 1. serialize depends on it is not local exchange
@@ -387,17 +388,22 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
         if (local_state.only_local_exchange) {
             if (!block->empty()) {
                 Status status;
+                size_t idx = 0;
                 for (auto* channel : local_state.channels) {
                     if (!channel->is_receiver_eof()) {
-                        status = channel->send_local_block(block);
+                        // If this channel is the last, we can move this block to downstream pipeline.
+                        // Otherwise, this block also need to be broadcasted to other channels so should be copied.
+                        DCHECK_GE(local_state._last_local_channel_idx, 0);
+                        status = channel->send_local_block(
+                                block, idx == local_state._last_local_channel_idx);
                         HANDLE_CHANNEL_STATUS(state, channel, status);
                     }
+                    idx++;
                 }
             }
         } else {
             auto block_holder = vectorized::BroadcastPBlockHolder::create_shared();
             {
-                SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
                 bool serialized = false;
                 RETURN_IF_ERROR(local_state._serializer.next_serialized_block(
                         block, block_holder->get_block(), local_state.channels.size(), &serialized,
@@ -414,17 +420,22 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
 
                     local_state._broadcast_pb_mem_limiter->acquire(*block_holder);
 
+                    size_t idx = 0;
                     for (auto* channel : local_state.channels) {
                         if (!channel->is_receiver_eof()) {
                             Status status;
                             if (channel->is_local()) {
-                                status = channel->send_local_block(&cur_block);
+                                // If this channel is the last, we can move this block to downstream pipeline.
+                                // Otherwise, this block also need to be broadcasted to other channels so should be copied.
+                                DCHECK_GE(local_state._last_local_channel_idx, 0);
+                                status = channel->send_local_block(
+                                        &cur_block, idx == local_state._last_local_channel_idx);
                             } else {
-                                SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
                                 status = channel->send_broadcast_block(block_holder, eos);
                             }
                             HANDLE_CHANNEL_STATUS(state, channel, status);
                         }
+                        idx++;
                     }
                     cur_block.clear_column_data();
                     local_state._serializer.get_block()->set_mutable_columns(
@@ -439,10 +450,9 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
         if (!current_channel->is_receiver_eof()) {
             // 2. serialize, send and rollover block
             if (current_channel->is_local()) {
-                auto status = current_channel->send_local_block(block);
+                auto status = current_channel->send_local_block(block, false);
                 HANDLE_CHANNEL_STATUS(state, current_channel, status);
             } else {
-                SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
                 RETURN_IF_ERROR(local_state._serializer.serialize_block(
                         block, current_channel->ch_cur_pb_block()));
                 auto status =
@@ -458,8 +468,11 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
         auto rows = block->rows();
         {
             SCOPED_TIMER(local_state._split_block_hash_compute_timer);
-            RETURN_IF_ERROR(
-                    local_state._partitioner->do_partitioning(state, block, _mem_tracker.get()));
+            RETURN_IF_ERROR(local_state._partitioner->do_partitioning(state, block));
+        }
+        int64_t old_channel_mem_usage = 0;
+        for (const auto& channel : local_state.channels) {
+            old_channel_mem_usage += channel->mem_usage();
         }
         if (_part_type == TPartitionType::HASH_PARTITIONED) {
             RETURN_IF_ERROR(channel_add_rows(
@@ -470,7 +483,19 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
                     state, local_state.channel_shared_ptrs, local_state._partition_count,
                     local_state._partitioner->get_channel_ids().get<uint32_t>(), rows, block, eos));
         }
+        int64_t new_channel_mem_usage = 0;
+        for (const auto& channel : local_state.channels) {
+            new_channel_mem_usage += channel->mem_usage();
+        }
+        COUNTER_UPDATE(local_state.memory_used_counter(),
+                       new_channel_mem_usage - old_channel_mem_usage);
+        COUNTER_SET(local_state.peak_memory_usage_counter(),
+                    local_state.memory_used_counter()->value());
     } else if (_part_type == TPartitionType::TABLET_SINK_SHUFFLE_PARTITIONED) {
+        int64_t old_channel_mem_usage = 0;
+        for (const auto& channel : local_state.channels) {
+            old_channel_mem_usage += channel->mem_usage();
+        }
         // check out of limit
         RETURN_IF_ERROR(local_state._send_new_partition_batch());
         std::shared_ptr<vectorized::Block> convert_block = std::make_shared<vectorized::Block>();
@@ -506,17 +531,36 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
         // when send data we still use block
         RETURN_IF_ERROR(channel_add_rows_with_idx(state, local_state.channels, num_channels,
                                                   channel2rows, block, eos));
+        int64_t new_channel_mem_usage = 0;
+        for (const auto& channel : local_state.channels) {
+            new_channel_mem_usage += channel->mem_usage();
+        }
+        COUNTER_UPDATE(local_state.memory_used_counter(),
+                       new_channel_mem_usage - old_channel_mem_usage);
+        COUNTER_SET(local_state.peak_memory_usage_counter(),
+                    local_state.memory_used_counter()->value());
     } else if (_part_type == TPartitionType::TABLE_SINK_HASH_PARTITIONED) {
+        int64_t old_channel_mem_usage = 0;
+        for (const auto& channel : local_state.channels) {
+            old_channel_mem_usage += channel->mem_usage();
+        }
         {
             SCOPED_TIMER(local_state._split_block_hash_compute_timer);
-            RETURN_IF_ERROR(
-                    local_state._partitioner->do_partitioning(state, block, _mem_tracker.get()));
+            RETURN_IF_ERROR(local_state._partitioner->do_partitioning(state, block));
         }
         std::vector<std::vector<uint32>> assignments =
                 local_state.scale_writer_partitioning_exchanger->accept(block);
         RETURN_IF_ERROR(channel_add_rows_with_idx(
                 state, local_state.channels, local_state.channels.size(), assignments, block, eos));
 
+        int64_t new_channel_mem_usage = 0;
+        for (const auto& channel : local_state.channels) {
+            new_channel_mem_usage += channel->mem_usage();
+        }
+        COUNTER_UPDATE(local_state.memory_used_counter(),
+                       new_channel_mem_usage - old_channel_mem_usage);
+        COUNTER_SET(local_state.peak_memory_usage_counter(),
+                    local_state.memory_used_counter()->value());
     } else if (_part_type == TPartitionType::TABLE_SINK_RANDOM_PARTITIONED) {
         // Control the number of channels according to the flow, thereby controlling the number of table sink writers.
         // 1. select channel
@@ -525,10 +569,9 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
         if (!current_channel->is_receiver_eof()) {
             // 2. serialize, send and rollover block
             if (current_channel->is_local()) {
-                auto status = current_channel->send_local_block(block);
+                auto status = current_channel->send_local_block(block, false);
                 HANDLE_CHANNEL_STATUS(state, current_channel, status);
             } else {
-                SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
                 RETURN_IF_ERROR(local_state._serializer.serialize_block(
                         block, current_channel->ch_cur_pb_block()));
                 auto status =

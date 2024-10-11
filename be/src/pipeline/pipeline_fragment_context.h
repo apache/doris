@@ -100,7 +100,7 @@ public:
 
     [[nodiscard]] int get_fragment_id() const { return _fragment_id; }
 
-    void close_a_pipeline();
+    void close_a_pipeline(PipelineId pipeline_id);
 
     Status send_report(bool);
 
@@ -291,6 +291,7 @@ private:
     std::map<int, std::pair<std::shared_ptr<LocalExchangeSharedState>, std::shared_ptr<Dependency>>>
             _op_id_to_le_state;
 
+    std::map<PipelineId, Pipeline*> _pip_id_to_pipeline;
     // UniqueId -> runtime mgr
     std::map<UniqueId, std::unique_ptr<RuntimeFilterMgr>> _runtime_filter_mgr_map;
 

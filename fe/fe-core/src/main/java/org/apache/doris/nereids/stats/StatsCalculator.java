@@ -396,7 +396,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             rowCount = olapTable.getRowCountForIndex(olapScan.getSelectedIndexId(), true);
             if (rowCount == -1) {
                 if (tableMeta != null) {
-                    rowCount = tableMeta.getRowCount(olapScan.getSelectedIndexId());
+                    rowCount = tableMeta.getRowCount(olapScan.getSelectedIndexId()) + computeDeltaRowCount(olapScan);
                 }
             }
         }
@@ -489,7 +489,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                     builder.putColumnStatistics(slot, colStatsBuilder.build());
                 }
                 checkIfUnknownStatsUsedAsKey(builder);
-                builder.setRowCount(selectedPartitionsRowCount + deltaRowCount);
+                builder.setRowCount(selectedPartitionsRowCount);
             }
         }
         // 1. no partition is pruned, or
@@ -503,7 +503,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                 builder.putColumnStatistics(slot, colStatsBuilder.build());
             }
             checkIfUnknownStatsUsedAsKey(builder);
-            builder.setRowCount(tableRowCount + deltaRowCount);
+            builder.setRowCount(tableRowCount);
         }
         return builder.build();
     }

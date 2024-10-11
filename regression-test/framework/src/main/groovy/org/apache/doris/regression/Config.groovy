@@ -518,6 +518,13 @@ class Config {
         // mainly auth_xxx cases use defaultDb, these suites better not use defaultDb
         config.createDefaultDb()
 
+        try {
+            config.fetchCloudMode()
+        } catch (Exception e) {
+            // docker suite no need external cluster.
+            // so can ignore error here.
+        }
+
         return config
     }
 

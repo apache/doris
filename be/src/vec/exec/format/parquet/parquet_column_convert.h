@@ -20,6 +20,7 @@
 #include <gen_cpp/parquet_types.h>
 
 #include "vec/core/types.h"
+#include "vec/core/wide_integer.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/exec/format/column_type_convert.h"
 #include "vec/exec/format/format_common.h"
@@ -401,7 +402,23 @@ public:
     M(13, int128_t)          \
     M(14, int128_t)          \
     M(15, int128_t)          \
-    M(16, int128_t)
+    M(16, int128_t)          \
+    M(17, wide::Int256)      \
+    M(18, wide::Int256)      \
+    M(19, wide::Int256)      \
+    M(20, wide::Int256)      \
+    M(21, wide::Int256)      \
+    M(22, wide::Int256)      \
+    M(23, wide::Int256)      \
+    M(24, wide::Int256)      \
+    M(25, wide::Int256)      \
+    M(26, wide::Int256)      \
+    M(27, wide::Int256)      \
+    M(28, wide::Int256)      \
+    M(29, wide::Int256)      \
+    M(30, wide::Int256)      \
+    M(31, wide::Int256)      \
+    M(32, wide::Int256)
 
         switch (_type_length) {
             APPLY_FOR_DECIMALS()

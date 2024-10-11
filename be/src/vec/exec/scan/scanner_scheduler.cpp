@@ -170,13 +170,7 @@ Status ScannerScheduler::submit(std::shared_ptr<ScannerContext> ctx,
         scanner_delegate->_scanner->start_wait_worker_timer();
         TabletStorageType type = scanner_delegate->_scanner->get_storage_type();
         auto sumbit_task = [&]() {
-            bool is_local = type == TabletStorageType::STORAGE_TYPE_LOCAL;
-            SimplifiedScanScheduler* scan_sched =
-                    is_local ? ctx->get_simple_scan_scheduler() : ctx->get_remote_scan_scheduler();
-            if (!scan_sched) { // query without workload group
-                scan_sched =
-                        is_local ? _local_scan_thread_pool.get() : _remote_scan_thread_pool.get();
-            }
+            SimplifiedScanScheduler* scan_sched = ctx->get_scan_scheduler();
             auto work_func = [scanner_ref = scan_task, ctx]() {
                 DorisMetrics::instance()->scanner_task_queued->increment(-1);
                 DorisMetrics::instance()->scanner_task_running->increment(1);
