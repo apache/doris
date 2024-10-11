@@ -15,29 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_conv") {
+suite("test_regexp_replace") {
     sql "SET enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
-    qt_select "SELECT CONV(15,10,2)"
-    qt_select2 "select conv('ffffffffffffff', 24, 2);"
-    qt_select3 "select conv('-ff', 24, 2);"
-    qt_select4 "select conv('fffffffffffffffffffffffffffffffff', 24, 10);"
+
+    qt_basic_replace "SELECT regexp_replace('abc123', '123', 'xyz');"
+
+    qt_replace_chinese "SELECT regexp_replace('这是一个测试字符串123', '\\\\p{Han}+', '汉');"
     
-    sql """DROP TABLE IF EXISTS `test_tb_with_null`; """
-    sql """ create table test_tb_with_null(int_1 int, float_2 float, nullable_val varchar(16)) PROPERTIES (
-            "replication_num" = "1"
-            ); 
-    """
-    
-    sql """ insert into test_tb_with_null values(1, 1.464868, '100'), 
-                                                 (2, null, null), 
-                                                 (3, 2.789, '200'), 
-                                                 (4, 3.14159, null); """
-
-    qt_select5 """ select conv(nullable_val, 10, 2), nullable_val from test_tb_with_null; """
-
-    qt_select6 """ select conv(float_2,10,2), float_2 from test_tb_with_null; """
-
     def re_fe
     def re_be
     def re_no_fold
@@ -54,10 +39,20 @@ suite("test_conv") {
         assertEquals(re_fe, re_no_fold)
     }
 
-    check_three_ways "conv(null, null, null)"
-    check_three_ways "conv(15, 10, 2)"
-    check_three_ways "conv(null, 10, 2)"
-    check_three_ways "conv(15, null, 2)"
-    check_three_ways "conv(15, 10, null)"
-    check_three_ways "conv('123', 10, 2)"
+    check_three_ways "regexp_replace('abc123', '123', 'xyz')"
+    check_three_ways "regexp_replace(null, 'abc', 'def')"
+    check_three_ways "regexp_replace('abc123', null, 'xyz')"
+    check_three_ways "regexp_replace('abc123', '123', null)"
+
+    sql """DROP TABLE IF EXISTS `test_table_for_regexp`;"""
+    sql """CREATE TABLE test_table_for_regexp (id INT, name VARCHAR(100)) PROPERTIES ("replication_num"="1");"""
+
+    sql """INSERT INTO test_table_for_regexp VALUES
+        (1, 'abc123'),
+        (2, '测试字符串456'),
+        (3, 'Phone: 987-654-3210'),
+        (4, '这是一个测试'),
+        (5, null);"""
+
+    qt_replace_in_table_chinese """SELECT id, regexp_replace(name, '\\\\p{Han}', '汉') as replaced_name FROM test_table_for_regexp;"""
 }

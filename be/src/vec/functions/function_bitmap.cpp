@@ -1148,7 +1148,7 @@ public:
 
     size_t get_number_of_arguments() const override { return 3; }
 
-    bool use_default_implementation_for_nulls() const override { return false; }
+    bool use_default_implementation_for_nulls() const override { return true; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
@@ -1167,10 +1167,6 @@ public:
                                            : block.get_by_position(arguments[0]).column;
 
         default_preprocess_parameter_columns(argument_columns, col_const, {1, 2}, block, arguments);
-
-        for (int i = 0; i < 3; i++) {
-            check_set_nullable(argument_columns[i], res_null_map, col_const[i]);
-        }
 
         auto bitmap_column = assert_cast<const ColumnBitmap*>(argument_columns[0].get());
         auto offset_column = assert_cast<const ColumnVector<Int64>*>(argument_columns[1].get());
