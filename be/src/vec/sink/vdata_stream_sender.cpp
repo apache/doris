@@ -213,7 +213,7 @@ Status Channel<Parent>::send_local_block(Status exec_status, bool eos) {
 }
 
 template <typename Parent>
-Status Channel<Parent>::send_local_block(Block* block) {
+Status Channel<Parent>::send_local_block(Block* block, bool can_be_moved) {
     SCOPED_TIMER(_parent->local_send_timer());
     if (_recvr_is_valid()) {
         if constexpr (!std::is_same_v<pipeline::ResultFileSinkLocalState, Parent>) {
@@ -221,7 +221,7 @@ Status Channel<Parent>::send_local_block(Block* block) {
             COUNTER_UPDATE(_parent->local_sent_rows(), block->rows());
             COUNTER_UPDATE(_parent->blocks_sent_counter(), 1);
         }
-        _local_recvr->add_block(block, _parent->sender_id(), false);
+        _local_recvr->add_block(block, _parent->sender_id(), can_be_moved);
         return Status::OK();
     } else {
         return _receiver_status;
