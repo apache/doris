@@ -95,7 +95,7 @@ public:
     }
     bool require_shuffled_data_distribution() const override { return true; }
 
-    size_t get_reserve_mem_size(RuntimeState* state) override;
+    size_t get_reserve_mem_size(RuntimeState* state, bool eos) override;
 
 private:
     template <class HashTableContext, bool is_intersected>

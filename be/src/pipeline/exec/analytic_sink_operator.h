@@ -95,7 +95,7 @@ public:
         return !_partition_by_eq_expr_ctxs.empty() && _order_by_eq_expr_ctxs.empty();
     }
 
-    size_t get_reserve_mem_size(RuntimeState* state) override;
+    size_t get_reserve_mem_size(RuntimeState* state, bool eos) override;
 
 private:
     Status _insert_range_column(vectorized::Block* block, const vectorized::VExprContextSPtr& expr,
