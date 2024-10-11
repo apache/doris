@@ -123,9 +123,10 @@ public:
     * Part 2, Constructors and property methods
     */
 
-    static std::shared_ptr<MemTrackerLimiter> create_shared(
-            MemTrackerLimiter::Type type, const std::string& label = std::string(),
-            int64_t byte_limit = -1);
+    // Label cannot be repeated, because profile name must be unique when generating the runtime profile.
+    static std::shared_ptr<MemTrackerLimiter> create_shared(MemTrackerLimiter::Type type,
+                                                            const std::string& label,
+                                                            int64_t byte_limit = -1);
     // byte_limit equal to -1 means no consumption limit, only participate in process memory statistics.
     MemTrackerLimiter(Type type, const std::string& label, int64_t byte_limit);
 
