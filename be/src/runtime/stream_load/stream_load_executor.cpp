@@ -82,6 +82,7 @@ Status StreamLoadExecutor::execute_plan_fragment(std::shared_ptr<StreamLoadConte
                         ctx->number_loaded_rows = state->num_rows_load_success();
                         ctx->number_filtered_rows = state->num_rows_load_filtered();
                         ctx->number_unselected_rows = state->num_rows_load_unselected();
+                        ctx->loaded_bytes = state->num_bytes_load_total();
 
                         int64_t num_selected_rows =
                                 ctx->number_total_rows - ctx->number_unselected_rows;
@@ -165,6 +166,7 @@ Status StreamLoadExecutor::execute_plan_fragment(std::shared_ptr<StreamLoadConte
                         ctx->number_loaded_rows = state->num_rows_load_success();
                         ctx->number_filtered_rows = state->num_rows_load_filtered();
                         ctx->number_unselected_rows = state->num_rows_load_unselected();
+                        ctx->loaded_bytes = state->num_bytes_load_total();
 
                         int64_t num_selected_rows =
                                 ctx->number_total_rows - ctx->number_unselected_rows;
@@ -227,16 +229,6 @@ Status StreamLoadExecutor::execute_plan_fragment(std::shared_ptr<StreamLoadConte
                             this->commit_txn(ctx.get());
                         }
                     }
-
-                    LOG(INFO) << "finished to execute stream load. label=" << ctx->label
-                              << ", txn_id=" << ctx->txn_id
-                              << ", query_id=" << print_id(ctx->put_result.params.params.query_id)
-                              << ", receive_data_cost_ms="
-                              << (ctx->receive_and_read_data_cost_nanos -
-                                  ctx->read_data_cost_nanos) /
-                                         1000000
-                              << ", read_data_cost_ms=" << ctx->read_data_cost_nanos / 1000000
-                              << ", write_data_cost_ms=" << ctx->write_data_cost_nanos / 1000000;
                 });
     }
     if (!st.ok()) {
