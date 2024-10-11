@@ -113,6 +113,8 @@ protected:
 
     void update_metadata_size();
 
+    MetadataAdder<T>& operator=(const MetadataAdder<T>& other) = default;
+
 private:
     int64_t _current_meta_size {0};
 
