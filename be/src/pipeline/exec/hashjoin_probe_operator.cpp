@@ -54,7 +54,7 @@ Status HashJoinProbeLocalState::init(RuntimeState* state, LocalStateInfo& info) 
     _construct_mutable_join_block();
     _probe_column_disguise_null.reserve(_probe_expr_ctxs.size());
     _probe_arena_memory_usage =
-            profile()->AddHighWaterMarkCounter("ProbeKeyArena", TUnit::BYTES, "MemoryUsage", 1);
+            profile()->AddHighWaterMarkCounter("MemoryUsageProbeKeyArena", TUnit::BYTES, "", 1);
     // Probe phase
     _probe_next_timer = ADD_TIMER(profile(), "ProbeFindNextTime");
     _probe_expr_call_timer = ADD_TIMER(profile(), "ProbeExprCallTime");
@@ -304,8 +304,6 @@ Status HashJoinProbeOperatorX::pull(doris::RuntimeState* state, vectorized::Bloc
                                                  mutable_join_block, &temp_block,
                                                  local_state._probe_block.rows(), _is_mark_join,
                                                  _have_other_join_conjunct);
-                            local_state._mem_tracker->set_consumption(
-                                    arg.serialized_keys_size(false));
                         } else {
                             st = Status::InternalError("uninited hash table");
                         }
@@ -501,6 +499,10 @@ Status HashJoinProbeOperatorX::push(RuntimeState* state, vectorized::Block* inpu
 
         if (&local_state._probe_block != input_block) {
             input_block->swap(local_state._probe_block);
+            COUNTER_SET(local_state._memory_used_counter,
+                        (int64_t)local_state._probe_block.allocated_bytes());
+            COUNTER_SET(local_state._peak_memory_usage_counter,
+                        local_state._memory_used_counter->value());
         }
     }
     return Status::OK();
