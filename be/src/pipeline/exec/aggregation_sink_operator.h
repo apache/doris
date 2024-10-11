@@ -137,18 +137,19 @@ public:
 
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
 
+    Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
 
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
 
     DataDistribution required_data_distribution() const override {
         if (_probe_expr_ctxs.empty()) {
-            return _needs_finalize || DataSinkOperatorX<AggSinkLocalState>::_child
+            return _needs_finalize || DataSinkOperatorX<AggSinkLocalState>::_child_x
                                               ->ignore_data_distribution()
                            ? DataDistribution(ExchangeType::PASSTHROUGH)
                            : DataSinkOperatorX<AggSinkLocalState>::required_data_distribution();
         }
-        return _is_colocate && _require_bucket_distribution && !_followed_by_shuffled_operator
+        return _is_colocate && _require_bucket_distribution && !_followed_by_shuffled_join
                        ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE, _partition_exprs)
                        : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
     }

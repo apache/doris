@@ -22,7 +22,6 @@
 #include <utility>
 
 #include "pipeline/exec/operator.h"
-#include "pipeline/pipeline_task.h"
 
 namespace doris::pipeline {
 
@@ -31,47 +30,41 @@ void Pipeline::_init_profile() {
     _pipeline_profile = std::make_unique<RuntimeProfile>(std::move(s));
 }
 
-Status Pipeline::add_operator(OperatorPtr& op) {
+Status Pipeline::add_operator(OperatorXPtr& op) {
     op->set_parallel_tasks(num_tasks());
-    _operators.emplace_back(op);
+    operatorXs.emplace_back(op);
     if (op->is_source()) {
-        std::reverse(_operators.begin(), _operators.end());
+        std::reverse(operatorXs.begin(), operatorXs.end());
     }
     return Status::OK();
 }
 
 Status Pipeline::prepare(RuntimeState* state) {
-    RETURN_IF_ERROR(_operators.back()->open(state));
-    RETURN_IF_ERROR(_sink->open(state));
+    RETURN_IF_ERROR(operatorXs.back()->prepare(state));
+    RETURN_IF_ERROR(operatorXs.back()->open(state));
+    RETURN_IF_ERROR(_sink_x->prepare(state));
+    RETURN_IF_ERROR(_sink_x->open(state));
     _name.append(std::to_string(id()));
     _name.push_back('-');
-    for (auto& op : _operators) {
+    for (auto& op : operatorXs) {
         _name.append(std::to_string(op->node_id()));
         _name.append(op->get_name());
     }
     _name.push_back('-');
-    _name.append(std::to_string(_sink->node_id()));
-    _name.append(_sink->get_name());
+    _name.append(std::to_string(_sink_x->node_id()));
+    _name.append(_sink_x->get_name());
     return Status::OK();
 }
 
-Status Pipeline::set_sink(DataSinkOperatorPtr& sink) {
-    if (_sink) {
+Status Pipeline::set_sink(DataSinkOperatorXPtr& sink) {
+    if (_sink_x) {
         return Status::InternalError("set sink twice");
     }
     if (!sink->is_sink()) {
         return Status::InternalError("should set a sink operator but {}", typeid(sink).name());
     }
-    _sink = sink;
+    _sink_x = sink;
     return Status::OK();
-}
-
-void Pipeline::make_all_runnable() {
-    for (auto* task : _tasks) {
-        if (task) {
-            task->clear_blocking_state(true);
-        }
-    }
 }
 
 } // namespace doris::pipeline

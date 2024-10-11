@@ -54,6 +54,7 @@ private:
 
     RuntimeProfile::Counter* _spill_merge_sort_timer = nullptr;
 
+    bool _eos = false;
     vectorized::SpillStreamSPtr _spilling_stream;
     std::shared_ptr<Dependency> _finish_dependency;
 };
@@ -70,6 +71,7 @@ public:
 
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
 
+    Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
     DataDistribution required_data_distribution() const override {
@@ -78,7 +80,7 @@ public:
     bool require_data_distribution() const override {
         return _sort_sink_operator->require_data_distribution();
     }
-    Status set_child(OperatorPtr child) override {
+    Status set_child(OperatorXPtr child) override {
         RETURN_IF_ERROR(DataSinkOperatorX<SpillSortSinkLocalState>::set_child(child));
         return _sort_sink_operator->set_child(child);
     }

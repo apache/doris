@@ -68,10 +68,16 @@ Status LocalExchangeSinkOperatorX::init(ExchangeType type, const int num_buckets
     return Status::OK();
 }
 
-Status LocalExchangeSinkOperatorX::open(RuntimeState* state) {
-    RETURN_IF_ERROR(DataSinkOperatorX<LocalExchangeSinkLocalState>::open(state));
+Status LocalExchangeSinkOperatorX::prepare(RuntimeState* state) {
     if (_type == ExchangeType::HASH_SHUFFLE || _type == ExchangeType::BUCKET_HASH_SHUFFLE) {
-        RETURN_IF_ERROR(_partitioner->prepare(state, _child->row_desc()));
+        RETURN_IF_ERROR(_partitioner->prepare(state, _child_x->row_desc()));
+    }
+
+    return Status::OK();
+}
+
+Status LocalExchangeSinkOperatorX::open(RuntimeState* state) {
+    if (_type == ExchangeType::HASH_SHUFFLE || _type == ExchangeType::BUCKET_HASH_SHUFFLE) {
         RETURN_IF_ERROR(_partitioner->open(state));
     }
 
@@ -104,14 +110,30 @@ Status LocalExchangeSinkLocalState::open(RuntimeState* state) {
     return Status::OK();
 }
 
+Status LocalExchangeSinkLocalState::close(RuntimeState* state, Status exec_status) {
+    if (_closed) {
+        return Status::OK();
+    }
+    RETURN_IF_ERROR(Base::close(state, exec_status));
+    if (exec_status.ok()) {
+        DCHECK(_release_count) << "Do not finish correctly! " << debug_string(0)
+                               << " state: { cancel = " << state->is_cancelled() << ", "
+                               << state->cancel_reason().to_string() << "} query ctx: { cancel = "
+                               << state->get_query_ctx()->is_cancelled() << ", "
+                               << state->get_query_ctx()->exec_status().to_string() << "}";
+    }
+    return Status::OK();
+}
+
 std::string LocalExchangeSinkLocalState::debug_string(int indentation_level) const {
     fmt::memory_buffer debug_string_buffer;
     fmt::format_to(debug_string_buffer,
                    "{}, _channel_id: {}, _num_partitions: {}, _num_senders: {}, _num_sources: {}, "
-                   "_running_sink_operators: {}, _running_source_operators: {}",
+                   "_running_sink_operators: {}, _running_source_operators: {}, _release_count: {}",
                    Base::debug_string(indentation_level), _channel_id, _exchanger->_num_partitions,
                    _exchanger->_num_senders, _exchanger->_num_sources,
-                   _exchanger->_running_sink_operators, _exchanger->_running_source_operators);
+                   _exchanger->_running_sink_operators, _exchanger->_running_source_operators,
+                   _release_count);
     return fmt::to_string(debug_string_buffer);
 }
 
@@ -124,11 +146,13 @@ Status LocalExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
 
     // If all exchange sources ended due to limit reached, current task should also finish
     if (local_state._exchanger->_running_source_operators == 0) {
+        local_state._release_count = true;
         local_state._shared_state->sub_running_sink_operators();
         return Status::EndOfFile("receiver eof");
     }
     if (eos) {
         local_state._shared_state->sub_running_sink_operators();
+        local_state._release_count = true;
     }
 
     return Status::OK();

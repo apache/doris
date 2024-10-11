@@ -335,15 +335,19 @@ Status ExchangeSinkOperatorX::init(const TDataSink& tsink) {
     return Status::OK();
 }
 
-Status ExchangeSinkOperatorX::open(RuntimeState* state) {
-    RETURN_IF_ERROR(DataSinkOperatorX<ExchangeSinkLocalState>::open(state));
+Status ExchangeSinkOperatorX::prepare(RuntimeState* state) {
     _state = state;
     _mem_tracker = std::make_unique<MemTracker>("ExchangeSinkOperatorX:");
+    return Status::OK();
+}
+
+Status ExchangeSinkOperatorX::open(RuntimeState* state) {
+    DCHECK(state != nullptr);
     _compression_type = state->fragement_transmission_compression_type();
     if (_part_type == TPartitionType::TABLET_SINK_SHUFFLE_PARTITIONED) {
         if (_output_tuple_id == -1) {
             RETURN_IF_ERROR(
-                    vectorized::VExpr::prepare(_tablet_sink_expr_ctxs, state, _child->row_desc()));
+                    vectorized::VExpr::prepare(_tablet_sink_expr_ctxs, state, _child_x->row_desc()));
         } else {
             auto* output_tuple_desc = state->desc_tbl().get_tuple_descriptor(_output_tuple_id);
             auto* output_row_desc = _pool->add(new RowDescriptor(output_tuple_desc, false));
@@ -682,10 +686,10 @@ Status ExchangeSinkLocalState::close(RuntimeState* state, Status exec_status) {
 }
 
 DataDistribution ExchangeSinkOperatorX::required_data_distribution() const {
-    if (_child && _enable_local_merge_sort) {
+    if (_child_x && _enable_local_merge_sort) {
         // SORT_OPERATOR -> DATA_STREAM_SINK_OPERATOR
         // SORT_OPERATOR -> LOCAL_MERGE_SORT -> DATA_STREAM_SINK_OPERATOR
-        if (auto sort_source = std::dynamic_pointer_cast<SortSourceOperatorX>(_child);
+        if (auto sort_source = std::dynamic_pointer_cast<SortSourceOperatorX>(_child_x);
             sort_source && sort_source->use_local_merge()) {
             // Sort the data local
             return ExchangeType::LOCAL_MERGE_SORT;
