@@ -1771,7 +1771,7 @@ public class DynamicPartitionTableTest {
                 Partition partition = partitions.get(i);
                 partition.updateVisibleVersion(2L);
                 for (MaterializedIndex idx : partition.getMaterializedIndices(
-                    MaterializedIndex.IndexExtState.VISIBLE)) {
+                        MaterializedIndex.IndexExtState.VISIBLE)) {
                     for (Tablet tablet : idx.getTablets()) {
                         for (Replica replica : tablet.getReplicas()) {
                             replica.updateVersion(2L);
@@ -1779,8 +1779,8 @@ public class DynamicPartitionTableTest {
                             replica.setRowCount(1000L);
                         }
                     }
-               }
-           }
+                }
+            }
         } finally {
             table.readUnlock();
         }
