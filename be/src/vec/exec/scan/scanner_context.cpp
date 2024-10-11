@@ -83,6 +83,7 @@ Status ScannerContext::init() {
     _scanner_wait_batch_timer = _local_state->_scanner_wait_batch_timer;
     _scanner_ctx_sched_time = _local_state->_scanner_ctx_sched_time;
     _scale_up_scanners_counter = _local_state->_scale_up_scanners_counter;
+    _scanner_memory_used_counter = _local_state->_memory_used_counter;
 
 #ifndef BE_TEST
     // 3. get thread token
@@ -143,6 +144,7 @@ Status ScannerContext::init() {
         }
     }
 
+    // _scannner_scheduler will be used to submit scan task.
     if (_scanner_scheduler->get_queue_size() * 2 > config::doris_scanner_thread_pool_queue_size) {
         submit_many_scan_tasks_for_potential_performance_issue = false;
     }
