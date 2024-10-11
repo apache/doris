@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.memo;
 
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.exploration.mv.StructInfo;
@@ -126,6 +127,9 @@ public class StructInfoMap {
             List<Set<BitSet>> childrenTableMap = new LinkedList<>();
             if (groupExpression.children().isEmpty()) {
                 BitSet leaf = constructLeaf(groupExpression, cascadesContext);
+                if (leaf.isEmpty()) {
+                    break;
+                }
                 groupExpressionMap.put(leaf, Pair.of(groupExpression, new LinkedList<>()));
                 continue;
             }
@@ -163,9 +167,19 @@ public class StructInfoMap {
     private BitSet constructLeaf(GroupExpression groupExpression, CascadesContext cascadesContext) {
         Plan plan = groupExpression.getPlan();
         BitSet tableMap = new BitSet();
+        boolean enableMaterializedViewNestRewrite = cascadesContext.getConnectContext().getSessionVariable()
+                .isEnableMaterializedViewNestRewrite();
         if (plan instanceof LogicalCatalogRelation) {
+            TableIf table = ((LogicalCatalogRelation) plan).getTable();
+            // If disable materialized view nest rewrite, and mv already rewritten successfully once, doesn't construct
+            // table id map for nest mv rewrite
+            if (!enableMaterializedViewNestRewrite
+                    && cascadesContext.getMaterializationRewrittenSuccessSet().contains(table.getFullQualifiers())) {
+                return tableMap;
+
+            }
             tableMap.set(cascadesContext.getStatementContext()
-                    .getTableId(((LogicalCatalogRelation) plan).getTable()).asInt());
+                    .getTableId(table).asInt());
         }
         // one row relation / CTE consumer
         return tableMap;

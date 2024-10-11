@@ -20,6 +20,7 @@ suite("direct_query_mv") {
     String db = context.config.getDbNameByFile(context.file)
     sql "use ${db}"
     sql "set runtime_filter_mode=OFF"
+    sql """set enable_materialized_view_nest_rewrite = true; """
 
     sql """
     drop table if exists orders
