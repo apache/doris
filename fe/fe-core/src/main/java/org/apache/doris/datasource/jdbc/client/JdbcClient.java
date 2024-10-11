@@ -137,6 +137,7 @@ public abstract class JdbcClient {
             dataSource.setConnectionTimeout(config.getConnectionPoolMaxWaitTime()); // default 5000
             dataSource.setMaxLifetime(config.getConnectionPoolMaxLifeTime()); // default 30 min
             dataSource.setIdleTimeout(config.getConnectionPoolMaxLifeTime() / 2L); // default 15 min
+            dataSource.setInitializationFailTimeout(-1);
             LOG.info("JdbcClient set"
                     + " ConnectionPoolMinSize = " + config.getConnectionPoolMinSize()
                     + ", ConnectionPoolMaxSize = " + config.getConnectionPoolMaxSize()
@@ -178,8 +179,9 @@ public abstract class JdbcClient {
             Thread.currentThread().setContextClassLoader(this.classLoader);
             conn = dataSource.getConnection();
         } catch (Exception e) {
-            String errorMessage = String.format("Can not connect to jdbc due to error: %s, Catalog name: %s",
-                    e.getMessage(), this.getCatalogName());
+            String errorMessage = String.format(
+                    "Catalog `%s` can not connect to jdbc due to error: %s",
+                    this.getCatalogName(), JdbcClientException.getAllExceptionMessages(e));
             throw new JdbcClientException(errorMessage, e);
         } finally {
             Thread.currentThread().setContextClassLoader(oldClassLoader);
