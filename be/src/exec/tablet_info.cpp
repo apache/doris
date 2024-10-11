@@ -30,8 +30,8 @@
 #include <cstdint>
 #include <memory>
 #include <ostream>
-#include <tuple>
 #include <string>
+#include <tuple>
 
 #include "common/exception.h"
 #include "common/logging.h"
@@ -174,10 +174,9 @@ Status OlapTableSchemaParam::init(const POlapTableSchemaParam& pschema) {
         for (const auto& pcolumn_desc : p_index.columns_desc()) {
             if (_unique_key_update_mode != UniqueKeyUpdateModePB::UPDATE_FIXED_COLUMNS ||
                 _partial_update_input_columns.contains(pcolumn_desc.name())) {
-
                 std::string is_null_str = pcolumn_desc.is_nullable() ? "true" : "false";
-                std::string data_type_str =
-                        std::to_string(int64_t(TabletColumn::get_field_type_by_string(pcolumn_desc.type())));
+                std::string data_type_str = std::to_string(
+                        int64_t(TabletColumn::get_field_type_by_string(pcolumn_desc.type())));
                 auto it = slots_map.find(to_lower(pcolumn_desc.name()) + "+" + data_type_str +
                                          is_null_str);
                 if (it == std::end(slots_map)) {
@@ -268,8 +267,7 @@ Status OlapTableSchemaParam::init(const TOlapTableSchemaParam& tschema) {
         auto* slot_desc = _obj_pool.add(new SlotDescriptor(t_slot_desc));
         _tuple_desc->add_slot(slot_desc);
         std::string is_null_str = slot_desc->is_nullable() ? "true" : "false";
-        std::string data_type_str =
-                std::to_string(int64_t(slot_desc->col_type()));
+        std::string data_type_str = std::to_string(int64_t(slot_desc->col_type()));
         slots_map.emplace(to_lower(slot_desc->col_name()) + "+" + data_type_str + is_null_str,
                           slot_desc);
     }
@@ -285,7 +283,8 @@ Status OlapTableSchemaParam::init(const TOlapTableSchemaParam& tschema) {
                 std::string is_null_str = tcolumn_desc.is_allow_null ? "true" : "false";
                 std::string data_type_str =
                         std::to_string(int64_t(thrift_to_type(tcolumn_desc.column_type.type)));
-                auto it = slots_map.find(to_lower(tcolumn_desc.column_name) + "+" + data_type_str + is_null_str);
+                auto it = slots_map.find(to_lower(tcolumn_desc.column_name) + "+" + data_type_str +
+                                         is_null_str);
                 if (it == slots_map.end()) {
                     return Status::InternalError("unknown index column, column={}, type={}",
                                                  tcolumn_desc.column_name,
