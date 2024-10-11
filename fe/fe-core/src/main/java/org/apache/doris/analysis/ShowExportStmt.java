@@ -205,7 +205,7 @@ public class ShowExportStmt extends ShowStmt implements NotFallbackInParser {
         sb.append("SHOW EXPORT ");
         if (!Strings.isNullOrEmpty(dbName)) {
             if (!Strings.isNullOrEmpty(ctlName)) {
-                sb.append("FROM `").append(ctlName).append("`.");
+                sb.append("FROM `").append(ctlName).append("`.`");
             } else {
                 sb.append("FROM `");
             }
