@@ -1736,6 +1736,8 @@ public class DynamicPartitionTableTest {
                 + " PROPERTIES (\n"
                 + " \"dynamic_partition.enable\" = \"true\",\n"
                 + " \"dynamic_partition.time_unit\" = \"YEAR\",\n"
+                + " \"dynamic_partition.start\" = \"-50\",\n"
+                + " \"dynamic_partition.create_history_partition\" = \"true\",\n"
                 + " \"dynamic_partition.end\" = \"1\",\n"
                 + " \"dynamic_partition.prefix\" = \"p\",\n"
                 + " \"replication_allocation\" = \"tag.location.default: 1\"\n"
@@ -1744,22 +1746,53 @@ public class DynamicPartitionTableTest {
         Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
         OlapTable table = (OlapTable) db.getTableOrAnalysisException("test_autobucket_dynamic_partition");
         List<Partition> partitions = Lists.newArrayList(table.getAllPartitions());
-        Assert.assertEquals(2, partitions.size());
+        Assert.assertEquals(52, partitions.size());
         for (Partition partition : partitions) {
             Assert.assertEquals(FeConstants.default_bucket_num, partition.getDistributionInfo().getBucketNum());
             partition.setVisibleVersionAndTime(2L, System.currentTimeMillis());
         }
         RebalancerTestUtil.updateReplicaDataSize(1, 1, 1);
 
-        String alterStmt =
+        String alterStmt1 =
                 "alter table test.test_autobucket_dynamic_partition set ('dynamic_partition.end' = '2')";
-        ExceptionChecker.expectThrowsNoException(() -> alterTable(alterStmt));
+        ExceptionChecker.expectThrowsNoException(() -> alterTable(alterStmt1));
         List<Pair<Long, Long>> tempDynamicPartitionTableInfo = Lists.newArrayList(Pair.of(db.getId(), table.getId()));
         Env.getCurrentEnv().getDynamicPartitionScheduler().executeDynamicPartition(tempDynamicPartitionTableInfo, false);
 
         partitions = Lists.newArrayList(table.getAllPartitions());
         partitions.sort(Comparator.comparing(Partition::getId));
-        Assert.assertEquals(3, partitions.size());
-        Assert.assertEquals(1, partitions.get(2).getDistributionInfo().getBucketNum());
+        Assert.assertEquals(53, partitions.size());
+        Assert.assertEquals(1, partitions.get(partitions.size() - 1).getDistributionInfo().getBucketNum());
+
+        table.readLock();
+        try {
+            // first 40 partitions with size 0,  then 10 partitions with size 20GB
+            for (int i = 0; i < 50; i++) {
+                Partition partition = partitions.get(i);
+                partition.updateVisibleVersion(2L);
+                for (MaterializedIndex idx : partition.getMaterializedIndices(
+                    MaterializedIndex.IndexExtState.VISIBLE)) {
+                    for (Tablet tablet : idx.getTablets()) {
+                        for (Replica replica : tablet.getReplicas()) {
+                            replica.updateVersion(2L);
+                            replica.setDataSize(i < 40 ? 0L : 20L << 30);
+                            replica.setRowCount(1000L);
+                        }
+                    }
+               }
+           }
+        } finally {
+            table.readUnlock();
+        }
+
+        String alterStmt2 =
+                "alter table test.test_autobucket_dynamic_partition set ('dynamic_partition.end' = '3')";
+        ExceptionChecker.expectThrowsNoException(() -> alterTable(alterStmt2));
+        Env.getCurrentEnv().getDynamicPartitionScheduler().executeDynamicPartition(tempDynamicPartitionTableInfo, false);
+
+        partitions = Lists.newArrayList(table.getAllPartitions());
+        partitions.sort(Comparator.comparing(Partition::getId));
+        Assert.assertEquals(54, partitions.size());
+        Assert.assertTrue(partitions.get(partitions.size() - 1).getDistributionInfo().getBucketNum() > 40);
     }
 }
