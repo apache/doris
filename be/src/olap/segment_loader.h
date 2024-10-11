@@ -165,7 +165,7 @@ public:
         if (segments.empty()) {
             return nullptr;
         }
-        auto& last_segment = segments.back();
+        segment_v2::SegmentSharedPtr last_segment = segments.back();
         if (last_segment->healthy_status().ok()) {
             return nullptr;
         }
