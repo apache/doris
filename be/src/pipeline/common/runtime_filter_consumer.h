@@ -61,7 +61,6 @@ protected:
         // set to true if this runtime filter is already applied to vconjunct_ctx_ptr
         bool apply_mark = false;
         std::shared_ptr<IRuntimeFilter> runtime_filter;
-        pipeline::RuntimeFilterDependency* runtime_filter_dependency = nullptr;
     };
 
     std::vector<RuntimeFilterContext> _runtime_filter_ctxs;

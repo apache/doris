@@ -1312,10 +1312,6 @@ std::string IRuntimeFilter::formatted_state() const {
             _wrapper->_context->ignored);
 }
 
-BloomFilterFuncBase* IRuntimeFilter::get_bloomfilter() const {
-    return _wrapper->get_bloomfilter();
-}
-
 Status IRuntimeFilter::init_with_desc(const TRuntimeFilterDesc* desc, const TQueryOptions* options,
                                       int node_id, bool build_bf_exactly) {
     // if node_id == -1 , it shouldn't be a consumer
