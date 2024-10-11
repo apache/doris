@@ -48,6 +48,9 @@ PURE To assert_cast(From&& from) {
                 LOG(FATAL) << fmt::format("Bad cast from type:{}* to {}",
                                           demangle(typeid(*from).name()),
                                           demangle(typeid(To).name()));
+                static_assert(false, fmt::format("Bad cast from type:{}* to {}",
+                                                 demangle(typeid(*from).name()),
+                                                 demangle(typeid(To).name())));
             }
         } else {
             if (typeid(from) == typeid(To)) {

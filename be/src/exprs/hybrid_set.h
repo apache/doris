@@ -222,27 +222,27 @@ public:
 
     virtual void find_batch(const doris::vectorized::IColumn& column, size_t rows,
                             doris::vectorized::ColumnUInt8::Container& results) {
-        LOG(FATAL) << "HybridSetBase not support find_batch";
+        throw Exception(Status::NotSupported("HybridSetBase not support find_batch"));
         __builtin_unreachable();
     }
 
     virtual void find_batch_negative(const doris::vectorized::IColumn& column, size_t rows,
                                      doris::vectorized::ColumnUInt8::Container& results) {
-        LOG(FATAL) << "HybridSetBase not support find_batch_negative";
+        throw Exception(Status::NotSupported("HybridSetBase not support find_batch_negative"));
         __builtin_unreachable();
     }
 
     virtual void find_batch_nullable(const doris::vectorized::IColumn& column, size_t rows,
                                      const doris::vectorized::NullMap& null_map,
                                      doris::vectorized::ColumnUInt8::Container& results) {
-        LOG(FATAL) << "HybridSetBase not support find_batch_nullable";
+        throw Exception(Status::NotSupported("HybridSetBase not support find_batch_nullable"));
         __builtin_unreachable();
     }
 
     virtual void find_batch_nullable_negative(const doris::vectorized::IColumn& column, size_t rows,
                                               const doris::vectorized::NullMap& null_map,
                                               doris::vectorized::ColumnUInt8::Container& results) {
-        LOG(FATAL) << "HybridSetBase not support find_batch_nullable_negative";
+        throw Exception(Status::NotSupported("HybridSetBase not support find_batch_nullable_negative"));
         __builtin_unreachable();
     }
 

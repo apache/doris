@@ -94,9 +94,10 @@ public:
         case CacheType::QUERY_CACHE:
             return "QUERY_CACHE";
         default:
-            LOG(FATAL) << "not match type of cache policy :" << static_cast<int>(type);
+            throw Exception(Status::InternalError("not match type of cache policy :{}",
+                                                  static_cast<int>(type)));
         }
-        LOG(FATAL) << "__builtin_unreachable";
+        throw Exception(Status::InternalError("__builtin_unreachable"));
         __builtin_unreachable();
     }
 

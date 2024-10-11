@@ -331,7 +331,8 @@ public:
             }
             return false;
         } else {
-            LOG(FATAL) << "Bloom filter is not supported by predicate type.";
+            throw Exception(
+                    Status::NotSupported("Bloom filter is not supported by predicate type."));
             return true;
         }
     }
@@ -431,7 +432,8 @@ private:
                     }
                 }
             } else {
-                LOG(FATAL) << "column_dictionary must use StringRef predicate.";
+                throw Exception(
+                        Status::InternalError("column_dictionary must use StringRef predicate."));
                 __builtin_unreachable();
             }
         } else {
@@ -495,7 +497,8 @@ private:
                     }
                 }
             } else {
-                LOG(FATAL) << "column_dictionary must use StringRef predicate.";
+                throw Exception(
+                        Status::InternalError("column_dictionary must use StringRef predicate."));
                 __builtin_unreachable();
             }
         } else {

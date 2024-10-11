@@ -222,6 +222,7 @@ template <typename E>
   __assume(0);
 #else
  LOG(FATAL) << "__builtin_unreachable";
+ //internalerror
   __builtin_unreachable();
 #endif
 #endif

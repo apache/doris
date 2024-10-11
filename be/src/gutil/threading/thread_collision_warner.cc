@@ -3,6 +3,7 @@
 // found in the LICENSE file.
 
 #include "gutil/threading/thread_collision_warner.h"
+#include "common/status.h"
 
 #ifdef __linux__
 #include <syscall.h>
@@ -21,6 +22,7 @@ namespace base {
 void DCheckAsserter::warn(int64_t previous_thread_id, int64_t current_thread_id) {
     LOG(FATAL) << "Thread Collision! Previous thread id: " << previous_thread_id
                << ", current thread id: " << current_thread_id;
+    //internalerr
 }
 
 static subtle::Atomic64 CurrentThread() {

@@ -327,7 +327,7 @@ protected:
                 return iterator5 == rhs.iterator5;
             }
             }
-            LOG(FATAL) << "__builtin_unreachable";
+            throw Exception(Status::InternalError("__builtin_unreachable"));
             __builtin_unreachable();
         }
 

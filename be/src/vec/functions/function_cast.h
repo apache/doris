@@ -651,7 +651,7 @@ struct ConvertImplNumberToJsonb {
             } else if constexpr (std::is_same_v<ColumnFloat64, ColumnType>) {
                 writer.writeDouble(data[i]);
             } else {
-                LOG(FATAL) << "unsupported type ";
+                throw Exception(Status::NotSupported("unsupported type "));
                 __builtin_unreachable();
             }
             column_string->insert_data(writer.getOutput()->getBuffer(),
@@ -936,7 +936,7 @@ struct ConvertImplFromJsonb {
                         res[i] = 0;
                     }
                 } else {
-                    LOG(FATAL) << "unsupported type ";
+                    throw Exception(Status::NotSupported("unsupported type"));
                     __builtin_unreachable();
                 }
             }
@@ -1230,7 +1230,7 @@ struct ToNumberMonotonicity {
                 return {};
             }
         }
-        LOG(FATAL) << "__builtin_unreachable";
+        throw Exception(Status::InternalError("__builtin_unreachable"));
         __builtin_unreachable();
     }
 };

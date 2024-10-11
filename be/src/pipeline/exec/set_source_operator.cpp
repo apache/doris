@@ -83,6 +83,7 @@ Status SetSourceOperatorX<is_intersect>::get_block(RuntimeState* state, vectoriz
                                                                     state->batch_size(), eos);
                 } else {
                     LOG(FATAL) << "FATAL: uninited hash table";
+                    // static_assert(false, "FATAL: uninited hash table");
                     __builtin_unreachable();
                 }
             },

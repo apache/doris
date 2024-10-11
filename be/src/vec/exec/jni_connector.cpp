@@ -185,8 +185,8 @@ Status JniConnector::close() {
         jthrowable exc = (env)->ExceptionOccurred();
         if (exc != nullptr) {
             // Ensure successful resource release
-            LOG(FATAL) << "Failed to release jni resource: "
-                       << JniUtil::GetJniExceptionMsg(env).to_string();
+            throw Exception(Status::Corruption("Failed to release jni resource: {}",
+                                               JniUtil::GetJniExceptionMsg(env).to_string()));
         }
     }
     return Status::OK();
@@ -726,8 +726,7 @@ std::pair<std::string, std::string> JniConnector::parse_table_schema(Block* bloc
             columns_types << type;
         } else {
             if (ignore_column_name) {
-                required_fields << ","
-                                << "_col_" << arguments[i];
+                required_fields << "," << "_col_" << arguments[i];
             } else {
                 required_fields << "," << block->get_by_position(arguments[i]).name;
             }

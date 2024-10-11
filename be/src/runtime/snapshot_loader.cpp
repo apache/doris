@@ -74,7 +74,7 @@ Status upload_with_checksum(io::RemoteFileSystem& fs, std::string_view local_pat
         RETURN_IF_ERROR(fs.upload(local_path, full_remote_path));
         break;
     default:
-        LOG(FATAL) << "unknown fs type: " << static_cast<int>(fs.type());
+        throw Exception(Status::InternalError("unknown fs type: {}", static_cast<int>(fs.type())));
     }
     return Status::OK();
 }
@@ -807,7 +807,7 @@ Status SnapshotLoader::move(const std::string& snapshot_path, TabletSharedPtr ta
         }
 
     } else {
-        LOG(FATAL) << "only support overwrite now";
+        throw Exception(Status::NotSupported("only support overwrite now"));
         __builtin_unreachable();
     }
 

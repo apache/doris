@@ -99,7 +99,7 @@ public:
     };
 
     RowsetSharedPtr manual_build(const RowsetMetaSharedPtr& rowset_meta) override {
-        LOG(FATAL) << "not implemeted";
+        throw Exception(Status::NotSupported("not implemeted"));
         return nullptr;
     }
 

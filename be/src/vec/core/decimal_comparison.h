@@ -82,8 +82,9 @@ public:
     DecimalComparison(Block& block, size_t result, const ColumnWithTypeAndName& col_left,
                       const ColumnWithTypeAndName& col_right) {
         if (!apply(block, result, col_left, col_right)) {
-            LOG(FATAL) << fmt::format("Wrong decimal comparison with {} and {}",
-                                      col_left.type->get_name(), col_right.type->get_name());
+            throw Exception(Status::Cancelled("Wrong decimal comparison with {} and {}",
+                                              col_left.type->get_name(),
+                                              col_right.type->get_name()));
         }
     }
 
@@ -106,7 +107,7 @@ public:
     static bool compare(A a, B b, UInt32 scale_a, UInt32 scale_b) {
         static const UInt32 max_scale = max_decimal_precision<Decimal256>();
         if (scale_a > max_scale || scale_b > max_scale) {
-            LOG(FATAL) << "Bad scale of decimal field";
+            throw Exception(Status::DataQualityError("Bad scale of decimal field"));
             __builtin_unreachable();
         }
 
@@ -213,7 +214,7 @@ private:
                 if (const ColVecB* c1_vec = check_and_get_column<ColVecB>(c1.get()))
                     constant_vector<scale_left, scale_right>(a, c1_vec->get_data(), vec_res, scale);
                 else {
-                    LOG(FATAL) << "Wrong column in Decimal comparison";
+                    throw Exception(Status::DataQualityError("Wrong column in Decimal comparison"));
                     __builtin_unreachable();
                 }
             } else if (c1_is_const) {
@@ -222,7 +223,7 @@ private:
                 if (const ColVecA* c0_vec = check_and_get_column<ColVecA>(c0.get()))
                     vector_constant<scale_left, scale_right>(c0_vec->get_data(), b, vec_res, scale);
                 else {
-                    LOG(FATAL) << "Wrong column in Decimal comparison";
+                    throw Exception(Status::DataQualityError("Wrong column in Decimal comparison"));
                     __builtin_unreachable();
                 }
             } else {
@@ -231,11 +232,11 @@ private:
                         vector_vector<scale_left, scale_right>(c0_vec->get_data(),
                                                                c1_vec->get_data(), vec_res, scale);
                     else {
-                        LOG(FATAL) << "Wrong column in Decimal comparison";
+                        throw Exception(Status::DataQualityError("Wrong column in Decimal comparison"));
                         __builtin_unreachable();
                     }
                 } else {
-                    LOG(FATAL) << "Wrong column in Decimal comparison";
+                    throw Exception(Status::DataQualityError("Wrong column in Decimal comparison"));
                     __builtin_unreachable();
                 }
             }
@@ -262,7 +263,7 @@ private:
             if constexpr (scale_right) overflow |= common::mul_overflow(y, scale, y);
 
             if (overflow) {
-                LOG(FATAL) << "Can't compare";
+                static_assert(false, "Can't compare");
                 __builtin_unreachable();
             }
         } else {

@@ -96,8 +96,8 @@ Status StreamLoadExecutor::execute_plan_fragment(std::shared_ptr<StreamLoadConte
             DorisMetrics::instance()->stream_receive_bytes_total->increment(ctx->receive_bytes);
             DorisMetrics::instance()->stream_load_rows_total->increment(ctx->number_loaded_rows);
         } else {
-            LOG(WARNING) << "fragment execute failed"
-                         << ", err_msg=" << status->to_string() << ", " << ctx->brief();
+            LOG(WARNING) << "fragment execute failed" << ", err_msg=" << status->to_string() << ", "
+                         << ctx->brief();
             // cancel body_sink, make sender known it
             if (ctx->body_sink != nullptr) {
                 ctx->body_sink->cancel(status->to_string());
@@ -390,7 +390,7 @@ bool StreamLoadExecutor::collect_load_stat(StreamLoadContext* ctx, TTxnCommitAtt
     }
     switch (ctx->load_type) {
     case TLoadType::MINI_LOAD: {
-        LOG(FATAL) << "mini load is not supported any more";
+        throw Exception(Status::NotSupported("mini load is not supported any more"));
         break;
     }
     case TLoadType::ROUTINE_LOAD: {

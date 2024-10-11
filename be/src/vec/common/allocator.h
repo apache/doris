@@ -132,7 +132,7 @@ public:
     }
 
     static void* realloc(void* ptr, size_t size) __THROW {
-        LOG(FATAL) << "__builtin_unreachable";
+        throw Exception(Status::InternalError("__builtin_unreachable"));
         __builtin_unreachable();
     }
 

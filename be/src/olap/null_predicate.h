@@ -87,7 +87,8 @@ public:
         if (_is_null) {
             return bf->test_bytes(nullptr, 0);
         } else {
-            LOG(FATAL) << "Bloom filter is not supported by predicate type: is_null=" << _is_null;
+            throw Exception(Status::NotSupported(
+                    "Bloom filter is not supported by predicate type: is_null="));
             return true;
         }
     }

@@ -231,7 +231,7 @@ public:
             return value;
         } else {
             __builtin_unreachable();
-            LOG(FATAL) << "__builtin_unreachable";
+            throw Exception(Status::InternalError("__builtin_unreachable"));
             return value;
         }
     }

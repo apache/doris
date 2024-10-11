@@ -2519,7 +2519,7 @@ public:
             }
             break;
         case BitmapValue::BitmapDataType::SET: {
-            LOG(FATAL) << "BitmapValue with set do not support move";
+            throw Exception(Status::NotSupported("BitmapValue with set do not support move"));
             break;
         }
         default:

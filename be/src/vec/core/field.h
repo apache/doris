@@ -38,6 +38,7 @@
 #include <vector>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/exception.h"
 #include "olap/hll.h"
 #include "util/bitmap_value.h"
 #include "util/quantile_state.h"
@@ -168,7 +169,7 @@ public:
     JsonbField(const char* ptr, uint32_t len) : size(len) {
         data = new char[size];
         if (!data) {
-            LOG(FATAL) << "new data buffer failed, size: " << size;
+            throw Exception(Status::BufferAllocFailed("new data buffer failed, size: {}", size));
         }
         memcpy(data, ptr, size);
     }
@@ -176,7 +177,7 @@ public:
     JsonbField(const JsonbField& x) : size(x.size) {
         data = new char[size];
         if (!data) {
-            LOG(FATAL) << "new data buffer failed, size: " << size;
+            throw Exception(Status::BufferAllocFailed("new data buffer failed, size: {}", size));
         }
         memcpy(data, x.data, size);
     }
@@ -189,7 +190,7 @@ public:
     JsonbField& operator=(const JsonbField& x) {
         data = new char[size];
         if (!data) {
-            LOG(FATAL) << "new data buffer failed, size: " << size;
+            throw Exception(Status::BufferAllocFailed("new data buffer failed, size: {}", size));
         }
         memcpy(data, x.data, size);
         return *this;
@@ -216,37 +217,37 @@ public:
     uint32_t get_size() const { return size; }
 
     bool operator<(const JsonbField& r) const {
-        LOG(FATAL) << "comparing between JsonbField is not supported";
+        throw Exception(Status::NotSupported("comparing between JsonbField is not supported"));
         __builtin_unreachable();
     }
     bool operator<=(const JsonbField& r) const {
-        LOG(FATAL) << "comparing between JsonbField is not supported";
+        throw Exception(Status::NotSupported("comparing between JsonbField is not supported"));
         __builtin_unreachable();
     }
     bool operator==(const JsonbField& r) const {
-        LOG(FATAL) << "comparing between JsonbField is not supported";
+        throw Exception(Status::NotSupported("comparing between JsonbField is not supported"));
         __builtin_unreachable();
     }
     bool operator>(const JsonbField& r) const {
-        LOG(FATAL) << "comparing between JsonbField is not supported";
+        throw Exception(Status::NotSupported("comparing between JsonbField is not supported"));
         __builtin_unreachable();
     }
     bool operator>=(const JsonbField& r) const {
-        LOG(FATAL) << "comparing between JsonbField is not supported";
+        throw Exception(Status::NotSupported("comparing between JsonbField is not supported"));
         __builtin_unreachable();
     }
     bool operator!=(const JsonbField& r) const {
-        LOG(FATAL) << "comparing between JsonbField is not supported";
+        throw Exception(Status::NotSupported("comparing between JsonbField is not supported"));
         __builtin_unreachable();
     }
 
     const JsonbField& operator+=(const JsonbField& r) {
-        LOG(FATAL) << "Not support plus opration on JsonbField";
+        throw Exception(Status::NotSupported("Not support plus opration on JsonbField"));
         __builtin_unreachable();
     }
 
     const JsonbField& operator-=(const JsonbField& r) {
-        LOG(FATAL) << "Not support minus opration on JsonbField";
+        throw Exception(Status::NotSupported("Not support minus opration on JsonbField"));
         __builtin_unreachable();
     }
 
@@ -305,7 +306,7 @@ public:
 
     const DecimalField<T>& operator+=(const DecimalField<T>& r) {
         if (scale != r.get_scale()) {
-            LOG(FATAL) << "Add different decimal fields";
+            throw Exception(Status::DataQualityError("Add different decimal fields"));
             __builtin_unreachable();
         }
         dec += r.get_value();
@@ -314,7 +315,7 @@ public:
 
     const DecimalField<T>& operator-=(const DecimalField<T>& r) {
         if (scale != r.get_scale()) {
-            LOG(FATAL) << "Sub different decimal fields";
+            throw Exception(Status::DataQualityError("Sub different decimal fields"));
             __builtin_unreachable();
         }
         dec -= r.get_value();
@@ -422,7 +423,8 @@ public:
             case IPv6:
                 return "IPv6";
             default:
-                LOG(FATAL) << "type not supported, type=" << Types::to_string(which);
+                throw Exception(Status::NotSupported("type not supported, type={}",
+                                                     Types::to_string(which)));
                 break;
             }
             __builtin_unreachable();
@@ -575,8 +577,9 @@ public:
             return which <=> rhs.which;
         }
         if (which != rhs.which) {
-            LOG(FATAL) << "lhs type not equal with rhs, lhs=" << Types::to_string(which)
-                       << ", rhs=" << Types::to_string(rhs.which);
+            throw Exception(Status::DataQualityError("lhs type not equal with rhs, lhs={}, rhs={}",
+                                                     Types::to_string(which),
+                                                     Types::to_string(rhs.which)));
         }
 
         switch (which) {
@@ -618,8 +621,9 @@ public:
         case Types::Decimal256:
             return get<Decimal256>() <=> rhs.get<Decimal256>();
         default:
-            LOG(FATAL) << "lhs type not equal with rhs, lhs=" << Types::to_string(which)
-                       << ", rhs=" << Types::to_string(rhs.which);
+            throw Exception(Status::DataQualityError("lhs type not equal with rhs, lhs={}, rhs={}",
+                                                     Types::to_string(which),
+                                                     Types::to_string(rhs.which)));
             break;
         }
     }
@@ -692,7 +696,8 @@ public:
             f(field.template get<QuantileState>());
             return;
         default:
-            LOG(FATAL) << "type not supported, type=" << Types::to_string(field.which);
+            throw Exception(Status::NotSupported("type not supported, type={}",
+                                                 Types::to_string(field.which)));
             break;
         }
     }

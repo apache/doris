@@ -29,6 +29,7 @@
 #include <sstream>
 #include <vector>
 
+#include "common/exception.h"
 #include "common/logging.h"
 
 namespace doris::cloud {
@@ -137,7 +138,8 @@ static bool get_hosts_v4(std::vector<InetAddress>* hosts) {
     if (getifaddrs(&if_addrs)) {
         std::stringstream ss;
         char buf[64];
-        LOG(FATAL) << "getifaddrs failed because " << strerror_r(errno, buf, sizeof(buf));
+        throw Exception(Status::IOError("getifaddrs failed because {}",
+                                        strerror_r(errno, buf, sizeof(buf))));
         return false;
     }
 
@@ -171,7 +173,7 @@ std::string get_local_ip(const std::string& priority_networks) {
     for (auto& cidr_str : cidr_strs) {
         CIDR cidr;
         if (!cidr.reset(cidr_str)) {
-            LOG(FATAL) << "wrong cidr format. cidr_str=" << cidr_str;
+            throw Exception(Status::DataQualityError("wrong cidr format. cidr_str={}", cidr_str));
             return localhost_str;
         }
         priority_cidrs.push_back(cidr);
@@ -179,12 +181,12 @@ std::string get_local_ip(const std::string& priority_networks) {
 
     std::vector<InetAddress> hosts;
     if (!get_hosts_v4(&hosts)) {
-        LOG(FATAL) << "failed to getifaddrs";
+        throw Exception(Status::IOError("failed to getifaddrs"));
         return localhost_str;
     }
 
     if (hosts.empty()) {
-        LOG(FATAL) << "failed to get host";
+        throw Exception(Status::NotFound("failed to get host"));
         return localhost_str;
     }
 

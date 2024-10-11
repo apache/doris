@@ -406,7 +406,7 @@ public:
         switch (_type_length) {
             APPLY_FOR_DECIMALS()
         default:
-            LOG(FATAL) << "__builtin_unreachable";
+            throw Exception(Status::InternalError("__builtin_unreachable"));
             __builtin_unreachable();
         }
         return Status::OK();
@@ -439,7 +439,7 @@ public:
             } else if constexpr (ScaleType == DecimalScaleParams::NO_SCALE) {
                 // do nothing
             } else {
-                LOG(FATAL) << "__builtin_unreachable";
+                throw Exception(Status::InternalError("__builtin_unreachable"));
                 __builtin_unreachable();
             }
             auto& v = reinterpret_cast<DecimalType&>(data[start_idx + i]);
@@ -484,7 +484,7 @@ class StringToDecimal : public PhysicalToLogicalConverter {
                 } else if constexpr (ScaleType == DecimalScaleParams::NO_SCALE) {
                     // do nothing
                 } else {
-                    LOG(FATAL) << "__builtin_unreachable";
+                    throw Exception(Status::InternalError("__builtin_unreachable"));
                     __builtin_unreachable();
                 }
             }

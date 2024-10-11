@@ -216,7 +216,8 @@ public:
                 }
             }
         } else {
-            LOG(FATAL) << "Bloom filter is not supported by predicate type.";
+            throw Exception(
+                    Status::NotSupported("Bloom filter is not supported by predicate type."));
             return true;
         }
     }
@@ -287,7 +288,7 @@ public:
                                                      dict_code);
                     } while (false);
                 } else {
-                    LOG(FATAL) << "column_dictionary must use StringRef predicate.";
+                    static_assert(false, "column_dictionary must use StringRef predicate.");
                     __builtin_unreachable();
                 }
             } else {
@@ -318,7 +319,7 @@ public:
                         _base_loop_vec<false, is_and>(size, flags, nullptr, data_array, dict_code);
                     } while (false);
                 } else {
-                    LOG(FATAL) << "column_dictionary must use StringRef predicate.";
+                    static_assert(false, "column_dictionary must use StringRef predicate.");
                     __builtin_unreachable();
                 }
             } else {
@@ -524,7 +525,7 @@ private:
                 _base_loop_bit<is_nullable, is_and>(sel, size, flags, null_map, data_array,
                                                     dict_code);
             } else {
-                LOG(FATAL) << "column_dictionary must use StringRef predicate.";
+                static_assert(false, "column_dictionary must use StringRef predicate.");
                 __builtin_unreachable();
             }
         } else {
@@ -564,7 +565,7 @@ private:
 
                 return new_size;
             } else {
-                LOG(FATAL) << "column_dictionary must use StringRef predicate.";
+                static_assert(false, "column_dictionary must use StringRef predicate.");
                 return 0;
             }
         } else {
@@ -584,8 +585,8 @@ private:
         }
     }
 
-    __attribute__((flatten)) int32_t _find_code_from_dictionary_column(
-            const vectorized::ColumnDictI32& column) const {
+    __attribute__((flatten)) int32_t
+    _find_code_from_dictionary_column(const vectorized::ColumnDictI32& column) const {
         int32_t code = 0;
         if (_segment_id_to_cached_code.if_contains(
                     column.get_rowset_segment_id(),

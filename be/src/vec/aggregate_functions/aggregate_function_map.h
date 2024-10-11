@@ -40,7 +40,7 @@ struct AggregateFunctionMapAggData {
     using Map = phmap::flat_hash_map<StringRef, int64_t>;
 
     AggregateFunctionMapAggData() {
-        LOG(FATAL) << "__builtin_unreachable";
+        throw Exception(Status::InternalError("__builtin_unreachable"));
         __builtin_unreachable();
     }
 

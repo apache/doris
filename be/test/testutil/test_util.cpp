@@ -61,6 +61,7 @@ bool GetBooleanEnvironmentVariable(const char* env_var_name) {
         return true;
     }
     LOG(FATAL) << Substitute("$0: invalid value for environment variable $0", e, env_var_name);
+    //invalidArgument
     return false; // unreachable
 }
 

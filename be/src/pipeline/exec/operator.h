@@ -632,11 +632,11 @@ public:
               _limit(-1) {}
     virtual Status init(const TPlanNode& tnode, RuntimeState* state);
     Status init(const TDataSink& tsink) override {
-        LOG(FATAL) << "should not reach here!";
+        throw Exception(Status::InternalError("should not reach here!"));
         return Status::OK();
     }
     virtual Status init(ExchangeType type) {
-        LOG(FATAL) << "should not reach here!";
+        throw Exception(Status::InternalError("should not reach here!"));
         return Status::OK();
     }
     [[noreturn]] virtual const std::vector<TRuntimeFilterDesc>& runtime_filter_descs() {

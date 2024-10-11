@@ -176,10 +176,10 @@ private:
             return _pk_index_page_cache.get();
         }
         default:
-            LOG(FATAL) << "get error type page cache";
+            throw Exception(Status::InternalError("get error type page cache"));
             __builtin_unreachable();
         }
-        LOG(FATAL) << "__builtin_unreachable";
+        throw Exception(Status::InternalError("__builtin_unreachable"));
         __builtin_unreachable();
     }
 };

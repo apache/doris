@@ -292,9 +292,10 @@ private:
         case Type::OTHER:
             return "other";
         default:
-            LOG(FATAL) << "not match type of mem tracker limiter :" << static_cast<int>(type);
+            throw Exception(Status::InternalError("not match type of mem tracker limiter :{}",
+                                                  static_cast<int>(type)));
         }
-        LOG(FATAL) << "__builtin_unreachable";
+        throw Exception(Status::InternalError("__builtin_unreachable"));
         __builtin_unreachable();
     }
 
@@ -305,9 +306,9 @@ private:
         case GCType::WORK_LOAD_GROUP:
             return "work load group";
         default:
-            LOG(FATAL) << "not match gc type:" << static_cast<int>(type);
+            throw Exception(Status::InternalError("not match gc type:{}", static_cast<int>(type)));
         }
-        LOG(FATAL) << "__builtin_unreachable";
+        throw Exception(Status::InternalError("__builtin_unreachable"));
         __builtin_unreachable();
     }
 
