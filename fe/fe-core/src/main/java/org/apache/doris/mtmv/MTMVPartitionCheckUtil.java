@@ -27,21 +27,23 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.DynamicPartitionUtil;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.collect.Lists;
 
+import java.util.List;
 import java.util.Objects;
 
 public class MTMVPartitionCheckUtil {
     /**
      * Check if the partitioning method of the table meets the requirements for multi table partitioning updates
      *
-     * @param tableIf base table of materialized view
+     * @param relatedTable base table of materialized view
      * @return Inspection results and reasons
      */
-    public static Pair<Boolean, String> checkIfAllowMultiTablePartitionRefresh(MTMVRelatedTableIf tableIf) {
-        if (!(tableIf instanceof OlapTable)) {
+    public static Pair<Boolean, String> checkIfAllowMultiTablePartitionRefresh(MTMVRelatedTableIf relatedTable) {
+        if (!(relatedTable instanceof OlapTable)) {
             return Pair.of(false, "only support OlapTable");
         }
-        OlapTable olapTable = (OlapTable) tableIf;
+        OlapTable olapTable = (OlapTable) relatedTable;
         if (olapTable.getPartitionType() != PartitionType.RANGE) {
             return Pair.of(false, "only support range partition");
         }
@@ -69,6 +71,23 @@ public class MTMVPartitionCheckUtil {
         } else {
             throw new AnalysisException("only support dynamic/auto partition");
         }
+    }
+
+    /**
+     * Determine which related table partitioning rules are consistent with the original table
+     *
+     * @param originalTable partition table of materialized view
+     * @param relatedTables Partition refresh table for materialized views
+     * @return Inspection results and reasons
+     * @throws AnalysisException The preconditions are not met
+     */
+    public static List<Pair<Boolean, String>> compareOriginalTableAndRelatedTables(OlapTable originalTable,
+            List<OlapTable> relatedTables) throws AnalysisException {
+        List<Pair<Boolean, String>> res = Lists.newArrayListWithCapacity(relatedTables.size());
+        for (OlapTable relatedTable : relatedTables) {
+            res.add(compareOriginalTableAndRelatedTable(originalTable, relatedTable));
+        }
+        return res;
     }
 
     @VisibleForTesting
