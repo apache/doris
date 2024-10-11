@@ -515,36 +515,42 @@ void MemTable::_aggregate() {
         auto& delete_signs = assert_cast<vectorized::ColumnInt8*>(
                                      mutable_block.mutable_columns()[_delete_sign_col_idx].get())
                                      ->get_data();
+        auto row_clear_agg = [&](RowInBlock* row) {
+            if (row->has_init_agg()) {
+                for (size_t i = _tablet_schema->num_key_columns(); i < _num_columns; ++i) {
+                    auto function = _agg_functions[i];
+                    auto* agg_place = row->agg_places(i);
+                    function->destroy(agg_place);
+                }
+                row->remove_init_agg();
+            }
+        };
+
         if (_seq_col_idx_in_block == -1) {
             DCHECK(_delete_sign_col_idx != -1);
             RowInBlock* row_with_delete_sign {nullptr};
-            int row_pos_with_delete_sign {-1};
             RowInBlock* row_without_delete_sign {nullptr};
-            int row_pos_without_delete_sign {-1};
 
             auto finalize_rows = [&]() {
                 if (row_with_delete_sign != nullptr) {
-                    _finalize_one_row<is_final>(row_with_delete_sign, block_data,
-                                                       row_pos_with_delete_sign);
+                    temp_row_in_blocks.push_back(row_with_delete_sign);
+                    _finalize_one_row<is_final>(row_with_delete_sign, block_data, ++row_pos);
                     row_with_delete_sign = nullptr;
                 }
                 if (row_without_delete_sign != nullptr) {
+                    temp_row_in_blocks.push_back(row_without_delete_sign);
                     _finalize_one_row<is_final>(row_without_delete_sign, block_data,
-                                                       row_pos_without_delete_sign);
+                                                       ++row_pos);
                     row_without_delete_sign = nullptr;
                 }
                 _arena->clear();
             };
 
             auto add_row = [&](RowInBlock* row, bool with_delete_sign) {
-                temp_row_in_blocks.push_back(row);
-                row_pos++;
                 if (with_delete_sign) {
                     row_with_delete_sign = row;
-                    row_pos_with_delete_sign = row_pos;
                 } else {
                     row_without_delete_sign = row;
-                    row_pos_without_delete_sign = row_pos;
                 }
             };
             for (RowInBlock* cur_row : _row_in_blocks) {
@@ -559,17 +565,7 @@ void MemTable::_aggregate() {
                     if (cur_row_has_delete_sign) {
                         if (row_without_delete_sign != nullptr) {
                             // if there exits row without delete sign, remove it first
-                            if (row_without_delete_sign->has_init_agg()) {
-                                for (size_t i = _tablet_schema->num_key_columns(); i < _num_columns;
-                                     ++i) {
-                                    auto function = _agg_functions[i];
-                                    auto* agg_place = row_without_delete_sign->agg_places(i);
-                                    function->destroy(agg_place);
-                                }
-                                row_without_delete_sign->remove_init_agg();
-                            }
-                            temp_row_in_blocks.pop_back();
-                            --row_pos;
+                            row_clear_agg(row_without_delete_sign);
                             _stat.merged_rows++;
                             row_without_delete_sign = nullptr;
                         }
@@ -662,15 +658,7 @@ void MemTable::_aggregate() {
                                 (with_seq_col ? batched_rows[1] : batched_rows[3]);
                         if (row_without_delete_sign != nullptr) {
                             // if there exits row without delete sign, remove it first
-                            if (row_without_delete_sign->has_init_agg()) {
-                                for (size_t i = _tablet_schema->num_key_columns(); i < _num_columns;
-                                     ++i) {
-                                    auto function = _agg_functions[i];
-                                    auto* agg_place = row_without_delete_sign->agg_places(i);
-                                    function->destroy(agg_place);
-                                }
-                                row_without_delete_sign->remove_init_agg();
-                            }
+                            row_clear_agg(row_without_delete_sign);
                             _stat.merged_rows++;
                             row_without_delete_sign = nullptr;
                         }
