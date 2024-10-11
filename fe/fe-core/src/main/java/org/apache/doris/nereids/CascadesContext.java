@@ -122,6 +122,7 @@ public class CascadesContext implements ScheduleContext {
     private final Optional<CascadesContext> parent;
 
     private final Set<MaterializationContext> materializationContexts;
+    private final Set<List<String>> materializationRewrittenSuccessSet = new HashSet<>();
     private boolean isLeadingJoin = false;
 
     private boolean isLeadingDisableJoinReorder = false;
@@ -364,6 +365,14 @@ public class CascadesContext implements ScheduleContext {
 
     public void addMaterializationContext(MaterializationContext materializationContext) {
         this.materializationContexts.add(materializationContext);
+    }
+
+    public Set<List<String>> getMaterializationRewrittenSuccessSet() {
+        return materializationRewrittenSuccessSet;
+    }
+
+    public void addMaterializationRewrittenSuccess(List<String> materializationQualifier) {
+        this.materializationRewrittenSuccessSet.add(materializationQualifier);
     }
 
     /**
