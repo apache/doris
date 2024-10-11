@@ -29,10 +29,10 @@ namespace doris {
 std::vector<SchemaScanner::ColumnDesc> SchemaFileCacheStatisticsScanner::_s_tbls_columns = {
         //   name,       type,          size
         {"BE_ID", TYPE_BIGINT, sizeof(int64_t), false},
-        {"BE_IP", TYPE_VARCHAR, sizeof(StringRef), false},
-        {"CACHE_PATH", TYPE_VARCHAR, sizeof(StringRef), false},
-        {"METRIC_NAME", TYPE_VARCHAR, sizeof(StringRef), false},
-        {"METRIC_VALUE", TYPE_DOUBLE, sizeof(double), false}};
+        {"BE_IP", TYPE_STRING, sizeof(StringRef), false},
+        {"CACHE_PATH", TYPE_STRING, sizeof(StringRef), false},
+        {"METRIC_NAME", TYPE_STRING, sizeof(StringRef), false},
+        {"METRIC_VALUE", TYPE_STRING, sizeof(StringRef), false}};
 
 SchemaFileCacheStatisticsScanner::SchemaFileCacheStatisticsScanner()
         : SchemaScanner(_s_tbls_columns, TSchemaTableType::SCH_FILE_CACHE_STATISTICS) {}

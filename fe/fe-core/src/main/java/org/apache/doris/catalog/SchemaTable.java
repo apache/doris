@@ -561,10 +561,10 @@ public class SchemaTable extends Table {
             .put("file_cache_statistics",
                     new SchemaTable(SystemIdGenerator.getNextId(), "file_cache_statistics", TableType.SCHEMA,
                             builder().column("BE_ID", ScalarType.createType(PrimitiveType.BIGINT))
-                                    .column("BE_IP", ScalarType.createVarchar(256))
-                                    .column("CACHE_PATH", ScalarType.createVarchar(256))
-                                    .column("METRIC_NAME", ScalarType.createVarchar(256))
-                                    .column("METRIC_VALUE", ScalarType.createType(PrimitiveType.DOUBLE))
+                                    .column("BE_IP", ScalarType.createStringType())
+                                    .column("CACHE_PATH", ScalarType.createStringType())
+                                    .column("METRIC_NAME", ScalarType.createStringType())
+                                    .column("METRIC_VALUE", ScalarType.createStringType())
                                     .build())
             )
             .put("catalog_meta_cache_statistics",
