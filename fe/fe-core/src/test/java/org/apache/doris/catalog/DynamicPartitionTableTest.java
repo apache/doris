@@ -1766,19 +1766,24 @@ public class DynamicPartitionTableTest {
 
         table.readLock();
         try {
-            // first 40 partitions with size 0,  then 10 partitions with size 20GB
-            for (int i = 0; i < 50; i++) {
+            // first 40 partitions with size 0,  then 13 partitions with size 100GB(10GB * 10 buckets)
+            for (int i = 0; i < 52; i++) {
                 Partition partition = partitions.get(i);
                 partition.updateVisibleVersion(2L);
                 for (MaterializedIndex idx : partition.getMaterializedIndices(
                         MaterializedIndex.IndexExtState.VISIBLE)) {
+                    Assert.assertEquals(10, idx.getTablets().size());
                     for (Tablet tablet : idx.getTablets()) {
                         for (Replica replica : tablet.getReplicas()) {
                             replica.updateVersion(2L);
-                            replica.setDataSize(i < 40 ? 0L : 20L << 30);
+                            replica.setDataSize(i < 40 ? 0L : 10L << 30);
                             replica.setRowCount(1000L);
                         }
                     }
+                }
+                if (i >= 40) {
+                    // first 52 partitions are 10 buckets(FeConstants.default_bucket_num)
+                    Assert.assertEquals(10 * (10L << 30), partition.getAllDataSize(true));
                 }
             }
         } finally {
@@ -1793,6 +1798,7 @@ public class DynamicPartitionTableTest {
         partitions = Lists.newArrayList(table.getAllPartitions());
         partitions.sort(Comparator.comparing(Partition::getId));
         Assert.assertEquals(54, partitions.size());
-        Assert.assertTrue(partitions.get(partitions.size() - 1).getDistributionInfo().getBucketNum() > 40);
+        // 100GB total, 1GB per bucket, should 100 buckets.
+        Assert.assertEquals(100, partitions.get(partitions.size() - 1).getDistributionInfo().getBucketNum());
     }
 }

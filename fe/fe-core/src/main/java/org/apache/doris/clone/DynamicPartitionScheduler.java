@@ -234,9 +234,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                 .collect(Collectors.toCollection(ArrayList::new));
         long estimatePartitionSize = getNextPartitionSize(partitionSizeArray);
         // plus 5 for uncompressed data
-        // replica's actual disk usage is a litter bigger then its reported data size
-        // but 5 times maybe a little too big, i don't known why use so big. just add a config here.
-        long uncompressedPartitionSize = estimatePartitionSize * Config.autobucket_compress_size_factor;
+        long uncompressedPartitionSize = estimatePartitionSize * 5;
         int bucketsNum = AutoBucketUtils.getBucketsNum(uncompressedPartitionSize, Config.autobucket_min_buckets);
         LOG.info("autobucket calc with {} history partitions, table: [{}-{}], partition: {}, buckets num: {}, "
                 + " estimate partition size: {}, last partitions(partition name, local size, remote size): {}",

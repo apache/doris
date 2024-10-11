@@ -2534,12 +2534,6 @@ public class Config extends ConfigBase {
     public static long analyze_record_limit = 20000;
 
     @ConfField(mutable = true, masterOnly = true, description = {
-            "Auto Buckets中预估的压缩数据的倍率",
-            "the estimated compress factor of partition size in Auto Buckets"
-    })
-    public static int autobucket_compress_size_factor = 5;
-
-    @ConfField(mutable = true, masterOnly = true, description = {
             "Auto Buckets中最小的buckets数目",
             "min buckets of auto bucket"
     })
