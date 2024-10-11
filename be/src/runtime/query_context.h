@@ -413,6 +413,11 @@ private:
     std::map<int, std::weak_ptr<pipeline::PipelineFragmentContext>> _fragment_id_to_pipeline_ctx;
     std::mutex _pipeline_map_write_lock;
 
+    std::mutex _paused_mutex;
+    Status _paused_reason;
+    std::atomic<int64_t> _paused_count = 0;
+    MonotonicStopWatch _paused_timer;
+    std::atomic<int64_t> _paused_period_secs = 0;
     std::atomic<bool> _low_memory_mode = false;
     int64_t _user_set_mem_limit = 0;
     std::atomic<int64_t> _expected_mem_limit = 0;
@@ -422,9 +427,6 @@ private:
     // Distinguish the query source, for query that comes from fe, we will have some memory structure on FE to
     // help us manage the query.
     QuerySource _query_source;
-
-    Status _paused_reason;
-    std::mutex _paused_mutex;
 
     // when fragment of pipeline is closed, it will register its profile to this map by using add_fragment_profile
     // flatten profile of one fragment:
