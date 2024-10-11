@@ -343,7 +343,7 @@ public:
     Status revoke_memory(RuntimeState* state,
                          const std::shared_ptr<SpillContext>& spill_context) override;
 
-    size_t get_reserve_mem_size(RuntimeState* state) override;
+    size_t get_reserve_mem_size(RuntimeState* state, bool eos) override;
 
 private:
     friend class PartitionedAggSinkLocalState;

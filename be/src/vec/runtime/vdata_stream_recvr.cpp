@@ -348,7 +348,8 @@ VDataStreamRecvr::VDataStreamRecvr(VDataStreamMgr* stream_mgr, pipeline::Exchang
     _sender_to_local_channel_dependency.resize(num_queues);
     for (size_t i = 0; i < num_queues; i++) {
         _sender_to_local_channel_dependency[i] = pipeline::Dependency::create_shared(
-                _dest_node_id, _dest_node_id, "LocalExchangeChannelDependency", true);
+                _dest_node_id, _dest_node_id, fmt::format("LocalExchangeChannelDependency_{}", i),
+                true);
     }
     _sender_queues.reserve(num_queues);
     int num_sender_per_queue = is_merging ? 1 : num_senders;

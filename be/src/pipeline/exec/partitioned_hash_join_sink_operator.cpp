@@ -117,7 +117,7 @@ size_t PartitionedHashJoinSinkLocalState::revocable_mem_size(RuntimeState* state
     return mem_size;
 }
 
-size_t PartitionedHashJoinSinkLocalState::get_reserve_mem_size(RuntimeState* state) {
+size_t PartitionedHashJoinSinkLocalState::get_reserve_mem_size(RuntimeState* state, bool eos) {
     size_t size_to_reserve = 0;
     auto& p = _parent->cast<PartitionedHashJoinSinkOperatorX>();
     if (_shared_state->need_to_spill) {
@@ -125,7 +125,7 @@ size_t PartitionedHashJoinSinkLocalState::get_reserve_mem_size(RuntimeState* sta
     } else {
         if (_shared_state->inner_runtime_state) {
             size_to_reserve = p._inner_sink_operator->get_reserve_mem_size(
-                    _shared_state->inner_runtime_state.get());
+                    _shared_state->inner_runtime_state.get(), eos);
         }
     }
 
@@ -681,9 +681,9 @@ Status PartitionedHashJoinSinkOperatorX::revoke_memory(
     return local_state.revoke_memory(state, spill_context);
 }
 
-size_t PartitionedHashJoinSinkOperatorX::get_reserve_mem_size(RuntimeState* state) {
+size_t PartitionedHashJoinSinkOperatorX::get_reserve_mem_size(RuntimeState* state, bool eos) {
     auto& local_state = get_local_state(state);
-    return local_state.get_reserve_mem_size(state);
+    return local_state.get_reserve_mem_size(state, eos);
 }
 
 } // namespace doris::pipeline

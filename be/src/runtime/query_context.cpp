@@ -469,7 +469,7 @@ Status QueryContext::revoke_memory() {
     // Do not use memlimit, use current memory usage.
     // For example, if current limit is 1.6G, but current used is 1G, if reserve failed
     // should free 200MB memory, not 300MB
-    //const int64_t target_revoking_size = (int64_t)(query_mem_tracker->consumption() * 0.2);
+    const auto target_revoking_size = (int64_t)(query_mem_tracker->consumption() * 0.2);
     size_t revoked_size = 0;
 
     std::vector<pipeline::PipelineTask*> chosen_tasks;
@@ -478,10 +478,10 @@ Status QueryContext::revoke_memory() {
 
         revoked_size += revocable_size;
         // Only revoke the largest task to ensure memory is used as much as possible
-        break;
-        //if (revoked_size >= target_revoking_size) {
-        //    break;
-        //}
+        // break;
+        if (revoked_size >= target_revoking_size) {
+            break;
+        }
     }
 
     std::weak_ptr<QueryContext> this_ctx = shared_from_this();

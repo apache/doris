@@ -19,10 +19,12 @@
 
 #include <string>
 
+#include "common/exception.h"
 #include "exprs/bloom_filter_func.h"
 #include "pipeline/exec/hashjoin_probe_operator.h"
 #include "pipeline/exec/operator.h"
 #include "pipeline/pipeline_task.h"
+#include "vec/core/block.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/utils/template_helpers.hpp"
 
@@ -109,7 +111,7 @@ Status HashJoinBuildSinkLocalState::open(RuntimeState* state) {
     return Status::OK();
 }
 
-size_t HashJoinBuildSinkLocalState::get_reserve_mem_size(RuntimeState* state) {
+size_t HashJoinBuildSinkLocalState::get_reserve_mem_size(RuntimeState* state, bool eos) {
     if (!_should_build_hash_table) {
         return 0;
     }
@@ -120,26 +122,74 @@ size_t HashJoinBuildSinkLocalState::get_reserve_mem_size(RuntimeState* state) {
 
     size_t size_to_reserve = 0;
 
-    if (!_build_side_mutable_block.empty()) {
+    const size_t build_block_rows = _build_side_mutable_block.rows();
+    if (build_block_rows != 0) {
         const auto bytes = _build_side_mutable_block.bytes();
         const auto allocated_bytes = _build_side_mutable_block.allocated_bytes();
-        if (allocated_bytes != 0 && ((bytes * 100) / allocated_bytes) >= 85) {
-            size_to_reserve += bytes;
+        const auto bytes_per_row = bytes / build_block_rows;
+        const auto estimated_size_of_next_block = bytes_per_row * state->batch_size();
+
+        // If the new size is greater than 95% of allocalted bytes, it maybe need to realloc.
+        if (((estimated_size_of_next_block + bytes) * 100 / allocated_bytes) >= 95) {
+            size_to_reserve += bytes + estimated_size_of_next_block;
         }
     }
 
-    const size_t rows = _build_side_mutable_block.rows() + state->batch_size();
-    size_t bucket_size = JoinHashTable<StringRef>::calc_bucket_size(rows);
+    if (eos) {
+        const size_t rows = build_block_rows + state->batch_size();
+        size_t bucket_size = JoinHashTable<StringRef>::calc_bucket_size(rows);
 
-    size_to_reserve += bucket_size * sizeof(uint32_t); // JoinHashTable::first
-    size_to_reserve += rows * sizeof(uint32_t);        // JoinHashTable::next
+        size_to_reserve += bucket_size * sizeof(uint32_t); // JoinHashTable::first
+        size_to_reserve += rows * sizeof(uint32_t);        // JoinHashTable::next
 
-    auto& p = _parent->cast<HashJoinBuildSinkOperatorX>();
-    if (p._join_op == TJoinOp::FULL_OUTER_JOIN || p._join_op == TJoinOp::RIGHT_OUTER_JOIN ||
-        p._join_op == TJoinOp::RIGHT_ANTI_JOIN || p._join_op == TJoinOp::RIGHT_SEMI_JOIN) {
-        size_to_reserve += rows * sizeof(uint8_t); // JoinHashTable::visited
+        auto& p = _parent->cast<HashJoinBuildSinkOperatorX>();
+        if (p._join_op == TJoinOp::FULL_OUTER_JOIN || p._join_op == TJoinOp::RIGHT_OUTER_JOIN ||
+            p._join_op == TJoinOp::RIGHT_ANTI_JOIN || p._join_op == TJoinOp::RIGHT_SEMI_JOIN) {
+            size_to_reserve += rows * sizeof(uint8_t); // JoinHashTable::visited
+        }
+        size_to_reserve += _evaluate_mem_usage;
+
+        vectorized::ColumnRawPtrs raw_ptrs(_build_expr_ctxs.size());
+
+        if (build_block_rows > 0) {
+            auto block = _build_side_mutable_block.to_block();
+            Defer defer([&]() {
+                _build_side_mutable_block = vectorized::MutableBlock(std::move(block));
+            });
+            vectorized::ColumnUInt8::MutablePtr null_map_val;
+            if (p._join_op == TJoinOp::LEFT_OUTER_JOIN || p._join_op == TJoinOp::FULL_OUTER_JOIN) {
+                _convert_block_to_null(block);
+                // first row is mocked
+                for (int i = 0; i < block.columns(); i++) {
+                    auto [column, is_const] = unpack_if_const(block.safe_get_by_position(i).column);
+                    assert_cast<vectorized::ColumnNullable*>(column->assume_mutable().get())
+                            ->get_null_map_column()
+                            .get_data()
+                            .data()[0] = 1;
+                }
+            }
+
+            null_map_val = vectorized::ColumnUInt8::create();
+            null_map_val->get_data().assign(build_block_rows, (uint8_t)0);
+
+            // Get the key column that needs to be built
+            Status st = _extract_join_column(block, null_map_val, raw_ptrs, _build_col_ids);
+            if (!st.ok()) {
+                throw Exception(st);
+            }
+
+            std::visit(vectorized::Overload {[&](std::monostate& arg) {
+                                                 LOG(FATAL) << "FATAL: uninited hash table";
+                                                 __builtin_unreachable();
+                                             },
+                                             [&](auto&& hash_map_context) {
+                                                 size_to_reserve += hash_map_context.estimated_size(
+                                                         raw_ptrs, block.rows(), true, true,
+                                                         bucket_size);
+                                             }},
+                       *_shared_state->hash_table_variants);
+        }
     }
-    size_to_reserve += _evaluate_mem_usage;
     return size_to_reserve;
 }
 
@@ -613,9 +663,9 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
     return Status::OK();
 }
 
-size_t HashJoinBuildSinkOperatorX::get_reserve_mem_size(RuntimeState* state) {
+size_t HashJoinBuildSinkOperatorX::get_reserve_mem_size(RuntimeState* state, bool eos) {
     auto& local_state = get_local_state(state);
-    return local_state.get_reserve_mem_size(state);
+    return local_state.get_reserve_mem_size(state, eos);
 }
 
 size_t HashJoinBuildSinkOperatorX::get_memory_usage(RuntimeState* state) const {

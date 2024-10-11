@@ -43,6 +43,7 @@
 #include "util/mem_info.h"
 #include "util/runtime_profile.h"
 #include "util/uid_util.h"
+#include "vec/core/block.h"
 #include "vec/spill/spill_stream.h"
 
 namespace doris {
@@ -323,7 +324,7 @@ Status PipelineTask::execute(bool* eos) {
     SCOPED_ATTACH_TASK(_state);
     _eos = _sink->is_finished(_state) || _eos || _wake_up_by_downstream;
     *eos = _eos;
-    if (_eos) {
+    if (_eos && !_pending_block) {
         // If task is waken up by finish dependency, `_eos` is set to true by last execution, and we should return here.
         return Status::OK();
     }
@@ -393,10 +394,8 @@ Status PipelineTask::execute(bool* eos) {
                     Status::Error<INTERNAL_ERROR>("fault_inject pipeline_task executing failed");
             return status;
         });
-
-        DEFER_RELEASE_RESERVED();
         // Every loop should check if memory is not enough.
-        _state->get_query_ctx()->update_low_memory_mode();
+        // _state->get_query_ctx()->update_low_memory_mode();
 
         // `_dry_run` means sink operator need no more data
         // `_sink->is_finished(_state)` means sink operator should be finished
@@ -405,13 +404,19 @@ Status PipelineTask::execute(bool* eos) {
         if (_dry_run || _sink->is_finished(_state)) {
             *eos = true;
             _eos = true;
+        } else if (_pending_block) [[unlikely]] {
+            LOG(INFO) << "query: " << print_id(query_id)
+                      << " has pending block, size: " << _pending_block->allocated_bytes();
+            _block = std::move(_pending_block);
+            block = _block.get();
         } else {
             SCOPED_TIMER(_get_block_timer);
+            DEFER_RELEASE_RESERVED();
             _get_block_counter->update(1);
-            size_t sink_reserve_size = _sink->get_reserve_mem_size(_state);
-            sink_reserve_size =
-                    std::max(sink_reserve_size, _state->minimum_operator_memory_required_bytes());
-            reserve_size = _root->get_reserve_mem_size(_state) + sink_reserve_size;
+            // size_t sink_reserve_size = _sink->get_reserve_mem_size(_state);
+            // sink_reserve_size =
+            //         std::max(sink_reserve_size, _state->minimum_operator_memory_required_bytes());
+            reserve_size = _root->get_reserve_mem_size(_state);
             _root->reset_reserve_mem_size(_state);
 
             auto workload_group = _state->get_query_ctx()->workload_group();
@@ -423,14 +428,14 @@ Status PipelineTask::execute(bool* eos) {
                     COUNTER_UPDATE(_memory_reserve_failed_times, 1);
                     LOG(INFO) << "query: " << print_id(query_id) << ", try to reserve: "
                               << PrettyPrinter::print(reserve_size, TUnit::BYTES)
-                              << "(sink reserve size:("
-                              << PrettyPrinter::print(sink_reserve_size, TUnit::BYTES)
-                              << "), sink name: " << _sink->get_name()
-                              << ", node id: " << _sink->node_id() << " failed: " << st.to_string()
+                              << ", sink name: " << _sink->get_name()
+                              << ", node id: " << _sink->node_id()
+                              << ", task id: " << _state->task_id()
+                              << ", failed: " << st.to_string()
                               << ", debug info: " << GlobalMemoryArbitrator::process_mem_log_str();
 
                     _state->get_query_ctx()->update_paused_reason(st);
-                    _state->get_query_ctx()->set_low_memory_mode();
+                    // _state->get_query_ctx()->set_low_memory_mode();
                     bool is_high_wartermark = false;
                     bool is_low_wartermark = false;
                     workload_group->check_mem_used(&is_low_wartermark, &is_high_wartermark);
@@ -449,6 +454,28 @@ Status PipelineTask::execute(bool* eos) {
         if (_block->rows() != 0 || *eos) {
             SCOPED_TIMER(_sink_timer);
             Status status = Status::OK();
+            DEFER_RELEASE_RESERVED();
+            COUNTER_UPDATE(_memory_reserve_times, 1);
+            size_t sink_reserve_size = _sink->get_reserve_mem_size(_state, *eos);
+            status = thread_context()->try_reserve_memory(sink_reserve_size);
+            if (!status.ok()) {
+                LOG(INFO) << "query: " << print_id(query_id) << ", try to reserve: "
+                          << PrettyPrinter::print(sink_reserve_size, TUnit::BYTES)
+                          << ", sink name: " << _sink->get_name()
+                          << ", node id: " << _sink->node_id() << ", task id: " << _state->task_id()
+                          << ", failed: " << status.to_string()
+                          << ", debug info: " << GlobalMemoryArbitrator::process_mem_log_str();
+                _state->get_query_ctx()->update_paused_reason(status);
+                _memory_sufficient_dependency->block();
+                ExecEnv::GetInstance()->workload_group_mgr()->add_paused_query(
+                        _state->get_query_ctx()->shared_from_this(), sink_reserve_size);
+                _pending_block = std::move(_block);
+                _block = vectorized::Block::create_unique();
+                _eos = *eos;
+                *eos = false;
+                continue;
+            }
+
             // Define a lambda function to catch sink exception, because sink will check
             // return error status with EOF, it is special, could not return directly.
             auto sink_function = [&]() -> Status {
@@ -580,7 +607,7 @@ std::string PipelineTask::debug_string() {
 }
 
 size_t PipelineTask::get_revocable_size() const {
-    if (_running || _eos) {
+    if (_running || (_eos && !_pending_block)) {
         return 0;
     }
 

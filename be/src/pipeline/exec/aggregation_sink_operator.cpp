@@ -714,7 +714,7 @@ Status AggSinkLocalState::_init_hash_method(const vectorized::VExprContextSPtrs&
     return Status::OK();
 }
 
-size_t AggSinkLocalState::get_reserve_mem_size(RuntimeState* state) const {
+size_t AggSinkLocalState::get_reserve_mem_size(RuntimeState* state, bool eos) const {
     size_t size_to_reserve = std::visit(
             [&](auto&& arg) -> size_t {
                 using HashTableCtxType = std::decay_t<decltype(arg)>;
@@ -890,9 +890,9 @@ Status AggSinkOperatorX::reset_hash_table(RuntimeState* state) {
     return Status::OK();
 }
 
-size_t AggSinkOperatorX::get_reserve_mem_size(RuntimeState* state) {
+size_t AggSinkOperatorX::get_reserve_mem_size(RuntimeState* state, bool eos) {
     auto& local_state = get_local_state(state);
-    return local_state.get_reserve_mem_size(state);
+    return local_state.get_reserve_mem_size(state, eos);
 }
 
 Status AggSinkLocalState::close(RuntimeState* state, Status exec_status) {

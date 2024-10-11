@@ -254,10 +254,10 @@ Status PartitionedAggSinkLocalState::setup_in_memory_agg_op(RuntimeState* state)
     return sink_local_state->open(state);
 }
 
-size_t PartitionedAggSinkOperatorX::get_reserve_mem_size(RuntimeState* state) {
+size_t PartitionedAggSinkOperatorX::get_reserve_mem_size(RuntimeState* state, bool eos) {
     auto& local_state = get_local_state(state);
     auto* runtime_state = local_state._runtime_state.get();
-    auto size = _agg_sink_operator->get_reserve_mem_size(runtime_state);
+    auto size = _agg_sink_operator->get_reserve_mem_size(runtime_state, eos);
     COUNTER_SET(local_state._memory_usage_reserved, int64_t(size));
     return size;
 }

@@ -72,6 +72,10 @@ struct MethodBaseInner {
                                       const uint8_t* null_map = nullptr, bool is_join = false,
                                       bool is_build = false, uint32_t bucket_size = 0) = 0;
 
+    [[nodiscard]] virtual size_t estimated_size(const ColumnRawPtrs& key_columns, size_t num_rows,
+                                                bool is_join = false, bool is_build = false,
+                                                uint32_t bucket_size = 0) = 0;
+
     virtual size_t serialized_keys_size(bool is_build) const { return 0; }
 
     void init_join_bucket_num(uint32_t num_rows, uint32_t bucket_size, const uint8_t* null_map) {
@@ -214,6 +218,22 @@ struct MethodSerialized : public MethodBase<TData> {
         return {begin, sum_size};
     }
 
+    size_t estimated_size(const ColumnRawPtrs& key_columns, size_t num_rows, bool is_join,
+                          bool is_build, uint32_t bucket_size) override {
+        size_t size = 0;
+        for (const auto& column : key_columns) {
+            size += column->byte_size();
+        }
+
+        size += sizeof(StringRef) * num_rows; // stored_keys
+        if (is_join) {
+            size += sizeof(uint32_t) * num_rows; // bucket_nums
+        } else {
+            size += sizeof(size_t) * num_rows; // hash_values
+        }
+        return size;
+    }
+
     void init_serialized_keys_impl(const ColumnRawPtrs& key_columns, size_t num_rows,
                                    DorisVector<StringRef>& input_keys, Arena& input_arena) {
         input_arena.clear();
@@ -298,6 +318,18 @@ struct MethodStringNoCache : public MethodBase<TData> {
                         : (_stored_keys.size() * sizeof(StringRef));
     }
 
+    size_t estimated_size(const ColumnRawPtrs& key_columns, size_t num_rows, bool is_join,
+                          bool is_build, uint32_t bucket_size) override {
+        size_t size = 0;
+        size += sizeof(StringRef) * num_rows; // stored_keys
+        if (is_join) {
+            size += sizeof(uint32_t) * num_rows; // bucket_nums
+        } else {
+            size += sizeof(size_t) * num_rows; // hash_values
+        }
+        return size;
+    }
+
     void init_serialized_keys_impl(const ColumnRawPtrs& key_columns, size_t num_rows,
                                    DorisVector<StringRef>& stored_keys) {
         const IColumn& column = *key_columns[0];
@@ -352,6 +384,17 @@ struct MethodOneNumber : public MethodBase<TData> {
     using Base::hash_table;
     using State = ColumnsHashing::HashMethodOneNumber<typename Base::Value, typename Base::Mapped,
                                                       FieldType>;
+
+    size_t estimated_size(const ColumnRawPtrs& key_columns, size_t num_rows, bool is_join,
+                          bool is_build, uint32_t bucket_size) override {
+        size_t size = 0;
+        if (is_join) {
+            size += sizeof(uint32_t) * num_rows; // bucket_nums
+        } else {
+            size += sizeof(size_t) * num_rows; // hash_values
+        }
+        return size;
+    }
 
     void init_serialized_keys(const ColumnRawPtrs& key_columns, size_t num_rows,
                               const uint8_t* null_map = nullptr, bool is_join = false,
@@ -466,6 +509,19 @@ struct MethodKeysFixed : public MethodBase<TData> {
         return (is_build ? build_stored_keys.size() : stored_keys.size()) *
                sizeof(typename Base::Key);
     }
+
+    size_t estimated_size(const ColumnRawPtrs& key_columns, size_t num_rows, bool is_join,
+                          bool is_build, uint32_t bucket_size) override {
+        size_t size = 0;
+        size += sizeof(StringRef) * num_rows; // stored_keys
+        if (is_join) {
+            size += sizeof(uint32_t) * num_rows; // bucket_nums
+        } else {
+            size += sizeof(size_t) * num_rows; // hash_values
+        }
+        return size;
+    }
+
     void init_serialized_keys(const ColumnRawPtrs& key_columns, size_t num_rows,
                               const uint8_t* null_map = nullptr, bool is_join = false,
                               bool is_build = false, uint32_t bucket_size = 0) override {

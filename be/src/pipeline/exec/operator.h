@@ -112,11 +112,6 @@ public:
 
     virtual size_t revocable_mem_size(RuntimeState* state) const { return 0; }
 
-    // If this method is not overwrite by child, its default value is 1MB
-    [[nodiscard]] virtual size_t get_reserve_mem_size(RuntimeState* state) {
-        return state->minimum_operator_memory_required_bytes();
-    }
-
     virtual Status revoke_memory(RuntimeState* state,
                                  const std::shared_ptr<SpillContext>& spill_context) {
         return Status::OK();
@@ -489,6 +484,10 @@ public:
     [[nodiscard]] virtual Status setup_local_state(RuntimeState* state,
                                                    LocalSinkStateInfo& info) = 0;
 
+    [[nodiscard]] virtual size_t get_reserve_mem_size(RuntimeState* state, bool eos) {
+        return state->minimum_operator_memory_required_bytes();
+    }
+
     template <class TARGET>
     TARGET& cast() {
         DCHECK(dynamic_cast<TARGET*>(this))
@@ -741,6 +740,11 @@ public:
             return _child->revoke_memory(state, spill_context);
         }
         return Status::OK();
+    }
+
+    // If this method is not overwrite by child, its default value is 1MB
+    [[nodiscard]] virtual size_t get_reserve_mem_size(RuntimeState* state) {
+        return state->minimum_operator_memory_required_bytes();
     }
 
     virtual std::string debug_string(int indentation_level = 0) const;

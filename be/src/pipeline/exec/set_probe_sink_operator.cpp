@@ -203,7 +203,7 @@ void SetProbeSinkOperatorX<is_intersect>::_finalize_probe(
 }
 
 template <bool is_intersect>
-size_t SetProbeSinkOperatorX<is_intersect>::get_reserve_mem_size(RuntimeState* state) {
+size_t SetProbeSinkOperatorX<is_intersect>::get_reserve_mem_size(RuntimeState* state, bool eos) {
     auto& local_state = get_local_state(state);
     return local_state._estimate_memory_usage;
 }

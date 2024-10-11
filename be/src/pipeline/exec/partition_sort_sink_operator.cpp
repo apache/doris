@@ -176,7 +176,7 @@ Status PartitionSortSinkOperatorX::_split_block_by_partition(
     return Status::OK();
 }
 
-size_t PartitionSortSinkOperatorX::get_reserve_mem_size(RuntimeState* state) {
+size_t PartitionSortSinkOperatorX::get_reserve_mem_size(RuntimeState* state, bool eos) {
     auto& local_state = get_local_state(state);
     auto rows = state->batch_size();
     size_t reserve_mem_size = std::visit(

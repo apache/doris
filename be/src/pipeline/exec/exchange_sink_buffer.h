@@ -92,7 +92,7 @@ public:
 
     void set_low_memory_mode() {
         _total_queue_buffer_size_limit = 1024 * 1024;
-        _total_queue_blocks_count_limit = 1;
+        _total_queue_blocks_count_limit = 8;
     }
 
     void acquire(BroadcastPBlockHolder& holder);
@@ -202,7 +202,7 @@ public:
         _broadcast_dependency = broadcast_dependency;
     }
 
-    void set_low_memory_mode() { _queue_capacity = 1; }
+    void set_low_memory_mode() { _queue_capacity = 8; }
 
 private:
     friend class ExchangeSinkLocalState;

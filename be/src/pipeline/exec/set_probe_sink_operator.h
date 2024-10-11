@@ -103,7 +103,7 @@ public:
 
     std::shared_ptr<BasicSharedState> create_shared_state() const override { return nullptr; }
 
-    size_t get_reserve_mem_size(RuntimeState* state) override;
+    size_t get_reserve_mem_size(RuntimeState* state, bool eos) override;
 
 private:
     void _finalize_probe(SetProbeSinkLocalState<is_intersect>& local_state);

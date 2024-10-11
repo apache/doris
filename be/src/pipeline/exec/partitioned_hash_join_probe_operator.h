@@ -144,6 +144,8 @@ private:
     RuntimeProfile::Counter* _join_filter_timer = nullptr;
     RuntimeProfile::Counter* _build_output_block_timer = nullptr;
     RuntimeProfile::Counter* _memory_usage_reserved = nullptr;
+
+    RuntimeProfile::Counter* _get_child_next_timer = nullptr;
 };
 
 class PartitionedHashJoinProbeOperatorX final
@@ -179,6 +181,8 @@ public:
     }
 
     size_t revocable_mem_size(RuntimeState* state) const override;
+
+    size_t get_reserve_mem_size(RuntimeState* state) override;
 
     void set_inner_operators(const std::shared_ptr<HashJoinBuildSinkOperatorX>& sink_operator,
                              const std::shared_ptr<HashJoinProbeOperatorX>& probe_operator) {

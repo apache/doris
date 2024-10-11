@@ -212,7 +212,7 @@ Status SetSinkOperatorX<is_intersect>::init(const TPlanNode& tnode, RuntimeState
 }
 
 template <bool is_intersect>
-size_t SetSinkOperatorX<is_intersect>::get_reserve_mem_size(RuntimeState* state) {
+size_t SetSinkOperatorX<is_intersect>::get_reserve_mem_size(RuntimeState* state, bool eos) {
     auto& local_state = get_local_state(state);
     size_t size_to_reserve = std::visit(
             [&](auto&& arg) -> size_t {

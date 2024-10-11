@@ -342,7 +342,7 @@ Status AnalyticSinkOperatorX::sink(doris::RuntimeState* state, vectorized::Block
     return Status::OK();
 }
 
-size_t AnalyticSinkOperatorX::get_reserve_mem_size(RuntimeState* state) {
+size_t AnalyticSinkOperatorX::get_reserve_mem_size(RuntimeState* state, bool eos) {
     auto& local_state = get_local_state(state);
     return local_state._reserve_mem_size;
 }

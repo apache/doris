@@ -265,7 +265,9 @@ private:
     RuntimeState* _state = nullptr;
     int _previous_schedule_id = -1;
     uint32_t _schedule_time = 0;
-    std::unique_ptr<doris::vectorized::Block> _block;
+    std::unique_ptr<vectorized::Block> _block;
+    std::unique_ptr<vectorized::Block> _pending_block;
+
     PipelineFragmentContext* _fragment_context = nullptr;
     TaskQueue* _task_queue = nullptr;
 
