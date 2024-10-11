@@ -343,6 +343,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         return indexes.getIndexIds();
     }
 
+    @Override
     public TableIndexes getTableIndexes() {
         return indexes;
     }
@@ -1503,6 +1504,19 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         } else {
             return getSequenceCol().getType();
         }
+    }
+
+    public Column getSkipBitmapColumn() {
+        for (Column column : getBaseSchema(true)) {
+            if (column.isSkipBitmapColumn()) {
+                return column;
+            }
+        }
+        return null;
+    }
+
+    public boolean hasSkipBitmapColumn() {
+        return getSkipBitmapColumn() != null;
     }
 
     public void setIndexes(List<Index> indexes) {
@@ -2769,6 +2783,17 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
 
     public void setEnableUniqueKeyMergeOnWrite(boolean speedup) {
         getOrCreatTableProperty().setEnableUniqueKeyMergeOnWrite(speedup);
+    }
+
+    public void setEnableUniqueKeySkipBitmap(boolean enable) {
+        getOrCreatTableProperty().setEnableUniqueKeySkipBitmap(enable);
+    }
+
+    public boolean getEnableUniqueKeySkipBitmap() {
+        if (tableProperty == null) {
+            return false;
+        }
+        return tableProperty.getEnableUniqueKeySkipBitmap();
     }
 
     public boolean getEnableUniqueKeyMergeOnWrite() {

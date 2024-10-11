@@ -502,6 +502,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String JDBC_CLICKHOUSE_QUERY_FINAL = "jdbc_clickhouse_query_final";
 
+    public static final String JDBC_ORACLE_NULL_PREDICATE_PUSHDOWN = "jdbc_oracle_null_predicate_pushdown";
+
     public static final String ENABLE_MEMTABLE_ON_SINK_NODE =
             "enable_memtable_on_sink_node";
 
@@ -663,6 +665,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ADAPTIVE_PIPELINE_TASK_SERIAL_READ_ON_LIMIT =
                                     "adaptive_pipeline_task_serial_read_on_limit";
 
+    public static final String ENABLE_PHRASE_QUERY_SEQUENYIAL_OPT = "enable_phrase_query_sequential_opt";
+
     /**
      * If set false, user couldn't submit analyze SQL and FE won't allocate any related resources.
      */
@@ -685,6 +689,11 @@ public class SessionVariable implements Serializable, Writable {
             description = {"是否在查询 ClickHouse JDBC 外部表时，对查询 SQL 添加 FINAL 关键字。",
                     "Whether to add the FINAL keyword to the query SQL when querying ClickHouse JDBC external tables."})
     public boolean jdbcClickhouseQueryFinal = false;
+
+    @VariableMgr.VarAttr(name = JDBC_ORACLE_NULL_PREDICATE_PUSHDOWN, needForward = true,
+            description = {"是否允许将 NULL 谓词下推到 Oracle JDBC 外部表。",
+                    "Whether to allow NULL predicates to be pushed down to Oracle JDBC external tables."})
+    public boolean jdbcOracleNullPredicatePushdown = false;
 
     @VariableMgr.VarAttr(name = ROUND_PRECISE_DECIMALV2_VALUE)
     public boolean roundPreciseDecimalV2Value = false;
@@ -2168,6 +2177,12 @@ public class SessionVariable implements Serializable, Writable {
             + "the number of rows at which the parallelism of the scan will be set to 1."
     })
     public int adaptivePipelineTaskSerialReadOnLimit = 10000;
+
+    @VariableMgr.VarAttr(name = ENABLE_PHRASE_QUERY_SEQUENYIAL_OPT, needForward = true, description = {
+        "开启顺序短语查询对连词的优化",
+        "enable optimization for conjunctions in sequential phrase queries"
+    })
+    public boolean enablePhraseQuerySequentialOpt = true;
 
     public void setEnableEsParallelScroll(boolean enableESParallelScroll) {
         this.enableESParallelScroll = enableESParallelScroll;
@@ -3770,6 +3785,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setEnableAdaptivePipelineTaskSerialReadOnLimit(enableAdaptivePipelineTaskSerialReadOnLimit);
         tResult.setAdaptivePipelineTaskSerialReadOnLimit(adaptivePipelineTaskSerialReadOnLimit);
         tResult.setInListValueCountThreshold(inListValueCountThreshold);
+        tResult.setEnablePhraseQuerySequentialOpt(enablePhraseQuerySequentialOpt);
         return tResult;
     }
 

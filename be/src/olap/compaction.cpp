@@ -191,6 +191,10 @@ Status Compaction::merge_input_rowsets() {
                                                  input_rs_readers, _output_rs_writer.get(),
                                                  get_avg_segment_rows(), way_num, &_stats);
         } else {
+            if (!_tablet->tablet_schema()->cluster_key_idxes().empty()) {
+                return Status::InternalError(
+                        "mow table with cluster keys does not support non vertical compaction");
+            }
             res = Merger::vmerge_rowsets(_tablet, compaction_type(), *_cur_tablet_schema,
                                          input_rs_readers, _output_rs_writer.get(), &_stats);
         }

@@ -202,6 +202,7 @@ private:
     // for external table sink hash partition
     std::unique_ptr<HashPartitionFunction> _partition_function = nullptr;
     std::atomic<bool> _reach_limit = false;
+    int _last_local_channel_idx = -1;
 };
 
 class ExchangeSinkOperatorX final : public DataSinkOperatorX<ExchangeSinkLocalState> {
@@ -252,7 +253,6 @@ private:
 
     const std::vector<TPlanFragmentDestination> _dests;
 
-    std::unique_ptr<MemTracker> _mem_tracker;
     // Identifier of the destination plan node.
     const PlanNodeId _dest_node_id;
 
