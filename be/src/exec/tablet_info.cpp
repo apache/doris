@@ -262,12 +262,15 @@ Status OlapTableSchemaParam::init(const TOlapTableSchemaParam& tschema) {
     for (const auto& tcolumn : tschema.partial_update_input_columns) {
         _partial_update_input_columns.insert(tcolumn);
     }
-    std::unordered_map<std::pair<std::string, PrimitiveType>, SlotDescriptor*> slots_map;
+    std::unordered_map<std::string, SlotDescriptor*> slots_map;
     _tuple_desc = _obj_pool.add(new TupleDescriptor(tschema.tuple_desc));
     for (const auto& t_slot_desc : tschema.slot_descs) {
         auto* slot_desc = _obj_pool.add(new SlotDescriptor(t_slot_desc));
         _tuple_desc->add_slot(slot_desc);
-        slots_map.emplace(std::make_pair(to_lower(slot_desc->col_name()), slot_desc->col_type()),
+        std::string is_null_str = slot_desc->is_nullable() ? "true" : "false";
+        std::string data_type_str =
+                std::to_string(int64_t(slot_desc->col_type()));
+        slots_map.emplace(to_lower(slot_desc->col_name()) + "+" + data_type_str + is_null_str,
                           slot_desc);
     }
 
@@ -279,9 +282,10 @@ Status OlapTableSchemaParam::init(const TOlapTableSchemaParam& tschema) {
         for (const auto& tcolumn_desc : t_index.columns_desc) {
             if (_unique_key_update_mode != UniqueKeyUpdateModePB::UPDATE_FIXED_COLUMNS ||
                 _partial_update_input_columns.contains(tcolumn_desc.column_name)) {
-                auto it = slots_map.find(
-                        std::make_pair(to_lower(tcolumn_desc.column_name),
-                                       thrift_to_type(tcolumn_desc.column_type.type)));
+                std::string is_null_str = tcolumn_desc.is_allow_null ? "true" : "false";
+                std::string data_type_str =
+                        std::to_string(int64_t(thrift_to_type(tcolumn_desc.column_type.type)));
+                auto it = slots_map.find(to_lower(tcolumn_desc.column_name) + "+" + data_type_str + is_null_str);
                 if (it == slots_map.end()) {
                     return Status::InternalError("unknown index column, column={}, type={}",
                                                  tcolumn_desc.column_name,
