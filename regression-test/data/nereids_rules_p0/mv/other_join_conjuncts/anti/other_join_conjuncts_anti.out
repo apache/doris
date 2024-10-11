@@ -7,6 +7,14 @@
 
 -- !query1_1_after --
 
+-- !query1_2_before --
+
+-- !query1_2_after --
+
+-- !query1_3_before --
+
+-- !query1_3_after --
+
 -- !query2_0_before --
 5
 5
@@ -20,6 +28,22 @@
 5
 
 -- !query2_1_after --
+5
+5
+
+-- !query2_2_before --
+5
+5
+
+-- !query2_2_after --
+5
+5
+
+-- !query2_3_before --
+5
+5
+
+-- !query2_3_after --
 5
 5
 

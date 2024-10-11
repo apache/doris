@@ -224,6 +224,54 @@ suite("other_join_conjuncts_semi") {
     order_qt_query3_1_after "${query3_1}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv3_1"""
 
+    def mv3_2 =
+            """
+            select l_orderkey
+            from
+            lineitem
+            left semi join
+            orders on l_orderkey = o_orderkey and l_shipdate <= o_orderdate
+            left semi join partsupp on ps_partkey = l_partkey and l_orderkey != ps_availqty;
+            """
+    def query3_2 =
+            """
+            select l_orderkey
+            from
+            lineitem
+            left semi join
+            orders on l_orderkey = o_orderkey
+            left semi join partsupp on ps_partkey = l_partkey;
+            """
+    order_qt_query3_2_before "${query3_2}"
+    // mv has other conjuncts but query not
+    async_mv_rewrite_fail(db, mv3_2, query3_2, "mv3_2")
+    order_qt_query3_2_after "${query3_2}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv3_2"""
+
+    def mv3_3 =
+            """
+            select l_orderkey
+            from
+            lineitem
+            left semi join
+            orders on l_orderkey = o_orderkey 
+            left semi join partsupp on ps_partkey = l_partkey;
+            """
+    def query3_3 =
+            """
+            select l_orderkey
+            from
+            lineitem
+            left semi join
+            orders on l_orderkey = o_orderkey and l_shipdate < o_orderdate
+            left semi join partsupp on ps_partkey = l_partkey and l_orderkey != ps_availqty;
+            """
+    order_qt_query3_3_before "${query3_3}"
+    // query has other conjuncts but mv not
+    async_mv_rewrite_fail(db, mv3_3, query3_3, "mv3_3")
+    order_qt_query3_3_after "${query3_3}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv3_3"""
+
 
     // right semi join other conjuncts in join condition
     def mv4_0 =
@@ -264,4 +312,47 @@ suite("other_join_conjuncts_semi") {
     async_mv_rewrite_fail(db, mv4_1, query4_1, "mv4_1")
     order_qt_query4_1_after "${query4_1}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv4_1"""
+
+
+    def mv4_2 =
+            """
+           select l_orderkey
+            from
+            orders
+            right semi join lineitem on l_orderkey = o_orderkey and l_shipdate <= o_orderdate;
+            """
+    def query4_2 =
+            """
+           select l_orderkey
+            from
+            orders
+            right semi join lineitem on l_orderkey = o_orderkey;
+            """
+    order_qt_query4_2_before "${query4_2}"
+    // mv has other conjuncts but query not
+    async_mv_rewrite_fail(db, mv4_2, query4_2, "mv4_2")
+    order_qt_query4_2_after "${query4_2}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv4_2"""
+
+
+    def mv4_3 =
+            """
+           select l_orderkey
+            from
+            orders
+            right semi join lineitem on l_orderkey = o_orderkey;
+            """
+    def query4_3 =
+            """
+           select l_orderkey
+            from
+            orders
+            right semi join lineitem on l_orderkey = o_orderkey and l_shipdate < o_orderdate;
+            """
+    order_qt_query4_3_before "${query4_3}"
+    // query has other conjuncts but mv not
+    async_mv_rewrite_fail(db, mv4_3, query4_3, "mv4_3")
+    order_qt_query4_3_after "${query4_3}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv4_3"""
+
 }
