@@ -197,8 +197,8 @@ public class MaterializedViewUtils {
                         structInfosBuilder.add(structInfo);
                     }
                 }
-                return structInfosBuilder.build();
             }
+            return structInfosBuilder.build();
         }
         // if plan doesn't belong to any group, construct it directly
         return ImmutableList.of(StructInfo.of(plan, originalPlan, cascadesContext));
