@@ -137,7 +137,6 @@ public abstract class JdbcClient {
             dataSource.setConnectionTimeout(config.getConnectionPoolMaxWaitTime()); // default 5000
             dataSource.setMaxLifetime(config.getConnectionPoolMaxLifeTime()); // default 30 min
             dataSource.setIdleTimeout(config.getConnectionPoolMaxLifeTime() / 2L); // default 15 min
-            dataSource.setInitializationFailTimeout(-1);
             LOG.info("JdbcClient set"
                     + " ConnectionPoolMinSize = " + config.getConnectionPoolMinSize()
                     + ", ConnectionPoolMaxSize = " + config.getConnectionPoolMaxSize()
