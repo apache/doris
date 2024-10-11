@@ -264,9 +264,10 @@ public class ListPartitionInfo extends PartitionInfo {
             PartitionKeyDesc partitionKeyDesc = PartitionKeyDesc.createIn(inValues);
 
             Map<String, String> properties = Maps.newHashMap();
-            Optional.ofNullable(this.idToStoragePolicy.get(entry.getKey())).ifPresent(p -> {
-                if (!p.equals("")) {
-                    properties.put("STORAGE POLICY", p);
+            Optional.ofNullable(this.idToDataProperty.get(entry.getKey())).ifPresent(p -> {
+                String storagePolicy = p.getStoragePolicy();
+                if (!storagePolicy.equals("")) {
+                    properties.put("STORAGE POLICY", storagePolicy);
                 }
             });
 
