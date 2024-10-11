@@ -56,7 +56,7 @@ suite("test_json_search") {
     test {
         sql """SELECT id, j, o, p, JSON_SEARCH(j, o, p), JSON_SEARCH(jb, o, p) 
                    FROM ${testTable} WHERE o = 'invalid_one_or_all' ORDER BY id;"""
-        exception "[INVALID_ARGUMENT]the one_or_all argument invalid_one_or_all is not 'one' not 'all'"
+        exception "the one_or_all argument invalid_one_or_all is not 'one' not 'all'"
     }
 
     qt_all_const1 """ SELECT JSON_SEARCH($jsonValue, 'one', '__')"""
@@ -77,19 +77,19 @@ suite("test_json_search") {
     test {
         sql """SELECT id, JSON_SEARCH(j, 'invalid_one_or_all', p), JSON_SEARCH(jb, 'invalid_one_or_all', p) 
                          FROM ${testTable} ORDER BY id;"""
-        exception "[INVALID_ARGUMENT]the one_or_all argument invalid_one_or_all is not 'one' not 'all'"
+        exception "the one_or_all argument invalid_one_or_all is not 'one' not 'all'"
     }
 
     test {
         sql """SELECT id, JSON_SEARCH(j, o, 'A'), JSON_SEARCH(jb, o, 'A') 
                          FROM ${testTable} WHERE o = 'invalid_one_or_all'  ORDER BY id;"""
-        exception "[INVALID_ARGUMENT]the one_or_all argument invalid_one_or_all is not 'one' not 'all'"
+        exception "the one_or_all argument invalid_one_or_all is not 'one' not 'all'"
     }
 
     test {
         sql """SELECT id, j, o, p, JSON_SEARCH(j, o, NULL), JSON_SEARCH(jb, o, NULL) 
                          FROM ${testTable} WHERE o = 'invalid_one_or_all'  ORDER BY id;"""
-        exception "[INVALID_ARGUMENT]the one_or_all argument invalid_one_or_all is not 'one' not 'all'"
+        exception "the one_or_all argument invalid_one_or_all is not 'one' not 'all'"
     }
 
     qt_one_and_pattern_is_const1 """ SELECT id, j, 'one', 'A', JSON_SEARCH(j, 'one', 'A'), JSON_SEARCH(jb, 'one', 'A') 
@@ -103,7 +103,7 @@ suite("test_json_search") {
     test {
         sql """ SELECT id, $jsonValue, o, p, JSON_SEARCH($jsonValue, o, p) FROM ${testTable} 
                      WHERE o = 'invalid_one_or_all' ORDER BY id;"""
-        exception "[INVALID_ARGUMENT]the one_or_all argument invalid_one_or_all is not 'one' not 'all'"
+        exception "the one_or_all argument invalid_one_or_all is not 'one' not 'all'"
     }
     qt_json_const1 """ SELECT id, $jsonValue, 'one', p, JSON_SEARCH($jsonValue, 'one', p) FROM ${testTable} ORDER BY id; """
     qt_json_const2 """ SELECT id, $jsonValue, 'all', p, JSON_SEARCH($jsonValue, 'all', p) FROM ${testTable} ORDER BY id; """
@@ -111,7 +111,7 @@ suite("test_json_search") {
     test {
         sql """ SELECT id, JSON_SEARCH($jsonValue, o, 'A') FROM ${testTable} 
                      WHERE o = 'invalid_one_or_all' ORDER BY id;"""
-        exception "[INVALID_ARGUMENT]the one_or_all argument invalid_one_or_all is not 'one' not 'all'"
+        exception "the one_or_all argument invalid_one_or_all is not 'one' not 'all'"
     }
 
     qt_one_case1 """ SELECT id, $jsonValue, 'One', p, JSON_SEARCH($jsonValue, 'One', p) FROM ${testTable} ORDER BY id; """
