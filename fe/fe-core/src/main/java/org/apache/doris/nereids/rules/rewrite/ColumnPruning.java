@@ -322,6 +322,17 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
                 extractColumnIndex.add(i);
             }
         }
+        if (prunedOutputs.isEmpty()) {
+            List<NamedExpression> candidates = Lists.newArrayList(originOutput);
+            candidates.retainAll(keys);
+            if (candidates.isEmpty()) {
+                candidates = originOutput;
+            }
+            NamedExpression minimumColumn = ExpressionUtils.selectMinimumColumn(candidates);
+            prunedOutputs = ImmutableList.of(minimumColumn);
+            extractColumnIndex.add(originOutput.indexOf(minimumColumn));
+        }
+
         int len = extractColumnIndex.size();
         ImmutableList.Builder<List<NamedExpression>> prunedConstantExprsList
                 = ImmutableList.builderWithExpectedSize(constantExprsList.size());
@@ -332,17 +343,6 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
             }
             prunedConstantExprsList.add(newRow.build());
         }
-
-        if (prunedOutputs.isEmpty()) {
-            List<NamedExpression> candidates = Lists.newArrayList(originOutput);
-            candidates.retainAll(keys);
-            if (candidates.isEmpty()) {
-                candidates = originOutput;
-            }
-            NamedExpression minimumColumn = ExpressionUtils.selectMinimumColumn(candidates);
-            prunedOutputs = ImmutableList.of(minimumColumn);
-        }
-
         if (prunedOutputs.equals(originOutput)) {
             return union;
         } else {
