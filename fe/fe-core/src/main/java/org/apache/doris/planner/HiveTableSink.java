@@ -59,7 +59,7 @@ public class HiveTableSink extends BaseExternalTableDataSink {
     public static final String DEFAULT_LINE_DELIMITER = "\n";
     public static final String PROP_COLLECT_DELIMITER = "collection.delim";
     public static final String DEFAULT_COLLECT_DELIMITER = "\2";
-    public static final String PROP_MAPKV_DELIMITER = "mapkv.delim";
+    public static final String PROP_MAPKV_DELIMITER = "mapkey.delim";
     public static final String DEFAULT_MAPKV_DELIMITER = "\3";
     public static final String PROP_ESCAPE_DELIMITER = "escape.delim";
     public static final String DEFAULT_ESCAPE_DELIMIER = "\\";
