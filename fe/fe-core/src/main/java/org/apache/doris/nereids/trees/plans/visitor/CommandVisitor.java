@@ -23,6 +23,7 @@ import org.apache.doris.nereids.trees.plans.commands.AlterViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.CallCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelMTMVTaskCommand;
 import org.apache.doris.nereids.trees.plans.commands.Command;
+import org.apache.doris.nereids.trees.plans.commands.CreateJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreatePolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateProcedureCommand;
@@ -40,6 +41,7 @@ import org.apache.doris.nereids.trees.plans.commands.ExportCommand;
 import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.PauseMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.RefreshMTMVCommand;
+import org.apache.doris.nereids.trees.plans.commands.ReplayCommand;
 import org.apache.doris.nereids.trees.plans.commands.ResumeMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowConfigCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowConstraintsCommand;
@@ -59,6 +61,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitExplainCommand(ExplainCommand explain, C context) {
         return visitCommand(explain, context);
+    }
+
+    default R visitReplayCommand(ReplayCommand replay, C context) {
+        return visitCommand(replay, context);
     }
 
     default R visitCreatePolicyCommand(CreatePolicyCommand createPolicy, C context) {
@@ -106,6 +112,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitCreateMTMVCommand(CreateMTMVCommand createMTMVCommand, C context) {
         return visitCommand(createMTMVCommand, context);
+    }
+
+    default R visitCreateJobCommand(CreateJobCommand createJobCommand, C context) {
+        return visitCommand(createJobCommand, context);
     }
 
     default R visitAlterMTMVCommand(AlterMTMVCommand alterMTMVCommand, C context) {

@@ -34,8 +34,11 @@ import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.common.util.PrintableMap;
+import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
+import org.apache.doris.datasource.iceberg.IcebergGlueExternalCatalog;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalCatalog;
 import org.apache.doris.datasource.property.constants.CosProperties;
 import org.apache.doris.datasource.property.constants.DLFProperties;
@@ -776,5 +779,43 @@ public class PropertyConverterTest extends TestWithFeService {
         res = PropertyConverter.convertToMetaProperties(new HashMap<>(props4));
         Assertions.assertEquals(9, res.size());
         Assertions.assertEquals("north", res.get(S3Properties.Env.REGION));
+    }
+
+    @Test
+    public void testGluePropertiesConvertor() throws Exception {
+        Map<String, String> originProps = Maps.newHashMap();
+        originProps.put(GlueProperties.ACCESS_KEY, "ak");
+        originProps.put(GlueProperties.SECRET_KEY, "sk");
+        originProps.put(GlueProperties.ENDPOINT, "https://glue.us-east-1.amazonaws.com");
+        originProps.put("type", "iceberg");
+        originProps.put("iceberg.catalog.type", "glue");
+
+        Map<String, String> convertedProps = PropertyConverter.convertToMetaProperties(originProps);
+        System.out.println(convertedProps);
+        Assertions.assertEquals("com.amazonaws.glue.catalog.credentials.ConfigurationAWSCredentialsProvider2x",
+                convertedProps.get(GlueProperties.CLIENT_CREDENTIALS_PROVIDER));
+        Assertions.assertEquals("ak", convertedProps.get(GlueProperties.CLIENT_CREDENTIALS_PROVIDER_AK));
+        Assertions.assertEquals("sk", convertedProps.get(GlueProperties.CLIENT_CREDENTIALS_PROVIDER_SK));
+
+        String createIceGlue = "CREATE CATALOG iceglue PROPERTIES (\n"
+                + "    \"type\"=\"iceberg\",\n"
+                + "    \"iceberg.catalog.type\" = \"glue\",\n"
+                + "    \"glue.endpoint\" = \"https://glue.us-east-1.amazonaws.com/\",\n"
+                + "    \"glue.access_key\" = \"ak123\",\n"
+                + "    \"glue.secret_key\" = \"sk123\"\n"
+                + ");";
+        CreateCatalogStmt analyzedStmt = createStmt(createIceGlue);
+        IcebergExternalCatalog icebergExternalCatalog = createAndGetIcebergCatalog(analyzedStmt, "iceglue");
+        Assertions.assertTrue(icebergExternalCatalog instanceof IcebergGlueExternalCatalog);
+        IcebergGlueExternalCatalog glueCatalog = (IcebergGlueExternalCatalog) icebergExternalCatalog;
+
+        PrintableMap<String, String> printableMap = new PrintableMap<>(glueCatalog.getProperties(), "=", true, true,
+                true, true);
+        printableMap.setAdditionalHiddenKeys(ExternalCatalog.HIDDEN_PROPERTIES);
+        String result = printableMap.toString();
+        System.out.println(result);
+        Assertions.assertTrue(!result.contains(GlueProperties.CLIENT_CREDENTIALS_PROVIDER));
+        Assertions.assertTrue(!result.contains(GlueProperties.CLIENT_CREDENTIALS_PROVIDER_AK));
+        Assertions.assertTrue(!result.contains(GlueProperties.CLIENT_CREDENTIALS_PROVIDER_SK));
     }
 }

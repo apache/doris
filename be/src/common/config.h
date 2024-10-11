@@ -332,6 +332,8 @@ DECLARE_mInt32(doris_scan_range_max_mb);
 DECLARE_mInt32(doris_scanner_row_num);
 // single read execute fragment row bytes
 DECLARE_mInt32(doris_scanner_row_bytes);
+// single read execute fragment max run time millseconds
+DECLARE_mInt32(doris_scanner_max_run_time_ms);
 // (Advanced) Maximum size of per-query receive-side buffer
 DECLARE_mInt32(exchg_node_buffer_size_bytes);
 DECLARE_mInt32(exchg_buffer_queue_capacity_factor);
@@ -1032,6 +1034,16 @@ DECLARE_Bool(enable_file_cache);
 // format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240}]
 // format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240},{"path":"/path/to/file_cache2","total_size":21474836480,"query_limit":10737418240}]
 // format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240,"normal_percent":85, "disposable_percent":10, "index_percent":5}]
+// format: [{"path": "xxx", "total_size":53687091200, "storage": "memory"}]
+// Note1: storage is "disk" by default
+// Note2: when the storage is "memory", the path is ignored. So you can set xxx to anything you like
+// and doris will just reset the path to "memory" internally.
+// In a very wierd case when your storage is disk, and the directory, by accident, is named
+// "memory" for some reason, you should write the path as:
+//     {"path": "memory", "total_size":53687091200, "storage": "disk"}
+// or use the default storage value:
+//     {"path": "memory", "total_size":53687091200}
+// Both will use the directory "memory" on the disk instead of the real RAM.
 DECLARE_String(file_cache_path);
 DECLARE_Int64(file_cache_each_block_size);
 DECLARE_Bool(clear_file_cache);
@@ -1046,6 +1058,9 @@ DECLARE_mInt64(file_cache_ttl_valid_check_interval_second);
 DECLARE_Bool(enable_ttl_cache_evict_using_lru);
 // rename ttl filename to new format during read, with some performance cost
 DECLARE_Bool(translate_to_new_ttl_format_during_read);
+DECLARE_mBool(enbale_dump_error_file);
+// limit the max size of error log on disk
+DECLARE_mInt64(file_cache_error_log_limit_bytes);
 
 // inverted index searcher cache
 // cache entry stay time after lookup

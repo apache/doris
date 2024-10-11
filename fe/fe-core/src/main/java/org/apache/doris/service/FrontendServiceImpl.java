@@ -1784,13 +1784,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             throw new UserException("transaction [" + request.getTxnId() + "] not found");
         }
         List<Long> tableIdList = transactionState.getTableIdList();
-        List<Table> tableList = new ArrayList<>();
-        List<String> tables = new ArrayList<>();
         // if table was dropped, transaction must be aborted
-        tableList = db.getTablesOnIdOrderOrThrowException(tableIdList);
-        for (Table table : tableList) {
-            tables.add(table.getName());
-        }
+        List<Table> tableList = db.getTablesOnIdOrderOrThrowException(tableIdList);
 
         // Step 3: check auth
         if (request.isSetAuthCode()) {
@@ -1798,6 +1793,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         } else if (request.isSetToken()) {
             checkToken(request.getToken());
         } else {
+            List<String> tables = tableList.stream().map(Table::getName).collect(Collectors.toList());
             checkPasswordAndPrivs(request.getUser(), request.getPasswd(), request.getDb(), tables,
                     request.getUserIp(), PrivPredicate.LOAD);
         }
@@ -1992,12 +1988,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             throw new UserException("transaction [" + request.getTxnId() + "] not found");
         }
         List<Long> tableIdList = transactionState.getTableIdList();
-        List<Table> tableList = new ArrayList<>();
-        List<String> tables = new ArrayList<>();
-        tableList = db.getTablesOnIdOrderOrThrowException(tableIdList);
-        for (Table table : tableList) {
-            tables.add(table.getName());
-        }
+        List<Table> tableList = db.getTablesOnIdOrderOrThrowException(tableIdList);
 
         // Step 3: check auth
         if (request.isSetAuthCode()) {
@@ -2005,6 +1996,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         } else if (request.isSetToken()) {
             checkToken(request.getToken());
         } else {
+            List<String> tables = tableList.stream().map(Table::getName).collect(Collectors.toList());
             checkPasswordAndPrivs(request.getUser(), request.getPasswd(), request.getDb(), tables,
                     request.getUserIp(), PrivPredicate.LOAD);
         }
@@ -2240,7 +2232,14 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     public TFrontendPingFrontendResult ping(TFrontendPingFrontendRequest request) throws TException {
         boolean isReady = Env.getCurrentEnv().isReady();
         TFrontendPingFrontendResult result = new TFrontendPingFrontendResult();
+        // The following fields are required in thrift.
+        // So must give them a default value to avoid "Required field xx was not present" error.
         result.setStatus(TFrontendPingFrontendStatusCode.OK);
+        result.setMsg("");
+        result.setQueryPort(0);
+        result.setRpcPort(0);
+        result.setReplayedJournalId(0);
+        result.setVersion(Version.DORIS_BUILD_VERSION + "-" + Version.DORIS_BUILD_SHORT_HASH);
         if (isReady) {
             if (request.getClusterId() != Env.getCurrentEnv().getClusterId()) {
                 result.setStatus(TFrontendPingFrontendStatusCode.FAILED);
@@ -2675,7 +2674,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     LOG.warn("replica {} not normal", replica.getId());
                     continue;
                 }
-                Backend backend = Env.getCurrentEnv().getCurrentSystemInfo().getBackend(replica.getBackendId());
+                Backend backend = Env.getCurrentSystemInfo().getBackend(replica.getBackendIdWithoutException());
                 if (backend != null) {
                     TReplicaInfo replicaInfo = new TReplicaInfo();
                     replicaInfo.setHost(backend.getHost());

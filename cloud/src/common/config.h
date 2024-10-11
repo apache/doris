@@ -212,10 +212,10 @@ CONF_Bool(enable_cloud_txn_lazy_commit, "true");
 CONF_Int32(txn_lazy_commit_rowsets_thresold, "1000");
 CONF_Int32(txn_lazy_commit_num_threads, "8");
 CONF_Int32(txn_lazy_max_rowsets_per_batch, "1000");
-
 // max TabletIndexPB num for batch get
 CONF_Int32(max_tablet_index_num_per_batch, "1000");
 
 // Max aborted txn num for the same label name
 CONF_mInt64(max_num_aborted_txn, "100");
+
 } // namespace doris::cloud::config

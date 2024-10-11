@@ -528,6 +528,9 @@ void ColumnMap::reserve(size_t n) {
 void ColumnMap::resize(size_t n) {
     auto last_off = get_offsets().back();
     get_offsets().resize_fill(n, last_off);
+    // make new size of data column
+    get_keys().resize(get_offsets().back());
+    get_values().resize(get_offsets().back());
 }
 
 size_t ColumnMap::byte_size() const {

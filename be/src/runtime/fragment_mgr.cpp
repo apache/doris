@@ -361,6 +361,8 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
         TFragmentInstanceReport t;
         t.__set_fragment_instance_id(req.runtime_state->fragment_instance_id());
         t.__set_num_finished_range(req.runtime_state->num_finished_range());
+        t.__set_loaded_rows(req.runtime_state->num_rows_load_total());
+        t.__set_loaded_bytes(req.runtime_state->num_bytes_load_total());
         params.fragment_instance_reports.push_back(t);
     } else if (!req.runtime_states.empty()) {
         for (auto* rs : req.runtime_states) {
@@ -374,6 +376,8 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
                 TFragmentInstanceReport t;
                 t.__set_fragment_instance_id(rs->fragment_instance_id());
                 t.__set_num_finished_range(rs->num_finished_range());
+                t.__set_loaded_rows(rs->num_rows_load_total());
+                t.__set_loaded_bytes(rs->num_bytes_load_total());
                 params.fragment_instance_reports.push_back(t);
             }
         }

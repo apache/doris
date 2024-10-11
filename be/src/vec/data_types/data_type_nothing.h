@@ -76,7 +76,8 @@ public:
         return 0;
     }
     char* serialize(const IColumn& column, char* buf, int be_exec_version) const override;
-    const char* deserialize(const char* buf, IColumn* column, int be_exec_version) const override;
+    const char* deserialize(const char* buf, MutableColumnPtr* column,
+                            int be_exec_version) const override;
 
     [[noreturn]] Field get_default() const override {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,

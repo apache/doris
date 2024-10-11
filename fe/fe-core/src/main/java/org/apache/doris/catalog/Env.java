@@ -2988,8 +2988,8 @@ public class Env {
             }
         }
         long cost = System.currentTimeMillis() - startTime;
-        if (cost >= 1000) {
-            LOG.warn("replay journal cost too much time: {} replayedJournalId: {}", cost, replayedJournalId);
+        if (LOG.isDebugEnabled() && cost >= 1000) {
+            LOG.debug("replay journal cost too much time: {} replayedJournalId: {}", cost, replayedJournalId);
         }
 
         return hasLog;
@@ -3557,6 +3557,13 @@ public class Env {
         if (olapTable.getKeysType() == KeysType.UNIQUE_KEYS) {
             sb.append(",\n\"").append(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE).append("\" = \"");
             sb.append(olapTable.getEnableUniqueKeyMergeOnWrite()).append("\"");
+        }
+
+        // enable_unique_key_skip_bitmap, always print this property for merge-on-write unique table
+        if (olapTable.getKeysType() == KeysType.UNIQUE_KEYS && olapTable.getEnableUniqueKeyMergeOnWrite()
+                && olapTable.getEnableUniqueKeySkipBitmap()) {
+            sb.append(",\n\"").append(PropertyAnalyzer.ENABLE_UNIQUE_KEY_SKIP_BITMAP_COLUMN).append("\" = \"");
+            sb.append(olapTable.getEnableUniqueKeySkipBitmap()).append("\"");
         }
 
         // show lightSchemaChange only when it is set true
@@ -6440,7 +6447,7 @@ public class Env {
                         for (Replica replica : tablet.getReplicas()) {
                             TGetMetaReplicaMeta replicaMeta = new TGetMetaReplicaMeta();
                             replicaMeta.setId(replica.getId());
-                            replicaMeta.setBackendId(replica.getBackendId());
+                            replicaMeta.setBackendId(replica.getBackendIdWithoutException());
                             replicaMeta.setVersion(replica.getVersion());
                             tabletMeta.addToReplicas(replicaMeta);
                         }
@@ -6485,6 +6492,7 @@ public class Env {
             BinlogManager binlogManager = Env.getCurrentEnv().getBinlogManager();
             dbMeta.setDroppedPartitions(binlogManager.getDroppedPartitions(db.getId()));
             dbMeta.setDroppedTables(binlogManager.getDroppedTables(db.getId()));
+            dbMeta.setDroppedIndexes(binlogManager.getDroppedIndexes(db.getId()));
         }
 
         result.setDbMeta(dbMeta);
@@ -6514,8 +6522,8 @@ public class Env {
                 for (MaterializedIndex idx : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
                     for (Tablet tablet : idx.getTablets()) {
                         for (Replica replica : tablet.getReplicas()) {
-                            CompactionTask compactionTask = new CompactionTask(replica.getBackendId(), db.getId(),
-                                    olapTable.getId(), partition.getId(), idx.getId(), tablet.getId(),
+                            CompactionTask compactionTask = new CompactionTask(replica.getBackendIdWithoutException(),
+                                    db.getId(), olapTable.getId(), partition.getId(), idx.getId(), tablet.getId(),
                                     olapTable.getSchemaHashByIndexId(idx.getId()), type);
                             batchTask.addTask(compactionTask);
                         }

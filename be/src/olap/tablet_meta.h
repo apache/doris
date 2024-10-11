@@ -455,7 +455,7 @@ public:
      * return the total size of the Delete Bitmap(after serialized)
      */
 
-    size_t get_size() const;
+    uint64_t get_size() const;
 
     /**
      * Sets the bitmap of specific segment, it's may be insertion or replacement
@@ -572,8 +572,6 @@ private:
              std::vector<std::tuple<int64_t, DeleteBitmap::BitmapKey, DeleteBitmap::BitmapKey>>>
             _stale_delete_bitmap;
 };
-
-static const std::string SEQUENCE_COL = "__DORIS_SEQUENCE_COL__";
 
 inline TabletUid TabletMeta::tablet_uid() const {
     return _tablet_uid;

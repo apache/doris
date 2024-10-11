@@ -406,7 +406,7 @@ Status RowsetMetaManager::get_rowset_binlog_metas(OlapMeta* meta, TabletUid tabl
         binlog_meta_pb->set_data_key(binlog_data_key);
         binlog_meta_pb->set_data(binlog_data);
 
-        return false;
+        return true;
     };
 
     Status iterStatus =

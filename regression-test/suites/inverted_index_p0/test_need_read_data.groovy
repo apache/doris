@@ -136,6 +136,6 @@ suite("test_need_read_data", "p0"){
     logger.info("show variales result: " + var_result )
 
     sql "INSERT INTO ${indexTblName3} VALUES (1, 1),(1, -2),(1, -1);"
-    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=false) */ id FROM ${indexTblName3} WHERE value<0 and abs(value)>1;"
-    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id FROM ${indexTblName3} WHERE value<0 and abs(value)>1;"
+    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=false,inverted_index_skip_threshold=100) */ id FROM ${indexTblName3} WHERE value<0 and abs(value)>1;"
+    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true,inverted_index_skip_threshold=100) */ id FROM ${indexTblName3} WHERE value<0 and abs(value)>1;"
 }

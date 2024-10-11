@@ -138,7 +138,6 @@ public:
         if (function_alias.contains(name)) {
             name_str = function_alias[name];
         }
-
         if (nullable) {
             return nullable_aggregate_functions.find(name_str) == nullable_aggregate_functions.end()
                            ? nullptr
