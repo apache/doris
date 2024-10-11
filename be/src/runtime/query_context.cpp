@@ -233,10 +233,14 @@ void QueryContext::set_memory_sufficient(bool sufficient) {
         {
             std::lock_guard l(_paused_mutex);
             _paused_reason = Status::OK();
+            _paused_timer.stop();
+            _paused_period_secs += _paused_timer.elapsed_time() / (1000L * 1000L * 1000L);
         }
         _memory_sufficient_dependency->set_ready();
     } else {
         _memory_sufficient_dependency->block();
+        _paused_timer.start();
+        ++_paused_count;
     }
 }
 
@@ -523,13 +527,14 @@ std::vector<pipeline::PipelineTask*> QueryContext::get_revocable_tasks() const {
 std::string QueryContext::debug_string() {
     std::lock_guard l(_paused_mutex);
     return fmt::format(
-            "Label={}, Used={}, Limit={}, Peak={}, running revoke task count {}, "
-            "MemorySufficient={}, PausedReason={}",
+            "QueryId={}, Memory [Used={}, Limit={}, Peak={}], "
+            "Spill[RunningSpillTaskCnt={}, TotalPausedPeriodSecs={}, "
+            "MemorySufficient={}, LatestPausedReason={}]",
             query_mem_tracker->label(),
             PrettyPrinter::print(query_mem_tracker->consumption(), TUnit::BYTES),
             PrettyPrinter::print(query_mem_tracker->limit(), TUnit::BYTES),
             PrettyPrinter::print(query_mem_tracker->peak_consumption(), TUnit::BYTES),
-            _revoking_tasks_count, _memory_sufficient_dependency->ready(),
+            _revoking_tasks_count, _memory_sufficient_dependency->ready(), _paused_period_secs,
             _paused_reason.to_string());
 }
 

@@ -435,7 +435,6 @@ Status PipelineTask::execute(bool* eos) {
                     bool is_low_wartermark = false;
                     workload_group->check_mem_used(&is_low_wartermark, &is_high_wartermark);
                     if (is_low_wartermark || is_high_wartermark) {
-                        _memory_sufficient_dependency->block();
                         ExecEnv::GetInstance()->workload_group_mgr()->add_paused_query(
                                 _state->get_query_ctx()->shared_from_this(), reserve_size);
                         continue;
@@ -475,7 +474,6 @@ Status PipelineTask::execute(bool* eos) {
             LOG(INFO) << "query: " << print_id(query_id) << ", task: " << (void*)this
                       << ", insufficient memory. reserve_size: "
                       << PrettyPrinter::print(reserve_size, TUnit::BYTES);
-            _memory_sufficient_dependency->block();
             ExecEnv::GetInstance()->workload_group_mgr()->add_paused_query(
                     _state->get_query_ctx()->shared_from_this(), reserve_size);
             break;
