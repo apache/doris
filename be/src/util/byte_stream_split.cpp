@@ -17,6 +17,8 @@
 
 #include "byte_stream_split.h"
 
+#include <array>
+#include <cstring>
 #include <vector>
 
 #include "gutil/port.h"
@@ -74,7 +76,7 @@ inline void do_merge_streams(const uint8_t** src_streams, int width, int64_t nva
 template <int kNumStreams>
 void byte_stream_split_decode_scalar(const uint8_t* src, int width, int64_t offset,
                                      int64_t num_values, int64_t stride, uint8_t* dest) {
-    assert(width == kNumStreams);
+    DCHECK(width == kNumStreams);
     std::array<const uint8_t*, kNumStreams> src_streams;
     for (int stream = 0; stream < kNumStreams; ++stream) {
         src_streams[stream] = &src[stream * stride + offset];
