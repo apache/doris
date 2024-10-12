@@ -421,6 +421,7 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
                     local_state._broadcast_pb_mem_limiter->acquire(*block_holder);
 
                     size_t idx = 0;
+                    bool moved = false;
                     for (auto* channel : local_state.channels) {
                         if (!channel->is_receiver_eof()) {
                             Status status;
@@ -430,6 +431,7 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
                                 DCHECK_GE(local_state._last_local_channel_idx, 0);
                                 status = channel->send_local_block(
                                         &cur_block, idx == local_state._last_local_channel_idx);
+                                moved = idx == local_state._last_local_channel_idx;
                             } else {
                                 status = channel->send_broadcast_block(block_holder, eos);
                             }
@@ -437,9 +439,13 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
                         }
                         idx++;
                     }
-                    cur_block.clear_column_data();
-                    local_state._serializer.get_block()->set_mutable_columns(
-                            cur_block.mutate_columns());
+                    if (moved) {
+                        local_state._serializer.reset_block();
+                    } else {
+                        cur_block.clear_column_data();
+                        local_state._serializer.get_block()->set_mutable_columns(
+                                cur_block.mutate_columns());
+                    }
                 }
             }
         }
@@ -450,7 +456,7 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
         if (!current_channel->is_receiver_eof()) {
             // 2. serialize, send and rollover block
             if (current_channel->is_local()) {
-                auto status = current_channel->send_local_block(block, false);
+                auto status = current_channel->send_local_block(block, true);
                 HANDLE_CHANNEL_STATUS(state, current_channel, status);
             } else {
                 RETURN_IF_ERROR(local_state._serializer.serialize_block(
@@ -569,7 +575,7 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
         if (!current_channel->is_receiver_eof()) {
             // 2. serialize, send and rollover block
             if (current_channel->is_local()) {
-                auto status = current_channel->send_local_block(block, false);
+                auto status = current_channel->send_local_block(block, true);
                 HANDLE_CHANNEL_STATUS(state, current_channel, status);
             } else {
                 RETURN_IF_ERROR(local_state._serializer.serialize_block(
