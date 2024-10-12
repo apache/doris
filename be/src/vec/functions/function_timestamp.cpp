@@ -762,9 +762,6 @@ public:
         return Impl::get_variadic_argument_types();
     }
 
-    bool use_default_implementation_for_nulls() const override {
-        return !static_cast<bool>(std::is_same_v<Impl, UnixTimeStampStrImpl>);
-    }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
@@ -895,14 +892,6 @@ struct LastDayImpl {
                     input_rows_count, null_map->get_data(), data_col->get_data(),
                     static_cast<ResultColumnType*>(res_column->assume_mutable().get())->get_data());
 
-            if (const auto* nullable_col = check_and_get_column<ColumnNullable>(
-                        block.get_by_position(arguments[0]).column.get())) {
-                NullMap& result_null_map = assert_cast<ColumnUInt8&>(*null_map).get_data();
-                const NullMap& src_null_map =
-                        assert_cast<const ColumnUInt8&>(nullable_col->get_null_map_column())
-                                .get_data();
-                VectorizedUtils::update_null_map(result_null_map, src_null_map);
-            }
             block.replace_by_position(result,
                                       ColumnNullable::create(res_column, std::move(null_map)));
         } else {
@@ -1007,14 +996,6 @@ struct MondayImpl {
                     input_rows_count, null_map->get_data(), data_col->get_data(),
                     static_cast<ResultColumnType*>(res_column->assume_mutable().get())->get_data());
 
-            if (const auto* nullable_col = check_and_get_column<ColumnNullable>(
-                        block.get_by_position(arguments[0]).column.get())) {
-                NullMap& result_null_map = assert_cast<ColumnUInt8&>(*null_map).get_data();
-                const NullMap& src_null_map =
-                        assert_cast<const ColumnUInt8&>(nullable_col->get_null_map_column())
-                                .get_data();
-                VectorizedUtils::update_null_map(result_null_map, src_null_map);
-            }
             block.replace_by_position(result,
                                       ColumnNullable::create(res_column, std::move(null_map)));
         } else {

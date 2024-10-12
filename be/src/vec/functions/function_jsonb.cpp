@@ -202,17 +202,6 @@ public:
             is_nullable = false;
             break;
         case NullalbeMode::FOLLOW_INPUT: {
-            auto argument_column = col_from.convert_to_full_column_if_const();
-            if (auto* nullable = check_and_get_column<ColumnNullable>(*argument_column)) {
-                is_nullable = true;
-                null_map = ColumnUInt8::create(input_rows_count, 0);
-                // Danger: Here must dispose the null map data first! Because
-                // argument_columns[i]=nullable->get_nested_column_ptr(); will release the mem
-                // of column nullable mem of null map
-                VectorizedUtils::update_null_map(null_map->get_data(),
-                                                 nullable->get_null_map_data());
-                argument_column = nullable->get_nested_column_ptr();
-            }
             break;
         }
         }
@@ -1348,8 +1337,6 @@ public:
     size_t get_number_of_arguments() const override {
         return get_variadic_argument_types_impl().size();
     }
-
-    bool use_default_implementation_for_nulls() const override { return false; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {

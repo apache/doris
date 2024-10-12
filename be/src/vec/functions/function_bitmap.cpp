@@ -494,7 +494,7 @@ public:
 
     size_t get_number_of_arguments() const override { return 1; }
 
-    bool use_default_implementation_for_nulls() const override { return false; }
+    bool use_default_implementation_for_nulls() const override { return true; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
@@ -504,10 +504,10 @@ public:
         auto& null_map = data_null_map->get_data();
 
         auto column = block.get_by_position(arguments[0]).column;
-        if (auto* nullable = check_and_get_column<const ColumnNullable>(*column)) {
-            VectorizedUtils::update_null_map(null_map, nullable->get_null_map_data());
-            column = nullable->get_nested_column_ptr();
-        }
+        // if (auto* nullable = check_and_get_column<const ColumnNullable>(*column)) {
+        //     VectorizedUtils::update_null_map(null_map, nullable->get_null_map_data());
+        //     column = nullable->get_nested_column_ptr();
+        // }
         auto str_col = assert_cast<const ColumnBitmap*>(column.get());
         const auto& col_data = str_col->get_data();
 
