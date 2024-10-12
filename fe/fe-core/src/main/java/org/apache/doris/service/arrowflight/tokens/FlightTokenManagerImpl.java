@@ -75,10 +75,10 @@ public class FlightTokenManagerImpl implements FlightTokenManager {
                             ExecuteEnv.getInstance().getScheduler().unregisterConnection(context);
                             LOG.info("evict bearer token: " + token + " from tokenCache, reason: "
                                     + notification.getCause()
-                                    + ", and unregister flight connect context after evict bearer token");
+                                    + ", and unregister flight connection context after evict bearer token");
                         } else {
                             LOG.info("evict bearer token: " + token + " from tokenCache, reason: "
-                                    + notification.getCause() + ", and flight connect context not exist");
+                                    + notification.getCause() + ", and flight connection context not exist");
                         }
                         usersTokenLRU.get(tokenDetails.getUsername()).invalidate(token);
                     }
