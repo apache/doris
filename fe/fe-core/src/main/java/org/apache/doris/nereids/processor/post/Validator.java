@@ -80,9 +80,8 @@ public class Validator extends PlanPostProcessor {
             List<Slot> childrenOutput = plan.children().stream().flatMap(p -> p.getOutput().stream()).collect(
                     Collectors.toList());
             throw new AnalysisException("A expression contains slot not from children\n"
-                    + "Plan: " + plan + "\n"
-                    + "Children Output:" + childrenOutput + "\n"
-                    + "Slot: " + opt.get() + "\n");
+                    + "Slot: " + opt.get() + "  Children Output:" + childrenOutput + "\n"
+                    + "Plan: " + plan.treeString() + "\n");
         }
         return plan;
     }

@@ -16,11 +16,8 @@
 // under the License.
 
 import org.apache.doris.regression.suite.ClusterOptions
-import groovy.json.JsonSlurper
-import org.awaitility.Awaitility;
-import static java.util.concurrent.TimeUnit.SECONDS;
 
-suite('test_rebalance_in_cloud', 'multi_cluster') {
+suite('test_rebalance_in_cloud', 'multi_cluster,docker') {
     if (!isCloudMode()) {
         return;
     }

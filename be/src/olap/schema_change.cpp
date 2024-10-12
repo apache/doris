@@ -873,8 +873,10 @@ Status SchemaChangeJob::_do_process_alter_tablet(const TAlterTabletReqV2& reques
             }
             // before calculating version_to_be_changed,
             // remove all data from new tablet, prevent to rewrite data(those double pushed when wait)
-            LOG(INFO) << "begin to remove all data from new tablet to prevent rewrite."
-                      << " new_tablet=" << _new_tablet->tablet_id();
+            LOG(INFO) << "begin to remove all data before end version from new tablet to prevent "
+                         "rewrite."
+                      << " new_tablet=" << _new_tablet->tablet_id()
+                      << ", end_version=" << max_rowset->end_version();
             std::vector<RowsetSharedPtr> rowsets_to_delete;
             std::vector<std::pair<Version, RowsetSharedPtr>> version_rowsets;
             _new_tablet->acquire_version_and_rowsets(&version_rowsets);
@@ -1131,6 +1133,8 @@ Status SchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParams& sc
     auto sc_procedure = _get_sc_procedure(
             changer, sc_sorting, sc_directly,
             _local_storage_engine.memory_limitation_bytes_per_thread_for_schema_change());
+
+    DBUG_EXECUTE_IF("SchemaChangeJob::_convert_historical_rowsets.block", DBUG_BLOCK);
 
     // c.Convert historical data
     bool have_failure_rowset = false;

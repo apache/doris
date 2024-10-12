@@ -527,7 +527,8 @@ public class LoadStmt extends DdlStmt implements NotFallbackInParser {
         Map<String, String> properties = brokerDesc.getProperties();
         for (Map.Entry<String, String> entry : properties.entrySet()) {
             if (entry.getKey().equalsIgnoreCase(S3Properties.PROVIDER)) {
-                return entry.getValue();
+                // S3 Provider properties should be case insensitive.
+                return entry.getValue().toUpperCase();
             }
         }
         return S3Properties.S3_PROVIDER;
@@ -608,7 +609,14 @@ public class LoadStmt extends DdlStmt implements NotFallbackInParser {
             connection.connect();
         } catch (Exception e) {
             LOG.warn("Failed to connect endpoint={}, err={}", endpoint, e);
-            throw new UserException("Failed to access object storage", e);
+            String msg;
+            if (e instanceof UserException) {
+                msg = ((UserException) e).getDetailMessage();
+            } else {
+                msg = e.getMessage();
+            }
+            throw new UserException(InternalErrorCode.GET_REMOTE_DATA_ERROR,
+                    "Failed to access object storage, message=" + msg, e);
         } finally {
             if (connection != null) {
                 try {
@@ -674,8 +682,14 @@ public class LoadStmt extends DdlStmt implements NotFallbackInParser {
             }
         } catch (Exception e) {
             LOG.warn("Failed to access object storage, file={}, proto={}, err={}", curFile, objectInfo, e.toString());
+            String msg;
+            if (e instanceof UserException) {
+                msg = ((UserException) e).getDetailMessage();
+            } else {
+                msg = e.getMessage();
+            }
             throw new UserException(InternalErrorCode.GET_REMOTE_DATA_ERROR,
-                    "Failed to access object storage", e);
+                    "Failed to access object storage, message=" + msg, e);
         } finally {
             if (remote != null) {
                 remote.close();

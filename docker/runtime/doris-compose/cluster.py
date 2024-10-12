@@ -16,7 +16,6 @@
 # under the License.
 
 import filelock
-import json
 import jsonpickle
 import os
 import os.path
@@ -405,11 +404,12 @@ class FE(Node):
         if self.cluster.is_cloud:
             cfg += [
                 "meta_service_endpoint = {}".format(
-                    self.cluster.get_meta_server_addr()), "",
+                    self.cluster.get_meta_server_addr()),
+                "",
                 "# For regression-test",
                 "ignore_unsupported_properties_in_cloud_mode = true",
                 "merge_on_write_forced_to_false = true",
-                "deploy_mode = cloud"
+                "deploy_mode = cloud",
             ]
 
             if self.cluster.sql_mode_node_mgr:

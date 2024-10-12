@@ -111,8 +111,8 @@ Status PageIO::write_page(io::FileWriter* writer, const std::vector<Slice>& body
     return Status::OK();
 }
 
-Status PageIO::read_and_decompress_page(const PageReadOptions& opts, PageHandle* handle,
-                                        Slice* body, PageFooterPB* footer) {
+Status PageIO::read_and_decompress_page_(const PageReadOptions& opts, PageHandle* handle,
+                                         Slice* body, PageFooterPB* footer) {
     opts.sanity_check();
     opts.stats->total_pages_num++;
 

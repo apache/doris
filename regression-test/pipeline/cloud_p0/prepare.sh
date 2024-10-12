@@ -150,7 +150,7 @@ if download_oss_file "${pr_num_from_trigger}_${commit_id_from_trigger}.tar.gz"; 
         target_branch_compiled_commit=$(cat output/"${target_branch_compiled_commit_file}")
         if merge_pr_to_target_branch_compiled_commit "${pr_num_from_trigger}" "${target_branch}" "${target_branch_compiled_commit}"; then
             echo "INFO: merged done"
-            if [[ "${teamcity_buildType_id:-}" == "Doris_DorisCloudRegression_CloudP1" ]]; then
+            if [[ "${teamcity_buildType_id:-}" =~ ^Doris_DorisCloudRegression_CloudP1 ]]; then
                 echo "INFO: 用cloud_p1/conf覆盖cloud_p0/conf"
                 if [[ -d "${teamcity_build_checkoutDir:-}"/regression-test/pipeline/cloud_p1/conf ]]; then
                     cp -rf "${teamcity_build_checkoutDir}"/regression-test/pipeline/cloud_p1/conf/* \

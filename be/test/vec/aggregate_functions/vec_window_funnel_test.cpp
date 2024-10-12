@@ -58,7 +58,8 @@ public:
                 std::make_shared<DataTypeDateTime>(), std::make_shared<DataTypeUInt8>(),
                 std::make_shared<DataTypeUInt8>(),    std::make_shared<DataTypeUInt8>(),
                 std::make_shared<DataTypeUInt8>()};
-        agg_function = factory.get("window_funnel", data_types, false, -1);
+        agg_function = factory.get("window_funnel", data_types, false,
+                                   BeExecVersionManager::get_newest_version());
         EXPECT_NE(agg_function, nullptr);
     }
 

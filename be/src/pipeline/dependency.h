@@ -649,8 +649,8 @@ public:
 };
 
 using SetHashTableVariants =
-        std::variant<std::monostate,
-                     vectorized::MethodSerialized<HashMap<StringRef, RowRefListWithFlags>>,
+        std::variant<std::monostate, vectorized::SetSerializedHashTableContext,
+                     vectorized::SetMethodOneString,
                      vectorized::SetPrimaryTypeHashTableContext<vectorized::UInt8>,
                      vectorized::SetPrimaryTypeHashTableContext<vectorized::UInt16>,
                      vectorized::SetPrimaryTypeHashTableContext<vectorized::UInt32>,
@@ -724,6 +724,12 @@ public:
             case TYPE_DATETIMEV2:
                 hash_table_variants->emplace<vectorized::SetPrimaryTypeHashTableContext<UInt64>>();
                 break;
+            case TYPE_CHAR:
+            case TYPE_VARCHAR:
+            case TYPE_STRING: {
+                hash_table_variants->emplace<vectorized::SetMethodOneString>();
+                break;
+            }
             case TYPE_LARGEINT:
             case TYPE_DECIMALV2:
             case TYPE_DECIMAL128I:
@@ -885,8 +891,6 @@ struct LocalMergeExchangeSharedState : public LocalExchangeSharedState {
 
     void create_dependencies(int local_exchange_id) override {
         sink_deps.resize(source_deps.size());
-        std::vector<DependencySPtr> new_deps(sink_deps.size(), nullptr);
-        source_deps.swap(new_deps);
         for (size_t i = 0; i < source_deps.size(); i++) {
             source_deps[i] =
                     std::make_shared<Dependency>(local_exchange_id, local_exchange_id,

@@ -113,6 +113,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
             ConnectContext.get().getExecutor().getSummaryProfile().setInitScanNodeStartTime();
         }
         super.init(analyzer);
+        initFileSplitSize();
         doInitialize();
         if (ConnectContext.get().getExecutor() != null) {
             ConnectContext.get().getExecutor().getSummaryProfile().setInitScanNodeFinishTime();

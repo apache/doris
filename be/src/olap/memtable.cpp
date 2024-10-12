@@ -323,9 +323,14 @@ Status MemTable::_sort_by_cluster_keys() {
     }
     Tie tie = Tie(0, mutable_block.rows());
 
-    for (auto i : _tablet_schema->cluster_key_idxes()) {
+    for (auto cid : _tablet_schema->cluster_key_idxes()) {
+        auto index = _tablet_schema->field_index(cid);
+        if (index == -1) {
+            return Status::InternalError("could not find cluster key column with unique_id=" +
+                                         std::to_string(cid) + " in tablet schema");
+        }
         auto cmp = [&](const RowInBlock* lhs, const RowInBlock* rhs) -> int {
-            return mutable_block.compare_one_column(lhs->_row_pos, rhs->_row_pos, i, -1);
+            return mutable_block.compare_one_column(lhs->_row_pos, rhs->_row_pos, index, -1);
         };
         _sort_one_column(row_in_blocks, tie, cmp);
     }
@@ -506,7 +511,7 @@ bool MemTable::need_agg() const {
     return false;
 }
 
-Status MemTable::to_block(std::unique_ptr<vectorized::Block>* res) {
+Status MemTable::_to_block(std::unique_ptr<vectorized::Block>* res) {
     size_t same_keys_num = _sort();
     if (_keys_type == KeysType::DUP_KEYS || same_keys_num == 0) {
         if (_keys_type == KeysType::DUP_KEYS && _tablet_schema->num_key_columns() == 0) {
@@ -520,6 +525,10 @@ Status MemTable::to_block(std::unique_ptr<vectorized::Block>* res) {
     }
     if (_keys_type == KeysType::UNIQUE_KEYS && _enable_unique_key_mow &&
         !_tablet_schema->cluster_key_idxes().empty()) {
+        if (_is_partial_update) {
+            return Status::InternalError(
+                    "Partial update for mow with cluster keys is not supported");
+        }
         RETURN_IF_ERROR(_sort_by_cluster_keys());
     }
     g_memtable_input_block_allocated_size << -_input_mutable_block.allocated_bytes();
@@ -527,6 +536,11 @@ Status MemTable::to_block(std::unique_ptr<vectorized::Block>* res) {
     _insert_mem_tracker->release(_mem_usage);
     _mem_usage = 0;
     *res = vectorized::Block::create_unique(_output_mutable_block.to_block());
+    return Status::OK();
+}
+
+Status MemTable::to_block(std::unique_ptr<vectorized::Block>* res) {
+    RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_to_block(res));
     return Status::OK();
 }
 

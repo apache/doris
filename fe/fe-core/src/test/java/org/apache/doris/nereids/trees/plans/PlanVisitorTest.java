@@ -243,6 +243,22 @@ public class PlanVisitorTest extends TestWithFeService {
                                             .map(TableIf::getName)
                                             .collect(Collectors.toSet()),
                                     expectedMvsWithNoExpand);
+
+                            TableCollectorContext allTableTypeWithExpand =
+                                    new TableCollector.TableCollectorContext(
+                                            Sets.newHashSet(TableType.values()), true);
+                            physicalPlan.accept(TableCollector.INSTANCE, allTableTypeWithExpand);
+                            // when collect in plan with expand, should collect table which is expended
+                            Set<String> expectedTablesWithExpand = new HashSet<>();
+                            expectedTablesWithExpand.add("mv1");
+                            expectedTablesWithExpand.add("table1");
+                            expectedTablesWithExpand.add("table2");
+                            expectedTablesWithExpand.add("table3");
+                            Assertions.assertEquals(
+                                    allTableTypeWithExpand.getCollectedTables().stream()
+                                            .map(TableIf::getName)
+                                            .collect(Collectors.toSet()),
+                                    expectedTablesWithExpand);
                         });
         dropMvByNereids("drop materialized view mv1");
     }

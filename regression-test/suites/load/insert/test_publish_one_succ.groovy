@@ -18,7 +18,7 @@
 import org.apache.doris.regression.suite.ClusterOptions
 import org.apache.doris.regression.util.NodeType
 
-suite('test_publish_one_succ') {
+suite('test_publish_one_succ', 'docker') {
     def options = new ClusterOptions()
     options.enableDebugPoints()
     docker(options) {

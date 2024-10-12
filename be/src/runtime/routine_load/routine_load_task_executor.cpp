@@ -75,7 +75,8 @@ RoutineLoadTaskExecutor::~RoutineLoadTaskExecutor() {
     _task_map.clear();
 }
 
-Status RoutineLoadTaskExecutor::init() {
+Status RoutineLoadTaskExecutor::init(int64_t process_mem_limit) {
+    _load_mem_limit = process_mem_limit * config::load_process_max_memory_limit_percent / 100;
     return ThreadPoolBuilder("routine_load")
             .set_min_threads(0)
             .set_max_threads(config::max_routine_load_thread_pool_size)
@@ -210,7 +211,7 @@ Status RoutineLoadTaskExecutor::submit_task(const TRoutineLoadTask& task) {
         return Status::OK();
     }
 
-    if (_task_map.size() >= config::max_routine_load_thread_pool_size) {
+    if (_task_map.size() >= config::max_routine_load_thread_pool_size || _reach_memory_limit()) {
         LOG(INFO) << "too many tasks in thread pool. reject task: " << UniqueId(task.id)
                   << ", job id: " << task.job_id
                   << ", queue size: " << _thread_pool->get_queue_size()
@@ -309,6 +310,19 @@ Status RoutineLoadTaskExecutor::submit_task(const TRoutineLoadTask& task) {
                   << ", current tasks num: " << _task_map.size();
         return Status::OK();
     }
+}
+
+bool RoutineLoadTaskExecutor::_reach_memory_limit() {
+    bool is_exceed_soft_mem_limit = GlobalMemoryArbitrator::is_exceed_soft_mem_limit();
+    auto current_load_mem_value =
+            MemTrackerLimiter::TypeMemSum[MemTrackerLimiter::Type::LOAD]->current_value();
+    if (is_exceed_soft_mem_limit || current_load_mem_value > _load_mem_limit) {
+        LOG(INFO) << "is_exceed_soft_mem_limit: " << is_exceed_soft_mem_limit
+                  << " current_load_mem_value: " << current_load_mem_value
+                  << " _load_mem_limit: " << _load_mem_limit;
+        return true;
+    }
+    return false;
 }
 
 void RoutineLoadTaskExecutor::exec_task(std::shared_ptr<StreamLoadContext> ctx,

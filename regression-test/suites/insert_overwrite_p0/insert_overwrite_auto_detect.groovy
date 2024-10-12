@@ -148,12 +148,18 @@ suite("test_iot_auto_detect") {
    sql """ insert into dt values ("2005-01-01"), ("2013-02-02"), ("2022-03-03"); """
    sql """ insert overwrite table dt partition(*) values ("2008-01-01"), ("2008-02-02"); """
    qt_sql " select * from dt order by k0; "
-   try {
+   test {
       sql """ insert overwrite table dt partition(*) values ("2023-02-02"), ("3000-12-12"); """
-   } catch (Exception e) {
-        log.info(e.getMessage())
-        assertTrue(e.getMessage().contains('Insert has filtered data in strict mode') || 
-            e.getMessage().contains('Cannot found origin partitions in auto detect overwriting'))
-    }
-
+      check { result, exception, startTime, endTime ->
+         assertTrue(exception.getMessage().contains('Insert has filtered data in strict mode') || 
+               exception.getMessage().contains('Cannot found origin partitions in auto detect overwriting'))
+      }
+   } 
+   // test no rows(no partition hits) overwrite
+   sql " drop table if exists dt2"
+   sql " create table dt2 like dt"
+   sql " insert overwrite table dt2 partition(*) select * from dt2"
+   sql " insert overwrite table dt partition(*) select * from dt2"
+   sql " insert overwrite table dt partition(p10, pMAX) select * from dt2"
+   sql " insert overwrite table dt select * from dt2"
 }

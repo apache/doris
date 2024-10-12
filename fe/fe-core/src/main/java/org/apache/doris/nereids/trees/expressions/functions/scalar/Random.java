@@ -89,11 +89,6 @@ public class Random extends ScalarFunction
         }
     }
 
-    @Override
-    public boolean foldable() {
-        return false;
-    }
-
     /**
      * withChildren.
      */
@@ -121,6 +116,11 @@ public class Random extends ScalarFunction
 
     @Override
     public boolean isDeterministic() {
+        return false;
+    }
+
+    @Override
+    public boolean foldable() {
         return false;
     }
 }

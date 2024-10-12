@@ -55,7 +55,9 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.math.BigInteger;
 import java.nio.ByteBuffer;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.stream.Collectors;
 import java.util.zip.CRC32;
@@ -302,6 +304,64 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
             }
         }
         return Integer.compare(thisKeyLen, otherKeyLen);
+    }
+
+    public PartitionKey successor() throws AnalysisException {
+        Preconditions.checkState(
+                keys.size() == 1,
+                "Only support compute successor for one partition column"
+        );
+        LiteralExpr literal = keys.get(0);
+        PrimitiveType type = types.get(0);
+
+        PartitionKey successor = new PartitionKey();
+
+        switch (type) {
+            case TINYINT:
+            case SMALLINT:
+            case INT:
+            case BIGINT:
+                long maxValueOfType = (1L << ((type.getSlotSize() << 3 /* multiply 8 bit */) - 1)) - 1L;
+                long successorInt = ((IntLiteral) literal).getValue();
+                successorInt += successorInt < maxValueOfType ? 1 : 0;
+                successor.pushColumn(new IntLiteral(successorInt, Type.fromPrimitiveType(type)), type);
+                return successor;
+            case LARGEINT:
+                BigInteger maxValue = BigInteger.ONE.shiftLeft(127).subtract(BigInteger.ONE);
+                BigInteger successorLargeInt = (BigInteger) literal.getRealValue();
+                successorLargeInt = successorLargeInt.add(
+                        successorLargeInt.compareTo(maxValue) < 0 ? BigInteger.ONE : BigInteger.ZERO
+                );
+                successor.pushColumn(new LargeIntLiteral(successorLargeInt), type);
+                return successor;
+            case DATE:
+            case DATEV2:
+            case DATETIME:
+            case DATETIMEV2:
+                DateLiteral dateLiteral = (DateLiteral) literal;
+                LocalDateTime successorDateTime = LocalDateTime.of(
+                        (int) dateLiteral.getYear(),
+                        (int) dateLiteral.getMonth(),
+                        (int) dateLiteral.getDay(),
+                        (int) dateLiteral.getHour(),
+                        (int) dateLiteral.getMinute(),
+                        (int) dateLiteral.getSecond(),
+                        (int) dateLiteral.getMicrosecond() * 1000
+                );
+                if (type == PrimitiveType.DATE || type == PrimitiveType.DATEV2) {
+                    successorDateTime = successorDateTime.plusDays(1);
+                } else if (type == PrimitiveType.DATETIME) {
+                    successorDateTime = successorDateTime.plusSeconds(1);
+                } else {
+                    int scale = Math.min(6, Math.max(0, ((ScalarType) literal.getType()).getScalarScale()));
+                    long nanoSeconds = BigInteger.TEN.pow(9 - scale).longValue();
+                    successorDateTime = successorDateTime.plusNanos(nanoSeconds);
+                }
+                successor.pushColumn(new DateLiteral(successorDateTime, literal.getType()), type);
+                return successor;
+            default:
+                throw new AnalysisException("Unsupported type: " + type);
+        }
     }
 
     // return: ("100", "200", "300")

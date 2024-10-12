@@ -389,6 +389,7 @@ struct TSnapshotRequest {
     11: optional Types.TVersion start_version
     12: optional Types.TVersion end_version
     13: optional bool is_copy_binlog
+    14: optional Types.TTabletId ref_tablet_id
 }
 
 struct TReleaseSnapshotRequest {

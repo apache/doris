@@ -433,6 +433,11 @@ struct ConvertImpl {
                     block.get_by_position(result).column =
                             ColumnNullable::create(std::move(col_to), std::move(col_null_map_to));
                     return Status::OK();
+                } else if constexpr ((std::is_same_v<FromDataType, DataTypeIPv4>)&&(
+                                             std::is_same_v<ToDataType, DataTypeIPv6>)) {
+                    for (size_t i = 0; i < size; ++i) {
+                        map_ipv4_to_ipv6(vec_from[i], reinterpret_cast<UInt8*>(&vec_to[i]));
+                    }
                 } else {
                     for (size_t i = 0; i < size; ++i) {
                         vec_to[i] = static_cast<ToFieldType>(vec_from[i]);
@@ -452,6 +457,12 @@ struct ConvertImpl {
                                         named_from.column->get_name(), Name::name);
         }
         return Status::OK();
+    }
+
+private:
+    static void map_ipv4_to_ipv6(IPv4 ipv4, UInt8* buf) {
+        unaligned_store<UInt64>(buf, 0x0000FFFF00000000ULL | static_cast<UInt64>(ipv4));
+        unaligned_store<UInt64>(buf + 8, 0);
     }
 };
 
@@ -2299,8 +2310,7 @@ private:
 
             if constexpr (!(IsDataTypeDecimalOrNumber<ToDataType> || IsTimeType<ToDataType> ||
                             IsTimeV2Type<ToDataType> ||
-                            std::is_same_v<ToDataType, DataTypeTimeV2> ||
-                            std::is_same_v<ToDataType, DataTypeTime>)) {
+                            std::is_same_v<ToDataType, DataTypeTimeV2>)) {
                 return false;
             }
             return call_on_index_and_data_type<
@@ -2309,8 +2319,7 @@ private:
                 using FromDataType = typename Types2::LeftType;
                 if constexpr (!(IsDataTypeDecimalOrNumber<FromDataType> ||
                                 IsTimeType<FromDataType> || IsTimeV2Type<FromDataType> ||
-                                std::is_same_v<FromDataType, DataTypeTimeV2> ||
-                                std::is_same_v<FromDataType, DataTypeTime>)) {
+                                std::is_same_v<FromDataType, DataTypeTimeV2>)) {
                     return false;
                 }
                 if constexpr (IsDataTypeDecimal<FromDataType> || IsDataTypeDecimal<ToDataType>) {
@@ -2461,7 +2470,6 @@ private:
                           std::is_same_v<ToDataType, DataTypeDateV2> ||
                           std::is_same_v<ToDataType, DataTypeDateTimeV2> ||
                           std::is_same_v<ToDataType, DataTypeTimeV2> ||
-                          std::is_same_v<ToDataType, DataTypeTime> ||
                           std::is_same_v<ToDataType, DataTypeIPv4> ||
                           std::is_same_v<ToDataType, DataTypeIPv6>) {
                 ret = create_wrapper(from_type, check_and_get_data_type<ToDataType>(to_type.get()),

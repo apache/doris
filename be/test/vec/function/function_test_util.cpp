@@ -25,6 +25,7 @@
 #include "runtime/runtime_state.h"
 #include "util/binary_cast.hpp"
 #include "util/bitmap_value.h"
+#include "vec/core/types.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_bitmap.h"
 #include "vec/data_types/data_type_date.h"
@@ -64,6 +65,7 @@ uint64_t str_to_datetime_v2(std::string datetime_str, std::string datetime_forma
     return binary_cast<DateV2Value<DateTimeV2ValueType>, UInt64>(v);
 }
 
+// NOLINTBEGIN(readability-function-size)
 size_t type_index_to_data_type(const std::vector<AnyType>& input_types, size_t index,
                                ut_type::UTDataTypeDesc& ut_desc, DataTypePtr& type) {
     doris::TypeDescriptor& desc = ut_desc.type_desc;
@@ -144,6 +146,23 @@ size_t type_index_to_data_type(const std::vector<AnyType>& input_types, size_t i
         desc.type = doris::PrimitiveType::TYPE_DECIMALV2;
         type = std::make_shared<DataTypeDecimal<Decimal128V2>>();
         return 1;
+    // for decimals in ut we set the default scale and precision. for more scales, we prefer test them in regression.
+    case TypeIndex::Decimal32:
+        desc.type = doris::PrimitiveType::TYPE_DECIMAL32;
+        type = std::make_shared<DataTypeDecimal<Decimal32>>(9, 5);
+        return 1;
+    case TypeIndex::Decimal64:
+        desc.type = doris::PrimitiveType::TYPE_DECIMAL64;
+        type = std::make_shared<DataTypeDecimal<Decimal64>>(18, 9);
+        return 1;
+    case TypeIndex::Decimal128V3:
+        desc.type = doris::PrimitiveType::TYPE_DECIMAL128I;
+        type = std::make_shared<DataTypeDecimal<Decimal128V3>>(38, 20);
+        return 1;
+    case TypeIndex::Decimal256:
+        desc.type = doris::PrimitiveType::TYPE_DECIMAL256;
+        type = std::make_shared<DataTypeDecimal<Decimal256>>(76, 40);
+        return 1;
     case TypeIndex::DateTime:
         desc.type = doris::PrimitiveType::TYPE_DATETIME;
         type = std::make_shared<DataTypeDateTime>();
@@ -188,6 +207,8 @@ size_t type_index_to_data_type(const std::vector<AnyType>& input_types, size_t i
         return 0;
     }
 }
+// NOLINTEND(readability-function-size)
+
 bool parse_ut_data_type(const std::vector<AnyType>& input_types, ut_type::UTDataTypeDescs& descs) {
     descs.clear();
     descs.reserve(input_types.size());
@@ -202,7 +223,7 @@ bool parse_ut_data_type(const std::vector<AnyType>& input_types, ut_type::UTData
             return false;
         }
         if (desc.is_nullable) {
-            desc.data_type = make_nullable(std::move(desc.data_type));
+            desc.data_type = make_nullable(desc.data_type);
         }
         desc.col_name = "k" + std::to_string(i);
         descs.emplace_back(desc);
@@ -232,6 +253,7 @@ bool insert_date_cell(MutableColumnPtr& column, const std::string& format, const
     return true;
 }
 
+// NOLINTBEGIN(readability-function-size)
 bool insert_cell(MutableColumnPtr& column, DataTypePtr type_ptr, const AnyType& cell) {
     if (cell.type() == &typeid(Null)) {
         column->insert_data(nullptr, 0);
@@ -250,7 +272,7 @@ bool insert_cell(MutableColumnPtr& column, DataTypePtr type_ptr, const AnyType& 
         JsonBinaryValue jsonb_val(str.c_str(), str.size());
         column->insert_data(jsonb_val.value(), jsonb_val.size());
     } else if (type.idx == TypeIndex::BitMap) {
-        BitmapValue* bitmap = any_cast<BitmapValue*>(cell);
+        auto* bitmap = any_cast<BitmapValue*>(cell);
         column->insert_data((char*)bitmap, sizeof(BitmapValue));
     } else if (type.is_ipv4()) {
         auto value = any_cast<ut_type::IPV4>(cell);
@@ -283,7 +305,19 @@ bool insert_cell(MutableColumnPtr& column, DataTypePtr type_ptr, const AnyType& 
         auto value = any_cast<ut_type::DOUBLE>(cell);
         column->insert_data(reinterpret_cast<char*>(&value), 0);
     } else if (type.is_decimal128v2()) {
-        auto value = any_cast<Decimal<Int128>>(cell);
+        auto value = any_cast<Decimal128V2>(cell);
+        column->insert_data(reinterpret_cast<char*>(&value), 0);
+    } else if (type.is_decimal32()) {
+        auto value = any_cast<Decimal32>(cell);
+        column->insert_data(reinterpret_cast<char*>(&value), 0);
+    } else if (type.is_decimal64()) {
+        auto value = any_cast<Decimal64>(cell);
+        column->insert_data(reinterpret_cast<char*>(&value), 0);
+    } else if (type.is_decimal128v3()) {
+        auto value = any_cast<Decimal128V3>(cell);
+        column->insert_data(reinterpret_cast<char*>(&value), 0);
+    } else if (type.is_decimal256()) {
+        auto value = any_cast<Decimal256>(cell);
         column->insert_data(reinterpret_cast<char*>(&value), 0);
     } else if (type.is_date_time()) {
         static std::string date_time_format("%Y-%m-%d %H:%i:%s");
@@ -310,6 +344,7 @@ bool insert_cell(MutableColumnPtr& column, DataTypePtr type_ptr, const AnyType& 
     }
     return true;
 }
+// NOLINTEND(readability-function-size)
 
 Block* create_block_from_inputset(const InputTypeSet& input_types, const InputDataSet& input_set) {
     // 1.0 create data type

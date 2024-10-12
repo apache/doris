@@ -455,7 +455,7 @@ public:
      * return the total size of the Delete Bitmap(after serialized)
      */
 
-    size_t get_size() const;
+    uint64_t get_size() const;
 
     /**
      * Sets the bitmap of specific segment, it's may be insertion or replacement

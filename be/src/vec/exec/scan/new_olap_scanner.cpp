@@ -642,6 +642,8 @@ void NewOlapScanner::_collect_profile_before_close() {
                    stats.inverted_index_searcher_cache_hit);                                      \
     COUNTER_UPDATE(Parent->_inverted_index_searcher_cache_miss_counter,                           \
                    stats.inverted_index_searcher_cache_miss);                                     \
+    COUNTER_UPDATE(Parent->_inverted_index_downgrade_count_counter,                               \
+                   stats.inverted_index_downgrade_count);                                         \
     if (config::enable_file_cache) {                                                              \
         io::FileCacheProfileReporter cache_profile(Parent->_segment_profile.get());               \
         cache_profile.update(&stats.file_cache_stats);                                            \

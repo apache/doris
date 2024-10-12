@@ -64,7 +64,9 @@ public:
 
     std::vector<Dependency*> dependencies() const override {
         std::vector<Dependency*> dep_vec;
-        dep_vec.push_back(_queue_dependency.get());
+        if (_queue_dependency) {
+            dep_vec.push_back(_queue_dependency.get());
+        }
         if (_broadcast_dependency) {
             dep_vec.push_back(_broadcast_dependency.get());
         }
