@@ -44,7 +44,6 @@ suite("inner_join_infer_and_derive") {
     ) ENGINE=OLAP
     DUPLICATE KEY(`o_orderkey`, `o_custkey`)
     COMMENT 'OLAP'
-    AUTO PARTITION BY range (date_trunc(`o_orderdate`, 'day')) ()
     DISTRIBUTED BY HASH(`o_orderkey`) BUCKETS 96
     PROPERTIES (
     "replication_allocation" = "tag.location.default: 1"
@@ -74,7 +73,6 @@ suite("inner_join_infer_and_derive") {
     ) ENGINE=OLAP
     DUPLICATE KEY(l_orderkey, l_linenumber, l_partkey, l_suppkey )
     COMMENT 'OLAP'
-    AUTO PARTITION BY range (date_trunc(`l_shipdate`, 'day')) ()
     DISTRIBUTED BY HASH(`l_orderkey`) BUCKETS 96
     PROPERTIES (
     "replication_allocation" = "tag.location.default: 1"
@@ -107,19 +105,6 @@ suite("inner_join_infer_and_derive") {
 
     sql """analyze table orders_inner with sync;"""
     sql """analyze table lineitem_inner with sync;"""
-
-    def create_all_mv = { mv_name, mv_sql ->
-        sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name};"""
-        sql """DROP TABLE IF EXISTS ${mv_name}"""
-        sql"""
-        CREATE MATERIALIZED VIEW ${mv_name} 
-        BUILD IMMEDIATE REFRESH AUTO ON MANUAL 
-        DISTRIBUTED BY RANDOM BUCKETS 2 
-        PROPERTIES ('replication_num' = '1') 
-        AS  
-        ${mv_sql}
-        """
-    }
 
     def compare_res = { def stmt ->
         sql "SET enable_materialized_view_rewrite=false"
@@ -226,7 +211,7 @@ suite("inner_join_infer_and_derive") {
     def order_stmt = " order by 1, 2, 3, 4, 5"
     for (int mtmv_it = 0; mtmv_it < mtmv_stmt_list.size(); mtmv_it++) {
         logger.info("mtmv_it:" + mtmv_it)
-        create_all_mv(mv_name_1, mtmv_stmt_list[mtmv_it])
+        create_async_mv(db, mv_name_1, mtmv_stmt_list[mtmv_it])
         def job_name_1 = getJobName(db, mv_name_1)
         waitingMTMVTaskFinished(job_name_1)
         if (mtmv_it == 0) {

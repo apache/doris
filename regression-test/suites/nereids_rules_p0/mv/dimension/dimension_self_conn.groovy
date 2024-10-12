@@ -39,7 +39,6 @@ suite("partition_mv_rewrite_dimension_self_conn") {
     ) ENGINE=OLAP
     DUPLICATE KEY(`o_orderkey`, `o_custkey`)
     COMMENT 'OLAP'
-    auto partition by range (date_trunc(`o_orderdate`, 'day')) ()
     DISTRIBUTED BY HASH(`o_orderkey`) BUCKETS 96
     PROPERTIES (
     "replication_allocation" = "tag.location.default: 1"
@@ -69,7 +68,6 @@ suite("partition_mv_rewrite_dimension_self_conn") {
     ) ENGINE=OLAP
     DUPLICATE KEY(l_orderkey, l_linenumber, l_partkey, l_suppkey )
     COMMENT 'OLAP'
-    auto partition by range (date_trunc(`l_shipdate`, 'day')) ()
     DISTRIBUTED BY HASH(`l_orderkey`) BUCKETS 96
     PROPERTIES (
     "replication_allocation" = "tag.location.default: 1"
@@ -103,19 +101,6 @@ suite("partition_mv_rewrite_dimension_self_conn") {
     sql """analyze table orders_self_conn with sync;"""
     sql """analyze table lineitem_self_conn with sync;"""
 
-    def create_mv = { mv_name, mv_sql ->
-        sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name};"""
-        sql """DROP TABLE IF EXISTS ${mv_name}"""
-        sql"""
-        CREATE MATERIALIZED VIEW ${mv_name} 
-        BUILD IMMEDIATE REFRESH AUTO ON MANUAL 
-        DISTRIBUTED BY RANDOM BUCKETS 2 
-        PROPERTIES ('replication_num' = '1') 
-        AS  
-        ${mv_sql}
-        """
-    }
-
     def compare_res = { def stmt ->
         sql "SET enable_materialized_view_rewrite=false"
         def origin_res = sql stmt
@@ -143,9 +128,7 @@ suite("partition_mv_rewrite_dimension_self_conn") {
         on t1.l_orderkey = t2.l_orderkey
         """
 
-    create_mv(mv_name_1, join_direction_mv_1)
-    def job_name_1 = getJobName(db, mv_name_1)
-    waitingMTMVTaskFinished(job_name_1)
+    create_async_mv(db, mv_name_1, join_direction_mv_1)
 
     def join_direction_sql_1 = """
         select t1.L_SHIPDATE 
@@ -187,9 +170,8 @@ suite("partition_mv_rewrite_dimension_self_conn") {
     for (int i =0; i < mv_list.size(); i++) {
         logger.info("i:" + i)
         def join_self_conn_mv = """join_self_conn_mv_${i}"""
-        create_mv(join_self_conn_mv, mv_list[i])
-        def job_name = getJobName(db, join_self_conn_mv)
-        waitingMTMVTaskFinished(job_name)
+        create_async_mv(db, join_self_conn_mv, mv_list[i])
+
         if (i == 0) {
             for (int j = 0; j < mv_list.size(); j++) {
                 logger.info("j:" + j)
@@ -282,9 +264,8 @@ suite("partition_mv_rewrite_dimension_self_conn") {
     for (int i = 0; i < join_type_stmt_list.size(); i++) {
         logger.info("i:" + i)
         String join_type_self_conn_mv = """join_type_self_conn_mv_${i}"""
-        create_mv(join_type_self_conn_mv, join_type_stmt_list[i])
-        def job_name = getJobName(db, join_type_self_conn_mv)
-        waitingMTMVTaskFinished(job_name)
+        create_async_mv(db, join_type_self_conn_mv, join_type_stmt_list[i])
+
         if (i in [4, 5]) {
             for (int j = 0; j < join_type_stmt_list.size(); j++) {
                 logger.info("j: " + j)
@@ -335,9 +316,7 @@ suite("partition_mv_rewrite_dimension_self_conn") {
         group by t2.o_orderkey
         """
 
-    create_mv(mv_name_1, agg_mv_stmt)
-    job_name_1 = getJobName(db, mv_name_1)
-    waitingMTMVTaskFinished(job_name_1)
+    create_async_mv(db, mv_name_1, agg_mv_stmt)
 
     def agg_sql_1 = """select t2.o_orderkey,
         count(distinct case when t1.o_shippriority > 1 and t1.o_orderkey IN (1, 3) then t1.o_custkey else null end) as cnt_1, 
@@ -382,10 +361,7 @@ suite("partition_mv_rewrite_dimension_self_conn") {
         t2.o_shippriority, 
         t1.o_comment  
         """
-    create_mv(mv_name_1, agg_mv_stmt_2)
-    def agg_job_name_2 = getJobName(db, mv_name_1)
-    waitingMTMVTaskFinished(agg_job_name_2)
-    sql """analyze table ${mv_name_1} with sync;"""
+    create_async_mv(db, mv_name_1, agg_mv_stmt_2)
 
     def agg_sql_2 = """
         select t2.O_SHIPPRIORITY, t1.o_comment  
@@ -416,10 +392,7 @@ suite("partition_mv_rewrite_dimension_self_conn") {
         t2.o_shippriority, 
         t1.o_comment 
         """
-    create_mv(mv_name_1, agg_mv_stmt_3)
-    def agg_job_name_3 = getJobName(db, mv_name_1)
-    waitingMTMVTaskFinished(agg_job_name_3)
-    sql """analyze table ${mv_name_1} with sync;"""
+    create_async_mv(db, mv_name_1, agg_mv_stmt_3)
 
     def agg_sql_3 = """
         select t2.o_shippriority, t1.o_comment, 
@@ -447,9 +420,7 @@ suite("partition_mv_rewrite_dimension_self_conn") {
         inner join lineitem_self_conn as t2 
         on t1.L_ORDERKEY = t2.L_ORDERKEY
         group by t1.l_shipdate, t2.l_partkey, t1.l_orderkeY"""
-    create_mv(mv_name_1, view_partition_mv_stmt_1)
-    def view_partition_job_name_1 = getJobName(db, mv_name_1)
-    waitingMTMVTaskFinished(view_partition_job_name_1)
+    create_async_mv(db, mv_name_1, view_partition_mv_stmt_1)
 
     def view_partition_sql_1 = """select t.l_shipdate, lineitem_self_conn.l_orderkey, t.l_partkey 
         from (
@@ -476,9 +447,7 @@ suite("partition_mv_rewrite_dimension_self_conn") {
         on t1.l_orderkey = t2.l_orderkey
         where t1.l_shipdate >= "2023-10-17"
         """
-    create_mv(mv_name_1, predicate_mv_stmt_1)
-    def predicate_job_name_1 = getJobName(db, mv_name_1)
-    waitingMTMVTaskFinished(predicate_job_name_1)
+    create_async_mv(db, mv_name_1, predicate_mv_stmt_1)
 
     def predicate_sql_1 = """
         select t1.l_shipdatE, t2.l_shipdate, t1.l_partkey 

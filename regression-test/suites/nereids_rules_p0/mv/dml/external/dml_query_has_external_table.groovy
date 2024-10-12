@@ -70,17 +70,6 @@ suite("dml_query_has_external_table") {
     )
     """
 
-        def create_async_mv = { mv_name, mv_sql ->
-            sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name}"""
-            sql"""
-            CREATE MATERIALIZED VIEW ${mv_name} 
-            BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL
-            DISTRIBUTED BY RANDOM BUCKETS 2
-            PROPERTIES ('replication_num' = '1') 
-            AS ${mv_sql}
-            """
-            waitingMTMVTaskFinished(getJobName(db, mv_name))
-        }
 
         def result_test_sql = """select * from insert_target_olap_table;"""
 
@@ -97,7 +86,7 @@ suite("dml_query_has_external_table") {
         count_value;
         """
 
-        create_async_mv(insert_into_async_mv_name_external, """
+        create_async_mv(dbName, insert_into_async_mv_name_external, """
         select
         id,
         count_value

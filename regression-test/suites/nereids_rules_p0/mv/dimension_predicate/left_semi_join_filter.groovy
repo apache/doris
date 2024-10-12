@@ -43,7 +43,6 @@ suite("left_semi_join_filter") {
     ) ENGINE=OLAP
     DUPLICATE KEY(`o_orderkey`, `o_custkey`)
     COMMENT 'OLAP'
-    AUTO PARTITION BY range (date_trunc(`o_orderdate`, 'day')) ()
     DISTRIBUTED BY HASH(`o_orderkey`) BUCKETS 96
     PROPERTIES (
     "replication_allocation" = "tag.location.default: 1"
@@ -73,7 +72,6 @@ suite("left_semi_join_filter") {
     ) ENGINE=OLAP
     DUPLICATE KEY(l_orderkey, l_linenumber, l_partkey, l_suppkey )
     COMMENT 'OLAP'
-    AUTO PARTITION BY range (date_trunc(`l_shipdate`, 'day')) ()
     DISTRIBUTED BY HASH(`l_orderkey`) BUCKETS 96
     PROPERTIES (
     "replication_allocation" = "tag.location.default: 1"
@@ -106,34 +104,6 @@ suite("left_semi_join_filter") {
 
     sql """analyze table orders_left_semi_join with sync;"""
     sql """analyze table lineitem_left_semi_join with sync;"""
-
-    def create_mv_lineitem = { mv_name, mv_sql ->
-        sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name};"""
-        sql """DROP TABLE IF EXISTS ${mv_name}"""
-        sql"""
-        CREATE MATERIALIZED VIEW ${mv_name} 
-        BUILD IMMEDIATE REFRESH AUTO ON MANUAL 
-        partition by(l_shipdate) 
-        DISTRIBUTED BY RANDOM BUCKETS 2 
-        PROPERTIES ('replication_num' = '1')  
-        AS  
-        ${mv_sql}
-        """
-    }
-
-    def create_mv_orders = { mv_name, mv_sql ->
-        sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name};"""
-        sql """DROP TABLE IF EXISTS ${mv_name}"""
-        sql"""
-        CREATE MATERIALIZED VIEW ${mv_name} 
-        BUILD IMMEDIATE REFRESH AUTO ON MANUAL 
-        partition by(o_orderdate) 
-        DISTRIBUTED BY RANDOM BUCKETS 2 
-        PROPERTIES ('replication_num' = '1') 
-        AS  
-        ${mv_sql}
-        """
-    }
 
     def compare_res = { def stmt ->
         sql "SET enable_materialized_view_rewrite=false"
@@ -202,9 +172,9 @@ suite("left_semi_join_filter") {
         logger.info("i:" + i)
         def mv_name = """mv_name_left_semi_join_${i}"""
         if (i < 4) {
-            create_mv_lineitem(mv_name, mv_list_1[i])
+            create_async_mv(db, mv_name, mv_list_1[i])
         } else {
-            create_mv_orders(mv_name, mv_list_1[i])
+            create_async_mv(db, mv_name, mv_list_1[i])
         }
         def job_name = getJobName(db, mv_name)
         waitingMTMVTaskFinished(job_name)

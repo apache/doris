@@ -258,7 +258,8 @@ suite("grace_period") {
         o_orderdate,
         l_partkey,
         l_suppkey;
-        """, mv_partition_allow_staleness_name)
+        """, mv_partition_allow_staleness_name, true,
+            is_partition_statistics_ready(db, ["lineitem_partition", "orders_partition", mv_partition_allow_staleness_name]))
     // allow 10s staleness when partition table, and query doesn't use the partition changed, should success
     mv_rewrite_success ("""
         select l_shipdate, o_orderdate, l_partkey,
@@ -271,7 +272,8 @@ suite("grace_period") {
         o_orderdate,
         l_partkey,
         l_suppkey;
-        """, mv_partition_allow_staleness_name)
+        """, mv_partition_allow_staleness_name, true,
+            is_partition_statistics_ready(db, ["lineitem_partition", "orders_partition", mv_partition_allow_staleness_name]))
     sql "SET enable_materialized_view_rewrite=false"
     // allow 10s staleness when partition table, and query use the partition changed, should success,
     // but disable materialized view rewrite, should fail
@@ -331,7 +333,8 @@ suite("grace_period") {
         o_orderdate,
         l_partkey,
         l_suppkey;
-        """, mv_partition_allow_staleness_name)
+        """, mv_partition_allow_staleness_name, true,
+            is_partition_statistics_ready(db, ["lineitem_partition", "orders_partition", mv_partition_allow_staleness_name]))
     sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_partition_allow_staleness_name}"""
 
 
@@ -367,7 +370,8 @@ suite("grace_period") {
         o_orderdate,
         l_partkey,
         l_suppkey;
-        """, mv_un_partition_allow_staleness_name)
+        """, mv_un_partition_allow_staleness_name, true,
+            is_partition_statistics_ready(db, ["lineitem_partition", "orders_partition", mv_un_partition_allow_staleness_name]))
     // allow 10s staleness when un partition table, should success
     mv_rewrite_success (
         """
@@ -381,7 +385,8 @@ suite("grace_period") {
         o_orderdate,
         l_partkey,
         l_suppkey;
-        """, mv_un_partition_allow_staleness_name)
+        """, mv_un_partition_allow_staleness_name, true,
+            is_partition_statistics_ready(db, ["lineitem_partition", "orders_partition", mv_un_partition_allow_staleness_name]))
     sql "SET enable_materialized_view_rewrite=false"
     // allow 10s staleness when un partition table, but disable materialized view rewrite, should fail
     mv_not_part_in("""

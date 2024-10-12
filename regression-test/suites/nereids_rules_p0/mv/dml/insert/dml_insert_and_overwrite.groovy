@@ -68,18 +68,6 @@ suite("dml_insert_and_overwrite") {
     )
     """
 
-    def create_async_mv = { mv_name, mv_sql ->
-        sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name}"""
-        sql"""
-        CREATE MATERIALIZED VIEW ${mv_name} 
-        BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL
-        DISTRIBUTED BY RANDOM BUCKETS 2
-        PROPERTIES ('replication_num' = '1') 
-        AS ${mv_sql}
-        """
-        waitingMTMVTaskFinished(getJobName(db, mv_name))
-    }
-
     def result_test_sql = """select * from insert_target_olap_table;"""
 
 
@@ -101,7 +89,7 @@ suite("dml_insert_and_overwrite") {
         ps_supplycost,
         ps_comment;
     """
-    create_async_mv(insert_into_async_mv_name,
+    create_async_mv(db, insert_into_async_mv_name,
     """select
         ps_partkey,
         ps_suppkey,
@@ -198,7 +186,7 @@ suite("dml_insert_and_overwrite") {
         ps_supplycost,
         ps_comment;
     """
-    create_async_mv(insert_overwrite_async_mv_name,
+    create_async_mv(db, insert_overwrite_async_mv_name,
             """select
         ps_partkey,
         ps_suppkey,
@@ -244,7 +232,7 @@ suite("dml_insert_and_overwrite") {
         ps_supplycost,
         ps_comment;
     """
-    create_async_mv(insert_overwrite_sync_mv_name,
+    create_async_mv(db, insert_overwrite_sync_mv_name,
             """select
         ps_partkey,
         ps_suppkey,

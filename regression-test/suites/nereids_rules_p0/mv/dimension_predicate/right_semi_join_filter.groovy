@@ -107,34 +107,6 @@ suite("right_semi_join_filter") {
     sql """analyze table orders_right_semi_join with sync;"""
     sql """analyze table lineitem_right_semi_join with sync;"""
 
-    def create_mv_lineitem = { mv_name, mv_sql ->
-        sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name};"""
-        sql """DROP TABLE IF EXISTS ${mv_name}"""
-        sql"""
-        CREATE MATERIALIZED VIEW ${mv_name} 
-        BUILD IMMEDIATE REFRESH AUTO ON MANUAL 
-        partition by(l_shipdate) 
-        DISTRIBUTED BY RANDOM BUCKETS 2 
-        PROPERTIES ('replication_num' = '1')  
-        AS  
-        ${mv_sql}
-        """
-    }
-
-    def create_mv_orders = { mv_name, mv_sql ->
-        sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name};"""
-        sql """DROP TABLE IF EXISTS ${mv_name}"""
-        sql"""
-        CREATE MATERIALIZED VIEW ${mv_name} 
-        BUILD IMMEDIATE REFRESH AUTO ON MANUAL 
-        partition by(o_orderdate) 
-        DISTRIBUTED BY RANDOM BUCKETS 2 
-        PROPERTIES ('replication_num' = '1') 
-        AS  
-        ${mv_sql}
-        """
-    }
-
     def compare_res = { def stmt ->
         sql "SET enable_materialized_view_rewrite=false"
         def origin_res = sql stmt
@@ -202,9 +174,9 @@ suite("right_semi_join_filter") {
         logger.info("i:" + i)
         def mv_name = """mv_name_right_semi_join_${i}"""
         if (i > 3) {
-            create_mv_lineitem(mv_name, mv_list_1[i])
+            create_async_mv(db, mv_name, mv_list_1[i])
         } else {
-            create_mv_orders(mv_name, mv_list_1[i])
+            create_async_mv(db, mv_name, mv_list_1[i])
         }
         def job_name = getJobName(db, mv_name)
         waitingMTMVTaskFinished(job_name)

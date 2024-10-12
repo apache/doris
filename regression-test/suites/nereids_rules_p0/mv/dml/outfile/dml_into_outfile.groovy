@@ -69,18 +69,6 @@ suite("dml_into_outfile", "p0") {
 
     sql """analyze table partsupp with sync;"""
 
-    def create_async_mv = { mv_name, mv_sql ->
-        sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name}"""
-        sql"""
-        CREATE MATERIALIZED VIEW ${mv_name} 
-        BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL
-        DISTRIBUTED BY RANDOM BUCKETS 2
-        PROPERTIES ('replication_num' = '1') 
-        AS ${mv_sql}
-        """
-        waitingMTMVTaskFinished(getJobName(db, mv_name))
-    }
-
     def outfile_to_S3 = {query_sql ->
         // select ... into outfile ...
         def res = sql """
@@ -117,7 +105,7 @@ suite("dml_into_outfile", "p0") {
             );
     """
 
-    create_async_mv(into_outfile_async_mv_name,
+    create_async_mv(db, into_outfile_async_mv_name,
             """select
         ps_partkey,
         ps_suppkey,
