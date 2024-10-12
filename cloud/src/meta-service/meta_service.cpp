@@ -2218,71 +2218,63 @@ void MetaServiceImpl::fix_tablet_stats(::google::protobuf::RpcController* contro
         auto begin_key = stats_tablet_key({instance_id, table_id, start, start, start});
         auto end_key = stats_tablet_key({instance_id, table_id, end, end, end});
         std::vector<std::pair<std::string, std::string>> stats_kvs;
-    stats_kvs.reserve(5); // aggregate + data_size + num_rows + num_rowsets + num_segments
 
-    std::unique_ptr<RangeGetIterator> it;
-    do {
-        TxnErrorCode err = txn->get(begin_key, end_key, &it, true);
-        if (err != TxnErrorCode::TXN_OK) {
-            code = cast_as<ErrCategory::READ>(err);
-            msg = fmt::format("failed to get tablet stats, err={} table_id={}", err,
-                              table_id);
-            return;
-        }
-        while (it->has_next()) {
-            auto [k, v] = it->next();
-            stats_kvs.emplace_back(std::string {k.data(), k.size()},
-                                   std::string {v.data(), v.size()});
-        }
-        begin_key = it->next_begin_key();
-    } while (it->more());
+        std::unique_ptr<RangeGetIterator> it;
+        do {
+            TxnErrorCode err = txn->get(begin_key, end_key, &it, true);
+            if (err != TxnErrorCode::TXN_OK) {
+                code = cast_as<ErrCategory::READ>(err);
+                msg = fmt::format("failed to get tablet stats, err={} table_id={}", err, table_id);
+                return;
+            }
+            while (it->has_next()) {
+                auto [k, v] = it->next();
+                auto k1 = k;
+                k1.remove_prefix(1);
+                std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> out;
+                decode_key(&k1, &out);
+                // 0x01 "stats" ${instance_id} "tablet" ${table_id}
+                // ${index_id} ${partition_id} ${tablet_id} -> TabletStatsPB
+                if (out.size() == 8) {
+                    auto tablet_id = std::get<int64_t>(std::get<0>(out[7]));
+                    TabletStatsPB tablet_stat;
+                    tablet_stat.ParseFromArray(v.data(), v.size());
 
-    if (stats_kvs.empty()) {
-        code = MetaServiceCode::TABLET_NOT_FOUND;
-        msg = fmt::format("tablet stats not found, table_id={}", table_id);
-        return;
+                    GetRowsetResponse resp;
+                    internal_get_rowset(txn.get(), start, end, instance_id, tablet_id, code, msg,
+                                        &resp);
+                    if (code != MetaServiceCode::OK) {
+                        return;
+                    }
+                    int64_t total_disk_size = 0;
+                    for (const auto& rs_meta : resp.rowset_meta()) {
+                        total_disk_size += rs_meta.total_disk_size();
+                    }
+                    tablet_stat.set_data_size(total_disk_size);
+
+                    std::string key;
+                    std::string val;
+                    key = stats_tablet_key({instance_id, table_id, tablet_stat.idx().index_id(),
+                                            tablet_stat.idx().partition_id(),
+                                            tablet_stat.idx().tablet_id()});
+                    if (!tablet_stat.SerializeToString(&val)) {
+                        code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+                        msg = "failed to serialize tablet stat";
+                        return;
+                    }
+                    txn->put(key, val);
+                    LOG(INFO) << "xxx put tablet_key=" << hex(key);
+                }
+            }
+            begin_key = it->next_begin_key();
+        } while (it->more());
     }
-
-    auto& [first_stats_key, v] = stats_kvs[0];
-    // First key MUST be tablet stats key, the original non-detached one
-    DCHECK(first_stats_key == begin_key_check)
-            << hex(first_stats_key) << " vs " << hex(begin_key_check);
-    if (!stats.ParseFromArray(v.data(), v.size())) {
-        code = MetaServiceCode::PROTOBUF_PARSE_ERR;
-        msg = fmt::format("marformed tablet stats value, key={}", hex(first_stats_key));
+    TxnErrorCode err = txn->commit();
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::COMMIT>(err);
+        ss << "failed to update tablet meta, err=" << err;
+        msg = ss.str();
         return;
-    }
-    // Parse split tablet stats
-    int ret = get_detached_tablet_stats(stats_kvs, detached_stats);
-
-    if (ret != 0) {
-        code = MetaServiceCode::PROTOBUF_PARSE_ERR;
-        msg = fmt::format("marformed splitted tablet stats kv, key={}", hex(first_stats_key));
-        return;
-    }
-
-        TabletIndexPB idx;
-        get_tablet_idx(code, msg, txn.get(), instance_id, tablet_id, idx);
-        if (code != MetaServiceCode::OK) {
-            return;
-        }
-        TabletStatsPB tablet_stat;
-        internal_get_tablet_stats(code, msg, txn.get(), instance_id, idx, tablet_stat, true);
-        if (code != MetaServiceCode::OK) {
-            break;
-        }
-
-        GetRowsetResponse resp;
-        internal_get_rowset(txn.get(), start, end, instance_id, tablet_id, code, msg, &resp);
-        if (code != MetaServiceCode::OK) {
-            return;
-        }
-
-        int64_t total_disk_size = 0;
-        for (const auto& rs_meta : resp.rowset_meta()) {
-            total_disk_size += rs_meta.total_disk_size();
-        }
-        tablet_stat.set_data_size(total_disk_size);
     }
 }
 
