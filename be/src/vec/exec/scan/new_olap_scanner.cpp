@@ -151,7 +151,8 @@ Status NewOlapScanner::init() {
         if (olap_scan_node.__isset.schema_version && olap_scan_node.__isset.columns_desc &&
             !olap_scan_node.columns_desc.empty() &&
             olap_scan_node.columns_desc[0].col_unique_id >= 0 &&
-            tablet->tablet_schema()->num_variant_columns() == 0) {
+            tablet->tablet_schema()->num_variant_columns() == 0 &&
+            !(tablet->enable_unique_key_merge_on_write() && _state->query_mow_in_mor())) {
             schema_key =
                     SchemaCache::get_schema_key(tablet->tablet_id(), olap_scan_node.columns_desc,
                                                 olap_scan_node.schema_version);
@@ -178,6 +179,14 @@ Status NewOlapScanner::init() {
             }
             if (olap_scan_node.__isset.indexes_desc) {
                 tablet_schema->update_indexes_from_thrift(olap_scan_node.indexes_desc);
+            }
+            if (tablet->enable_unique_key_merge_on_write() && _state->query_mow_in_mor()) {
+                auto delete_sign_idx = tablet_schema->delete_sign_idx();
+                if (delete_sign_idx != -1) {
+                    tablet_schema->mutable_column(delete_sign_idx)
+                            .set_aggregation_method(
+                                    FieldAggregationMethod::OLAP_FIELD_AGGREGATION_REPLACE);
+                }
             }
         }
 
@@ -375,8 +384,9 @@ Status NewOlapScanner::_init_tablet_reader_params(
                 }
             }
             if (auto sequence_col_idx = tablet_schema->sequence_col_idx();
-                has_replace_col && std::find(_return_columns.begin(), _return_columns.end(),
-                                             sequence_col_idx) == _return_columns.end()) {
+                (has_replace_col || _state->query_mow_in_mor()) &&
+                std::find(_return_columns.begin(), _return_columns.end(), sequence_col_idx) ==
+                        _return_columns.end()) {
                 _tablet_reader_params.return_columns.push_back(sequence_col_idx);
             }
         }

@@ -170,7 +170,7 @@ bool OlapScanLocalState::_is_key_column(const std::string& key_name) {
     if (p._olap_scan_node.keyType == TKeysType::DUP_KEYS ||
         (p._olap_scan_node.keyType == TKeysType::UNIQUE_KEYS &&
          p._olap_scan_node.__isset.enable_unique_key_merge_on_write &&
-         p._olap_scan_node.enable_unique_key_merge_on_write)) {
+         p._olap_scan_node.enable_unique_key_merge_on_write && !state()->query_mow_in_mor())) {
         return true;
     }
 
@@ -232,7 +232,7 @@ bool OlapScanLocalState::_storage_no_merge() {
     return (p._olap_scan_node.keyType == TKeysType::DUP_KEYS ||
             (p._olap_scan_node.keyType == TKeysType::UNIQUE_KEYS &&
              p._olap_scan_node.__isset.enable_unique_key_merge_on_write &&
-             p._olap_scan_node.enable_unique_key_merge_on_write));
+             p._olap_scan_node.enable_unique_key_merge_on_write && !state()->query_mow_in_mor()));
 }
 
 Status OlapScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* scanners) {
