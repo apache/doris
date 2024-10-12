@@ -32,14 +32,14 @@ suite("test_alter_uniq_null") {
 
     sql """
         CREATE TABLE ${tableName} (
-        `USER_ID` VARCHAR(30) NOT NULL,
-        `CLIENT` VARCHAR(24) NOT NULL,
-        `HIS_USER_IDENTITY` VARCHAR(6) NULL,
-        `IGNORE_SITE_CHECK` INT NOT NULL
+        `k1` VARCHAR(30) NOT NULL,
+        `k2` VARCHAR(24) NOT NULL,
+        `v1` VARCHAR(6) NULL,
+        `v2` INT NOT NULL
         ) ENGINE=OLAP
-        UNIQUE KEY(`USER_ID`, `CLIENT`)
+        UNIQUE KEY(`k1`, `k2`)
         COMMENT 'OLAP'
-        DISTRIBUTED BY HASH(`CLIENT`) BUCKETS 1
+        DISTRIBUTED BY HASH(`k2`) BUCKETS 1
         PROPERTIES (
         "file_cache_ttl_seconds" = "0",
         "light_schema_change" = "true",
@@ -50,7 +50,7 @@ suite("test_alter_uniq_null") {
         );
     """
 
-    sql """alter table ${tableName} modify column `IGNORE_SITE_CHECK` INT NULL"""
+    sql """alter table ${tableName} modify column `v2` INT NULL"""
     sleep(10)
     max_try_num = 1000
     while (max_try_num--) {
