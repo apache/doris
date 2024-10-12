@@ -1270,7 +1270,7 @@ public class UdfConvert {
                     offset += byteRes[i].length;
                     offsets[i] = offset;
                 }
-                int oldSzie = 0;
+                int oldSzie = oldOffsetNum;
                 if (num > 0) {
                     oldSzie = offsets[num - 1];
                 }
@@ -1305,11 +1305,11 @@ public class UdfConvert {
                 offset += byteRes[i].length;
                 offsets[i] = offset;
             }
-            int oldSzie = 0;
+            int oldSzie = oldOffsetNum;
             if (num > 0) {
                 oldSzie = offsets[num - 1];
             }
-            byte[] bytes = new byte[oldSzie];
+            byte[] bytes = new byte[oldSzie - oldOffsetNum];
             long bytesAddr = JNINativeMethod.resizeStringColumn(dataAddr, oldSzie);
             int dst = 0;
             for (int i = 0; i < num; i++) {
