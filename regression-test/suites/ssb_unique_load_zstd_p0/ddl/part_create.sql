@@ -12,7 +12,6 @@ CREATE TABLE IF NOT EXISTS `part` (
 UNIQUE KEY (`p_partkey`)
 DISTRIBUTED BY HASH(`p_partkey`) BUCKETS 10
 PROPERTIES (
-"enable_mow_light_delete" = "true",
 "compression"="zstd",
 "replication_num" = "1"
 );

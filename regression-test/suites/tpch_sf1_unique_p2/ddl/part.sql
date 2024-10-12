@@ -12,7 +12,6 @@ CREATE TABLE IF NOT EXISTS part (
 UNIQUE KEY(P_PARTKEY)
 DISTRIBUTED BY HASH(P_PARTKEY) BUCKETS 1
 PROPERTIES (
-  "enable_mow_light_delete" = "true",
   "replication_num" = "1"
 )
 

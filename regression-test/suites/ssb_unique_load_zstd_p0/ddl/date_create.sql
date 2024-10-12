@@ -20,7 +20,6 @@ CREATE TABLE IF NOT EXISTS `date` (
 UNIQUE KEY (`d_datekey`)
 DISTRIBUTED BY HASH(`d_datekey`) BUCKETS 1
 PROPERTIES (
-"enable_mow_light_delete" = "true",
 "compression"="zstd",
 "replication_num" = "1"
 );
