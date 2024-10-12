@@ -1124,7 +1124,7 @@ message GetTabletStatsResponse {
 
 message FixTabletStatsRequest {
     optional string cloud_unique_id = 1;
-    repeated int64 tablet_id = 2;
+    repeated int64 table_id = 2;
 }
 
 message FixTabletStatsResponse {

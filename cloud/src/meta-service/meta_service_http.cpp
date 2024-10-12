@@ -474,7 +474,7 @@ static HttpResponse process_fix_tablet_stats(MetaServiceImpl* service, brpc::Con
     FixTabletStatsRequest req;
     PARSE_MESSAGE_OR_RETURN(ctrl, req);
     FixTabletStatsResponse resp;
-    service->fix_tablet_stats(&req, &resp);
+    service->fix_tablet_stats(ctrl, &req, &resp, nullptr);
 
     std::string body;
     if (resp.status().code() == MetaServiceCode::OK) {

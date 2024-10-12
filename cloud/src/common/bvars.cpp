@@ -50,6 +50,7 @@ BvarLatencyRecorderWithTag g_bvar_ms_prepare_partition("ms", "prepare_partition"
 BvarLatencyRecorderWithTag g_bvar_ms_commit_partition("ms", "commit_partition");
 BvarLatencyRecorderWithTag g_bvar_ms_drop_partition("ms", "drop_partition");
 BvarLatencyRecorderWithTag g_bvar_ms_get_tablet_stats("ms", "get_tablet_stats");
+BvarLatencyRecorderWithTag g_bvar_ms_fix_tablet_stats("ms", "fix_tablet_stats");
 BvarLatencyRecorderWithTag g_bvar_ms_get_obj_store_info("ms", "get_obj_store_info");
 BvarLatencyRecorderWithTag g_bvar_ms_alter_obj_store_info("ms", "alter_obj_store_info");
 BvarLatencyRecorderWithTag g_bvar_ms_alter_storage_vault("ms", "alter_storage_vault");
