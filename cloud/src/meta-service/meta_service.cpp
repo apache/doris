@@ -2188,9 +2188,102 @@ std::pair<MetaServiceCode, std::string> MetaServiceImpl::get_instance_info(
     return {code, std::move(msg)};
 }
 
-void MetaServiceImpl::fix_tablet_stats(const FixTabletStatsRequest* req,
-                                       const FixTabletStatsResponse* resp) {
-                                    
+void MetaServiceImpl::fix_tablet_stats(::google::protobuf::RpcController* controller,
+                                       const FixTabletStatsRequest* request,
+                                       FixTabletStatsResponse* response,
+                                       ::google::protobuf::Closure* done) {
+    RPC_PREPROCESS(fix_tablet_stats);
+    instance_id = get_instance_id(resource_mgr_, request->cloud_unique_id());
+    if (instance_id.empty()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "empty instance_id";
+        LOG(INFO) << msg << ", cloud_unique_id=" << request->cloud_unique_id();
+        return;
+    }
+    RPC_RATE_LIMIT(fix_tablet_stats)
+
+    std::unique_ptr<Transaction> txn;
+    for (const auto& i : request->table_id()) {
+        int64_t table_id = i;
+        TxnErrorCode err = txn_kv_->create_txn(&txn);
+        if (err != TxnErrorCode::TXN_OK) {
+            code = cast_as<ErrCategory::CREATE>(err);
+            msg = fmt::format("failed to create txn, table_id={}", table_id);
+            return;
+        }
+
+        std::string key, val;
+        int64_t start = 0;
+        int64_t end = std::numeric_limits<int64_t>::max() - 1;
+        auto begin_key = stats_tablet_key({instance_id, table_id, start, start, start});
+        auto end_key = stats_tablet_key({instance_id, table_id, end, end, end});
+        std::vector<std::pair<std::string, std::string>> stats_kvs;
+    stats_kvs.reserve(5); // aggregate + data_size + num_rows + num_rowsets + num_segments
+
+    std::unique_ptr<RangeGetIterator> it;
+    do {
+        TxnErrorCode err = txn->get(begin_key, end_key, &it, true);
+        if (err != TxnErrorCode::TXN_OK) {
+            code = cast_as<ErrCategory::READ>(err);
+            msg = fmt::format("failed to get tablet stats, err={} table_id={}", err,
+                              table_id);
+            return;
+        }
+        while (it->has_next()) {
+            auto [k, v] = it->next();
+            stats_kvs.emplace_back(std::string {k.data(), k.size()},
+                                   std::string {v.data(), v.size()});
+        }
+        begin_key = it->next_begin_key();
+    } while (it->more());
+
+    if (stats_kvs.empty()) {
+        code = MetaServiceCode::TABLET_NOT_FOUND;
+        msg = fmt::format("tablet stats not found, table_id={}", table_id);
+        return;
+    }
+
+    auto& [first_stats_key, v] = stats_kvs[0];
+    // First key MUST be tablet stats key, the original non-detached one
+    DCHECK(first_stats_key == begin_key_check)
+            << hex(first_stats_key) << " vs " << hex(begin_key_check);
+    if (!stats.ParseFromArray(v.data(), v.size())) {
+        code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+        msg = fmt::format("marformed tablet stats value, key={}", hex(first_stats_key));
+        return;
+    }
+    // Parse split tablet stats
+    int ret = get_detached_tablet_stats(stats_kvs, detached_stats);
+
+    if (ret != 0) {
+        code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+        msg = fmt::format("marformed splitted tablet stats kv, key={}", hex(first_stats_key));
+        return;
+    }
+
+        TabletIndexPB idx;
+        get_tablet_idx(code, msg, txn.get(), instance_id, tablet_id, idx);
+        if (code != MetaServiceCode::OK) {
+            return;
+        }
+        TabletStatsPB tablet_stat;
+        internal_get_tablet_stats(code, msg, txn.get(), instance_id, idx, tablet_stat, true);
+        if (code != MetaServiceCode::OK) {
+            break;
+        }
+
+        GetRowsetResponse resp;
+        internal_get_rowset(txn.get(), start, end, instance_id, tablet_id, code, msg, &resp);
+        if (code != MetaServiceCode::OK) {
+            return;
+        }
+
+        int64_t total_disk_size = 0;
+        for (const auto& rs_meta : resp.rowset_meta()) {
+            total_disk_size += rs_meta.total_disk_size();
+        }
+        tablet_stat.set_data_size(total_disk_size);
+    }
 }
 
 } // namespace doris::cloud
