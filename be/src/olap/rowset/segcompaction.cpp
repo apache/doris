@@ -69,6 +69,19 @@ using namespace ErrorCode;
 
 SegcompactionWorker::SegcompactionWorker(BetaRowsetWriter* writer) : _writer(writer) {}
 
+void SegcompactionWorker::init_mem_tracker(const RowsetWriterContext& rowset_writer_context) {
+    _seg_compact_mem_tracker = MemTrackerLimiter::create_shared(
+            MemTrackerLimiter::Type::COMPACTION,
+            fmt::format("segcompaction-txnID_{}-loadID_{}-tabletID_{}-indexID_{}-"
+                        "partitionID_{}-version_{}",
+                        std::to_string(rowset_writer_context.txn_id),
+                        print_id(rowset_writer_context.load_id),
+                        std::to_string(rowset_writer_context.tablet_id),
+                        std::to_string(rowset_writer_context.index_id),
+                        std::to_string(rowset_writer_context.partition_id),
+                        rowset_writer_context.version.to_string()));
+}
+
 Status SegcompactionWorker::_get_segcompaction_reader(
         SegCompactionCandidatesSharedPtr segments, TabletSharedPtr tablet,
         std::shared_ptr<Schema> schema, OlapReaderStatistics* stat,

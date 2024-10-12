@@ -69,6 +69,9 @@ public:
     // set the cancel flag, tasks already started will not be cancelled.
     bool cancel();
 
+
+    void init_mem_tracker(const RowsetWriterContext& rowset_writer_context);
+
 private:
     Status _create_segment_writer_for_segcompaction(
             std::unique_ptr<segment_v2::SegmentWriter>* writer, uint32_t begin, uint32_t end);
