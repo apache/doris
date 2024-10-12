@@ -17,6 +17,9 @@
 
 #pragma once
 
+#include <gen_cpp/MasterService_types.h>
+#include <gen_cpp/Types_types.h>
+
 #include <functional>
 #include <memory>
 #include <vector>
@@ -64,6 +67,9 @@ public:
                                        const std::function<bool(CloudTablet*)>& filter_out,
                                        std::vector<std::shared_ptr<CloudTablet>>* tablets,
                                        int64_t* max_score);
+
+    void build_all_report_tablets_info(std::map<TTabletId, TTablet>* tablets_info,
+                                       uint64_t* tablet_num);
 
 private:
     CloudStorageEngine& _engine;

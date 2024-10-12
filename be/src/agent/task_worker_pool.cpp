@@ -48,6 +48,8 @@
 #include "cloud/cloud_delete_task.h"
 #include "cloud/cloud_engine_calc_delete_bitmap_task.h"
 #include "cloud/cloud_schema_change_job.h"
+#include "cloud/cloud_tablet_mgr.h"
+#include "cloud/config.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
@@ -114,6 +116,10 @@ bool register_task_info(const TTaskType::type task_type, int64_t signature) {
         task_type == TTaskType::type::PUSH_COOLDOWN_CONF ||
         task_type == TTaskType::type::COMPACTION) {
         // no need to report task of these types
+        return true;
+    }
+    if (task_type == TTaskType::type::DROP && config::is_cloud_mode()) {
+        // cloud no need to report drop task status
         return true;
     }
 
@@ -1134,6 +1140,46 @@ void report_tablet_callback(StorageEngine& engine, const TMasterInfo& master_inf
     }
 }
 
+void report_tablet_callback(CloudStorageEngine& engine, const TMasterInfo& master_info) {
+    // Random sleep 1~5 seconds before doing report.
+    // In order to avoid the problem that the FE receives many report requests at the same time
+    // and can not be processed.
+    if (config::report_random_wait) {
+        random_sleep(5);
+    }
+
+    TReportRequest request;
+    request.__set_backend(BackendOptions::get_local_backend());
+    request.__isset.tablets = true;
+
+    increase_report_version();
+    uint64_t report_version;
+    uint64_t tablet_num = 0;
+    for (int i = 0; i < 5; i++) {
+        request.tablets.clear();
+        report_version = s_report_version;
+        engine.tablet_mgr().build_all_report_tablets_info(&request.tablets, &tablet_num);
+        if (report_version == s_report_version) {
+            break;
+        }
+    }
+
+    if (report_version < s_report_version) {
+        LOG(WARNING) << "report version " << report_version << " change to " << s_report_version;
+        DorisMetrics::instance()->report_all_tablets_requests_skip->increment(1);
+        return;
+    }
+
+    request.__set_report_version(report_version);
+    request.__set_num_tablets(tablet_num);
+
+    bool succ = handle_report(request, master_info, "tablet");
+    report_tablet_total << 1;
+    if (!succ) [[unlikely]] {
+        report_tablet_failed << 1;
+    }
+}
+
 void upload_callback(StorageEngine& engine, ExecEnv* env, const TAgentTaskRequest& req) {
     const auto& upload_request = req.upload_req;
 
@@ -1608,6 +1654,16 @@ void drop_tablet_callback(StorageEngine& engine, const TAgentTaskRequest& req) {
 
     finish_task(finish_task_request);
     remove_task_info(req.task_type, req.signature);
+}
+
+void drop_tablet_callback(CloudStorageEngine& engine, const TAgentTaskRequest& req) {
+    const auto& drop_tablet_req = req.drop_tablet_req;
+    // 1. erase lru from tablet mgr
+    // TODO(dx) clean tablet file cache
+    // get tablet's info(such as cachekey, tablet id, rsid)
+    engine.tablet_mgr().erase_tablet(drop_tablet_req.tablet_id);
+    // 2. gen clean file cache task
+    return;
 }
 
 void push_callback(StorageEngine& engine, const TAgentTaskRequest& req) {

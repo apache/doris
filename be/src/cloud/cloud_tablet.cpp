@@ -872,4 +872,12 @@ Status CloudTablet::sync_meta() {
     return Status::OK();
 }
 
+void CloudTablet::build_tablet_report_info(TTabletInfo* tablet_info) {
+    std::shared_lock rdlock(_meta_lock);
+    tablet_info->__set_total_version_count(_tablet_meta->version_count());
+    tablet_info->__set_tablet_id(_tablet_meta->tablet_id());
+    // Currently, this information will not be used by the cloud report,
+    // but it may be used in the future.
+}
+
 } // namespace doris
