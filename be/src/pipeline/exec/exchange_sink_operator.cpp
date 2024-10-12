@@ -401,8 +401,8 @@ Status ExchangeSinkOperatorX::open(RuntimeState* state) {
     _compression_type = state->fragement_transmission_compression_type();
     if (_part_type == TPartitionType::TABLET_SINK_SHUFFLE_PARTITIONED) {
         if (_output_tuple_id == -1) {
-            RETURN_IF_ERROR(
-                    vectorized::VExpr::prepare(_tablet_sink_expr_ctxs, state, _child->row_desc()));
+            RETURN_IF_ERROR(vectorized::VExpr::prepare(_tablet_sink_expr_ctxs, state,
+                                                       _child_x->row_desc()));
         } else {
             auto* output_tuple_desc = state->desc_tbl().get_tuple_descriptor(_output_tuple_id);
             auto* output_row_desc = _pool->add(new RowDescriptor(output_tuple_desc, false));
