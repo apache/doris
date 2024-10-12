@@ -25,6 +25,7 @@ import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.proto.Cloud.ClusterPB;
 import org.apache.doris.cloud.proto.Cloud.InstanceInfoPB;
+import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -47,6 +48,7 @@ import org.apache.doris.thrift.TStorageMedium;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.commons.lang3.time.StopWatch;
 import org.apache.logging.log4j.LogManager;
@@ -54,6 +56,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
@@ -79,6 +82,7 @@ public class CloudSystemInfoService extends SystemInfoService {
 
     // for show cluster and cache user owned cluster
     // clusterId -> List<Backend>
+    // pls make sure each cluster's backend list is sorted by backendId
     protected Map<String, List<Backend>> clusterIdToBackend = new ConcurrentHashMap<>();
     // clusterName -> clusterId
     protected Map<String, String> clusterNameToId = new ConcurrentHashMap<>();
@@ -242,9 +246,12 @@ public class CloudSystemInfoService extends SystemInfoService {
                         clusterName, clusterId, be.size(), b);
                 continue;
             }
-            be.add(b);
+            List<Backend> sortBackends = Lists.newArrayList(be);
+            sortBackends.add(b);
+            Collections.sort(sortBackends, Comparator.comparing(Backend::getId));
+            clusterIdToBackend.put(clusterId, sortBackends);
             LOG.info("update (add) cloud cluster map, clusterName={} clusterId={} backendNum={} current backend={}",
-                    clusterName, clusterId, be.size(), b);
+                    clusterName, clusterId, sortBackends.size(), sortBackends);
         }
 
         for (Backend b : toDel) {
@@ -492,12 +499,26 @@ public class CloudSystemInfoService extends SystemInfoService {
 
     @Override
     public int getMinPipelineExecutorSize() {
+        String clusterName = "";
+        try {
+            clusterName = ConnectContext.get().getCloudCluster(false);
+        } catch (ComputeGroupException e) {
+            LOG.warn("failed to get cluster name", e);
+            return 1;
+        }
         if (ConnectContext.get() != null
-                && Strings.isNullOrEmpty(ConnectContext.get().getCloudCluster(false))) {
+                && Strings.isNullOrEmpty(clusterName)) {
             return 1;
         }
 
         return super.getMinPipelineExecutorSize();
+    }
+
+    @Override
+    public int getTabletNumByBackendId(long beId) {
+        return ((CloudEnv) Env.getCurrentEnv())
+                .getCloudTabletRebalancer()
+                .getTabletNumByBackendId(beId);
     }
 
     @Override
@@ -507,16 +528,21 @@ public class CloudSystemInfoService extends SystemInfoService {
             throw new AnalysisException("connect context is null");
         }
 
-        String cluster = ctx.getCurrentCloudCluster();
-        if (Strings.isNullOrEmpty(cluster)) {
-            throw new AnalysisException("cluster name is empty");
+        Map<Long, Backend> idToBackend = Maps.newHashMap();
+        try {
+            String cluster = ctx.getCurrentCloudCluster();
+            if (Strings.isNullOrEmpty(cluster)) {
+                throw new AnalysisException("cluster name is empty");
+            }
+
+            List<Backend> backends =  getBackendsByClusterName(cluster);
+            for (Backend be : backends) {
+                idToBackend.put(be.getId(), be);
+            }
+        } catch (ComputeGroupException e) {
+            throw new AnalysisException(e.getMessage());
         }
 
-        List<Backend> backends =  getBackendsByClusterName(cluster);
-        Map<Long, Backend> idToBackend = Maps.newHashMap();
-        for (Backend be : backends) {
-            idToBackend.put(be.getId(), be);
-        }
         return ImmutableMap.copyOf(idToBackend);
     }
 
@@ -544,7 +570,7 @@ public class CloudSystemInfoService extends SystemInfoService {
         }
     }
 
-    public String getClusterIdByBeAddr(String beEndpoint) {
+    public String getClusterNameByBeAddr(String beEndpoint) {
         rlock.lock();
         try {
             for (Map.Entry<String, List<Backend>> idBe : clusterIdToBackend.entrySet()) {
@@ -614,6 +640,10 @@ public class CloudSystemInfoService extends SystemInfoService {
         } finally {
             wlock.unlock();
         }
+    }
+
+    public String getCloudClusterIdByName(String clusterName) {
+        return clusterNameToId.get(clusterName);
     }
 
     public String getClusterNameByClusterId(final String clusterId) {
@@ -748,15 +778,6 @@ public class CloudSystemInfoService extends SystemInfoService {
         rlock.lock();
         try {
             return new ConcurrentHashMap<>(clusterIdToBackend);
-        } finally {
-            rlock.unlock();
-        }
-    }
-
-    public String getCloudClusterIdByName(String clusterName) {
-        rlock.lock();
-        try {
-            return clusterNameToId.get(clusterName);
         } finally {
             rlock.unlock();
         }
@@ -956,7 +977,13 @@ public class CloudSystemInfoService extends SystemInfoService {
     public void waitForAutoStartCurrentCluster() throws DdlException {
         ConnectContext context = ConnectContext.get();
         if (context != null) {
-            String cloudCluster = context.getCloudCluster();
+            String cloudCluster = "";
+            try {
+                cloudCluster = context.getCloudCluster();
+            } catch (ComputeGroupException e) {
+                LOG.warn("failed to get cloud cluster", e);
+                return;
+            }
             if (!Strings.isNullOrEmpty(cloudCluster)) {
                 waitForAutoStart(cloudCluster);
             }

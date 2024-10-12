@@ -35,7 +35,7 @@ import org.apache.http.client.methods.CloseableHttpResponse
 import org.apache.http.util.EntityUtils
 import org.apache.doris.regression.suite.ClusterOptions
 
-suite("test_partial_update_conflict_be_restart") {
+suite("test_partial_update_conflict_be_restart", 'docker') {
     def dbName = context.config.getDbNameByFile(context.file)
 
     def options = new ClusterOptions()

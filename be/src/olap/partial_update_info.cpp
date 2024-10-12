@@ -19,18 +19,30 @@
 
 #include <gen_cpp/olap_file.pb.h>
 
+#include "common/consts.h"
+#include "olap/base_tablet.h"
+#include "olap/olap_common.h"
+#include "olap/rowset/rowset.h"
+#include "olap/rowset/rowset_writer_context.h"
+#include "olap/tablet_meta.h"
 #include "olap/tablet_schema.h"
+#include "olap/utils.h"
+#include "util/bitmap_value.h"
+#include "vec/common/assert_cast.h"
+#include "vec/core/block.h"
 
 namespace doris {
 
 void PartialUpdateInfo::init(const TabletSchema& tablet_schema, bool partial_update,
                              const std::set<string>& partial_update_cols, bool is_strict_mode,
-                             int64_t timestamp_ms, const std::string& timezone,
-                             const std::string& auto_increment_column, int64_t cur_max_version) {
+                             int64_t timestamp_ms, int32_t nano_seconds,
+                             const std::string& timezone, const std::string& auto_increment_column,
+                             int64_t cur_max_version) {
     is_partial_update = partial_update;
     partial_update_input_columns = partial_update_cols;
     max_version_in_flush_phase = cur_max_version;
     this->timestamp_ms = timestamp_ms;
+    this->nano_seconds = nano_seconds;
     this->timezone = timezone;
     missing_cids.clear();
     update_cids.clear();
@@ -71,6 +83,7 @@ void PartialUpdateInfo::to_pb(PartialUpdateInfoPB* partial_update_info_pb) const
             can_insert_new_rows_in_partial_update);
     partial_update_info_pb->set_is_strict_mode(is_strict_mode);
     partial_update_info_pb->set_timestamp_ms(timestamp_ms);
+    partial_update_info_pb->set_nano_seconds(nano_seconds);
     partial_update_info_pb->set_timezone(timezone);
     partial_update_info_pb->set_is_input_columns_contains_auto_inc_column(
             is_input_columns_contains_auto_inc_column);
@@ -107,6 +120,9 @@ void PartialUpdateInfo::from_pb(PartialUpdateInfoPB* partial_update_info_pb) {
             partial_update_info_pb->is_input_columns_contains_auto_inc_column();
     is_schema_contains_auto_inc_column =
             partial_update_info_pb->is_schema_contains_auto_inc_column();
+    if (partial_update_info_pb->has_nano_seconds()) {
+        nano_seconds = partial_update_info_pb->nano_seconds();
+    }
     default_values.clear();
     for (const auto& value : partial_update_info_pb->default_values()) {
         default_values.push_back(value);
@@ -119,30 +135,60 @@ std::string PartialUpdateInfo::summary() const {
             update_cids.size(), missing_cids.size(), is_strict_mode, max_version_in_flush_phase);
 }
 
+Status PartialUpdateInfo::handle_non_strict_mode_not_found_error(
+        const TabletSchema& tablet_schema) {
+    if (!can_insert_new_rows_in_partial_update) {
+        std::string error_column;
+        for (auto cid : missing_cids) {
+            const TabletColumn& col = tablet_schema.column(cid);
+            if (!col.has_default_value() && !col.is_nullable() &&
+                !(tablet_schema.auto_increment_column() == col.name())) {
+                error_column = col.name();
+                break;
+            }
+        }
+        return Status::Error<ErrorCode::INVALID_SCHEMA, false>(
+                "the unmentioned column `{}` should have default value or be nullable "
+                "for "
+                "newly inserted rows in non-strict mode partial update",
+                error_column);
+    }
+    return Status::OK();
+}
+
 void PartialUpdateInfo::_generate_default_values_for_missing_cids(
         const TabletSchema& tablet_schema) {
     for (unsigned int cur_cid : missing_cids) {
         const auto& column = tablet_schema.column(cur_cid);
         if (column.has_default_value()) {
             std::string default_value;
-            if (UNLIKELY(tablet_schema.column(cur_cid).type() ==
-                                 FieldType::OLAP_FIELD_TYPE_DATETIMEV2 &&
-                         to_lower(tablet_schema.column(cur_cid).default_value())
-                                         .find(to_lower("CURRENT_TIMESTAMP")) !=
+            if (UNLIKELY(column.type() == FieldType::OLAP_FIELD_TYPE_DATETIMEV2 &&
+                         to_lower(column.default_value()).find(to_lower("CURRENT_TIMESTAMP")) !=
                                  std::string::npos)) {
-                DateV2Value<DateTimeV2ValueType> dtv;
-                dtv.from_unixtime(timestamp_ms / 1000, timezone);
-                default_value = dtv.debug_string();
-            } else if (UNLIKELY(tablet_schema.column(cur_cid).type() ==
-                                        FieldType::OLAP_FIELD_TYPE_DATEV2 &&
-                                to_lower(tablet_schema.column(cur_cid).default_value())
-                                                .find(to_lower("CURRENT_DATE")) !=
+                auto pos = to_lower(column.default_value()).find('(');
+                if (pos == std::string::npos) {
+                    DateV2Value<DateTimeV2ValueType> dtv;
+                    dtv.from_unixtime(timestamp_ms / 1000, timezone);
+                    default_value = dtv.debug_string();
+                } else {
+                    int precision = std::stoi(column.default_value().substr(pos + 1));
+                    DateV2Value<DateTimeV2ValueType> dtv;
+                    dtv.from_unixtime(timestamp_ms / 1000, nano_seconds, timezone, precision);
+                    default_value = dtv.debug_string();
+                }
+            } else if (UNLIKELY(column.type() == FieldType::OLAP_FIELD_TYPE_DATEV2 &&
+                                to_lower(column.default_value()).find(to_lower("CURRENT_DATE")) !=
                                         std::string::npos)) {
                 DateV2Value<DateV2ValueType> dv;
                 dv.from_unixtime(timestamp_ms / 1000, timezone);
                 default_value = dv.debug_string();
+            } else if (UNLIKELY(column.type() == FieldType::OLAP_FIELD_TYPE_OBJECT &&
+                                to_lower(column.default_value()).find(to_lower("BITMAP_EMPTY")) !=
+                                        std::string::npos)) {
+                BitmapValue v = BitmapValue {};
+                default_value = v.to_string();
             } else {
-                default_value = tablet_schema.column(cur_cid).default_value();
+                default_value = column.default_value();
             }
             default_values.emplace_back(default_value);
         } else {
@@ -152,4 +198,133 @@ void PartialUpdateInfo::_generate_default_values_for_missing_cids(
     }
     CHECK_EQ(missing_cids.size(), default_values.size());
 }
+
+void PartialUpdateReadPlan::prepare_to_read(const RowLocation& row_location, size_t pos) {
+    plan[row_location.rowset_id][row_location.segment_id].emplace_back(row_location.row_id, pos);
+}
+
+// read columns by read plan
+// read_index: ori_pos-> block_idx
+Status PartialUpdateReadPlan::read_columns_by_plan(
+        const TabletSchema& tablet_schema, const std::vector<uint32_t> cids_to_read,
+        const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset, vectorized::Block& block,
+        std::map<uint32_t, uint32_t>* read_index, const signed char* __restrict skip_map) const {
+    bool has_row_column = tablet_schema.has_row_store_for_all_columns();
+    auto mutable_columns = block.mutate_columns();
+    size_t read_idx = 0;
+    for (const auto& [rowset_id, segment_row_mappings] : plan) {
+        for (const auto& [segment_id, mappings] : segment_row_mappings) {
+            auto rowset_iter = rsid_to_rowset.find(rowset_id);
+            CHECK(rowset_iter != rsid_to_rowset.end());
+            std::vector<uint32_t> rids;
+            for (auto [rid, pos] : mappings) {
+                if (skip_map && skip_map[pos]) {
+                    continue;
+                }
+                rids.emplace_back(rid);
+                (*read_index)[pos] = read_idx++;
+            }
+            if (has_row_column) {
+                auto st = doris::BaseTablet::fetch_value_through_row_column(
+                        rowset_iter->second, tablet_schema, segment_id, rids, cids_to_read, block);
+                if (!st.ok()) {
+                    LOG(WARNING) << "failed to fetch value through row column";
+                    return st;
+                }
+                continue;
+            }
+            for (size_t cid = 0; cid < mutable_columns.size(); ++cid) {
+                TabletColumn tablet_column = tablet_schema.column(cids_to_read[cid]);
+                auto st = doris::BaseTablet::fetch_value_by_rowids(
+                        rowset_iter->second, segment_id, rids, tablet_column, mutable_columns[cid]);
+                // set read value to output block
+                if (!st.ok()) {
+                    LOG(WARNING) << "failed to fetch value";
+                    return st;
+                }
+            }
+        }
+    }
+    block.set_columns(std::move(mutable_columns));
+    return Status::OK();
+}
+
+Status PartialUpdateReadPlan::fill_missing_columns(
+        RowsetWriterContext* rowset_ctx, const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
+        const TabletSchema& tablet_schema, vectorized::Block& full_block,
+        const std::vector<bool>& use_default_or_null_flag, bool has_default_or_nullable,
+        const size_t& segment_start_pos, const vectorized::Block* block) const {
+    auto mutable_full_columns = full_block.mutate_columns();
+    // create old value columns
+    const auto& missing_cids = rowset_ctx->partial_update_info->missing_cids;
+    auto old_value_block = tablet_schema.create_block_by_cids(missing_cids);
+    CHECK_EQ(missing_cids.size(), old_value_block.columns());
+
+    // record real pos, key is input line num, value is old_block line num
+    std::map<uint32_t, uint32_t> read_index;
+    RETURN_IF_ERROR(read_columns_by_plan(tablet_schema, missing_cids, rsid_to_rowset,
+                                         old_value_block, &read_index, nullptr));
+
+    const auto* delete_sign_column_data = BaseTablet::get_delete_sign_column_data(old_value_block);
+
+    // build default value columns
+    auto default_value_block = old_value_block.clone_empty();
+    if (has_default_or_nullable || delete_sign_column_data != nullptr) {
+        RETURN_IF_ERROR(BaseTablet::generate_default_value_block(
+                tablet_schema, missing_cids, rowset_ctx->partial_update_info->default_values,
+                old_value_block, default_value_block));
+    }
+    auto mutable_default_value_columns = default_value_block.mutate_columns();
+
+    // fill all missing value from mutable_old_columns, need to consider default value and null value
+    for (auto idx = 0; idx < use_default_or_null_flag.size(); idx++) {
+        // `use_default_or_null_flag[idx] == false` doesn't mean that we should read values from the old row
+        // for the missing columns. For example, if a table has sequence column, the rows with DELETE_SIGN column
+        // marked will not be marked in delete bitmap(see https://github.com/apache/doris/pull/24011), so it will
+        // be found in Tablet::lookup_row_key() and `use_default_or_null_flag[idx]` will be false. But we should not
+        // read values from old rows for missing values in this occasion. So we should read the DELETE_SIGN column
+        // to check if a row REALLY exists in the table.
+        auto pos_in_old_block = read_index[idx + segment_start_pos];
+        if (use_default_or_null_flag[idx] || (delete_sign_column_data != nullptr &&
+                                              delete_sign_column_data[pos_in_old_block] != 0)) {
+            for (auto i = 0; i < missing_cids.size(); ++i) {
+                // if the column has default value, fill it with default value
+                // otherwise, if the column is nullable, fill it with null value
+                const auto& tablet_column = tablet_schema.column(missing_cids[i]);
+                auto& missing_col = mutable_full_columns[missing_cids[i]];
+                // clang-format off
+                if (tablet_column.has_default_value()) {
+                    missing_col->insert_from(*mutable_default_value_columns[i].get(), 0);
+                } else if (tablet_column.is_nullable()) {
+                    auto* nullable_column =
+                            assert_cast<vectorized::ColumnNullable*, TypeCheckOnRelease::DISABLE>(missing_col.get());
+                    nullable_column->insert_null_elements(1);
+                } else if (tablet_schema.auto_increment_column() == tablet_column.name()) {
+                    const auto& column =
+                            *DORIS_TRY(rowset_ctx->tablet_schema->column(tablet_column.name()));
+                    DCHECK(column.type() == FieldType::OLAP_FIELD_TYPE_BIGINT);
+                    auto* auto_inc_column =
+                            assert_cast<vectorized::ColumnInt64*, TypeCheckOnRelease::DISABLE>(missing_col.get());
+                    auto_inc_column->insert(
+                            (assert_cast<const vectorized::ColumnInt64*, TypeCheckOnRelease::DISABLE>(
+                                     block->get_by_name(BeConsts::PARTIAL_UPDATE_AUTO_INC_COL).column.get()))->get_element(idx));
+                } else {
+                    // If the control flow reaches this branch, the column neither has default value
+                    // nor is nullable. It means that the row's delete sign is marked, and the value
+                    // columns are useless and won't be read. So we can just put arbitary values in the cells
+                    missing_col->insert_default();
+                }
+                // clang-format on
+            }
+            continue;
+        }
+        for (auto i = 0; i < missing_cids.size(); ++i) {
+            mutable_full_columns[missing_cids[i]]->insert_from(
+                    *old_value_block.get_columns_with_type_and_name()[i].column.get(),
+                    pos_in_old_block);
+        }
+    }
+    return Status::OK();
+}
+
 } // namespace doris

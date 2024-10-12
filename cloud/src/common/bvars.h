@@ -122,6 +122,7 @@ private:
 extern BvarLatencyRecorderWithTag g_bvar_ms_begin_txn;
 extern BvarLatencyRecorderWithTag g_bvar_ms_precommit_txn;
 extern BvarLatencyRecorderWithTag g_bvar_ms_commit_txn;
+extern BvarLatencyRecorderWithTag g_bvar_ms_commit_txn_eventually;
 extern BvarLatencyRecorderWithTag g_bvar_ms_abort_txn;
 extern BvarLatencyRecorderWithTag g_bvar_ms_get_txn;
 extern BvarLatencyRecorderWithTag g_bvar_ms_get_current_max_txn_id;

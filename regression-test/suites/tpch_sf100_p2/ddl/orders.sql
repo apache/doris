@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS orders  (
 DUPLICATE KEY(O_ORDERKEY, O_CUSTKEY)
 DISTRIBUTED BY HASH(O_ORDERKEY) BUCKETS 32
 PROPERTIES (
+  "enable_mow_light_delete" = "true",
   "replication_num" = "1"
 )
 

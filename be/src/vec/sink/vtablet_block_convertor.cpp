@@ -29,6 +29,7 @@
 #include <utility>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/consts.h"
 #include "common/status.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
@@ -182,12 +183,11 @@ DecimalType OlapTableBlockConvertor::_get_decimalv3_min_or_max(const TypeDescrip
     return DecimalType(value);
 }
 
-Status OlapTableBlockConvertor::_validate_column(RuntimeState* state, const TypeDescriptor& type,
-                                                 bool is_nullable, vectorized::ColumnPtr column,
-                                                 size_t slot_index, bool* stop_processing,
-                                                 fmt::memory_buffer& error_prefix,
-                                                 const uint32_t row_count,
-                                                 vectorized::IColumn::Permutation* rows) {
+Status OlapTableBlockConvertor::_internal_validate_column(
+        RuntimeState* state, const TypeDescriptor& type, bool is_nullable,
+        vectorized::ColumnPtr column, size_t slot_index, bool* stop_processing,
+        fmt::memory_buffer& error_prefix, const uint32_t row_count,
+        vectorized::IColumn::Permutation* rows) {
     DCHECK((rows == nullptr) || (rows->size() == row_count));
     fmt::memory_buffer error_msg;
     auto set_invalid_and_append_error_msg = [&](int row) {
@@ -557,6 +557,10 @@ Status OlapTableBlockConvertor::_fill_auto_inc_cols(vectorized::Block* block, si
 
 Status OlapTableBlockConvertor::_partial_update_fill_auto_inc_cols(vectorized::Block* block,
                                                                    size_t rows) {
+    // avoid duplicate PARTIAL_UPDATE_AUTO_INC_COL
+    if (block->has(BeConsts::PARTIAL_UPDATE_AUTO_INC_COL)) {
+        return Status::OK();
+    }
     auto dst_column = vectorized::ColumnInt64::create();
     vectorized::ColumnInt64::Container& dst_values = dst_column->get_data();
     size_t null_value_count = rows;
@@ -571,7 +575,7 @@ Status OlapTableBlockConvertor::_partial_update_fill_auto_inc_cols(vectorized::B
     }
     block->insert(vectorized::ColumnWithTypeAndName(std::move(dst_column),
                                                     std::make_shared<DataTypeNumber<Int64>>(),
-                                                    "__PARTIAL_UPDATE_AUTO_INC_COLUMN__"));
+                                                    BeConsts::PARTIAL_UPDATE_AUTO_INC_COL));
     return Status::OK();
 }
 

@@ -38,7 +38,7 @@ int cmp(T a, T b) {
 /// Results don't depend on the values inside uninitialized memory but Memory Sanitizer cannot see it.
 /// Disable optimized functions if compile with Memory Sanitizer.
 
-#if (defined(__SSE2__) || defined(__aarch64__)) && !defined(MEMORY_SANITIZER)
+#if (defined(__SSE2__) && !defined(__aarch64__)) && !defined(MEMORY_SANITIZER)
 #include "util/sse_util.hpp"
 
 /** All functions works under the following assumptions:

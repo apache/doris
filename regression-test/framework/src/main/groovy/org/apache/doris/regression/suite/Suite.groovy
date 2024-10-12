@@ -29,6 +29,7 @@ import groovy.json.JsonSlurper
 import com.google.common.collect.ImmutableList
 import org.apache.commons.lang3.ObjectUtils
 import org.apache.doris.regression.Config
+import org.apache.doris.regression.RegressionTest
 import org.apache.doris.regression.action.BenchmarkAction
 import org.apache.doris.regression.action.ProfileAction
 import org.apache.doris.regression.action.WaitForAction
@@ -263,6 +264,12 @@ class Suite implements GroovyInterceptable {
         return context.connect(user, password, url, actionSupplier)
     }
 
+    public <T> T connectInDocker(String user = context.config.jdbcUser, String password = context.config.jdbcPassword,
+                        Closure<T> actionSupplier) {
+        def connInfo = context.threadLocalConn.get()
+        return context.connect(user, password, connInfo.conn.getMetaData().getURL(), actionSupplier)
+    }
+
     public void dockerAwaitUntil(int atMostSeconds, int intervalSecond = 1, Closure actionSupplier) {
         def connInfo = context.threadLocalConn.get()
         Awaitility.await().atMost(atMostSeconds, SECONDS).pollInterval(intervalSecond, SECONDS).until(
@@ -272,20 +279,36 @@ class Suite implements GroovyInterceptable {
         )
     }
 
+    // more explaination can see example file: demo_p0/docker_action.groovy
     public void docker(ClusterOptions options = new ClusterOptions(), Closure actionSupplier) throws Exception {
         if (context.config.excludeDockerTest) {
             return
         }
 
-        boolean pipelineIsCloud = isCloudMode()
+        if (RegressionTest.getGroupExecType(group) != RegressionTest.GroupExecType.DOCKER) {
+            throw new Exception("Need to add 'docker' to docker suite's belong groups, "
+                    + "see example demo_p0/docker_action.groovy")
+        }
+
+        try {
+            context.config.fetchCloudMode()
+        } catch (Exception e) {
+        }
+
         boolean dockerIsCloud = false
         if (options.cloudMode == null) {
-            dockerIsCloud = pipelineIsCloud
+            if (context.config.runMode == RunMode.UNKNOWN) {
+                throw new Exception("Bad run mode, cloud or not_cloud is unknown")
+            }
+            dockerIsCloud = context.config.runMode == RunMode.CLOUD
         } else {
-            dockerIsCloud = options.cloudMode
-            if (dockerIsCloud != pipelineIsCloud && options.skipRunWhenPipelineDiff) {
+            if (options.cloudMode == true && context.config.runMode == RunMode.NOT_CLOUD) {
                 return
             }
+            if (options.cloudMode == false && context.config.runMode == RunMode.CLOUD) {
+                return
+            }
+            dockerIsCloud = options.cloudMode
         }
 
         try {
@@ -544,6 +567,14 @@ class Suite implements GroovyInterceptable {
                 }
             }
         }
+    }
+
+    String getCurDbName() {
+        return context.dbName
+    }
+
+    String getCurDbConnectUrl() {
+        return context.config.getConnectionUrlByDbName(getCurDbName())
     }
 
     long getDbId() {
@@ -818,7 +849,7 @@ class Suite implements GroovyInterceptable {
 
     String getS3Url() {
         String s3BucketName = context.config.otherConfigs.get("s3BucketName");
-        if (context.config.otherConfigs.get("s3Provider") == "AZURE") {
+        if (context.config.otherConfigs.get("s3Provider").toUpperCase() == "AZURE") {
             String accountName = context.config.otherConfigs.get("ak");
             String s3Url = "http://${accountName}.blob.core.windows.net/${s3BucketName}"
             return s3Url
@@ -1318,8 +1349,8 @@ class Suite implements GroovyInterceptable {
         } while (timeoutTimestamp > System.currentTimeMillis() && (status == 'PENDING' || status == 'RUNNING'  || status == 'NULL' || status == 'CANCELED'))
         if (status != "SUCCESS") {
             logger.info("status is not success")
+            assertTrue(result.toString().contains("same table"))
         }
-        Assert.assertEquals("SUCCESS", status)
     }
 
     void waitingPartitionIsExpected(String tableName, String partitionName, boolean expectedStatus) {
@@ -1450,7 +1481,7 @@ class Suite implements GroovyInterceptable {
     }
 
     boolean isCloudMode() {
-        return context.config.fetchRunMode()
+        return context.config.isCloudMode()
     }
 
     boolean enableStoragevault() {
@@ -1624,6 +1655,30 @@ class Suite implements GroovyInterceptable {
         }
 
         return result.values().toList()
+    }
+
+    def create_async_mv = { db, mv_name, mv_sql ->
+
+        sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name}"""
+        sql"""
+        CREATE MATERIALIZED VIEW ${mv_name} 
+        BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL
+        DISTRIBUTED BY RANDOM BUCKETS 2
+        PROPERTIES ('replication_num' = '1') 
+        AS ${mv_sql}
+        """
+        def job_name = getJobName(db, mv_name);
+        waitingMTMVTaskFinished(job_name)
+        sql "analyze table ${mv_name} with sync;"
+    }
+
+    def mv_not_part_in = { query_sql, mv_name ->
+        explain {
+            sql(" memo plan ${query_sql}")
+            notContains("${mv_name} chose")
+            notContains("${mv_name} not chose")
+            notContains("${mv_name} fail")
+        }
     }
 
     def mv_rewrite_success = { query_sql, mv_name ->

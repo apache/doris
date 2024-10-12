@@ -190,6 +190,10 @@ Status ResultSinkLocalState::close(RuntimeState* state, Status exec_status) {
             // close file writer failed, should return this error to client
             final_status = st;
         }
+
+        LOG_INFO("Query {} result sink closed with status {} and has written {} rows",
+                 print_id(state->query_id()), final_status.to_string_no_stack(),
+                 _writer->get_written_rows());
     }
 
     // close sender, this is normal path end

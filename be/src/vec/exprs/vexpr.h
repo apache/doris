@@ -39,8 +39,10 @@
 #include "vec/columns/column.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
+#include "vec/core/types.h"
 #include "vec/core/wide_integer.h"
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_ipv6.h"
 #include "vec/exprs/vexpr_fwd.h"
 #include "vec/functions/function.h"
 
@@ -118,7 +120,7 @@ public:
 
     // execute current expr with inverted index to filter block. Given a roaring bitmap of match rows
     virtual Status evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) {
-        return Status::NotSupported("Not supported execute_with_inverted_index");
+        return Status::OK();
     }
 
     Status _evaluate_inverted_index(VExprContext* context, const FunctionBasePtr& function,
@@ -368,7 +370,7 @@ Status create_texpr_literal_node(const void* data, TExprNode* node, int precisio
         large_int_literal.__set_value(LargeIntValue::to_string(*origin_value));
         (*node).__set_large_int_literal(large_int_literal);
         (*node).__set_type(create_type_desc(PrimitiveType::TYPE_LARGEINT));
-    } else if constexpr ((T == TYPE_DATE) || (T == TYPE_DATETIME) || (T == TYPE_TIME)) {
+    } else if constexpr ((T == TYPE_DATE) || (T == TYPE_DATETIME) || (T == TYPE_TIMEV2)) {
         const auto* origin_value = reinterpret_cast<const VecDateTimeValue*>(data);
         TDateLiteral date_literal;
         char convert_buffer[30];
@@ -381,7 +383,7 @@ Status create_texpr_literal_node(const void* data, TExprNode* node, int precisio
         } else if (origin_value->type() == TimeType::TIME_DATETIME) {
             (*node).__set_type(create_type_desc(PrimitiveType::TYPE_DATETIME));
         } else if (origin_value->type() == TimeType::TIME_TIME) {
-            (*node).__set_type(create_type_desc(PrimitiveType::TYPE_TIME));
+            (*node).__set_type(create_type_desc(PrimitiveType::TYPE_TIMEV2));
         }
     } else if constexpr (T == TYPE_DATEV2) {
         const auto* origin_value = reinterpret_cast<const DateV2Value<DateV2ValueType>*>(data);
@@ -464,6 +466,20 @@ Status create_texpr_literal_node(const void* data, TExprNode* node, int precisio
         string_literal.__set_value(*origin_value);
         (*node).__set_string_literal(string_literal);
         (*node).__set_type(create_type_desc(PrimitiveType::TYPE_STRING));
+    } else if constexpr (T == TYPE_IPV4) {
+        const auto* origin_value = reinterpret_cast<const IPv4*>(data);
+        (*node).__set_node_type(TExprNodeType::IPV4_LITERAL);
+        TIPv4Literal literal;
+        literal.__set_value(*origin_value);
+        (*node).__set_ipv4_literal(literal);
+        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_IPV4));
+    } else if constexpr (T == TYPE_IPV6) {
+        const auto* origin_value = reinterpret_cast<const IPv6*>(data);
+        (*node).__set_node_type(TExprNodeType::IPV6_LITERAL);
+        TIPv6Literal literal;
+        literal.__set_value(vectorized::DataTypeIPv6::to_string(*origin_value));
+        (*node).__set_ipv6_literal(literal);
+        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_IPV6));
     } else {
         return Status::InvalidArgument("Invalid argument type!");
     }

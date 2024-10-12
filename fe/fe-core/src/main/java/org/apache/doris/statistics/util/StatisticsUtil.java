@@ -47,6 +47,7 @@ import org.apache.doris.catalog.TableAttributes;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.VariantType;
+import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -150,7 +151,12 @@ public class StatisticsUtil {
         boolean useFileCacheForStat = (enableFileCache && Config.allow_analyze_statistics_info_polluting_file_cache);
         try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext(false, useFileCacheForStat)) {
             if (Config.isCloudMode()) {
-                r.connectContext.getCloudCluster();
+                try {
+                    r.connectContext.getCloudCluster();
+                } catch (ComputeGroupException e) {
+                    LOG.warn("failed to connect to cloud cluster", e);
+                    return Collections.emptyList();
+                }
             }
             StmtExecutor stmtExecutor = new StmtExecutor(r.connectContext, sql);
             r.connectContext.setExecutor(stmtExecutor);
@@ -162,7 +168,6 @@ public class StatisticsUtil {
         StmtExecutor stmtExecutor = null;
         AutoCloseConnectContext r = StatisticsUtil.buildConnectContext();
         try {
-            r.connectContext.getSessionVariable().disableNereidsPlannerOnce();
             stmtExecutor = new StmtExecutor(r.connectContext, sql);
             r.connectContext.setExecutor(stmtExecutor);
             stmtExecutor.execute();
@@ -215,7 +220,6 @@ public class StatisticsUtil {
         sessionVariable.enableProfile = Config.enable_profile_when_analyze;
         sessionVariable.parallelExecInstanceNum = Config.statistics_sql_parallel_exec_instance_num;
         sessionVariable.parallelPipelineTaskNum = Config.statistics_sql_parallel_exec_instance_num;
-        sessionVariable.setEnableNereidsPlanner(true);
         sessionVariable.enableScanRunSerial = limitScan;
         sessionVariable.setQueryTimeoutS(StatisticsUtil.getAnalyzeTimeout());
         sessionVariable.insertTimeoutS = StatisticsUtil.getAnalyzeTimeout();
@@ -227,12 +231,17 @@ public class StatisticsUtil {
         sessionVariable.enableMaterializedViewRewrite = false;
         connectContext.setEnv(Env.getCurrentEnv());
         connectContext.setDatabase(FeConstants.INTERNAL_DB_NAME);
-        connectContext.setQualifiedUser(UserIdentity.ROOT.getQualifiedUser());
-        connectContext.setCurrentUserIdentity(UserIdentity.ROOT);
+        connectContext.setQualifiedUser(UserIdentity.ADMIN.getQualifiedUser());
+        connectContext.setCurrentUserIdentity(UserIdentity.ADMIN);
         connectContext.setStartTime();
         if (Config.isCloudMode()) {
             AutoCloseConnectContext ctx = new AutoCloseConnectContext(connectContext);
-            ctx.connectContext.getCloudCluster();
+            try {
+                ctx.connectContext.getCloudCluster();
+            } catch (ComputeGroupException e) {
+                LOG.warn("failed to connect to cloud cluster", e);
+                return ctx;
+            }
             sessionVariable.disableFileCache = !useFileCacheForStat;
             return ctx;
         } else {
@@ -490,7 +499,12 @@ public class StatisticsUtil {
                 return false;
             }
             try (AutoCloseConnectContext r = buildConnectContext()) {
-                r.connectContext.getCloudCluster();
+                try {
+                    r.connectContext.getCloudCluster();
+                } catch (ComputeGroupException e) {
+                    LOG.warn("failed to connect to cloud cluster", e);
+                    return false;
+                }
                 for (OlapTable table : statsTbls) {
                     for (Partition partition : table.getPartitions()) {
                         if (partition.getBaseIndex().getTablets().stream()

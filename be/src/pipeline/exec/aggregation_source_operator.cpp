@@ -416,6 +416,11 @@ Status AggLocalState::_get_without_key_result(RuntimeState* state, vectorized::B
                 }
             }
 
+            // Result of operator is nullable, but aggregate function result is not nullable
+            // this happens when:
+            // 1. no group by
+            // 2. input of aggregate function is empty
+            // 3. all of input columns are not nullable
             if (column_type->is_nullable() && !data_types[i]->is_nullable()) {
                 vectorized::ColumnPtr ptr = std::move(columns[i]);
                 // unless `count`, other aggregate function dispose empty set should be null

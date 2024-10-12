@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -60,6 +61,9 @@ public class ExtractAndNormalizeWindowExpression extends OneRewriteRuleFactory i
                     if (output instanceof WindowExpression) {
                         WindowExpression windowExpression = (WindowExpression) output;
                         Expression expression = ((WindowExpression) output).getFunction();
+                        if (expression.containsType(OrderExpression.class)) {
+                            throw new AnalysisException("order by is not supported in " + expression);
+                        }
                         if (expression instanceof NullableAggregateFunction) {
                             // NullableAggregateFunction in window function should be always nullable
                             // Because there may be no data in the window frame, null values will be generated.

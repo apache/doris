@@ -413,6 +413,8 @@ protected:
     // send block to slave BE rely on this. dont reconstruct it.
     std::shared_ptr<WriteBlockCallback<PTabletWriterAddBlockResult>> _send_block_callback = nullptr;
 
+    int64_t _wg_id = -1;
+
     bool _is_incremental;
 };
 
@@ -660,9 +662,6 @@ private:
     RuntimeProfile::Counter* _max_wait_exec_timer = nullptr;
     RuntimeProfile::Counter* _add_batch_number = nullptr;
     RuntimeProfile::Counter* _num_node_channels = nullptr;
-
-    // load mem limit is for remote load channel
-    int64_t _load_mem_limit = -1;
 
     // the timeout of load channels opened by this tablet sink. in second
     int64_t _load_channel_timeout_s = 0;

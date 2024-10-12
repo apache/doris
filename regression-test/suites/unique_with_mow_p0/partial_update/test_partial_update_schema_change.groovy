@@ -72,7 +72,7 @@ suite("test_partial_update_schema_change", "p0") {
     
     // schema change
     sql " ALTER table ${tableName} add column c10 INT DEFAULT '0' "
-    def try_times=12000
+    def try_times=1200
     // if timeout awaitility will raise exception
     Awaitility.await().atMost(try_times, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).await().until(() -> {
         def res = sql " SHOW ALTER TABLE COLUMN WHERE TableName = '${tableName}' ORDER BY CreateTime DESC LIMIT 1 "
@@ -415,12 +415,13 @@ suite("test_partial_update_schema_change", "p0") {
     });
 
     // test load data with all key column, should fail because
-    // it don't have any value columns
+    // it inserts a new row in strict mode
     streamLoad {
         table "${tableName}"
 
         set 'column_separator', ','
         set 'partial_columns', 'true'
+        set 'strict_mode', 'true'
         set 'columns', 'c0, c1'
 
         file 'schema_change/load_with_key_column.csv'
@@ -434,7 +435,7 @@ suite("test_partial_update_schema_change", "p0") {
             def json = parseJson(result)
             assertEquals("fail", json.Status.toLowerCase())
             assertEquals(1, json.NumberTotalRows)
-            assertEquals(0, json.NumberFilteredRows)
+            assertEquals(1, json.NumberFilteredRows)
             assertEquals(0, json.NumberUnselectedRows)
         }
     }
@@ -1001,6 +1002,7 @@ suite("test_partial_update_schema_change", "p0") {
 
         set 'column_separator', ','
         set 'partial_columns', 'true'
+        set 'strict_mode', 'true'
         set 'columns', 'c0, c1'
 
         file 'schema_change/load_with_key_column.csv'
@@ -1014,7 +1016,7 @@ suite("test_partial_update_schema_change", "p0") {
             def json = parseJson(result)
             assertEquals("fail", json.Status.toLowerCase())
             assertEquals(1, json.NumberTotalRows)
-            assertEquals(0, json.NumberFilteredRows)
+            assertEquals(1, json.NumberFilteredRows)
             assertEquals(0, json.NumberUnselectedRows)
         }
     }

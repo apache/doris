@@ -75,7 +75,7 @@ under the License.
         <antlr.version>4.9.3</antlr.version>
         <hadoop.version>2.8.0</hadoop.version>
         <aws-java-sdk-s3.version>1.11.95</aws-java-sdk-s3.version>
-        <arrow.version>15.0.2</arrow.version>
+        <arrow.version>17.0.0</arrow.version>
     </properties>
     <build>
         <plugins>

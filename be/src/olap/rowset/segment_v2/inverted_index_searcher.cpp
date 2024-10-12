@@ -34,8 +34,11 @@ Status FulltextIndexSearcherBuilder::build(lucene::store::Directory* directory,
         reader = lucene::index::IndexReader::open(
                 directory, config::inverted_index_read_buffer_size, close_directory);
     } catch (const CLuceneError& e) {
-        return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
-                "FulltextIndexSearcherBuilder build error: {}", e.what());
+        std::string msg = "FulltextIndexSearcherBuilder build error: " + std::string(e.what());
+        if (e.number() == CL_ERR_EmptyIndexSegment) {
+            return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>(msg);
+        }
+        return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(msg);
     }
     bool close_reader = true;
     auto index_searcher = std::make_shared<lucene::search::IndexSearcher>(reader, close_reader);
