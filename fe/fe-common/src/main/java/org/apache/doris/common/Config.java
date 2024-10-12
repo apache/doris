@@ -2808,9 +2808,6 @@ public class Config extends ConfigBase {
             "Stream_Load When importing, the maximum length of label is limited"})
     public static int label_regex_length = 128;
 
-    @ConfField(mutable = true)
-    public static boolean enable_cooldown_replica_affinity = true;
-
     //==========================================================================
     //                      end of cloud config
     //==========================================================================
