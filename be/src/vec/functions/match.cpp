@@ -52,6 +52,10 @@ Status FunctionMatchBase::evaluate_inverted_index(
     std::shared_ptr<roaring::Roaring> roaring = std::make_shared<roaring::Roaring>();
     Field param_value;
     arguments[0].column->get(0, param_value);
+    if (param_value.is_null()) {
+        // if query value is null, skip evaluate inverted index
+        return Status::OK();
+    }
     auto param_type = arguments[0].type->get_type_as_type_descriptor().type;
     if (!is_string_type(param_type)) {
         return Status::Error<ErrorCode::INVERTED_INDEX_INVALID_PARAMETERS>(
