@@ -182,7 +182,7 @@ suite('test_flexible_partial_update_delete_sign') {
 
         // 3.2 with sequence type column
         tableName = "test_flexible_partial_update_delete_sign5_${use_row_store}"
-        sql """ DROP TABLE IF EXISTS ${tableName} """
+        sql """ DROP TABLE IF EXISTS ${tableName} force;"""
         sql """ CREATE TABLE ${tableName} (
             `k` int(11) NULL, 
             `v1` BIGINT NULL,
@@ -247,6 +247,75 @@ suite('test_flexible_partial_update_delete_sign') {
             time 20000
         }
         qt_insert_after_delete_3_2 "select k,v1,v2,v3,v4,v5,__DORIS_SEQUENCE_COL__,__DORIS_DELETE_SIGN__ from ${tableName} order by k;"
+        inspect_rows "select k,v1,v2,v3,v4,v5,__DORIS_SEQUENCE_COL__,__DORIS_DELETE_SIGN__,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__),__DORIS_VERSION_COL__ from ${tableName} order by k,__DORIS_VERSION_COL__,v1,v2,v3,v4,v5;"
+
+        // 3.3 with sequence map col (no default value)
+        tableName = "test_flexible_partial_update_delete_sign6_${use_row_store}"
+        sql """ DROP TABLE IF EXISTS ${tableName} force;"""
+        sql """ CREATE TABLE ${tableName} (
+            `k` int(11) NULL, 
+            `v1` BIGINT NULL,
+            `v2` BIGINT NULL DEFAULT "9876",
+            `v3` BIGINT NOT NULL DEFAULT "5432",
+            `v4` BIGINT NOT NULL DEFAULT "1234",
+            `v5` BIGINT NULL DEFAULT "9753"
+            ) UNIQUE KEY(`k`) DISTRIBUTED BY HASH(`k`) BUCKETS 1
+            PROPERTIES(
+            "replication_num" = "1",
+            "enable_unique_key_merge_on_write" = "true",
+            "light_schema_change" = "true",
+            "enable_unique_key_skip_bitmap_column" = "true",
+            "function_column.sequence_col" = "v1",
+            "store_row_column" = "${use_row_store}"); """
+        sql """insert into ${tableName}(k,v1,v2,v3,v4,v5) select number, null, number, number, number, number from numbers("number" = "15"); """
+        qt_insert_after_delete_3_3 "select k,v1,v2,v3,v4,v5,__DORIS_SEQUENCE_COL__ from ${tableName} order by k;"
+        // rows(1,2,3,4,5,6) are all without sequence column
+        // rows(7,8,9,10,11,12) are all with sequence column, seq col value is increasing
+        // row(1,7): delete + insert
+        // row(2,8): insert + delete
+        // row(3,9): delete + insert + delete
+        // row(4,10): insert + delete + insert
+        // row(5,11): delete + insert + delete + insert
+        // row(6,12): insert + delete + insert + delete
+        streamLoad {
+            table "${tableName}"
+            set 'format', 'json'
+            set 'read_json_by_line', 'true'
+            set 'strict_mode', 'false'
+            set 'unique_key_update_mode', 'UPDATE_FLEXIBLE_COLUMNS'
+            file "delete8.json"
+            time 20000
+        }
+        qt_insert_after_delete_3_3 "select k,v1,v2,v3,v4,v5,__DORIS_DELETE_SIGN__ from ${tableName} order by k;"
+        inspect_rows "select k,v1,v2,v3,v4,v5,__DORIS_SEQUENCE_COL__,__DORIS_DELETE_SIGN__,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__),__DORIS_VERSION_COL__ from ${tableName} order by k,__DORIS_VERSION_COL__,v1,v2,v3,v4,v5;"
+        
+        sql "truncate table ${tableName};"
+        sql """insert into ${tableName}(k,v1,v2,v3,v4,v5) select number, null, number, number, number, number from numbers("number" = "15"); """
+        // rows(7,8,9,10,11,12) same as above, insert some rows with lower seq value
+        streamLoad {
+            table "${tableName}"
+            set 'format', 'json'
+            set 'read_json_by_line', 'true'
+            set 'strict_mode', 'false'
+            set 'unique_key_update_mode', 'UPDATE_FLEXIBLE_COLUMNS'
+            file "delete9.json"
+            time 20000
+        }
+        qt_insert_after_delete_3_3 "select k,v1,v2,v3,v4,v5,__DORIS_DELETE_SIGN__ from ${tableName} order by k;"
+        inspect_rows "select k,v1,v2,v3,v4,v5,__DORIS_SEQUENCE_COL__,__DORIS_DELETE_SIGN__,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__),__DORIS_VERSION_COL__ from ${tableName} order by k,__DORIS_VERSION_COL__,v1,v2,v3,v4,v5;"
+
+        sql "truncate table ${tableName};"
+        sql """insert into ${tableName}(k,v1,v2,v3,v4,v5) select number, number*10, number, number, number, number from numbers("number" = "13"); """
+        streamLoad {
+            table "${tableName}"
+            set 'format', 'json'
+            set 'read_json_by_line', 'true'
+            set 'strict_mode', 'false'
+            set 'unique_key_update_mode', 'UPDATE_FLEXIBLE_COLUMNS'
+            file "delete10.json"
+            time 20000
+        }
+        qt_insert_after_delete_3_3 "select k,v1,v2,v3,v4,v5,__DORIS_SEQUENCE_COL__,__DORIS_DELETE_SIGN__ from ${tableName} order by k;"
         inspect_rows "select k,v1,v2,v3,v4,v5,__DORIS_SEQUENCE_COL__,__DORIS_DELETE_SIGN__,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__),__DORIS_VERSION_COL__ from ${tableName} order by k,__DORIS_VERSION_COL__,v1,v2,v3,v4,v5;"
 
     }
