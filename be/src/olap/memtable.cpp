@@ -478,10 +478,10 @@ void MemTable::_aggregate() {
                              _offsets_of_aggregate_states.data());
         for (auto cid = _tablet_schema->num_key_columns(); cid < _num_columns; cid++) {
             auto* col_ptr = mutable_block.mutable_columns()[cid].get();
-            auto* data = prev_row->agg_places(cid);
+            auto* data = row->agg_places(cid);
             _agg_functions[cid]->create(data);
             _agg_functions[cid]->add(data, const_cast<const doris::vectorized::IColumn**>(&col_ptr),
-                                     prev_row->_row_pos, _arena.get());
+                                     row->_row_pos, _arena.get());
         }
     };
 
