@@ -254,7 +254,7 @@ suite("test_stream_load_where_delete_expr", "p0") {
         set 'columns', 'user_id, age'
         set 'column_separator', ','
         set 'column_separator', ','
-        set 'partition_columns', 'false'
+        set 'partial_columns', 'false'
         set 'max_filter_ratio', '0.1'
         set 'where', 'age>=35 and name=null'
 
@@ -281,7 +281,7 @@ suite("test_stream_load_where_delete_expr", "p0") {
         set 'columns', 'user_id, age'
         set 'column_separator', ','
         set 'column_separator', ','
-        set 'partition_columns', 'false'
+        set 'partial_columns', 'false'
         set 'max_filter_ratio', '0.1'
         set 'where', 'age>=35 and name!=null'
 
@@ -309,7 +309,7 @@ suite("test_stream_load_where_delete_expr", "p0") {
         set 'columns', 'user_id, age'
         set 'column_separator', ','
         set 'column_separator', ','
-        set 'partition_columns', 'false'
+        set 'partial_columns', 'false'
         set 'max_filter_ratio', '0.1'
         set 'where', 'age>=35 and name!="wangwu"'
 
@@ -337,7 +337,7 @@ suite("test_stream_load_where_delete_expr", "p0") {
         set 'columns', 'user_id, age'
         set 'column_separator', ','
         set 'column_separator', ','
-        set 'partition_columns', 'false'
+        set 'partial_columns', 'false'
         set 'max_filter_ratio', '0.1'
         set 'where', 'age>=35 and name="wangwu"'
 
@@ -364,7 +364,7 @@ suite("test_stream_load_where_delete_expr", "p0") {
         set 'columns', 'user_id, age'
         set 'column_separator', ','
         set 'column_separator', ','
-        set 'partition_columns', 'false'
+        set 'partial_columns', 'false'
         set 'max_filter_ratio', '0.1'
         set 'where', 'age>=35 or name=null'
 
@@ -391,7 +391,7 @@ suite("test_stream_load_where_delete_expr", "p0") {
         set 'columns', 'user_id, age'
         set 'column_separator', ','
         set 'column_separator', ','
-        set 'partition_columns', 'false'
+        set 'partial_columns', 'false'
         set 'max_filter_ratio', '0.1'
         set 'where', 'age>=35 or name!=null'
 
@@ -418,7 +418,7 @@ suite("test_stream_load_where_delete_expr", "p0") {
         set 'columns', 'user_id, age'
         set 'column_separator', ','
         set 'column_separator', ','
-        set 'partition_columns', 'false'
+        set 'partial_columns', 'false'
         set 'max_filter_ratio', '0.1'
         set 'where', 'age>=35 or name!="wangwu"'
 
@@ -444,7 +444,7 @@ suite("test_stream_load_where_delete_expr", "p0") {
         set 'columns', 'user_id, age'
         set 'column_separator', ','
         set 'column_separator', ','
-        set 'partition_columns', 'false'
+        set 'partial_columns', 'false'
         set 'max_filter_ratio', '0.1'
         set 'where', 'age>=35 or name="wangwu"'
 
@@ -470,7 +470,7 @@ suite("test_stream_load_where_delete_expr", "p0") {
         set 'columns', 'user_id, age'
         set 'column_separator', ','
         set 'column_separator', ','
-        set 'partition_columns', 'false'
+        set 'partial_columns', 'false'
         set 'max_filter_ratio', '0.1'
         set 'where', 'name=null'
 
@@ -497,7 +497,7 @@ suite("test_stream_load_where_delete_expr", "p0") {
         set 'columns', 'user_id, age'
         set 'column_separator', ','
         set 'column_separator', ','
-        set 'partition_columns', 'false'
+        set 'partial_columns', 'false'
         set 'max_filter_ratio', '0.1'
         set 'where', 'name!=null'
 
@@ -524,7 +524,7 @@ suite("test_stream_load_where_delete_expr", "p0") {
         table "${tableName}"
         set 'column_separator', ','
         set 'column_separator', ','
-        set 'partition_columns', 'false'
+        set 'partial_columns', 'false'
         set 'max_filter_ratio', '0.1'
         set 'where', 'name!=null'
         file 'streamload_2.csv'
@@ -537,6 +537,7 @@ suite("test_stream_load_where_delete_expr", "p0") {
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
             assertEquals("fail", json.Status.toLowerCase())
+            assertEquals("[DATA_QUALITY_ERROR]too many filtered rows", json.Message.toString())
             assertEquals(10, json.NumberTotalRows)
             assertEquals(0, json.NumberLoadedRows)
         }
@@ -550,7 +551,7 @@ suite("test_stream_load_where_delete_expr", "p0") {
         table "${tableName}"
         set 'column_separator', ','
         set 'column_separator', ','
-        set 'partition_columns', 'false'
+        set 'partial_columns', 'false'
         set 'max_filter_ratio', '0.1'
         set 'where', 'age>=35'
         file 'streamload_2.csv'
@@ -563,6 +564,7 @@ suite("test_stream_load_where_delete_expr", "p0") {
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
             assertEquals("fail", json.Status.toLowerCase())
+            assertEquals("[DATA_QUALITY_ERROR]too many filtered rows", json.Message.toString())
             assertEquals(10, json.NumberTotalRows)
             assertEquals(0, json.NumberLoadedRows)
         }
@@ -577,7 +579,7 @@ suite("test_stream_load_where_delete_expr", "p0") {
         set 'columns', 'user_id, age'
         set 'column_separator', ','
         set 'max_filter_ratio', '0.1'
-        set 'partition_columns', 'false'
+        set 'partial_columns', 'false'
         file 'streamload_1.csv'
         time 10000 // limit inflight 10s
 
@@ -599,7 +601,7 @@ suite("test_stream_load_where_delete_expr", "p0") {
         set 'columns', 'user_id, age'
         set 'column_separator', ','
         set 'merge_type', 'DELETE'
-        set 'partition_columns', 'false'
+        set 'partial_columns', 'false'
         file 'streamload_3.csv'
         set 'max_filter_ratio', '0.1'
         time 10000 // limit inflight 10s
@@ -625,7 +627,7 @@ suite("test_stream_load_where_delete_expr", "p0") {
         set 'columns', 'user_id, age'
         set 'column_separator', ','
         set 'max_filter_ratio', '0.1'
-        set 'partition_columns', 'false'
+        set 'partial_columns', 'false'
         file 'streamload_1.csv'
         time 10000 // limit inflight 10s
 
@@ -646,7 +648,7 @@ suite("test_stream_load_where_delete_expr", "p0") {
         table "${tableName}"
         set 'column_separator', ','
         set 'merge_type', 'DELETE'
-        set 'partition_columns', 'false'
+        set 'partial_columns', 'false'
         file 'streamload_3.csv'
         set 'max_filter_ratio', '0.1'
         time 10000 // limit inflight 10s
@@ -658,6 +660,7 @@ suite("test_stream_load_where_delete_expr", "p0") {
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
             assertEquals("fail", json.Status.toLowerCase())
+            assertEquals("[DATA_QUALITY_ERROR]too many filtered rows", json.Message.toString())
             assertEquals(10, json.NumberTotalRows)
             assertEquals(0, json.NumberLoadedRows)
         }
@@ -730,7 +733,7 @@ suite("test_stream_load_where_delete_expr", "p0") {
         table "${tableName}"
         set 'column_separator', ','
         set 'column_separator', ','
-        set 'partition_columns', 'true'
+        set 'partial_columns', 'true'
         set 'max_filter_ratio', '0.1'
         set 'where', 'age>=35 and name!=null'
 
@@ -744,6 +747,7 @@ suite("test_stream_load_where_delete_expr", "p0") {
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
             assertEquals("fail", json.Status.toLowerCase())
+            assertEquals("[ANALYSIS_ERROR]TStatus: errCode = 2, detailMessage = Unknown column 'name' in 'table list'", json.Message.toString())
             assertEquals(0, json.NumberTotalRows)
             assertEquals(0, json.NumberLoadedRows)
         }
@@ -756,7 +760,7 @@ suite("test_stream_load_where_delete_expr", "p0") {
         table "${tableName}"
         set 'column_separator', ','
         set 'column_separator', ','
-        set 'partition_columns', 'true'
+        set 'partial_columns', 'true'
         set 'max_filter_ratio', '0.1'
         set 'where', 'age>=35 and name!=null'
 
@@ -770,6 +774,7 @@ suite("test_stream_load_where_delete_expr", "p0") {
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
             assertEquals("fail", json.Status.toLowerCase())
+            assertEquals("[ANALYSIS_ERROR]TStatus: errCode = 2, detailMessage = Unknown column 'name' in 'table list'", json.Message.toString())
             assertEquals(0, json.NumberTotalRows)
             assertEquals(0, json.NumberLoadedRows)
         }
@@ -783,7 +788,7 @@ suite("test_stream_load_where_delete_expr", "p0") {
         table "${tableName}"
         set 'column_separator', ','
         set 'column_separator', ','
-        set 'partition_columns', 'true'
+        set 'partial_columns', 'true'
         set 'max_filter_ratio', '0.1'
         set 'where', 'age>=35 and name!="wangwu"'
 
@@ -797,6 +802,7 @@ suite("test_stream_load_where_delete_expr", "p0") {
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
             assertEquals("fail", json.Status.toLowerCase())
+            assertEquals("[ANALYSIS_ERROR]TStatus: errCode = 2, detailMessage = Unknown column 'name' in 'table list'", json.Message.toString())
             assertEquals(0, json.NumberTotalRows)
             assertEquals(0, json.NumberLoadedRows)
         }
@@ -810,7 +816,7 @@ suite("test_stream_load_where_delete_expr", "p0") {
         table "${tableName}"
         set 'column_separator', ','
         set 'column_separator', ','
-        set 'partition_columns', 'true'
+        set 'partial_columns', 'true'
         set 'max_filter_ratio', '0.1'
         set 'where', 'age>=35 and name="wangwu"'
 
@@ -824,6 +830,7 @@ suite("test_stream_load_where_delete_expr", "p0") {
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
             assertEquals("fail", json.Status.toLowerCase())
+            assertEquals("[ANALYSIS_ERROR]TStatus: errCode = 2, detailMessage = Unknown column 'name' in 'table list'", json.Message.toString())
             assertEquals(0, json.NumberTotalRows)
             assertEquals(0, json.NumberLoadedRows)
         }
@@ -836,7 +843,7 @@ suite("test_stream_load_where_delete_expr", "p0") {
         table "${tableName}"
         set 'column_separator', ','
         set 'column_separator', ','
-        set 'partition_columns', 'true'
+        set 'partial_columns', 'true'
         set 'max_filter_ratio', '0.1'
         set 'where', 'age>=35 or name=null'
 
@@ -850,6 +857,7 @@ suite("test_stream_load_where_delete_expr", "p0") {
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
             assertEquals("fail", json.Status.toLowerCase())
+            assertEquals("[ANALYSIS_ERROR]TStatus: errCode = 2, detailMessage = Unknown column 'name' in 'table list'", json.Message.toString())
             assertEquals(0, json.NumberTotalRows)
             assertEquals(0, json.NumberLoadedRows)
         }
@@ -862,7 +870,7 @@ suite("test_stream_load_where_delete_expr", "p0") {
         table "${tableName}"
         set 'column_separator', ','
         set 'column_separator', ','
-        set 'partition_columns', 'true'
+        set 'partial_columns', 'true'
         set 'max_filter_ratio', '0.1'
         set 'where', 'age>=35 or name!=null'
 
@@ -876,6 +884,7 @@ suite("test_stream_load_where_delete_expr", "p0") {
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
             assertEquals("fail", json.Status.toLowerCase())
+            assertEquals("[ANALYSIS_ERROR]TStatus: errCode = 2, detailMessage = Unknown column 'name' in 'table list'", json.Message.toString())
             assertEquals(0, json.NumberTotalRows)
             assertEquals(0, json.NumberLoadedRows)
         }
@@ -888,7 +897,7 @@ suite("test_stream_load_where_delete_expr", "p0") {
         table "${tableName}"
         set 'column_separator', ','
         set 'column_separator', ','
-        set 'partition_columns', 'true'
+        set 'partial_columns', 'true'
         set 'max_filter_ratio', '0.1'
         set 'where', 'age>=35 or name!="wangwu"'
 
@@ -902,6 +911,7 @@ suite("test_stream_load_where_delete_expr", "p0") {
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
             assertEquals("fail", json.Status.toLowerCase())
+            assertEquals("[ANALYSIS_ERROR]TStatus: errCode = 2, detailMessage = Unknown column 'name' in 'table list'", json.Message.toString())
             assertEquals(0, json.NumberTotalRows)
             assertEquals(0, json.NumberLoadedRows)
         }
@@ -913,7 +923,7 @@ suite("test_stream_load_where_delete_expr", "p0") {
         table "${tableName}"
         set 'column_separator', ','
         set 'column_separator', ','
-        set 'partition_columns', 'true'
+        set 'partial_columns', 'true'
         set 'max_filter_ratio', '0.1'
         set 'where', 'age>=35 or name="wangwu"'
 
@@ -927,6 +937,7 @@ suite("test_stream_load_where_delete_expr", "p0") {
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
             assertEquals("fail", json.Status.toLowerCase())
+            assertEquals("[ANALYSIS_ERROR]TStatus: errCode = 2, detailMessage = Unknown column 'name' in 'table list'", json.Message.toString())
             assertEquals(0, json.NumberTotalRows)
             assertEquals(0, json.NumberLoadedRows)
         }
@@ -938,7 +949,7 @@ suite("test_stream_load_where_delete_expr", "p0") {
         table "${tableName}"
         set 'column_separator', ','
         set 'column_separator', ','
-        set 'partition_columns', 'true'
+        set 'partial_columns', 'true'
         set 'max_filter_ratio', '0.1'
         set 'where', 'name=null'
 
@@ -952,6 +963,7 @@ suite("test_stream_load_where_delete_expr", "p0") {
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
             assertEquals("fail", json.Status.toLowerCase())
+            assertEquals("[ANALYSIS_ERROR]TStatus: errCode = 2, detailMessage = Unknown column 'name' in 'table list'", json.Message.toString())
             assertEquals(0, json.NumberTotalRows)
             assertEquals(0, json.NumberLoadedRows)
         }
@@ -964,7 +976,7 @@ suite("test_stream_load_where_delete_expr", "p0") {
         table "${tableName}"
         set 'column_separator', ','
         set 'column_separator', ','
-        set 'partition_columns', 'true'
+        set 'partial_columns', 'true'
         set 'max_filter_ratio', '0.1'
         set 'where', 'name!=null'
 
@@ -978,6 +990,7 @@ suite("test_stream_load_where_delete_expr", "p0") {
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
             assertEquals("fail", json.Status.toLowerCase())
+            assertEquals("[ANALYSIS_ERROR]TStatus: errCode = 2, detailMessage = Unknown column 'name' in 'table list'", json.Message.toString())
             assertEquals(0, json.NumberTotalRows)
             assertEquals(0, json.NumberLoadedRows)
         }
@@ -991,7 +1004,7 @@ suite("test_stream_load_where_delete_expr", "p0") {
         table "${tableName}"
         set 'column_separator', ','
         set 'column_separator', ','
-        set 'partition_columns', 'true'
+        set 'partial_columns', 'true'
         set 'max_filter_ratio', '0.1'
         set 'where', 'name!=null'
         file 'streamload_2.csv'
@@ -1004,6 +1017,7 @@ suite("test_stream_load_where_delete_expr", "p0") {
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
             assertEquals("fail", json.Status.toLowerCase())
+            assertEquals("[ANALYSIS_ERROR]TStatus: errCode = 2, detailMessage = Unknown column 'name' in 'table list'", json.Message.toString())
             assertEquals(0, json.NumberTotalRows)
             assertEquals(0, json.NumberLoadedRows)
         }
@@ -1017,7 +1031,7 @@ suite("test_stream_load_where_delete_expr", "p0") {
         table "${tableName}"
         set 'column_separator', ','
         set 'column_separator', ','
-        set 'partition_columns', 'true'
+        set 'partial_columns', 'true'
         set 'max_filter_ratio', '0.1'
         set 'where', 'age>=35'
         file 'streamload_2.csv'
@@ -1043,7 +1057,7 @@ suite("test_stream_load_where_delete_expr", "p0") {
         table "${tableName}"
         set 'column_separator', ','
         set 'max_filter_ratio', '0.1'
-        set 'partition_columns', 'true'
+        set 'partial_columns', 'true'
         file 'streamload_1.csv'
         time 10000 // limit inflight 10s
 
@@ -1064,7 +1078,7 @@ suite("test_stream_load_where_delete_expr", "p0") {
         table "${tableName}"
         set 'column_separator', ','
         set 'merge_type', 'DELETE'
-        set 'partition_columns', 'true'
+        set 'partial_columns', 'true'
         file 'streamload_3.csv'
         set 'max_filter_ratio', '0.1'
         time 10000 // limit inflight 10s
@@ -1089,7 +1103,7 @@ suite("test_stream_load_where_delete_expr", "p0") {
         table "${tableName}"
         set 'column_separator', ','
         set 'max_filter_ratio', '0.1'
-        set 'partition_columns', 'true'
+        set 'partial_columns', 'true'
         file 'streamload_1.csv'
         time 10000 // limit inflight 10s
 
@@ -1110,7 +1124,7 @@ suite("test_stream_load_where_delete_expr", "p0") {
         table "${tableName}"
         set 'column_separator', ','
         set 'merge_type', 'DELETE'
-        set 'partition_columns', 'true'
+        set 'partial_columns', 'true'
         file 'streamload_3.csv'
         set 'max_filter_ratio', '0.1'
         time 10000 // limit inflight 10s
