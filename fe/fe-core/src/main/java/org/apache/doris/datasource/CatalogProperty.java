@@ -22,12 +22,15 @@ import org.apache.doris.catalog.Resource;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.datasource.property.PropertyConverter;
+import org.apache.doris.fs.HdfsUtil;
+import org.apache.doris.fs.remote.dfs.DFSFileSystem;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 import lombok.Data;
+import org.apache.hadoop.conf.Configuration;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -50,6 +53,8 @@ public class CatalogProperty implements Writable {
     @SerializedName(value = "properties")
     private Map<String, String> properties;
 
+    private Map<String, String> fileCatalogConfigProperties;
+
     private volatile Resource catalogResource = null;
 
     public CatalogProperty(String resource, Map<String, String> properties) {
@@ -57,7 +62,19 @@ public class CatalogProperty implements Writable {
         this.properties = properties;
         if (this.properties == null) {
             this.properties = Maps.newConcurrentMap();
+            this.fileCatalogConfigProperties = new HashMap<>();
         }
+        checkNeedReloadFileProperties(this.properties);
+    }
+
+    private void checkNeedReloadFileProperties(Map<String, String> properties) {
+        if (!properties.isEmpty() && properties.containsKey(DFSFileSystem.HADOOP_CONFIG_RESOURCES)) {
+            Configuration configuration = HdfsUtil.loadConfigurationFromHadoopConfDir(
+                    this.properties.get(DFSFileSystem.HADOOP_CONFIG_RESOURCES));
+            this.fileCatalogConfigProperties = configuration.getValByRegex(".*");
+            return;
+        }
+        this.fileCatalogConfigProperties = new HashMap<>();
     }
 
     private Resource catalogResource() {
@@ -98,25 +115,36 @@ public class CatalogProperty implements Writable {
 
     public void modifyCatalogProps(Map<String, String> props) {
         properties.putAll(PropertyConverter.convertToMetaProperties(props));
+        checkNeedReloadFileProperties(properties);
     }
 
     public void rollBackCatalogProps(Map<String, String> props) {
         properties.clear();
         properties = new HashMap<>(props);
+        checkNeedReloadFileProperties(properties);
     }
 
     public Map<String, String> getHadoopProperties() {
-        Map<String, String> hadoopProperties = getProperties();
+        Map<String, String> hadoopProperties = fileCatalogConfigProperties;
+        hadoopProperties.putAll(getProperties());
         hadoopProperties.putAll(PropertyConverter.convertToHadoopFSProperties(getProperties()));
         return hadoopProperties;
     }
 
     public void addProperty(String key, String val) {
         this.properties.put(key, val);
+        if (key.equals(DFSFileSystem.HADOOP_CONFIG_RESOURCES)) {
+            Configuration configuration = HdfsUtil.loadConfigurationFromHadoopConfDir(
+                    this.properties.get(DFSFileSystem.HADOOP_CONFIG_RESOURCES));
+            this.fileCatalogConfigProperties = configuration.getValByRegex(".*");
+        }
     }
 
     public void deleteProperty(String key) {
         this.properties.remove(key);
+        if (key.equals(DFSFileSystem.HADOOP_CONFIG_RESOURCES)) {
+            this.fileCatalogConfigProperties = new HashMap<>();
+        }
     }
 
     @Override
@@ -126,6 +154,14 @@ public class CatalogProperty implements Writable {
 
     public static CatalogProperty read(DataInput in) throws IOException {
         String json = Text.readString(in);
-        return GsonUtils.GSON.fromJson(json, CatalogProperty.class);
+        CatalogProperty catalogProperty = GsonUtils.GSON.fromJson(json, CatalogProperty.class);
+        catalogProperty.fileCatalogConfigProperties = new HashMap<>();
+        if (catalogProperty.properties != null && !catalogProperty.properties.isEmpty()
+                && catalogProperty.properties.containsKey(DFSFileSystem.HADOOP_CONFIG_RESOURCES)) {
+            Configuration configuration = HdfsUtil.loadConfigurationFromHadoopConfDir(
+                    catalogProperty.properties.get(DFSFileSystem.HADOOP_CONFIG_RESOURCES));
+            catalogProperty.fileCatalogConfigProperties = configuration.getValByRegex(".*");
+        }
+        return catalogProperty;
     }
 }

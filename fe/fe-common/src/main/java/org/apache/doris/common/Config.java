@@ -2161,6 +2161,8 @@ public class Config extends ConfigBase {
     @ConfField(masterOnly = true)
     public static boolean enable_hms_events_incremental_sync = false;
 
+    public static String external_catalog_config_dir = EnvUtils.getDorisHome() + "/conf/catalogs/";
+
     /**
      * If set to true, doris will try to parse the ddl of a hive view and try to execute the query
      * otherwise it will throw an AnalysisException.

@@ -53,11 +53,13 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import lombok.Getter;
 import org.apache.commons.lang3.math.NumberUtils;
+import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.iceberg.hive.HiveCatalog;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.File;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -185,6 +187,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
             jdbcClientConfig.setDriverClass(catalogProperty.getOrDefault("driver_class", ""));
         } else {
             hiveConf = new HiveConf();
+            initHiveConfIfNeeded(hiveConf);
             for (Map.Entry<String, String> kv : catalogProperty.getHadoopProperties().entrySet()) {
                 hiveConf.set(kv.getKey(), kv.getValue());
             }
@@ -201,6 +204,26 @@ public class HMSExternalCatalog extends ExternalCatalog {
         metadataOps = hiveOps;
 
         icebergHiveCatalog = IcebergUtils.createIcebergHiveCatalog(this, getName());
+    }
+
+    private void initHiveConfIfNeeded(HiveConf hiveConf) {
+        String resourcesPath = catalogProperty.getOrDefault(HMSProperties.HIVE_CONFIG_RESOURCES, null);
+        if (Strings.isNullOrEmpty(resourcesPath)) {
+            return;
+        }
+        for (String resource : resourcesPath.split(",")) {
+            // Construct the full path to the resource
+            String resourcePath = Config.external_catalog_config_dir + File.separator + resource.trim();
+            File file = new File(resourcePath); // Create a File object for the resource path
+
+            // Check if the file exists and is a regular file
+            if (file.exists() && file.isFile()) {
+                hiveConf.addResource(new Path(file.toURI())); // Add the resource to the configuration
+            } else {
+                // Handle the case where the file does not exist
+                LOG.warn("Hive configuration resource file {} does not exist", resourcePath);
+            }
+        }
     }
 
     @Override
