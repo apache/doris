@@ -481,6 +481,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String JDBC_CLICKHOUSE_QUERY_FINAL = "jdbc_clickhouse_query_final";
 
+    public static final String JDBC_ORACLE_NULL_PREDICATE_PUSHDOWN = "jdbc_oracle_null_predicate_pushdown";
+
     public static final String ENABLE_MEMTABLE_ON_SINK_NODE =
             "enable_memtable_on_sink_node";
 
@@ -633,6 +635,7 @@ public class SessionVariable implements Serializable, Writable {
                                     "enable_adaptive_pipeline_task_serial_read_on_limit";
     public static final String ADAPTIVE_PIPELINE_TASK_SERIAL_READ_ON_LIMIT =
                                     "adaptive_pipeline_task_serial_read_on_limit";
+    public static final String REQUIRE_SEQUENCE_IN_INSERT = "require_sequence_in_insert";
 
     /**
      * If set false, user couldn't submit analyze SQL and FE won't allocate any related resources.
@@ -653,6 +656,11 @@ public class SessionVariable implements Serializable, Writable {
             description = {"是否在查询 ClickHouse JDBC 外部表时，对查询 SQL 添加 FINAL 关键字。",
                     "Whether to add the FINAL keyword to the query SQL when querying ClickHouse JDBC external tables."})
     public boolean jdbcClickhouseQueryFinal = false;
+
+    @VariableMgr.VarAttr(name = JDBC_ORACLE_NULL_PREDICATE_PUSHDOWN, needForward = true,
+            description = {"是否允许将 NULL 谓词下推到 Oracle JDBC 外部表。",
+                    "Whether to allow NULL predicates to be pushed down to Oracle JDBC external tables."})
+    public boolean jdbcOracleNullPredicatePushdown = false;
 
     @VariableMgr.VarAttr(name = ROUND_PRECISE_DECIMALV2_VALUE)
     public boolean roundPreciseDecimalV2Value = false;
@@ -2067,6 +2075,13 @@ public class SessionVariable implements Serializable, Writable {
     })
     public int adaptivePipelineTaskSerialReadOnLimit = 10000;
 
+    @VariableMgr.VarAttr(name = REQUIRE_SEQUENCE_IN_INSERT, needForward = true, description = {
+            "该变量用于控制，使用了sequence列的unique key表，insert into操作是否要求必须提供每一行的sequence列的值",
+            "This variable controls whether the INSERT INTO operation on unique key tables with a sequence"
+                    + " column requires a sequence column to be provided for each row"
+    })
+    public boolean requireSequenceInInsert = true;
+
     public void setEnableEsParallelScroll(boolean enableESParallelScroll) {
         this.enableESParallelScroll = enableESParallelScroll;
     }
@@ -3434,6 +3449,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setLoadStreamPerNode(int loadStreamPerNode) {
         this.loadStreamPerNode = loadStreamPerNode;
+    }
+
+    public void setRequireSequenceInInsert(boolean value) {
+        this.requireSequenceInInsert = value;
+    }
+
+    public boolean isRequireSequenceInInsert() {
+        return this.requireSequenceInInsert;
     }
 
     /**
