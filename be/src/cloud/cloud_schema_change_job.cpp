@@ -252,6 +252,8 @@ Status CloudSchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParam
             changer, sc_sorting,
             _cloud_storage_engine.memory_limitation_bytes_per_thread_for_schema_change());
 
+    DBUG_EXECUTE_IF("CloudSchemaChangeJob::_convert_historical_rowsets.block", DBUG_BLOCK);
+
     // 3. Convert historical data
     bool already_exist_any_version = false;
     for (const auto& rs_reader : sc_params.ref_rowset_readers) {

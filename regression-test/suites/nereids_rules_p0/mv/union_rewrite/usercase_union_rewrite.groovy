@@ -121,7 +121,7 @@ suite ("usercase_union_rewrite") {
     }
 
     def mv_name = "mv_usercase"
-    def mv_stmt = """select o_orderdatE, o_shippriority, o_comment, o_orderdate, 
+    def mv_stmt = """select o_orderdatE, o_shippriority, o_comment, o_orderdate as o_orderdate_alias, 
         sum(o_totalprice) as sum_total, 
         max(o_totalpricE) as max_total, 
         min(o_totalprice) as min_total, 
@@ -139,7 +139,7 @@ suite ("usercase_union_rewrite") {
     def job_name_1 = getJobName(db, mv_name)
     waitingMTMVTaskFinished(job_name_1)
 
-    def query_stmt = """select o_orderdatE, o_shippriority, o_comment, o_orderdate, 
+    def query_stmt = """select o_orderdatE, o_shippriority, o_comment, o_orderdate as o_orderdate_alias, 
         sum(o_totalprice) as sum_total, 
         max(o_totalpricE) as max_total, 
         min(o_totalprice) as min_total, 

@@ -66,6 +66,7 @@ import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.Future
 import java.util.concurrent.ThreadFactory
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.stream.Collectors
 import java.util.stream.LongStream
@@ -263,6 +264,12 @@ class Suite implements GroovyInterceptable {
         return context.connect(user, password, url, actionSupplier)
     }
 
+    public <T> T connectInDocker(String user = context.config.jdbcUser, String password = context.config.jdbcPassword,
+                        Closure<T> actionSupplier) {
+        def connInfo = context.threadLocalConn.get()
+        return context.connect(user, password, connInfo.conn.getMetaData().getURL(), actionSupplier)
+    }
+
     public void dockerAwaitUntil(int atMostSeconds, int intervalSecond = 1, Closure actionSupplier) {
         def connInfo = context.threadLocalConn.get()
         Awaitility.await().atMost(atMostSeconds, SECONDS).pollInterval(intervalSecond, SECONDS).until(
@@ -272,6 +279,7 @@ class Suite implements GroovyInterceptable {
         )
     }
 
+    // more explaination can see example file: demo_p0/docker_action.groovy
     public void docker(ClusterOptions options = new ClusterOptions(), Closure actionSupplier) throws Exception {
         if (context.config.excludeDockerTest) {
             return
@@ -282,20 +290,30 @@ class Suite implements GroovyInterceptable {
                     + "see example demo_p0/docker_action.groovy")
         }
 
-        boolean pipelineIsCloud = isCloudMode()
-        boolean dockerIsCloud = false
         if (options.cloudMode == null) {
-            dockerIsCloud = pipelineIsCloud
+            if (context.config.runMode == RunMode.UNKNOWN) {
+                dockerImpl(options, false, actionSupplier)
+                dockerImpl(options, true, actionSupplier)
+            } else {
+                dockerImpl(options, context.config.runMode == RunMode.CLOUD, actionSupplier)
+            }
         } else {
-            dockerIsCloud = options.cloudMode
-            if (dockerIsCloud != pipelineIsCloud && options.skipRunWhenPipelineDiff) {
+            if (options.cloudMode == true && context.config.runMode == RunMode.NOT_CLOUD) {
                 return
             }
+            if (options.cloudMode == false && context.config.runMode == RunMode.CLOUD) {
+                return
+            }
+            dockerImpl(options, options.cloudMode, actionSupplier)
         }
+    }
 
+
+    private void dockerImpl(ClusterOptions options, boolean isCloud, Closure actionSupplier) throws Exception {
+        logger.info("=== start run suite {} in {} mode. ===", name, (isCloud ? "cloud" : "not_cloud"))
         try {
             cluster.destroy(true)
-            cluster.init(options, dockerIsCloud)
+            cluster.init(options, isCloud)
 
             def user = context.config.jdbcUser
             def password = context.config.jdbcPassword
@@ -311,7 +329,7 @@ class Suite implements GroovyInterceptable {
 
             logger.info("get fe {}", fe)
             assertNotNull(fe)
-            if (!dockerIsCloud) {
+            if (!isCloud) {
                 for (def be : cluster.getAllBackends()) {
                     be_report_disk(be.host, be.httpPort)
                 }
@@ -549,6 +567,14 @@ class Suite implements GroovyInterceptable {
                 }
             }
         }
+    }
+
+    String getCurDbName() {
+        return context.dbName
+    }
+
+    String getCurDbConnectUrl() {
+        return context.config.getConnectionUrlByDbName(getCurDbName())
     }
 
     long getDbId() {
@@ -833,6 +859,11 @@ class Suite implements GroovyInterceptable {
         return s3Url
     }
 
+    String getJdbcPassword() {
+        String sk = context.config.otherConfigs.get("jdbcPassword");
+        return sk
+    }
+
     static void scpFiles(String username, String host, String files, String filePath, boolean fromDst=true) {
         String cmd = "scp -o StrictHostKeyChecking=no -r ${username}@${host}:${files} ${filePath}"
         if (!fromDst) {
@@ -937,14 +968,31 @@ class Suite implements GroovyInterceptable {
         return sql_return_maparray("show frontends").collect { it.Host + ":" + it.HttpPort };
     }
 
+    List<String> getFrontendIpEditlogPort() {
+        return sql_return_maparray("show frontends").collect { it.Host + ":" + it.EditLogPort };
+    }
+
     void getBackendIpHttpPort(Map<String, String> backendId_to_backendIP, Map<String, String> backendId_to_backendHttpPort) {
         List<List<Object>> backends = sql("show backends");
+        logger.info("Content of backends: ${backends}")
         for (List<Object> backend : backends) {
             backendId_to_backendIP.put(String.valueOf(backend[0]), String.valueOf(backend[1]));
             backendId_to_backendHttpPort.put(String.valueOf(backend[0]), String.valueOf(backend[4]));
         }
         return;
     }
+
+    void getBackendIpHeartbeatPort(Map<String, String> backendId_to_backendIP,
+            Map<String, String> backendId_to_backendHeartbeatPort) {
+        List<List<Object>> backends = sql("show backends");
+        logger.info("Content of backends: ${backends}")
+        for (List<Object> backend : backends) {
+            backendId_to_backendIP.put(String.valueOf(backend[0]), String.valueOf(backend[1]));
+            backendId_to_backendHeartbeatPort.put(String.valueOf(backend[0]), String.valueOf(backend[2]));
+        }
+        return;
+    }
+
 
     void getBackendIpHttpAndBrpcPort(Map<String, String> backendId_to_backendIP,
         Map<String, String> backendId_to_backendHttpPort, Map<String, String> backendId_to_backendBrpcPort) {
@@ -1276,11 +1324,35 @@ class Suite implements GroovyInterceptable {
             }
             logger.info("The state of ${showTasks} is ${status}")
             Thread.sleep(1000);
-        } while (timeoutTimestamp > System.currentTimeMillis() && (status == 'PENDING' || status == 'RUNNING' || status == 'NULL'))
+        } while (timeoutTimestamp > System.currentTimeMillis() && (status == 'PENDING' || status == 'RUNNING'  || status == 'NULL'))
         if (status != "SUCCESS") {
             logger.info("status is not success")
         }
         Assert.assertEquals("SUCCESS", status)
+        logger.info("waitingMTMVTaskFinished analyze mv name is " + result.last().get(5))
+        sql "analyze table ${result.last().get(6)}.${mvName} with sync;"
+    }
+
+    void waitingMTMVTaskFinishedByMvNameAllowCancel(String mvName) {
+        Thread.sleep(2000);
+        String showTasks = "select TaskId,JobId,JobName,MvId,Status,MvName,MvDatabaseName,ErrorMsg from tasks('type'='mv') where MvName = '${mvName}' order by CreateTime ASC"
+        String status = "NULL"
+        List<List<Object>> result
+        long startTime = System.currentTimeMillis()
+        long timeoutTimestamp = startTime + 5 * 60 * 1000 // 5 min
+        do {
+            result = sql(showTasks)
+            logger.info("result: " + result.toString())
+            if (!result.isEmpty()) {
+                status = result.last().get(4)
+            }
+            logger.info("The state of ${showTasks} is ${status}")
+            Thread.sleep(1000);
+        } while (timeoutTimestamp > System.currentTimeMillis() && (status == 'PENDING' || status == 'RUNNING'  || status == 'NULL' || status == 'CANCELED'))
+        if (status != "SUCCESS") {
+            logger.info("status is not success")
+            assertTrue(result.toString().contains("same table"))
+        }
     }
 
     void waitingPartitionIsExpected(String tableName, String partitionName, boolean expectedStatus) {
@@ -1329,6 +1401,9 @@ class Suite implements GroovyInterceptable {
             logger.info("status is not success")
         }
         Assert.assertEquals("SUCCESS", status)
+        // Need to analyze materialized view for cbo to choose the materialized view accurately
+        logger.info("waitingMTMVTaskFinished analyze mv name is " + result.last().get(5))
+        sql "analyze table ${result.last().get(6)}.${result.last().get(5)} with sync;"
     }
 
     void waitingMTMVTaskFinishedNotNeedSuccess(String jobName) {
@@ -1352,29 +1427,26 @@ class Suite implements GroovyInterceptable {
         }
     }
 
-    def getMVJobState = { tableName, limit  ->
-        def jobStateResult = sql """  SHOW ALTER TABLE ROLLUP WHERE TableName='${tableName}' ORDER BY CreateTime DESC limit ${limit}"""
-        if (jobStateResult.size() != limit) {
+    def getMVJobState = { tableName, rollUpName  ->
+        def jobStateResult = sql """ SHOW ALTER TABLE ROLLUP WHERE TableName='${tableName}' and IndexName = '${rollUpName}' ORDER BY CreateTime DESC limit 1"""
+        if (jobStateResult == null || jobStateResult.isEmpty()) {
             logger.info("show alter table roll is empty" + jobStateResult)
             return "NOT_READY"
         }
-        for (int i = 0; i < jobStateResult.size(); i++) {
-            logger.info("getMVJobState is " + jobStateResult[i][8])
-            if (!jobStateResult[i][8].equals("FINISHED")) {
-                return "NOT_READY"
-            }
+        logger.info("getMVJobState jobStateResult is " + jobStateResult.toString())
+        if (!jobStateResult[0][8].equals("FINISHED")) {
+            return "NOT_READY"
         }
         return "FINISHED";
     }
-    def waitForRollUpJob =  (tbName, timeoutMillisecond, limit) -> {
+    def waitForRollUpJob =  (tbName, rollUpName, timeoutMillisecond) -> {
 
         long startTime = System.currentTimeMillis()
         long timeoutTimestamp = startTime + timeoutMillisecond
 
         String result
-        // time out or has run exceed 10 minute, then break
-        while (timeoutTimestamp > System.currentTimeMillis() && System.currentTimeMillis() - startTime < 600000){
-            result = getMVJobState(tbName, limit)
+        while (timeoutTimestamp > System.currentTimeMillis()){
+            result = getMVJobState(tbName, rollUpName)
             if (result == "FINISHED") {
                 sleep(200)
                 return
@@ -1411,7 +1483,11 @@ class Suite implements GroovyInterceptable {
     }
 
     boolean isCloudMode() {
-        return context.config.fetchRunMode()
+        if (cluster.isRunning()) {
+            return cluster.isCloudMode()
+        } else {
+            return context.config.isCloudMode()
+        }
     }
 
     boolean enableStoragevault() {
@@ -1468,6 +1544,71 @@ class Suite implements GroovyInterceptable {
         } finally {
             updateConfig oldConfig
         }
+    }
+
+    void waitAddFeFinished(String host, int port) {
+        logger.info("waiting for ${host}:${port}")
+        Awaitility.await().atMost(60, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).and()
+                .pollInterval(100, TimeUnit.MILLISECONDS).await().until(() -> {
+            def frontends = getFrontendIpEditlogPort()
+            logger.info("frontends ${frontends}")
+            boolean matched = false
+            String expcetedFE = "${host}:${port}"
+            for (frontend: frontends) {
+                logger.info("checking fe ${frontend}, expectedFe ${expcetedFE}")
+                if (frontend.equals(expcetedFE)) {
+                    matched = true;
+                }
+            }
+            return matched;
+        });
+    }
+
+    void waitDropFeFinished(String host, int port) {
+        Awaitility.await().atMost(60, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).and()
+                .pollInterval(100, TimeUnit.MILLISECONDS).await().until(() -> {
+            def frontends = getFrontendIpEditlogPort()
+            boolean matched = false
+            for (frontend: frontends) {
+                if (frontend == "$host:$port") {
+                    matched = true
+                }
+            }
+            return !matched;
+        });
+    }
+
+    void waitAddBeFinished(String host, int port) {
+        logger.info("waiting ${host}:${port} added");
+        Awaitility.await().atMost(60, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).and()
+                .pollInterval(100, TimeUnit.MILLISECONDS).await().until(() -> {
+            def ipList = [:]
+            def portList = [:]
+            getBackendIpHeartbeatPort(ipList, portList)
+            boolean matched = false
+            ipList.each { beid, ip ->
+                if (ip.equals(host) && ((portList[beid] as int) == port)) {
+                    matched = true;
+                }
+            }
+            return matched;
+        });
+    }
+
+    void waitDropBeFinished(String host, int port) {
+        Awaitility.await().atMost(60, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).and()
+                .pollInterval(100, TimeUnit.MILLISECONDS).await().until(() -> {
+            def ipList = [:]
+            def portList = [:]
+            getBackendIpHeartbeatPort(ipList, portList)
+            boolean matched = false
+            ipList.each { beid, ip ->
+                if (ip == host && portList[beid] as int == port) {
+                    matched = true;
+                }
+            }
+            return !matched;
+        });
     }
 
     void waiteCreateTableFinished(String tableName) {
@@ -1556,7 +1697,9 @@ class Suite implements GroovyInterceptable {
     def mv_rewrite_success_without_check_chosen = { query_sql, mv_name ->
         explain {
             sql(" memo plan ${query_sql}")
-            contains("${mv_name} not chose")
+            check { result ->
+                result.contains("${mv_name} chose") || result.contains("${mv_name} not chose")
+            }
         }
     }
 
@@ -1614,7 +1757,9 @@ class Suite implements GroovyInterceptable {
 
         explain {
             sql(" memo plan ${query_sql}")
-            notContains("${mv_name} fail")
+            check { result ->
+                result.contains("${mv_name} chose") || result.contains("${mv_name} not chose")
+            }
         }
     }
 
@@ -1637,8 +1782,7 @@ class Suite implements GroovyInterceptable {
 
         explain {
             sql(" memo plan ${query_sql}")
-            notContains("${mv_name} chose")
-            notContains("${mv_name} not chose")
+            contains("${mv_name} fail")
         }
     }
 
@@ -1769,7 +1913,7 @@ class Suite implements GroovyInterceptable {
 
         drop_cluster_api.call(js) {
             respCode, body ->
-                log.info("dorp cluster resp: ${body} ${respCode}".toString())
+                log.info("drop cluster resp: ${body} ${respCode}".toString())
                 def json = parseJson(body)
                 assertTrue(json.code.equalsIgnoreCase("OK") || json.code.equalsIgnoreCase("ALREADY_EXISTED"))
         }

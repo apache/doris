@@ -56,6 +56,10 @@ def is_enable_log():
     return ENABLE_LOG
 
 
+def set_log_verbose():
+    get_logger().setLevel(logging.DEBUG)
+
+
 def get_logger(name=None):
     global LOG
     if LOG != None:

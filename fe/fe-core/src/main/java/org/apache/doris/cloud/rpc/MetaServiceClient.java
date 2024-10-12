@@ -33,6 +33,7 @@ import org.apache.logging.log4j.Logger;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
+import java.util.Random;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
@@ -45,6 +46,7 @@ public class MetaServiceClient {
     private final ManagedChannel channel;
     private final long expiredAt;
     private final boolean isMetaServiceEndpointList;
+    private Random random = new Random();
 
     static {
         NameResolverRegistry.getDefaultRegistry().register(new MetaServiceListResolverProvider());
@@ -76,7 +78,9 @@ public class MetaServiceClient {
         // Disable connection age if the endpoint is a list.
         if (!isMetaServiceEndpointList && connectionAgeBase > 1) {
             long base = TimeUnit.MINUTES.toMillis(connectionAgeBase);
-            return base + System.currentTimeMillis() % base;
+            long now = System.currentTimeMillis();
+            long rand = random.nextLong() % base;
+            return now + base + rand;
         }
         return Long.MAX_VALUE;
     }

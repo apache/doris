@@ -77,9 +77,6 @@
 namespace doris {
 class ObjectPool;
 
-SchemaScanner::SchemaScanner(const std::vector<ColumnDesc>& columns)
-        : _is_init(false), _columns(columns), _schema_table_type(TSchemaTableType::SCH_INVALID) {}
-
 SchemaScanner::SchemaScanner(const std::vector<ColumnDesc>& columns, TSchemaTableType::type type)
         : _is_init(false), _columns(columns), _schema_table_type(type) {}
 
@@ -125,7 +122,6 @@ Status SchemaScanner::get_next_block_async(RuntimeState* state) {
                     return;
                 }
                 SCOPED_ATTACH_TASK(state);
-                _dependency->block();
                 _async_thread_running = true;
                 _finish_dependency->block();
                 if (!_opened) {
@@ -147,19 +143,6 @@ Status SchemaScanner::get_next_block_async(RuntimeState* state) {
                     _finish_dependency->set_ready();
                 }
             }));
-    return Status::OK();
-}
-
-Status SchemaScanner::get_next_block_internal(vectorized::Block* block, bool* eos) {
-    if (!_is_init) {
-        return Status::InternalError("used before initialized.");
-    }
-
-    if (nullptr == block || nullptr == eos) {
-        return Status::InternalError("input pointer is nullptr.");
-    }
-
-    *eos = true;
     return Status::OK();
 }
 
@@ -426,21 +409,18 @@ Status SchemaScanner::insert_block_column(TCell cell, int col_index, vectorized:
     case TYPE_BIGINT: {
         reinterpret_cast<vectorized::ColumnVector<vectorized::Int64>*>(col_ptr)->insert_value(
                 cell.longVal);
-        nullable_column->get_null_map_data().emplace_back(0);
         break;
     }
 
     case TYPE_INT: {
         reinterpret_cast<vectorized::ColumnVector<vectorized::Int32>*>(col_ptr)->insert_value(
                 cell.intVal);
-        nullable_column->get_null_map_data().emplace_back(0);
         break;
     }
 
     case TYPE_BOOLEAN: {
         reinterpret_cast<vectorized::ColumnVector<vectorized::UInt8>*>(col_ptr)->insert_value(
                 cell.boolVal);
-        nullable_column->get_null_map_data().emplace_back(0);
         break;
     }
 
@@ -449,7 +429,6 @@ Status SchemaScanner::insert_block_column(TCell cell, int col_index, vectorized:
     case TYPE_CHAR: {
         reinterpret_cast<vectorized::ColumnString*>(col_ptr)->insert_data(cell.stringVal.data(),
                                                                           cell.stringVal.size());
-        nullable_column->get_null_map_data().emplace_back(0);
         break;
     }
 
@@ -461,7 +440,6 @@ Status SchemaScanner::insert_block_column(TCell cell, int col_index, vectorized:
         auto data = datas[0];
         reinterpret_cast<vectorized::ColumnVector<vectorized::Int64>*>(col_ptr)->insert_data(
                 reinterpret_cast<char*>(data), 0);
-        nullable_column->get_null_map_data().emplace_back(0);
         break;
     }
     default: {
@@ -470,6 +448,7 @@ Status SchemaScanner::insert_block_column(TCell cell, int col_index, vectorized:
         return Status::InternalError(ss.str());
     }
     }
+    nullable_column->get_null_map_data().emplace_back(0);
     return Status::OK();
 }
 

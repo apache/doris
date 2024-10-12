@@ -56,6 +56,7 @@ class ConfigOptions {
     static Option sslCertificateOpt
     static Option imageOpt
     static Option noKillDockerOpt
+    static Option runModeOpt
     static Option suiteOpt
     static Option excludeSuiteOpt
     static Option groupsOpt
@@ -73,6 +74,7 @@ class ConfigOptions {
     static Option stopWhenFailOpt
     static Option timesOpt
     static Option withOutLoadDataOpt
+    static Option runNonConcurrentOpt
     static Option caseNamePrefixOpt
     static Option dryRunOpt
     static Option isSmokeTestOpt
@@ -215,6 +217,14 @@ class ConfigOptions {
                 .required(false)
                 .hasArg(false)
                 .desc("don't kill docker containers")
+                .build()
+
+        runModeOpt = Option.builder("runMode")
+                .required(false)
+                .hasArg(true)
+                .type(String.class)
+                .longOpt("runMode")
+                .desc("specific run mode: unknown/cloud/not_cloud. if unknow, will fetch it from fe.")
                 .build()
 
         suiteOpt = Option.builder("s")
@@ -467,6 +477,11 @@ class ConfigOptions {
                 .longOpt("withOutLoadData")
                 .desc("do not run load.groovy to reload data to Doris.")
                 .build()
+        runNonConcurrentOpt = Option.builder("runNonConcurrent")
+                .required(false)
+                .hasArg(true)
+                .desc("whether run non-concurrent tests")
+                .build()
         caseNamePrefixOpt = Option.builder("cnp")
                 .required(false)
                 .hasArg(true)
@@ -591,6 +606,7 @@ class ConfigOptions {
                 .addOption(sslCertificateOpt)
                 .addOption(imageOpt)
                 .addOption(noKillDockerOpt)
+                .addOption(runModeOpt)
                 .addOption(confOpt)
                 .addOption(suiteOpt)
                 .addOption(excludeSuiteOpt)
@@ -622,6 +638,7 @@ class ConfigOptions {
                 .addOption(stopWhenFailOpt)
                 .addOption(timesOpt)
                 .addOption(withOutLoadDataOpt)
+                .addOption(runNonConcurrentOpt)
                 .addOption(caseNamePrefixOpt)
                 .addOption(dryRunOpt)
                 .addOption(isSmokeTestOpt)

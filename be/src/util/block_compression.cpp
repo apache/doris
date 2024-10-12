@@ -127,11 +127,13 @@ public:
     }
 
     Status compress(const Slice& input, faststring* output) override {
-        if (input.size > INT_MAX) {
+        if (input.size > LZ4_MAX_INPUT_SIZE) {
             return Status::InvalidArgument(
-                    "LZ4 not support those case(input.size>INT_MAX), maybe you should change "
-                    "fragment_transmission_compression_codec to snappy, size={}",
-                    input.size);
+                    "LZ4 not support those case(input.size>LZ4_MAX_INPUT_SIZE), maybe you should "
+                    "change "
+                    "fragment_transmission_compression_codec to snappy, input.size={}, "
+                    "LZ4_MAX_INPUT_SIZE={}",
+                    input.size, LZ4_MAX_INPUT_SIZE);
         }
 
         std::unique_ptr<Context> context;

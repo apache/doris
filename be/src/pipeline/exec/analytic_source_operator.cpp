@@ -24,6 +24,7 @@
 #include "vec/exprs/vectorized_agg_fn.h"
 
 namespace doris::pipeline {
+#include "common/compile_check_begin.h"
 
 AnalyticLocalState::AnalyticLocalState(RuntimeState* state, OperatorXBase* parent)
         : PipelineXLocalState<AnalyticSharedState>(state, parent),
@@ -38,7 +39,7 @@ AnalyticLocalState::AnalyticLocalState(RuntimeState* state, OperatorXBase* paren
           _agg_arena_pool(std::make_unique<vectorized::Arena>()) {}
 
 //_partition_by_columns,_order_by_columns save in blocks, so if need to calculate the boundary, may find in which blocks firstly
-BlockRowPos AnalyticLocalState::_compare_row_to_find_end(int idx, BlockRowPos start,
+BlockRowPos AnalyticLocalState::_compare_row_to_find_end(int64_t idx, BlockRowPos start,
                                                          BlockRowPos end, bool need_check_first) {
     auto& shared_state = *_shared_state;
     int64_t start_init_row_num = start.row_num;
@@ -160,7 +161,7 @@ Status AnalyticLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_init_timer);
     _blocks_memory_usage =
-            profile()->AddHighWaterMarkCounter("Blocks", TUnit::BYTES, "MemoryUsage", 1);
+            profile()->AddHighWaterMarkCounter("MemoryUsageBlocks", TUnit::BYTES, "", 1);
     _evaluation_timer = ADD_TIMER(profile(), "EvaluationTime");
     return Status::OK();
 }
@@ -320,8 +321,8 @@ void AnalyticLocalState::_insert_result_info(int64_t current_block_rows) {
 
     const auto& offsets_of_aggregate_states =
             _parent->cast<AnalyticSourceOperatorX>()._offsets_of_aggregate_states;
-    for (int i = 0; i < _agg_functions_size; ++i) {
-        for (int j = get_result_start; j < _window_end_position; ++j) {
+    for (size_t i = 0; i < _agg_functions_size; ++i) {
+        for (size_t j = get_result_start; j < _window_end_position; ++j) {
             if (!_agg_functions[i]->function()->get_return_type()->is_nullable() &&
                 _result_window_columns[i]->is_nullable()) {
                 if (_current_window_empty) {
@@ -355,6 +356,7 @@ Status AnalyticLocalState::_get_next_for_rows(size_t current_block_rows) {
                         1; //going on calculate,add up data, no need to reset state
         } else {
             _reset_agg_status();
+            range_end = _shared_state->current_row_position + _rows_end_offset + 1;
             if (!_parent->cast<AnalyticSourceOperatorX>()
                          ._window.__isset
                          .window_start) { //[preceding, offset]        --unbound: [preceding, following]
@@ -362,7 +364,8 @@ Status AnalyticLocalState::_get_next_for_rows(size_t current_block_rows) {
             } else {
                 range_start = _shared_state->current_row_position + _rows_start_offset;
             }
-            range_end = _shared_state->current_row_position + _rows_end_offset + 1;
+            // Make sure range_start <= range_end
+            range_start = std::min(range_start, range_end);
         }
         _executor.execute(_partition_by_start.pos, _shared_state->partition_by_end.pos, range_start,
                           range_end);
@@ -440,7 +443,6 @@ bool AnalyticLocalState::init_next_partition(BlockRowPos found_partition_end) {
 Status AnalyticLocalState::output_current_block(vectorized::Block* block) {
     block->swap(std::move(_shared_state->input_blocks[_output_block_index]));
     _blocks_memory_usage->add(-block->allocated_bytes());
-    mem_tracker()->consume(-block->allocated_bytes());
     if (_shared_state->origin_cols.size() < block->columns()) {
         block->erase_not_in(_shared_state->origin_cols);
     }

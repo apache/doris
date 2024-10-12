@@ -18,9 +18,11 @@
 #pragma once
 
 #include <atomic>
+#include <cstdint>
 #include <memory>
 
 #include "common/status.h"
+#include "util/doris_metrics.h"
 #include "util/threadpool.h"
 #include "vec/exec/scan/vscanner.h"
 
@@ -69,6 +71,12 @@ public:
     static int get_remote_scan_thread_num();
 
     static int get_remote_scan_thread_queue_size();
+
+    SimplifiedScanScheduler* get_local_scan_thread_pool() { return _local_scan_thread_pool.get(); }
+
+    SimplifiedScanScheduler* get_remote_scan_thread_pool() {
+        return _remote_scan_thread_pool.get();
+    }
 
 private:
     static void _scanner_scan(std::shared_ptr<ScannerContext> ctx,
@@ -135,7 +143,13 @@ public:
 
     Status submit_scan_task(SimplifiedScanTask scan_task) {
         if (!_is_stop) {
-            return _scan_thread_pool->submit_func([scan_task] { scan_task.scan_func(); });
+            DorisMetrics::instance()->scanner_task_queued->increment(1);
+            auto st = _scan_thread_pool->submit_func([scan_task] { scan_task.scan_func(); });
+            if (!st.ok()) {
+                DorisMetrics::instance()->scanner_task_queued->increment(-1);
+                DorisMetrics::instance()->scanner_task_submit_failed->increment(1);
+            }
+            return st;
         } else {
             return Status::InternalError<false>("scanner pool {} is shutdown.", _sched_name);
         }

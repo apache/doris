@@ -18,12 +18,14 @@
 import org.apache.doris.regression.suite.ClusterOptions
 import groovy.json.JsonSlurper
 
-suite('test_sql_mode_node_mgr', 'docker,p1') {
+suite('test_sql_mode_node_mgr', 'multi_cluster,docker,p1') {
     if (!isCloudMode()) {
         return;
     }
 
     def clusterOptions = [
+        new ClusterOptions(),
+        new ClusterOptions(),
         new ClusterOptions(),
         new ClusterOptions(),
     ]
@@ -40,11 +42,21 @@ suite('test_sql_mode_node_mgr', 'docker,p1') {
                 "heartbeat_interval_second=1",]
     }
 
-    clusterOptions[0].beCloudInstanceId = true;
+    clusterOptions[0].sqlModeNodeMgr = true;
+    clusterOptions[0].beClusterId = true;
     clusterOptions[0].beMetaServiceEndpoint = true;
 
-    clusterOptions[1].beCloudInstanceId = false;
+    clusterOptions[1].sqlModeNodeMgr = true;
+    clusterOptions[1].beClusterId = false;
     clusterOptions[1].beMetaServiceEndpoint = false;
+
+    clusterOptions[2].sqlModeNodeMgr = false;
+    clusterOptions[2].beClusterId = true;
+    clusterOptions[2].beMetaServiceEndpoint = true;
+
+    clusterOptions[3].sqlModeNodeMgr = false;
+    clusterOptions[3].beClusterId = false;
+    clusterOptions[3].beMetaServiceEndpoint = false;
 
     for (options in clusterOptions) {
         docker(options) {
@@ -145,8 +157,24 @@ suite('test_sql_mode_node_mgr', 'docker,p1') {
             cluster.restartFrontends();
             cluster.restartBackends();
 
-            sleep(30000)
-            context.reconnectFe()
+            def reconnectFe = {
+                sleep(10000)
+                logger.info("Reconnecting to a new frontend...")
+                def newFe = cluster.getMasterFe()
+                if (newFe) {
+                    logger.info("New frontend found: ${newFe.host}:${newFe.httpPort}")
+                    def url = String.format(
+                            "jdbc:mysql://%s:%s/?useLocalSessionState=true&allowLoadLocalInfile=false",
+                            newFe.host, newFe.queryPort)
+                    url = context.config.buildUrlWithDb(url, context.dbName)
+                    context.connectTo(url, context.config.jdbcUser, context.config.jdbcPassword)
+                    logger.info("Successfully reconnected to the new frontend")
+                } else {
+                    logger.error("No new frontend found to reconnect")
+                }
+            }
+
+            reconnectFe()
 
             checkClusterStatus(3, 3, 1)
 
@@ -186,7 +214,7 @@ suite('test_sql_mode_node_mgr', 'docker,p1') {
 
             // CASE 3. Add the dropped backend back
             logger.info("Adding back the dropped backend: {}:{}", backendHost, backendHeartbeatPort)
-            sql """ ALTER SYSTEM ADD BACKEND "${backendHost}:${backendHeartbeatPort}"; """
+            sql """ ALTER SYSTEM ADD BACKEND "${backendHost}:${backendHeartbeatPort}" PROPERTIES ("tag.compute_group_name" = "another_compute_group"); """
 
             // Wait for the backend to be fully added back
             maxWaitSeconds = 300
@@ -207,6 +235,30 @@ suite('test_sql_mode_node_mgr', 'docker,p1') {
 
             checkClusterStatus(3, 3, 3)
 
+            // CASE 4. Check compute groups
+            logger.info("Checking compute groups")
+
+            def computeGroups = sql_return_maparray("SHOW COMPUTE GROUPS")
+            logger.info("Compute groups: {}", computeGroups)
+
+            // Verify that we have at least two compute groups
+            assert computeGroups.size() >= 2, "Expected at least 2 compute groups, but got ${computeGroups.size()}"
+
+            // Verify that we have a 'default_compute_group' and 'another_compute_group'
+            def defaultGroup = computeGroups.find { it['IsCurrent'] == "TRUE" }
+            def anotherGroup = computeGroups.find { it['IsCurrent'] == "FALSE" }
+
+            assert defaultGroup != null, "Expected to find 'default_compute_group'"
+            assert anotherGroup != null, "Expected to find 'another_compute_group'"
+
+            // Verify that 'another_compute_group' has exactly one backend
+            assert anotherGroup['BackendNum'] == '1', "Expected 'another_compute_group' to have 1 backend, but it has ${anotherGroup['BackendNum']}"
+
+            // Verify that 'default_compute_group' has the remaining backends
+            assert defaultGroup['BackendNum'] == '2', "Expected 'default_compute_group' to have 2 backends, but it has ${defaultGroup['BackendNum']}"
+
+            logger.info("Compute groups verified successfully")
+
             // CASE 4. If a fe is dropped, query and writing also work.
             // Get the list of frontends
             def frontends = sql_return_maparray("SHOW FRONTENDS")
@@ -218,16 +270,18 @@ suite('test_sql_mode_node_mgr', 'docker,p1') {
 
             def feHost = feToDropMap['Host']
             def feEditLogPort = feToDropMap['EditLogPort']
+            def feRole = feToDropMap['Role']
 
             logger.info("Dropping non-master frontend: {}:{}", feHost, feEditLogPort)
 
             // Drop the selected non-master frontend
-            sql """ ALTER SYSTEM DROP FOLLOWER "${feHost}:${feEditLogPort}"; """
+            sql """ ALTER SYSTEM DROP ${feRole} "${feHost}:${feEditLogPort}"; """
 
             // Wait for the frontend to be fully dropped
             maxWaitSeconds = 300
             waited = 0
             while (waited < maxWaitSeconds) {
+                reconnectFe()
                 def currentFrontends = sql_return_maparray("SHOW FRONTENDS")
                 if (currentFrontends.size() == frontends.size() - 1) {
                     logger.info("Non-master frontend successfully dropped")
@@ -286,6 +340,59 @@ suite('test_sql_mode_node_mgr', 'docker,p1') {
 
             logger.info("Frontend successfully added back and cluster status verified")
 
+            // CASE 6. Drop frontend and add back again
+            logger.info("Dropping frontend and adding back again")
+
+            // Get the frontend to be dropped
+            def frontendToDrop = frontends.find { it['Host'] == feHost && it['EditLogPort'] == feEditLogPort }
+            assert frontendToDrop != null, "Could not find the frontend to drop"
+
+            // Drop the frontend
+            sql """ ALTER SYSTEM DROP FOLLOWER "${feHost}:${feEditLogPort}"; """
+            sleep(30000)
+            reconnectFe()
+
+            // Wait for the frontend to be fully dropped
+            maxWaitSeconds = 300
+            waited = 0
+            while (waited < maxWaitSeconds) {
+                def updatedFrontends = sql_return_maparray("SHOW FRONTENDS")
+                if (!updatedFrontends.any { it['Host'] == feHost && it['EditLogPort'] == feEditLogPort }) {
+                    logger.info("Frontend successfully dropped")
+                    break
+                }
+                sleep(10000)
+                waited += 10
+            }
+
+            if (waited >= maxWaitSeconds) {
+                throw new Exception("Timeout waiting for frontend to be dropped")
+            }
+
+            // Add the frontend back
+            sql """ ALTER SYSTEM ADD FOLLOWER "${feHost}:${feEditLogPort}"; """
+
+            // Wait for the frontend to be fully added back
+            maxWaitSeconds = 300
+            waited = 0
+            while (waited < maxWaitSeconds) {
+                def updatedFrontends = sql_return_maparray("SHOW FRONTENDS")
+                if (updatedFrontends.any { it['Host'] == feHost && it['EditLogPort'] == feEditLogPort }) {
+                    logger.info("Frontend successfully added back")
+                    break
+                }
+                sleep(10000)
+                waited += 10
+            }
+
+            if (waited >= maxWaitSeconds) {
+                throw new Exception("Timeout waiting for frontend to be added back")
+            }
+
+            // Verify cluster status after adding the frontend back
+            checkClusterStatus(3, 3, 6)
+
+            logger.info("Frontend successfully added back and cluster status verified")
             // CASE 6. If fe can not drop itself.
             // 6. Attempt to drop the master FE and expect an exception
             logger.info("Attempting to drop the master frontend")
@@ -333,7 +440,7 @@ suite('test_sql_mode_node_mgr', 'docker,p1') {
             def originalBackendCount = 3 // As per the initial setup in this test
             assert currentBackends.size() == originalBackendCount, "Number of backends should remain unchanged after attempting to drop a non-existent backend"
 
-            checkClusterStatus(3, 3, 6)
+            checkClusterStatus(3, 3, 7)
 
             // CASE 8. Decommission a backend and verify the process
             logger.info("Attempting to decommission a backend")
@@ -381,7 +488,7 @@ suite('test_sql_mode_node_mgr', 'docker,p1') {
 
             logger.info("Successfully decommissioned backend and verified its status")
 
-            checkClusterStatus(3, 3, 7)
+            checkClusterStatus(3, 3, 8)
         }
     }
 

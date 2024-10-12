@@ -38,7 +38,7 @@ RUN  sed -i s@/deb.debian.org/@/mirrors.aliyun.com/@g /etc/apt/sources.list
 RUN  apt-get clean
 
 RUN apt-get update && \
-    apt-get install -y default-mysql-client python lsof tzdata curl unzip patchelf jq procps && \
+    apt-get install -y default-mysql-client python lsof tzdata curl unzip patchelf jq procps util-linux && \
     ln -fs /usr/share/zoneinfo/Asia/Shanghai /etc/localtime && \
     dpkg-reconfigure -f noninteractive tzdata && \
     apt-get clean
