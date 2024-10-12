@@ -15,25 +15,25 @@ PhysicalResultSink
 ------------------------PhysicalProject
 --------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((customer_address.ca_address_sk = customer.c_current_addr_sk)) otherCondition=() build RFs:RF3 ca_address_sk->[c_current_addr_sk]
 ----------------------------PhysicalProject
-------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((catalog_returns.cr_call_center_sk = call_center.cc_call_center_sk)) otherCondition=() build RFs:RF2 cc_call_center_sk->[cr_call_center_sk]
+------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((catalog_returns.cr_returned_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF2 d_date_sk->[cr_returned_date_sk]
 --------------------------------PhysicalProject
 ----------------------------------hashJoin[INNER_JOIN shuffle] hashCondition=((catalog_returns.cr_returning_customer_sk = customer.c_customer_sk)) otherCondition=() build RFs:RF1 c_customer_sk->[cr_returning_customer_sk]
 ------------------------------------PhysicalProject
---------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((catalog_returns.cr_returned_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF0 d_date_sk->[cr_returned_date_sk]
+--------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((catalog_returns.cr_call_center_sk = call_center.cc_call_center_sk)) otherCondition=() build RFs:RF0 cc_call_center_sk->[cr_call_center_sk]
 ----------------------------------------PhysicalProject
 ------------------------------------------PhysicalOlapScan[catalog_returns] apply RFs: RF0 RF1 RF2
 ----------------------------------------PhysicalProject
-------------------------------------------filter((date_dim.d_moy = 11) and (date_dim.d_year = 2001))
---------------------------------------------PhysicalOlapScan[date_dim]
+------------------------------------------PhysicalOlapScan[call_center]
 ------------------------------------PhysicalProject
 --------------------------------------PhysicalOlapScan[customer] apply RFs: RF3 RF4 RF5
 --------------------------------PhysicalProject
-----------------------------------PhysicalOlapScan[call_center]
+----------------------------------filter((date_dim.d_moy = 11) and (date_dim.d_year = 2001))
+------------------------------------PhysicalOlapScan[date_dim]
 ----------------------------PhysicalProject
 ------------------------------filter((customer_address.ca_gmt_offset = -6.00))
 --------------------------------PhysicalOlapScan[customer_address]
 ------------------------PhysicalProject
---------------------------filter((((customer_demographics.cd_marital_status = 'M') AND (customer_demographics.cd_education_status = 'Unknown')) OR ((customer_demographics.cd_marital_status = 'W') AND (customer_demographics.cd_education_status = 'Advanced Degree'))))
+--------------------------filter((((customer_demographics.cd_marital_status = 'M') AND (customer_demographics.cd_education_status = 'Unknown')) OR ((customer_demographics.cd_marital_status = 'W') AND (customer_demographics.cd_education_status = 'Advanced Degree'))) and cd_education_status IN ('Advanced Degree', 'Unknown') and cd_marital_status IN ('M', 'W'))
 ----------------------------PhysicalOlapScan[customer_demographics]
 --------------------PhysicalProject
 ----------------------filter((hd_buy_potential like '1001-5000%'))

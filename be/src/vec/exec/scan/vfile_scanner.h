@@ -91,6 +91,10 @@ protected:
 
     void _collect_profile_before_close() override;
 
+    // fe will add skip_bitmap_col to _input_tuple_desc iff the target olaptable has skip_bitmap_col
+    // and the current load is a flexible partial update
+    bool _should_process_skip_bitmap_col() const { return _skip_bitmap_col_idx != -1; }
+
 protected:
     const TFileScanRangeParams* _params = nullptr;
     std::shared_ptr<vectorized::SplitSourceConnector> _split_source;
@@ -167,6 +171,11 @@ protected:
             _partition_col_descs;
     std::unordered_map<std::string, VExprContextSPtr> _missing_col_descs;
 
+    // idx of skip_bitmap_col in _input_tuple_desc
+    int32_t _skip_bitmap_col_idx {-1};
+    int32_t _sequence_map_col_uid {-1};
+    int32_t _sequence_col_uid {-1};
+
 private:
     RuntimeProfile::Counter* _get_block_timer = nullptr;
     RuntimeProfile::Counter* _open_reader_timer = nullptr;
@@ -225,7 +234,7 @@ private:
     // 1. max_external_file_meta_cache_num is > 0
     // 2. the file number is less than 1/3 of cache's capacibility
     // Otherwise, the cache miss rate will be high
-    bool _shoudl_enable_file_meta_cache() {
+    bool _should_enable_file_meta_cache() {
         return config::max_external_file_meta_cache_num > 0 &&
                _split_source->num_scan_ranges() < config::max_external_file_meta_cache_num / 3;
     }

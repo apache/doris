@@ -105,6 +105,11 @@ public class DateTimeV2Literal extends DateTimeLiteral {
     }
 
     @Override
+    public double getDouble() {
+        return super.getDouble() + microSecond / 1000000.0;
+    }
+
+    @Override
     public String toString() {
         return getStringValue();
     }
@@ -291,6 +296,6 @@ public class DateTimeV2Literal extends DateTimeLiteral {
             return false;
         }
         DateTimeV2Literal literal = (DateTimeV2Literal) o;
-        return Objects.equals(dataType, literal.dataType);
+        return Objects.equals(dataType, literal.dataType) && Objects.equals(microSecond, literal.microSecond);
     }
 }

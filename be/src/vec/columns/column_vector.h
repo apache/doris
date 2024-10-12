@@ -142,7 +142,6 @@ public:
     using value_type = T;
     using Container = PaddedPODArray<value_type>;
 
-private:
     ColumnVector() = default;
     ColumnVector(const size_t n) : data(n) {}
     ColumnVector(const size_t n, const value_type x) : data(n, x) {}

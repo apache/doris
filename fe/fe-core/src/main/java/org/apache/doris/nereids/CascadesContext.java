@@ -67,10 +67,9 @@ import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Statistics;
 import org.apache.doris.statistics.StatisticsBuilder;
 
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Multimap;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -113,7 +112,7 @@ public class CascadesContext implements ScheduleContext {
     private final RuntimeFilterContext runtimeFilterContext;
     private final TopnFilterContext topnFilterContext = new TopnFilterContext();
     private Optional<Scope> outerScope = Optional.empty();
-    private Map<Long, TableIf> tables = null;
+    private Map<List<String>, TableIf> tables = null;
 
     private boolean isRewriteRoot;
     private volatile boolean isTimeout = false;
@@ -123,6 +122,7 @@ public class CascadesContext implements ScheduleContext {
     private final Optional<CascadesContext> parent;
 
     private final Set<MaterializationContext> materializationContexts;
+    private final Set<List<String>> materializationRewrittenSuccessSet = new HashSet<>();
     private boolean isLeadingJoin = false;
 
     private boolean isLeadingDisableJoinReorder = false;
@@ -167,6 +167,9 @@ public class CascadesContext implements ScheduleContext {
             this.isEnableExprTrace = sessionVariable != null && sessionVariable.isEnableExprTrace();
         } else {
             this.isEnableExprTrace = false;
+        }
+        if (parent.isPresent()) {
+            this.tables = parent.get().tables;
         }
     }
 
@@ -260,9 +263,8 @@ public class CascadesContext implements ScheduleContext {
         this.memo = null;
     }
 
-    public void setTables(List<TableIf> tables) {
-        this.tables = tables.stream()
-                .collect(Collectors.toMap(TableIf::getId, t -> t, (t1, t2) -> t1, () -> Maps.newTreeMap()));
+    public void setTables(Map<List<String>, TableIf> tables) {
+        this.tables = tables;
     }
 
     public final ConnectContext getConnectContext() {
@@ -365,6 +367,14 @@ public class CascadesContext implements ScheduleContext {
         this.materializationContexts.add(materializationContext);
     }
 
+    public Set<List<String>> getMaterializationRewrittenSuccessSet() {
+        return materializationRewrittenSuccessSet;
+    }
+
+    public void addMaterializationRewrittenSuccess(List<String> materializationQualifier) {
+        this.materializationRewrittenSuccessSet.add(materializationQualifier);
+    }
+
     /**
      * getAndCacheSessionVariable
      */
@@ -400,11 +410,11 @@ public class CascadesContext implements ScheduleContext {
      */
     public void extractTables(LogicalPlan logicalPlan) {
         Set<List<String>> tableNames = getTables(logicalPlan);
-        tables = Maps.newTreeMap();
+        tables = Maps.newHashMap();
         for (List<String> tableName : tableNames) {
             try {
                 TableIf table = getTable(tableName);
-                tables.put(table.getId(), table);
+                tables.put(table.getFullQualifiers(), table);
             } catch (Throwable e) {
                 // IGNORE
             }
@@ -412,25 +422,11 @@ public class CascadesContext implements ScheduleContext {
 
     }
 
-    /** get table by table name, try to get from information from dumpfile first */
-    public TableIf getTableInMinidumpCache(String tableName) {
-        Preconditions.checkState(tables != null, "tables should not be null");
-        for (TableIf table : tables.values()) {
-            if (table.getName().equals(tableName)) {
-                return table;
-            }
-        }
-        if (getConnectContext().getSessionVariable().isPlayNereidsDump()) {
-            throw new AnalysisException("Minidump cache can not find table:" + tableName);
-        }
-        return null;
-    }
-
-    public List<TableIf> getTables() {
+    public Map<List<String>, TableIf> getTables() {
         if (tables == null) {
             return null;
         } else {
-            return Lists.newArrayList(tables.values());
+            return tables;
         }
     }
 
@@ -618,8 +614,8 @@ public class CascadesContext implements ScheduleContext {
         return this.statementContext.getConsumerIdToFilters();
     }
 
-    public void addCTEConsumerGroup(CTEId cteId, Group g, Map<Slot, Slot> producerSlotToConsumerSlot) {
-        List<Pair<Map<Slot, Slot>, Group>> consumerGroups =
+    public void addCTEConsumerGroup(CTEId cteId, Group g, Multimap<Slot, Slot> producerSlotToConsumerSlot) {
+        List<Pair<Multimap<Slot, Slot>, Group>> consumerGroups =
                 this.statementContext.getCteIdToConsumerGroup().computeIfAbsent(cteId, k -> new ArrayList<>());
         consumerGroups.add(Pair.of(producerSlotToConsumerSlot, g));
     }
@@ -628,12 +624,18 @@ public class CascadesContext implements ScheduleContext {
      * Update CTE consumer group as producer's stats update
      */
     public void updateConsumerStats(CTEId cteId, Statistics statistics) {
-        List<Pair<Map<Slot, Slot>, Group>> consumerGroups = this.statementContext.getCteIdToConsumerGroup().get(cteId);
-        for (Pair<Map<Slot, Slot>, Group> p : consumerGroups) {
-            Map<Slot, Slot> producerSlotToConsumerSlot = p.first;
+        List<Pair<Multimap<Slot, Slot>, Group>> consumerGroups
+                = this.statementContext.getCteIdToConsumerGroup().get(cteId);
+        for (Pair<Multimap<Slot, Slot>, Group> p : consumerGroups) {
+            Multimap<Slot, Slot> producerSlotToConsumerSlot = p.first;
             Statistics updatedConsumerStats = new StatisticsBuilder(statistics).build();
             for (Entry<Expression, ColumnStatistic> entry : statistics.columnStatistics().entrySet()) {
-                updatedConsumerStats.addColumnStats(producerSlotToConsumerSlot.get(entry.getKey()), entry.getValue());
+                if (!(entry.getKey() instanceof Slot)) {
+                    continue;
+                }
+                for (Slot consumer : producerSlotToConsumerSlot.get((Slot) entry.getKey())) {
+                    updatedConsumerStats.addColumnStats(consumer, entry.getValue());
+                }
             }
             p.value().setStatistics(updatedConsumerStats);
         }

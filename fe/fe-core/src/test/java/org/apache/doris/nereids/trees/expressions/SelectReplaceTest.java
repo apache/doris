@@ -88,24 +88,28 @@ public class SelectReplaceTest extends AnalyzeCheckTestBase implements MemoPatte
         String sql6 = "select * replace (1 as fake) from t1";
         Assertions.assertThrows(NereidsException.class,
                 () -> PlanChecker.from(connectContext).checkPlannerResult(sql6));
+
+        // agg not support replace
+        String sql7 = "select * replace (v2 + 1 as v2) from t2 group by id, k1, v2";
+        Assertions.assertThrows(NereidsException.class,
+                () -> PlanChecker.from(connectContext).checkPlannerResult(sql7));
     }
 
     @Test
     public void testReplace2() {
         LogicalOlapScan olapScan = PlanConstructor.newLogicalOlapScan(0, "t1", 1);
         LogicalProject<LogicalOlapScan> project = new LogicalProject<>(
-                ImmutableList.of(new UnboundStar(ImmutableList.of("db", "t1"))),
-                ImmutableList.of(),
-                ImmutableList.of(new UnboundAlias(new UnboundSlot("name"), "id")),
-                false,
-                olapScan);
+                ImmutableList.of(
+                        new UnboundStar(ImmutableList.of("db", "t1"),
+                                ImmutableList.of(),
+                                ImmutableList.of(new UnboundAlias(new UnboundSlot("name"), "id"))
+                        )), false, olapScan);
         PlanChecker.from(MemoTestUtils.createConnectContext())
                 .analyze(project)
                 .matches(
                         logicalProject(
                                 logicalOlapScan()
-                        ).when(proj -> proj.getReplaces().size() == 1
-                                && proj.getProjects().get(0).getName().equals("id"))
+                        ).when(proj -> proj.getProjects().get(0).getName().equals("id"))
                 );
     }
 

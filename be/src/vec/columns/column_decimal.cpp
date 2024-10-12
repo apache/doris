@@ -23,8 +23,6 @@
 #include <fmt/format.h>
 
 #include <limits>
-#include <ostream>
-#include <string>
 
 #include "olap/decimal12.h"
 #include "runtime/decimalv2_value.h"

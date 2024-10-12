@@ -54,7 +54,7 @@ Status HashJoinProbeLocalState::init(RuntimeState* state, LocalStateInfo& info) 
     _construct_mutable_join_block();
     _probe_column_disguise_null.reserve(_probe_expr_ctxs.size());
     _probe_arena_memory_usage =
-            profile()->AddHighWaterMarkCounter("ProbeKeyArena", TUnit::BYTES, "MemoryUsage", 1);
+            profile()->AddHighWaterMarkCounter("MemoryUsageProbeKeyArena", TUnit::BYTES, "", 1);
     // Probe phase
     _probe_next_timer = ADD_TIMER(profile(), "ProbeFindNextTime");
     _probe_expr_call_timer = ADD_TIMER(profile(), "ProbeExprCallTime");
@@ -276,7 +276,7 @@ Status HashJoinProbeOperatorX::pull(doris::RuntimeState* state, vectorized::Bloc
         /// increase the output rows count(just same as `_probe_block`'s rows count).
         RETURN_IF_ERROR(local_state.filter_data_and_build_output(state, output_block, eos,
                                                                  &local_state._probe_block, false));
-        local_state._probe_block.clear_column_data(_child_x->row_desc().num_materialized_slots());
+        local_state._probe_block.clear_column_data(_child->row_desc().num_materialized_slots());
         return Status::OK();
     }
 
@@ -304,8 +304,6 @@ Status HashJoinProbeOperatorX::pull(doris::RuntimeState* state, vectorized::Bloc
                                                  mutable_join_block, &temp_block,
                                                  local_state._probe_block.rows(), _is_mark_join,
                                                  _have_other_join_conjunct);
-                            local_state._mem_tracker->set_consumption(
-                                    arg.serialized_keys_size(false));
                         } else {
                             st = Status::InternalError("uninited hash table");
                         }
@@ -501,6 +499,10 @@ Status HashJoinProbeOperatorX::push(RuntimeState* state, vectorized::Block* inpu
 
         if (&local_state._probe_block != input_block) {
             input_block->swap(local_state._probe_block);
+            COUNTER_SET(local_state._memory_used_counter,
+                        (int64_t)local_state._probe_block.allocated_bytes());
+            COUNTER_SET(local_state._peak_memory_usage_counter,
+                        local_state._memory_used_counter->value());
         }
     }
     return Status::OK();
@@ -580,8 +582,8 @@ Status HashJoinProbeOperatorX::init(const TPlanNode& tnode, RuntimeState* state)
     return Status::OK();
 }
 
-Status HashJoinProbeOperatorX::prepare(RuntimeState* state) {
-    RETURN_IF_ERROR(JoinProbeOperatorX<HashJoinProbeLocalState>::prepare(state));
+Status HashJoinProbeOperatorX::open(RuntimeState* state) {
+    RETURN_IF_ERROR(JoinProbeOperatorX<HashJoinProbeLocalState>::open(state));
     // init left/right output slots flags, only column of slot_id in _hash_output_slot_ids need
     // insert to output block of hash join.
     // _left_output_slots_flags : column of left table need to output set flag = true
@@ -597,10 +599,9 @@ Status HashJoinProbeOperatorX::prepare(RuntimeState* state) {
             }
         }
     };
-    init_output_slots_flags(_child_x->row_desc().tuple_descriptors(), _left_output_slot_flags);
+    init_output_slots_flags(_child->row_desc().tuple_descriptors(), _left_output_slot_flags);
     init_output_slots_flags(_build_side_child->row_desc().tuple_descriptors(),
                             _right_output_slot_flags);
-    RETURN_IF_ERROR(vectorized::VExpr::prepare(_output_expr_ctxs, state, *_intermediate_row_desc));
     // _other_join_conjuncts are evaluated in the context of the rows produced by this node
     for (auto& conjunct : _other_join_conjuncts) {
         RETURN_IF_ERROR(conjunct->prepare(state, *_intermediate_row_desc));
@@ -610,12 +611,12 @@ Status HashJoinProbeOperatorX::prepare(RuntimeState* state) {
         RETURN_IF_ERROR(conjunct->prepare(state, *_intermediate_row_desc));
     }
 
-    RETURN_IF_ERROR(vectorized::VExpr::prepare(_probe_expr_ctxs, state, _child_x->row_desc()));
+    RETURN_IF_ERROR(vectorized::VExpr::prepare(_probe_expr_ctxs, state, _child->row_desc()));
     DCHECK(_build_side_child != nullptr);
     // right table data types
     _right_table_data_types =
             vectorized::VectorizedUtils::get_data_types(_build_side_child->row_desc());
-    _left_table_data_types = vectorized::VectorizedUtils::get_data_types(_child_x->row_desc());
+    _left_table_data_types = vectorized::VectorizedUtils::get_data_types(_child->row_desc());
     _right_table_column_names =
             vectorized::VectorizedUtils::get_column_names(_build_side_child->row_desc());
 
@@ -667,11 +668,6 @@ Status HashJoinProbeOperatorX::prepare(RuntimeState* state) {
     }
 
     _build_side_child.reset();
-    return Status::OK();
-}
-
-Status HashJoinProbeOperatorX::open(RuntimeState* state) {
-    RETURN_IF_ERROR(JoinProbeOperatorX<HashJoinProbeLocalState>::open(state));
     RETURN_IF_ERROR(vectorized::VExpr::open(_probe_expr_ctxs, state));
     for (auto& conjunct : _other_join_conjuncts) {
         RETURN_IF_ERROR(conjunct->open(state));

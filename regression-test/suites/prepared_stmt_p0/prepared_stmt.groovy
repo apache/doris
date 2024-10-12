@@ -58,6 +58,7 @@ suite("test_prepared_stmt", "nonConcurrent") {
         qt_sql """select * from  ${tableName} order by 1, 2, 3"""
         qt_sql """select * from  ${tableName} order by 1, 2, 3"""
         sql "set global max_prepared_stmt_count = 10000"
+        sql "set enable_fallback_to_original_planner = false"
 
         def stmt_read = prepareStatement "select * from ${tableName} where k1 = ? order by k1"
         assertEquals(com.mysql.cj.jdbc.ServerPreparedStatement, stmt_read.class)
@@ -150,8 +151,6 @@ suite("test_prepared_stmt", "nonConcurrent") {
 
         sql """insert into mytable1 values(2,1,'user1',null);"""
 
-        // sql "set experimental_enable_nereids_planner = false"
-
         stmt_read = prepareStatement "SELECT *, ? FROM (select *, ? from mytable1 where pv is null) AS `SpotfireCustomQuery1` WHERE 1 = 1"
         assertEquals(com.mysql.cj.jdbc.ServerPreparedStatement, stmt_read.class)
         stmt_read.setString(1, "xxxlalala")
@@ -161,8 +160,6 @@ suite("test_prepared_stmt", "nonConcurrent") {
         stmt_read.setString(2, "1111111")
         qe_select7 stmt_read
         // stmt_read.close()
-
-        // sql "set experimental_enable_nereids_planner = true"
 
         stmt_read.setString(1, "xxxlalala")
         stmt_read.setDouble(2, 1234.1111)
@@ -239,5 +236,11 @@ suite("test_prepared_stmt", "nonConcurrent") {
         // not stable
         // qe_select16 stmt_read
         stmt_read.close()
+
+        stmt_read = prepareStatement "SELECT connection_id()" 
+        assertEquals(com.mysql.cj.jdbc.ServerPreparedStatement, stmt_read.class)
+        result = stmt_read.execute()
+        logger.info("connection_id: ${result}")
+        // qe_select16 stmt_read
     }
 }

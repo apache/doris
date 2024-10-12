@@ -73,6 +73,7 @@ import org.apache.doris.nereids.trees.plans.visitor.NondeterministicFunctionColl
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
+import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.HashMultimap;
 import com.google.common.collect.ImmutableList;
@@ -212,8 +213,8 @@ public class MaterializedViewUtils {
                         structInfosBuilder.add(structInfo);
                     }
                 }
-                return structInfosBuilder.build();
             }
+            return structInfosBuilder.build();
         }
         // if plan doesn't belong to any group, construct it directly
         return ImmutableList.of(StructInfo.of(plan, originalPlan, cascadesContext));
@@ -247,7 +248,7 @@ public class MaterializedViewUtils {
 
     /**
      * Optimize by rules, this support optimize by custom rules by define different rewriter according to different
-     * rules
+     * rules, this method is only for materialized view rewrite
      */
     public static Plan rewriteByRules(
             CascadesContext cascadesContext,
@@ -267,7 +268,23 @@ public class MaterializedViewUtils {
         CascadesContext rewrittenPlanContext = CascadesContext.initContext(
                 cascadesContext.getStatementContext(), rewrittenPlan,
                 cascadesContext.getCurrentJobContext().getRequiredProperties());
-        rewrittenPlan = planRewriter.apply(rewrittenPlanContext);
+        // Tmp old disable rule variable
+        Set<String> oldDisableRuleNames = rewrittenPlanContext.getStatementContext().getConnectContext()
+                .getSessionVariable()
+                .getDisableNereidsRuleNames();
+        rewrittenPlanContext.getStatementContext().getConnectContext().getSessionVariable()
+                .setDisableNereidsRules(String.join(",", ImmutableSet.of(RuleType.ADD_DEFAULT_LIMIT.name())));
+        rewrittenPlanContext.getStatementContext().invalidCache(SessionVariable.DISABLE_NEREIDS_RULES);
+        try {
+            rewrittenPlanContext.getConnectContext().setSkipAuth(true);
+            rewrittenPlan = planRewriter.apply(rewrittenPlanContext);
+        } finally {
+            rewrittenPlanContext.getConnectContext().setSkipAuth(false);
+            // Recover old disable rules variable
+            rewrittenPlanContext.getStatementContext().getConnectContext().getSessionVariable()
+                    .setDisableNereidsRules(String.join(",", oldDisableRuleNames));
+            rewrittenPlanContext.getStatementContext().invalidCache(SessionVariable.DISABLE_NEREIDS_RULES);
+        }
         Map<ExprId, Slot> exprIdToNewRewrittenSlot = Maps.newLinkedHashMap();
         for (Slot slot : rewrittenPlan.getOutput()) {
             exprIdToNewRewrittenSlot.put(slot.getExprId(), slot);
@@ -409,7 +426,7 @@ public class MaterializedViewUtils {
             if (joinType.isInnerJoin() || joinType.isCrossJoin()) {
                 return visit(join, context);
             } else if ((joinType.isLeftJoin()
-                    || joinType.isLefSemiJoin()
+                    || joinType.isLeftSemiJoin()
                     || joinType.isLeftAntiJoin()) && useLeft) {
                 return visit(join.left(), context);
             } else if ((joinType.isRightJoin()
@@ -427,6 +444,20 @@ public class MaterializedViewUtils {
             if (!(relation instanceof LogicalCatalogRelation)) {
                 context.addFailReason(String.format("relation should be LogicalCatalogRelation, "
                         + "but now is %s", relation.getClass().getSimpleName()));
+                return null;
+            }
+            SlotReference contextPartitionColumn = getContextPartitionColumn(context);
+            if (contextPartitionColumn == null) {
+                context.addFailReason(String.format("mv partition column is not from table when relation check, "
+                        + "mv partition column is %s", context.getMvPartitionColumn()));
+                return null;
+            }
+            // Check the table which mv partition column belonged to is same as the current check relation or not
+            if (!((LogicalCatalogRelation) relation).getTable().getFullQualifiers().equals(
+                    contextPartitionColumn.getTable().map(TableIf::getFullQualifiers).orElse(ImmutableList.of()))) {
+                context.addFailReason(String.format("mv partition column name is not belonged to current check , "
+                                + "table, current table is %s",
+                        ((LogicalCatalogRelation) relation).getTable().getFullQualifiers()));
                 return null;
             }
             LogicalCatalogRelation logicalCatalogRelation = (LogicalCatalogRelation) relation;
@@ -457,10 +488,6 @@ public class MaterializedViewUtils {
                 return null;
             }
             Set<Column> partitionColumnSet = new HashSet<>(relatedTable.getPartitionColumns());
-            SlotReference contextPartitionColumn = getContextPartitionColumn(context);
-            if (contextPartitionColumn == null) {
-                return null;
-            }
             Column mvReferenceColumn = contextPartitionColumn.getColumn().get();
             Expr definExpr = mvReferenceColumn.getDefineExpr();
             if (definExpr instanceof SlotRef) {

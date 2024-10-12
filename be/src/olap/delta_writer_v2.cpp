@@ -154,7 +154,7 @@ Status DeltaWriterV2::write(const vectorized::Block* block, const std::vector<ui
         SCOPED_RAW_TIMER(&_wait_flush_limit_time);
         auto memtable_flush_running_count_limit = config::memtable_flush_running_count_limit;
         DBUG_EXECUTE_IF("DeltaWriterV2.write.back_pressure",
-                        { memtable_flush_running_count_limit = 0; });
+                        { std::this_thread::sleep_for(std::chrono::milliseconds(10 * 1000)); });
         while (_memtable_writer->flush_running_count() >= memtable_flush_running_count_limit) {
             if (_state->is_cancelled()) {
                 return _state->cancel_reason();
@@ -237,10 +237,11 @@ void DeltaWriterV2::_build_current_tablet_schema(int64_t index_id,
     }
     // set partial update columns info
     _partial_update_info = std::make_shared<PartialUpdateInfo>();
-    _partial_update_info->init(*_tablet_schema, table_schema_param->is_partial_update(),
+    _partial_update_info->init(*_tablet_schema, table_schema_param->unique_key_update_mode(),
                                table_schema_param->partial_update_input_columns(),
                                table_schema_param->is_strict_mode(),
-                               table_schema_param->timestamp_ms(), table_schema_param->timezone(),
+                               table_schema_param->timestamp_ms(),
+                               table_schema_param->nano_seconds(), table_schema_param->timezone(),
                                table_schema_param->auto_increment_coulumn());
 }
 

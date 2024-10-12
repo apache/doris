@@ -64,6 +64,7 @@
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/memory_reclamation.h"
+#include "runtime/query_context.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "service/backend_options.h"
@@ -383,6 +384,16 @@ Status VNodeChannel::init(RuntimeState* state) {
     // a relatively large value to improve the import performance.
     _batch_size = std::max(_batch_size, 8192);
 
+    if (_state) {
+        QueryContext* query_ctx = _state->get_query_ctx();
+        if (query_ctx) {
+            auto wg_ptr = query_ctx->workload_group();
+            if (wg_ptr) {
+                _wg_id = wg_ptr->id();
+            }
+        }
+    }
+
     _inited = true;
     return Status::OK();
 }
@@ -425,6 +436,10 @@ void VNodeChannel::_open_internal(bool is_incremental) {
     request->set_is_incremental(is_incremental);
     request->set_txn_expiration(_parent->_txn_expiration);
     request->set_write_file_cache(_parent->_write_file_cache);
+
+    if (_wg_id > 0) {
+        request->set_workload_group_id(_wg_id);
+    }
 
     auto open_callback = DummyBrpcCallback<PTabletWriterOpenResult>::create_shared();
     auto open_closure = AutoReleaseClosure<
@@ -717,11 +732,30 @@ void VNodeChannel::try_send_pending_block(RuntimeState* state) {
             return;
         }
 
+        std::string host = _node_info.host;
+        auto dns_cache = ExecEnv::GetInstance()->dns_cache();
+        if (dns_cache == nullptr) {
+            LOG(WARNING) << "DNS cache is not initialized, skipping hostname resolve";
+        } else if (!is_valid_ip(_node_info.host)) {
+            Status status = dns_cache->get(_node_info.host, &host);
+            if (!status.ok()) {
+                LOG(WARNING) << "failed to get ip from host " << _node_info.host << ": "
+                             << status.to_string();
+                _send_block_callback->clear_in_flight();
+                return;
+            }
+        }
         //format an ipv6 address
-        std::string brpc_url = get_brpc_http_url(_node_info.host, _node_info.brpc_port);
+        std::string brpc_url = get_brpc_http_url(host, _node_info.brpc_port);
         std::shared_ptr<PBackendService_Stub> _brpc_http_stub =
                 _state->exec_env()->brpc_internal_client_cache()->get_new_client_no_cache(brpc_url,
                                                                                           "http");
+        if (_brpc_http_stub == nullptr) {
+            cancel(fmt::format("{}, failed to open brpc http client to {}", channel_info(),
+                               brpc_url));
+            _send_block_callback->clear_in_flight();
+            return;
+        }
         _send_block_callback->cntl_->http_request().uri() =
                 brpc_url + "/PInternalServiceImpl/tablet_writer_add_block_by_http";
         _send_block_callback->cntl_->http_request().set_method(brpc::HTTP_METHOD_POST);
@@ -1146,6 +1180,7 @@ Status VTabletWriter::_init(RuntimeState* state, RuntimeProfile* profile) {
     _schema.reset(new OlapTableSchemaParam());
     RETURN_IF_ERROR(_schema->init(table_sink.schema));
     _schema->set_timestamp_ms(state->timestamp_ms());
+    _schema->set_nano_seconds(state->nano_seconds());
     _schema->set_timezone(state->timezone());
     _location = _pool->add(new OlapTableLocationParam(table_sink.location));
     _nodes_info = _pool->add(new DorisNodesInfo(table_sink.nodes_info));
@@ -1222,7 +1257,7 @@ Status VTabletWriter::_init(RuntimeState* state, RuntimeProfile* profile) {
     // on exchange node rather than on TabletWriter
     _block_convertor->init_autoinc_info(
             _schema->db_id(), _schema->table_id(), _state->batch_size(),
-            _schema->is_partial_update() && !_schema->auto_increment_coulumn().empty(),
+            _schema->is_fixed_partial_update() && !_schema->auto_increment_coulumn().empty(),
             _schema->auto_increment_column_unique_id());
     _output_row_desc = _pool->add(new RowDescriptor(_output_tuple_desc, false));
 

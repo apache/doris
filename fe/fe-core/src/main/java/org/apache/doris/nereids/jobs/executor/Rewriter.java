@@ -29,7 +29,6 @@ import org.apache.doris.nereids.rules.analysis.EliminateGroupByConstant;
 import org.apache.doris.nereids.rules.analysis.LogicalSubQueryAliasToLogicalProject;
 import org.apache.doris.nereids.rules.analysis.NormalizeAggregate;
 import org.apache.doris.nereids.rules.expression.CheckLegalityAfterRewrite;
-import org.apache.doris.nereids.rules.expression.ExpressionNormalization;
 import org.apache.doris.nereids.rules.expression.ExpressionNormalizationAndOptimization;
 import org.apache.doris.nereids.rules.expression.ExpressionRewrite;
 import org.apache.doris.nereids.rules.expression.QueryColumnCollector;
@@ -46,6 +45,7 @@ import org.apache.doris.nereids.rules.rewrite.CheckDataTypes;
 import org.apache.doris.nereids.rules.rewrite.CheckMatchExpression;
 import org.apache.doris.nereids.rules.rewrite.CheckMultiDistinct;
 import org.apache.doris.nereids.rules.rewrite.CheckPrivileges;
+import org.apache.doris.nereids.rules.rewrite.CheckRestorePartition;
 import org.apache.doris.nereids.rules.rewrite.ClearContextStatus;
 import org.apache.doris.nereids.rules.rewrite.CollectCteConsumerOutput;
 import org.apache.doris.nereids.rules.rewrite.CollectFilterAboveConsumer;
@@ -189,7 +189,12 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         // after doing NormalizeAggregate in analysis job
                         // we need run the following 2 rules to make AGG_SCALAR_SUBQUERY_TO_WINDOW_FUNCTION work
                         bottomUp(new PullUpProjectUnderApply()),
-                        topDown(new PushDownFilterThroughProject()),
+                        topDown(
+                                new PushDownFilterThroughProject(),
+                                // the subquery may have where and having clause
+                                // so there may be two filters we need to merge them
+                                new MergeFilters()
+                        ),
                         custom(RuleType.AGG_SCALAR_SUBQUERY_TO_WINDOW_FUNCTION,
                                 AggScalarSubQueryToWindowFunction::new),
                         bottomUp(
@@ -293,6 +298,21 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         topDown(new ConvertInnerOrCrossJoin()),
                         topDown(new ProjectOtherJoinConditionForNestedLoopJoin())
                 ),
+                topic("Set operation optimization",
+                        // Do MergeSetOperation first because we hope to match pattern of Distinct SetOperator.
+                        topDown(new PushProjectThroughUnion(), new MergeProjects()),
+                        bottomUp(new MergeSetOperations(), new MergeSetOperationsExcept()),
+                        bottomUp(new PushProjectIntoOneRowRelation()),
+                        topDown(new MergeOneRowRelationIntoUnion()),
+                        costBased(topDown(new InferSetOperatorDistinct())),
+                        topDown(new BuildAggForUnion()),
+                        bottomUp(new EliminateEmptyRelation()),
+                        // when union has empty relation child and constantExprsList is not empty,
+                        // after EliminateEmptyRelation, project can be pushed into union
+                        topDown(new PushProjectIntoUnion())
+                ),
+                // putting the "Column pruning and infer predicate" topic behind the "Set operation optimization"
+                // is because that pulling up predicates from union needs EliminateEmptyRelation in union child
                 topic("Column pruning and infer predicate",
                         custom(RuleType.COLUMN_PRUNING, ColumnPruning::new),
                         custom(RuleType.INFER_PREDICATES, InferPredicates::new),
@@ -306,23 +326,10 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         // after eliminate outer join, we can move some filters to join.otherJoinConjuncts,
                         // this can help to translate plan to backend
                         topDown(new PushFilterInsideJoin()),
-                        topDown(new FindHashConditionForJoin()),
-                        topDown(new ExpressionNormalization())
+                        topDown(new FindHashConditionForJoin())
                 ),
-
                 // this rule should invoke after ColumnPruning
                 custom(RuleType.ELIMINATE_UNNECESSARY_PROJECT, EliminateUnnecessaryProject::new),
-
-                topic("Set operation optimization",
-                        // Do MergeSetOperation first because we hope to match pattern of Distinct SetOperator.
-                        topDown(new PushProjectThroughUnion(), new MergeProjects()),
-                        bottomUp(new MergeSetOperations(), new MergeSetOperationsExcept()),
-                        bottomUp(new PushProjectIntoOneRowRelation()),
-                        topDown(new MergeOneRowRelationIntoUnion()),
-                        topDown(new PushProjectIntoUnion()),
-                        costBased(topDown(new InferSetOperatorDistinct())),
-                        topDown(new BuildAggForUnion())
-                ),
 
                 topic("Eliminate GroupBy",
                         topDown(new EliminateGroupBy(),
@@ -477,6 +484,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                 new ExpressionRewrite(CheckLegalityAfterRewrite.INSTANCE),
                                 new CheckMatchExpression(),
                                 new CheckMultiDistinct(),
+                                new CheckRestorePartition(),
                                 new CheckAfterRewrite()
                         )
                 ),

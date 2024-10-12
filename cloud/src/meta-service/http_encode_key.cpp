@@ -135,32 +135,50 @@ static std::string parse_tablet_schema(const ValueBuf& buf) {
 
 static std::string parse_tablet_stats(const ValueBuf& buf) {
     if (buf.iters.empty()) {
-        return "";
+        return "stats_kvs not found\n";
+    }
+
+    std::vector<std::pair<std::string, std::string>> stats_kvs;
+    stats_kvs.reserve(5);
+    for (auto& i : buf.iters) {
+        while (i->has_next()) {
+            auto [k, v] = i->next();
+            stats_kvs.emplace_back(std::string {k.data(), k.size()},
+                                   std::string {v.data(), v.size()});
+        }
+    }
+
+    if (stats_kvs.empty()) {
+        return "stats_kvs not found\n";
     }
 
     TabletStatsPB stats;
-    auto&& it = buf.iters[0];
-    if (!it->has_next()) {
-        return "";
-    }
-
-    auto [k, v] = it->next();
+    auto [k, v] = stats_kvs[0];
     stats.ParseFromArray(v.data(), v.size());
+
+    std::string json;
+    json += "aggregated_stats: " + proto_to_json(stats) + "\n";
 
     // Parse split tablet stats
     TabletStats detached_stats;
-    int ret = get_detached_tablet_stats(*it, detached_stats);
+    int ret = get_detached_tablet_stats(stats_kvs, detached_stats);
     if (ret != 0) {
-        return "";
+        json += "failed to get detached_stats, ret=" + std::to_string(ret) + "\n";
+        return json;
     }
+    TabletStatsPB detached_stats_pb;
+    merge_tablet_stats(detached_stats_pb, detached_stats); // convert to pb
+    json += "detached_stats: " + proto_to_json(detached_stats_pb) + "\n";
 
     merge_tablet_stats(stats, detached_stats);
 
-    return proto_to_json(stats);
+    json += "merged_stats: " + proto_to_json(stats) + "\n";
+    return json;
 }
 
 // See keys.h to get all types of key, e.g: MetaRowsetKeyInfo
-// key_type -> {{param1, param2 ...}, encoding_func, value_parsing_func}
+// key_type -> {{param1, param2 ...}, key_encoding_func, value_parsing_func}
+// where params are the input for key_encoding_func
 // clang-format off
 static std::unordered_map<std::string_view,
                           std::tuple<std::vector<std::string_view>, std::function<std::string(param_type&)>, std::function<std::string(const ValueBuf&)>>> param_set {
@@ -250,11 +268,17 @@ HttpResponse process_http_get_value(TxnKv* txn_kv, const brpc::URI& uri) {
     ValueBuf value;
     if (key_type == "StatsTabletKey") {
         // FIXME(plat1ko): hard code
-        std::string end_key {key};
-        encode_bytes("\xff", &end_key);
+        std::string begin_key {key};
+        std::string end_key = key + "\xff";
         std::unique_ptr<RangeGetIterator> it;
-        err = txn->get(key, end_key, &it, true);
-        value.iters.push_back(std::move(it));
+        bool more = false;
+        do {
+            err = txn->get(begin_key, end_key, &it, true);
+            if (err != TxnErrorCode::TXN_OK) break;
+            begin_key = it->next_begin_key();
+            more = it->more();
+            value.iters.push_back(std::move(it));
+        } while (more);
     } else {
         err = cloud::get(txn.get(), key, &value, true);
     }

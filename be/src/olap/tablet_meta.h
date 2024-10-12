@@ -43,6 +43,7 @@
 #include "io/fs/file_system.h"
 #include "olap/binlog_config.h"
 #include "olap/lru_cache.h"
+#include "olap/metadata_adder.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/rowset_meta.h"
 #include "olap/tablet_schema.h"
@@ -90,7 +91,7 @@ class TBinlogConfig;
 
 // Class encapsulates meta of tablet.
 // The concurrency control is handled in Tablet Class, not in this class.
-class TabletMeta {
+class TabletMeta : public MetadataAdder<TabletMeta> {
 public:
     static TabletMetaSharedPtr create(
             const TCreateTabletReq& request, const TabletUid& tablet_uid, uint64_t shard_id,
@@ -165,6 +166,7 @@ public:
     // Remote disk space occupied by tablet.
     size_t tablet_remote_size() const;
     size_t version_count() const;
+    size_t stale_version_count() const;
     size_t version_count_cross_with_range(const Version& range) const;
     Version max_version() const;
 
@@ -284,6 +286,8 @@ public:
         _ttl_seconds = ttl_seconds;
     }
 
+    int64_t avg_rs_meta_serialize_size() const { return _avg_rs_meta_serialize_size; }
+
 private:
     Status _save_meta(DataDir* data_dir);
 
@@ -339,6 +343,8 @@ private:
     int64_t _time_series_compaction_empty_rowsets_threshold = 0;
     int64_t _time_series_compaction_level_threshold = 0;
 
+    int64_t _avg_rs_meta_serialize_size = 0;
+
     // cloud
     int64_t _ttl_seconds = 0;
 
@@ -366,6 +372,7 @@ private:
 class DeleteBitmap {
 public:
     mutable std::shared_mutex lock;
+    mutable std::shared_mutex stale_delete_bitmap_lock;
     using SegmentId = uint32_t;
     using Version = uint64_t;
     using BitmapKey = std::tuple<RowsetId, SegmentId, Version>;
@@ -446,6 +453,12 @@ public:
     uint64_t cardinality() const;
 
     /**
+     * return the total size of the Delete Bitmap(after serialized)
+     */
+
+    uint64_t get_size() const;
+
+    /**
      * Sets the bitmap of specific segment, it's may be insertion or replacement
      *
      * @return 1 if the insertion took place, 0 if the assignment took place
@@ -515,13 +528,19 @@ public:
 
     void remove_sentinel_marks();
 
-    class AggCachePolicy : public LRUCachePolicyTrackingManual {
+    void add_to_remove_queue(const std::string& version_str,
+                             const std::vector<std::tuple<int64_t, DeleteBitmap::BitmapKey,
+                                                          DeleteBitmap::BitmapKey>>& vector);
+    void remove_stale_delete_bitmap_from_queue(const std::vector<std::string>& vector);
+
+    uint64_t get_delete_bitmap_count();
+
+    class AggCachePolicy : public LRUCachePolicy {
     public:
         AggCachePolicy(size_t capacity)
-                : LRUCachePolicyTrackingManual(CachePolicy::CacheType::DELETE_BITMAP_AGG_CACHE,
-                                               capacity, LRUCacheType::SIZE,
-                                               config::delete_bitmap_agg_cache_stale_sweep_time_sec,
-                                               256) {}
+                : LRUCachePolicy(CachePolicy::CacheType::DELETE_BITMAP_AGG_CACHE, capacity,
+                                 LRUCacheType::SIZE,
+                                 config::delete_bitmap_agg_cache_stale_sweep_time_sec, 256) {}
     };
 
     class AggCache {
@@ -549,9 +568,11 @@ public:
 private:
     mutable std::shared_ptr<AggCache> _agg_cache;
     int64_t _tablet_id;
+    // <version, <tablet_id, BitmapKeyStart, BitmapKeyEnd>>
+    std::map<std::string,
+             std::vector<std::tuple<int64_t, DeleteBitmap::BitmapKey, DeleteBitmap::BitmapKey>>>
+            _stale_delete_bitmap;
 };
-
-static const std::string SEQUENCE_COL = "__DORIS_SEQUENCE_COL__";
 
 inline TabletUid TabletMeta::tablet_uid() const {
     return _tablet_uid;
@@ -642,6 +663,10 @@ inline size_t TabletMeta::tablet_remote_size() const {
 }
 
 inline size_t TabletMeta::version_count() const {
+    return _rs_metas.size();
+}
+
+inline size_t TabletMeta::stale_version_count() const {
     return _rs_metas.size();
 }
 

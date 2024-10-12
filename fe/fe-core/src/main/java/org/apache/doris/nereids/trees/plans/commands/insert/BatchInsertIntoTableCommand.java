@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.plans.commands.insert;
 import org.apache.doris.analysis.StmtType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.ErrorCode;
@@ -111,6 +112,16 @@ public class BatchInsertIntoTableCommand extends Command implements NoForward, E
             Preconditions.checkArgument(plan.isPresent(), "insert into command must contain OlapTableSinkNode");
             sink = ((PhysicalOlapTableSink<?>) plan.get());
             Table targetTable = sink.getTargetTable();
+            if (ctx.getTxnEntry().isFirstTxnInsert()) {
+                ctx.getTxnEntry().setTxnSchemaVersion(((OlapTable) targetTable).getBaseSchemaVersion());
+                ctx.getTxnEntry().setFirstTxnInsert(false);
+            } else {
+                if (((OlapTable) targetTable).getBaseSchemaVersion() != ctx.getTxnEntry().getTxnSchemaVersion()) {
+                    throw new AnalysisException("There are schema changes in one transaction, "
+                            + "you can commit this transaction with formal data or rollback "
+                            + "this whole transaction.");
+                }
+            }
             // should set columns of sink since we maybe generate some invisible columns
             List<Column> fullSchema = sink.getTargetTable().getFullSchema();
             List<Column> targetSchema = Lists.newArrayList();
@@ -124,7 +135,7 @@ public class BatchInsertIntoTableCommand extends Command implements NoForward, E
                     }
                 }
             } else {
-                targetSchema = fullSchema;
+                targetSchema = removeSkipBitmapCol(fullSchema);
             }
             // check auth
             if (!Env.getCurrentEnv().getAccessManager()
@@ -140,8 +151,8 @@ public class BatchInsertIntoTableCommand extends Command implements NoForward, E
                     .<PhysicalUnion>collect(PhysicalUnion.class::isInstance).stream().findAny();
             if (union.isPresent()) {
                 InsertUtils.executeBatchInsertTransaction(ctx, targetTable.getQualifiedDbName(), targetTable.getName(),
-                        targetSchema, reorderUnionData(sink.getOutputExprs(), union.get().getOutputs(),
-                                union.get().getConstantExprsList()));
+                        targetSchema, reorderUnionData(removeSkipBitmapExpr(sink.getOutputExprs()),
+                                union.get().getOutputs(), union.get().getConstantExprsList()));
                 return;
             }
             Optional<PhysicalOneRowRelation> oneRowRelation = planner.getPhysicalPlan()
@@ -150,7 +161,8 @@ public class BatchInsertIntoTableCommand extends Command implements NoForward, E
                 InsertUtils.executeBatchInsertTransaction(ctx, targetTable.getQualifiedDbName(),
                         targetTable.getName(), targetSchema,
                         ImmutableList.of(
-                                reorderOneRowData(sink.getOutputExprs(), oneRowRelation.get().getProjects())));
+                                reorderOneRowData(removeSkipBitmapExpr(sink.getOutputExprs()),
+                                        oneRowRelation.get().getProjects())));
                 return;
             }
             // TODO: update error msg
@@ -158,6 +170,16 @@ public class BatchInsertIntoTableCommand extends Command implements NoForward, E
         } finally {
             targetTableIf.readUnlock();
         }
+    }
+
+    private List<NamedExpression> removeSkipBitmapExpr(List<NamedExpression> sinkExprs) {
+        return sinkExprs.stream().filter(expr -> !Column.SKIP_BITMAP_COL.equals(expr.getName()))
+                .collect(Collectors.toList());
+    }
+
+    private List<Column> removeSkipBitmapCol(List<Column> columns) {
+        return columns.stream().filter(col -> !Column.SKIP_BITMAP_COL.equals(col.getName()))
+                .collect(Collectors.toList());
     }
 
     // If table schema is c1, c2, c3, we do insert into table (c3, c2, c1) values(v3, v2, v1).

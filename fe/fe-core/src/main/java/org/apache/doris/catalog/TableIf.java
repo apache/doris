@@ -65,8 +65,6 @@ public interface TableIf {
     default void readUnlock() {
     }
 
-    ;
-
     default void writeLock() {
     }
 
@@ -561,4 +559,6 @@ public interface TableIf {
     default boolean isPartitionedTable() {
         return false;
     }
+
+    boolean autoAnalyzeEnabled();
 }

@@ -89,7 +89,8 @@ public:
             std::list<std::shared_ptr<MemTrackerLimiter>>* tracker_snapshots);
     // call make_memory_tracker_snapshots, so also refresh total memory used.
     int64_t memory_used();
-    void refresh_memory(int64_t used_memory);
+
+    void do_sweep();
 
     int spill_threshold_low_water_mark() const {
         return _spill_low_watermark.load(std::memory_order_relaxed);
@@ -100,7 +101,8 @@ public:
 
     void set_weighted_memory_ratio(double ratio);
     bool add_wg_refresh_interval_memory_growth(int64_t size) {
-        auto realtime_total_mem_used = _total_mem_used + _wg_refresh_interval_memory_growth.load();
+        auto realtime_total_mem_used =
+                _total_mem_used + _wg_refresh_interval_memory_growth.load() + size;
         if ((realtime_total_mem_used >
              ((double)_weighted_memory_limit *
               _spill_high_watermark.load(std::memory_order_relaxed) / 100))) {
@@ -125,12 +127,11 @@ public:
     }
 
     std::string debug_string() const;
+    std::string memory_debug_string() const;
 
     void check_and_update(const WorkloadGroupInfo& tg_info);
 
     void add_mem_tracker_limiter(std::shared_ptr<MemTrackerLimiter> mem_tracker_ptr);
-
-    void remove_mem_tracker_limiter(std::shared_ptr<MemTrackerLimiter> mem_tracker_ptr);
 
     // when mem_limit <=0 , it's an invalid value, then current group not participating in memory GC
     // because mem_limit is not a required property
@@ -152,11 +153,6 @@ public:
         return Status::OK();
     }
 
-    void remove_query(TUniqueId query_id) {
-        std::unique_lock<std::shared_mutex> wlock(_mutex);
-        _query_ctxs.erase(query_id);
-    }
-
     void shutdown() {
         std::unique_lock<std::shared_mutex> wlock(_mutex);
         _is_shutdown = true;
@@ -165,11 +161,6 @@ public:
     bool can_be_dropped() {
         std::shared_lock<std::shared_mutex> r_lock(_mutex);
         return _is_shutdown && _query_ctxs.empty();
-    }
-
-    int query_num() {
-        std::shared_lock<std::shared_mutex> r_lock(_mutex);
-        return _query_ctxs.size();
     }
 
     int64_t gc_memory(int64_t need_free_mem, RuntimeProfile* profile, bool is_minor_gc);

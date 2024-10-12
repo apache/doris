@@ -56,6 +56,7 @@
 #include "olap/tablet_schema_cache.h"
 #include "olap/wal/wal_manager.h"
 #include "pipeline/pipeline_tracing.h"
+#include "pipeline/query_cache/query_cache.h"
 #include "pipeline/task_queue.h"
 #include "pipeline/task_scheduler.h"
 #include "runtime/broker_mgr.h"
@@ -73,6 +74,7 @@
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/memory/thread_mem_tracker_mgr.h"
+#include "runtime/process_profile.h"
 #include "runtime/result_buffer_mgr.h"
 #include "runtime/result_queue_mgr.h"
 #include "runtime/routine_load/routine_load_task_executor.h"
@@ -269,7 +271,6 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     init_file_cache_factory(cache_paths);
     doris::io::BeConfDataDirReader::init_be_conf_data_dir(store_paths, spill_store_paths,
                                                           cache_paths);
-
     _pipeline_tracer_ctx = std::make_unique<pipeline::PipelineTracerContext>(); // before query
     RETURN_IF_ERROR(init_pipeline_task_scheduler());
     _workload_group_manager = new WorkloadGroupMgr();
@@ -298,7 +299,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
         _stream_load_executor = StreamLoadExecutor::create_shared(this);
     }
     _routine_load_task_executor = new RoutineLoadTaskExecutor(this);
-    RETURN_IF_ERROR(_routine_load_task_executor->init());
+    RETURN_IF_ERROR(_routine_load_task_executor->init(MemInfo::mem_limit()));
     _small_file_mgr = new SmallFileMgr(this, config::small_file_dir);
     _group_commit_mgr = new GroupCommitMgr(this);
     _memtable_memory_limiter = std::make_unique<MemTableMemoryLimiter>();
@@ -391,50 +392,57 @@ Status ExecEnv::init_pipeline_task_scheduler() {
 
 void ExecEnv::init_file_cache_factory(std::vector<doris::CachePath>& cache_paths) {
     // Load file cache before starting up daemon threads to make sure StorageEngine is read.
-    if (doris::config::enable_file_cache) {
-        if (config::file_cache_each_block_size > config::s3_write_buffer_size ||
-            config::s3_write_buffer_size % config::file_cache_each_block_size != 0) {
-            LOG_FATAL(
-                    "The config file_cache_each_block_size {} must less than or equal to config "
-                    "s3_write_buffer_size {} and config::s3_write_buffer_size % "
-                    "config::file_cache_each_block_size must be zero",
-                    config::file_cache_each_block_size, config::s3_write_buffer_size);
+    if (!config::enable_file_cache) {
+        if (config::is_cloud_mode()) {
+            LOG(FATAL) << "Cloud mode requires to enable file cache, plz set "
+                          "config::enable_file_cache "
+                          "= true";
             exit(-1);
         }
-        std::unordered_set<std::string> cache_path_set;
-        Status rest = doris::parse_conf_cache_paths(doris::config::file_cache_path, cache_paths);
-        if (!rest) {
-            LOG(FATAL) << "parse config file cache path failed, path="
-                       << doris::config::file_cache_path;
+        return;
+    }
+    if (config::file_cache_each_block_size > config::s3_write_buffer_size ||
+        config::s3_write_buffer_size % config::file_cache_each_block_size != 0) {
+        LOG_FATAL(
+                "The config file_cache_each_block_size {} must less than or equal to config "
+                "s3_write_buffer_size {} and config::s3_write_buffer_size % "
+                "config::file_cache_each_block_size must be zero",
+                config::file_cache_each_block_size, config::s3_write_buffer_size);
+        exit(-1);
+    }
+    std::unordered_set<std::string> cache_path_set;
+    Status rest = doris::parse_conf_cache_paths(doris::config::file_cache_path, cache_paths);
+    if (!rest) {
+        LOG(FATAL) << "parse config file cache path failed, path="
+                   << doris::config::file_cache_path;
+        exit(-1);
+    }
+    std::vector<std::thread> file_cache_init_threads;
+
+    std::list<doris::Status> cache_status;
+    for (auto& cache_path : cache_paths) {
+        if (cache_path_set.find(cache_path.path) != cache_path_set.end()) {
+            LOG(WARNING) << fmt::format("cache path {} is duplicate", cache_path.path);
+            continue;
+        }
+
+        file_cache_init_threads.emplace_back([&, status = &cache_status.emplace_back()]() {
+            *status = doris::io::FileCacheFactory::instance()->create_file_cache(
+                    cache_path.path, cache_path.init_settings());
+        });
+
+        cache_path_set.emplace(cache_path.path);
+    }
+
+    for (std::thread& thread : file_cache_init_threads) {
+        if (thread.joinable()) {
+            thread.join();
+        }
+    }
+    for (const auto& status : cache_status) {
+        if (!status.ok()) {
+            LOG(FATAL) << "failed to init file cache, err: " << status;
             exit(-1);
-        }
-        std::vector<std::thread> file_cache_init_threads;
-
-        std::list<doris::Status> cache_status;
-        for (auto& cache_path : cache_paths) {
-            if (cache_path_set.find(cache_path.path) != cache_path_set.end()) {
-                LOG(WARNING) << fmt::format("cache path {} is duplicate", cache_path.path);
-                continue;
-            }
-
-            file_cache_init_threads.emplace_back([&, status = &cache_status.emplace_back()]() {
-                *status = doris::io::FileCacheFactory::instance()->create_file_cache(
-                        cache_path.path, cache_path.init_settings());
-            });
-
-            cache_path_set.emplace(cache_path.path);
-        }
-
-        for (std::thread& thread : file_cache_init_threads) {
-            if (thread.joinable()) {
-                thread.join();
-            }
-        }
-        for (const auto& status : cache_status) {
-            if (!status.ok()) {
-                LOG(FATAL) << "failed to init file cache, err: " << status;
-                exit(-1);
-            }
         }
     }
 }
@@ -443,6 +451,7 @@ Status ExecEnv::_init_mem_env() {
     bool is_percent = false;
     std::stringstream ss;
     // 1. init mem tracker
+    _process_profile = ProcessProfile::create_global_instance();
     init_mem_tracker();
     thread_context()->thread_mem_tracker_mgr->init();
 #if defined(USE_MEM_TRACKER) && !defined(__SANITIZE_ADDRESS__) && !defined(ADDRESS_SANITIZER) && \
@@ -578,6 +587,9 @@ Status ExecEnv::_init_mem_env() {
     _orc_memory_pool = new doris::vectorized::ORCMemoryPool();
     _arrow_memory_pool = new doris::vectorized::ArrowMemoryPool();
 
+    _query_cache = QueryCache::create_global_cache(config::query_cache_size * 1024L * 1024L);
+    LOG(INFO) << "query cache memory limit: " << config::query_cache_size << "MB";
+
     return Status::OK();
 }
 
@@ -587,17 +599,15 @@ void ExecEnv::init_mem_tracker() {
     _s_tracking_memory = true;
     _orphan_mem_tracker =
             MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::GLOBAL, "Orphan");
-    _orphan_mem_tracker_raw = _orphan_mem_tracker.get();
-    _details_mem_tracker_set =
-            MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::GLOBAL, "DetailsTrackerSet");
-    _page_no_cache_mem_tracker =
-            std::make_shared<MemTracker>("PageNoCache", _details_mem_tracker_set.get());
+    _page_no_cache_mem_tracker = std::make_shared<MemTracker>("PageNoCache");
     _brpc_iobuf_block_memory_tracker =
-            std::make_shared<MemTracker>("IOBufBlockMemory", _details_mem_tracker_set.get());
+            MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::GLOBAL, "IOBufBlockMemory");
     _segcompaction_mem_tracker =
             MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::GLOBAL, "SegCompaction");
     _point_query_executor_mem_tracker =
             MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::GLOBAL, "PointQueryExecutor");
+    _query_cache_mem_tracker =
+            MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::GLOBAL, "QueryCache");
     _block_compression_mem_tracker =
             MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::GLOBAL, "BlockCompression");
     _rowid_storage_reader_tracker =
@@ -607,7 +617,7 @@ void ExecEnv::init_mem_tracker() {
     _s3_file_buffer_tracker =
             MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::GLOBAL, "S3FileBuffer");
     _stream_load_pipe_tracker =
-            MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::GLOBAL, "StreamLoadPipe");
+            MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::LOAD, "StreamLoadPipe");
 }
 
 void ExecEnv::_register_metrics() {
@@ -688,6 +698,7 @@ void ExecEnv::destroy() {
     SAFE_DELETE(_schema_cache);
     SAFE_DELETE(_segment_loader);
     SAFE_DELETE(_row_cache);
+    SAFE_DELETE(_query_cache);
 
     // Free resource after threads are stopped.
     // Some threads are still running, like threads created by _new_load_stream_mgr ...
@@ -762,6 +773,8 @@ void ExecEnv::destroy() {
 
     // dns cache is a global instance and need to be released at last
     SAFE_DELETE(_dns_cache);
+
+    SAFE_DELETE(_process_profile);
 
     _s_tracking_memory = false;
 

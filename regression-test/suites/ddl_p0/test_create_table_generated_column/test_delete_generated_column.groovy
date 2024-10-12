@@ -45,25 +45,25 @@ suite("test_generated_column_delete") {
         insert into test_par_gen_col_unique values(1,2,default),(10,2,default),(2,22,default),(10,2,default);
     """
 
-    qt_delete_where_gen_col "delete from test_par_gen_col partition p1 where c=3;"
+    sql "delete from test_par_gen_col partition p1 where c=3;"
     qt_delete_where_gen_col_select "select * from test_par_gen_col order by a,b,c;"
-    qt_delete_where_gen_col_partition_has_no_satisfied_row "delete from test_par_gen_col partition p1 where c=12;"
+    sql "delete from test_par_gen_col partition p1 where c=12;"
     qt_delete_where_gen_col_partition_has_no_satisfied_row_select "select * from test_par_gen_col order by a,b,c;;"
-    qt_delete_where_gen_col_and_other_col "delete from test_par_gen_col partition p2 where c=12 and a=10;"
+    sql "delete from test_par_gen_col partition p2 where c=12 and a=10;"
     qt_delete_where_gen_col_and_other_col_select "select * from test_par_gen_col order by a,b,c;;"
 
-    qt_delete_where_gen_col_unique "delete from test_par_gen_col_unique partition p1 where c=3;"
+    sql "delete from test_par_gen_col_unique partition p1 where c=3;"
     qt_delete_where_gen_col_select_unique "select * from test_par_gen_col_unique order by a,b,c;;"
-    qt_delete_where_gen_col_partition_has_no_satisfied_row_unique "delete from test_par_gen_col_unique partition p1 where c=12;"
+    sql "delete from test_par_gen_col_unique partition p1 where c=12;"
     qt_delete_where_gen_col_partition_has_no_satisfied_row_select_unique "select * from test_par_gen_col_unique order by a,b,c;;"
-    qt_delete_where_gen_col_and_other_col_unique "delete from test_par_gen_col_unique partition p2 where c=12 and a=10;"
+    sql "delete from test_par_gen_col_unique partition p2 where c=12 and a=10;"
     qt_delete_where_gen_col_and_other_col_select_unique "select * from test_par_gen_col_unique order by a,b,c;"
 
-    qt_delete_query """delete from test_par_gen_col_unique t1 using test_par_gen_col t2 inner join test_par_gen_col t3
+    sql """delete from test_par_gen_col_unique t1 using test_par_gen_col t2 inner join test_par_gen_col t3
      on t2.b=t3.b where t1.c=t2.c and t1.b=t2.b"""
     qt_delete_query_select "select * from test_par_gen_col_unique order by a,b,c;"
     sql "insert into test_par_gen_col_unique values(1,2,default),(10,2,default),(2,22,default),(10,2,default);"
-    qt_delete_query_cte """
+    sql """
     with cte as(
         select t2.* from
         test_par_gen_col t2 inner join test_par_gen_col t3 on t2.b=t3.b

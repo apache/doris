@@ -53,7 +53,7 @@ suite("test_index_no_need_read_data", "inverted_index_select"){
     """
 
     // case1: enable nereids planner
-    sql "set enable_nereids_planner = true"
+    sql """ set enable_common_expr_pushdown = true; """
 
     qt_select_nereids_0 "SELECT * FROM ${table1} ORDER BY id"
     qt_select_nereids_1 "SELECT count() FROM ${table1} WHERE n > 100"
@@ -68,23 +68,6 @@ suite("test_index_no_need_read_data", "inverted_index_select"){
     qt_select_nereids_10 "SELECT addr, name FROM ( SELECT * from ${table1} WHERE city != 'beijing' ORDER BY id) t"
     qt_select_nereids_11 "SELECT addr, name, upper(city) FROM ( SELECT * from ${table1} WHERE city != 'beijing' ORDER BY id) t"
     qt_select_nereids_12 "SELECT sum(n) FROM ${table1} WHERE city = 'beijing' group by id ORDER BY id"
-
-    // case2: disable nereids planner
-    sql "set enable_nereids_planner = false"
-    
-    qt_select_0 "SELECT * FROM ${table1} ORDER BY id"
-    qt_select_1 "SELECT count() FROM ${table1} WHERE n > 100"
-    qt_select_2 "SELECT count() FROM ${table1} WHERE city = 'beijing'"
-    qt_select_3 "SELECT count(*) FROM ${table1} WHERE city = 'beijing'"
-    qt_select_4 "SELECT * FROM ${table1} WHERE city = 'beijing' ORDER BY id"
-    qt_select_5 "SELECT city, addr, name FROM ${table1} WHERE city = 'beijing' ORDER BY id"
-    qt_select_6 "SELECT addr, name FROM ${table1} WHERE city > 'beijing' ORDER BY city"
-    qt_select_7 "SELECT addr, name FROM ${table1} WHERE city > 'beijing' ORDER BY id"
-    qt_select_8 "SELECT upper(city), name FROM ${table1} WHERE city != 'beijing' ORDER BY id"
-    qt_select_9 "SELECT length(addr), name FROM ${table1} WHERE city != 'beijing' ORDER BY id"
-    qt_select_10 "SELECT addr, name FROM ( SELECT * from ${table1} WHERE city != 'beijing' ORDER BY id) t"
-    qt_select_11 "SELECT addr, name, upper(city) FROM ( SELECT * from ${table1} WHERE city != 'beijing' ORDER BY id) t"
-    qt_select_12 "SELECT sum(n) FROM ${table1} WHERE city = 'beijing' group by id ORDER BY id"
 
     def table2 = "test_index_no_need_read_data2"
 

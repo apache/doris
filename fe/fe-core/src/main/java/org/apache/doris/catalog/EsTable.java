@@ -39,7 +39,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.IOException;
-import java.util.Collections;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -52,7 +52,10 @@ import java.util.Set;
 @Getter
 @Setter
 public class EsTable extends Table implements GsonPostProcessable {
-    public static final Set<String> DEFAULT_DOCVALUE_DISABLED_FIELDS = new HashSet<>(Collections.singletonList("text"));
+    // reference: https://www.elastic.co/guide/en/elasticsearch/reference/current/doc-values.html
+    // https://www.elastic.co/guide/en/elasticsearch/reference/current/text.html
+    public static final Set<String> DEFAULT_DOCVALUE_DISABLED_FIELDS =
+            new HashSet<>(Arrays.asList("text", "annotated_text", "match_only_text"));
 
     private static final Logger LOG = LogManager.getLogger(EsTable.class);
     // Solr doc_values vs stored_fields performance-smackdown indicate:

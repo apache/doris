@@ -58,7 +58,6 @@ suite("test_group_commit_replay_wal", "nonConcurrent") {
         }
         getRowCount(5)
         // check wal count is 0
-        sleep(5000)
     } catch (Exception e) {
         logger.info("failed: " + e.getMessage())
         assertTrue(false)
@@ -79,7 +78,7 @@ suite("test_group_commit_replay_wal", "nonConcurrent") {
             time 10000
         }
         getRowCount(5)
-        sleep(10000) // wal replay but all failed
+        sleep(4000) // wal replay but all failed
         getRowCount(5)
         // check wal count is 1
 
@@ -93,4 +92,50 @@ suite("test_group_commit_replay_wal", "nonConcurrent") {
         GetDebugPoint().clearDebugPointsForAllFEs()
         GetDebugPoint().clearDebugPointsForAllBEs()
     }
+
+    // check wal count is 0
+    String[][] backends = sql """ show backends """
+    assertTrue(backends.size() > 0)
+    String backendId;
+    def backendIdToBackendIP = [:]
+    def backendIdToBackendBrpcPort = [:]
+    for (String[] backend in backends) {
+        if (backend[9].equals("true")) {
+            backendIdToBackendIP.put(backend[0], backend[1])
+            backendIdToBackendBrpcPort.put(backend[0], backend[5])
+        }
+    }
+
+    backendId = backendIdToBackendIP.keySet()[0]
+    def getMetricsMethod = { check_func ->
+        httpTest {
+            endpoint backendIdToBackendIP.get(backendId) + ":" + backendIdToBackendBrpcPort.get(backendId)
+            uri "/brpc_metrics"
+            op "get"
+            check check_func
+        }
+    }
+
+    int wal_count = -1
+    for (int i = 0; i < 50; i++) {
+        getMetricsMethod.call() {
+            respCode, body ->
+                logger.info("test wal count resp Code {}", "${respCode}".toString())
+                assertEquals("${respCode}".toString(), "200")
+                String out = "${body}".toString()
+                def strs = out.split('\n')
+                for (String line in strs) {
+                    if (line.startsWith("wal_total_count")) {
+                        logger.info("find: {}", line)
+                        wal_count = line.replaceAll("wal_total_count ", "").toInteger()
+                        break
+                    }
+                }
+        }
+        if (wal_count == 0) {
+            break
+        }
+        sleep(2000)
+    }
+    assertEquals(0, wal_count)
 }

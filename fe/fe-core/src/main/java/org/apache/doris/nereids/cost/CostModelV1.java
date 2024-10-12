@@ -74,11 +74,7 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
 
     public CostModelV1(ConnectContext connectContext) {
         SessionVariable sessionVariable = connectContext.getSessionVariable();
-        if (sessionVariable.isPlayNereidsDump()) {
-            // TODO: @bingfeng refine minidump setting, and pass testMinidumpUt
-            beNumber = 1;
-            parallelInstance = Math.max(1, connectContext.getSessionVariable().getParallelExecInstanceNum());
-        } else if (sessionVariable.getBeNumberForTest() != -1) {
+        if (sessionVariable.getBeNumberForTest() != -1) {
             // shape test, fix the BE number and instance number
             beNumber = sessionVariable.getBeNumberForTest();
             parallelInstance = 8;
@@ -283,13 +279,13 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
         DistributionSpec spec = distribute.getDistributionSpec();
         // cost model is trained by clusters with more than 3 BE.
         int beNumForDist = Math.max(3, beNumber);
+        double dataSizeFactor = childStatistics.dataSizeFactor(distribute.child().getOutput());
         // shuffle
         if (spec instanceof DistributionSpecHash) {
             return CostV1.of(context.getSessionVariable(),
                     intputRowCount / beNumForDist,
                     0,
-                    intputRowCount * childStatistics.dataSizeFactor(
-                            distribute.child().getOutput()) / beNumForDist
+                    intputRowCount * dataSizeFactor / beNumForDist
                     );
         }
 
@@ -301,8 +297,7 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
             return CostV1.of(context.getSessionVariable(),
                     0,
                     0,
-                    intputRowCount * childStatistics.dataSizeFactor(
-                            distribute.child().getOutput()));
+                    intputRowCount * dataSizeFactor);
 
         }
 
@@ -311,8 +306,7 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
             return CostV1.of(context.getSessionVariable(),
                     0,
                     0,
-                    intputRowCount * childStatistics.dataSizeFactor(
-                            distribute.child().getOutput()) / beNumForDist);
+                    intputRowCount * dataSizeFactor / beNumForDist);
         }
 
         // any
@@ -320,7 +314,7 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
         return CostV1.of(context.getSessionVariable(),
                 0,
                 0,
-                intputRowCount * childStatistics.dataSizeFactor(distribute.child().getOutput())
+                intputRowCount * dataSizeFactor
                         * RANDOM_SHUFFLE_TO_HASH_SHUFFLE_FACTOR / beNumForDist);
     }
 
@@ -346,7 +340,8 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
                     inputStatistics.getRowCount() / beNumber, 0);
         } else {
             // global
-            return CostV1.of(context.getSessionVariable(), exprCost / 100 + inputStatistics.getRowCount(),
+            return CostV1.of(context.getSessionVariable(), exprCost / 100
+                            + inputStatistics.getRowCount(),
                     inputStatistics.getRowCount(), 0);
         }
     }

@@ -16,8 +16,8 @@
 // under the License.
 
 suite("test_dup_schema_key_change_modify","p0") {
-     def tbName1 = "test_dup_schema_key_change_modify1"
-     def tbName2 = "test_dup_schema_key_change_modify_1"
+     def tbName1 = "test_dup_schema_key_change_modify1_v2"
+     def tbName2 = "test_dup_schema_key_change_modify_1_v2"
      def initTable1 = ""
      def initTableData1 = ""
 
@@ -55,6 +55,7 @@ suite("test_dup_schema_key_change_modify","p0") {
 
      //TODO Test the dup model by modify a key type from BOOLEAN to TINYINT
      def errorMessage="errCode = 2, detailMessage = Can not change BOOLEAN to TINYINT"
+     def insertSql = ""
      expectException({
           sql initTable
           sql initTableData

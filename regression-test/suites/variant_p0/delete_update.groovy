@@ -28,18 +28,20 @@ suite("regression_test_variant_delete_and_update", "variant_type"){
         )
         UNIQUE KEY(`k`)
         DISTRIBUTED BY HASH(k) BUCKETS 3
-        properties("replication_num" = "1", "enable_unique_key_merge_on_write" = "false");
+        properties("replication_num" = "1", "enable_unique_key_merge_on_write" = "false", "variant_enable_flatten_nested" = "true");
     """
     // test mor table
 
-    sql """insert into ${table_name} values (1, '{"a":1,"b":[1],"c":1.0}')"""
-    sql """insert into ${table_name} values (2, '{"a":2,"b":[1],"c":2.0}')"""
-    sql """insert into ${table_name} values (3, '{"a":3,"b":[3],"c":3.0}')"""
-    sql """insert into ${table_name} values (4, '{"a":4,"b":[4],"c":4.0}')"""
-    sql """insert into ${table_name} values (5, '{"a":5,"b":[5],"c":5.0}')"""
+    sql """insert into ${table_name} values (1, '{"a":1,"b":[1],"c":1.0, "d" : [{"x" : 1}]}')"""
+    sql """insert into ${table_name} values (2, '{"a":2,"b":[1],"c":2.0, "d" : [{"y" : 1}]}')"""
+    sql """insert into ${table_name} values (3, '{"a":3,"b":[3],"c":3.0, "d" : [{"o" : 1}]}')"""
+    sql """insert into ${table_name} values (4, '{"a":4,"b":[4],"c":4.0, "d" : [{"p" : 1}]}')"""
+    sql """insert into ${table_name} values (5, '{"a":5,"b":[5],"c":5.0, "d" : [{"q" : 1}]}')"""
 
     sql "delete from ${table_name} where k = 1"
     sql """update ${table_name} set v = '{"updated_value":123}' where k = 2"""
+    qt_sql "select * from ${table_name} order by k"
+    sql """update ${table_name} set v = '{"updated_nested_value":[{"ommm" : "123"}]}' where k = 4"""
     qt_sql "select * from ${table_name} order by k"
 
     // MOW
@@ -63,6 +65,7 @@ suite("regression_test_variant_delete_and_update", "variant_type"){
     sql """insert into var_delete_update_mow values (7, '{"a":4,"b":[4],"c":4.1}', 'yyy')"""
     sql """update var_delete_update_mow set vs = '{"updated_value" : 123}' where k = 6"""
     sql """update var_delete_update_mow set v = '{"updated_value":1111}' where k = 7"""
+    sql """update var_delete_update_mow set v = '{"updated_nested_value":[{"lalalal": 1.111}]}' where k = 2"""
     qt_sql "select * from var_delete_update_mow order by k"
 
     sql """delete from ${table_name} where v = 'xxx' or vs = 'yyy'"""

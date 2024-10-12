@@ -32,8 +32,8 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((a.device_id = b.device_id)) otherCondition=()
---------PhysicalOlapScan[shunt_log_com_dd_library_one_side]
 --------PhysicalOlapScan[com_dd_library_one_side]
+--------PhysicalOlapScan[shunt_log_com_dd_library_one_side]
 
 -- !with_hint_1 --
 PhysicalResultSink
@@ -83,8 +83,8 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((a.device_id = b.device_id)) otherCondition=()
---------PhysicalOlapScan[shunt_log_com_dd_library_one_side]
 --------PhysicalOlapScan[com_dd_library_one_side]
+--------PhysicalOlapScan[shunt_log_com_dd_library_one_side]
 
 Hint log:
 Used:

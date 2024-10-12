@@ -72,17 +72,10 @@ Status MemoryScratchSinkOperatorX::init(const TDataSink& thrift_sink) {
     return Status::OK();
 }
 
-Status MemoryScratchSinkOperatorX::prepare(RuntimeState* state) {
-    RETURN_IF_ERROR(DataSinkOperatorX<MemoryScratchSinkLocalState>::prepare(state));
-    // Prepare the exprs to run.
-    RETURN_IF_ERROR(vectorized::VExpr::prepare(_output_vexpr_ctxs, state, _row_desc));
-    _timezone_obj = state->timezone_obj();
-    return Status::OK();
-}
-
 Status MemoryScratchSinkOperatorX::open(RuntimeState* state) {
     RETURN_IF_ERROR(DataSinkOperatorX<MemoryScratchSinkLocalState>::open(state));
-    // Prepare the exprs to run.
+    RETURN_IF_ERROR(vectorized::VExpr::prepare(_output_vexpr_ctxs, state, _row_desc));
+    _timezone_obj = state->timezone_obj();
     RETURN_IF_ERROR(vectorized::VExpr::open(_output_vexpr_ctxs, state));
     return Status::OK();
 }
@@ -103,7 +96,7 @@ Status MemoryScratchSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
             local_state._output_vexpr_ctxs, *input_block, &block));
     std::shared_ptr<arrow::Schema> block_arrow_schema;
     // After expr executed, use recaculated schema as final schema
-    RETURN_IF_ERROR(convert_block_arrow_schema(block, &block_arrow_schema));
+    RETURN_IF_ERROR(convert_block_arrow_schema(block, &block_arrow_schema, state->timezone()));
     RETURN_IF_ERROR(convert_to_arrow_batch(block, block_arrow_schema, arrow::default_memory_pool(),
                                            &result, _timezone_obj));
     local_state._queue->blocking_put(result);

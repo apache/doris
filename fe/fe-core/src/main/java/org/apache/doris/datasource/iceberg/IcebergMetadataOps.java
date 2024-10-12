@@ -107,6 +107,11 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
                 ErrorReport.reportDdlException(ErrorCode.ERR_DB_CREATE_EXISTS, dbName);
             }
         }
+        String icebergCatalogType = dorisCatalog.getIcebergCatalogType();
+        if (!properties.isEmpty() && !IcebergExternalCatalog.ICEBERG_HMS.equals(icebergCatalogType)) {
+            throw new DdlException(
+                "Not supported: create database with properties for iceberg catalog type: " + icebergCatalogType);
+        }
         nsCatalog.createNamespace(Namespace.of(dbName), properties);
         dorisCatalog.onRefreshCache(true);
     }
@@ -162,14 +167,20 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     @Override
     public void dropTable(DropTableStmt stmt) throws DdlException {
         String dbName = stmt.getDbName();
+        String tableName = stmt.getTableName();
         ExternalDatabase<?> db = dorisCatalog.getDbNullable(dbName);
         if (db == null) {
-            throw new DdlException("Failed to get database: '" + dbName + "' in catalog: " + dorisCatalog.getName());
+            if (stmt.isSetIfExists()) {
+                LOG.info("database [{}] does not exist when drop table[{}]", dbName, tableName);
+                return;
+            } else {
+                ErrorReport.reportDdlException(ErrorCode.ERR_BAD_DB_ERROR, dbName);
+            }
         }
-        String tableName = stmt.getTableName();
+
         if (!tableExist(dbName, tableName)) {
             if (stmt.isSetIfExists()) {
-                LOG.info("drop table[{}] which does not exist", dbName);
+                LOG.info("drop table[{}] which does not exist", tableName);
                 return;
             } else {
                 ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_TABLE, tableName, dbName);

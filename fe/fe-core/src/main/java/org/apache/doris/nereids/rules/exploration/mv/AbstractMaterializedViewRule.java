@@ -37,6 +37,7 @@ import org.apache.doris.nereids.rules.exploration.mv.StructInfo.PartitionRemover
 import org.apache.doris.nereids.rules.exploration.mv.mapping.ExpressionMapping;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.RelationMapping;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.SlotMapping;
+import org.apache.doris.nereids.rules.rewrite.MergeProjects;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -261,6 +262,12 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             // Rewrite query by view
             rewrittenPlan = rewriteQueryByView(matchMode, queryStructInfo, viewStructInfo, viewToQuerySlotMapping,
                     rewrittenPlan, materializationContext, cascadesContext);
+            // If rewrite successfully, try to get mv read lock to avoid data inconsistent,
+            // try to get lock which should added before RBO
+            if (materializationContext instanceof AsyncMaterializationContext && !materializationContext.isSuccess()) {
+                cascadesContext.getStatementContext()
+                        .addTableReadLock(((AsyncMaterializationContext) materializationContext).getMtmv());
+            }
             rewrittenPlan = MaterializedViewUtils.rewriteByRules(cascadesContext,
                     childContext -> {
                         Rewriter.getWholeTreeRewriter(childContext).execute();
@@ -292,6 +299,17 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                     return rewriteResults;
                 }
                 boolean partitionNeedUnion = needUnionRewrite(invalidPartitions, cascadesContext);
+                boolean canUnionRewrite = canUnionRewrite(queryPlan,
+                        ((AsyncMaterializationContext) materializationContext).getMtmv(),
+                        cascadesContext);
+                if (partitionNeedUnion && !canUnionRewrite) {
+                    materializationContext.recordFailReason(queryStructInfo,
+                            "need compensate union all, but can not, because the query structInfo",
+                            () -> String.format("mv partition info is %s, and the query plan is %s",
+                                    ((AsyncMaterializationContext) materializationContext).getMtmv()
+                                            .getMvPartitionInfo(), queryPlan.treeString()));
+                    return rewriteResults;
+                }
                 final Pair<Map<BaseTableInfo, Set<String>>, Map<BaseTableInfo, Set<String>>> finalInvalidPartitions =
                         invalidPartitions;
                 if (partitionNeedUnion) {
@@ -343,6 +361,13 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                                 rewrittenPlanOutput, queryPlan.getOutput()));
                 continue;
             }
+            // Merge project
+            rewrittenPlan = MaterializedViewUtils.rewriteByRules(cascadesContext,
+                    childContext -> {
+                        Rewriter.getCteChildrenRewriter(childContext,
+                                ImmutableList.of(Rewriter.bottomUp(new MergeProjects()))).execute();
+                        return childContext.getRewritePlan();
+                    }, rewrittenPlan, queryPlan);
             if (!isOutputValid(queryPlan, rewrittenPlan)) {
                 LogicalProperties logicalProperties = rewrittenPlan.getLogicalProperties();
                 materializationContext.recordFailReason(queryStructInfo,
@@ -352,11 +377,11 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                                 logicalProperties, queryPlan.getLogicalProperties()));
                 continue;
             }
-            recordIfRewritten(queryStructInfo.getOriginalPlan(), materializationContext);
             trySetStatistics(materializationContext, cascadesContext);
             rewriteResults.add(rewrittenPlan);
             // if rewrite successfully, try to regenerate mv scan because it maybe used again
             materializationContext.tryReGenerateScanPlan(cascadesContext);
+            recordIfRewritten(queryStructInfo.getOriginalPlan(), materializationContext, cascadesContext);
         }
         return rewriteResults;
     }
@@ -375,6 +400,20 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             CascadesContext cascadesContext) {
         return invalidPartitions != null
                 && (!invalidPartitions.key().isEmpty() || !invalidPartitions.value().isEmpty());
+    }
+
+    /**
+     * Not all query after rewritten successfully can compensate union all
+     * Such as:
+     * mv def sql is as following, partition column is a
+     * select a, b, count(*) from t1 group by a, b
+     * Query is as following:
+     * select b, count(*) from t1 group by b, after rewritten by materialized view successfully
+     * If mv part partition is invalid, can not compensate union all, because result is wrong after
+     * compensate union all.
+     */
+    protected boolean canUnionRewrite(Plan queryPlan, MTMV mtmv, CascadesContext cascadesContext) {
+        return true;
     }
 
     // Normalize expression such as nullable property and output slot id
@@ -827,8 +866,9 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
         return checkQueryPattern(structInfo, cascadesContext);
     }
 
-    protected void recordIfRewritten(Plan plan, MaterializationContext context) {
+    protected void recordIfRewritten(Plan plan, MaterializationContext context, CascadesContext cascadesContext) {
         context.setSuccess(true);
+        cascadesContext.addMaterializationRewrittenSuccess(context.generateMaterializationIdentifier());
         if (plan.getGroupExpression().isPresent()) {
             context.addMatchedGroup(plan.getGroupExpression().get().getOwnerGroup().getGroupId(), true);
         }
@@ -853,10 +893,12 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                         "View struct info is invalid", () -> String.format("view plan is %s",
                                 context.getStructInfo().getOriginalPlan().treeString()));
                 // tmp to location question
-                LOG.debug(String.format("View struct info is invalid, mv identifier is %s, query plan is %s,"
-                                + "view plan is %s",
-                        context.generateMaterializationIdentifier(), queryPlan.treeString(),
-                        context.getStructInfo().getTopPlan().treeString()));
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug(String.format("View struct info is invalid, mv identifier is %s, query plan is %s,"
+                                    + "view plan is %s",
+                            context.generateMaterializationIdentifier(), queryPlan.treeString(),
+                            context.getStructInfo().getTopPlan().treeString()));
+                }
                 cascadesContext.getMemo().recordMaterializationCheckResult(this.getClass(), materializationId,
                         false);
                 return false;
@@ -868,20 +910,24 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             context.recordFailReason(context.getStructInfo(),
                     "View struct info is invalid", () -> String.format("view plan is %s",
                             context.getStructInfo().getOriginalPlan().treeString()));
-            LOG.debug(String.format("View struct info is invalid, mv identifier is %s, query plan is %s,"
-                            + "view plan is %s",
-                    context.generateMaterializationIdentifier(), queryPlan.treeString(),
-                    context.getStructInfo().getTopPlan().treeString()));
+            if (LOG.isDebugEnabled()) {
+                LOG.debug(String.format("View struct info is invalid, mv identifier is %s, query plan is %s,"
+                                + "view plan is %s",
+                        context.generateMaterializationIdentifier(), queryPlan.treeString(),
+                        context.getStructInfo().getTopPlan().treeString()));
+            }
             return false;
         }
         if (!context.getStructInfo().isValid()) {
             context.recordFailReason(context.getStructInfo(),
                     "View original struct info is invalid", () -> String.format("view plan is %s",
                             context.getStructInfo().getOriginalPlan().treeString()));
-            LOG.debug(String.format("View struct info is invalid, mv identifier is %s,  query plan is %s,"
-                            + "view plan is %s",
-                    context.generateMaterializationIdentifier(), queryPlan.treeString(),
-                    context.getStructInfo().getTopPlan().treeString()));
+            if (LOG.isDebugEnabled()) {
+                LOG.debug(String.format("View struct info is invalid, mv identifier is %s,  query plan is %s,"
+                                + "view plan is %s",
+                        context.generateMaterializationIdentifier(), queryPlan.treeString(),
+                        context.getStructInfo().getTopPlan().treeString()));
+            }
             return false;
         }
         return true;

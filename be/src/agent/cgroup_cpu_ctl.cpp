@@ -65,7 +65,8 @@ bool CgroupCpuCtl::is_a_valid_cgroup_path(std::string cg_path) {
 void CgroupCpuCtl::init_doris_cgroup_path() {
     std::string conf_path = config::doris_cgroup_cpu_path;
     if (conf_path.empty()) {
-        LOG(INFO) << "[cgroup_init_path]doris cgroup home path is not specify";
+        LOG(INFO) << "[cgroup_init_path]doris cgroup home path is not specify, if you not use "
+                     "workload group, you can ignore this log.";
         return;
     }
 
@@ -107,9 +108,50 @@ void CgroupCpuCtl::init_doris_cgroup_path() {
                                                              : "cgroup query path is not valid";
     _cpu_core_num = CpuInfo::num_cores();
 
+    std::string init_cg_v2_msg = "";
+    if (_is_enable_cgroup_v2_in_env && _is_cgroup_query_path_valid) {
+        Status ret = init_cgroup_v2_query_path_public_file(_doris_cgroup_cpu_path,
+                                                           _doris_cgroup_cpu_query_path);
+        if (!ret.ok()) {
+            init_cg_v2_msg = " write cgroup v2 file failed, err=" + ret.to_string_no_stack() + ". ";
+        } else {
+            init_cg_v2_msg = "write cgroup v2 public file succ.";
+        }
+    }
+
     LOG(INFO) << "[cgroup_init_path]init cgroup home path finish, home path="
               << _doris_cgroup_cpu_path << ", query path=" << _doris_cgroup_cpu_query_path << ", "
-              << cg_msg << ", " << query_path_msg << ", core_num=" << _cpu_core_num;
+              << cg_msg << ", " << query_path_msg << ", core_num=" << _cpu_core_num << ". "
+              << init_cg_v2_msg;
+}
+
+Status CgroupCpuCtl::init_cgroup_v2_query_path_public_file(std::string home_path,
+                                                           std::string query_path) {
+    // 1 enable cpu controller for home path's child
+    _doris_cgroup_cpu_path_subtree_ctl_file = home_path + "cgroup.subtree_control";
+    if (access(_doris_cgroup_cpu_path_subtree_ctl_file.c_str(), F_OK) != 0) {
+        return Status::InternalError<false>("not find cgroup v2 doris home's subtree control file");
+    }
+    RETURN_IF_ERROR(CgroupCpuCtl::write_cg_sys_file(_doris_cgroup_cpu_path_subtree_ctl_file, "+cpu",
+                                                    "set cpu controller", false));
+
+    // 2 enable cpu controller for query path's child
+    _cgroup_v2_query_path_subtree_ctl_file = query_path + "/cgroup.subtree_control";
+    if (access(_cgroup_v2_query_path_subtree_ctl_file.c_str(), F_OK) != 0) {
+        return Status::InternalError<false>("not find cgroup v2 query path's subtree control file");
+    }
+    RETURN_IF_ERROR(CgroupCpuCtl::write_cg_sys_file(_cgroup_v2_query_path_subtree_ctl_file, "+cpu",
+                                                    "set cpu controller", false));
+
+    // 3 write cgroup.procs
+    _doris_cg_v2_procs_file = query_path + "/cgroup.procs";
+    if (access(_doris_cg_v2_procs_file.c_str(), F_OK) != 0) {
+        return Status::InternalError<false>("not find cgroup v2 cgroup.procs file");
+    }
+    RETURN_IF_ERROR(CgroupCpuCtl::write_cg_sys_file(_doris_cg_v2_procs_file,
+                                                    std::to_string(getpid()),
+                                                    "set pid to cg v2 procs file", false));
+    return Status::OK();
 }
 
 uint64_t CgroupCpuCtl::cpu_soft_limit_default_value() {
@@ -258,7 +300,7 @@ Status CgroupV1CpuCtl::init() {
         int ret = mkdir(_cgroup_v1_cpu_tg_path.c_str(), S_IRWXU);
         if (ret != 0) {
             LOG(ERROR) << "cgroup v1 mkdir workload group failed, path=" << _cgroup_v1_cpu_tg_path;
-            return Status::InternalError<false>("cgroup v1 mkdir workload group failed, path=",
+            return Status::InternalError<false>("cgroup v1 mkdir workload group failed, path={}",
                                                 _cgroup_v1_cpu_tg_path);
         }
     }
@@ -312,21 +354,6 @@ Status CgroupV2CpuCtl::init() {
     if (_wg_id <= 0) {
         return Status::InternalError<false>("find an invalid wg_id {}", _wg_id);
     }
-
-    // enable cpu controller for home path's child
-    _doris_cgroup_cpu_path_subtree_ctl_file = _doris_cgroup_cpu_path + "cgroup.subtree_control";
-    if (access(_doris_cgroup_cpu_path_subtree_ctl_file.c_str(), F_OK) != 0) {
-        return Status::InternalError<false>("not find cgroup v2 doris home's subtree control file");
-    }
-    RETURN_IF_ERROR(enable_cpu_controller(_doris_cgroup_cpu_path_subtree_ctl_file));
-
-    // enable cpu controller for query path's child
-    _cgroup_v2_query_path_subtree_ctl_file =
-            _doris_cgroup_cpu_query_path + "/cgroup.subtree_control";
-    if (access(_cgroup_v2_query_path_subtree_ctl_file.c_str(), F_OK) != 0) {
-        return Status::InternalError<false>("not find cgroup v2 query path's subtree control file");
-    }
-    RETURN_IF_ERROR(enable_cpu_controller(_cgroup_v2_query_path_subtree_ctl_file));
 
     // wg path
     _cgroup_v2_query_wg_path = _doris_cgroup_cpu_query_path + "/" + std::to_string(_wg_id);
@@ -390,10 +417,6 @@ Status CgroupV2CpuCtl::modify_cg_cpu_soft_limit_no_lock(int cpu_weight) {
 
 Status CgroupV2CpuCtl::add_thread_to_cgroup() {
     return CgroupCpuCtl::add_thread_to_cgroup(_cgroup_v2_query_wg_thread_file);
-}
-
-Status CgroupV2CpuCtl::enable_cpu_controller(std::string file) {
-    return CgroupCpuCtl::write_cg_sys_file(file, "+cpu", "set cpu controller", false);
 }
 
 } // namespace doris

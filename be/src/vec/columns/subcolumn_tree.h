@@ -138,8 +138,14 @@ public:
     using NodeCreator = std::function<NodePtr(NodeKind, bool)>;
 
     // create root as SCALAR node
+    void create_root(NodeData&& leaf_data) {
+        root = std::make_shared<Node>(Node::SCALAR, std::move(leaf_data));
+        leaves.push_back(root);
+    }
+
+    // create root as SCALAR node
     void create_root(const NodeData& leaf_data) {
-        root = std::make_shared<Node>(Node::SCALAR, leaf_data);
+        root = std::make_shared<Node>(Node::SCALAR, std::move(leaf_data));
         leaves.push_back(root);
     }
 
@@ -163,10 +169,6 @@ public:
             if (it != current_node->children.end()) {
                 current_node = it->second.get();
                 node_creator(current_node->kind, true);
-
-                if (current_node->is_nested() != parts[i].is_nested) {
-                    return false;
-                }
             } else {
                 auto next_kind = parts[i].is_nested ? Node::NESTED : Node::TUPLE;
                 auto next_node = node_creator(next_kind, false);
@@ -195,24 +197,15 @@ public:
     /// Find node that matches the path the best.
     const Node* find_best_match(const PathInData& path) const { return find_impl(path, false); }
 
-    /// Find node that matches the path exactly.
-    const Node* find_exact(const PathInData& path) const { return find_impl(path, true); }
-
-    /// Find leaf by path.
-    const Node* find_leaf(const PathInData& path) const {
-        const auto* candidate = find_exact(path);
-        if (!candidate || !candidate->is_scalar()) {
-            return nullptr;
-        }
-        return candidate;
-    }
-
     using NodePredicate = std::function<bool(const Node&)>;
 
     /// Finds leaf that satisfies the predicate.
     const Node* find_leaf(const NodePredicate& predicate) {
         return find_leaf(root.get(), predicate);
     }
+
+    /// Find node that matches the path exactly.
+    const Node* find_exact(const PathInData& path) const { return find_impl(path, true); }
 
     static const Node* find_leaf(const Node* node, const NodePredicate& predicate) {
         if (!node) {
@@ -230,6 +223,50 @@ public:
             }
         }
         return nullptr;
+    }
+
+    /// Find leaf by path.
+    const Node* find_leaf(const PathInData& path) const {
+        const auto* candidate = find_exact(path);
+        if (!candidate || !candidate->is_scalar()) {
+            return nullptr;
+        }
+        return candidate;
+    }
+
+    const Node* get_leaf_of_the_same_nested(const PathInData& path,
+                                            const NodePredicate& pred) const {
+        if (!path.has_nested_part()) {
+            return nullptr;
+        }
+
+        const auto* current_node = find_leaf(path);
+        const Node* leaf = nullptr;
+
+        while (current_node) {
+            /// Try to find the first Nested up to the current node.
+            const auto* node_nested = find_parent(current_node, [](const auto& candidate) -> bool {
+                return candidate.is_nested();
+            });
+
+            if (!node_nested) {
+                break;
+            }
+
+            /// Find the leaf with subcolumn that contains values
+            /// for the last rows.
+            /// If there are no leaves, skip current node and find
+            /// the next node up to the current.
+            leaf = SubcolumnsTree<NodeData>::find_leaf(node_nested, pred);
+
+            if (leaf) {
+                break;
+            }
+
+            current_node = node_nested->parent;
+        }
+
+        return leaf;
     }
 
     /// Find first parent node that satisfies the predicate.
