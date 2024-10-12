@@ -198,9 +198,16 @@ suite('test_flexible_partial_update_delete_sign') {
             "enable_unique_key_skip_bitmap_column" = "true",
             "function_column.sequence_type" = "int",
             "store_row_column" = "${use_row_store}"); """
-        sql """insert into ${tableName}(k,v1,v2,v3,v4,v5,__DORIS_SEQUENCE_COL__) select number, number, number, number, number, number, null from numbers("number" = "10"); """
+        sql """insert into ${tableName}(k,v1,v2,v3,v4,v5,__DORIS_SEQUENCE_COL__) select number, number, number, number, number, number, null from numbers("number" = "15"); """
         qt_insert_after_delete_3 "select k,v1,v2,v3,v4,v5,__DORIS_SEQUENCE_COL__,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName} order by k;"
         // rows(1,2,3,4,5,6) are all without sequence column
+        // rows(1,2,3,4,5,6) are all with sequence column, seq col value is increasing
+        // row(1,7): delete + insert
+        // row(2,8): insert + delete
+        // row(3,9): delete + insert + delete
+        // row(4,10): insert + delete + insert
+        // row(5,11): delete + insert + delete + insert
+        // row(6,12): insert + delete + insert + delete
         streamLoad {
             table "${tableName}"
             set 'format', 'json'
