@@ -35,6 +35,7 @@
 #include "common/consts.h"
 #include "common/status.h"
 #include "gutil/stringprintf.h"
+#include "olap/metadata_adder.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/options.h"
 #include "runtime/define_primitive_type.h"
@@ -60,7 +61,7 @@ class TabletColumn;
 
 using TabletColumnPtr = std::shared_ptr<TabletColumn>;
 
-class TabletColumn {
+class TabletColumn : public MetadataAdder<TabletColumn> {
 public:
     TabletColumn();
     TabletColumn(const ColumnPB& column);
@@ -246,7 +247,7 @@ bool operator!=(const TabletColumn& a, const TabletColumn& b);
 
 class TabletSchema;
 
-class TabletIndex {
+class TabletIndex : public MetadataAdder<TabletIndex> {
 public:
     TabletIndex() = default;
     void init_from_thrift(const TOlapTableIndex& index, const TabletSchema& tablet_schema);
@@ -288,7 +289,7 @@ private:
     std::map<string, string> _properties;
 };
 
-class TabletSchema {
+class TabletSchema : public MetadataAdder<TabletSchema> {
 public:
     enum ColumnType { NORMAL = 0, DROPPED = 1, VARIANT = 2 };
     // TODO(yingchun): better to make constructor as private to avoid
@@ -500,6 +501,8 @@ public:
 
     const std::vector<int32_t>& row_columns_uids() const { return _row_store_column_unique_ids; }
 
+    int64_t get_metadata_size() const override;
+
 private:
     friend bool operator==(const TabletSchema& a, const TabletSchema& b);
     friend bool operator!=(const TabletSchema& a, const TabletSchema& b);
@@ -548,6 +551,7 @@ private:
     // ATTN: For compability reason empty cids means all columns of tablet schema are encoded to row column
     std::vector<int32_t> _row_store_column_unique_ids;
     bool _variant_enable_flatten_nested = false;
+    int64_t _vl_field_mem_size {0}; // variable length field
 };
 
 bool operator==(const TabletSchema& a, const TabletSchema& b);
