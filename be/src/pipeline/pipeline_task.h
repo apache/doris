@@ -234,6 +234,8 @@ public:
 
     PipelineId pipeline_id() const { return _pipeline->id(); }
 
+    bool wake_up_by_downstream() const { return _wake_up_by_downstream; }
+
 private:
     friend class RuntimeFilterDependency;
     bool _is_blocked();
