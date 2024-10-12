@@ -693,102 +693,81 @@ PhysicalResultSink
 ------PhysicalOlapScan[extend_infer_t2]
 
 -- !not_pull_up_grouping --
-1	\N
+12	\N
+33	\N
+78	\N
+100	\N
 
 -- !pull_up_grouping --
-1	\N
-1	d2
+12	\N
+12	\N
+33	\N
+33	d2
+78	\N
+78	\N
+100	\N
+100	d2
 
 -- !pull_up_limit --
--3
--3
--2
--2
 0
 0
-1
-1
+12
+12
 
 -- !pull_up_topn --
+12
+12
 
 -- !pull_up_window_partition_column --
--5	-2	2
--3	-3	2
 0	0	3
-1	1	3
+12	12	9
 
 -- !pull_up_window_order_column --
--5	-2
--5	0
--4	1
--3	-3
+0	0
+12	12
 
 -- !pull_up_partition_topn --
+12	9	2
+78	9	1
 
 -- !pull_up_generate --
--3	d2	\N
--2	d2	\N
 0	d2	\N
-1	d2	\N
 
 -- !pull_up_from_inner_join --
--3	d2
 0	d2
-1	d2
 
 -- !pull_up_from_left_join --
--3	d2
 0	d2
-1	d2
 
 -- !pull_up_from_left_semi_join --
--3
 0
-1
 
 -- !pull_up_from_left_anti_join --
--2
 
 -- !pull_up_from_left_null_aware_anti_join --
--2
+12
 
 -- !pull_up_from_left_anti_join_where --
--2
 
 -- !pull_up_from_right_join --
--3	d2
 0	d2
-1	d2
 
 -- !pull_up_from_right_semi_join --
--3
 0
-1
 
 -- !pull_up_from_right_anti_join_where --
 
 -- !pull_up_from_right_anti_join_and --
 
 -- !pull_up_from_union --
--3
--3
--2
 0
 0
-1
-1
 
 -- !pull_up_from_except --
--2
 
 -- !pull_up_from_intersect --
--3
 0
-1
 
 -- !pull_up_from_agg --
--3
--2
 0
-1
 
