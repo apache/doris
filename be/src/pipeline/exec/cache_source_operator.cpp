@@ -156,7 +156,6 @@ Status CacheSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* b
             local_state._current_query_cache_rows += output_block->rows();
             auto mem_consume = output_block->allocated_bytes();
             local_state._current_query_cache_bytes += mem_consume;
-            local_state._mem_tracker->consume(mem_consume);
 
             if (_cache_param.entry_max_bytes < local_state._current_query_cache_bytes ||
                 _cache_param.entry_max_rows < local_state._current_query_cache_rows) {

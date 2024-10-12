@@ -44,6 +44,7 @@ import java.net.MalformedURLException;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.URLDecoder;
+import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -113,7 +114,7 @@ public class StringArithmetic {
      */
     @ExecFunction(name = "length")
     public static Expression lengthVarchar(StringLikeLiteral first) {
-        return new IntegerLiteral(first.getValue().length());
+        return new IntegerLiteral(first.getValue().getBytes(StandardCharsets.UTF_8).length);
     }
 
     /**
@@ -611,7 +612,7 @@ public class StringArithmetic {
                     return castStringLikeLiteral(first, "");
                 }
             }
-            return new NullLiteral();
+            return new NullLiteral(first.getDataType());
         } else if (number.getValue() < 0) {
             StringBuilder result = new StringBuilder(parts[Math.abs(number.getValue()) - 1]);
             return castStringLikeLiteral(first, result.reverse().toString());
@@ -784,6 +785,18 @@ public class StringArithmetic {
     public static Expression urlDecode(StringLikeLiteral first) {
         try {
             return castStringLikeLiteral(first, URLDecoder.decode(first.getValue(), StandardCharsets.UTF_8.name()));
+        } catch (UnsupportedEncodingException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    /**
+     * Executable arithmetic functions urlencode
+     */
+    @ExecFunction(name = "url_encode")
+    public static Expression urlEncode(StringLikeLiteral first) {
+        try {
+            return castStringLikeLiteral(first, URLEncoder.encode(first.getValue(), StandardCharsets.UTF_8.name()));
         } catch (UnsupportedEncodingException e) {
             throw new RuntimeException(e);
         }

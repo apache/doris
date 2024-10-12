@@ -33,6 +33,7 @@ import org.apache.doris.persist.ModifyTablePropertyOperationLog;
 import org.apache.doris.persist.ReplacePartitionOperationLog;
 import org.apache.doris.persist.TableAddOrDropColumnsInfo;
 import org.apache.doris.persist.TableInfo;
+import org.apache.doris.persist.TableRenameColumnInfo;
 import org.apache.doris.persist.TruncateTableInfo;
 import org.apache.doris.thrift.TBinlog;
 import org.apache.doris.thrift.TBinlogType;
@@ -226,7 +227,7 @@ public class BinlogManager {
         AlterJobRecord alterJobRecord = new AlterJobRecord(alterJob);
         String data = alterJobRecord.toJson();
 
-        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false, alterJob);
+        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false, alterJobRecord);
     }
 
     public void addModifyTableAddOrDropColumns(TableAddOrDropColumnsInfo info, long commitSeq) {
@@ -317,7 +318,7 @@ public class BinlogManager {
         TruncateTableRecord record = new TruncateTableRecord(info);
         String data = record.toJson();
 
-        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false, info);
+        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false, record);
     }
 
     public void addTableRename(TableInfo info, long commitSeq) {
@@ -327,6 +328,17 @@ public class BinlogManager {
         long timestamp = -1;
         TBinlogType type = TBinlogType.RENAME_TABLE;
         String data = info.toJson();
+        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false, info);
+    }
+
+    public void addColumnRename(TableRenameColumnInfo info, long commitSeq) {
+        long dbId = info.getDbId();
+        List<Long> tableIds = Lists.newArrayList();
+        tableIds.add(info.getTableId());
+        long timestamp = -1;
+        TBinlogType type = TBinlogType.RENAME_COLUMN;
+        String data = info.toJson();
+
         addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false, info);
     }
 
@@ -389,6 +401,20 @@ public class BinlogManager {
                 return Lists.newArrayList();
             }
             return dbBinlog.getDroppedTables();
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    // get the dropped indexes of the db.
+    public List<Long> getDroppedIndexes(long dbId) {
+        lock.readLock().lock();
+        try {
+            DBBinlog dbBinlog = dbBinlogMap.get(dbId);
+            if (dbBinlog == null) {
+                return Lists.newArrayList();
+            }
+            return dbBinlog.getDroppedIndexes();
         } finally {
             lock.readLock().unlock();
         }

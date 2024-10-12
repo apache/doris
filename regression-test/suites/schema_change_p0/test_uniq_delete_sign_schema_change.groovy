@@ -27,7 +27,7 @@ suite("test_uniq_delete_sign_schema_change", "schema_change") {
                 value3 INT
             )
             UNIQUE KEY (k1)
-            DISTRIBUTED BY HASH(k1) BUCKETS 1 properties("replication_num" = "1", "light_schema_change" = "false");
+            DISTRIBUTED BY HASH(k1) BUCKETS 1 properties("replication_num" = "1", "light_schema_change" = "false", "enable_unique_key_skip_bitmap_column" = "false");
         """
     sql "insert into ${tbName1} values(1,1,1,1);"
     sql "insert into ${tbName1} values(1,1,1,2);"
@@ -45,31 +45,31 @@ suite("test_uniq_delete_sign_schema_change", "schema_change") {
 
     sql "set show_hidden_columns = true"
     sql "insert into ${tbName1} (k1, value1, value2, value3, __DORIS_DELETE_SIGN__) values(1,1,1,1,1);"
-    qt_sql "select * from ${tbName1} order by k1;"
+    qt_sql "select k1,value1,value2,value3,__DORIS_DELETE_SIGN__,__DORIS_VERSION_COL__ from ${tbName1} order by k1;"
 
     sql "ALTER TABLE ${tbName1} ADD COLUMN value4 INT;"
     qt_sql "desc ${tbName1};"
-    qt_sql "select * from ${tbName1} order by k1;"
+    qt_sql "select k1,value1,value2,value3,value4,__DORIS_DELETE_SIGN__,__DORIS_VERSION_COL__ from ${tbName1} order by k1;"
 
     sql "insert into ${tbName1} values(5,5,5,5,5);"
     sql "insert into ${tbName1} values(6,6,6,6,6);"
-    qt_sql "select * from ${tbName1} order by k1;"
+    qt_sql "select k1,value1,value2,value3,value4,__DORIS_DELETE_SIGN__,__DORIS_VERSION_COL__ from ${tbName1} order by k1;"
 
     sql "insert into ${tbName1} (k1, value1, value2, value3, value4, __DORIS_DELETE_SIGN__) values(5,1,1,1,1,1);"
     sql "insert into ${tbName1} (k1, value1, value2, value3, value4, __DORIS_DELETE_SIGN__) values(3,1,1,1,1,1);"
-    qt_sql "select * from ${tbName1} order by k1;"
+    qt_sql "select k1,value1,value2,value3,value4,__DORIS_DELETE_SIGN__,__DORIS_VERSION_COL__ from ${tbName1} order by k1;"
 
     sql "ALTER TABLE ${tbName1} DROP COLUMN value1;"
     sql "ALTER TABLE ${tbName1} DROP COLUMN value3;"
     qt_sql "desc ${tbName1};"
     sql "insert into ${tbName1} values(7,7,7);"
-    qt_sql "select * from ${tbName1} order by k1;"
+    qt_sql "select k1,value2,value4,__DORIS_DELETE_SIGN__,__DORIS_VERSION_COL__ from ${tbName1} order by k1;"
 
     sql "insert into ${tbName1} (k1, value2, value4, __DORIS_DELETE_SIGN__) values(2,1,1,1);"
     sql "insert into ${tbName1} (k1, value2, value4, __DORIS_DELETE_SIGN__) values(4,1,1,1);"
     sql "insert into ${tbName1} (k1, value2, value4, __DORIS_DELETE_SIGN__) values(6,1,1,1);"
     sql "insert into ${tbName1} (k1, value2, value4, __DORIS_DELETE_SIGN__) values(7,1,1,1);"
-    qt_sql "select * from ${tbName1} order by k1;"
+    qt_sql "select k1,value2,value4,__DORIS_DELETE_SIGN__,__DORIS_VERSION_COL__ from ${tbName1} order by k1;"
 
     sql "set show_hidden_columns = false"
     qt_sql "select * from ${tbName1} order by k1;"
