@@ -69,7 +69,6 @@ import org.apache.logging.log4j.Logger;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.stream.Collectors;
@@ -102,9 +101,9 @@ public class BrokerLoadJob extends BulkLoadJob {
     }
 
     public BrokerLoadJob(long dbId, String label, BrokerDesc brokerDesc,
-            OriginStatement originStmt, UserIdentity userInfo, Set<String> tableNameList)
+                         OriginStatement originStmt, UserIdentity userInfo)
             throws MetaNotFoundException {
-        super(EtlJobType.BROKER, dbId, label, originStmt, userInfo, tableNameList);
+        super(EtlJobType.BROKER, dbId, label, originStmt, userInfo);
         this.brokerDesc = brokerDesc;
         if (ConnectContext.get() != null) {
             enableProfile = ConnectContext.get().getSessionVariable().enableProfile();
@@ -114,9 +113,9 @@ public class BrokerLoadJob extends BulkLoadJob {
     }
 
     public BrokerLoadJob(EtlJobType type, long dbId, String label, BrokerDesc brokerDesc,
-            OriginStatement originStmt, UserIdentity userInfo, Set<String> tableNameList)
+            OriginStatement originStmt, UserIdentity userInfo)
             throws MetaNotFoundException {
-        super(type, dbId, label, originStmt, userInfo, tableNameList);
+        super(type, dbId, label, originStmt, userInfo);
         this.brokerDesc = brokerDesc;
         if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().enableProfile()) {
             enableProfile = true;

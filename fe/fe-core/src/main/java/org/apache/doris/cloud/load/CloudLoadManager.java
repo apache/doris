@@ -101,7 +101,7 @@ public class CloudLoadManager extends LoadManager {
             loadJob = new CopyJob(dbId, stmt.getLabel().getLabelName(), ConnectContext.get().queryId(),
                     stmt.getBrokerDesc(), stmt.getOrigStmt(), stmt.getUserInfo(), stmt.getStageId(),
                     stmt.getStageType(), stmt.getStagePrefix(), stmt.getSizeLimit(), stmt.getPattern(),
-                    stmt.getObjectInfo(), stmt.isForce(), stmt.getUserName(), stmt.getTableName());
+                    stmt.getObjectInfo(), stmt.isForce(), stmt.getUserName());
             loadJob.setJobProperties(stmt.getProperties());
             loadJob.checkAndSetDataSourceInfo(database, stmt.getDataDescriptions());
             loadJob.setTimeout(ConnectContext.get().getExecTimeout());

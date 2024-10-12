@@ -50,7 +50,6 @@ import org.apache.thrift.TException;
 import java.lang.reflect.Type;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 // EnvFactory is responsed for create none-cloud object.
 // CloudEnvFactory is responsed for create cloud object.
@@ -125,8 +124,8 @@ public class EnvFactory {
     }
 
     public BrokerLoadJob createBrokerLoadJob(long dbId, String label, BrokerDesc brokerDesc, OriginStatement originStmt,
-            UserIdentity userInfo, Set<String> tableNameList) throws MetaNotFoundException {
-        return new BrokerLoadJob(dbId, label, brokerDesc, originStmt, userInfo, tableNameList);
+            UserIdentity userInfo) throws MetaNotFoundException {
+        return new BrokerLoadJob(dbId, label, brokerDesc, originStmt, userInfo);
     }
 
     public BrokerLoadJob createBrokerLoadJob() {

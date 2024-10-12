@@ -104,7 +104,7 @@ public abstract class BulkLoadJob extends LoadJob implements GsonPostProcessable
     }
 
     public BulkLoadJob(EtlJobType jobType, long dbId, String label,
-            OriginStatement originStmt, UserIdentity userInfo, Set<String> tableNameList) throws MetaNotFoundException {
+            OriginStatement originStmt, UserIdentity userInfo) throws MetaNotFoundException {
         super(jobType, dbId, label);
         this.originStmt = originStmt;
         this.authorizationInfo = gatherAuthInfo();
@@ -130,7 +130,7 @@ public abstract class BulkLoadJob extends LoadJob implements GsonPostProcessable
                 case BROKER:
                     bulkLoadJob = EnvFactory.getInstance().createBrokerLoadJob(db.getId(),
                             stmt.getLabel().getLabelName(), stmt.getBrokerDesc(), stmt.getOrigStmt(),
-                            stmt.getUserInfo(), stmt.getTableNameList());
+                            stmt.getUserInfo());
                     break;
                 case SPARK:
                     bulkLoadJob = new SparkLoadJob(db.getId(), stmt.getLabel().getLabelName(), stmt.getResourceDesc(),
@@ -408,7 +408,7 @@ public abstract class BulkLoadJob extends LoadJob implements GsonPostProcessable
                 case BROKER_LOAD:
                     bulkLoadJob = EnvFactory.getInstance().createBrokerLoadJob(db.getId(),
                             insertStmt.getLoadLabel().getLabelName(), (BrokerDesc) insertStmt.getResourceDesc(),
-                            insertStmt.getOrigStmt(), insertStmt.getUserInfo(), insertStmt.getTableNameList());
+                            insertStmt.getOrigStmt(), insertStmt.getUserInfo());
                     break;
                 case SPARK_LOAD:
                     bulkLoadJob = new SparkLoadJob(db.getId(), insertStmt.getLoadLabel().getLabelName(),
