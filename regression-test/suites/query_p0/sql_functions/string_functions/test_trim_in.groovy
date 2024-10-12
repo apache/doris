@@ -38,17 +38,46 @@ suite("test_trim_in") {
             "replication_num" = "1"
         );
     """
+    order_qt_empty_nullable "select trim_in(a, 'x') from test_trim_in"
+    order_qt_empty_not_nullable "select trim_in(b, 'x') from test_trim_in"
+
+    sql "insert into test_trim_in values (1, '1', null), (1, '1', null), (1, '1', null)"
+    order_qt_all_null "select trim_in(b, NULL) from test_trim_in"
+
+    sql "truncate table test_trim_in"
+    sql """ insert into test_trim_in values (1, "", ""), (2, "abcd", "ac"), (3, '  hello  ', 'he '),
+                (4, ' hello world ', ' ehlowrd'),(5, ' hello world ', ' eh');
+        """
+
+    /// all values
+    order_qt_nullable """
+        SELECT atan2(t.arg1_two_args, t.ARG2) as result
+        FROM (
+            SELECT hits_two_args.nothing, TABLE1.arg1_two_args, TABLE1.order1, TABLE2.ARG2, TABLE2.order2
+            FROM hits_two_args
+            CROSS JOIN (
+                SELECT b as arg1_two_args, k0 as order1
+                FROM test_trim_in
+            ) as TABLE1
+            CROSS JOIN (
+                SELECT b as ARG2, k0 as order2
+                FROM test_trim_in
+            ) as TABLE2
+        )t;
+    """
+
+    /// nullables
+    order_qt_not_nullable "select trim_in(a, 'he') from test_trim_in"
+    order_qt_nullable "select trim_in(b, 'he') from test_trim_in"
+    order_qt_not_nullable_null "select trim_in(a, NULL) from test_trim_in"
+    order_qt_nullable_null "select trim_in(b, NULL) from test_trim_in"
+
     /// consts. most by BE-UT
     order_qt_const_nullable "select trim_in(NULL,NULL) from test_trim_in"
-    order_qt_partial_const_nullable "select trim_in(NULL, b) from test_trim_in"
-    order_qt_const_not_nullable "select trim_in(a,b) from test_trim_in"
-    order_qt_const_other_nullable "select trim_in('x',b) from test_trim_in"
-    order_qt_const_other_not_nullable "select trim_in('x',a) from test_trim_in"
-    order_qt_const_partial_nullable_no_null "select trim_in('abc', 'b')"
-    //[INVALID_ARGUMENT]Argument at index 1 for function trim must be constant
-    //order_qt_const_nullable_no_null "select trim_in(nullable('abc'),nullable('中文'))"
-    //order_qt_const_partial_nullable_no_null "select trim_in('abc',nullable('a'))"
-    //order_qt_const_nullable_no_null_multirows "select trim_in(nullable('abc'), nullable('a'))"
+    order_qt_partial_const_nullable "select trim_in(NULL, 'he') from test_trim_in"
+    order_qt_const_partial_nullable_no_null "select trim_in(nullable('abcd'), 'cde') from test_trim_in"
+    order_qt_const_other_not_nullable "select trim_in(a, 'x') from test_trim_in"
+    order_qt_const_not_nullable "select trim_in('abdc', 'df') from test_trim_in"
 
 
 
@@ -150,4 +179,17 @@ suite("test_trim_in") {
     order_qt_70 "SELECT rtrim_in(CAST(' hello world ' AS CHAR(13)), ' eh');"
     order_qt_71 "SELECT rtrim_in(CAST(' hello world ' AS CHAR(13)), ' ehlowrd');"
     order_qt_72 "SELECT rtrim_in(CAST(' hello world ' AS CHAR(13)), ' x');"
+
+    order_qt_73 "SELECT trim_in(a, ' eh') from test_trim_in;"
+    order_qt_74 "SELECT ltrim_in(a, ' eh') from test_trim_in;"
+    order_qt_75 "SELECT rtrim_in(a, ' eh') from test_trim_in;"
+    order_qt_76 "SELECT trim_in(b, ' eh') from test_trim_in;"
+    order_qt_77 "SELECT ltrim_in(b, ' eh') from test_trim_in;"
+    order_qt_78 "SELECT rtrim_in(b, ' eh') from test_trim_in;"
+    order_qt_79 "SELECT trim_in(a, NULL) from test_trim_in;"
+    order_qt_80 "SELECT ltrim_in(a, NULL) from test_trim_in;"
+    order_qt_81 "SELECT rtrim_in(a, NULL) from test_trim_in;"
+    order_qt_82 "SELECT trim_in(b, NULL) from test_trim_in;"
+    order_qt_83 "SELECT ltrim_in(b, NULL) from test_trim_in;"
+    order_qt_84 "SELECT rtrim_in(b, NULL) from test_trim_in;"
 }
