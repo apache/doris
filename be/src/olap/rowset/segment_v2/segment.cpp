@@ -74,7 +74,7 @@
 #include "vec/olap/vgeneric_iterators.h"
 
 namespace doris::segment_v2 {
-static bvar::Adder<size_t> g_total_segment_num("doris_total_segment_num");
+
 class InvertedIndexIterator;
 
 io::UInt128Wrapper file_cache_key_from_path(const std::string& seg_path) {
@@ -161,16 +161,17 @@ Segment::Segment(uint32_t segment_id, RowsetId rowset_id, TabletSchemaSPtr table
           _meta_mem_usage(0),
           _rowset_id(rowset_id),
           _tablet_schema(std::move(tablet_schema)),
-          _idx_file_info(idx_file_info) {
-    g_total_segment_num << 1;
-}
+          _idx_file_info(idx_file_info) {}
 
-Segment::~Segment() {
-    g_total_segment_num << -1;
-}
+Segment::~Segment() = default;
 
 io::UInt128Wrapper Segment::file_cache_key(std::string_view rowset_id, uint32_t seg_id) {
     return io::BlockFileCache::hash(fmt::format("{}_{}.dat", rowset_id, seg_id));
+}
+
+int64_t Segment::get_metadata_size() const {
+    return sizeof(Segment) + (_footer_pb ? _footer_pb->ByteSizeLong() : 0) +
+           (_pk_index_meta ? _pk_index_meta->ByteSizeLong() : 0);
 }
 
 Status Segment::_open() {
@@ -189,6 +190,9 @@ Status Segment::_open() {
     if (_pk_index_meta != nullptr) {
         _meta_mem_usage += _pk_index_meta->ByteSizeLong();
     }
+
+    update_metadata_size();
+
     _meta_mem_usage += sizeof(*this);
     _meta_mem_usage += _tablet_schema->num_columns() * config::estimated_mem_per_column_reader;
 

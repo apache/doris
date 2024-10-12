@@ -85,8 +85,6 @@ inline bool read_as_string(PrimitiveType type) {
            type == PrimitiveType::TYPE_OBJECT;
 }
 
-static bvar::Adder<size_t> g_column_reader_memory_bytes("doris_column_reader_memory_bytes");
-static bvar::Adder<size_t> g_column_reader_num("doris_column_reader_num");
 Status ColumnReader::create_array(const ColumnReaderOptions& opts, const ColumnMetaPB& meta,
                                   const io::FileReaderSPtr& file_reader,
                                   std::unique_ptr<ColumnReader>* reader) {
@@ -265,14 +263,12 @@ ColumnReader::ColumnReader(const ColumnReaderOptions& opts, const ColumnMetaPB& 
     _meta_is_nullable = meta.is_nullable();
     _meta_dict_page = meta.dict_page();
     _meta_compression = meta.compression();
-
-    g_column_reader_memory_bytes << sizeof(*this);
-    g_column_reader_num << 1;
 }
 
-ColumnReader::~ColumnReader() {
-    g_column_reader_memory_bytes << -sizeof(*this);
-    g_column_reader_num << -1;
+ColumnReader::~ColumnReader() = default;
+
+int64_t ColumnReader::get_metadata_size() const {
+    return sizeof(ColumnReader) + (_segment_zone_map ? _segment_zone_map->ByteSizeLong() : 0);
 }
 
 Status ColumnReader::init(const ColumnMetaPB* meta) {
@@ -312,6 +308,7 @@ Status ColumnReader::init(const ColumnMetaPB* meta) {
                                       _file_reader->path().native(), index_meta.type());
         }
     }
+    update_metadata_size();
 
     // ArrayColumnWriter writes a single empty array and flushes. In this scenario,
     // the item writer doesn't write any data and the corresponding ordinal index is empty.
