@@ -39,7 +39,7 @@ suite('test_flexible_partial_update_delete_sign') {
             "store_row_column" = "${use_row_store}"); """
 
         sql """insert into ${tableName} select number, number, number, number, number, number from numbers("number" = "6"); """
-        order_qt_no_seq_col_1 "select k,v1,v2,v3,v4,v5,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName};"
+        order_qt_no_seq_col_1 "select k,v1,v2,v3,v4,v5 from ${tableName};"
 
         def inspect_rows = { sqlStr ->
             sql "set skip_delete_sign=true;"
@@ -63,7 +63,7 @@ suite('test_flexible_partial_update_delete_sign') {
             file "delete1.json"
             time 20000
         }
-        order_qt_no_seq_col_2 "select k,v1,v2,v3,v4,v5,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName};"
+        order_qt_no_seq_col_2 "select k,v1,v2,v3,v4,v5 from ${tableName};"
         inspect_rows "select k,v1,v2,v3,v4,v5,__DORIS_DELETE_SIGN__,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__),__DORIS_VERSION_COL__ from ${tableName} order by k,__DORIS_VERSION_COL__,v1,v2,v3,v4,v5;"
 
         // delete rows(1,7) which have been deleted by delete sign before
@@ -76,7 +76,7 @@ suite('test_flexible_partial_update_delete_sign') {
             file "delete2.json"
             time 20000
         }
-        order_qt_no_seq_col_3 "select k,v1,v2,v3,v4,v5,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName};"
+        order_qt_no_seq_col_3 "select k,v1,v2,v3,v4,v5 from ${tableName};"
         inspect_rows "select k,v1,v2,v3,v4,v5,__DORIS_DELETE_SIGN__,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__),__DORIS_VERSION_COL__ from ${tableName} order by k,__DORIS_VERSION_COL__,v1,v2,v3,v4,v5;"
 
 
@@ -100,7 +100,7 @@ suite('test_flexible_partial_update_delete_sign') {
             "store_row_column" = "${use_row_store}"); """
 
         sql """insert into ${tableName} select number, number, number, number, number, number from numbers("number" = "6"); """
-        order_qt_seq_map_col_1 "select k,v1,v2,v3,v4,v5,__DORIS_SEQUENCE_COL__,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName};"
+        order_qt_seq_map_col_1 "select k,v1,v2,v3,v4,v5,__DORIS_SEQUENCE_COL__ from ${tableName};"
         // update rows(2,4,5), delete rows(1,3), insert new rows(6), delete new rows(7)
         // __DORIS_SEQUENCE_COL__ should be filled from old rows for rows(1,3)
         streamLoad {
@@ -112,7 +112,7 @@ suite('test_flexible_partial_update_delete_sign') {
             file "delete1.json"
             time 20000
         }
-        order_qt_seq_map_col_2 "select k,v1,v2,v3,v4,v5,__DORIS_DELETE_SIGN__,__DORIS_SEQUENCE_COL__,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName};"
+        order_qt_seq_map_col_2 "select k,v1,v2,v3,v4,v5,__DORIS_DELETE_SIGN__,__DORIS_SEQUENCE_COL__ from ${tableName};"
         inspect_rows "select k,v1,v2,v3,v4,v5,__DORIS_DELETE_SIGN__,__DORIS_SEQUENCE_COL__,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__),__DORIS_VERSION_COL__ from ${tableName} order by k,__DORIS_VERSION_COL__,v1,v2,v3,v4,v5;"
 
         // ==============================================================================================================================
@@ -136,7 +136,7 @@ suite('test_flexible_partial_update_delete_sign') {
             "store_row_column" = "${use_row_store}"); """
 
         sql """insert into ${tableName} select number, number, number, number, number, number from numbers("number" = "10"); """
-        qt_insert_after_delete_1 "select k,v1,v2,v3,v4,v5,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName} order by k;"
+        qt_insert_after_delete_3_1 "select k,v1,v2,v3,v4,v5 from ${tableName} order by k;"
         streamLoad {
             table "${tableName}"
             set 'format', 'json'
@@ -146,7 +146,7 @@ suite('test_flexible_partial_update_delete_sign') {
             file "delete3.json"
             time 20000
         }
-        qt_insert_after_delete_1 "select k,v1,v2,v3,v4,v5,__DORIS_DELETE_SIGN__,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName} order by k;"
+        qt_insert_after_delete_3_1 "select k,v1,v2,v3,v4,v5,__DORIS_DELETE_SIGN__ from ${tableName} order by k;"
         inspect_rows "select k,v1,v2,v3,v4,v5,__DORIS_DELETE_SIGN__,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__),__DORIS_VERSION_COL__ from ${tableName} order by k,__DORIS_VERSION_COL__,v1,v2,v3,v4,v5;"
 
         tableName = "test_flexible_partial_update_delete_sign4_${use_row_store}"
@@ -167,7 +167,7 @@ suite('test_flexible_partial_update_delete_sign') {
             "store_row_column" = "${use_row_store}"); """
 
         sql """insert into ${tableName} select number, number, number, number, number, number from numbers("number" = "10"); """
-        qt_insert_after_delete_2 "select k,v1,v2,v3,v4,v5,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName} order by k;"
+        qt_insert_after_delete_3_1 "select k,v1,v2,v3,v4,v5 from ${tableName} order by k;"
         streamLoad {
             table "${tableName}"
             set 'format', 'json'
@@ -177,7 +177,7 @@ suite('test_flexible_partial_update_delete_sign') {
             file "delete4.json"
             time 20000
         }
-        qt_insert_after_delete_2 "select k,v1,v2,v3,v4,v5,__DORIS_DELETE_SIGN__,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName} order by k;"
+        qt_insert_after_delete_3_1 "select k,v1,v2,v3,v4,v5,__DORIS_DELETE_SIGN__ from ${tableName} order by k;"
         inspect_rows "select k,v1,v2,v3,v4,v5,__DORIS_DELETE_SIGN__,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__),__DORIS_VERSION_COL__ from ${tableName} order by k,__DORIS_VERSION_COL__,v1,v2,v3,v4,v5;"
 
         // 3.2 with sequence type column
@@ -199,7 +199,7 @@ suite('test_flexible_partial_update_delete_sign') {
             "function_column.sequence_type" = "int",
             "store_row_column" = "${use_row_store}"); """
         sql """insert into ${tableName}(k,v1,v2,v3,v4,v5,__DORIS_SEQUENCE_COL__) select number, number, number, number, number, number, null from numbers("number" = "15"); """
-        qt_insert_after_delete_3 "select k,v1,v2,v3,v4,v5,__DORIS_SEQUENCE_COL__,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName} order by k;"
+        qt_insert_after_delete_3_2 "select k,v1,v2,v3,v4,v5,__DORIS_SEQUENCE_COL__ from ${tableName} order by k;"
         // rows(1,2,3,4,5,6) are all without sequence column
         // rows(7,8,9,10,11,12) are all with sequence column, seq col value is increasing
         // row(1,7): delete + insert
@@ -217,7 +217,7 @@ suite('test_flexible_partial_update_delete_sign') {
             file "delete5.json"
             time 20000
         }
-        qt_insert_after_delete_3 "select k,v1,v2,v3,v4,v5,__DORIS_DELETE_SIGN__,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName} order by k;"
+        qt_insert_after_delete_3_2 "select k,v1,v2,v3,v4,v5,__DORIS_DELETE_SIGN__ from ${tableName} order by k;"
         inspect_rows "select k,v1,v2,v3,v4,v5,__DORIS_SEQUENCE_COL__,__DORIS_DELETE_SIGN__,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__),__DORIS_VERSION_COL__ from ${tableName} order by k,__DORIS_VERSION_COL__,v1,v2,v3,v4,v5;"
         
         sql "truncate table ${tableName};"
@@ -232,7 +232,22 @@ suite('test_flexible_partial_update_delete_sign') {
             file "delete6.json"
             time 20000
         }
-        qt_insert_after_delete_3 "select k,v1,v2,v3,v4,v5,__DORIS_DELETE_SIGN__,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName} order by k;"
+        qt_insert_after_delete_3_2 "select k,v1,v2,v3,v4,v5,__DORIS_DELETE_SIGN__ from ${tableName} order by k;"
         inspect_rows "select k,v1,v2,v3,v4,v5,__DORIS_SEQUENCE_COL__,__DORIS_DELETE_SIGN__,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__),__DORIS_VERSION_COL__ from ${tableName} order by k,__DORIS_VERSION_COL__,v1,v2,v3,v4,v5;"
+
+        sql "truncate table ${tableName};"
+        sql """insert into ${tableName}(k,v1,v2,v3,v4,v5,__DORIS_SEQUENCE_COL__) select number, number, number, number, number, number, number*10 from numbers("number" = "13"); """
+        streamLoad {
+            table "${tableName}"
+            set 'format', 'json'
+            set 'read_json_by_line', 'true'
+            set 'strict_mode', 'false'
+            set 'unique_key_update_mode', 'UPDATE_FLEXIBLE_COLUMNS'
+            file "delete7.json"
+            time 20000
+        }
+        qt_insert_after_delete_3_2 "select k,v1,v2,v3,v4,v5,__DORIS_SEQUENCE_COL__,__DORIS_DELETE_SIGN__ from ${tableName} order by k;"
+        inspect_rows "select k,v1,v2,v3,v4,v5,__DORIS_SEQUENCE_COL__,__DORIS_DELETE_SIGN__,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__),__DORIS_VERSION_COL__ from ${tableName} order by k,__DORIS_VERSION_COL__,v1,v2,v3,v4,v5;"
+
     }
 }
