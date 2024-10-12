@@ -171,6 +171,11 @@ void RowsetMeta::_init() {
     } else {
         _rowset_id.init(_rowset_meta_pb.rowset_id_v2());
     }
+    update_metadata_size();
+}
+
+int64_t RowsetMeta::get_metadata_size() const {
+    return sizeof(RowsetMeta) + _rowset_meta_pb.ByteSizeLong();
 }
 
 bool operator==(const RowsetMeta& a, const RowsetMeta& b) {

@@ -39,8 +39,6 @@
 namespace doris {
 struct uint24_t;
 
-static bvar::Adder<size_t> g_zone_map_memory_bytes("doris_zone_map_memory_bytes");
-
 namespace segment_v2 {
 
 template <PrimitiveType Type>
@@ -157,9 +155,6 @@ Status ZoneMapIndexReader::_load(bool use_page_cache, bool kept_in_memory,
 
     _page_zone_maps.resize(reader.num_values());
 
-    g_zone_map_memory_bytes << sizeof(*this) + sizeof(ZoneMapPB) * _page_zone_maps.size() +
-                                       sizeof(IndexedColumnMetaPB);
-
     // read and cache all page zone maps
     for (int i = 0; i < reader.num_values(); ++i) {
         size_t num_to_read = 1;
@@ -177,18 +172,18 @@ Status ZoneMapIndexReader::_load(bool use_page_cache, bool kept_in_memory,
                                                column->get_data_at(0).size)) {
             return Status::Corruption("Failed to parse zone map");
         }
+        _pb_meta_size += _page_zone_maps[i].ByteSizeLong();
     }
 
+    update_metadata_size();
     return Status::OK();
 }
 
-ZoneMapIndexReader::~ZoneMapIndexReader() {
-    // Maybe wrong due to load failures.
-    if (_page_zone_maps.size() > 0) {
-        g_zone_map_memory_bytes << -sizeof(*this) - sizeof(ZoneMapPB) * _page_zone_maps.size() -
-                                           sizeof(IndexedColumnMetaPB);
-    }
+int64_t ZoneMapIndexReader::get_metadata_size() const {
+    return sizeof(ZoneMapIndexReader) + _pb_meta_size;
 }
+
+ZoneMapIndexReader::~ZoneMapIndexReader() = default;
 #define APPLY_FOR_PRIMITITYPE(M) \
     M(TYPE_TINYINT)              \
     M(TYPE_SMALLINT)             \
