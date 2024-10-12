@@ -1563,6 +1563,11 @@ public abstract class RoutineLoadJob
         return cloudClusterId;
     }
 
+    public void setCloudClusterById() {
+        this.cloudCluster = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                        .getClusterNameByClusterId(cloudClusterId);
+    }
+
     // check the correctness of commit info
     protected abstract boolean checkCommitInfo(RLTaskTxnCommitAttachment rlTaskTxnCommitAttachment,
                                                TransactionState txnState,
