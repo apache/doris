@@ -318,5 +318,35 @@ suite('test_flexible_partial_update_delete_sign') {
         qt_insert_after_delete_3_3 "select k,v1,v2,v3,v4,v5,__DORIS_SEQUENCE_COL__,__DORIS_DELETE_SIGN__ from ${tableName} order by k;"
         inspect_rows "select k,v1,v2,v3,v4,v5,__DORIS_SEQUENCE_COL__,__DORIS_DELETE_SIGN__,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__),__DORIS_VERSION_COL__ from ${tableName} order by k,__DORIS_VERSION_COL__,v1,v2,v3,v4,v5;"
 
+
+        // 3.4 with seq map col (has default value)
+        tableName = "test_flexible_partial_update_delete_sign6_${use_row_store}"
+        sql """ DROP TABLE IF EXISTS ${tableName} force;"""
+        sql """ CREATE TABLE ${tableName} (
+            `k` int(11) NULL, 
+            `v1` BIGINT NULL default "30",
+            `v2` BIGINT NULL DEFAULT "9876",
+            `v3` BIGINT NOT NULL DEFAULT "5432",
+            `v4` BIGINT NOT NULL DEFAULT "1234",
+            `v5` BIGINT NULL DEFAULT "9753"
+            ) UNIQUE KEY(`k`) DISTRIBUTED BY HASH(`k`) BUCKETS 1
+            PROPERTIES(
+            "replication_num" = "1",
+            "enable_unique_key_merge_on_write" = "true",
+            "light_schema_change" = "true",
+            "enable_unique_key_skip_bitmap_column" = "true",
+            "function_column.sequence_col" = "v1",
+            "store_row_column" = "${use_row_store}"); """
+        streamLoad {
+            table "${tableName}"
+            set 'format', 'json'
+            set 'read_json_by_line', 'true'
+            set 'strict_mode', 'false'
+            set 'unique_key_update_mode', 'UPDATE_FLEXIBLE_COLUMNS'
+            file "delete11.json"
+            time 20000
+        }
+        qt_insert_after_delete_3_4 "select k,v1,v2,v3,v4,v5,__DORIS_SEQUENCE_COL__,__DORIS_DELETE_SIGN__ from ${tableName} order by k;"
+        inspect_rows "select k,v1,v2,v3,v4,v5,__DORIS_SEQUENCE_COL__,__DORIS_DELETE_SIGN__,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__),__DORIS_VERSION_COL__ from ${tableName} order by k,__DORIS_VERSION_COL__,v1,v2,v3,v4,v5;"
     }
 }
