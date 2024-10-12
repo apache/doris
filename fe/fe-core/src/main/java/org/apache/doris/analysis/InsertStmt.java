@@ -30,6 +30,7 @@ import org.apache.doris.planner.DataSink;
 import com.google.common.base.Function;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableMap.Builder;
+import com.google.common.collect.Sets;
 import org.apache.commons.collections.MapUtils;
 
 import java.util.List;
@@ -213,6 +214,13 @@ public abstract class InsertStmt extends DdlStmt implements NotFallbackInParser 
         return targetTables;
     }
 
+    public Set<String> getTableNameList() {
+        Set<String> res = Sets.newHashSet();
+        for (Table table : targetTables) {
+            res.add(table.getName());
+        }
+        return res;
+    }
     public abstract List<? extends DataDesc> getDataDescList();
 
     public abstract ResourceDesc getResourceDesc();

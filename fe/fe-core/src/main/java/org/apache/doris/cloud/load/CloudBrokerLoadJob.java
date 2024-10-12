@@ -57,6 +57,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -76,9 +77,9 @@ public class CloudBrokerLoadJob extends BrokerLoadJob {
     }
 
     public CloudBrokerLoadJob(EtlJobType type, long dbId, String label, BrokerDesc brokerDesc,
-            OriginStatement originStmt, UserIdentity userInfo)
+            OriginStatement originStmt, UserIdentity userInfo, Set<String> tableNameList)
             throws MetaNotFoundException {
-        super(type, dbId, label, brokerDesc, originStmt, userInfo);
+        super(type, dbId, label, brokerDesc, originStmt, userInfo, tableNameList);
         setCloudClusterId();
     }
 

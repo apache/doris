@@ -21,6 +21,7 @@ import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.CopyStmt;
 import org.apache.doris.analysis.DataDescription;
 import org.apache.doris.analysis.StatementBase;
+import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -46,6 +47,7 @@ import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TUniqueId;
 
+import com.google.common.collect.Sets;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.annotations.SerializedName;
@@ -100,12 +102,13 @@ public class CopyJob extends CloudBrokerLoadJob {
 
     public CopyJob(long dbId, String label, TUniqueId queryId, BrokerDesc brokerDesc, OriginStatement originStmt,
             UserIdentity userInfo, String stageId, StagePB.StageType stageType, String stagePrefix, long sizeLimit,
-            String pattern, ObjectInfo objectInfo, boolean forceCopy, String user) throws MetaNotFoundException {
-        super(EtlJobType.COPY, dbId, label, brokerDesc, originStmt, userInfo);
+            String pattern, ObjectInfo objectInfo, boolean forceCopy, String user, TableName tableName)
+            throws MetaNotFoundException {
+        super(EtlJobType.COPY, dbId, label, brokerDesc, originStmt, userInfo, Sets.newHashSet(tableName.getTbl()));
         this.stageId = stageId;
         this.stageType = stageType;
         this.stagePrefix = stagePrefix;
-        this.sizeLimit =  sizeLimit;
+        this.sizeLimit = sizeLimit;
         this.pattern = pattern;
         this.objectInfo = objectInfo;
         this.forceCopy = forceCopy;
