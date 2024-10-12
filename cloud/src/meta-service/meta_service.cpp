@@ -2095,6 +2095,51 @@ void MetaServiceImpl::get_delete_bitmap_update_lock(google::protobuf::RpcControl
     }
 }
 
+void MetaServiceImpl::remove_delete_bitmap_update_lock(
+        google::protobuf::RpcController* controller,
+        const RemoveDeleteBitmapUpdateLockRequest* request,
+        RemoveDeleteBitmapUpdateLockResponse* response, ::google::protobuf::Closure* done) {
+    RPC_PREPROCESS(remove_delete_bitmap_update_lock);
+    std::string cloud_unique_id = request->has_cloud_unique_id() ? request->cloud_unique_id() : "";
+    if (cloud_unique_id.empty()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "cloud unique id not set";
+        return;
+    }
+
+    instance_id = get_instance_id(resource_mgr_, cloud_unique_id);
+    if (instance_id.empty()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "empty instance_id";
+        LOG(INFO) << msg << ", cloud_unique_id=" << cloud_unique_id;
+        return;
+    }
+
+    RPC_RATE_LIMIT(remove_delete_bitmap_update_lock)
+    std::unique_ptr<Transaction> txn;
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::CREATE>(err);
+        msg = "failed to init txn";
+        return;
+    }
+    auto table_or_tablet_id = request->table_id() > 0 ? request->table_id() : request->tablet_id();
+    std::string lock_key =
+            meta_delete_bitmap_update_lock_key({instance_id, table_or_tablet_id, -1});
+    bool success = check_and_remove_delete_bitmap_update_lock(
+            code, msg, ss, txn, instance_id, request->table_id(), request->tablet_id(),
+            request->lock_id(), request->initiator(), lock_key);
+    if (success) {
+        LOG(INFO) << "remove delete bitmap table lock table_id=" << request->table_id()
+                  << " tablet_id=" << request->tablet_id() << " lock_id=" << request->lock_id()
+                  << ", key=" << hex(lock_key) << ", initiator=" << request->initiator();
+    } else {
+        LOG(WARNING) << "fail to remove delete bitmap table lock table_id=" << request->table_id()
+                     << " tablet_id=" << request->tablet_id() << " lock_id=" << request->lock_id()
+                     << ", key=" << hex(lock_key) << ", initiator=" << request->initiator();
+    }
+}
+
 void MetaServiceImpl::remove_delete_bitmap(google::protobuf::RpcController* controller,
                                            const RemoveDeleteBitmapRequest* request,
                                            RemoveDeleteBitmapResponse* response,
