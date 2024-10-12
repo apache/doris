@@ -33,7 +33,6 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
-import org.apache.doris.cloud.transaction.TxnUtil;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DuplicatedRequestException;
@@ -245,7 +244,7 @@ public class DatabaseTransactionMgr {
                     .sorted(TransactionState.TXN_ID_COMPARATOR)
                     .limit(limit)
                     .forEach(t -> {
-                        infos.add(TxnUtil.getTxnStateInfo(t, Lists.newArrayList()));
+                        infos.add(TransactionUtil.getTxnStateInfo(t, Lists.newArrayList()));
                     });
         } finally {
             readUnlock();
@@ -281,7 +280,7 @@ public class DatabaseTransactionMgr {
                     .filter(transactionState -> (transactionState.getTransactionStatus() == status))
                     .sorted(TransactionState.TXN_ID_COMPARATOR)
                     .forEach(t -> {
-                        infos.add(TxnUtil.getTxnStateInfo(t, Lists.newArrayList()));
+                        infos.add(TransactionUtil.getTxnStateInfo(t, Lists.newArrayList()));
                     });
         } finally {
             readUnlock();
@@ -301,7 +300,7 @@ public class DatabaseTransactionMgr {
                     .filter(transactionState -> (transactionState.getLabel().matches(labelRegex)))
                     .sorted(TransactionState.TXN_ID_COMPARATOR)
                     .forEach(t -> {
-                        infos.add(TxnUtil.getTxnStateInfo(t, Lists.newArrayList()));
+                        infos.add(TransactionUtil.getTxnStateInfo(t, Lists.newArrayList()));
                     });
         } finally {
             readUnlock();
@@ -2046,8 +2045,8 @@ public class DatabaseTransactionMgr {
             if (txnState == null) {
                 throw new AnalysisException("transaction with id " + txnId + " does not exist");
             }
-            TxnUtil.checkAuth(dbId, txnState);
-            infos.add(TxnUtil.getTxnStateInfo(txnState, Lists.newArrayList()));
+            TransactionUtil.checkAuth(dbId, txnState);
+            infos.add(TransactionUtil.getTxnStateInfo(txnState, Lists.newArrayList()));
         } finally {
             readUnlock();
         }

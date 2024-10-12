@@ -17,9 +17,6 @@
 
 package org.apache.doris.cloud.transaction;
 
-import org.apache.doris.catalog.Database;
-import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.Table;
 import org.apache.doris.cloud.proto.Cloud.RLTaskTxnCommitAttachmentPB;
 import org.apache.doris.cloud.proto.Cloud.RoutineLoadProgressPB;
 import org.apache.doris.cloud.proto.Cloud.TxnCommitAttachmentPB;
@@ -31,19 +28,12 @@ import org.apache.doris.cloud.proto.Cloud.TxnCoordinatorPB;
 import org.apache.doris.cloud.proto.Cloud.TxnInfoPB;
 import org.apache.doris.cloud.proto.Cloud.TxnSourceTypePB;
 import org.apache.doris.cloud.proto.Cloud.UniqueIdPB;
-import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.ErrorCode;
-import org.apache.doris.common.ErrorReport;
-import org.apache.doris.common.util.TimeUtils;
-import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.load.EtlStatus;
 import org.apache.doris.load.FailMsg;
 import org.apache.doris.load.loadv2.JobState;
 import org.apache.doris.load.loadv2.LoadJobFinalOperation;
 import org.apache.doris.load.routineload.KafkaProgress;
 import org.apache.doris.load.routineload.RLTaskTxnCommitAttachment;
-import org.apache.doris.mysql.privilege.PrivPredicate;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TEtlState;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.TransactionState;
@@ -58,7 +48,6 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.HashMap;
 import java.util.List;
-import java.util.Set;
 
 public class TxnUtil {
     private static final Logger LOG = LogManager.getLogger(TxnUtil.class);
@@ -378,45 +367,4 @@ public class TxnUtil {
         return transactionState;
     }
 
-    public static List<String> getTxnStateInfo(TransactionState txnState, List<String> info) {
-        info.add(String.valueOf(txnState.getTransactionId()));
-        info.add(txnState.getLabel());
-        info.add(txnState.getCoordinator().toString());
-        info.add(txnState.getTransactionStatus().name());
-        info.add(txnState.getSourceType().name());
-        info.add(TimeUtils.longToTimeString(txnState.getPrepareTime()));
-        info.add(TimeUtils.longToTimeString(txnState.getPreCommitTime()));
-        info.add(TimeUtils.longToTimeString(txnState.getCommitTime()));
-        info.add(TimeUtils.longToTimeString(txnState.getLastPublishVersionTime()));
-        info.add(TimeUtils.longToTimeString(txnState.getFinishTime()));
-        info.add(txnState.getReason());
-        info.add(String.valueOf(txnState.getErrorReplicas().size()));
-        info.add(String.valueOf(txnState.getCallbackId()));
-        info.add(String.valueOf(txnState.getTimeoutMs()));
-        info.add(txnState.getErrMsg());
-        return info;
-    }
-
-    public static void checkAuth(long dbId, TransactionState txnState) throws AnalysisException {
-        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException(dbId);
-        if (ConnectContext.get() != null) {
-            // check auth
-            Set<Long> tblIds = txnState.getIdToTableCommitInfos().keySet();
-            for (Long tblId : tblIds) {
-                Table tbl = db.getTableNullable(tblId);
-                if (tbl != null) {
-                    if (!Env.getCurrentEnv().getAccessManager()
-                            .checkTblPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME,
-                            db.getFullName(),
-                            tbl.getName(), PrivPredicate.SHOW)) {
-                        ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR,
-                                "SHOW TRANSACTION",
-                                ConnectContext.get().getQualifiedUser(),
-                                ConnectContext.get().getRemoteIP(),
-                                db.getFullName() + ": " + tbl.getName());
-                    }
-                }
-            }
-        }
-    }
 }

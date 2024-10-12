@@ -112,6 +112,7 @@ import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
 import org.apache.doris.transaction.TransactionState.TxnCoordinator;
 import org.apache.doris.transaction.TransactionStatus;
+import org.apache.doris.transaction.TransactionUtil;
 import org.apache.doris.transaction.TxnCommitAttachment;
 import org.apache.doris.transaction.TxnStateCallbackFactory;
 import org.apache.doris.transaction.TxnStateChangeCallback;
@@ -1704,8 +1705,8 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         if (txnState == null) {
             throw new AnalysisException("transaction with id " + txnId + " does not exist");
         }
-        TxnUtil.checkAuth(dbId, txnState);
-        infos.add(TxnUtil.getTxnStateInfo(txnState, Lists.newArrayList()));
+        TransactionUtil.checkAuth(dbId, txnState);
+        infos.add(TransactionUtil.getTxnStateInfo(txnState, Lists.newArrayList()));
         return infos;
     }
 
