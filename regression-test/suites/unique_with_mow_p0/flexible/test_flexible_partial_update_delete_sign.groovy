@@ -201,7 +201,7 @@ suite('test_flexible_partial_update_delete_sign') {
         sql """insert into ${tableName}(k,v1,v2,v3,v4,v5,__DORIS_SEQUENCE_COL__) select number, number, number, number, number, number, null from numbers("number" = "15"); """
         qt_insert_after_delete_3 "select k,v1,v2,v3,v4,v5,__DORIS_SEQUENCE_COL__,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName} order by k;"
         // rows(1,2,3,4,5,6) are all without sequence column
-        // rows(1,2,3,4,5,6) are all with sequence column, seq col value is increasing
+        // rows(7,8,9,10,11,12) are all with sequence column, seq col value is increasing
         // row(1,7): delete + insert
         // row(2,8): insert + delete
         // row(3,9): delete + insert + delete
@@ -215,6 +215,21 @@ suite('test_flexible_partial_update_delete_sign') {
             set 'strict_mode', 'false'
             set 'unique_key_update_mode', 'UPDATE_FLEXIBLE_COLUMNS'
             file "delete5.json"
+            time 20000
+        }
+        qt_insert_after_delete_3 "select k,v1,v2,v3,v4,v5,__DORIS_DELETE_SIGN__,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName} order by k;"
+        inspect_rows "select k,v1,v2,v3,v4,v5,__DORIS_SEQUENCE_COL__,__DORIS_DELETE_SIGN__,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__),__DORIS_VERSION_COL__ from ${tableName} order by k,__DORIS_VERSION_COL__,v1,v2,v3,v4,v5;"
+        
+        sql "truncate table ${tableName};"
+        sql """insert into ${tableName}(k,v1,v2,v3,v4,v5,__DORIS_SEQUENCE_COL__) select number, number, number, number, number, number, null from numbers("number" = "15"); """
+        // rows(7,8,9,10,11,12) same as above, insert some rows with lower seq value
+        streamLoad {
+            table "${tableName}"
+            set 'format', 'json'
+            set 'read_json_by_line', 'true'
+            set 'strict_mode', 'false'
+            set 'unique_key_update_mode', 'UPDATE_FLEXIBLE_COLUMNS'
+            file "delete6.json"
             time 20000
         }
         qt_insert_after_delete_3 "select k,v1,v2,v3,v4,v5,__DORIS_DELETE_SIGN__,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName} order by k;"
