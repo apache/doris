@@ -116,7 +116,8 @@ suite('test_flexible_partial_update_delete_sign') {
         inspect_rows "select k,v1,v2,v3,v4,v5,__DORIS_DELETE_SIGN__,__DORIS_SEQUENCE_COL__,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__),__DORIS_VERSION_COL__ from ${tableName} order by k,__DORIS_VERSION_COL__,v1,v2,v3,v4,v5;"
 
         // ==============================================================================================================================
-        // test insert after delete in one load
+        // 3. test insert after delete in one load
+        // 3.1 without seqeunce column
         tableName = "test_flexible_partial_update_delete_sign3_${use_row_store}"
         sql """ DROP TABLE IF EXISTS ${tableName} """
         sql """ CREATE TABLE ${tableName} (
@@ -146,7 +147,7 @@ suite('test_flexible_partial_update_delete_sign') {
             time 20000
         }
         qt_insert_after_delete_1 "select k,v1,v2,v3,v4,v5,__DORIS_DELETE_SIGN__,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName} order by k;"
-        inspect_rows "select k,v1,v2,v3,v4,v5,__DORIS_DELETE_SIGN__,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__),__DORIS_VERSION_COL__ from ${tableName} order by k,v1,v2,v3,v4,v5,__DORIS_VERSION_COL__;"
+        inspect_rows "select k,v1,v2,v3,v4,v5,__DORIS_DELETE_SIGN__,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__),__DORIS_VERSION_COL__ from ${tableName} order by k,__DORIS_VERSION_COL__,v1,v2,v3,v4,v5;"
 
         tableName = "test_flexible_partial_update_delete_sign4_${use_row_store}"
         sql """ DROP TABLE IF EXISTS ${tableName} """
@@ -177,6 +178,39 @@ suite('test_flexible_partial_update_delete_sign') {
             time 20000
         }
         qt_insert_after_delete_2 "select k,v1,v2,v3,v4,v5,__DORIS_DELETE_SIGN__,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName} order by k;"
-        inspect_rows "select k,v1,v2,v3,v4,v5,__DORIS_DELETE_SIGN__,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__),__DORIS_VERSION_COL__ from ${tableName} order by k,v1,v2,v3,v4,v5,__DORIS_VERSION_COL__;"
+        inspect_rows "select k,v1,v2,v3,v4,v5,__DORIS_DELETE_SIGN__,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__),__DORIS_VERSION_COL__ from ${tableName} order by k,__DORIS_VERSION_COL__,v1,v2,v3,v4,v5;"
+
+        // 3.2 with sequence type column
+        tableName = "test_flexible_partial_update_delete_sign5_${use_row_store}"
+        sql """ DROP TABLE IF EXISTS ${tableName} """
+        sql """ CREATE TABLE ${tableName} (
+            `k` int(11) NULL, 
+            `v1` BIGINT NULL,
+            `v2` BIGINT NULL DEFAULT "9876",
+            `v3` BIGINT NOT NULL DEFAULT "5432",
+            `v4` BIGINT NOT NULL DEFAULT "1234",
+            `v5` BIGINT NULL DEFAULT "9753"
+            ) UNIQUE KEY(`k`) DISTRIBUTED BY HASH(`k`) BUCKETS 1
+            PROPERTIES(
+            "replication_num" = "1",
+            "enable_unique_key_merge_on_write" = "true",
+            "light_schema_change" = "true",
+            "enable_unique_key_skip_bitmap_column" = "true",
+            "function_column.sequence_type" = "int",
+            "store_row_column" = "${use_row_store}"); """
+        sql """insert into ${tableName}(k,v1,v2,v3,v4,v5,__DORIS_SEQUENCE_COL__) select number, number, number, number, number, number, null from numbers("number" = "10"); """
+        qt_insert_after_delete_3 "select k,v1,v2,v3,v4,v5,__DORIS_SEQUENCE_COL__,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName} order by k;"
+        // rows(1,2,3,4,5,6) are all without sequence column
+        streamLoad {
+            table "${tableName}"
+            set 'format', 'json'
+            set 'read_json_by_line', 'true'
+            set 'strict_mode', 'false'
+            set 'unique_key_update_mode', 'UPDATE_FLEXIBLE_COLUMNS'
+            file "delete5.json"
+            time 20000
+        }
+        qt_insert_after_delete_3 "select k,v1,v2,v3,v4,v5,__DORIS_DELETE_SIGN__,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName} order by k;"
+        inspect_rows "select k,v1,v2,v3,v4,v5,__DORIS_SEQUENCE_COL__,__DORIS_DELETE_SIGN__,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__),__DORIS_VERSION_COL__ from ${tableName} order by k,__DORIS_VERSION_COL__,v1,v2,v3,v4,v5;"
     }
 }
