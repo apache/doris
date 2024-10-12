@@ -934,7 +934,6 @@ Status VerticalSegmentWriter::_merge_rows_for_sequence_column(
         bool has_row_with_seq_col = (batched_rows[0] != -1 || batched_rows[1] != -1);
         bool has_row_without_seq_col = (batched_rows[2] != -1 || batched_rows[3] != -1);
         if (has_row_with_seq_col && has_row_without_seq_col) {
-            VLOG_DEBUG << fmt::format("batched_rows={}", batched_rows);
             RowLocation loc;
             RowsetSharedPtr rowset;
             std::string previous_encoded_seq_value {};
@@ -964,12 +963,10 @@ Status VerticalSegmentWriter::_merge_rows_for_sequence_column(
 
             auto remove_rows_without_seq = [&]() {
                 if (batched_rows[0] != -1) {
-                    VLOG_DEBUG << fmt::format("filter pos={}", batched_rows[0]);
                     filter_map[batched_rows[0]] = 0;
                     ++duplicate_keys;
                 }
                 if (batched_rows[1] != -1) {
-                    VLOG_DEBUG << fmt::format("filter pos={}", batched_rows[1]);
                     filter_map[batched_rows[1]] = 0;
                     ++duplicate_keys;
                 }
@@ -983,14 +980,11 @@ Status VerticalSegmentWriter::_merge_rows_for_sequence_column(
                 } else if (previous_seq_slice.compare(
                                    Slice {row_without_delete_sign_encoded_seq_value}) <= 0) {
                     remove_rows_without_seq();
-                    VLOG_DEBUG << fmt::format("filter pos={}", batched_rows[2]);
                     filter_map[batched_rows[2]] = 0;
                     ++duplicate_keys;
                 } else {
-                    VLOG_DEBUG << fmt::format("filter pos={}", batched_rows[2]);
                     filter_map[batched_rows[2]] = 0;
                     ++duplicate_keys;
-                    VLOG_DEBUG << fmt::format("filter pos={}", batched_rows[3]);
                     filter_map[batched_rows[3]] = 0;
                     ++duplicate_keys;
                 }
@@ -999,7 +993,6 @@ Status VerticalSegmentWriter::_merge_rows_for_sequence_column(
                     0) {
                     remove_rows_without_seq();
                 } else {
-                    VLOG_DEBUG << fmt::format("filter pos={}", batched_rows[2]);
                     filter_map[batched_rows[2]] = 0;
                     ++duplicate_keys;
                 }
@@ -1008,7 +1001,6 @@ Status VerticalSegmentWriter::_merge_rows_for_sequence_column(
                     0) {
                     remove_rows_without_seq();
                 } else {
-                    VLOG_DEBUG << fmt::format("filter pos={}", batched_rows[3]);
                     filter_map[batched_rows[3]] = 0;
                     ++duplicate_keys;
                 }
