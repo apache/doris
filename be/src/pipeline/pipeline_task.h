@@ -90,7 +90,7 @@ public:
             _blocked_dep = fin_dep->is_blocked_by(this);
             if (_blocked_dep != nullptr) {
                 _blocked_dep->start_watcher();
-                return !_wake_up_by_downstream;
+                return true;
             }
         }
         return false;
