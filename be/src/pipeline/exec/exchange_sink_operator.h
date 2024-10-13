@@ -209,7 +209,8 @@ class ExchangeSinkOperatorX final : public DataSinkOperatorX<ExchangeSinkLocalSt
 public:
     ExchangeSinkOperatorX(RuntimeState* state, const RowDescriptor& row_desc, int operator_id,
                           const TDataStreamSink& sink,
-                          const std::vector<TPlanFragmentDestination>& destinations);
+                          const std::vector<TPlanFragmentDestination>& destinations,
+                          bool is_multi_cast = false);
     Status init(const TDataSink& tsink) override;
 
     RuntimeState* state() { return _state; }
@@ -221,6 +222,8 @@ public:
     Status serialize_block(ExchangeSinkLocalState& stete, vectorized::Block* src, PBlock* dest,
                            int num_receivers = 1);
     DataDistribution required_data_distribution() const override;
+
+    bool is_exchange_sink() const override { return true; };
 
 private:
     friend class ExchangeSinkLocalState;
@@ -276,6 +279,7 @@ private:
     size_t _data_processed = 0;
     int _writer_count = 1;
     const bool _enable_local_merge_sort;
+    const bool _is_multi_cast;
 };
 
 } // namespace pipeline

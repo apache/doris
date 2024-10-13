@@ -88,6 +88,8 @@ public:
 
     virtual bool is_source() const { return false; }
 
+    virtual bool is_exchange_sink() const { return false; }
+
     [[nodiscard]] virtual const RowDescriptor& row_desc() const;
 
     [[nodiscard]] virtual Status init(const TDataSink& tsink) { return Status::OK(); }
