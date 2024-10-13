@@ -26,6 +26,7 @@ import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateFunctionStmt;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.CreatePolicyStmt;
+import org.apache.doris.analysis.CreateRoleStmt;
 import org.apache.doris.analysis.CreateSqlBlockRuleStmt;
 import org.apache.doris.analysis.CreateTableAsSelectStmt;
 import org.apache.doris.analysis.CreateTableStmt;
@@ -36,10 +37,13 @@ import org.apache.doris.analysis.DropPolicyStmt;
 import org.apache.doris.analysis.DropSqlBlockRuleStmt;
 import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.ExplainOptions;
+import org.apache.doris.analysis.GrantStmt;
 import org.apache.doris.analysis.RecoverTableStmt;
+import org.apache.doris.analysis.SetStmt;
 import org.apache.doris.analysis.ShowCreateFunctionStmt;
 import org.apache.doris.analysis.ShowCreateTableStmt;
 import org.apache.doris.analysis.ShowFunctionsStmt;
+import org.apache.doris.analysis.ShowPolicyStmt;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.analysis.StatementBase;
@@ -80,6 +84,7 @@ import org.apache.doris.qe.DdlExecutor;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.qe.SetExecutor;
 import org.apache.doris.qe.ShowExecutor;
 import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.StmtExecutor;
@@ -745,6 +750,19 @@ public abstract class TestWithFeService {
         Env.getCurrentEnv().getPolicyMgr().createPolicy(createPolicyStmt);
     }
 
+    protected ShowResultSet showDataMaskPolicy(String user, String role) throws Exception {
+        String sql = "show data mask policy";
+        if (user != null) {
+            sql = sql + " for " + user;
+        }
+        if (role != null) {
+            sql = sql + " for role " + role;
+        }
+        ShowPolicyStmt createPolicyStmt = (ShowPolicyStmt) parseAndAnalyzeStmt(sql);
+        ShowExecutor executor = new ShowExecutor(connectContext, createPolicyStmt);
+        return executor.execute();
+    }
+
     public void createFunction(String sql) throws Exception {
         CreateFunctionStmt createFunctionStmt = (CreateFunctionStmt) parseAndAnalyzeStmt(sql);
         Env.getCurrentEnv().createFunction(createFunctionStmt);
@@ -815,6 +833,23 @@ public abstract class TestWithFeService {
         CreateUserStmt createUserStmt = (CreateUserStmt) UtFrameUtils.parseAndAnalyzeStmt(
                 "create user " + (ifNotExists ? "if not exists " : "") + userName + "@'%'", connectContext);
         DdlExecutor.execute(Env.getCurrentEnv(), createUserStmt);
+    }
+
+    protected void addRole(String roleName, boolean ifNotExists) throws Exception {
+        CreateRoleStmt createRoleStmt = (CreateRoleStmt) UtFrameUtils.parseAndAnalyzeStmt(
+                "create role " + (ifNotExists ? "if not exists " : "") + roleName, connectContext);
+        Env.getCurrentEnv().getAuth().createRole(createRoleStmt);
+    }
+
+    protected void grant(String sql) throws Exception {
+        GrantStmt grantStmt = (GrantStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
+        Env.getCurrentEnv().getAuth().grant(grantStmt);
+    }
+
+    protected void setSession(String sql) throws Exception {
+        SetStmt stmt = (SetStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
+        SetExecutor setExecutor = new SetExecutor(connectContext, stmt);
+        setExecutor.execute();
     }
 
     protected void addRollup(String sql) throws Exception {

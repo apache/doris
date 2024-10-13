@@ -80,6 +80,53 @@ public class RelationUtil {
     }
 
     /**
+     * get qualifier column name
+     */
+    public static List<String> getQualifierColumnName(ConnectContext context, List<String> nameParts) {
+        switch (nameParts.size()) {
+            case 1: { // col
+                throw new AnalysisException("must specify a table.");
+            }
+            case 2: { // table.col
+                String tableName = nameParts.get(0);
+                String columnName = nameParts.get(1);
+                CatalogIf catalogIf = context.getCurrentCatalog();
+                if (catalogIf == null) {
+                    throw new AnalysisException("Current catalog is not set.");
+                }
+                String catalogName = catalogIf.getName();
+                String dbName = context.getDatabase();
+                if (Strings.isNullOrEmpty(dbName)) {
+                    throw new AnalysisException("Current database is not set.");
+                }
+                return ImmutableList.of(catalogName, dbName, tableName, columnName);
+            }
+            case 3: { // db.table.col
+                // Use catalog and database name from name parts.
+                String dbName = nameParts.get(0);
+                String tableName = nameParts.get(1);
+                String columnName = nameParts.get(2);
+                CatalogIf catalogIf = context.getCurrentCatalog();
+                if (catalogIf == null) {
+                    throw new AnalysisException("Current catalog is not set.");
+                }
+                String catalogName = catalogIf.getName();
+                return ImmutableList.of(catalogName, dbName, tableName, columnName);
+            }
+            case 4: { // ctl.db.table.col
+                String catalogName = nameParts.get(0);
+                String dbName = nameParts.get(1);
+                String tableName = nameParts.get(2);
+                String columnName = nameParts.get(3);
+                return ImmutableList.of(catalogName, dbName, tableName, columnName);
+            }
+            default:
+                throw new AnalysisException("Column name [" + java.lang.String
+                    .join(".", nameParts) + "] is invalid.");
+        }
+    }
+
+    /**
      * get table
      */
     public static TableIf getTable(List<String> qualifierName, Env env) {

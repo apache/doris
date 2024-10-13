@@ -52,6 +52,9 @@ public class CreatePolicyStmt extends DdlStmt implements NotFallbackInParser {
     private TableName tableName = null;
 
     @Getter
+    private ColumnName colName = null;
+
+    @Getter
     private FilterType filterType = null;
 
     @Getter
@@ -65,6 +68,9 @@ public class CreatePolicyStmt extends DdlStmt implements NotFallbackInParser {
 
     @Getter
     private Map<String, String> properties;
+
+    @Getter
+    private String dataMaskType;
 
     /**
      * Use for cup.
@@ -92,6 +98,20 @@ public class CreatePolicyStmt extends DdlStmt implements NotFallbackInParser {
         this.properties = properties;
     }
 
+    /**
+     * Use for cup.
+     **/
+    public CreatePolicyStmt(PolicyTypeEnum type, boolean ifNotExists, String policyName, ColumnName colName,
+                            UserIdentity user, String roleName, String dataMaskType) {
+        this.type = type;
+        this.ifNotExists = ifNotExists;
+        this.policyName = policyName;
+        this.colName = colName;
+        this.user = user;
+        this.roleName = roleName;
+        this.dataMaskType = dataMaskType;
+    }
+
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
@@ -110,13 +130,22 @@ public class CreatePolicyStmt extends DdlStmt implements NotFallbackInParser {
                 }
                 break;
             case ROW:
+            case DATA_MASK:
             default:
-                tableName.analyze(analyzer);
+                String tbl = "";
+                if (tableName != null) {
+                    tableName.analyze(analyzer);
+                    tbl = tableName.getTbl();
+                }
+                if (colName != null) {
+                    colName.analyze(analyzer);
+                    tbl = colName.getTbl();
+                }
                 if (user != null) {
                     user.analyze();
                     if (user.isRootUser() || user.isAdminUser()) {
                         ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "CreatePolicyStmt",
-                                user.getQualifiedUser(), user.getHost(), tableName.getTbl());
+                                user.getQualifiedUser(), user.getHost(), tbl);
                     }
                 }
                 // check auth
@@ -131,7 +160,11 @@ public class CreatePolicyStmt extends DdlStmt implements NotFallbackInParser {
     @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
-        sb.append("CREATE ").append(type).append(" POLICY ");
+        String typeName = type.name();
+        if (type == PolicyTypeEnum.DATA_MASK) {
+            typeName = "DATA MASK";
+        }
+        sb.append("CREATE ").append(typeName).append(" POLICY ");
         if (ifNotExists) {
             sb.append("IF NOT EXISTS");
         }
@@ -141,7 +174,6 @@ public class CreatePolicyStmt extends DdlStmt implements NotFallbackInParser {
                 sb.append(" PROPERTIES(").append(new PrintableMap<>(properties, " = ", true, false)).append(")");
                 break;
             case ROW:
-            default:
                 sb.append(" ON ").append(tableName.toSql()).append(" AS ").append(filterType)
                         .append(" TO ");
                 if (user == null) {
@@ -150,6 +182,18 @@ public class CreatePolicyStmt extends DdlStmt implements NotFallbackInParser {
                     sb.append(user.getQualifiedUser());
                 }
                 sb.append(" USING ").append(wherePredicate.toSql());
+                break;
+            case DATA_MASK:
+                sb.append(" ON ").append(colName.toSql()).append(" TO ");
+                if (user == null) {
+                    sb.append("ROLE ").append(roleName);
+                } else {
+                    sb.append(user.getQualifiedUser());
+                }
+                sb.append(" USING ").append(dataMaskType);
+                break;
+            default:
+                throw new RuntimeException("no support type : " + type);
         }
         return sb.toString();
     }
