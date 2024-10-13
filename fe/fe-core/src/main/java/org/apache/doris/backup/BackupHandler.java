@@ -25,6 +25,7 @@ import org.apache.doris.analysis.BackupStmt.BackupType;
 import org.apache.doris.analysis.CancelBackupStmt;
 import org.apache.doris.analysis.CreateRepositoryStmt;
 import org.apache.doris.analysis.DropRepositoryStmt;
+import org.apache.doris.analysis.DropSnapshotStmt;
 import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.RestoreStmt;
 import org.apache.doris.analysis.StorageBackend;
@@ -40,6 +41,7 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.cluster.ClusterNamespace;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
@@ -299,6 +301,56 @@ public class BackupHandler extends MasterDaemon implements Writable {
                 ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
                                                "Failed to drop repository: " + st.getErrMsg());
             }
+        } finally {
+            seqlock.unlock();
+        }
+    }
+
+    // handle drop snapshot stmt
+    public void dropSnapshot(DropSnapshotStmt stmt) throws DdlException {
+        tryLock();
+        try {
+            Repository repo = repoMgr.getRepo(stmt.getRepoName());
+            if (repo == null) {
+                ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR, "Repository does not exist");
+            }
+
+            // Check if snapshot exist in repository
+            List<List<String>> snapshotInfos = repo.getSnapshotInfos(stmt.getSnapshotName(), null);
+
+            if (snapshotInfos.size() == 0) {
+                ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR, "Snapshot does not exist");
+            }
+
+            List<String> snapshotInfo = snapshotInfos.get(0);
+            if (!snapshotInfo.get(2).equals("OK")) {
+                ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR, "Snapshot does not exist");
+            }
+
+            List<BackupJobInfo> infos = Lists.newArrayList();
+            Status status = repo.getSnapshotInfoFile(stmt.getSnapshotName(), snapshotInfo.get(1), infos);
+            if (!status.ok()) {
+                ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
+                        "Failed to get info of snapshot '" + stmt.getSnapshotName() + "' because: "
+                        + status.getErrMsg());
+            }
+
+            for (AbstractJob job : getAllCurrentJobs()) {
+                if (!job.isDone() && job.getRepoId() == repo.getId() && job.getLabel().equals(stmt.getSnapshotName())) {
+                    ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
+                            "Backup or restore job is running on this snapshot."
+                            + " Can not drop it");
+                }
+            }
+
+            status = repo.deleteSnapshot(stmt.getSnapshotName());
+            if (!status.ok()) {
+                ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
+                        "Failed to drop snapshot '" + stmt.getSnapshotName() + "' because: "
+                        + status.getErrMsg());
+            }
+        }  catch (AnalysisException e) {
+            ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR, "Snapshot does not exist");
         } finally {
             seqlock.unlock();
         }

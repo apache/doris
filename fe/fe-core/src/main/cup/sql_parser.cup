@@ -3251,6 +3251,10 @@ drop_stmt ::=
     {:
         RESULT = new DropRepositoryStmt(repoName);
     :}
+    | KW_DROP KW_SNAPSHOT ident:snapshotName KW_ON ident:repoName
+    {:
+        RESULT = new DropSnapshotStmt(repoName, snapshotName);
+    :}
     | KW_DROP KW_ROLE opt_if_exists:ifExists ident:role
     {:
         RESULT = new DropRoleStmt(ifExists, role);
