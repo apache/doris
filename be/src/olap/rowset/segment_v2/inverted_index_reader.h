@@ -171,7 +171,8 @@ public:
     bool is_empty() const { return (_data_bitmap == nullptr && _null_bitmap == nullptr); }
 };
 
-class InvertedIndexReader : public std::enable_shared_from_this<InvertedIndexReader> {
+class InvertedIndexReader : public std::enable_shared_from_this<InvertedIndexReader>,
+                            public MetadataAdder<InvertedIndexReader> {
 public:
     explicit InvertedIndexReader(
             const TabletIndex* index_meta,

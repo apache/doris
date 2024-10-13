@@ -41,7 +41,7 @@ namespace segment_v2 {
 class BitmapIndexIterator;
 class BitmapIndexPB;
 
-class BitmapIndexReader {
+class BitmapIndexReader : public MetadataAdder<BitmapIndexReader> {
 public:
     explicit BitmapIndexReader(io::FileReaderSPtr file_reader, const BitmapIndexPB& index_meta)
             : _file_reader(std::move(file_reader)),

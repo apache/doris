@@ -33,11 +33,7 @@ public abstract class ScalarFunction extends BoundFunction implements ComputeSig
     }
 
     public ScalarFunction(String name, List<Expression> arguments) {
-        this(name, arguments, false);
-    }
-
-    public ScalarFunction(String name, List<Expression> arguments, boolean inferred) {
-        super(name, arguments, inferred);
+        super(name, arguments);
     }
 
     @Override

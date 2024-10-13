@@ -113,6 +113,11 @@ public class MTMV extends OlapTable {
         mvRwLock = new ReentrantReadWriteLock(true);
     }
 
+    @Override
+    public boolean needReadLockWhenPlan() {
+        return true;
+    }
+
     public MTMVRefreshInfo getRefreshInfo() {
         readMvLock();
         try {

@@ -512,6 +512,8 @@ public:
 
     virtual bool should_dry_run(RuntimeState* state) { return false; }
 
+    [[nodiscard]] virtual bool count_down_destination() { return true; }
+
 protected:
     template <typename Writer, typename Parent>
         requires(std::is_base_of_v<vectorized::AsyncResultWriter, Writer>)

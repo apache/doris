@@ -50,11 +50,7 @@ public abstract class BoundFunction extends Function implements ComputeSignature
     }
 
     public BoundFunction(String name, List<Expression> children) {
-        this(name, children, false);
-    }
-
-    public BoundFunction(String name, List<Expression> children, boolean inferred) {
-        super(name, children, inferred);
+        super(name, children);
     }
 
     @Override
