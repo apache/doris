@@ -238,6 +238,7 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_BUSHY_TREE = "enable_bushy_tree";
 
+    public static final String ENABLE_SINGLE_PHASE_EXECUTION_COMMIT_OPT = "enable_single_phase_execution_commit_opt";
     public static final String MAX_JOIN_NUMBER_BUSHY_TREE = "max_join_number_bushy_tree";
     public static final String ENABLE_PARTITION_TOPN = "enable_partition_topn";
     public static final String PARTITION_TOPN_MAX_PARTITIONS = "partition_topn_max_partitions";
@@ -1420,6 +1421,10 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_LOCAL_EXCHANGE, fuzzy = true, varType = VariableAnnotation.DEPRECATED)
     public boolean enableLocalExchange = true;
 
+    @VariableMgr.VarAttr(name = ENABLE_SINGLE_PHASE_EXECUTION_COMMIT_OPT, fuzzy = true,
+            varType = VariableAnnotation.DEPRECATED)
+    private boolean enableSinglePhaseExecutionCommitOpt = true;
+
     /**
      * For debug purpose, don't merge unique key and agg key when reading data.
      */
@@ -2225,6 +2230,7 @@ public class SessionVariable implements Serializable, Writable {
         this.parallelPrepareThreshold = random.nextInt(32) + 1;
         this.enableCommonExprPushdown = random.nextBoolean();
         this.enableLocalExchange = random.nextBoolean();
+        this.enableSinglePhaseExecutionCommitOpt = random.nextBoolean();
         // This will cause be dead loop, disable it first
         // this.disableJoinReorder = random.nextBoolean();
         this.enableCommonExpPushDownForInvertedIndex = random.nextBoolean();
@@ -4375,5 +4381,9 @@ public class SessionVariable implements Serializable, Writable {
             default:
                 throw new IllegalArgumentException("Unknown serde dialect: " + serdeDialect);
         }
+    }
+
+    public boolean isEnableSinglePhaseExecutionCommitOpt() {
+        return enableSinglePhaseExecutionCommitOpt && getEnableLocalExchange();
     }
 }
