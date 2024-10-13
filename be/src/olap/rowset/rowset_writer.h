@@ -165,12 +165,16 @@ public:
 
     const RowsetMetaSharedPtr& rowset_meta() { return _rowset_meta; }
 
+    int64_t file_close_time() { return _file_close_time_ns.load(); }
+
 private:
     DISALLOW_COPY_AND_ASSIGN(RowsetWriter);
 
 protected:
     RowsetWriterContext _context;
     RowsetMetaSharedPtr _rowset_meta;
+
+    std::atomic<int64_t> _file_close_time_ns = 0;
 };
 
 } // namespace doris
