@@ -653,7 +653,7 @@ suite("agg_nullable") {
     qt_select_covar_samp2 """select covar_samp(kint, kint) from agg_nullable_test group by id;"""
     explain {
         sql("verbose select covar_samp(kint, kint) from agg_nullable_test group by id;")
-        contains "colUniqueId=null, type=double, nullable=false"
+        contains "colUniqueId=null, type=double, nullable=true"
     }
 
     qt_select_covar_samp_n """select covar_samp(knint, knint) from agg_nullable_test;"""
@@ -797,7 +797,7 @@ suite("agg_nullable") {
     qt_select_stddev_samp2 """select stddev_samp(kint) from agg_nullable_test group by id;"""
     explain {
         sql("verbose select stddev_samp(kint) from agg_nullable_test group by id;")
-        contains "colUniqueId=null, type=double, nullable=false"
+        contains "colUniqueId=null, type=double, nullable=true"
     }
 
     qt_select_stddev_samp_n """select stddev_samp(knint) from agg_nullable_test;"""
@@ -923,7 +923,7 @@ suite("agg_nullable") {
     qt_select_variance_samp2 """select variance_samp(kint) from agg_nullable_test group by id;"""
     explain {
         sql("verbose select variance_samp(kint) from agg_nullable_test group by id;")
-        contains "colUniqueId=null, type=double, nullable=false"
+        contains "colUniqueId=null, type=double, nullable=true"
     }
 
     qt_select_variance_samp_n """select variance_samp(knint) from agg_nullable_test;"""
@@ -941,7 +941,7 @@ suite("agg_nullable") {
     qt_select_var_samp2 """select var_samp(kint) from agg_nullable_test group by id;"""
     explain {
         sql("verbose select var_samp(kint) from agg_nullable_test group by id;")
-        contains "colUniqueId=null, type=double, nullable=false"
+        contains "colUniqueId=null, type=double, nullable=true"
     }
 
     qt_select_var_samp_n """select var_samp(knint) from agg_nullable_test;"""
