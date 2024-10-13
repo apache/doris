@@ -17,11 +17,12 @@
 
 #include <gtest/gtest.h>
 
+#include "vec/columns/column_array.h"
+#include "vec/columns/column_map.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/columns_number.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/types.h"
-#include "vec/data_types/data_type_string.h"
 
 namespace doris::vectorized {
 
@@ -42,11 +43,38 @@ protected:
         col_dcm->insert_value(1.23);
         col_dcm->insert_value(4.56);
         col_dcm->insert_value(7.89);
+
+        col_arr = ColumnArray::create(ColumnInt64::create(), ColumnArray::ColumnOffsets::create());
+        Array array1 = {1, 2, 3};
+        Array array2 = {4};
+        col_arr->insert(array1);
+        col_arr->insert(Array());
+        col_arr->insert(array2);
+
+        col_map = ColumnMap::create(ColumnString::create(), ColumnInt64::create(),
+                                    ColumnArray::ColumnOffsets::create());
+        Array k1 = {"a", "b", "c"};
+        Array v1 = {1, 2, 3};
+        Array k2 = {"d"};
+        Array v2 = {4};
+        Array a = Array();
+        Map map1, map2, map3;
+        map1.push_back(k1);
+        map1.push_back(v1);
+        col_map->insert(map1);
+        map3.push_back(a);
+        map3.push_back(a);
+        col_map->insert(map3);
+        map2.push_back(k2);
+        map2.push_back(v2);
+        col_map->insert(map2);
     }
 
     ColumnString::MutablePtr col_str;
     ColumnInt64::MutablePtr col_int;
     ColumnDecimal64::MutablePtr col_dcm;
+    ColumnArray::MutablePtr col_arr;
+    ColumnMap::MutablePtr col_map;
 };
 
 TEST_F(ColumnTest, CutColumnString) {
@@ -118,4 +146,79 @@ TEST_F(ColumnTest, ShrinkColumnDecimal64) {
               Decimal64(4.56));
     // column decimal scale out will not empty init
 }
+
+TEST_F(ColumnTest, ShrinkColumnArray) {
+    // check column array result
+    // array : [[1,2,3],[],[4]]
+    auto shrunk_col = col_arr->shrink(2);
+    EXPECT_EQ(shrunk_col->size(), 2);
+    auto data_col = assert_cast<const ColumnArray&>(*shrunk_col).get_data_ptr();
+    EXPECT_EQ(data_col->size(), 3);
+    auto v = get<Array>(shrunk_col->operator[](0));
+    EXPECT_EQ(v.size(), 3);
+    EXPECT_EQ(get<int32_t>(v[0]), 1);
+    EXPECT_EQ(get<int32_t>(v[1]), 2);
+    EXPECT_EQ(get<int32_t>(v[2]), 3);
+    v = get<Array>(shrunk_col->operator[](1));
+    EXPECT_EQ(v.size(), 0);
+    EXPECT_EQ(get<int32_t>(data_col->operator[](0)), 1);
+    EXPECT_EQ(get<int32_t>(data_col->operator[](1)), 2);
+    EXPECT_EQ(get<int32_t>(data_col->operator[](2)), 3);
+
+    // expand will not make data expand
+    EXPECT_EQ(col_arr->size(), 2);
+    shrunk_col = col_arr->shrink(10);
+    EXPECT_EQ(shrunk_col->size(), 10);
+    data_col = assert_cast<const ColumnArray&>(*shrunk_col).get_data_ptr();
+    EXPECT_EQ(data_col->size(), 3);
+    v = get<Array>(shrunk_col->operator[](0));
+    EXPECT_EQ(v.size(), 3);
+    EXPECT_EQ(get<int32_t>(v[0]), 1);
+    EXPECT_EQ(get<int32_t>(v[1]), 2);
+    EXPECT_EQ(get<int32_t>(v[2]), 3);
+    v = get<Array>(shrunk_col->operator[](1));
+    EXPECT_EQ(v.size(), 0);
+    v = get<Array>(shrunk_col->operator[](2));
+    EXPECT_EQ(v.size(), 0);
+}
+
+TEST_F(ColumnTest, ShrinkColumnMap) {
+    // check column map result
+    // map : {"a":1,"b":2,"c":3},{:},{"d":4}
+    auto shrunk_col = col_map->shrink(2);
+    EXPECT_EQ(shrunk_col->size(), 2);
+    auto data_col = assert_cast<const ColumnMap&>(*shrunk_col).get_values_ptr();
+    EXPECT_EQ(data_col->size(), 3);
+    auto v = get<Map>(shrunk_col->operator[](0));
+    EXPECT_EQ(v.size(), 2);
+    EXPECT_EQ(get<Array>(v[0]), Array({"a", "b", "c"}));
+    EXPECT_EQ(get<Array>(v[1]), Array({1, 2, 3}));
+    v = get<Map>(shrunk_col->operator[](1));
+    EXPECT_EQ(v.size(), 2);
+    EXPECT_EQ(get<Array>(v[0]), Array());
+    EXPECT_EQ(get<Array>(v[1]), Array());
+    EXPECT_EQ(get<int32_t>(data_col->operator[](0)), 1);
+    EXPECT_EQ(get<int32_t>(data_col->operator[](1)), 2);
+    EXPECT_EQ(get<int32_t>(data_col->operator[](2)), 3);
+
+    // expand will not make data expand
+    EXPECT_EQ(col_map->size(), 2);
+    shrunk_col = col_map->shrink(10);
+    EXPECT_EQ(shrunk_col->size(), 10);
+    data_col = assert_cast<const ColumnMap&>(*shrunk_col).get_values_ptr();
+    EXPECT_EQ(data_col->size(), 3);
+    v = get<Map>(shrunk_col->operator[](0));
+    EXPECT_EQ(v.size(), 2);
+    EXPECT_EQ(get<Array>(v[0]), Array({"a", "b", "c"}));
+    EXPECT_EQ(get<Array>(v[1]), Array({1, 2, 3}));
+    v = get<Map>(shrunk_col->operator[](1));
+    EXPECT_EQ(v.size(), 2);
+    EXPECT_EQ(get<Array>(v[0]), Array());
+    EXPECT_EQ(get<Array>(v[1]), Array());
+    v = get<Map>(shrunk_col->operator[](2));
+    EXPECT_EQ(v.size(), 2);
+    EXPECT_EQ(get<Array>(v[0]), Array());
+    EXPECT_EQ(get<Array>(v[1]), Array());
+}
+
 } // namespace doris::vectorized

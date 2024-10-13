@@ -2674,10 +2674,21 @@ public class InternalCatalog implements CatalogIf<Database> {
             }
             if (enableUniqueKeyMergeOnWrite && !enableLightSchemaChange && !CollectionUtils.isEmpty(
                     keysDesc.getClusterKeysColumnNames())) {
-                throw new DdlException("Unique merge-on-write table with cluster keys must enable light schema change");
+                throw new DdlException(
+                        "Unique merge-on-write tables with cluster keys require light schema change to be enabled.");
             }
         }
         olapTable.setEnableUniqueKeyMergeOnWrite(enableUniqueKeyMergeOnWrite);
+
+        boolean enableUniqueKeySkipBitmap = false;
+        if (keysType == KeysType.UNIQUE_KEYS && enableUniqueKeyMergeOnWrite) {
+            try {
+                enableUniqueKeySkipBitmap = PropertyAnalyzer.analyzeUniqueKeySkipBitmapColumn(properties);
+            } catch (AnalysisException e) {
+                throw new DdlException(e.getMessage());
+            }
+        }
+        olapTable.setEnableUniqueKeySkipBitmap(enableUniqueKeySkipBitmap);
 
         boolean enableDeleteOnDeletePredicate = false;
         try {
@@ -3697,8 +3708,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             // write edit log
             TruncateTableInfo info =
                     new TruncateTableInfo(db.getId(), db.getFullName(), olapTable.getId(), olapTable.getName(),
-                            newPartitions,
-                            truncateEntireTable, truncateTableStmt.toSqlWithoutTable());
+                            newPartitions, truncateEntireTable, truncateTableStmt.toSqlWithoutTable(), oldPartitions);
             Env.getCurrentEnv().getEditLog().logTruncateTable(info);
         } catch (DdlException e) {
             failedCleanCallback.run();

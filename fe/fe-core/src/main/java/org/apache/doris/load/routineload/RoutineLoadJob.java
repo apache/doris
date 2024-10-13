@@ -707,7 +707,7 @@ public abstract class RoutineLoadJob
     }
 
     @Override
-    public boolean isPartialUpdate() {
+    public boolean isFixedPartialUpdate() {
         return isPartialUpdate;
     }
 
@@ -1561,6 +1561,11 @@ public abstract class RoutineLoadJob
 
     public String getCloudClusterId() {
         return cloudClusterId;
+    }
+
+    public void setCloudClusterById() {
+        this.cloudCluster = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                        .getClusterNameByClusterId(cloudClusterId);
     }
 
     // check the correctness of commit info

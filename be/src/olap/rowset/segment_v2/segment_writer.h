@@ -23,6 +23,7 @@
 #include <stddef.h>
 
 #include <cstdint>
+#include <functional>
 #include <map>
 #include <memory> // unique_ptr
 #include <string>
@@ -96,14 +97,36 @@ public:
 
     Status append_block(const vectorized::Block* block, size_t row_pos, size_t num_rows);
     Status probe_key_for_mow(std::string key, std::size_t segment_pos, bool have_input_seq_column,
-                             bool have_delete_sign, PartialUpdateReadPlan& read_plan,
+                             bool have_delete_sign,
                              const std::vector<RowsetSharedPtr>& specified_rowsets,
                              std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
                              bool& has_default_or_nullable,
                              std::vector<bool>& use_default_or_null_flag,
+                             const std::function<void(const RowLocation& loc)>& found_cb,
+                             const std::function<Status()>& not_found_cb,
                              PartialUpdateStats& stats);
     Status append_block_with_partial_content(const vectorized::Block* block, size_t row_pos,
                                              size_t num_rows);
+    Status append_block_with_flexible_partial_content(const vectorized::Block* block,
+                                                      size_t row_pos, size_t num_rows);
+    Status generate_flexible_read_plan(
+            FlexibleReadPlan& read_plan, size_t row_pos, size_t num_rows, size_t segment_start_pos,
+            bool schema_has_sequence_col, int32_t seq_map_col_unique_id,
+            std::vector<BitmapValue>* skip_bitmaps,
+            const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns,
+            vectorized::IOlapColumnDataAccessor* seq_column,
+            const signed char* delete_sign_column_data,
+            const std::vector<RowsetSharedPtr>& specified_rowsets,
+            std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
+            bool& has_default_or_nullable, std::vector<bool>& use_default_or_null_flag,
+            PartialUpdateStats& stats);
+    Status merge_rows_for_sequence_column(
+            const vectorized::Block* block, size_t row_pos, size_t& num_rows,
+            std::vector<BitmapValue>* skip_bitmaps,
+            const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns,
+            vectorized::IOlapColumnDataAccessor* seq_column,
+            const std::vector<RowsetSharedPtr>& specified_rowsets,
+            std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches);
     Status append_block_with_variant_subcolumns(vectorized::Block& data);
 
     int64_t max_row_to_add(size_t row_avg_size_in_bytes);

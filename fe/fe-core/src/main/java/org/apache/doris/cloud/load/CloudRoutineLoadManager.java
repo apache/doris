@@ -23,6 +23,7 @@ import org.apache.doris.common.LoadException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.load.routineload.RoutineLoadManager;
+import org.apache.doris.persist.RoutineLoadOperation;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.Backend;
 
@@ -62,5 +63,17 @@ public class CloudRoutineLoadManager extends RoutineLoadManager {
                 .filter(Backend::isAlive)
                 .map(Backend::getId)
                 .collect(Collectors.toList());
+    }
+
+    @Override
+    public void replayCreateRoutineLoadJob(RoutineLoadJob routineLoadJob) {
+        routineLoadJob.setCloudClusterById();
+        super.replayCreateRoutineLoadJob(routineLoadJob);
+    }
+
+    @Override
+    public void replayChangeRoutineLoadJob(RoutineLoadOperation operation) {
+        getJob(operation.getId()).setCloudClusterById();
+        super.replayChangeRoutineLoadJob(operation);
     }
 }

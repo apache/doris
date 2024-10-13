@@ -64,7 +64,9 @@ public:
 
     std::vector<Dependency*> dependencies() const override {
         std::vector<Dependency*> dep_vec;
-        dep_vec.push_back(_queue_dependency.get());
+        if (_queue_dependency) {
+            dep_vec.push_back(_queue_dependency.get());
+        }
         if (_broadcast_dependency) {
             dep_vec.push_back(_broadcast_dependency.get());
         }
@@ -200,6 +202,7 @@ private:
     // for external table sink hash partition
     std::unique_ptr<HashPartitionFunction> _partition_function = nullptr;
     std::atomic<bool> _reach_limit = false;
+    int _last_local_channel_idx = -1;
 };
 
 class ExchangeSinkOperatorX final : public DataSinkOperatorX<ExchangeSinkLocalState> {
@@ -250,7 +253,6 @@ private:
 
     const std::vector<TPlanFragmentDestination> _dests;
 
-    std::unique_ptr<MemTracker> _mem_tracker;
     // Identifier of the destination plan node.
     const PlanNodeId _dest_node_id;
 

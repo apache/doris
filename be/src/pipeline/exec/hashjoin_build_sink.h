@@ -74,8 +74,6 @@ protected:
     std::vector<vectorized::ColumnPtr> _key_columns_holder;
 
     bool _should_build_hash_table = true;
-    int64_t _build_side_mem_used = 0;
-    int64_t _build_side_last_mem_used = 0;
 
     size_t _build_side_rows = 0;
 
@@ -103,7 +101,7 @@ protected:
 
     RuntimeProfile::Counter* _build_blocks_memory_usage = nullptr;
     RuntimeProfile::Counter* _hash_table_memory_usage = nullptr;
-    RuntimeProfile::HighWaterMarkCounter* _build_arena_memory_usage = nullptr;
+    RuntimeProfile::Counter* _build_arena_memory_usage = nullptr;
 };
 
 class HashJoinBuildSinkOperatorX final
@@ -144,7 +142,7 @@ public:
     bool require_shuffled_data_distribution() const override {
         return _join_op != TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN && !_is_broadcast_join;
     }
-    bool is_shuffled_hash_join() const override {
+    bool is_shuffled_operator() const override {
         return _join_distribution == TJoinDistributionType::PARTITIONED;
     }
     bool require_data_distribution() const override {
@@ -173,6 +171,10 @@ private:
     const std::vector<TExpr> _partition_exprs;
 
     const bool _need_local_merge;
+
+    std::vector<SlotId> _hash_output_slot_ids;
+    std::vector<bool> _should_keep_column_flags;
+    bool _should_keep_hash_key_column = false;
 };
 
 template <class HashTableContext>

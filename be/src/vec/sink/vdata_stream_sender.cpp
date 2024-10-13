@@ -39,7 +39,6 @@
 #include "pipeline/exec/exchange_sink_operator.h"
 #include "pipeline/exec/result_file_sink_operator.h"
 #include "runtime/descriptors.h"
-#include "runtime/memory/mem_tracker.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "runtime/types.h"
@@ -129,6 +128,12 @@ std::shared_ptr<pipeline::Dependency> PipChannel::get_local_channel_dependency()
             Channel<pipeline::ExchangeSinkLocalState>::_parent->sender_id());
 }
 
+int64_t PipChannel::mem_usage() const {
+    auto* mutable_block = Channel<pipeline::ExchangeSinkLocalState>::_serializer.get_block();
+    int64_t mem_usage = mutable_block ? mutable_block->allocated_bytes() : 0;
+    return mem_usage;
+}
+
 Status PipChannel::send_remote_block(PBlock* block, bool eos, Status exec_status) {
     COUNTER_UPDATE(Channel<pipeline::ExchangeSinkLocalState>::_parent->blocks_sent_counter(), 1);
     std::unique_ptr<PBlock> pblock_ptr;
@@ -165,7 +170,6 @@ Status PipChannel::send_current_block(bool eos, Status exec_status) {
     if (Channel<pipeline::ExchangeSinkLocalState>::is_local()) {
         return Channel<pipeline::ExchangeSinkLocalState>::send_local_block(exec_status, eos);
     }
-    SCOPED_CONSUME_MEM_TRACKER(Channel<pipeline::ExchangeSinkLocalState>::_parent->mem_tracker());
     RETURN_IF_ERROR(send_remote_block(_pblock.release(), eos, exec_status));
     return Status::OK();
 }
@@ -177,7 +181,6 @@ Status Channel<Parent>::send_current_block(bool eos, Status exec_status) {
     if (is_local()) {
         return send_local_block(exec_status, eos);
     }
-    SCOPED_CONSUME_MEM_TRACKER(_parent->mem_tracker());
     if (eos) {
         RETURN_IF_ERROR(_serializer.serialize_block(_ch_cur_pb_block, 1));
     }
@@ -210,7 +213,7 @@ Status Channel<Parent>::send_local_block(Status exec_status, bool eos) {
 }
 
 template <typename Parent>
-Status Channel<Parent>::send_local_block(Block* block) {
+Status Channel<Parent>::send_local_block(Block* block, bool can_be_moved) {
     SCOPED_TIMER(_parent->local_send_timer());
     if (_recvr_is_valid()) {
         if constexpr (!std::is_same_v<pipeline::ResultFileSinkLocalState, Parent>) {
@@ -218,7 +221,7 @@ Status Channel<Parent>::send_local_block(Block* block) {
             COUNTER_UPDATE(_parent->local_sent_rows(), block->rows());
             COUNTER_UPDATE(_parent->blocks_sent_counter(), 1);
         }
-        _local_recvr->add_block(block, _parent->sender_id(), false);
+        _local_recvr->add_block(block, _parent->sender_id(), can_be_moved);
         return Status::OK();
     } else {
         return _receiver_status;
@@ -323,7 +326,6 @@ Status Channel<Parent>::close_internal(Status exec_status) {
     if (_serializer.get_block() != nullptr && _serializer.get_block()->rows() > 0) {
         status = send_current_block(true, exec_status);
     } else {
-        SCOPED_CONSUME_MEM_TRACKER(_parent->mem_tracker());
         if (is_local()) {
             if (_recvr_is_valid()) {
                 _local_recvr->remove_sender(_parent->sender_id(), _be_number, exec_status);
@@ -369,12 +371,10 @@ Status BlockSerializer<Parent>::next_serialized_block(Block* block, PBlock* dest
                                                       bool* serialized, bool eos,
                                                       const std::vector<uint32_t>* rows) {
     if (_mutable_block == nullptr) {
-        SCOPED_CONSUME_MEM_TRACKER(_parent->mem_tracker());
         _mutable_block = MutableBlock::create_unique(block->clone_empty());
     }
 
     {
-        SCOPED_CONSUME_MEM_TRACKER(_parent->mem_tracker());
         if (rows) {
             if (!rows->empty()) {
                 SCOPED_TIMER(_parent->split_block_distribute_by_channel_timer());

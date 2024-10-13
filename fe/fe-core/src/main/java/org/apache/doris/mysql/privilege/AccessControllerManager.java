@@ -239,9 +239,13 @@ public class AccessControllerManager {
                                  PrivPredicate wanted) throws UserException {
         boolean hasGlobal = checkGlobalPriv(currentUser, wanted);
         CatalogAccessController accessController = getAccessControllerOrDefault(ctl);
+        long start = System.currentTimeMillis();
         accessController.checkColsPriv(hasGlobal, currentUser, ctl, qualifiedDb,
                 tbl, cols, wanted);
-
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("checkColumnsPriv use {} mills, user: {}, ctl: {}, db: {}, table: {}, cols: {}",
+                    System.currentTimeMillis() - start, currentUser, ctl, qualifiedDb, tbl, cols);
+        }
     }
 
     // ==== Resource ====
