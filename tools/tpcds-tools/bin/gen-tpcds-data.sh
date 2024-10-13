@@ -41,7 +41,7 @@ Usage: $0 <options>
   Eg.
     $0              generate data using default value.
     $0 -s 100        generate data with scale factor 100.
-    $0 -s 1000 -c 100   generate data with scale factor 1000. And using 1000 threads to generate data concurrently.
+    $0 -s 1000 -c 100   generate data with scale factor 1000. And using 100 threads to generate data concurrently.
   "
     exit 1
 }
