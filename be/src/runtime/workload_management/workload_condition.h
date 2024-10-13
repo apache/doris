@@ -23,7 +23,7 @@
 
 namespace doris {
 
-enum WorkloadMetricType { QUERY_TIME, SCAN_ROWS, SCAN_BYTES, QUERY_MEMORY_BYTES };
+enum WorkloadMetricType { QUERY_TIME, SCAN_ROWS, SCAN_BYTES, QUERY_MEMORY_BYTES, CPU_TIME_NANO };
 
 class WorkloadCondition {
 public:
@@ -87,6 +87,19 @@ private:
     WorkloadCompareOperator _op;
 };
 
+class WorkloadConditionCpuTime : public WorkloadCondition {
+public:
+    WorkloadConditionCpuTime(WorkloadCompareOperator op, std::string str_val);
+    bool eval(std::string str_val) override;
+    WorkloadMetricType get_workload_metric_type() override {
+        return WorkloadMetricType::CPU_TIME_NANO;
+    }
+
+private:
+    double _cpu_util;
+    WorkloadCompareOperator _op;
+};
+
 class WorkloadConditionFactory {
 public:
     static std::unique_ptr<WorkloadCondition> create_workload_condition(
@@ -103,6 +116,8 @@ public:
             return std::make_unique<WorkloadConditionScanBytes>(op, str_val);
         } else if (TWorkloadMetricType::type::QUERY_BE_MEMORY_BYTES == metric_name) {
             return std::make_unique<WorkloadConditionQueryMemory>(op, str_val);
+        } else if (TWorkloadMetricType::type::QUERY_BE_CPU_TIME_NANO == metric_name) {
+            return std::make_unique<WorkloadConditionCpuTime>(op, str_val);
         }
         LOG(ERROR) << "not find a metric name " << metric_name;
         return nullptr;

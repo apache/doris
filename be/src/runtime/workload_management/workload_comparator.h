@@ -62,6 +62,25 @@ public:
         }
     }
 
+    static bool compare_double(WorkloadCompareOperator op, double first_val,
+                               double second_val) {
+        switch (op) {
+        case EQUAL:
+            return first_val == second_val;
+        case GREATER:
+            return first_val > second_val;
+        case GREATER_EQUAL:
+            return first_val >= second_val;
+        case LESS:
+            return first_val < second_val;
+        case LESS_EQUAL:
+            return first_val <= second_val;
+        default:
+            LOG(ERROR) << "unexpected double compare operator " << op;
+            return false;
+        }
+    }
+
     static bool compare_string(WorkloadCompareOperator op, std::string first_val,
                                std::string second_val) {
         switch (op) {

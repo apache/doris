@@ -506,6 +506,7 @@ void RuntimeQueryStatisticsMgr::get_metric_map(
     metric_map.emplace(WorkloadMetricType::SCAN_BYTES, std::to_string(ret_qs.get_scan_bytes()));
     metric_map.emplace(WorkloadMetricType::QUERY_MEMORY_BYTES,
                        std::to_string(ret_qs.get_current_used_memory_bytes()));
+    metric_map.emplace(WorkloadMetricType::CPU_TIME_NANO, std::to_string(ret_qs.get_cpu_time_nanos()));
 }
 
 void RuntimeQueryStatisticsMgr::set_workload_group_id(std::string query_id, int64_t wg_id) {
