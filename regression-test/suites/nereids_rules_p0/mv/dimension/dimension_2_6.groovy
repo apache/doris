@@ -345,7 +345,7 @@ suite("partition_mv_rewrite_dimension_2_6") {
             left join lineitem_2_6 
             on lineitem_2_6.l_orderkey = orders_2_6.o_orderkey 
             where  o_custkey > (-3) + 5 and o_orderdate >= '2023-10-17'  """
-    create_async_mv(db, sql_stmt_9, mv_name_9)
+    mv_rewrite_success(sql_stmt_9, mv_name_9)
     compare_res(sql_stmt_9 + " order by 1,2,3,4,5,6")
     sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name_9};"""
 
