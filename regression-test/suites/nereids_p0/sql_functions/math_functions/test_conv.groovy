@@ -16,8 +16,6 @@
 // under the License.
 
 suite("test_conv") {
-    sql "SET enable_nereids_planner=true"
-    sql "SET enable_fallback_to_original_planner=false"
     qt_select "SELECT CONV(15,10,2)"
     qt_select2 "select conv('ffffffffffffff', 24, 2);"
     qt_select3 "select conv('-ff', 24, 2);"

@@ -16,9 +16,6 @@
 // under the License.
 
 suite("test_json_parse") {
-    sql "SET enable_nereids_planner=true"
-    sql "SET enable_fallback_to_original_planner=false"
-
     sql """DROP TABLE IF EXISTS `test_json_parse_table`;"""
     sql """CREATE TABLE test_json_parse_table (
             id INT,

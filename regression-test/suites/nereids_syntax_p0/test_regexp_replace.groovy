@@ -16,9 +16,6 @@
 // under the License.
 
 suite("test_regexp_replace") {
-    sql "SET enable_nereids_planner=true"
-    sql "SET enable_fallback_to_original_planner=false"
-
     qt_basic_replace "SELECT regexp_replace('abc123', '123', 'xyz');"
 
     qt_replace_chinese "SELECT regexp_replace('这是一个测试字符串123', '\\\\p{Han}+', '汉');"
