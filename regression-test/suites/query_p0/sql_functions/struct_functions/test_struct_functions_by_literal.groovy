@@ -25,6 +25,9 @@ suite("test_struct_functions_by_literal") {
     qt_sql "select struct('a', 1, 'doris', 'aaaaa', 1.32)"
     qt_sql "select struct(1, 'a', null)"
     qt_sql "select struct(null, null, null)"
+    qt_sql "select struct(1 as a, 2 as b)"
+    qt_sql "select struct(1, 'a', 3 as a, 4 as b, 5)"
+    qt_sql "select struct(1 as a, 'a', 3 as b, 4, 5, null as c)"
 
     qt_sql "select named_struct('f1', 1, 'f2', 2, 'f3', 3)"
     qt_sql "select named_struct('f1', 1, 'f2', 1000, 'f3', 10000000000)"

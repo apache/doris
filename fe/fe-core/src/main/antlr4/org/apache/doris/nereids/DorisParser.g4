@@ -1567,7 +1567,7 @@ functionCallExpression
     : functionIdentifier
               LEFT_PAREN (
                   (DISTINCT|ALL)?
-                  arguments+=expression (COMMA arguments+=expression)*
+                  arguments+=argumentExpression (COMMA arguments+=argumentExpression)*
                   (ORDER BY sortItem (COMMA sortItem)*)?
               )? RIGHT_PAREN
             (OVER windowSpec)?
@@ -1594,6 +1594,11 @@ functionNameIdentifier
     | SESSION_USER
     | TRIM
     | USER
+    ;
+
+argumentExpression
+    : expression
+    | namedExpression
     ;
 
 windowSpec

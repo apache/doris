@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.expressions.literal;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
@@ -152,8 +153,31 @@ public class StructLiteral extends Literal {
         return new StructType(structFields.build());
     }
 
+    /**
+     * create Struct type with named struct fields
+     */
+    public static StructType constructStructType(List<String> names, List<DataType> fieldTypes) {
+        ImmutableList.Builder<StructField> structFields = ImmutableList.builder();
+        for (int i = 0; i < fieldTypes.size(); i++) {
+            if (names.get(i) != null && !names.get(i).isEmpty()) {
+                structFields.add(new StructField(names.get(i), fieldTypes.get(i), true, ""));
+            } else {
+                structFields.add(new StructField("col" + (i + 1), fieldTypes.get(i), true, ""));
+            }
+        }
+        return new StructType(structFields.build());
+    }
+
+    /**
+     * create Struct type with expression list
+     */
     public static StructType computeDataType(List<? extends Expression> fields) {
         List<DataType> fieldTypes = fields.stream().map(ExpressionTrait::getDataType).collect(Collectors.toList());
+        if (fields.stream().anyMatch(f -> f instanceof NamedExpression)) {
+            List<String> names = fields.stream().map(f -> (f instanceof NamedExpression ? ((NamedExpression) f)
+                    .getName() : "")).collect(Collectors.toList());
+            return constructStructType(names, fieldTypes);
+        }
         return constructStructType(fieldTypes);
     }
 }
