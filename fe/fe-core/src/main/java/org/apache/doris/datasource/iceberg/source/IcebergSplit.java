@@ -29,6 +29,7 @@ import java.util.Map;
 public class IcebergSplit extends FileSplit {
 
     private final String originalPath;
+    private long rowCount = -1;
 
     // File path will be changed if the file is modified, so there's no need to get modification time.
     public IcebergSplit(Path file, long start, long length, long fileLength, String[] hosts,
@@ -43,6 +44,14 @@ public class IcebergSplit extends FileSplit {
     private Integer formatVersion;
     private List<IcebergDeleteFileFilter> deleteFileFilters;
     private Map<String, String> config;
+
+    public long getRowCount() {
+        return rowCount;
+    }
+
+    public void setRowCount(long rowCount) {
+        this.rowCount = rowCount;
+    }
 }
 
 
