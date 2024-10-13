@@ -125,7 +125,7 @@ public class ExecutableFunctions {
         return new DoubleLiteral(Math.E);
     }
 
-    @ExecFunction(name = "p1", argTypes = {}, returnType = "DOUBLE")
+    @ExecFunction(name = "pi", argTypes = {}, returnType = "DOUBLE")
     public static Expression pi() {
         return new DoubleLiteral(Math.PI);
     }
