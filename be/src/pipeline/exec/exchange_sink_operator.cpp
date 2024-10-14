@@ -137,11 +137,10 @@ Status ExchangeSinkLocalState::open(RuntimeState* state) {
 
     if (!only_local_exchange) {
         _sink_buffer = std::make_unique<ExchangeSinkBuffer>(id, p._dest_node_id,
-                                                            _state->be_number(), state, this);
+                                                            _state->be_number(), state);
         register_channels(_sink_buffer.get());
         _queue_dependency = Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
                                                       "ExchangeSinkQueueDependency", true);
-        _sink_buffer->set_dependency(_queue_dependency, _finish_dependency);
         _finish_dependency->block();
     }
 
@@ -149,7 +148,6 @@ Status ExchangeSinkLocalState::open(RuntimeState* state) {
         !only_local_exchange) {
         _broadcast_dependency = Dependency::create_shared(
                 _parent->operator_id(), _parent->node_id(), "BroadcastDependency", true);
-        _sink_buffer->set_broadcast_dependency(_broadcast_dependency);
         _broadcast_pb_mem_limiter =
                 vectorized::BroadcastPBlockHolderMemLimiter::create_shared(_broadcast_dependency);
     } else if (local_size > 0) {
@@ -614,8 +612,9 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
                 final_st = st;
             }
         }
+        local_state._should_stop = true;
         if (local_state._sink_buffer) {
-            local_state._sink_buffer->set_should_stop();
+            local_state._sink_buffer->set_should_stop(&local_state);
         }
     }
     return final_st;
@@ -684,6 +683,21 @@ Status ExchangeSinkOperatorX::channel_add_rows_with_idx(
     return Status::OK();
 }
 
+// std::unique_ptr<ExchangeSinkBuffer>  ExchangeSinkOperatorX::create_sink_buffer() {
+    
+//        PUniqueId id;
+//     id.set_hi(_state->query_id().hi);
+//     id.set_lo(_state->query_id().lo);
+//     auto sink_buffer = std::make_unique<ExchangeSinkBuffer>(id, _dest_node_id,
+//                                                             _state->be_number(), _state);
+//     std::map<int64_t, int64_t> fragment_id_to_channel_index;
+//     for (const auto & _dest : _dests) {
+//         const auto& fragment_instance_id =_dest.fragment_instance_id;
+        
+//     }
+// };
+
+
 std::string ExchangeSinkLocalState::debug_string(int indentation_level) const {
     fmt::memory_buffer debug_string_buffer;
     fmt::format_to(debug_string_buffer, "{}", Base::debug_string(indentation_level));
@@ -692,7 +706,7 @@ std::string ExchangeSinkLocalState::debug_string(int indentation_level) const {
                 debug_string_buffer,
                 ", Sink Buffer: (_should_stop = {}, _busy_channels = {}, _is_finishing = {}), "
                 "_reach_limit: {}",
-                _sink_buffer->_should_stop.load(), _sink_buffer->_busy_channels.load(),
+                _should_stop.load(), _sink_buffer->_busy_channels.load(),
                 _sink_buffer->_is_finishing.load(), _reach_limit.load());
     }
     return fmt::to_string(debug_string_buffer);

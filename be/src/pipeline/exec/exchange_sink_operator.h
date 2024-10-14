@@ -126,6 +126,7 @@ private:
     friend class vectorized::Channel<ExchangeSinkLocalState>;
     friend class vectorized::PipChannel;
     friend class vectorized::BlockSerializer<ExchangeSinkLocalState>;
+    friend class pipeline::ExchangeSinkBuffer;
 
     std::unique_ptr<ExchangeSinkBuffer> _sink_buffer = nullptr;
     RuntimeProfile::Counter* _serialize_batch_timer = nullptr;
@@ -203,6 +204,7 @@ private:
     std::unique_ptr<HashPartitionFunction> _partition_function = nullptr;
     std::atomic<bool> _reach_limit = false;
     int _last_local_channel_idx = -1;
+    std::atomic<bool> _should_stop = false;
 };
 
 class ExchangeSinkOperatorX final : public DataSinkOperatorX<ExchangeSinkLocalState> {
@@ -221,6 +223,8 @@ public:
     Status serialize_block(ExchangeSinkLocalState& stete, vectorized::Block* src, PBlock* dest,
                            int num_receivers = 1);
     DataDistribution required_data_distribution() const override;
+
+    // std::unique_ptr<ExchangeSinkBuffer> create_sink_buffer();
 
 private:
     friend class ExchangeSinkLocalState;

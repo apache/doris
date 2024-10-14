@@ -32,7 +32,7 @@ option cc_generic_services = true;
 message PSenderBlockInfo {
     required int32 sender_id = 1;
     required bool eos = 2;
-    required PBlock block = 3;
+    optional PBlock block = 3;
     required int64 packet_seq = 4;
 }
 

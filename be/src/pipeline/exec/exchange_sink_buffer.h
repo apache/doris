@@ -178,7 +178,7 @@ struct ExchangeRpcContext {
 class ExchangeSinkBuffer final : public HasTaskExecutionCtx {
 public:
     ExchangeSinkBuffer(PUniqueId query_id, PlanNodeId dest_node_id, int be_number,
-                       RuntimeState* state, ExchangeSinkLocalState* parent);
+                       RuntimeState* state);
     ~ExchangeSinkBuffer() override = default;
     void register_sink(TUniqueId dest_fragment_instance_id, int sender_id);
 
@@ -187,25 +187,13 @@ public:
     void close();
     void set_rpc_time(InstanceLoId id, int64_t start_rpc_time, int64_t receive_rpc_time);
     void update_profile(RuntimeProfile* profile);
-
-    void set_dependency(std::shared_ptr<Dependency> queue_dependency,
-                        std::shared_ptr<Dependency> finish_dependency) {
-        _queue_dependency = queue_dependency;
-        _finish_dependency = finish_dependency;
-    }
-
-    void set_broadcast_dependency(std::shared_ptr<Dependency> broadcast_dependency) {
-        _broadcast_dependency = broadcast_dependency;
-    }
-
-    void set_should_stop() {
-        _should_stop = true;
-        _set_ready_to_finish(_busy_channels == 0);
+    void set_should_stop(ExchangeSinkLocalState* parent) {
+        _set_ready_to_finish(_busy_channels == 0, parent);
     }
 
 private:
     friend class ExchangeSinkLocalState;
-    void _set_ready_to_finish(bool all_done);
+    void _set_ready_to_finish(bool all_done, ExchangeSinkLocalState* parent);
 
     phmap::flat_hash_map<InstanceLoId, std::unique_ptr<std::mutex>>
             _instance_to_package_queue_mutex;
@@ -238,23 +226,19 @@ private:
     RuntimeState* _state = nullptr;
     QueryContext* _context = nullptr;
 
-    Status _send_rpc(InstanceLoId);
+    Status _send_rpc(InstanceLoId, ExchangeSinkLocalState* parent);
     // must hold the _instance_to_package_queue_mutex[id] mutex to opera
     void _construct_request(InstanceLoId id, PUniqueId, int sender_id);
-    inline void _ended(InstanceLoId id);
-    inline void _failed(InstanceLoId id, const std::string& err);
-    inline void _set_receiver_eof(InstanceLoId id);
-    inline bool _is_receiver_eof(InstanceLoId id);
-    inline void _turn_off_channel(InstanceLoId id, bool cleanup = false);
+    inline void _ended(InstanceLoId id, ExchangeSinkLocalState* parent);
+    inline void _failed(InstanceLoId id, const std::string& err, ExchangeSinkLocalState* parent);
+    inline void _set_receiver_eof(InstanceLoId id, ExchangeSinkLocalState* parent);
+    inline bool _is_receiver_eof(InstanceLoId id, ExchangeSinkLocalState* parent);
+    inline void _turn_off_channel(InstanceLoId id, ExchangeSinkLocalState* parent,
+                                  bool cleanup = false);
     void get_max_min_rpc_time(int64_t* max_time, int64_t* min_time);
     int64_t get_sum_rpc_time();
 
     std::atomic<int> _total_queue_size = 0;
-    std::shared_ptr<Dependency> _queue_dependency = nullptr;
-    std::shared_ptr<Dependency> _finish_dependency = nullptr;
-    std::shared_ptr<Dependency> _broadcast_dependency = nullptr;
-    std::atomic<bool> _should_stop = false;
-    ExchangeSinkLocalState* _parent = nullptr;
 };
 
 } // namespace pipeline
