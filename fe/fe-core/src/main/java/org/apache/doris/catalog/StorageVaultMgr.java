@@ -26,6 +26,7 @@ import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.lock.MonitoredReentrantReadWriteLock;
 import org.apache.doris.datasource.property.constants.S3Properties;
 import org.apache.doris.proto.InternalService.PAlterVaultSyncRequest;
 import org.apache.doris.rpc.BackendServiceProxy;
@@ -43,7 +44,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class StorageVaultMgr {
     private static final Logger LOG = LogManager.getLogger(StorageVaultMgr.class);
@@ -51,8 +51,10 @@ public class StorageVaultMgr {
     private final SystemInfoService systemInfoService;
     // <VaultName, VaultId>
     private Pair<String, String> defaultVaultInfo;
+
     private Map<String, String> vaultNameToVaultId = new HashMap<>();
-    private ReentrantReadWriteLock rwLock = new ReentrantReadWriteLock();
+
+    private MonitoredReentrantReadWriteLock rwLock = new MonitoredReentrantReadWriteLock();
 
     public StorageVaultMgr(SystemInfoService systemInfoService) {
         this.systemInfoService = systemInfoService;

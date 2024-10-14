@@ -3093,4 +3093,17 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, description = {
             "设置为 true，如果查询无法选择到健康副本时，会打印出该tablet所有副本的详细信息，"})
     public static boolean sql_block_rule_ignore_admin = false;
+    //==========================================================================
+    //                      start of lock config
+    @ConfField(description = {"是否开启死锁检测",
+            "Whether to enable deadlock detection"})
+    public static boolean enable_deadlock_detection = false;
+
+    @ConfField(description = {"死锁检测间隔时间，单位分钟",
+            "Deadlock detection interval time, unit minute"})
+    public static long deadlock_detection_interval_minute = 5;
+
+    @ConfField(mutable = true, description = {"表示最大锁持有时间，超过该时间会打印告警日志，单位秒",
+            "Maximum lock hold time; logs a warning if exceeded"})
+    public static long  max_lock_hold_threshold_seconds = 10;
 }
