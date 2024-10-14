@@ -356,12 +356,13 @@ Status SegmentWriter::probe_key_for_mow(
         std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
         bool& has_default_or_nullable, std::vector<bool>& use_default_or_null_flag,
         PartialUpdateStats& stats) {
+    auto* tablet = static_cast<Tablet*>(_tablet.get());
     RowLocation loc;
     // save rowset shared ptr so this rowset wouldn't delete
     RowsetSharedPtr rowset;
-    auto st = _tablet->lookup_row_key(key, _tablet_schema.get(), have_input_seq_column,
-                                      specified_rowsets, &loc, _mow_context->max_version,
-                                      segment_caches, &rowset);
+    auto st = tablet->lookup_row_key(key, _tablet_schema.get(), have_input_seq_column,
+                                     specified_rowsets, &loc, _mow_context->max_version,
+                                     segment_caches, &rowset);
     if (st.is<KEY_NOT_FOUND>()) {
         if (_opts.rowset_ctx->partial_update_info->is_strict_mode) {
             ++stats.num_rows_filtered;
