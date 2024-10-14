@@ -242,10 +242,15 @@ public abstract class Literal extends Expression implements LeafExpression, Comp
             }
         }
         if (targetType instanceof IntegralType) {
-            // do trailing zeros to avoid number parse error when cast to integral type
-            BigDecimal bigDecimal = new BigDecimal(desc);
-            if (bigDecimal.stripTrailingZeros().scale() <= 0) {
-                desc = bigDecimal.stripTrailingZeros().toPlainString();
+            desc = desc.trim();
+            try {
+                // If the input format is valid, proceed
+                BigDecimal bigDecimal = new BigDecimal(desc);
+                // Extract the integer part
+                desc = bigDecimal.toBigInteger().toString();
+            } catch (NumberFormatException e) {
+                throw new AnalysisException(
+                        "The input is not a valid number format: " + desc + "  error msg : " + e.getMessage());
             }
         }
         if (targetType.isTinyIntType()) {
