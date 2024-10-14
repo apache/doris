@@ -38,10 +38,9 @@ public:
     static WrapperField* create_by_type(const FieldType& type) { return create_by_type(type, 0); }
     static WrapperField* create_by_type(const FieldType& type, int32_t var_length);
 
-    WrapperField(Field* rep, size_t variable_len, bool is_string_type);
+    WrapperField(FieldSPtr rep, size_t variable_len, bool is_string_type);
 
     virtual ~WrapperField() {
-        delete _rep;
         delete[] _owned_buf;
         if (_long_text_buf) {
             free(_long_text_buf);
@@ -83,14 +82,14 @@ public:
     void set_to_min() { _rep->set_to_min(_field_buf + 1); }
     void* cell_ptr() const { return _field_buf + 1; }
     void* mutable_cell_ptr() const { return _field_buf + 1; }
-    const Field* field() const { return _rep; }
+    const Field* field() const { return _rep.get(); }
 
     int cmp(const WrapperField* field) const { return _rep->compare_cell(*this, *field); }
 
     void copy(const WrapperField* field) { _rep->direct_copy(this, *field); }
 
 private:
-    Field* _rep = nullptr;
+    FieldSPtr _rep = nullptr;
     bool _is_string_type;
     char* _field_buf = nullptr;
     char* _owned_buf = nullptr;

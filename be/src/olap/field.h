@@ -36,6 +36,7 @@
 
 namespace doris {
 
+using FieldSPtr = std::shared_ptr<Field>;
 // A Field is used to represent a column in memory format.
 // User can use this class to access or deal with column data in memory.
 class Field {
@@ -87,9 +88,9 @@ public:
 
     virtual void modify_zone_map_index(char*) const {}
 
-    virtual Field* clone() const {
-        auto* local = new Field(_desc);
-        this->clone(local);
+    virtual FieldSPtr clone() const {
+        auto local = std::make_shared<Field>(_desc);
+        this->clone(local.get());
         return local;
     }
 
@@ -199,9 +200,7 @@ public:
     void full_encode_ascending(const void* value, std::string* buf) const {
         _key_coder->full_encode_ascending(value, buf);
     }
-    void add_sub_field(std::unique_ptr<Field> sub_field) {
-        _sub_fields.emplace_back(std::move(sub_field));
-    }
+    void add_sub_field(FieldSPtr sub_field) { _sub_fields.emplace_back(std::move(sub_field)); }
     Field* get_sub_field(int i) const { return _sub_fields[i].get(); }
     size_t get_sub_field_count() const { return _sub_fields.size(); }
 
@@ -248,8 +247,7 @@ protected:
         other->_parent_unique_id = this->_parent_unique_id;
         other->_is_extracted_column = this->_is_extracted_column;
         for (const auto& f : _sub_fields) {
-            Field* item = f->clone();
-            other->add_sub_field(std::unique_ptr<Field>(item));
+            other->add_sub_field(f->clone());
         }
     }
 
@@ -260,7 +258,7 @@ private:
     std::string _name;
     uint16_t _index_size;
     bool _is_nullable;
-    std::vector<std::unique_ptr<Field>> _sub_fields;
+    std::vector<FieldSPtr> _sub_fields;
     int32_t _precision;
     int32_t _scale;
     int32_t _unique_id;
@@ -302,9 +300,9 @@ public:
 
     size_t get_variable_len() const override { return _length; }
 
-    CharField* clone() const override {
-        auto* local = new CharField(_desc);
-        Field::clone(local);
+    FieldSPtr clone() const override {
+        auto local = std::make_shared<CharField>(_desc);
+        Field::clone(local.get());
         return local;
     }
 
@@ -354,9 +352,9 @@ public:
 
     size_t get_variable_len() const override { return _length - OLAP_VARCHAR_MAX_BYTES; }
 
-    VarcharField* clone() const override {
-        auto* local = new VarcharField(_desc);
-        Field::clone(local);
+    FieldSPtr clone() const override {
+        auto local = std::make_shared<VarcharField>(_desc);
+        Field::clone(local.get());
         return local;
     }
 
@@ -403,9 +401,9 @@ class StringField : public Field {
 public:
     StringField(const TabletColumn& column) : Field(column) {}
 
-    StringField* clone() const override {
-        auto* local = new StringField(_desc);
-        Field::clone(local);
+    FieldSPtr clone() const override {
+        auto local = std::make_shared<StringField>(_desc);
+        Field::clone(local.get());
         return local;
     }
 
@@ -449,9 +447,9 @@ class BitmapAggField : public Field {
 public:
     BitmapAggField(const TabletColumn& column) : Field(column) {}
 
-    BitmapAggField* clone() const override {
-        auto* local = new BitmapAggField(_desc);
-        Field::clone(local);
+    FieldSPtr clone() const override {
+        auto local = std::make_shared<BitmapAggField>(_desc);
+        Field::clone(local.get());
         return local;
     }
 };
@@ -460,9 +458,9 @@ class QuantileStateAggField : public Field {
 public:
     QuantileStateAggField(const TabletColumn& column) : Field(column) {}
 
-    QuantileStateAggField* clone() const override {
-        auto* local = new QuantileStateAggField(_desc);
-        Field::clone(local);
+    FieldSPtr clone() const override {
+        auto local = std::make_shared<QuantileStateAggField>(_desc);
+        Field::clone(local.get());
         return local;
     }
 };
@@ -471,9 +469,9 @@ class AggStateField : public Field {
 public:
     AggStateField(const TabletColumn& column) : Field(column) {}
 
-    AggStateField* clone() const override {
-        auto* local = new AggStateField(_desc);
-        Field::clone(local);
+    FieldSPtr clone() const override {
+        auto local = std::make_shared<AggStateField>(_desc);
+        Field::clone(local.get());
         return local;
     }
 };
@@ -482,45 +480,40 @@ class HllAggField : public Field {
 public:
     HllAggField(const TabletColumn& column) : Field(column) {}
 
-    HllAggField* clone() const override {
-        auto* local = new HllAggField(_desc);
-        Field::clone(local);
+    FieldSPtr clone() const override {
+        auto local = std::make_shared<HllAggField>(_desc);
+        Field::clone(local.get());
         return local;
     }
 };
 
 class FieldFactory {
 public:
-    static Field* create(const TabletColumn& column) {
+    static FieldSPtr create(const TabletColumn& column) {
         // for key column
         if (column.is_key()) {
             switch (column.type()) {
             case FieldType::OLAP_FIELD_TYPE_CHAR:
-                return new CharField(column);
+                return std::make_shared<CharField>(column);
             case FieldType::OLAP_FIELD_TYPE_VARCHAR:
             case FieldType::OLAP_FIELD_TYPE_STRING:
-                return new StringField(column);
+                return std::make_shared<StringField>(column);
             case FieldType::OLAP_FIELD_TYPE_STRUCT: {
-                auto* local = new StructField(column);
+                auto local = std::make_shared<StructField>(column);
                 for (uint32_t i = 0; i < column.get_subtype_count(); i++) {
-                    std::unique_ptr<Field> sub_field(
-                            FieldFactory::create(column.get_sub_column(i)));
-                    local->add_sub_field(std::move(sub_field));
+                    local->add_sub_field(FieldFactory::create(column.get_sub_column(i)));
                 }
                 return local;
             }
             case FieldType::OLAP_FIELD_TYPE_ARRAY: {
-                std::unique_ptr<Field> item_field(FieldFactory::create(column.get_sub_column(0)));
-                auto* local = new ArrayField(column);
-                local->add_sub_field(std::move(item_field));
+                auto local = std::make_shared<ArrayField>(column);
+                local->add_sub_field(FieldFactory::create(column.get_sub_column(0)));
                 return local;
             }
             case FieldType::OLAP_FIELD_TYPE_MAP: {
-                std::unique_ptr<Field> key_field(FieldFactory::create(column.get_sub_column(0)));
-                std::unique_ptr<Field> val_field(FieldFactory::create(column.get_sub_column(1)));
-                auto* local = new MapField(column);
-                local->add_sub_field(std::move(key_field));
-                local->add_sub_field(std::move(val_field));
+                auto local = std::make_shared<MapField>(column);
+                local->add_sub_field(FieldFactory::create(column.get_sub_column(0)));
+                local->add_sub_field(FieldFactory::create(column.get_sub_column(1)));
                 return local;
             }
             case FieldType::OLAP_FIELD_TYPE_DECIMAL:
@@ -534,13 +527,13 @@ public:
             case FieldType::OLAP_FIELD_TYPE_DECIMAL256:
                 [[fallthrough]];
             case FieldType::OLAP_FIELD_TYPE_DATETIMEV2: {
-                Field* field = new Field(column);
+                auto field = std::make_shared<Field>(column);
                 field->set_precision(column.precision());
                 field->set_scale(column.frac());
                 return field;
             }
             default:
-                return new Field(column);
+                return std::make_shared<Field>(column);
             }
         }
 
@@ -554,33 +547,28 @@ public:
         case FieldAggregationMethod::OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL:
             switch (column.type()) {
             case FieldType::OLAP_FIELD_TYPE_CHAR:
-                return new CharField(column);
+                return std::make_shared<CharField>(column);
             case FieldType::OLAP_FIELD_TYPE_VARCHAR:
-                return new VarcharField(column);
+                return std::make_shared<VarcharField>(column);
             case FieldType::OLAP_FIELD_TYPE_STRING:
-                return new StringField(column);
+                return std::make_shared<StringField>(column);
             case FieldType::OLAP_FIELD_TYPE_STRUCT: {
-                auto* local = new StructField(column);
+                auto local = std::make_shared<StructField>(column);
                 for (uint32_t i = 0; i < column.get_subtype_count(); i++) {
-                    std::unique_ptr<Field> sub_field(
-                            FieldFactory::create(column.get_sub_column(i)));
-                    local->add_sub_field(std::move(sub_field));
+                    local->add_sub_field(FieldFactory::create(column.get_sub_column(i)));
                 }
                 return local;
             }
             case FieldType::OLAP_FIELD_TYPE_ARRAY: {
-                std::unique_ptr<Field> item_field(FieldFactory::create(column.get_sub_column(0)));
-                auto* local = new ArrayField(column);
-                local->add_sub_field(std::move(item_field));
+                auto local = std::make_shared<ArrayField>(column);
+                local->add_sub_field(FieldFactory::create(column.get_sub_column(0)));
                 return local;
             }
             case FieldType::OLAP_FIELD_TYPE_MAP: {
                 DCHECK(column.get_subtype_count() == 2);
-                auto* local = new MapField(column);
-                std::unique_ptr<Field> key_field(FieldFactory::create(column.get_sub_column(0)));
-                std::unique_ptr<Field> value_field(FieldFactory::create(column.get_sub_column(1)));
-                local->add_sub_field(std::move(key_field));
-                local->add_sub_field(std::move(value_field));
+                auto local = std::make_shared<MapField>(column);
+                local->add_sub_field(FieldFactory::create(column.get_sub_column(0)));
+                local->add_sub_field(FieldFactory::create(column.get_sub_column(1)));
                 return local;
             }
             case FieldType::OLAP_FIELD_TYPE_DECIMAL:
@@ -594,22 +582,22 @@ public:
             case FieldType::OLAP_FIELD_TYPE_DECIMAL256:
                 [[fallthrough]];
             case FieldType::OLAP_FIELD_TYPE_DATETIMEV2: {
-                Field* field = new Field(column);
+                auto field = std::make_shared<Field>(column);
                 field->set_precision(column.precision());
                 field->set_scale(column.frac());
                 return field;
             }
             default:
-                return new Field(column);
+                return std::make_shared<Field>(column);
             }
         case FieldAggregationMethod::OLAP_FIELD_AGGREGATION_HLL_UNION:
-            return new HllAggField(column);
+            return std::make_shared<HllAggField>(column);
         case FieldAggregationMethod::OLAP_FIELD_AGGREGATION_BITMAP_UNION:
-            return new BitmapAggField(column);
+            return std::make_shared<BitmapAggField>(column);
         case FieldAggregationMethod::OLAP_FIELD_AGGREGATION_QUANTILE_UNION:
-            return new QuantileStateAggField(column);
+            return std::make_shared<QuantileStateAggField>(column);
         case FieldAggregationMethod::OLAP_FIELD_AGGREGATION_GENERIC:
-            return new AggStateField(column);
+            return std::make_shared<AggStateField>(column);
         case FieldAggregationMethod::OLAP_FIELD_AGGREGATION_UNKNOWN:
             CHECK(false) << ", value column no agg type";
             return nullptr;
@@ -617,7 +605,7 @@ public:
         return nullptr;
     }
 
-    static Field* create_by_type(const FieldType& type) {
+    static FieldSPtr create_by_type(const FieldType& type) {
         TabletColumn column(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE, type);
         return create(column);
     }
