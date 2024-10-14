@@ -820,7 +820,7 @@ void BlockFileCache::remove_file_blocks_async(std::vector<FileBlockCell*>& to_ev
         FileBlockSPtr file_block = cell->file_block;
         if (file_block) {
             std::lock_guard block_lock(file_block->_mutex);
-            remove_async(file_block, cache_lock, block_lock);
+            remove(file_block, cache_lock, block_lock, /*sync*/ false);
         }
     };
     std::for_each(to_evict.begin(), to_evict.end(), remove_file_block_if);
@@ -1291,7 +1291,7 @@ bool BlockFileCache::try_reserve_for_lru(const UInt128Wrapper& hash,
 
 template <class T, class U>
     requires IsXLock<T> && IsXLock<U>
-void BlockFileCache::remove(FileBlockSPtr file_block, T& cache_lock, U& block_lock) {
+void BlockFileCache::remove(FileBlockSPtr file_block, T& cache_lock, U& block_lock, bool sync) {
     auto hash = file_block->get_hash_value();
     auto offset = file_block->offset();
     auto type = file_block->cache_type();
@@ -1311,54 +1311,23 @@ void BlockFileCache::remove(FileBlockSPtr file_block, T& cache_lock, U& block_lo
         key.offset = offset;
         key.meta.type = type;
         key.meta.expiration_time = expiration_time;
-        Status st = _storage->remove(key);
-        if (!st.ok()) {
-            LOG_WARNING("").error(st);
-        }
-    }
-    _cur_cache_size -= file_block->range().size();
-    if (FileCacheType::TTL == type) {
-        _cur_ttl_size -= file_block->range().size();
-    }
-    auto& offsets = _files[hash];
-    offsets.erase(file_block->offset());
-    if (offsets.empty()) {
-        _files.erase(hash);
-    }
-    *_num_removed_blocks << 1;
-}
-
-template <class T, class U>
-    requires IsXLock<T> && IsXLock<U>
-void BlockFileCache::remove_async(FileBlockSPtr file_block, T& cache_lock, U& block_lock) {
-    auto hash = file_block->get_hash_value();
-    auto offset = file_block->offset();
-    auto type = file_block->cache_type();
-    auto expiration_time = file_block->expiration_time();
-    auto* cell = get_cell(hash, offset, cache_lock);
-    DCHECK(cell);
-    if (cell->queue_iterator) {
-        auto& queue = get_queue(file_block->cache_type());
-        queue.remove(*cell->queue_iterator, cache_lock);
-    }
-    *_queue_evict_size_metrics[static_cast<int>(file_block->cache_type())]
-            << file_block->range().size();
-    *_total_evict_size_metrics << file_block->range().size();
-    if (cell->file_block->state_unlock(block_lock) == FileBlock::State::DOWNLOADED) {
-        FileCacheKey key;
-        key.hash = hash;
-        key.offset = offset;
-        key.meta.type = type;
-        key.meta.expiration_time = expiration_time;
-        // the file will be deleted in the bottom half
-        // so there will be a window that the file is not in the cache but still in the storage
-        // but it's ok, because the rowset is stale already
-        bool ret = _recycle_keys->push(key);
-        if (!ret) {
-            LOG_WARNING("Failed to push recycle key to queue, do it synchronously");
+        if (sync) {
             Status st = _storage->remove(key);
             if (!st.ok()) {
                 LOG_WARNING("").error(st);
+            }
+        } else {
+            // the file will be deleted in the bottom half
+            // so there will be a window that the file is not in the cache but still in the storage
+            // but it's ok, because the rowset is stale already
+            // in case something unexpected happen, set the _recycle_keys queue to zero to fallback
+            bool ret = _recycle_keys->push(key);
+            if (!ret) {
+                LOG_WARNING("Failed to push recycle key to queue, do it synchronously");
+                Status st = _storage->remove(key);
+                if (!st.ok()) {
+                    LOG_WARNING("").error(st);
+                }
             }
         }
     }
@@ -1371,7 +1340,7 @@ void BlockFileCache::remove_async(FileBlockSPtr file_block, T& cache_lock, U& bl
     if (offsets.empty()) {
         _files.erase(hash);
     }
-    _num_removed_blocks++;
+    *_num_removed_blocks << 1;
 }
 
 void BlockFileCache::recycle_stale_rowset_async_bottom_half() {
