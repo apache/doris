@@ -770,6 +770,14 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
         return result;
     }
 
+    public List<Long> getIndexIdList() {
+        List<Long> result = Lists.newArrayList();
+        for (Long indexId : indexIdToMeta.keySet()) {
+            result.add(indexId);
+        }
+        return result;
+    }
+
     // schema
     public Map<Long, List<Column>> getIndexIdToSchema() {
         return getIndexIdToSchema(Util.showHiddenColumns());
