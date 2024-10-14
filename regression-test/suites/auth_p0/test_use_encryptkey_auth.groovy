@@ -27,7 +27,7 @@ suite("test_use_encryptkey_auth","p0,auth") {
     try_sql("DROP ENCRYPTKEY ${key}")
     sql """CREATE USER '${user}' IDENTIFIED BY '${pwd}'"""
     sql """grant select_priv on regression_test to ${user}"""
-    sql """CREATE ENCRYPTKEY '${key}' AS 'ABCD123456789'"""
+    sql """CREATE ENCRYPTKEY ${key} AS 'ABCD123456789'"""
 
     connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
         test {
