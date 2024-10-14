@@ -204,7 +204,7 @@ public class CreateMTMVInfo {
             if (!colSets.add(col.getName())) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_DUP_FIELDNAME, col.getName());
             }
-            col.validate(true, keysSet, Sets.newHashSet(), finalEnableMergeOnWrite, KeysType.DUP_KEYS);
+            col.validate(true, keysSet, finalEnableMergeOnWrite, KeysType.DUP_KEYS);
         }
     }
 
