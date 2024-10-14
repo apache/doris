@@ -231,8 +231,6 @@ public:
 
     [[nodiscard]] virtual bool can_terminate_early(RuntimeState* state) { return false; }
 
-    [[nodiscard]] virtual bool is_shuffled_hash_join() const { return false; }
-
     bool can_read() override {
         LOG(FATAL) << "should not reach here!";
         return false;
@@ -626,8 +624,6 @@ public:
                        ? DataDistribution(ExchangeType::PASSTHROUGH)
                        : DataDistribution(ExchangeType::NOOP);
     }
-
-    [[nodiscard]] virtual bool is_shuffled_hash_join() const { return false; }
 
     Status close(RuntimeState* state) override {
         return Status::InternalError("Should not reach here!");
