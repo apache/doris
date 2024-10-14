@@ -161,6 +161,8 @@ public:
         offsets.push_back(new_size);
     }
 
+    void insert_many_from(const IColumn& src, size_t position, size_t length) override;
+
     bool is_column_string64() const override { return sizeof(T) == sizeof(uint64_t); }
 
     void insert_from(const IColumn& src_, size_t n) override {

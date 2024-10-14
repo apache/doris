@@ -432,6 +432,14 @@ size_t ColumnVector<T>::filter(const IColumn::Filter& filter) {
 }
 
 template <typename T>
+void ColumnVector<T>::insert_many_from(const IColumn& src, size_t position, size_t length) {
+    auto old_size = data.size();
+    data.resize(old_size + length);
+    auto& vals = assert_cast<const Self&>(src).get_data();
+    std::fill(&data[old_size], &data[old_size + length], vals[position]);
+}
+
+template <typename T>
 ColumnPtr ColumnVector<T>::permute(const IColumn::Permutation& perm, size_t limit) const {
     size_t size = data.size();
 

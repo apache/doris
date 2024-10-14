@@ -175,6 +175,14 @@ public:
         }
     }
 
+    void insert_many_from(const IColumn& src, size_t position, size_t length) override {
+        const Self& src_vec = assert_cast<const Self&>(src);
+        auto val = src_vec.get_element(position);
+        for (uint32_t i = 0; i < length; ++i) {
+            data.emplace_back(val);
+        }
+    }
+
     void pop_back(size_t n) override { data.erase(data.end() - n, data.end()); }
     // it's impossible to use ComplexType as key , so we don't have to implement them
     [[noreturn]] StringRef serialize_value_into_arena(size_t n, Arena& arena,
