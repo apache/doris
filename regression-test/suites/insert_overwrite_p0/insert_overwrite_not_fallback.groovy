@@ -43,7 +43,7 @@ suite("insert_overwrite_not_fallback","p0") {
           sql """
               insert overwrite table ${tableName} values(4,4);
           """
-          exception "ERROR 1105 (HY000): errCode = 2, detailMessage = Insert has filtered data"
+          exception "errCode = 2, detailMessage = Insert has filtered data in strict mode. url:"
       }
     sql """drop table if exists `${tableName}`"""
 }
