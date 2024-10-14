@@ -141,7 +141,7 @@ public class OlapAnalysisTaskTest {
             }
 
             @Mock
-            public ResultRow collectBasicStat(AutoCloseConnectContext context) {
+            public ResultRow collectBasicStat() {
                 List<String> values = Lists.newArrayList();
                 values.add("1");
                 values.add("2");
@@ -221,7 +221,7 @@ public class OlapAnalysisTaskTest {
             }
 
             @Mock
-            public ResultRow collectBasicStat(AutoCloseConnectContext context) {
+            public ResultRow collectBasicStat() {
                 List<String> values = Lists.newArrayList();
                 values.add("1");
                 values.add("2");
@@ -303,7 +303,7 @@ public class OlapAnalysisTaskTest {
             }
 
             @Mock
-            public ResultRow collectBasicStat(AutoCloseConnectContext context) {
+            public ResultRow collectBasicStat() {
                 List<String> values = Lists.newArrayList();
                 values.add("1");
                 values.add("2");

@@ -142,7 +142,7 @@ public class StatisticsUtil {
 
     public static QueryState execUpdate(String sql) throws Exception {
         StmtExecutor stmtExecutor = null;
-        AutoCloseConnectContext r = StatisticsUtil.buildConnectContext();
+        AutoCloseConnectContext r = StatisticsUtil.buildConnectContext(false);
         try {
             r.connectContext.getSessionVariable().disableNereidsPlannerOnce();
             stmtExecutor = new StmtExecutor(r.connectContext, sql);
@@ -209,7 +209,7 @@ public class StatisticsUtil {
     }
 
     public static void analyze(StatementBase statementBase) throws UserException {
-        try (AutoCloseConnectContext r = buildConnectContext()) {
+        try (AutoCloseConnectContext r = buildConnectContext(false)) {
             Analyzer analyzer = new Analyzer(Env.getCurrentEnv(), r.connectContext);
             statementBase.analyze(analyzer);
         }
