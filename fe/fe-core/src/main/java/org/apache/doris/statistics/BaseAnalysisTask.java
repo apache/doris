@@ -481,7 +481,7 @@ public abstract class BaseAnalysisTask {
     protected void runQuery(String sql) {
         long startTime = System.currentTimeMillis();
         String queryId = "";
-        try (AutoCloseConnectContext a  = StatisticsUtil.buildConnectContext()) {
+        try (AutoCloseConnectContext a  = StatisticsUtil.buildConnectContext(false)) {
             stmtExecutor = new StmtExecutor(a.connectContext, sql);
             ColStatsData colStatsData = new ColStatsData(stmtExecutor.executeInternalQuery().get(0));
             // Update index row count after analyze.
@@ -509,7 +509,7 @@ public abstract class BaseAnalysisTask {
     }
 
     protected void runInsert(String sql) throws Exception {
-        try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext()) {
+        try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext(false)) {
             stmtExecutor = new StmtExecutor(r.connectContext, sql);
             try {
                 stmtExecutor.execute();

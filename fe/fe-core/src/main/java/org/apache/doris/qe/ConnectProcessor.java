@@ -251,7 +251,7 @@ public abstract class ConnectProcessor {
     }
 
     public void executeQuery(String originStmt) throws Exception {
-        if (MetricRepo.isInit) {
+        if (MetricRepo.isInit && !ctx.getSessionVariable().internalSession) {
             MetricRepo.COUNTER_REQUEST_ALL.increase(1L);
             if (Config.isCloudMode()) {
                 try {
