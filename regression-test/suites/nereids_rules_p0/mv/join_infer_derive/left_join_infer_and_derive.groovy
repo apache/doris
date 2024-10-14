@@ -230,8 +230,8 @@ suite("left_join_infer_and_derive") {
                     }
                 } else {
                     explain {
-                        sql("${query_list[i]}")
-                        contains "${mv_name_1}(${mv_name_1})"
+                        sql(" memo plan ${query_sql}")
+                        contains("${mv_name} chose")
                     }
                     compare_res(query_list[i] + order_stmt)
                 }
