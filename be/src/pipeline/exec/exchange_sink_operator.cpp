@@ -18,6 +18,7 @@
 #include "exchange_sink_operator.h"
 
 #include <gen_cpp/DataSinks_types.h>
+#include <gen_cpp/Partitions_types.h>
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/types.pb.h>
 
@@ -249,6 +250,10 @@ Status ExchangeSinkLocalState::open(RuntimeState* state) {
                 std::make_unique<vectorized::OlapTabletFinder>(_vpartition.get(), find_tablet_mode);
         _tablet_sink_tuple_desc = _state->desc_tbl().get_tuple_descriptor(p._tablet_sink_tuple_id);
         _tablet_sink_row_desc = p._pool->add(new RowDescriptor(_tablet_sink_tuple_desc, false));
+        _tablet_sink_expr_ctxs.resize(p._tablet_sink_expr_ctxs.size());
+        for (size_t i = 0; i < _tablet_sink_expr_ctxs.size(); i++) {
+            RETURN_IF_ERROR(p._tablet_sink_expr_ctxs[i]->clone(state, _tablet_sink_expr_ctxs[i]));
+        }
         // if _part_type == TPartitionType::TABLET_SINK_SHUFFLE_PARTITIONED, we handle the processing of auto_increment column
         // on exchange node rather than on TabletWriter
         _block_convertor =
@@ -265,7 +270,7 @@ Status ExchangeSinkLocalState::open(RuntimeState* state) {
                  .txn_id = _txn_id,
                  .pool = p._pool.get(),
                  .location = _location,
-                 .vec_output_expr_ctxs = &_fake_expr_ctxs,
+                 .vec_output_expr_ctxs = &_tablet_sink_expr_ctxs,
                  .schema = _schema,
                  .caller = (void*)this,
                  .create_partition_callback = &ExchangeSinkLocalState::empty_callback_function});
@@ -355,7 +360,8 @@ ExchangeSinkOperatorX::ExchangeSinkOperatorX(
           _tablet_sink_partition(sink.tablet_sink_partition),
           _tablet_sink_location(sink.tablet_sink_location),
           _tablet_sink_tuple_id(sink.tablet_sink_tuple_id),
-          _tablet_sink_txn_id(sink.tablet_sink_txn_id) {
+          _tablet_sink_txn_id(sink.tablet_sink_txn_id),
+          _t_tablet_sink_exprs(&sink.tablet_sink_exprs) {
     DCHECK_GT(destinations.size(), 0);
     DCHECK(sink.output_partition.type == TPartitionType::UNPARTITIONED ||
            sink.output_partition.type == TPartitionType::HASH_PARTITIONED ||
@@ -367,12 +373,19 @@ ExchangeSinkOperatorX::ExchangeSinkOperatorX(
            sink.output_partition.type == TPartitionType::TABLE_SINK_RANDOM_PARTITIONED);
     _name = "ExchangeSinkOperatorX";
     _pool = std::make_shared<ObjectPool>();
+    if (sink.__isset.output_tuple_id) {
+        _output_tuple_id = sink.output_tuple_id;
+    }
 }
 
 Status ExchangeSinkOperatorX::init(const TDataSink& tsink) {
     RETURN_IF_ERROR(DataSinkOperatorX::init(tsink));
     if (_part_type == TPartitionType::RANGE_PARTITIONED) {
         return Status::InternalError("TPartitionType::RANGE_PARTITIONED should not be used");
+    }
+    if (_part_type == TPartitionType::TABLET_SINK_SHUFFLE_PARTITIONED) {
+        RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(*_t_tablet_sink_exprs,
+                                                             _tablet_sink_expr_ctxs));
     }
     return Status::OK();
 }
@@ -386,6 +399,18 @@ Status ExchangeSinkOperatorX::prepare(RuntimeState* state) {
 Status ExchangeSinkOperatorX::open(RuntimeState* state) {
     DCHECK(state != nullptr);
     _compression_type = state->fragement_transmission_compression_type();
+    if (_part_type == TPartitionType::TABLET_SINK_SHUFFLE_PARTITIONED) {
+        if (_output_tuple_id == -1) {
+            RETURN_IF_ERROR(vectorized::VExpr::prepare(_tablet_sink_expr_ctxs, state,
+                                                       _child_x->row_desc()));
+        } else {
+            auto* output_tuple_desc = state->desc_tbl().get_tuple_descriptor(_output_tuple_id);
+            auto* output_row_desc = _pool->add(new RowDescriptor(output_tuple_desc, false));
+            RETURN_IF_ERROR(
+                    vectorized::VExpr::prepare(_tablet_sink_expr_ctxs, state, *output_row_desc));
+        }
+        RETURN_IF_ERROR(vectorized::VExpr::open(_tablet_sink_expr_ctxs, state));
+    }
     return Status::OK();
 }
 
@@ -534,8 +559,10 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
             local_state._row_distribution._deal_batched = true;
             RETURN_IF_ERROR(local_state._send_new_partition_batch());
         }
+        // the convert_block maybe different with block after execute exprs
+        // when send data we still use block
         RETURN_IF_ERROR(channel_add_rows_with_idx(state, local_state.channels, num_channels,
-                                                  channel2rows, convert_block.get(), eos));
+                                                  channel2rows, block, eos));
     } else if (_part_type == TPartitionType::TABLE_SINK_HASH_PARTITIONED) {
         {
             SCOPED_TIMER(local_state._split_block_hash_compute_timer);
