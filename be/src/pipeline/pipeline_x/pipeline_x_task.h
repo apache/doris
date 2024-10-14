@@ -177,6 +177,8 @@ public:
 
     static bool should_revoke_memory(RuntimeState* state, int64_t revocable_mem_bytes);
 
+    bool wake_up_by_downstream() const { return _wake_up_by_downstream; }
+
 private:
     friend class RuntimeFilterDependency;
     Dependency* _write_blocked_dependency() {

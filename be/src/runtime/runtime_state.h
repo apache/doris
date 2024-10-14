@@ -568,6 +568,10 @@ public:
                        : 0;
     }
 
+    void set_task(pipeline::PipelineXTask* task) { _task = task; }
+
+    pipeline::PipelineXTask* get_task() const { return _task; }
+
     inline bool enable_delete_sub_pred_v2() const {
         return _query_options.__isset.enable_delete_sub_predicate_v2 &&
                _query_options.enable_delete_sub_predicate_v2;
@@ -784,6 +788,7 @@ private:
     // prohibit copies
     RuntimeState(const RuntimeState&);
 
+    pipeline::PipelineXTask* _task;
     vectorized::ColumnInt64* _partial_update_auto_inc_column;
 };
 
