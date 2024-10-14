@@ -439,7 +439,7 @@ public:
                           RowLocation* row_location, uint32_t version,
                           std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
                           RowsetSharedPtr* rowset = nullptr, bool with_rowid = true,
-                          bool is_partial_update = false);
+                          std::string* encoded_seq_value = nullptr);
 
     // Lookup a row with TupleDescriptor and fill Block
     Status lookup_row_data(const Slice& encoded_key, const RowLocation& row_location,
@@ -447,19 +447,19 @@ public:
                            OlapReaderStatistics& stats, std::string& values,
                            bool write_to_cache = false);
 
-    Status fetch_value_by_rowids(RowsetSharedPtr input_rowset, uint32_t segid,
-                                 const std::vector<uint32_t>& rowids,
-                                 const TabletColumn& tablet_column,
-                                 vectorized::MutableColumnPtr& dst);
+    static Status fetch_value_by_rowids(RowsetSharedPtr input_rowset, uint32_t segid,
+                                        const std::vector<uint32_t>& rowids,
+                                        const TabletColumn& tablet_column,
+                                        vectorized::MutableColumnPtr& dst);
 
     // We use the TabletSchema from the caller because the TabletSchema in the rowset'meta
     // may be outdated due to schema change. Also note that the the cids should indicate the indexes
     // of the columns in the TabletSchema passed in.
-    Status fetch_value_through_row_column(RowsetSharedPtr input_rowset,
-                                          const TabletSchema& tablet_schema, uint32_t segid,
-                                          const std::vector<uint32_t>& rowids,
-                                          const std::vector<uint32_t>& cids,
-                                          vectorized::Block& block);
+    static Status fetch_value_through_row_column(RowsetSharedPtr input_rowset,
+                                                 const TabletSchema& tablet_schema, uint32_t segid,
+                                                 const std::vector<uint32_t>& rowids,
+                                                 const std::vector<uint32_t>& cids,
+                                                 vectorized::Block& block);
 
     // calc delete bitmap when flush memtable, use a fake version to calc
     // For example, cur max version is 5, and we use version 6 to calc but
@@ -485,18 +485,26 @@ public:
     Status calc_delete_bitmap_between_segments(
             RowsetSharedPtr rowset, const std::vector<segment_v2::SegmentSharedPtr>& segments,
             DeleteBitmapPtr delete_bitmap);
-    Status read_columns_by_plan(TabletSchemaSPtr tablet_schema,
-                                const std::vector<uint32_t> cids_to_read,
-                                const PartialUpdateReadPlan& read_plan,
-                                const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
-                                vectorized::Block& block, std::map<uint32_t, uint32_t>* read_index,
-                                const signed char* __restrict skip_map = nullptr);
-    void prepare_to_read(const RowLocation& row_location, size_t pos,
-                         PartialUpdateReadPlan* read_plan);
-    Status generate_new_block_for_partial_update(
+
+    static const signed char* get_delete_sign_column_data(const vectorized::Block& block,
+                                                          size_t rows_at_least = 0);
+
+    static Status generate_default_value_block(const TabletSchema& schema,
+                                               const std::vector<uint32_t>& cids,
+                                               const std::vector<std::string>& default_values,
+                                               const vectorized::Block& ref_block,
+                                               vectorized::Block& default_value_block);
+
+    static Status generate_new_block_for_partial_update(
             TabletSchemaSPtr rowset_schema, const PartialUpdateInfo* partial_update_info,
-            const PartialUpdateReadPlan& read_plan_ori,
-            const PartialUpdateReadPlan& read_plan_update,
+            const FixedReadPlan& read_plan_ori, const FixedReadPlan& read_plan_update,
+            const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
+            vectorized::Block* output_block);
+
+    static Status generate_new_block_for_flexible_partial_update(
+            TabletSchemaSPtr rowset_schema, const PartialUpdateInfo* partial_update_info,
+            std::set<uint32_t>& rids_be_overwritten, const FixedReadPlan& read_plan_ori,
+            const FixedReadPlan& read_plan_update,
             const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
             vectorized::Block* output_block);
 
@@ -595,7 +603,7 @@ public:
     Status check_delete_bitmap_correctness(DeleteBitmapPtr delete_bitmap, int64_t max_version,
                                            int64_t txn_id, const RowsetIdUnorderedSet& rowset_ids,
                                            std::vector<RowsetSharedPtr>* rowsets = nullptr);
-    Status _get_segment_column_iterator(
+    static Status _get_segment_column_iterator(
             const BetaRowsetSharedPtr& rowset, uint32_t segid, const TabletColumn& target_column,
             SegmentCacheHandle* segment_cache_handle,
             std::unique_ptr<segment_v2::ColumnIterator>* column_iterator,

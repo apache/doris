@@ -138,7 +138,7 @@ public class BatchInsertIntoTableCommand extends Command implements NoForward, E
                     }
                 }
             } else {
-                targetSchema = fullSchema;
+                targetSchema = removeSkipBitmapCol(fullSchema);
             }
             // check auth
             if (!Env.getCurrentEnv().getAccessManager()
@@ -169,5 +169,10 @@ public class BatchInsertIntoTableCommand extends Command implements NoForward, E
         } finally {
             targetTableIf.readUnlock();
         }
+    }
+
+    private List<Column> removeSkipBitmapCol(List<Column> columns) {
+        return columns.stream().filter(col -> !Column.SKIP_BITMAP_COL.equals(col.getName()))
+                .collect(Collectors.toList());
     }
 }
