@@ -1922,7 +1922,8 @@ public class FunctionCallExpr extends Expr {
 
                 if ((fnName.getFunction().equalsIgnoreCase("money_format") || fnName.getFunction()
                         .equalsIgnoreCase("histogram")
-                        || fnName.getFunction().equalsIgnoreCase("hist"))
+                        || fnName.getFunction().equalsIgnoreCase("hist")
+                        || fnName.getFunction().equalsIgnoreCase("linear_histogram"))
                         && children.get(0).getType().isDecimalV3() && args[ix].isDecimalV3()) {
                     continue;
                 } else if ((fnName.getFunction().equalsIgnoreCase("array_min") || fnName.getFunction()
