@@ -1154,6 +1154,8 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
                             partitionInfo.getReplicaAllocation(partition.getId()),
                             partitionInfo.getIsInMemory(partition.getId()),
                             partitionInfo.getIsMutable(partition.getId()));
+                } else if (!reserveTablets) {
+                    Env.getCurrentEnv().onErasePartition(partition);
                 }
             } else if (!reserveTablets) {
                 Env.getCurrentEnv().onErasePartition(partition);
