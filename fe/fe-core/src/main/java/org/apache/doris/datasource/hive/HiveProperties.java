@@ -20,6 +20,7 @@ package org.apache.doris.datasource.hive;
 import com.google.common.collect.ImmutableSet;
 import org.apache.hadoop.hive.metastore.api.Table;
 
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -126,14 +127,29 @@ public class HiveProperties {
         return HiveMetaStoreClientHelper.firstPresentOrDefault(DEFAULT_NULL_FORMAT, nullFormat);
     }
 
-    public static void setProperties(Table table, Map<String, String> properties) {
+    public static void updateProperties(Table table, Map<String, String> properties) {
 
-        properties.forEach((key, value) -> {
-            if (HIVE_SERDE_PROPERTIES.contains(key)) {
-                table.getSd().getParameters().put(key, value);
+        HashMap<String, String> serdeProps = new HashMap<>();
+        HashMap<String, String> tblProps = new HashMap<>();
+
+        for (String k : properties.keySet()) {
+            if (HIVE_SERDE_PROPERTIES.contains(k)) {
+                serdeProps.put(k, properties.get(k));
             } else {
-                table.getParameters().put(key, value);
+                tblProps.put(k, properties.get(k));
             }
-        });
+        }
+
+        if (table.getParameters() == null) {
+            table.setParameters(tblProps);
+        } else {
+            table.getParameters().putAll(tblProps);
+        }
+
+        if (table.getSd().getSerdeInfo().getParameters() == null) {
+            table.getSd().getSerdeInfo().setParameters(serdeProps);
+        } else {
+            table.getSd().getSerdeInfo().getParameters().putAll(serdeProps);
+        }
     }
 }
