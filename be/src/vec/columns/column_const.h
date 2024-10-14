@@ -147,6 +147,10 @@ public:
         s += length;
     }
 
+    void insert_many_from(const IColumn& src, size_t position, size_t length) override {
+        s += length;
+    }
+
     void insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
                              const uint32_t* indices_end) override {
         s += (indices_end - indices_begin);
