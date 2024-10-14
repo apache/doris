@@ -45,7 +45,6 @@ import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
-import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TMaxComputeFileDesc;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
@@ -100,7 +99,7 @@ public class MaxComputeScanNode extends FileQueryScanNode {
         }
     }
 
-    public void setScanParams(TFileRangeDesc rangeDesc, MaxComputeSplit maxComputeSplit) {
+    private void setScanParams(TFileRangeDesc rangeDesc, MaxComputeSplit maxComputeSplit) {
         TTableFormatFileDesc tableFormatFileDesc = new TTableFormatFileDesc();
         tableFormatFileDesc.setTableFormatType(TableFormatType.MAX_COMPUTE.value());
         TMaxComputeFileDesc fileDesc = new TMaxComputeFileDesc();
@@ -400,16 +399,6 @@ public class MaxComputeScanNode extends FileQueryScanNode {
     }
 
 
-
-    @Override
-    protected TFileType getLocationType() throws UserException {
-        return getLocationType(null);
-    }
-
-    @Override
-    protected TFileType getLocationType(String location) throws UserException {
-        return TFileType.FILE_NET;
-    }
 
     @Override
     public TFileFormatType getFileFormatType() {
