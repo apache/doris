@@ -221,6 +221,7 @@ public:
     Status serialize_block(ExchangeSinkLocalState& stete, vectorized::Block* src, PBlock* dest,
                            int num_receivers = 1);
     DataDistribution required_data_distribution() const override;
+    bool is_serial_operator() const override { return true; }
 
 private:
     friend class ExchangeSinkLocalState;

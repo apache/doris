@@ -389,6 +389,11 @@ public class SortNode extends PlanNode {
         return new HashSet<>(result);
     }
 
+    @Override
+    public boolean isSerialOperator() {
+        return !isAnalyticSort && !mergeByexchange;
+    }
+
     public void setColocate(boolean colocate) {
         isColocate = colocate;
     }

@@ -135,7 +135,7 @@ public:
                 _tasks[j][i]->stop_if_finished();
             }
         }
-    };
+    }
 
 private:
     Status _build_pipelines(ObjectPool* pool, const doris::TPipelineFragmentParams& request,
@@ -154,7 +154,8 @@ private:
     Status _build_operators_for_set_operation_node(ObjectPool* pool, const TPlanNode& tnode,
                                                    const DescriptorTbl& descs, OperatorPtr& op,
                                                    PipelinePtr& cur_pipe, int parent_idx,
-                                                   int child_idx);
+                                                   int child_idx,
+                                                   const doris::TPipelineFragmentParams& request);
 
     Status _create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink,
                              const std::vector<TExpr>& output_exprs,

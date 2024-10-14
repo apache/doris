@@ -502,4 +502,13 @@ public class PlanFragment extends TreeNode<PlanFragment> {
     public boolean hasNullAwareLeftAntiJoin() {
         return planRoot.isNullAwareLeftAntiJoin();
     }
+
+    public boolean ignoreStorageDataDistribution(ConnectContext context) {
+        return context != null
+                && context.getSessionVariable().isIgnoreStorageDataDistribution()
+                && !hasNullAwareLeftAntiJoin()
+                // If input data partition is UNPARTITIONED, we use local exchange to improve parallelism
+                && getDataPartition() == DataPartition.UNPARTITIONED && sink instanceof DataStreamSink
+                && !children.isEmpty() && !planRoot.isSerialOperator();
+    }
 }

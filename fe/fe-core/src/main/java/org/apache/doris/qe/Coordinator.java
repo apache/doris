@@ -1779,6 +1779,22 @@ public class Coordinator implements CoordInterface {
                 FInstanceExecParam instanceParam = new FInstanceExecParam(null, execHostport,
                         0, params);
                 params.instanceExecParams.add(instanceParam);
+
+                int expectedInstanceNum = fragment.getParallelExecNum();
+                boolean forceToLocalShuffle = context != null
+                        && context.getSessionVariable().isForceToLocalShuffle()
+                        && !fragment.hasNullAwareLeftAntiJoin() && useNereids;
+                boolean ignoreStorageDataDistribution = (forceToLocalShuffle
+                        || (fragment.ignoreStorageDataDistribution(context) && useNereids))
+                        && fragment.queryCacheParam == null;
+                if (ignoreStorageDataDistribution) {
+                    for (int j = 1; j < expectedInstanceNum; j++) {
+                        params.instanceExecParams.add(new FInstanceExecParam(
+                                null, execHostport, 0, params));
+                    }
+                    params.ignoreDataDistribution = true;
+                    params.parallelTasksNum = 1;
+                }
                 continue;
             }
 
@@ -1808,6 +1824,12 @@ public class Coordinator implements CoordInterface {
                 if (leftMostNode.getNumInstances() == 1) {
                     exchangeInstances = 1;
                 }
+                boolean forceToLocalShuffle = context != null
+                        && context.getSessionVariable().isForceToLocalShuffle()
+                        && !fragment.hasNullAwareLeftAntiJoin() && useNereids;
+                boolean ignoreStorageDataDistribution = (forceToLocalShuffle
+                        || (fragment.ignoreStorageDataDistribution(context) && useNereids))
+                        && fragment.queryCacheParam == null;
                 if (exchangeInstances > 0 && fragmentExecParamsMap.get(inputFragmentId)
                         .instanceExecParams.size() > exchangeInstances) {
                     // random select some instance
@@ -1825,12 +1847,16 @@ public class Coordinator implements CoordInterface {
                                 hosts.get(index % hosts.size()), 0, params);
                         params.instanceExecParams.add(instanceParam);
                     }
+                    params.ignoreDataDistribution = ignoreStorageDataDistribution;
+                    params.parallelTasksNum = ignoreStorageDataDistribution ? 1 : params.instanceExecParams.size();
                 } else {
                     for (FInstanceExecParam execParams
                             : fragmentExecParamsMap.get(inputFragmentId).instanceExecParams) {
                         FInstanceExecParam instanceParam = new FInstanceExecParam(null, execParams.host, 0, params);
                         params.instanceExecParams.add(instanceParam);
                     }
+                    params.ignoreDataDistribution = ignoreStorageDataDistribution;
+                    params.parallelTasksNum = ignoreStorageDataDistribution ? 1 : params.instanceExecParams.size();
                 }
 
                 // When group by cardinality is smaller than number of backend, only some backends always

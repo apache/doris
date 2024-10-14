@@ -639,6 +639,7 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         TPlanNode msg = new TPlanNode();
         msg.node_id = id.asInt();
         msg.setNereidsId(nereidsId);
+        msg.setIsSerialOperator(isSerialOperator());
         msg.num_children = children.size();
         msg.limit = limit;
         for (TupleId tid : tupleIds) {
@@ -1373,5 +1374,10 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
             visitor.accept(childNode);
             return true;
         });
+    }
+
+    // Operators need to be executed serially. (e.g. finalized agg without key)
+    public boolean isSerialOperator() {
+        return children.isEmpty() || this instanceof ExchangeNode;
     }
 }
