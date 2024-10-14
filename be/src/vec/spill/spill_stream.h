@@ -62,8 +62,6 @@ public:
 
     Status read_next_block_sync(Block* block, bool* eos);
 
-    void set_write_counters(RuntimeProfile* profile) { writer_->set_counters(profile); }
-
     void set_read_counters(RuntimeProfile* profile) { reader_->set_counters(profile); }
 
     void update_shared_profiles(RuntimeProfile* source_op_profile);
@@ -74,6 +72,8 @@ private:
     friend class SpillStreamManager;
 
     Status prepare();
+
+    void _set_write_counters(RuntimeProfile* profile) { writer_->set_counters(profile); }
 
     RuntimeState* state_ = nullptr;
     int64_t stream_id_;

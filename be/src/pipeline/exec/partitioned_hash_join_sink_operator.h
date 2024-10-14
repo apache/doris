@@ -53,9 +53,9 @@ protected:
     PartitionedHashJoinSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
             : PipelineXSpillSinkLocalState<PartitionedHashJoinSharedState>(parent, state) {}
 
-    void _spill_to_disk(uint32_t partition_index,
-                        const vectorized::SpillStreamSPtr& spilling_stream,
-                        const std::shared_ptr<SpillContext>& spill_context);
+    Status _spill_to_disk(uint32_t partition_index,
+                          const vectorized::SpillStreamSPtr& spilling_stream,
+                          const std::shared_ptr<SpillContext>& spill_context);
 
     Status _partition_block(RuntimeState* state, vectorized::Block* in_block, size_t begin,
                             size_t end);
@@ -67,16 +67,9 @@ protected:
 
     friend class PartitionedHashJoinSinkOperatorX;
 
-    std::atomic_int _spilling_streams_count {0};
-    std::atomic<bool> _spill_status_ok {true};
-    std::mutex _spill_lock;
-
     vectorized::Block _pending_block;
 
     bool _child_eos {false};
-
-    Status _spill_status;
-    std::mutex _spill_status_lock;
 
     std::unique_ptr<vectorized::PartitionerBase> _partitioner;
 
