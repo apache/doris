@@ -22,6 +22,7 @@
 #include "exprs/bloom_filter_func.h"
 #include "pipeline/exec/hashjoin_probe_operator.h"
 #include "pipeline/exec/operator.h"
+#include "pipeline/pipeline_task.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/utils/template_helpers.hpp"
 
@@ -139,7 +140,7 @@ Status HashJoinBuildSinkLocalState::close(RuntimeState* state, Status exec_statu
         return Base::close(state, exec_status);
     }
 
-    if (!_eos) {
+    if (state->get_task()->wake_up_by_downstream()) {
         RETURN_IF_ERROR(_runtime_filter_slots->send_filter_size(state, 0, _finish_dependency));
         RETURN_IF_ERROR(_runtime_filter_slots->ignore_all_filters());
     } else {
