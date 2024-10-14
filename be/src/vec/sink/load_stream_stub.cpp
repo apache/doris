@@ -135,7 +135,7 @@ LoadStreamStub::LoadStreamStub(PUniqueId load_id, int64_t src_id,
           _is_incremental(incremental) {};
 
 LoadStreamStub::~LoadStreamStub() {
-    if (_is_init.load() && !_is_closed.load()) {
+    if (_is_open.load() && !_is_closed.load()) {
         auto ret = brpc::StreamClose(_stream_id);
         LOG(INFO) << *this << " is deconstructed, close " << (ret == 0 ? "success" : "failed");
     }
@@ -149,8 +149,9 @@ Status LoadStreamStub::open(BrpcClientCache<PBackendService_Stub>* client_cache,
                             int64_t idle_timeout_ms, bool enable_profile) {
     std::unique_lock<bthread::Mutex> lock(_open_mutex);
     if (_is_init.load()) {
-        return _init_st;
+        return _status;
     }
+    _is_init.store(true);
     _dst_id = node_info.id;
     brpc::StreamOptions opt;
     opt.max_buf_size = config::load_stream_max_buf_size;
@@ -160,8 +161,8 @@ Status LoadStreamStub::open(BrpcClientCache<PBackendService_Stub>* client_cache,
     brpc::Controller cntl;
     if (int ret = brpc::StreamCreate(&_stream_id, cntl, &opt)) {
         delete opt.handler;
-        _init_st = Status::Error<true>(ret, "Failed to create stream");
-        return _init_st;
+        _status = Status::Error<true>(ret, "Failed to create stream");
+        return _status;
     }
     cntl.set_timeout_ms(config::open_load_stream_timeout_ms);
     POpenLoadStreamRequest request;
@@ -174,8 +175,8 @@ Status LoadStreamStub::open(BrpcClientCache<PBackendService_Stub>* client_cache,
     } else if (total_streams > 0) {
         request.set_total_streams(total_streams);
     } else {
-        _init_st = Status::InternalError("total_streams should be greator than 0");
-        return _init_st;
+        _status = Status::InternalError("total_streams should be greator than 0");
+        return _status;
     }
     request.set_idle_timeout_ms(idle_timeout_ms);
     schema.to_protobuf(request.mutable_schema());
@@ -199,13 +200,13 @@ Status LoadStreamStub::open(BrpcClientCache<PBackendService_Stub>* client_cache,
     }
     if (cntl.Failed()) {
         brpc::StreamClose(_stream_id);
-        _init_st = Status::InternalError("Failed to connect to backend {}: {}", _dst_id,
-                                         cntl.ErrorText());
-        return _init_st;
+        _status = Status::InternalError("Failed to connect to backend {}: {}", _dst_id,
+                                        cntl.ErrorText());
+        return _status;
     }
     LOG(INFO) << "open load stream to host=" << node_info.host << ", port=" << node_info.brpc_port
               << ", " << *this;
-    _is_init.store(true);
+    _is_open.store(true);
     return Status::OK();
 }
 
@@ -213,9 +214,9 @@ Status LoadStreamStub::open(BrpcClientCache<PBackendService_Stub>* client_cache,
 Status LoadStreamStub::append_data(int64_t partition_id, int64_t index_id, int64_t tablet_id,
                                    int64_t segment_id, uint64_t offset, std::span<const Slice> data,
                                    bool segment_eos, FileType file_type) {
-    if (!_is_init.load()) {
-        add_failed_tablet(tablet_id, _init_st);
-        return _init_st;
+    if (!_is_open.load()) {
+        add_failed_tablet(tablet_id, _status);
+        return _status;
     }
     DBUG_EXECUTE_IF("LoadStreamStub.only_send_segment_0", {
         if (segment_id != 0) {
@@ -240,9 +241,9 @@ Status LoadStreamStub::append_data(int64_t partition_id, int64_t index_id, int64
 Status LoadStreamStub::add_segment(int64_t partition_id, int64_t index_id, int64_t tablet_id,
                                    int64_t segment_id, const SegmentStatistics& segment_stat,
                                    TabletSchemaSPtr flush_schema) {
-    if (!_is_init.load()) {
-        add_failed_tablet(tablet_id, _init_st);
-        return _init_st;
+    if (!_is_open.load()) {
+        add_failed_tablet(tablet_id, _status);
+        return _status;
     }
     DBUG_EXECUTE_IF("LoadStreamStub.only_send_segment_0", {
         if (segment_id != 0) {
@@ -266,8 +267,8 @@ Status LoadStreamStub::add_segment(int64_t partition_id, int64_t index_id, int64
 
 // CLOSE_LOAD
 Status LoadStreamStub::close_load(const std::vector<PTabletID>& tablets_to_commit) {
-    if (!_is_init.load()) {
-        return _init_st;
+    if (!_is_open.load()) {
+        return _status;
     }
     PStreamHeader header;
     *header.mutable_load_id() = _load_id;
@@ -276,10 +277,10 @@ Status LoadStreamStub::close_load(const std::vector<PTabletID>& tablets_to_commi
     for (const auto& tablet : tablets_to_commit) {
         *header.add_tablets() = tablet;
     }
-    _close_st = _encode_and_send(header);
-    if (!_close_st.ok()) {
-        LOG(WARNING) << "stream " << _stream_id << " close failed: " << _close_st;
-        return _close_st;
+    _status = _encode_and_send(header);
+    if (!_status.ok()) {
+        LOG(WARNING) << "stream " << _stream_id << " close failed: " << _status;
+        return _status;
     }
     _is_closing.store(true);
     return Status::OK();
@@ -287,8 +288,8 @@ Status LoadStreamStub::close_load(const std::vector<PTabletID>& tablets_to_commi
 
 // GET_SCHEMA
 Status LoadStreamStub::get_schema(const std::vector<PTabletID>& tablets) {
-    if (!_is_init.load()) {
-        return _init_st;
+    if (!_is_open.load()) {
+        return _status;
     }
     PStreamHeader header;
     *header.mutable_load_id() = _load_id;
@@ -310,8 +311,8 @@ Status LoadStreamStub::get_schema(const std::vector<PTabletID>& tablets) {
 
 Status LoadStreamStub::wait_for_schema(int64_t partition_id, int64_t index_id, int64_t tablet_id,
                                        int64_t timeout_ms) {
-    if (!_is_init.load()) {
-        return _init_st;
+    if (!_is_open.load()) {
+        return _status;
     }
     if (_tablet_schema_for_index->contains(index_id)) {
         return Status::OK();
@@ -338,11 +339,8 @@ Status LoadStreamStub::wait_for_schema(int64_t partition_id, int64_t index_id, i
 
 Status LoadStreamStub::close_wait(RuntimeState* state, int64_t timeout_ms) {
     DBUG_EXECUTE_IF("LoadStreamStub::close_wait.long_wait", DBUG_BLOCK);
-    if (!_is_init.load()) {
-        return _init_st;
-    }
     if (!_is_closing.load()) {
-        return _close_st;
+        return _status;
     }
     if (_is_closed.load()) {
         return _check_cancel();
@@ -371,7 +369,7 @@ Status LoadStreamStub::close_wait(RuntimeState* state, int64_t timeout_ms) {
 
 void LoadStreamStub::cancel(Status reason) {
     LOG(WARNING) << *this << " is cancelled because of " << reason;
-    if (_is_init.load()) {
+    if (_is_open.load()) {
         brpc::StreamClose(_stream_id);
     }
     {
