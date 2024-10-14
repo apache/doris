@@ -228,7 +228,9 @@ public class InsertOverwriteTableCommand extends Command implements ForwardWithS
             } else {
                 insertOverwriteManager.taskFail(taskId);
             }
-            throw e;
+            if (ctx.getState().getStateType() != MysqlStateType.ERR) {
+                throw e;
+            }
         } finally {
             ConnectContext.get().setSkipAuth(false);
             insertOverwriteManager
