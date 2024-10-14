@@ -219,7 +219,9 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         StatsCalculator calculator = new StatsCalculator(context);
         for (LogicalOlapScan scan : scans) {
             double rowCount = calculator.getOlapTableRowCount(scan);
-            if (rowCount == -1 && ConnectContext.get() != null) {
+            // analyzed rowCount may be zero, but BE-reported rowCount could be positive.
+            // check ndv validation when reported rowCount > 0
+            if ((rowCount == -1 || !calculator.checkNdvValidation(scan, rowCount)) && ConnectContext.get() != null) {
                 try {
                     ConnectContext.get().getSessionVariable().disableNereidsJoinReorderOnce();
                     LOG.info("disable join reorder since row count not available: "
@@ -401,6 +403,21 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             }
         }
         return rowCount;
+    }
+
+    // check validation of ndv.
+    private boolean checkNdvValidation(OlapScan olapScan, double rowCount) {
+        for (Slot slot : ((Plan) olapScan).getOutput()) {
+            if (isVisibleSlotReference(slot)) {
+                ColumnStatistic cache = getColumnStatsFromTableCache((CatalogRelation) olapScan, (SlotReference) slot);
+                if (!cache.isUnKnown
+                        && cache.ndv == 0
+                        && (cache.minExpr != null || cache.maxExpr != null)) {
+                    return false;
+                }
+            }
+        }
+        return true;
     }
 
     private Statistics computeOlapScan(OlapScan olapScan) {
