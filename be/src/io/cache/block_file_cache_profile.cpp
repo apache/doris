@@ -34,9 +34,9 @@ std::shared_ptr<AtomicStatistics> FileCacheProfile::report() {
 }
 
 void FileCacheProfile::update(FileCacheStatistics* stats) {
-    {
-        std::lock_guard lock(_mtx);
-        if (!_profile) {
+    if (_profile == nullptr) {
+        std::lock_guard<std::mutex> lock(_mtx);
+        if (_profile == nullptr) {
             _profile = std::make_shared<AtomicStatistics>();
             _file_cache_metric = std::make_shared<FileCacheMetric>(this);
             _file_cache_metric->register_entity();
