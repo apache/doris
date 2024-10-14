@@ -244,9 +244,16 @@ public class HiveTableSink extends BaseExternalTableDataSink {
         // 5. set escape delimiter
         Optional<String> escapeDelim = HiveMetaStoreClientHelper.getSerdeProperty(targetTable.getRemoteTable(),
                 PROP_ESCAPE_DELIMITER);
-        serDeProperties
-                .setEscapeChar(HiveMetaStoreClientHelper.getByte(HiveMetaStoreClientHelper.firstPresentOrDefault(
-                        DEFAULT_ESCAPE_DELIMIER, escapeDelim)));
+        if (escapeDelim.isPresent()) {
+            String escape = HiveMetaStoreClientHelper.getByte(
+                    escapeDelim.get());
+            if (escape != null) {
+                serDeProperties
+                        .setEscapeChar(escape);
+            } else {
+                serDeProperties.setEscapeChar(DEFAULT_ESCAPE_DELIMIER);
+            }
+        }
         // 6. set null format
         Optional<String> nullFormat = HiveMetaStoreClientHelper.getSerdeProperty(targetTable.getRemoteTable(),
                 PROP_NULL_FORMAT);
