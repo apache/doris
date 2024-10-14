@@ -165,6 +165,7 @@ public:
     size_t byte_size() const override;
     size_t allocated_bytes() const override;
     ColumnPtr replicate(const IColumn::Offsets& replicate_offsets) const override;
+    void insert_many_from(const IColumn& src, size_t position, size_t length) override;
 
     ColumnPtr convert_to_full_column_if_const() const override;
 

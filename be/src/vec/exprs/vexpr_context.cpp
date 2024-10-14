@@ -169,7 +169,8 @@ Status VExprContext::execute_conjuncts(const VExprContextSPtrs& ctxs,
     *can_filter_all = false;
     auto* __restrict result_filter_data = result_filter->data();
     for (const auto& ctx : ctxs) {
-        bool need_judge_selectivity = ctx->root()->need_judge_selectivity();
+        // Statistics are only required when an rf wrapper exists in the expr.
+        bool is_rf_wrapper = ctx->root()->is_rf_wrapper();
         int result_column_id = -1;
         RETURN_IF_ERROR(ctx->execute(block, &result_column_id));
         ColumnPtr& filter_column = block->get_by_position(result_column_id).column;
@@ -186,9 +187,8 @@ Status VExprContext::execute_conjuncts(const VExprContextSPtrs& ctxs,
                 const auto* __restrict null_map_data = nullable_column->get_null_map_data().data();
 
                 int input_rows =
-                        rows - (need_judge_selectivity
-                                        ? simd::count_zero_num((int8*)result_filter_data, rows)
-                                        : 0);
+                        rows -
+                        (is_rf_wrapper ? simd::count_zero_num((int8*)result_filter_data, rows) : 0);
 
                 if (accept_null) {
                     for (size_t i = 0; i < rows; ++i) {
@@ -201,16 +201,15 @@ Status VExprContext::execute_conjuncts(const VExprContextSPtrs& ctxs,
                 }
 
                 int output_rows =
-                        rows - (need_judge_selectivity
-                                        ? simd::count_zero_num((int8*)result_filter_data, rows)
-                                        : 0);
+                        rows -
+                        (is_rf_wrapper ? simd::count_zero_num((int8*)result_filter_data, rows) : 0);
 
-                if (need_judge_selectivity) {
+                if (is_rf_wrapper) {
                     ctx->root()->do_judge_selectivity(input_rows - output_rows, input_rows);
                 }
 
-                if ((need_judge_selectivity && output_rows == 0) ||
-                    (!need_judge_selectivity && memchr(result_filter_data, 0x1, rows) == nullptr)) {
+                if ((is_rf_wrapper && output_rows == 0) ||
+                    (!is_rf_wrapper && memchr(result_filter_data, 0x1, rows) == nullptr)) {
                     *can_filter_all = true;
                     return Status::OK();
                 }
@@ -227,25 +226,24 @@ Status VExprContext::execute_conjuncts(const VExprContextSPtrs& ctxs,
                     assert_cast<const ColumnUInt8&>(*filter_column).get_data();
             const auto* __restrict filter_data = filter.data();
 
-            int input_rows = rows - (need_judge_selectivity
-                                             ? simd::count_zero_num((int8*)result_filter_data, rows)
-                                             : 0);
+            int input_rows =
+                    rows -
+                    (is_rf_wrapper ? simd::count_zero_num((int8*)result_filter_data, rows) : 0);
 
             for (size_t i = 0; i < rows; ++i) {
                 result_filter_data[i] &= filter_data[i];
             }
 
             int output_rows =
-                    rows - (need_judge_selectivity
-                                    ? simd::count_zero_num((int8*)result_filter_data, rows)
-                                    : 0);
+                    rows -
+                    (is_rf_wrapper ? simd::count_zero_num((int8*)result_filter_data, rows) : 0);
 
-            if (need_judge_selectivity) {
+            if (is_rf_wrapper) {
                 ctx->root()->do_judge_selectivity(input_rows - output_rows, input_rows);
             }
 
-            if ((need_judge_selectivity && output_rows == 0) ||
-                (!need_judge_selectivity && memchr(result_filter_data, 0x1, rows) == nullptr)) {
+            if ((is_rf_wrapper && output_rows == 0) ||
+                (!is_rf_wrapper && memchr(result_filter_data, 0x1, rows) == nullptr)) {
                 *can_filter_all = true;
                 return Status::OK();
             }
