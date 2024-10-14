@@ -3110,5 +3110,5 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true, description = {"元数据同步是否开启安全模式",
             "Is metadata synchronization enabled in safe mode"})
-    public static boolean meta_helper_security_mode = false;    
+    public static boolean meta_helper_security_mode = false;
 }
