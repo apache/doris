@@ -792,6 +792,9 @@ void DorisRAMCompoundDirectory::close() {
 }
 
 bool DorisRAMCompoundDirectory::doDeleteFile(const char* name) {
+    if (!filesMap) {
+        return false;
+    }
     std::lock_guard<std::mutex> wlock(_this_lock);
     auto itr = filesMap->find((char*)name);
     if (itr != filesMap->end()) {
