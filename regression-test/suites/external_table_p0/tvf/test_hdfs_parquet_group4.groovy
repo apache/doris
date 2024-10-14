@@ -195,13 +195,10 @@ suite("test_hdfs_parquet_group4","external,hive,tvf,external_docker") {
 
 
             uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_parquet/group4/byte_stream_split_float_and_double.parquet"
-            test {
-                sql """ select * from HDFS(
+            order_qt_test_24 """ select * from HDFS(
                         "uri" = "${uri}",
                         "hadoop.username" = "${hdfsUserName}",
                         "format" = "parquet") limit 10; """
-                exception "Unsupported encoding BYTE_STREAM_SPLIT(type=FLOAT) in parquet decoder"
-            }
 
 
             uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_parquet/group4/part-00000-eebaa9a7-1a21-4e28-806c-24f24f8a0353-c000.snappy.parquet"
