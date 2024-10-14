@@ -119,6 +119,7 @@ public class PullUpJoinFromUnion extends OneRewriteRuleFactory {
             Map<Slot, Slot> originChildSlotToUnion) {
         HashMap<Integer, Integer> joinCondIndices = new HashMap<>();
         HashMap<Integer, HashMap<Plan, Slot>> missSlotOfSameSlot = new HashMap<>();
+        HashMap<Integer, Integer> indexCheckForCommonChildSlot = new HashMap<>();
         for (Pair<LogicalJoin<?, ?>, Plan> joinChildPair : commonChild) {
             Plan commonPlan = joinChildPair.second;
             Plan otherPlan;
@@ -128,9 +129,10 @@ public class PullUpJoinFromUnion extends OneRewriteRuleFactory {
                 otherPlan = joinChildPair.first.child(0);
             }
             for (Expression expression : joinChildPair.first.getHashJoinConjuncts()) {
-                if (!(expression instanceof EqualTo)
-                        && expression.child(0).isSlot()
-                        && expression.child(1).isSlot()) {
+                if (!(expression instanceof EqualTo)) {
+                    return false;
+                }
+                if (!expression.child(0).isSlot() || !expression.child(1).isSlot()) {
                     return false;
                 }
 
@@ -145,13 +147,33 @@ public class PullUpJoinFromUnion extends OneRewriteRuleFactory {
                 } else {
                     return false;
                 }
-                int otherUnionId = -1;
+
+                // 检查commonChildSlot是否出现在union的相同位置的输出上面，如果不是相同位置，则不进行优化
+                // e.g.  这个例子中就不能进行变换，否则会结果错误
+                //  select t2.c,t1.a from test_like1 t1 inner join test_like2 t2 on t1.a=t2.a
+                //  union ALL
+                // select t1.a,t2.c from test_like1 t1  inner join test_like2 t2 on t1.a=t2.a
                 int commonIndex = commonPlan.getOutput().indexOf(commonChildSlot);
+                int commonUnionId = -1;
+                if (joinSlotToProject.containsKey(commonChildSlot)
+                        && originChildSlotToUnion.containsKey(joinSlotToProject.get(commonChildSlot).toSlot())) {
+                    commonUnionId = originChildSlotToUnion.get(
+                            joinSlotToProject.get(commonChildSlot).toSlot()).hashCode();
+                }
+                indexCheckForCommonChildSlot.putIfAbsent(commonIndex, commonUnionId);
+                if (indexCheckForCommonChildSlot.get(commonIndex) != commonUnionId) {
+                    return false;
+                }
+
+                int otherUnionId = -1;
+                // otherChildSlot出现在join条件里，也出现在输出列中
                 if (joinSlotToProject.containsKey(otherChildSlot)
                         && originChildSlotToUnion.containsKey(joinSlotToProject.get(otherChildSlot).toSlot())) {
                     otherUnionId = originChildSlotToUnion.get(
                             joinSlotToProject.get(otherChildSlot).toSlot()).hashCode();
                 } else {
+                    // otherChildSlot出现在join条件里，但是没有出现在union的输出列中
+                    // 需要记录一下，这个otherChildSlot需要被输出
                     missSlotOfSameSlot.computeIfAbsent(commonIndex,
                             k -> new HashMap<>()).put(otherPlan, otherChildSlot);
                 }
@@ -373,6 +395,7 @@ public class PullUpJoinFromUnion extends OneRewriteRuleFactory {
             Map<Slot, Slot> originChildSlotToUnion) {
         for (int i = 0; i < union.children().size(); i++) {
             Plan child = union.child(i);
+            // originChildSlotToUnion把union孩子的输出和 union的输出map起来
             if (union.getRegularChildOutput(i).isEmpty()) {
                 for (int slotIdx = 0; slotIdx < child.getOutput().size(); slotIdx++) {
                     originChildSlotToUnion.put(child.getOutput().get(slotIdx), union.getOutput().get(slotIdx));
@@ -455,13 +478,15 @@ public class PullUpJoinFromUnion extends OneRewriteRuleFactory {
                 isEqual = new TableIdentifier(((LogicalCatalogRelation) plan1).getTable())
                         .equals(new TableIdentifier(((LogicalCatalogRelation) plan2).getTable()));
             } else if (plan1 instanceof LogicalProject && plan2 instanceof LogicalProject) {
-                for (int i = 0; i < plan2.getOutput().size(); i++) {
+                if (plan1.getOutput().size() != plan2.getOutput().size()) {
+                    isEqual = false;
+                }
+                for (int i = 0; isEqual && i < plan2.getOutput().size(); i++) {
                     NamedExpression expr = ((LogicalProject<?>) plan1).getProjects().get(i);
                     NamedExpression replacedExpr = (NamedExpression)
                             expr.rewriteUp(e -> plan1ToPlan2.getOrDefault(e, e));
                     if (!replacedExpr.equals(((LogicalProject<?>) plan2).getProjects().get(i))) {
                         isEqual = false;
-                        break;
                     }
                 }
 
