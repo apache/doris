@@ -49,6 +49,12 @@ suite("test_hdfs_orc_group2_orc_files","external,hive,tvf,external_docker") {
                         "uri" = "${uri}",
                         "hadoop.username" = "${hdfsUserName}",
                         "format" = "orc"); """
+
+            uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_orc/group2/orc_split_elim.orc"
+            qt_test_4 """ select * from HDFS(
+                        "uri" = "${uri}",
+                        "hadoop.username" = "${hdfsUserName}",
+                        "format" = "orc") order by userid limit 10; """
         } finally {
         }
     }
