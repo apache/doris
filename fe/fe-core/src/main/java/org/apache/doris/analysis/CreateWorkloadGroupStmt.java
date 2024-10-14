@@ -36,11 +36,21 @@ public class CreateWorkloadGroupStmt extends DdlStmt implements NotFallbackInPar
 
     private final String workloadGroupName;
     private final Map<String, String> properties;
+    private final boolean isInternal;
 
     public CreateWorkloadGroupStmt(boolean ifNotExists, String workloadGroupName, Map<String, String> properties) {
         this.ifNotExists = ifNotExists;
         this.workloadGroupName = workloadGroupName;
         this.properties = properties;
+        this.isInternal = false;
+    }
+
+    public CreateWorkloadGroupStmt(boolean ifNotExists, String workloadGroupName,
+                                   Map<String, String> properties, boolean isInternal) {
+        this.ifNotExists = ifNotExists;
+        this.workloadGroupName = workloadGroupName;
+        this.properties = properties;
+        this.isInternal = isInternal;
     }
 
     public boolean isIfNotExists() {
@@ -53,6 +63,10 @@ public class CreateWorkloadGroupStmt extends DdlStmt implements NotFallbackInPar
 
     public Map<String, String> getProperties() {
         return properties;
+    }
+
+    public boolean isInternal() {
+        return isInternal;
     }
 
     @Override
