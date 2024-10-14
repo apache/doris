@@ -66,6 +66,8 @@ public:
 
     void set_read_counters(RuntimeProfile* profile) { reader_->set_counters(profile); }
 
+    void update_shared_profiles(RuntimeProfile* source_op_profile);
+
     const TUniqueId& query_id() const;
 
 private:

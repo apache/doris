@@ -137,6 +137,7 @@ Status PartitionedAggSourceOperatorX::close(RuntimeState* state) {
 Status PartitionedAggSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* block,
                                                 bool* eos) {
     auto& local_state = get_local_state(state);
+    local_state.copy_shared_spill_profile();
     Defer defer {[&]() {
         if (!local_state._status.ok() || *eos) {
             local_state._shared_state->close();

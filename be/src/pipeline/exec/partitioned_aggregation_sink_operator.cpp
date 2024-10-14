@@ -76,6 +76,7 @@ Status PartitionedAggSinkLocalState::init(doris::RuntimeState* state,
 Status PartitionedAggSinkLocalState::open(RuntimeState* state) {
     SCOPED_TIMER(Base::exec_time_counter());
     SCOPED_TIMER(Base::_open_timer);
+    _shared_state->setup_shared_profile(_profile);
     return Base::open(state);
 }
 

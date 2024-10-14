@@ -50,16 +50,25 @@ SpillStream::SpillStream(RuntimeState* state, int64_t stream_id, SpillDataDir* d
     _current_file_size = profile_->get_counter("SpillWriteFileCurrentSize");
 }
 
+void SpillStream::update_shared_profiles(RuntimeProfile* source_op_profile) {
+    _current_file_count = source_op_profile->get_counter("SpillWriteFileCurrentCount");
+    _current_file_size = source_op_profile->get_counter("SpillWriteFileCurrentSize");
+}
+
 SpillStream::~SpillStream() {
     gc();
 }
 
 void SpillStream::gc() {
-    COUNTER_UPDATE(_current_file_size, -total_written_bytes_);
+    if (_current_file_size) {
+        COUNTER_UPDATE(_current_file_size, -total_written_bytes_);
+    }
     bool exists = false;
     auto status = io::global_local_filesystem()->exists(spill_dir_, &exists);
     if (status.ok() && exists) {
-        COUNTER_UPDATE(_current_file_count, -1);
+        if (_current_file_count) {
+            COUNTER_UPDATE(_current_file_count, -1);
+        }
         auto query_gc_dir = data_dir_->get_spill_data_gc_path(print_id(query_id_));
         status = io::global_local_filesystem()->create_directory(query_gc_dir);
         DBUG_EXECUTE_IF("fault_inject::spill_stream::gc", {
@@ -88,13 +97,15 @@ Status SpillStream::prepare() {
     writer_ =
             std::make_unique<SpillWriter>(profile_, stream_id_, batch_rows_, data_dir_, spill_dir_);
 
-    reader_ = std::make_unique<SpillReader>(profile_, stream_id_, writer_->get_file_path());
+    reader_ = std::make_unique<SpillReader>(stream_id_, writer_->get_file_path());
 
     DBUG_EXECUTE_IF("fault_inject::spill_stream::prepare_spill", {
         return Status::Error<INTERNAL_ERROR>("fault_inject spill_stream prepare_spill failed");
     });
     COUNTER_UPDATE(_total_file_count, 1);
-    COUNTER_UPDATE(_current_file_count, 1);
+    if (_current_file_count) {
+        COUNTER_UPDATE(_current_file_count, 1);
+    }
     return writer_->open();
 }
 

@@ -50,6 +50,13 @@ Status SpillSortSinkLocalState::init(doris::RuntimeState* state,
     return Status::OK();
 }
 
+Status SpillSortSinkLocalState::open(RuntimeState* state) {
+    SCOPED_TIMER(Base::exec_time_counter());
+    SCOPED_TIMER(Base::_open_timer);
+    _shared_state->setup_shared_profile(_profile);
+    return Base::open(state);
+}
+
 void SpillSortSinkLocalState::_init_counters() {
     _internal_runtime_profile = std::make_unique<RuntimeProfile>("internal_profile");
 

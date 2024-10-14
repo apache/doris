@@ -314,14 +314,10 @@ public:
                 ADD_COUNTER_WITH_LEVEL(Base::profile(), "SpillWriteBlockDataSize", TUnit::BYTES, 1);
         _spill_write_file_data_size =
                 ADD_COUNTER_WITH_LEVEL(Base::profile(), "SpillWriteFileTotalSize", TUnit::BYTES, 1);
-        _spill_write_file_current_size = ADD_COUNTER_WITH_LEVEL(
-                Base::profile(), "SpillWriteFileCurrentSize", TUnit::BYTES, 1);
         _spill_write_rows_count =
                 ADD_COUNTER_WITH_LEVEL(Base::profile(), "SpillWriteRows", TUnit::UNIT, 1);
         _spill_file_total_count =
                 ADD_COUNTER_WITH_LEVEL(Base::profile(), "SpillWriteFileTotalCount", TUnit::UNIT, 1);
-        _spill_file_current_count = ADD_COUNTER_WITH_LEVEL(
-                Base::profile(), "SpillWriteFileCurrentCount", TUnit::UNIT, 1);
     }
 
     void init_spill_read_counters() {
@@ -349,6 +345,26 @@ public:
                 ADD_COUNTER_WITH_LEVEL(Base::profile(), "SpillReadRows", TUnit::UNIT, 1);
         _spill_read_file_count =
                 ADD_COUNTER_WITH_LEVEL(Base::profile(), "SpillReadFileCount", TUnit::UNIT, 1);
+
+        _spill_file_current_size = ADD_COUNTER_WITH_LEVEL(
+                Base::profile(), "SpillWriteFileCurrentSize", TUnit::BYTES, 1);
+        _spill_file_current_count = ADD_COUNTER_WITH_LEVEL(
+                Base::profile(), "SpillWriteFileCurrentCount", TUnit::UNIT, 1);
+    }
+
+    // These two counters are shared to spill source operators as the initial value
+    // Initialize values of counters 'SpillWriteFileCurrentSize' and 'SpillWriteFileCurrentCount'
+    // from spill sink operators' "SpillWriteFileTotalCount" and "SpillWriteFileTotalSize"
+    void copy_shared_spill_profile() {
+        if (_copy_shared_spill_profile) {
+            _copy_shared_spill_profile = false;
+            const auto* spill_shared_state = (const BasicSpillSharedState*)Base::_shared_state;
+            COUNTER_SET(_spill_file_current_size,
+                        spill_shared_state->_spill_write_file_data_size->value());
+            COUNTER_SET(_spill_file_current_count,
+                        spill_shared_state->_spill_file_total_count->value());
+            Base::_shared_state->update_spill_stream_profiles(Base::profile());
+        }
     }
 
     // Total time of spill, including spill task scheduling time,
@@ -381,7 +397,7 @@ public:
     // Spilled file total size
     RuntimeProfile::Counter* _spill_file_total_size = nullptr;
     // Current spilled file size
-    RuntimeProfile::Counter* _spill_write_file_current_size = nullptr;
+    RuntimeProfile::Counter* _spill_file_current_size = nullptr;
 
     // Spill read counters
     // Total time of recovring spilled data, including read file time, deserialize time, etc.
@@ -400,6 +416,8 @@ public:
     RuntimeProfile::Counter* _spill_read_file_size = nullptr;
     RuntimeProfile::Counter* _spill_read_rows_count = nullptr;
     RuntimeProfile::Counter* _spill_read_file_count = nullptr;
+
+    bool _copy_shared_spill_profile = true;
 };
 
 class DataSinkOperatorXBase;
@@ -699,14 +717,8 @@ public:
                 ADD_COUNTER_WITH_LEVEL(Base::profile(), "SpillWriteBlockCount", TUnit::UNIT, 1);
         _spill_write_block_data_size =
                 ADD_COUNTER_WITH_LEVEL(Base::profile(), "SpillWriteBlockDataSize", TUnit::BYTES, 1);
-        _spill_write_file_data_size =
-                ADD_COUNTER_WITH_LEVEL(Base::profile(), "SpillWriteFileTotalSize", TUnit::BYTES, 1);
         _spill_write_rows_count =
                 ADD_COUNTER_WITH_LEVEL(Base::profile(), "SpillWriteRows", TUnit::UNIT, 1);
-        _spill_file_total_count =
-                ADD_COUNTER_WITH_LEVEL(Base::profile(), "SpillWriteFileTotalCount", TUnit::UNIT, 1);
-        _spill_file_current_count = ADD_COUNTER_WITH_LEVEL(
-                Base::profile(), "SpillWriteFileCurrentCount", TUnit::UNIT, 1);
 
         _spill_max_rows_of_partition =
                 ADD_COUNTER_WITH_LEVEL(Base::profile(), "SpillMaxRowsOfPartition", TUnit::UNIT, 1);
@@ -761,11 +773,7 @@ public:
     RuntimeProfile::Counter* _spill_write_block_count = nullptr;
     // Total bytes of spill data in Block format(in memory format)
     RuntimeProfile::Counter* _spill_write_block_data_size = nullptr;
-    // Total bytes of spill data written to disk file(after serialized)
-    RuntimeProfile::Counter* _spill_write_file_data_size = nullptr;
     RuntimeProfile::Counter* _spill_write_rows_count = nullptr;
-    RuntimeProfile::Counter* _spill_file_total_count = nullptr;
-    RuntimeProfile::Counter* _spill_file_current_count = nullptr;
     // Spilled file total size
     RuntimeProfile::Counter* _spill_file_total_size = nullptr;
 

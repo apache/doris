@@ -31,7 +31,7 @@ namespace doris::vectorized {
 class Block;
 class SpillReader {
 public:
-    SpillReader(RuntimeProfile* profile, int64_t stream_id, std::string file_path)
+    SpillReader(int64_t stream_id, std::string file_path)
             : stream_id_(stream_id), file_path_(std::move(file_path)) {}
 
     ~SpillReader() { (void)close(); }

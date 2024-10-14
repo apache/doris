@@ -972,6 +972,7 @@ Status PartitionedHashJoinProbeOperatorX::get_block(RuntimeState* state, vectori
                                                     bool* eos) {
     *eos = false;
     auto& local_state = get_local_state(state);
+    local_state.copy_shared_spill_profile();
     const auto need_to_spill = local_state._shared_state->need_to_spill;
 #ifndef NDEBUG
     Defer eos_check_defer([&] {
