@@ -83,10 +83,18 @@ void WorkloadSchedPolicyMgr::_schedule_workload() {
             continue;
         }
 
+        WorkloadQueryInfo* top_cpu_query_info;
+        double max_cpu = 0.0;
         for (int i = 0; i < list.size(); i++) {
             WorkloadQueryInfo* query_info_ptr = &(list[i]);
             _exec_env->runtime_query_statistics_mgr()->get_metric_map(query_info_ptr->query_id,
                                                                       query_info_ptr->metric_map);
+            std::string cpu_util = query_info_ptr->metric_map[WorkloadMetricType::CPU_TIME_NANO];
+            double tmp_cpu = std::stod(cpu_util);
+            if (tmp_cpu > max_cpu) {
+                max_cpu = tmp_cpu;
+                top_cpu_query_info = query_info_ptr;
+            }
 
             // 2 get matched policy
             std::map<WorkloadActionType, std::shared_ptr<WorkloadSchedPolicy>> matched_policy_map;
@@ -129,6 +137,17 @@ void WorkloadSchedPolicyMgr::_schedule_workload() {
             // 4 exec policy action
             for (const auto& [key, value] : matched_policy_map) {
                 value->exec_action(query_info_ptr);
+            }
+        }
+
+        // top cpu util
+        if (_cpu_monitor.updateCpuUsage()) {
+            double util = _cpu_monitor.getAverageUsage();
+            LOG(INFO) << "yy debug get cpu util: " << util;
+            if (util > 90 && top_cpu_query_info != nullptr) {
+                LOG(INFO) << "yy debug get cpu util: " << util << ", kill: " << top_cpu_query_info->query_id;
+                ExecEnv::GetInstance()->fragment_mgr()->cancel_query(top_cpu_query_info->tquery_id,
+                        Status::InternalError<false>("cancel top cpu query"));
             }
         }
     }

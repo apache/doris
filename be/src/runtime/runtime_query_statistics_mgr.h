@@ -104,6 +104,42 @@ public:
                                    std::shared_ptr<TRuntimeProfileTree> load_channel_profile_x);
 
 private:
+    void get_cpu_time();
+
+    struct CPUData {
+        unsigned long long user;
+        unsigned long long nice;
+        unsigned long long system;
+        unsigned long long idle;
+        unsigned long long iowait;
+        unsigned long long irq;
+        unsigned long long softirq;
+        unsigned long long steal;
+        unsigned long long guest;
+        unsigned long long guest_nice;
+    };
+
+    CPUData parseCPUData(const std::string& line) {
+        CPUData data;
+        std::istringstream iss(line);
+        std::string cpu;
+        iss >> cpu >> data.user >> data.nice >> data.system >> data.idle >> data.iowait
+            >> data.irq >> data.softirq >> data.steal >> data.guest >> data.guest_nice;
+        return data;
+    }
+    
+    unsigned long long getIdleTime(const CPUData& data) {
+        return data.idle + data.iowait;
+    }
+    
+    unsigned long long getActiveTime(const CPUData& data) {
+        return data.user + data.nice + data.system + data.irq + data.softirq + data.steal + data.guest + data.guest_nice;
+    }
+
+    CPUData _prevData;
+    bool first = true;
+
+private:
     std::shared_mutex _qs_ctx_map_lock;
     std::map<std::string, std::unique_ptr<QueryStatisticsCtx>> _query_statistics_ctx_map;
 

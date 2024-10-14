@@ -508,7 +508,8 @@ void RuntimeQueryStatisticsMgr::get_metric_map(
                        std::to_string(ret_qs.get_current_used_memory_bytes()));
     double cpu_util = (double)ret_qs.get_cpu_time_nanos() / 1e6 / query_time_ms;
     LOG(INFO) << "yy debug get cpu time: " << ret_qs.get_cpu_time_nanos() / 1e6
-              << ", query time: " << query_time_ms;
+              << ", query time: " << query_time_ms << ", util: " << (double) (ret_qs.get_cpu_time_nanos() / 1e6) / query_time_ms;
+    get_cpu_time();
     metric_map.emplace(WorkloadMetricType::CPU_TIME_NANO, std::to_string(cpu_util));
 }
 
@@ -548,6 +549,46 @@ void RuntimeQueryStatisticsMgr::get_active_be_tasks_block(vectorized::Block* blo
         ss << qs_ctx_ptr->_query_type;
         SchemaScannerHelper::insert_string_value(11, ss.str(), block);
     }
+}
+
+void RuntimeQueryStatisticsMgr::get_cpu_time() {
+    std::string line;
+
+    std::ifstream statFile("/proc/stat");
+    if (first) {
+        if (statFile.is_open()) {
+            std::getline(statFile, line);
+            _prevData = parseCPUData(line);
+            statFile.close();
+        }
+        first = false;
+        return;
+    }
+
+    CPUData currData;
+    if (statFile.is_open()) {
+        std::getline(statFile, line);
+        currData = parseCPUData(line);
+        statFile.close();
+    }
+
+    unsigned long long prevIdle = getIdleTime(_prevData);
+    unsigned long long currIdle = getIdleTime(currData);
+
+    unsigned long long prevActive = getActiveTime(_prevData);
+    unsigned long long currActive = getActiveTime(currData);
+
+    unsigned long long totalPrev = prevIdle + prevActive;
+    unsigned long long totalCurr = currIdle + currActive;
+
+    double totalDiff = totalCurr - totalPrev;
+    double idleDiff = currIdle - prevIdle;
+
+    double cpuUsage = (1.0 - (idleDiff / totalDiff)) * 100.0;
+
+    LOG(INFO) << "yy debug CPU Usage: " << cpuUsage << "%" << std::endl;
+
+    _prevData = currData;
 }
 
 } // namespace doris

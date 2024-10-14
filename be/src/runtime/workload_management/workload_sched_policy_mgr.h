@@ -20,6 +20,7 @@
 #include "runtime/exec_env.h"
 #include "runtime/workload_management/workload_sched_policy.h"
 #include "util/countdown_latch.h"
+#include "util/cpu_util.h"
 
 namespace doris {
 
@@ -45,6 +46,7 @@ private:
     CountDownLatch _stop_latch;
     scoped_refptr<Thread> _thread;
     ExecEnv* _exec_env;
+    CpuMonitor _cpu_monitor;
 };
 
 }; // namespace doris
