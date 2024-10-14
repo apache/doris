@@ -899,7 +899,7 @@ Status SchemaChangeJob::_do_process_alter_tablet(const TAlterTabletReqV2& reques
                 }
             }
             std::vector<RowsetSharedPtr> empty_vec;
-            _new_tablet->delete_rowsets(rowsets_to_delete, false);
+            RETURN_IF_ERROR(_new_tablet->delete_rowsets(rowsets_to_delete, false));
             // inherit cumulative_layer_point from base_tablet
             // check if new_tablet.ce_point > base_tablet.ce_point?
             _new_tablet->set_cumulative_layer_point(-1);
