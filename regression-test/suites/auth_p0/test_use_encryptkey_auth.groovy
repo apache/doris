@@ -32,7 +32,7 @@ suite("test_use_encryptkey_auth","p0,auth") {
     connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
         test {
               sql """
-                  sql "SELECT HEX(AES_ENCRYPT("Doris is Great", KEY ${dbName}.${key}));"
+                  SELECT HEX(AES_ENCRYPT("Doris is Great", KEY ${dbName}.${key}));
               """
               exception "denied"
           }
@@ -40,7 +40,7 @@ suite("test_use_encryptkey_auth","p0,auth") {
     sql """grant select_priv on ${dbName} to ${user}"""
     connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
           sql """
-              sql "SELECT HEX(AES_ENCRYPT("Doris is Great", KEY ${dbName}.${key}));"
+              SELECT HEX(AES_ENCRYPT("Doris is Great", KEY ${dbName}.${key}));
           """
     }
     try_sql("DROP USER ${user}")
