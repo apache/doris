@@ -121,6 +121,11 @@ struct TCleanUDFCacheReq {
     1: optional string function_signature //function_name(arg_type)
 }
 
+struct TClearAutoIncCacheReq {
+    // db_id -> table_id
+    1: optional map<i64, list<i64>> tables;
+}
+
 enum TCompressionType {
     UNKNOWN_COMPRESSION = 0,
     DEFAULT_COMPRESSION = 1,
@@ -549,6 +554,7 @@ struct TAgentTaskRequest {
     34: optional TCleanTrashReq clean_trash_req
     35: optional TVisibleVersionReq visible_version_req
     36: optional TCleanUDFCacheReq clean_udf_cache_req
+    37: optional TClearAutoIncCacheReq clear_auto_inc_cache_req
 
     // For cloud
     1000: optional TCalcDeleteBitmapRequest calc_delete_bitmap_req

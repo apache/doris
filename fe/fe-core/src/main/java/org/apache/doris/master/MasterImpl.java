@@ -42,6 +42,7 @@ import org.apache.doris.task.AlterReplicaTask;
 import org.apache.doris.task.CalcDeleteBitmapTask;
 import org.apache.doris.task.CheckConsistencyTask;
 import org.apache.doris.task.ClearAlterTask;
+import org.apache.doris.task.ClearAutoIncCacheTask;
 import org.apache.doris.task.CloneTask;
 import org.apache.doris.task.CreateReplicaTask;
 import org.apache.doris.task.DirMoveTask;
@@ -216,6 +217,9 @@ public class MasterImpl {
                     break;
                 case CALCULATE_DELETE_BITMAP:
                     finishCalcDeleteBitmap(task, request);
+                    break;
+                case CLEAR_AUTO_INC_CACHE:
+                    finishClearAutoIncCache(task, request);
                     break;
                 default:
                     break;
@@ -704,5 +708,16 @@ public class MasterImpl {
         } finally {
             AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.CALCULATE_DELETE_BITMAP, task.getSignature());
         }
+    }
+
+    private void finishClearAutoIncCache(AgentTask task, TFinishTaskRequest request) {
+        ClearAutoIncCacheTask clearAutoIncCacheTask = (ClearAutoIncCacheTask) task;
+        clearAutoIncCacheTask.setFinished(true);
+        clearAutoIncCacheTask.countDown();
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("finish clear auto inc cache. be: {}, report version: {}",
+                    clearAutoIncCacheTask.getBackendId(), request.getReportVersion());
+        }
+        AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.CLEAR_AUTO_INC_CACHE, task.getSignature());
     }
 }
