@@ -27,6 +27,7 @@
 
 #include "runtime/types.h"
 #include "vec/common/arena.h"
+#include "util/runtime_profile.h"
 
 namespace doris {
 
@@ -86,6 +87,14 @@ public:
 
     void set_jsonb_string_as_string(bool jsonb_string_as_string) {
         _jsonb_string_as_string = jsonb_string_as_string;
+    }
+
+    void set_udf_execute_timer(RuntimeProfile::Counter* udf_execute_timer) {
+        _udf_execute_timer = udf_execute_timer;
+    }
+
+    RuntimeProfile::Counter* get_udf_execute_timer() {
+        return _udf_execute_timer;
     }
 
     // Cast flag, when enable string_as_jsonb_string, string casting to jsonb will not parse string
@@ -176,6 +185,8 @@ private:
 
     std::vector<std::shared_ptr<doris::ColumnPtrWrapper>> _constant_cols;
 
+    //udf execute timer
+    RuntimeProfile::Counter* _udf_execute_timer = nullptr;
     bool _check_overflow_for_decimal = false;
 
     bool _string_as_jsonb_string = false;
