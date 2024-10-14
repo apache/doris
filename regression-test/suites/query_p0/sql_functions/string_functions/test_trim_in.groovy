@@ -46,7 +46,7 @@ suite("test_trim_in") {
 
     sql "truncate table test_trim_in"
     sql """ insert into test_trim_in values (1, "", ""), (2, "abcd", "ac"), (3, '  hello  ', 'he '),
-                (4, ' hello world ', ' ehlowrd'),(5, ' hello world ', ' eh');
+                (4, ' hello world ', ' ehlowrd'),(5, ' hello world ', ' eh'),(6,'浙江省杭州市','余杭区'),(6,'c浙江省杭州市a','西湖区');
         """
 
     /// all values
@@ -192,4 +192,13 @@ suite("test_trim_in") {
     order_qt_82 "SELECT trim_in(b, NULL) from test_trim_in;"
     order_qt_83 "SELECT ltrim_in(b, NULL) from test_trim_in;"
     order_qt_84 "SELECT rtrim_in(b, NULL) from test_trim_in;"
+    order_qt_85 "SELECT trim_in(a, '省市杭州') from test_trim_in;"
+    order_qt_86 "SELECT ltrim_in(a, '省市杭州') from test_trim_in;"
+    order_qt_87 "SELECT rtrim_in(a, '省市杭州') from test_trim_in;"
+    order_qt_88 "SELECT trim_in(b, '杭余') from test_trim_in;"
+    order_qt_89 "SELECT ltrim_in(b, '杭余') from test_trim_in;"
+    order_qt_90 "SELECT rtrim_in(b, '杭余') from test_trim_in;"
+    order_qt_91 "SELECT trim_in(a, '省市a杭州') from test_trim_in;"
+    order_qt_92 "SELECT ltrim_in(a, '省市b杭州') from test_trim_in;"
+    order_qt_93 "SELECT rtrim_in(a, '省市c杭州') from test_trim_in;"
 }

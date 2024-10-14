@@ -34,6 +34,30 @@
 \N
 \N
 \N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
 
 -- !not_nullable --
 
@@ -41,6 +65,8 @@
  hello world 
  hello world 
 abcd
+c浙江省杭州市a
+浙江省杭州市
 
 -- !nullable --
 
@@ -48,8 +74,12 @@ abcd
  
  ehlowrd
 ac
+余杭区
+西湖区
 
 -- !not_nullable_null --
+\N
+\N
 \N
 \N
 \N
@@ -62,8 +92,12 @@ ac
 \N
 \N
 \N
+\N
+\N
 
 -- !const_nullable --
+\N
+\N
 \N
 \N
 \N
@@ -76,8 +110,12 @@ ac
 \N
 \N
 \N
+\N
+\N
 
 -- !const_partial_nullable_no_null --
+ab
+ab
 ab
 ab
 ab
@@ -90,8 +128,12 @@ ab
  hello world 
  hello world 
 abcd
+c浙江省杭州市a
+浙江省杭州市
 
 -- !const_not_nullable --
+abdc
+abdc
 abdc
 abdc
 abdc
@@ -317,16 +359,20 @@ hello
 -- !73 --
 
 abcd
+c浙江省杭州市a
 llo
 llo world
 llo world
+浙江省杭州市
 
 -- !74 --
 
 abcd
+c浙江省杭州市a
 llo  
 llo world 
 llo world 
+浙江省杭州市
 
 -- !75 --
 
@@ -334,6 +380,8 @@ llo world
  hello world
  hello world
 abcd
+c浙江省杭州市a
+浙江省杭州市
 
 -- !76 --
 
@@ -341,6 +389,8 @@ abcd
 
 ac
 lowrd
+余杭区
+西湖区
 
 -- !77 --
 
@@ -348,6 +398,8 @@ lowrd
 
 ac
 lowrd
+余杭区
+西湖区
 
 -- !78 --
 
@@ -355,8 +407,12 @@ lowrd
 
  ehlowrd
 ac
+余杭区
+西湖区
 
 -- !79 --
+\N
+\N
 \N
 \N
 \N
@@ -369,8 +425,12 @@ ac
 \N
 \N
 \N
+\N
+\N
 
 -- !81 --
+\N
+\N
 \N
 \N
 \N
@@ -383,8 +443,12 @@ ac
 \N
 \N
 \N
+\N
+\N
 
 -- !83 --
+\N
+\N
 \N
 \N
 \N
@@ -397,4 +461,87 @@ ac
 \N
 \N
 \N
+\N
+\N
+
+-- !85 --
+
+  hello  
+ hello world 
+ hello world 
+abcd
+c浙江省杭州市a
+浙江
+
+-- !86 --
+
+  hello  
+ hello world 
+ hello world 
+abcd
+c浙江省杭州市a
+浙江省杭州市
+
+-- !87 --
+
+  hello  
+ hello world 
+ hello world 
+abcd
+c浙江省杭州市a
+浙江
+
+-- !88 --
+
+ eh
+ ehlowrd
+ac
+he 
+区
+西湖区
+
+-- !89 --
+
+ eh
+ ehlowrd
+ac
+he 
+区
+西湖区
+
+-- !90 --
+
+ eh
+ ehlowrd
+ac
+he 
+余杭区
+西湖区
+
+-- !91 --
+
+  hello  
+ hello world 
+ hello world 
+bcd
+c浙江
+浙江
+
+-- !92 --
+
+  hello  
+ hello world 
+ hello world 
+abcd
+c浙江省杭州市a
+浙江省杭州市
+
+-- !93 --
+
+  hello  
+ hello world 
+ hello world 
+abcd
+c浙江省杭州市a
+浙江
 

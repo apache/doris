@@ -553,29 +553,122 @@ struct TrimInUtil {
         const size_t offset_size = str_offsets.size();
         res_offsets.resize(offset_size);
         res_data.reserve(str_data.size());
-        std::bitset<256> char_lookup;
-        for (size_t i = 0; i < remove_str.size; ++i) {
-            char_lookup[static_cast<unsigned char>(remove_str.data[i])] = true;
+        bool all_ascii = simd::VStringFunctions::is_ascii(remove_str) &&
+                         simd::VStringFunctions::is_ascii(StringRef(
+                                 reinterpret_cast<const char*>(str_data.data()), str_data.size()));
+
+        if (all_ascii) {
+            return impl_vectors_ascii(str_data, str_offsets, remove_str, res_data, res_offsets);
+        } else {
+            return impl_vectors_utf8(str_data, str_offsets, remove_str, res_data, res_offsets);
+        }
+    }
+
+private:
+    static Status impl_vectors_ascii(const ColumnString::Chars& str_data,
+                                     const ColumnString::Offsets& str_offsets,
+                                     const StringRef& remove_str, ColumnString::Chars& res_data,
+                                     ColumnString::Offsets& res_offsets) {
+        const size_t offset_size = str_offsets.size();
+        std::bitset<128> char_lookup;
+        const char* remove_begin = remove_str.data;
+        const char* remove_end = remove_str.data + remove_str.size;
+
+        while (remove_begin < remove_end) {
+            char_lookup.set(static_cast<unsigned char>(*remove_begin));
+            remove_begin += 1;
         }
 
         for (size_t i = 0; i < offset_size; ++i) {
-            const auto* str_begin = str_data.data() + str_offsets[i - 1];
-            const auto* str_end = str_data.data() + str_offsets[i];
-            const auto* p = str_begin;
+            const char* str_begin = reinterpret_cast<const char*>(
+                    str_data.data() + (i == 0 ? 0 : str_offsets[i - 1]));
+            const char* str_end = reinterpret_cast<const char*>(str_data.data() + str_offsets[i]);
+            const char* left_trim_pos = str_begin;
+            const char* right_trim_pos = str_end;
 
             if constexpr (is_ltrim_in) {
-                while (p < str_end && char_lookup[static_cast<unsigned char>(*p)]) {
-                    p++;
+                while (left_trim_pos < str_end) {
+                    if (!char_lookup.test(static_cast<unsigned char>(*left_trim_pos))) {
+                        break;
+                    }
+                    ++left_trim_pos;
                 }
             }
-            const auto* str_end_trimmed = str_end;
+
             if constexpr (is_rtrim_in) {
-                while (str_end_trimmed > p &&
-                       char_lookup[static_cast<unsigned char>(*(str_end_trimmed - 1))]) {
-                    str_end_trimmed--;
+                while (right_trim_pos > left_trim_pos) {
+                    --right_trim_pos;
+                    if (!char_lookup.test(static_cast<unsigned char>(*right_trim_pos))) {
+                        ++right_trim_pos;
+                        break;
+                    }
                 }
             }
-            res_data.insert_assume_reserved(p, str_end_trimmed);
+
+            res_data.insert_assume_reserved(left_trim_pos, right_trim_pos);
+            res_offsets[i] = res_data.size();
+        }
+
+        return Status::OK();
+    }
+
+    static Status impl_vectors_utf8(const ColumnString::Chars& str_data,
+                                    const ColumnString::Offsets& str_offsets,
+                                    const StringRef& remove_str, ColumnString::Chars& res_data,
+                                    ColumnString::Offsets& res_offsets) {
+        const size_t offset_size = str_offsets.size();
+        res_offsets.resize(offset_size);
+        res_data.reserve(str_data.size());
+
+        std::unordered_set<std::string> char_lookup;
+        const char* remove_begin = remove_str.data;
+        const char* remove_end = remove_str.data + remove_str.size;
+
+        while (remove_begin < remove_end) {
+            size_t byte_len, char_len;
+            std::tie(byte_len, char_len) = simd::VStringFunctions::iterate_utf8_with_limit_length(
+                    remove_begin, remove_end, 1);
+            char_lookup.insert(std::string(remove_begin, byte_len));
+            remove_begin += byte_len;
+        }
+
+        for (size_t i = 0; i < offset_size; ++i) {
+            const char* str_begin = reinterpret_cast<const char*>(
+                    str_data.data() + (i == 0 ? 0 : str_offsets[i - 1]));
+            const char* str_end = reinterpret_cast<const char*>(str_data.data() + str_offsets[i]);
+            const char* left_trim_pos = str_begin;
+            const char* right_trim_pos = str_end;
+
+            if constexpr (is_ltrim_in) {
+                while (left_trim_pos < str_end) {
+                    size_t byte_len, char_len;
+                    std::tie(byte_len, char_len) =
+                            simd::VStringFunctions::iterate_utf8_with_limit_length(left_trim_pos,
+                                                                                   str_end, 1);
+                    if (char_lookup.find(std::string(left_trim_pos, byte_len)) ==
+                        char_lookup.end()) {
+                        break;
+                    }
+                    left_trim_pos += byte_len;
+                }
+            }
+
+            if constexpr (is_rtrim_in) {
+                while (right_trim_pos > left_trim_pos) {
+                    const char* prev_char_pos = right_trim_pos;
+                    do {
+                        --prev_char_pos;
+                    } while ((*prev_char_pos & 0xC0) == 0x80);
+                    size_t byte_len = right_trim_pos - prev_char_pos;
+                    if (char_lookup.find(std::string(prev_char_pos, byte_len)) ==
+                        char_lookup.end()) {
+                        break;
+                    }
+                    right_trim_pos = prev_char_pos;
+                }
+            }
+
+            res_data.insert_assume_reserved(left_trim_pos, right_trim_pos);
             res_offsets[i] = res_data.size();
         }
         return Status::OK();
