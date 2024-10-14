@@ -1666,7 +1666,7 @@ class Suite implements GroovyInterceptable {
         return result.values().toList()
     }
 
-    // Given tables to decide whether the table partition row count is ready or not
+    // Given tables to decide whether the table partition row count statistic is ready or not
     boolean is_partition_statistics_ready(db, tables)  {
         boolean isReady = true;
         for (String table : tables) {
@@ -1744,6 +1744,7 @@ class Suite implements GroovyInterceptable {
     // mv part in rewrite process, rewrte success and chosen by cbo
     // sync_cbo_rewrite is the bool value which control sync mv is use cbo based mv rewrite
     // is_partition_statistics_ready is the bool value which identifying if partition row count is valid or not
+    // if true, check if chosen by cbo or doesn't check
     def mv_rewrite_success = { query_sql, mv_name, sync_cbo_rewrite = true, is_partition_statistics_ready = true ->
         logger.info("query_sql = " + query_sql + ", mv_name = " + mv_name + ", sync_cbo_rewrite = " +sync_cbo_rewrite
                 + ", is_partition_statistics_ready = " + is_partition_statistics_ready)
@@ -1767,6 +1768,7 @@ class Suite implements GroovyInterceptable {
     // multi mv part in rewrite process, all rewrte success and chosen by cbo
     // sync_cbo_rewrite is the bool value which control sync mv is use cbo based mv rewrite
     // is_partition_statistics_ready is the bool value which identifying if partition row count is valid or not
+    // if true, check if chosen by cbo or doesn't check
     def mv_rewrite_all_success = { query_sql, mv_names, sync_cbo_rewrite = true, is_partition_statistics_ready = true ->
         logger.info("query_sql = " + query_sql + ", mv_names = " + mv_names + ", sync_cbo_rewrite = " +sync_cbo_rewrite
                 + ", is_partition_statistics_ready = " + is_partition_statistics_ready)
@@ -1802,6 +1804,7 @@ class Suite implements GroovyInterceptable {
     // multi mv part in rewrite process, any of them rewrte success and chosen by cbo
     // sync_cbo_rewrite is the bool value which control sync mv is use cbo based mv rewrite
     // is_partition_statistics_ready is the bool value which identifying if partition row count is valid or not
+    // if true, check if chosen by cbo or doesn't check
     def mv_rewrite_any_success = { query_sql, mv_names, sync_cbo_rewrite = true, is_partition_statistics_ready = true ->
         logger.info("query_sql = " + query_sql + ", mv_names = " + mv_names + ", sync_cbo_rewrite = " +sync_cbo_rewrite
                 + ", is_partition_statistics_ready = " + is_partition_statistics_ready)
