@@ -50,6 +50,13 @@ Status SpillSortSinkLocalState::init(doris::RuntimeState* state,
     return Status::OK();
 }
 
+Status SpillSortSinkLocalState::open(RuntimeState* state) {
+    SCOPED_TIMER(Base::exec_time_counter());
+    SCOPED_TIMER(Base::_open_timer);
+    _shared_state->setup_shared_profile(_profile);
+    return Base::open(state);
+}
+
 void SpillSortSinkLocalState::_init_counters() {
     _internal_runtime_profile = std::make_unique<RuntimeProfile>("internal_profile");
 
@@ -57,10 +64,7 @@ void SpillSortSinkLocalState::_init_counters() {
     _merge_block_timer = ADD_TIMER(_profile, "MergeBlockTime");
     _sort_blocks_memory_usage =
             ADD_COUNTER_WITH_LEVEL(_profile, "MemoryUsageSortBlocks", TUnit::BYTES, 1);
-
     _spill_merge_sort_timer = ADD_TIMER_WITH_LEVEL(_profile, "SpillMergeSortTime", 1);
-
-    _spill_wait_in_queue_timer = ADD_TIMER_WITH_LEVEL(profile(), "SpillWaitInQueueTime", 1);
 }
 #define UPDATE_PROFILE(counter, name)                           \
     do {                                                        \
@@ -201,13 +205,8 @@ Status SpillSortSinkLocalState::revoke_memory(RuntimeState* state,
             _shared_state->spill_block_batch_row_count,
             SpillSortSharedState::SORT_BLOCK_SPILL_BATCH_BYTES, profile());
     RETURN_IF_ERROR(status);
+    _spilling_stream->set_write_counters(_profile);
 
-    _spilling_stream->set_write_counters(
-            Base::_spill_serialize_block_timer, Base::_spill_block_count, Base::_spill_data_size,
-            Base::_spill_write_disk_timer, Base::_spill_write_wait_io_timer, memory_used_counter());
-
-    status = _spilling_stream->prepare_spill();
-    RETURN_IF_ERROR(status);
     _shared_state->sorted_streams.emplace_back(_spilling_stream);
 
     auto& parent = Base::_parent->template cast<Parent>();
@@ -218,11 +217,7 @@ Status SpillSortSinkLocalState::revoke_memory(RuntimeState* state,
     }
     auto query_id = state->query_id();
 
-    MonotonicStopWatch submit_timer;
-    submit_timer.start();
-
-    auto spill_func = [this, state, query_id, &parent, submit_timer] {
-        _spill_wait_in_queue_timer->update(submit_timer.elapsed_time());
+    auto spill_func = [this, state, query_id, &parent] {
         Defer defer {[&]() {
             if (!_shared_state->sink_status.ok() || state->is_cancelled()) {
                 if (!_shared_state->sink_status.ok()) {
@@ -267,10 +262,7 @@ Status SpillSortSinkLocalState::revoke_memory(RuntimeState* state,
                         &eos);
             }
             RETURN_IF_ERROR(_shared_state->sink_status);
-            {
-                SCOPED_TIMER(Base::_spill_timer);
-                _shared_state->sink_status = _spilling_stream->spill_block(state, block, eos);
-            }
+            _shared_state->sink_status = _spilling_stream->spill_block(state, block, eos);
             RETURN_IF_ERROR(_shared_state->sink_status);
             block.clear_column_data();
         }
@@ -279,7 +271,19 @@ Status SpillSortSinkLocalState::revoke_memory(RuntimeState* state,
         return Status::OK();
     };
 
-    auto exception_catch_func = [this, query_id, spill_context, spill_func]() {
+    MonotonicStopWatch submit_timer;
+    submit_timer.start();
+
+    auto exception_catch_func = [this, query_id, spill_context, submit_timer, spill_func]() {
+        auto submit_elapsed_time = submit_timer.elapsed_time();
+        _spill_write_wait_in_queue_timer->update(submit_elapsed_time);
+        exec_time_counter()->update(submit_elapsed_time);
+        _spill_total_timer->update(submit_elapsed_time);
+
+        SCOPED_TIMER(exec_time_counter());
+        SCOPED_TIMER(_spill_total_timer);
+        SCOPED_TIMER(_spill_write_timer);
+
         DBUG_EXECUTE_IF("fault_inject::spill_sort_sink::revoke_memory_cancel", {
             ExecEnv::GetInstance()->fragment_mgr()->cancel_query(
                     query_id, Status::InternalError("fault_inject spill_sort_sink "
@@ -304,7 +308,8 @@ Status SpillSortSinkLocalState::revoke_memory(RuntimeState* state,
     if (status.ok()) {
         state->get_query_ctx()->increase_revoking_tasks_count();
         status = ExecEnv::GetInstance()->spill_stream_mgr()->get_spill_io_thread_pool()->submit(
-                std::make_shared<SpillRunnable>(state, _shared_state->shared_from_this(),
+                std::make_shared<SpillRunnable>(state, _profile, true,
+                                                _shared_state->shared_from_this(),
                                                 exception_catch_func));
     }
     if (!status.ok()) {

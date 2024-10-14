@@ -47,6 +47,7 @@ public:
     Status revoke_memory(RuntimeState* state, const std::shared_ptr<SpillContext>& spill_context);
     size_t revocable_mem_size(RuntimeState* state) const;
     [[nodiscard]] size_t get_reserve_mem_size(RuntimeState* state, bool eos);
+    void update_memory_usage();
 
 protected:
     PartitionedHashJoinSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)

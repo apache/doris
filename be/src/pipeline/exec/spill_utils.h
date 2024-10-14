@@ -29,6 +29,7 @@
 #include "runtime/runtime_state.h"
 #include "runtime/task_execution_context.h"
 #include "runtime/thread_context.h"
+#include "util/runtime_profile.h"
 #include "util/threadpool.h"
 #include "vec/runtime/partitioner.h"
 
@@ -78,12 +79,23 @@ private:
 
 class SpillRunnable : public Runnable {
 public:
-    SpillRunnable(RuntimeState* state, const std::shared_ptr<BasicSharedState>& shared_state,
-                  std::function<void()> func)
+    SpillRunnable(RuntimeState* state, RuntimeProfile* profile, bool is_write,
+                  const std::shared_ptr<BasicSharedState>& shared_state, std::function<void()> func)
             : _state(state),
+              _is_write(is_write),
               _task_context_holder(state->get_task_execution_context()),
               _shared_state_holder(shared_state),
-              _func(std::move(func)) {}
+              _func(std::move(func)) {
+        write_wait_in_queue_task_count = profile->get_counter("SpillWriteTaskWaitInQueueCount");
+        writing_task_count = profile->get_counter("SpillWriteTaskCount");
+        read_wait_in_queue_task_count = profile->get_counter("SpillReadTaskWaitInQueueCount");
+        reading_task_count = profile->get_counter("SpillReadTaskCount");
+        if (is_write) {
+            COUNTER_UPDATE(write_wait_in_queue_task_count, 1);
+        } else {
+            COUNTER_UPDATE(read_wait_in_queue_task_count, 1);
+        }
+    }
 
     ~SpillRunnable() override = default;
 
@@ -94,8 +106,20 @@ public:
         if (!task_context_holder) {
             return;
         }
+        if (_is_write) {
+            COUNTER_UPDATE(write_wait_in_queue_task_count, -1);
+            COUNTER_UPDATE(writing_task_count, 1);
+        } else {
+            COUNTER_UPDATE(read_wait_in_queue_task_count, -1);
+            COUNTER_UPDATE(reading_task_count, 1);
+        }
         SCOPED_ATTACH_TASK(_state);
         Defer defer([&] {
+            if (_is_write) {
+                COUNTER_UPDATE(writing_task_count, -1);
+            } else {
+                COUNTER_UPDATE(reading_task_count, -1);
+            }
             std::function<void()> tmp;
             std::swap(tmp, _func);
         });
@@ -113,6 +137,11 @@ public:
 
 private:
     RuntimeState* _state;
+    bool _is_write;
+    RuntimeProfile::Counter* write_wait_in_queue_task_count = nullptr;
+    RuntimeProfile::Counter* writing_task_count = nullptr;
+    RuntimeProfile::Counter* read_wait_in_queue_task_count = nullptr;
+    RuntimeProfile::Counter* reading_task_count = nullptr;
     std::weak_ptr<TaskExecutionContext> _task_context_holder;
     std::weak_ptr<BasicSharedState> _shared_state_holder;
     std::function<void()> _func;
