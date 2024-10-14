@@ -44,6 +44,9 @@ suite("test_alter_table_partition", "p0") {
             "(\n" +
             "    \"replication_num\" = \"1\"\n" +
             ");"
+    def result;
+    def errorMessage;
+    def sqlString;
 
     //Add partitions, existing partitions [MIN, 2013-01-01), add partitions [2013-01-01, 2014-01-01), using default bucket partitioning method
     sql dropSql;
@@ -66,22 +69,47 @@ suite("test_alter_table_partition", "p0") {
             "(\"replication_num\"=\"1\");"
 
     //Modify the number of partition copies
-//    sql dropSql;
-//    sql initTable;
-//    sql "ALTER TABLE ${tbName}\n" +
-//            "MODIFY PARTITION p2011 SET(\"replication_num\"=\"1\");"
+    sql dropSql;
+    sql initTable;
+    sqlString = """ALTER TABLE ${tbName} MODIFY PARTITION p2011 SET("replication_num"="1");"""
+    if (isCloudMode()){
+        errorMessage = "errCode = 2, detailMessage = Cann't modify property 'replication_num' in cloud mode."
+        expectException({
+            sql sqlString
+        }, errorMessage)
+    }else {
+        sql sqlString
+    }
 
     //Batch modify specified partitions
-//    sql dropSql;
-//    sql initTable;
-//    sql "ALTER TABLE ${tbName}\n" +
-//            "MODIFY PARTITION (p201001, p201002, p2011) SET(\"replication_num\"=\"1\");"
+    sql dropSql;
+    sql initTable;
+    sqlString = """ALTER TABLE ${tbName} MODIFY PARTITION (p201001, p201002, p2011) SET("replication_num"="1");"""
+    if (isCloudMode()){
+        errorMessage = "errCode = 2, detailMessage = Cann't modify property 'replication_num' in cloud mode."
+        expectException({
+            sql sqlString
+        }, errorMessage)
+    }else {
+        sql sqlString
+    }
+
+    
+    
 
     //Batch modify all partitions
     sql dropSql;
     sql initTable;
-    sql "ALTER TABLE ${tbName}\n" +
-            "MODIFY PARTITION (*) SET(\"storage_medium\"=\"HDD\");"
+    sqlString = """ALTER TABLE ${tbName} MODIFY PARTITION (*) SET("storage_medium"="HDD");"""
+    if (isCloudMode()){
+        errorMessage = "errCode = 2, detailMessage = Cann't modify property 'storage_medium' in cloud mode."
+        expectException({
+            sql sqlString
+        }, errorMessage)
+    }else {
+        sql sqlString
+    }
+
 
     //delete a partition
     sql dropSql;
