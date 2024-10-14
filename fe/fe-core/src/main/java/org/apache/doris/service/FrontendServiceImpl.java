@@ -240,6 +240,7 @@ import org.apache.doris.thrift.TTableStatus;
 import org.apache.doris.thrift.TTabletLocation;
 import org.apache.doris.thrift.TTxnParams;
 import org.apache.doris.thrift.TUniqueId;
+import org.apache.doris.thrift.TUniqueKeyUpdateMode;
 import org.apache.doris.thrift.TUpdateExportTaskStatusRequest;
 import org.apache.doris.thrift.TUpdateFollowerStatsCacheRequest;
 import org.apache.doris.thrift.TWaitingTxnStatusRequest;
@@ -2261,7 +2262,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     throw new UserException("txn does not exist: " + request.getTxnId());
                 }
                 txnState.addTableIndexes(table);
-                if (request.isPartialUpdate()) {
+                TUniqueKeyUpdateMode uniqueKeyUpdateMode = request.getUniqueKeyUpdateMode();
+                if (uniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS
+                        || uniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS) {
                     txnState.setSchemaForPartialUpdate(table);
                 }
             }
@@ -2327,7 +2330,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     throw new UserException("txn does not exist: " + request.getTxnId());
                 }
                 txnState.addTableIndexes(table);
-                if (request.isPartialUpdate()) {
+                TUniqueKeyUpdateMode uniqueKeyUpdateMode = request.getUniqueKeyUpdateMode();
+                if (uniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS
+                        || uniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS) {
                     txnState.setSchemaForPartialUpdate(table);
                 }
             }

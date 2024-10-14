@@ -178,40 +178,38 @@ suite('test_flexible_partial_update_restricts') {
         }
     }
 
-    if (!isCloudMode()) {
-        // in cloud mode, all tables has light schema change on
-        tableName = "test_flexible_partial_update_restricts2"
-        sql """ DROP TABLE IF EXISTS ${tableName} """
-        sql """ CREATE TABLE ${tableName} (
-            `k` int(11) NULL, 
-            `v1` BIGINT NULL,
-            `v2` BIGINT NULL DEFAULT "9876",
-            `v3` BIGINT NOT NULL,
-            `v4` BIGINT NOT NULL DEFAULT "1234",
-            `v5` BIGINT NULL
-            ) UNIQUE KEY(`k`) DISTRIBUTED BY HASH(`k`) BUCKETS 1
-            PROPERTIES(
-            "replication_num" = "1",
-            "enable_unique_key_merge_on_write" = "true",
-            "light_schema_change" = "false",
-            "enable_unique_key_skip_bitmap_column" = "true",
-            "store_row_column" = "false"); """
-        
-        streamLoad {
-            table "${tableName}"
-            set 'format', 'json'
-            set 'read_json_by_line', 'true'
-            set 'unique_key_update_mode', 'UPDATE_FLEXIBLE_COLUMNS'
-            file "test1.json"
-            time 20000
-            check { result, exception, startTime, endTime ->
-                if (exception != null) {
-                    throw exception
-                }
-                def json = parseJson(result)
-                assertEquals("fail", json.Status.toLowerCase())
-                assertTrue(json.Message.contains("Flexible partial update can only support table with light_schema_change enabled."));
+    // in cloud mode, all tables has light schema change on
+    tableName = "test_flexible_partial_update_restricts2"
+    sql """ DROP TABLE IF EXISTS ${tableName} """
+    sql """ CREATE TABLE ${tableName} (
+        `k` int(11) NULL, 
+        `v1` BIGINT NULL,
+        `v2` BIGINT NULL DEFAULT "9876",
+        `v3` BIGINT NOT NULL,
+        `v4` BIGINT NOT NULL DEFAULT "1234",
+        `v5` BIGINT NULL
+        ) UNIQUE KEY(`k`) DISTRIBUTED BY HASH(`k`) BUCKETS 1
+        PROPERTIES(
+        "replication_num" = "1",
+        "enable_unique_key_merge_on_write" = "true",
+        "light_schema_change" = "false",
+        "enable_unique_key_skip_bitmap_column" = "true",
+        "store_row_column" = "false"); """
+    
+    streamLoad {
+        table "${tableName}"
+        set 'format', 'json'
+        set 'read_json_by_line', 'true'
+        set 'unique_key_update_mode', 'UPDATE_FLEXIBLE_COLUMNS'
+        file "test1.json"
+        time 20000
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
             }
+            def json = parseJson(result)
+            assertEquals("fail", json.Status.toLowerCase())
+            assertTrue(json.Message.contains("Flexible partial update can only support table with light_schema_change enabled."));
         }
     }
 

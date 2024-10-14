@@ -715,7 +715,9 @@ Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(
     // 9. build primary key index
     for (size_t block_pos = data.row_pos; block_pos < data.row_pos + data.num_rows; block_pos++) {
         std::string key = _full_encode_keys(key_columns, block_pos - data.row_pos);
-        _encode_seq_column(seq_column, block_pos - data.row_pos, &key);
+        if (_tablet_schema->has_sequence_col()) {
+            _encode_seq_column(seq_column, block_pos - data.row_pos, &key);
+        }
         RETURN_IF_ERROR(_primary_key_index_builder->add_item(key));
     }
 
