@@ -1194,6 +1194,7 @@ Status CompactionMixin::modify_rowsets() {
             LOG(WARNING) << "failed to remove old version delete bitmap, st: " << st;
         }
     }
+
     return Status::OK();
 }
 

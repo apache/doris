@@ -1427,6 +1427,8 @@ DEFINE_mInt32(lz4_compression_block_size, "262144");
 
 DEFINE_mBool(enable_pipeline_task_leakage_detect, "false");
 
+DEFINE_mInt32(check_score_rounds_num, "1000");
+
 DEFINE_Int32(query_cache_size, "512");
 
 DEFINE_mBool(enable_delete_bitmap_merge_on_compaction, "false");
