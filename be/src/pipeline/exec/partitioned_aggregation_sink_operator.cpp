@@ -76,6 +76,7 @@ Status PartitionedAggSinkLocalState::init(doris::RuntimeState* state,
 Status PartitionedAggSinkLocalState::open(RuntimeState* state) {
     SCOPED_TIMER(Base::exec_time_counter());
     SCOPED_TIMER(Base::_open_timer);
+    _shared_state->setup_shared_profile(_profile);
     return Base::open(state);
 }
 
@@ -301,8 +302,17 @@ Status PartitionedAggSinkLocalState::revoke_memory(
 
     state->get_query_ctx()->increase_revoking_tasks_count();
     auto spill_runnable = std::make_shared<SpillRunnable>(
-            state, _shared_state->shared_from_this(),
+            state, _profile, true, _shared_state->shared_from_this(),
             [this, &parent, state, query_id, size_to_revoke, spill_context, submit_timer] {
+                auto submit_elapsed_time = submit_timer.elapsed_time();
+                _spill_write_wait_in_queue_timer->update(submit_elapsed_time);
+                exec_time_counter()->update(submit_elapsed_time);
+                _spill_total_timer->update(submit_elapsed_time);
+
+                SCOPED_TIMER(exec_time_counter());
+                SCOPED_TIMER(_spill_total_timer);
+                SCOPED_TIMER(_spill_write_timer);
+
                 DBUG_EXECUTE_IF("fault_inject::partitioned_agg_sink::revoke_memory_cancel", {
                     auto st = Status::InternalError(
                             "fault_inject partitioned_agg_sink "
@@ -310,8 +320,6 @@ Status PartitionedAggSinkLocalState::revoke_memory(
                     ExecEnv::GetInstance()->fragment_mgr()->cancel_query(query_id, st);
                     return st;
                 });
-                _spill_wait_in_queue_timer->update(submit_timer.elapsed_time());
-                SCOPED_TIMER(Base::_spill_timer);
                 Defer defer {[&]() {
                     if (!_shared_state->sink_status.ok() || state->is_cancelled()) {
                         if (!_shared_state->sink_status.ok()) {

@@ -318,6 +318,19 @@ void PartitionedAggSharedState::init_spill_params(size_t spill_partition_count_b
     }
 }
 
+void PartitionedAggSharedState::update_spill_stream_profiles(RuntimeProfile* source_profile) {
+    for (auto& partition : spill_partitions) {
+        if (partition->spilling_stream_) {
+            partition->spilling_stream_->update_shared_profiles(source_profile);
+        }
+        for (auto& stream : partition->spill_streams_) {
+            if (stream) {
+                stream->update_shared_profiles(source_profile);
+            }
+        }
+    }
+}
+
 Status AggSpillPartition::get_spill_stream(RuntimeState* state, int node_id,
                                            RuntimeProfile* profile,
                                            vectorized::SpillStreamSPtr& spill_stream) {
@@ -330,6 +343,7 @@ Status AggSpillPartition::get_spill_stream(RuntimeState* state, int node_id,
             std::numeric_limits<int32_t>::max(), std::numeric_limits<size_t>::max(), profile));
     spill_streams_.emplace_back(spilling_stream_);
     spill_stream = spilling_stream_;
+    spill_stream->set_write_counters(profile);
     return Status::OK();
 }
 void AggSpillPartition::close() {
@@ -354,6 +368,14 @@ void PartitionedAggSharedState::close() {
         partition->close();
     }
     spill_partitions.clear();
+}
+
+void SpillSortSharedState::update_spill_stream_profiles(RuntimeProfile* source_profile) {
+    for (auto& stream : sorted_streams) {
+        if (stream) {
+            stream->update_shared_profiles(source_profile);
+        }
+    }
 }
 
 void SpillSortSharedState::close() {

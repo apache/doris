@@ -65,10 +65,6 @@ protected:
     std::unique_ptr<RuntimeProfile> _internal_runtime_profile;
     // counters for spill merge sort
     RuntimeProfile::Counter* _spill_merge_sort_timer = nullptr;
-    RuntimeProfile::Counter* _spill_serialize_block_timer = nullptr;
-    RuntimeProfile::Counter* _spill_write_disk_timer = nullptr;
-    RuntimeProfile::Counter* _spill_data_size = nullptr;
-    RuntimeProfile::Counter* _spill_block_count = nullptr;
 };
 class SortSourceOperatorX;
 class SpillSortSourceOperatorX : public OperatorX<SpillSortLocalState> {

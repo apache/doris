@@ -141,6 +141,7 @@ bool PartitionedAggSourceOperatorX::is_serial_operator() const {
 Status PartitionedAggSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* block,
                                                 bool* eos) {
     auto& local_state = get_local_state(state);
+    local_state.copy_shared_spill_profile();
     Defer defer {[&]() {
         if (!local_state._status.ok() || *eos) {
             local_state._shared_state->close();
@@ -230,8 +231,6 @@ Status PartitionedAggLocalState::setup_in_memory_agg_op(RuntimeState* state) {
 
 Status PartitionedAggLocalState::recover_blocks_from_disk(RuntimeState* state, bool& has_data) {
     const auto query_id = state->query_id();
-    MonotonicStopWatch submit_timer;
-    submit_timer.start();
 
     if (_shared_state->spill_partitions.empty()) {
         _shared_state->close();
@@ -240,10 +239,7 @@ Status PartitionedAggLocalState::recover_blocks_from_disk(RuntimeState* state, b
     }
 
     has_data = true;
-    auto spill_func = [this, state, query_id, submit_timer] {
-        _spill_wait_in_queue_timer->update(submit_timer.elapsed_time());
-        MonotonicStopWatch execution_timer;
-        execution_timer.start();
+    auto spill_func = [this, state, query_id] {
         Defer defer {[&]() {
             if (!_status.ok() || state->is_cancelled()) {
                 if (!_status.ok()) {
@@ -259,14 +255,11 @@ Status PartitionedAggLocalState::recover_blocks_from_disk(RuntimeState* state, b
         while (!state->is_cancelled() && !has_agg_data &&
                !_shared_state->spill_partitions.empty()) {
             for (auto& stream : _shared_state->spill_partitions[0]->spill_streams_) {
-                stream->set_read_counters(Base::_spill_read_data_time,
-                                          Base::_spill_deserialize_time, Base::_spill_read_bytes,
-                                          Base::_spill_read_wait_io_timer);
+                stream->set_read_counters(profile());
                 vectorized::Block block;
                 bool eos = false;
                 while (!eos && !state->is_cancelled()) {
                     {
-                        SCOPED_TIMER(Base::_spill_recover_time);
                         DBUG_EXECUTE_IF("fault_inject::partitioned_agg_source::recover_spill_data",
                                         {
                                             _status = Status::Error<INTERNAL_ERROR>(
@@ -302,7 +295,18 @@ Status PartitionedAggLocalState::recover_blocks_from_disk(RuntimeState* state, b
         return _status;
     };
 
-    auto exception_catch_func = [spill_func, query_id, this]() {
+    MonotonicStopWatch submit_timer;
+    submit_timer.start();
+    auto exception_catch_func = [spill_func, query_id, submit_timer, this]() {
+        auto submit_elapsed_time = submit_timer.elapsed_time();
+        _spill_read_wait_in_queue_timer->update(submit_elapsed_time);
+        exec_time_counter()->update(submit_elapsed_time);
+        _spill_total_timer->update(submit_elapsed_time);
+
+        SCOPED_TIMER(exec_time_counter());
+        SCOPED_TIMER(_spill_total_timer);
+        SCOPED_TIMER(_spill_recover_time);
+
         DBUG_EXECUTE_IF("fault_inject::partitioned_agg_source::merge_spill_data_cancel", {
             auto st = Status::InternalError(
                     "fault_inject partitioned_agg_source "
@@ -324,7 +328,8 @@ Status PartitionedAggLocalState::recover_blocks_from_disk(RuntimeState* state, b
     });
     _spill_dependency->block();
     return ExecEnv::GetInstance()->spill_stream_mgr()->get_spill_io_thread_pool()->submit(
-            std::make_shared<SpillRunnable>(state, _shared_state->shared_from_this(),
+            std::make_shared<SpillRunnable>(state, _runtime_profile.get(), false,
+                                            _shared_state->shared_from_this(),
                                             exception_catch_func));
 }
 } // namespace doris::pipeline

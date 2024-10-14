@@ -423,13 +423,35 @@ private:
     Status _destroy_agg_status(vectorized::AggregateDataPtr data);
 };
 
+struct BasicSpillSharedState {
+    virtual ~BasicSpillSharedState() = default;
+
+    // These two counters are shared to spill source operators as the initial value
+    // of 'SpillWriteFileCurrentSize' and 'SpillWriteFileCurrentCount'.
+    // Total bytes of spill data written to disk file(after serialized)
+    RuntimeProfile::Counter* _spill_write_file_data_size = nullptr;
+    RuntimeProfile::Counter* _spill_file_total_count = nullptr;
+
+    void setup_shared_profile(RuntimeProfile* sink_profile) {
+        _spill_file_total_count =
+                ADD_COUNTER_WITH_LEVEL(sink_profile, "SpillWriteFileTotalCount", TUnit::UNIT, 1);
+        _spill_write_file_data_size =
+                ADD_COUNTER_WITH_LEVEL(sink_profile, "SpillWriteFileTotalSize", TUnit::BYTES, 1);
+    }
+
+    virtual void update_spill_stream_profiles(RuntimeProfile* source_profile) = 0;
+};
+
 struct AggSpillPartition;
 struct PartitionedAggSharedState : public BasicSharedState,
+                                   public BasicSpillSharedState,
                                    public std::enable_shared_from_this<PartitionedAggSharedState> {
     ENABLE_FACTORY_CREATOR(PartitionedAggSharedState)
 
     PartitionedAggSharedState() = default;
     ~PartitionedAggSharedState() override = default;
+
+    void update_spill_stream_profiles(RuntimeProfile* source_profile) override;
 
     void init_spill_params(size_t spill_partition_count_bits);
 
@@ -495,6 +517,7 @@ public:
 };
 
 struct SpillSortSharedState : public BasicSharedState,
+                              public BasicSpillSharedState,
                               public std::enable_shared_from_this<SpillSortSharedState> {
     ENABLE_FACTORY_CREATOR(SpillSortSharedState)
 
@@ -512,6 +535,9 @@ struct SpillSortSharedState : public BasicSharedState,
             LOG(INFO) << "spill sort block batch row count: " << spill_block_batch_row_count;
         }
     }
+
+    void update_spill_stream_profiles(RuntimeProfile* source_profile) override;
+
     void close();
 
     SortSharedState* in_mem_shared_state = nullptr;
@@ -620,8 +646,17 @@ struct HashJoinSharedState : public JoinSharedState {
 
 struct PartitionedHashJoinSharedState
         : public HashJoinSharedState,
+          public BasicSpillSharedState,
           public std::enable_shared_from_this<PartitionedHashJoinSharedState> {
     ENABLE_FACTORY_CREATOR(PartitionedHashJoinSharedState)
+
+    void update_spill_stream_profiles(RuntimeProfile* source_profile) override {
+        for (auto& stream : spilled_streams) {
+            if (stream) {
+                stream->update_shared_profiles(source_profile);
+            }
+        }
+    }
 
     std::unique_ptr<RuntimeState> inner_runtime_state;
     std::shared_ptr<HashJoinSharedState> inner_shared_state;

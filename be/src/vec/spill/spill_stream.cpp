@@ -45,16 +45,31 @@ SpillStream::SpillStream(RuntimeState* state, int64_t stream_id, SpillDataDir* d
           batch_rows_(batch_rows),
           batch_bytes_(batch_bytes),
           query_id_(state->query_id()),
-          profile_(profile) {}
+          profile_(profile) {
+    _total_file_count = profile_->get_counter("SpillWriteFileTotalCount");
+    _current_file_count = profile_->get_counter("SpillWriteFileCurrentCount");
+    _current_file_size = profile_->get_counter("SpillWriteFileCurrentSize");
+}
+
+void SpillStream::update_shared_profiles(RuntimeProfile* source_op_profile) {
+    _current_file_count = source_op_profile->get_counter("SpillWriteFileCurrentCount");
+    _current_file_size = source_op_profile->get_counter("SpillWriteFileCurrentSize");
+}
 
 SpillStream::~SpillStream() {
     gc();
 }
 
 void SpillStream::gc() {
+    if (_current_file_size) {
+        COUNTER_UPDATE(_current_file_size, -total_written_bytes_);
+    }
     bool exists = false;
     auto status = io::global_local_filesystem()->exists(spill_dir_, &exists);
     if (status.ok() && exists) {
+        if (_current_file_count) {
+            COUNTER_UPDATE(_current_file_count, -1);
+        }
         auto query_gc_dir = data_dir_->get_spill_data_gc_path(print_id(query_id_));
         status = io::global_local_filesystem()->create_directory(query_gc_dir);
         DBUG_EXECUTE_IF("fault_inject::spill_stream::gc", {
@@ -80,10 +95,19 @@ void SpillStream::gc() {
 }
 
 Status SpillStream::prepare() {
-    writer_ = std::make_unique<SpillWriter>(stream_id_, batch_rows_, data_dir_, spill_dir_);
+    writer_ =
+            std::make_unique<SpillWriter>(profile_, stream_id_, batch_rows_, data_dir_, spill_dir_);
 
     reader_ = std::make_unique<SpillReader>(stream_id_, writer_->get_file_path());
-    return Status::OK();
+
+    DBUG_EXECUTE_IF("fault_inject::spill_stream::prepare_spill", {
+        return Status::Error<INTERNAL_ERROR>("fault_inject spill_stream prepare_spill failed");
+    });
+    COUNTER_UPDATE(_total_file_count, 1);
+    if (_current_file_count) {
+        COUNTER_UPDATE(_current_file_count, 1);
+    }
+    return writer_->open();
 }
 
 const TUniqueId& SpillStream::query_id() const {
@@ -93,12 +117,6 @@ const TUniqueId& SpillStream::query_id() const {
 const std::string& SpillStream::get_spill_root_dir() const {
     return data_dir_->path();
 }
-Status SpillStream::prepare_spill() {
-    DBUG_EXECUTE_IF("fault_inject::spill_stream::prepare_spill", {
-        return Status::Error<INTERNAL_ERROR>("fault_inject spill_stream prepare_spill failed");
-    });
-    return writer_->open();
-}
 
 Status SpillStream::spill_block(RuntimeState* state, const Block& block, bool eof) {
     size_t written_bytes = 0;
@@ -107,9 +125,7 @@ Status SpillStream::spill_block(RuntimeState* state, const Block& block, bool eo
     });
     RETURN_IF_ERROR(writer_->write(state, block, written_bytes));
     if (eof) {
-        RETURN_IF_ERROR(writer_->close());
-        total_written_bytes_ = writer_->get_written_bytes();
-        writer_.reset();
+        RETURN_IF_ERROR(spill_eof());
     } else {
         total_written_bytes_ = writer_->get_written_bytes();
     }

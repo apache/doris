@@ -169,6 +169,7 @@ Status SpillStreamManager::register_spill_stream(RuntimeState* state, SpillStrea
     SpillDataDir* data_dir = nullptr;
     for (auto& dir : data_dirs) {
         std::string spill_root_dir = dir->get_spill_data_path();
+        // storage_root/spill/query_id/partitioned_hash_join-node_id-task_id-stream_id
         spill_dir = fmt::format("{}/{}/{}-{}-{}-{}", spill_root_dir, query_id, operator_name,
                                 node_id, state->task_id(), id);
         auto st = io::global_local_filesystem()->create_directory(spill_dir);

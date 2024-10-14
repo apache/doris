@@ -32,9 +32,16 @@ namespace vectorized {
 class SpillDataDir;
 class SpillWriter {
 public:
-    SpillWriter(int64_t id, size_t batch_size, SpillDataDir* data_dir, const std::string& dir)
+    SpillWriter(RuntimeProfile* profile, int64_t id, size_t batch_size, SpillDataDir* data_dir,
+                const std::string& dir)
             : data_dir_(data_dir), stream_id_(id), batch_size_(batch_size) {
-        file_path_ = dir + "/" + std::to_string(file_index_);
+        // Directory path format specified in SpillStreamManager::register_spill_stream:
+        // storage_root/spill/query_id/partitioned_hash_join-node_id-task_id-stream_id/0
+        file_path_ = dir + "/0";
+
+        _memory_used_counter = profile->get_counter("MemoryUsage");
+        _peak_memory_usage_counter = static_cast<RuntimeProfile::HighWaterMarkCounter*>(
+                profile->get_counter("MemoryUsagePeak"));
     }
 
     Status open();
@@ -49,21 +56,16 @@ public:
 
     const std::string& get_file_path() const { return file_path_; }
 
-    void set_counters(RuntimeProfile::Counter* serialize_timer,
-                      RuntimeProfile::Counter* write_block_counter,
-                      RuntimeProfile::Counter* write_bytes_counter,
-                      RuntimeProfile::Counter* write_timer,
-                      RuntimeProfile::Counter* memory_used_counter) {
-        serialize_timer_ = serialize_timer;
-        write_block_counter_ = write_block_counter;
-        write_bytes_counter_ = write_bytes_counter;
-        write_timer_ = write_timer;
-        memory_used_counter_ = memory_used_counter;
+    void set_counters(RuntimeProfile* profile) {
+        _write_file_timer = profile->get_counter("SpillWriteFileTime");
+        _serialize_timer = profile->get_counter("SpillWriteSerializeBlockTime");
+        _write_block_counter = profile->get_counter("SpillWriteBlockCount");
+        _write_block_bytes_counter = profile->get_counter("SpillWriteBlockDataSize");
+        _write_file_data_bytes_counter = profile->get_counter("SpillWriteFileTotalSize");
+        _write_rows_counter = profile->get_counter("SpillWriteRows");
     }
 
 private:
-    void _init_profile();
-
     Status _write_internal(const Block& block, size_t& written_bytes);
 
     // not owned, point to the data dir of this rowset
@@ -73,7 +75,6 @@ private:
     int64_t stream_id_;
     size_t batch_size_;
     size_t max_sub_block_size_ = 0;
-    int file_index_ = 0;
     std::string file_path_;
     std::unique_ptr<doris::io::FileWriter> file_writer_;
 
@@ -81,11 +82,14 @@ private:
     int64_t total_written_bytes_ = 0;
     std::string meta_;
 
-    RuntimeProfile::Counter* write_bytes_counter_ = nullptr;
-    RuntimeProfile::Counter* serialize_timer_ = nullptr;
-    RuntimeProfile::Counter* write_timer_ = nullptr;
-    RuntimeProfile::Counter* write_block_counter_ = nullptr;
-    RuntimeProfile::Counter* memory_used_counter_ = nullptr;
+    RuntimeProfile::Counter* _write_file_timer = nullptr;
+    RuntimeProfile::Counter* _serialize_timer = nullptr;
+    RuntimeProfile::Counter* _write_block_counter = nullptr;
+    RuntimeProfile::Counter* _write_block_bytes_counter = nullptr;
+    RuntimeProfile::Counter* _write_file_data_bytes_counter = nullptr;
+    RuntimeProfile::Counter* _write_rows_counter = nullptr;
+    RuntimeProfile::Counter* _memory_used_counter = nullptr;
+    RuntimeProfile::HighWaterMarkCounter* _peak_memory_usage_counter = nullptr;
 };
 using SpillWriterUPtr = std::unique_ptr<SpillWriter>;
 } // namespace vectorized
