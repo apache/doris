@@ -506,7 +506,10 @@ void RuntimeQueryStatisticsMgr::get_metric_map(
     metric_map.emplace(WorkloadMetricType::SCAN_BYTES, std::to_string(ret_qs.get_scan_bytes()));
     metric_map.emplace(WorkloadMetricType::QUERY_MEMORY_BYTES,
                        std::to_string(ret_qs.get_current_used_memory_bytes()));
-    metric_map.emplace(WorkloadMetricType::CPU_TIME_NANO, std::to_string(ret_qs.get_cpu_time_nanos()));
+    double cpu_util = (double)ret_qs.get_cpu_time_nanos() / 1e6 / query_time_ms;
+    LOG(INFO) << "yy debug get cpu time: " << ret_qs.get_cpu_time_nanos() / 1e6
+              << ", query time: " << query_time_ms;
+    metric_map.emplace(WorkloadMetricType::CPU_TIME_NANO, std::to_string(cpu_util));
 }
 
 void RuntimeQueryStatisticsMgr::set_workload_group_id(std::string query_id, int64_t wg_id) {

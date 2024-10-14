@@ -62,8 +62,7 @@ public:
         }
     }
 
-    static bool compare_double(WorkloadCompareOperator op, double first_val,
-                               double second_val) {
+    static bool compare_double(WorkloadCompareOperator op, double first_val, double second_val) {
         switch (op) {
         case EQUAL:
             return first_val == second_val;
