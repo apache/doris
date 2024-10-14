@@ -138,17 +138,29 @@ Status VDataStreamMgr::transmit_block(const PTransmitDataParams* request,
         return Status::EndOfFile("data stream receiver is deconstructed");
     }
 
-    bool eos = request->eos();
-    if (request->has_block()) {
-        RETURN_IF_ERROR(recvr->add_block(
-                request->block(), request->sender_id(), request->be_number(), request->packet_seq(),
-                eos ? nullptr : done, wait_for_worker, cpu_time_stop_watch.elapsed_time()));
-    }
+    auto be_number = request->be_number();
+    auto add_block = [&](const PBlock& pblock, int sender_id, int64_t packet_seq, bool eos) {
+        if (request->has_block()) {
+            RETURN_IF_ERROR(recvr->add_block(pblock, sender_id, be_number, packet_seq,
+                                             eos ? nullptr : done, wait_for_worker,
+                                             cpu_time_stop_watch.elapsed_time()));
+        }
 
-    if (eos) {
-        Status exec_status =
-                request->has_exec_status() ? Status::create(request->exec_status()) : Status::OK();
-        recvr->remove_sender(request->sender_id(), request->be_number(), exec_status);
+        if (eos) {
+            Status exec_status = request->has_exec_status() ? Status::create(request->exec_status())
+                                                            : Status::OK();
+            recvr->remove_sender(request->sender_id(), request->be_number(), exec_status);
+        }
+        return Status::OK();
+    };
+
+    RETURN_IF_ERROR(add_block(request->block(), request->sender_id(), request->packet_seq(),
+                              request->eos()));
+
+    for (int i = 0; i < request->multi_sender_size(); ++i) {
+        const auto& single_sender = request->multi_sender(i);
+        RETURN_IF_ERROR(add_block(single_sender.block(), single_sender.sender_id(),
+                                  single_sender.packet_seq(), single_sender.eos()));
     }
     return Status::OK();
 }

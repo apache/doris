@@ -87,15 +87,13 @@ void BroadcastPBlockHolderMemLimiter::release(const BroadcastPBlockHolder& holde
 
 namespace pipeline {
 
-ExchangeSinkBuffer::ExchangeSinkBuffer(PUniqueId query_id, PlanNodeId dest_node_id, int send_id,
-                                       int be_number, RuntimeState* state,
-                                       ExchangeSinkLocalState* parent)
+ExchangeSinkBuffer::ExchangeSinkBuffer(PUniqueId query_id, PlanNodeId dest_node_id, int be_number,
+                                       RuntimeState* state, ExchangeSinkLocalState* parent)
         : HasTaskExecutionCtx(state),
           _queue_capacity(0),
           _is_finishing(false),
           _query_id(query_id),
           _dest_node_id(dest_node_id),
-          _sender_id(send_id),
           _be_number(be_number),
           _state(state),
           _context(state->get_query_ctx()),
@@ -116,11 +114,11 @@ void ExchangeSinkBuffer::_set_ready_to_finish(bool all_done) {
     }
 }
 
-void ExchangeSinkBuffer::register_sink(TUniqueId fragment_instance_id) {
+void ExchangeSinkBuffer::register_sink(TUniqueId dest_fragment_instance_id, int sender_id) {
     if (_is_finishing) {
         return;
     }
-    auto low_id = fragment_instance_id.lo;
+    auto low_id = dest_fragment_instance_id.lo;
     if (_instance_to_package_queue_mutex.count(low_id)) {
         return;
     }
@@ -132,23 +130,33 @@ void ExchangeSinkBuffer::register_sink(TUniqueId fragment_instance_id) {
     _queue_capacity =
             config::exchg_buffer_queue_capacity_factor * _instance_to_package_queue.size();
     PUniqueId finst_id;
-    finst_id.set_hi(fragment_instance_id.hi);
-    finst_id.set_lo(fragment_instance_id.lo);
+    finst_id.set_hi(dest_fragment_instance_id.hi);
+    finst_id.set_lo(dest_fragment_instance_id.lo);
     _rpc_channel_is_idle[low_id] = true;
     _instance_to_rpc_ctx[low_id] = {};
     _instance_to_receiver_eof[low_id] = false;
     _instance_to_rpc_time[low_id] = 0;
-    _construct_request(low_id, finst_id);
+    _construct_request(low_id, finst_id, sender_id);
+}
+
+void ExchangeSinkBuffer::_construct_request(InstanceLoId id, PUniqueId finst_id, int sender_id) {
+    _instance_to_request[id] = std::make_shared<PTransmitDataParams>();
+    _instance_to_request[id]->mutable_finst_id()->CopyFrom(finst_id);
+    _instance_to_request[id]->mutable_query_id()->CopyFrom(_query_id);
+
+    _instance_to_request[id]->set_node_id(_dest_node_id);
+    _instance_to_request[id]->set_sender_id(sender_id);
+    _instance_to_request[id]->set_be_number(_be_number);
 }
 
 Status ExchangeSinkBuffer::add_block(TransmitInfo&& request) {
     if (_is_finishing) {
         return Status::OK();
     }
-    auto ins_id = request.channel->_fragment_instance_id.lo;
+    auto ins_id = request.channel->_dest_fragment_instance_id.lo;
     if (!_instance_to_package_queue_mutex.contains(ins_id)) {
         return Status::InternalError("fragment_instance_id {} not do register_sink",
-                                     print_id(request.channel->_fragment_instance_id));
+                                     print_id(request.channel->_dest_fragment_instance_id));
     }
     if (_is_receiver_eof(ins_id)) {
         return Status::EndOfFile("receiver eof");
@@ -186,10 +194,10 @@ Status ExchangeSinkBuffer::add_block(BroadcastTransmitInfo&& request) {
     if (_is_finishing) {
         return Status::OK();
     }
-    auto ins_id = request.channel->_fragment_instance_id.lo;
+    auto ins_id = request.channel->_dest_fragment_instance_id.lo;
     if (!_instance_to_package_queue_mutex.contains(ins_id)) {
         return Status::InternalError("fragment_instance_id {} not do register_sink",
-                                     print_id(request.channel->_fragment_instance_id));
+                                     print_id(request.channel->_dest_fragment_instance_id));
     }
     if (_is_receiver_eof(ins_id)) {
         return Status::EndOfFile("receiver eof");
@@ -221,7 +229,7 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
 
     DCHECK(_rpc_channel_is_idle[id] == false);
 
-    std::queue<TransmitInfo, std::list<TransmitInfo>>& q = _instance_to_package_queue[id];
+    std::queue<TransmitInfo, std::list<TransmitInfo>>& instance_q = _instance_to_package_queue[id];
     std::queue<BroadcastTransmitInfo, std::list<BroadcastTransmitInfo>>& broadcast_q =
             _instance_to_broadcast_package_queue[id];
 
@@ -230,9 +238,9 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
         return Status::OK();
     }
 
-    if (!q.empty()) {
+    if (!instance_q.empty()) {
         // If we have data to shuffle which is not broadcasted
-        auto& request = q.front();
+        auto& request = instance_q.front();
         auto& brpc_request = _instance_to_request[id];
         brpc_request->set_eos(request.eos);
         brpc_request->set_packet_seq(_instance_to_seq[id]++);
@@ -309,7 +317,7 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
             COUNTER_UPDATE(_parent->memory_used_counter(), -request.block->ByteSizeLong());
             static_cast<void>(brpc_request->release_block());
         }
-        q.pop();
+        instance_q.pop();
         _total_queue_size--;
         if (_queue_dependency && _total_queue_size <= _queue_capacity) {
             _queue_dependency->set_ready();
@@ -398,16 +406,6 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
     }
 
     return Status::OK();
-}
-
-void ExchangeSinkBuffer::_construct_request(InstanceLoId id, PUniqueId finst_id) {
-    _instance_to_request[id] = std::make_shared<PTransmitDataParams>();
-    _instance_to_request[id]->mutable_finst_id()->CopyFrom(finst_id);
-    _instance_to_request[id]->mutable_query_id()->CopyFrom(_query_id);
-
-    _instance_to_request[id]->set_node_id(_dest_node_id);
-    _instance_to_request[id]->set_sender_id(_sender_id);
-    _instance_to_request[id]->set_be_number(_be_number);
 }
 
 void ExchangeSinkBuffer::_ended(InstanceLoId id) {
