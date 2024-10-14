@@ -26,8 +26,8 @@
 #include <vector>
 
 #include "runtime/types.h"
-#include "vec/common/arena.h"
 #include "util/runtime_profile.h"
+#include "vec/common/arena.h"
 
 namespace doris {
 
@@ -93,9 +93,7 @@ public:
         _udf_execute_timer = udf_execute_timer;
     }
 
-    RuntimeProfile::Counter* get_udf_execute_timer() {
-        return _udf_execute_timer;
-    }
+    RuntimeProfile::Counter* get_udf_execute_timer() { return _udf_execute_timer; }
 
     // Cast flag, when enable string_as_jsonb_string, string casting to jsonb will not parse string
     // instead just insert a string literal
