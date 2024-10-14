@@ -1001,5 +1001,4 @@ void ColumnObject::insert_indices_from(const IColumn& src, const int* indices_be
                                    });
 }
 
-
 } // namespace doris::vectorized
