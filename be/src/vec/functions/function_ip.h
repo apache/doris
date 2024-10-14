@@ -680,11 +680,13 @@ public:
         // min && max ip address
         Field min_ip, max_ip;
         IPAddressCIDR cidr = parse_ip_with_cidr(arg_column->get_data_at(0));
-        if (WhichDataType(data_type_with_name.second).is_ipv4() && cidr._address.as_v4()) {
+        if (WhichDataType(remove_nullable(data_type_with_name.second)).is_ipv4() &&
+            cidr._address.as_v4()) {
             auto range = apply_cidr_mask(cidr._address.as_v4(), cidr._prefix);
             min_ip = range.first;
             max_ip = range.second;
-        } else if (WhichDataType(data_type_with_name.second).is_ipv6() && cidr._address.as_v6()) {
+        } else if (WhichDataType(remove_nullable(data_type_with_name.second)).is_ipv6() &&
+                   cidr._address.as_v6()) {
             auto cidr_range_ipv6_col = ColumnIPv6::create(2, 0);
             auto& cidr_range_ipv6_data = cidr_range_ipv6_col->get_data();
             apply_cidr_mask(reinterpret_cast<const char*>(cidr._address.as_v6()),
@@ -698,7 +700,7 @@ public:
         std::shared_ptr<roaring::Roaring> max_roaring = std::make_shared<roaring::Roaring>();
         std::shared_ptr<roaring::Roaring> null_bitmap = std::make_shared<roaring::Roaring>();
 
-        auto param_type = arguments[0].type->get_type_as_type_descriptor().type;
+        auto param_type = data_type_with_name.second->get_type_as_type_descriptor().type;
         std::unique_ptr<segment_v2::InvertedIndexQueryParamFactory> query_param = nullptr;
         // >= min ip
         RETURN_IF_ERROR(segment_v2::InvertedIndexQueryParamFactory::create_query_value(
@@ -713,7 +715,20 @@ public:
                 data_type_with_name.first, query_param->get_value(),
                 segment_v2::InvertedIndexQueryType::LESS_EQUAL_QUERY, num_rows, max_roaring));
 
+        DBUG_EXECUTE_IF("ip.inverted_index_filtered", {
+            auto req_id = DebugPoints::instance()->get_debug_param_or_default<int32_t>(
+                    "ip.inverted_index_filtered", "req_id", 0);
+            LOG(INFO) << "execute inverted index req_id: " << req_id
+                      << " min: " << res_roaring->cardinality();
+        });
         *res_roaring &= *max_roaring;
+        DBUG_EXECUTE_IF("ip.inverted_index_filtered", {
+            auto req_id = DebugPoints::instance()->get_debug_param_or_default<int32_t>(
+                    "ip.inverted_index_filtered", "req_id", 0);
+            LOG(INFO) << "execute inverted index req_id: " << req_id
+                      << " max: " << max_roaring->cardinality()
+                      << " result: " << res_roaring->cardinality();
+        });
         segment_v2::InvertedIndexResultBitmap result(res_roaring, null_bitmap);
         bitmap_result = result;
         bitmap_result.mask_out_null();
@@ -722,6 +737,14 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
+        DBUG_EXECUTE_IF("ip.inverted_index_filtered", {
+            auto req_id = DebugPoints::instance()->get_debug_param_or_default<int32_t>(
+                    "ip.inverted_index_filtered", "req_id", 0);
+            return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                    "{} has already execute inverted index req_id {} , should not execute expr "
+                    "with rows: {}",
+                    get_name(), req_id, input_rows_count);
+        });
         const auto& addr_column_with_type_and_name = block.get_by_position(arguments[0]);
         const auto& cidr_column_with_type_and_name = block.get_by_position(arguments[1]);
         const auto& [addr_column, addr_const] =
