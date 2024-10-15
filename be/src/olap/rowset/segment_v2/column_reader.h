@@ -210,8 +210,16 @@ public:
         return _compaction_io_time_ns;
     }
 
-    size_t get_compaction_io_bytes() const {
-        return _compaction_io_bytes;
+    int64_t get_compaction_cache_bytes() const {
+        return _compaction_cache_bytes;
+    }
+
+    int64_t get_compaction_local_bytes() const {
+        return _compaction_local_bytes;
+    }
+
+    int64_t get_compaction_s3_bytes() const {
+        return _compaction_s3_bytes;
     }
 
 private:
@@ -263,7 +271,9 @@ private:
     int _be_exec_version = -1;
 
     int64_t _compaction_io_time_ns;
-    size_t _compaction_io_bytes;
+    int64_t _compaction_cache_bytes;
+    int64_t _compaction_local_bytes;
+    int64_t _compaction_s3_bytes;
 
     PagePointer _meta_dict_page;
     CompressionTypePB _meta_compression;
@@ -354,7 +364,9 @@ public:
     virtual bool is_all_dict_encoding() const { return false; }
 
     virtual int64_t get_compaction_io_time_ns() const { return 0; }
-    virtual size_t get_compaction_io_bytes() const { return 0; }
+    virtual int64_t get_compaction_cache_bytes() const { return 0; }
+    virtual int64_t get_compaction_local_bytes() const { return 0; }
+    virtual int64_t get_compaction_s3_bytes() const { return 0; }
 
 protected:
     ColumnIteratorOptions _opts;
@@ -404,7 +416,9 @@ public:
     bool is_all_dict_encoding() const override { return _is_all_dict_encoding; }
 
     int64_t get_compaction_io_time_ns() const override { return _compaction_io_time_ns; }
-    size_t get_compaction_io_bytes() const override { return _compaction_io_bytes; }
+    int64_t get_compaction_cache_bytes() const override { return _compaction_cache_bytes; }
+    int64_t get_compaction_local_bytes() const override { return _compaction_local_bytes; }
+    int64_t get_compaction_s3_bytes() const override { return _compaction_s3_bytes; }
 
 private:
     void _seek_to_pos_in_page(ParsedPage* page, ordinal_t offset_in_page) const;
@@ -412,7 +426,9 @@ private:
     Status _read_data_page(const OrdinalPageIndexIterator& iter);
     Status _read_dict_data();
     int64_t _compaction_io_time_ns = 0;
-    size_t _compaction_io_bytes = 0;
+    int64_t _compaction_cache_bytes = 0;
+    int64_t _compaction_local_bytes = 0;
+    int64_t _compaction_s3_bytes = 0;
     ColumnReader* _reader = nullptr;
 
     // iterator owned compress codec, should NOT be shared by threads, initialized in init()

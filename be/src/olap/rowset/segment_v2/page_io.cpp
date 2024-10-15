@@ -27,6 +27,7 @@
 #include <string>
 #include <utility>
 
+#include "cloud/config.h"
 #include "common/logging.h"
 #include "gutil/strings/substitute.h"
 #include "io/fs/file_reader.h"
@@ -133,6 +134,7 @@ Status PageIO::read_and_decompress_page_(const PageReadOptions& opts, PageHandle
                                       footer_size, opts.file_reader->path().native());
         }
         *body = Slice(page_slice.data, page_slice.size - 4 - footer_size);
+        opts.stats->cache_bytes_read += page_slice.size;
         return Status::OK();
     }
 
@@ -154,9 +156,12 @@ Status PageIO::read_and_decompress_page_(const PageReadOptions& opts, PageHandle
                                                   &opts.io_ctx));
         DCHECK_EQ(bytes_read, page_size);
         opts.stats->compressed_bytes_read += page_size;
-        opts.stats->bytes_read += bytes_read;
+        if (config::is_cloud_mode()) {
+            opts.stats->s3_bytes_read += bytes_read;
+        } else {
+            opts.stats->local_bytes_read += bytes_read;
+        }
     }
-
     if (opts.verify_checksum) {
         uint32_t expect = decode_fixed32_le((uint8_t*)page_slice.data + page_slice.size - 4);
         uint32_t actual = crc32c::Value(page_slice.data, page_slice.size - 4);

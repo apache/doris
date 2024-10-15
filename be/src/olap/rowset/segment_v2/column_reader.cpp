@@ -371,7 +371,9 @@ Status ColumnReader::read_page(const ColumnIteratorOptions& iter_opts, const Pag
     if (iter_opts.type == INDEX_PAGE) opts.pre_decode = false;
     Status s = PageIO::read_and_decompress_page(opts, handle, page_body, footer);
     _compaction_io_time_ns += opts.stats->io_ns;
-    _compaction_io_bytes += opts.stats->bytes_read;
+    _compaction_cache_bytes += opts.stats->cache_bytes_read;
+    _compaction_local_bytes += opts.stats->local_bytes_read;
+    _compaction_s3_bytes += opts.stats->s3_bytes_read;
     return s;
 }
 
