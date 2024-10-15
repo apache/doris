@@ -1358,7 +1358,9 @@ Status FileColumnIterator::_read_data_page(const OrdinalPageIndexIterator& iter)
     RETURN_IF_ERROR(
             _reader->read_page(_opts, iter.page(), &handle, &page_body, &footer, _compress_codec));
     _compaction_io_time_ns += _reader->get_compaction_io_time_ns();
-    _compaction_io_bytes += _reader->get_compaction_io_bytes();
+    _compaction_cache_bytes += _reader->get_compaction_cache_bytes();
+    _compaction_s3_bytes += _reader->get_compaction_s3_bytes();
+    _compaction_local_bytes += _reader->get_compaction_local_bytes();
     // parse data page
     RETURN_IF_ERROR(ParsedPage::create(std::move(handle), page_body, footer.data_page_footer(),
                                        _reader->encoding_info(), iter.page(), iter.page_index(),
