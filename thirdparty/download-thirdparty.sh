@@ -394,7 +394,8 @@ if [[ "${BRPC_SOURCE}" == 'brpc-1.4.0' ]]; then
     cd "${TP_SOURCE_DIR}/${BRPC_SOURCE}"
     if [[ ! -f "${PATCHED_MARK}" ]]; then
         for patch_file in "${TP_PATCH_DIR}"/brpc-*; do
-            patch -p1 <"${patch_file}"
+            echo "patch ${patch_file}"
+            patch -p1 --ignore-whitespace <"${patch_file}"
         done
         touch "${PATCHED_MARK}"
     fi
