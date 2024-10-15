@@ -1925,5 +1925,5 @@ std::map<std::string, double> BlockFileCache::get_stats() {
 
 template void BlockFileCache::remove(FileBlockSPtr file_block,
                                      std::lock_guard<std::mutex>& cache_lock,
-                                     std::lock_guard<std::mutex>& block_lock);
+                                     std::lock_guard<std::mutex>& block_lock, bool sync);
 } // namespace doris::io
