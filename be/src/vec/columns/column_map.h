@@ -96,6 +96,10 @@ public:
     bool is_variable_length() const override { return true; }
 
     bool can_be_inside_nullable() const override { return true; }
+    bool is_exclusive() const override {
+        return IColumn::is_exclusive() && keys_column->is_exclusive() &&
+               values_column->is_exclusive() && offsets_column->is_exclusive();
+    }
 
     Field operator[](size_t n) const override;
     void get(size_t n, Field& res) const override;
