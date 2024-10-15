@@ -17,28 +17,28 @@
 
 package org.apache.doris.httpv2.rest;
 
-import org.apache.doris.analysis.Analyzer;
-import org.apache.doris.analysis.QueryStmt;
-import org.apache.doris.analysis.SqlParser;
-import org.apache.doris.analysis.SqlScanner;
-import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.httpv2.util.ExecutionResultSet;
 import org.apache.doris.httpv2.util.StatementSubmitter;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-import com.google.common.collect.Sets;
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
 import org.apache.commons.lang3.StringUtils;
@@ -52,13 +52,11 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.io.StringReader;
 import java.lang.reflect.Type;
 import java.util.List;
-import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
+import java.util.stream.Collectors;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
@@ -187,31 +185,23 @@ public class StmtExecutionAction extends RestBaseController {
 
     @NotNull
     private String getSchema(String sql) {
-        SqlParser parser = new SqlParser(new SqlScanner(new StringReader(sql)));
-        StatementBase stmt = null;
-        try {
-            stmt = SqlParserUtils.getStmt(parser, 0);
-            if (!(stmt instanceof QueryStmt)) {
-                return "Only support query stmt";
-            }
-            Analyzer analyzer = new Analyzer(Env.getCurrentEnv(), ConnectContext.get());
-            QueryStmt queryStmt = (QueryStmt) stmt;
-            Map<Long, TableIf> tableMap = Maps.newHashMap();
-            Set<String> parentViewNameSet = Sets.newHashSet();
-            queryStmt.getTables(analyzer, true, tableMap, parentViewNameSet);
-
-            List<String> createStmts = Lists.newArrayList();
-            for (TableIf tbl : tableMap.values()) {
-                List<String> createTableStmts = Lists.newArrayList();
-                Env.getDdlStmt(tbl, createTableStmts, null, null, false, true, -1L);
-                if (!createTableStmts.isEmpty()) {
-                    createStmts.add(createTableStmts.get(0));
-                }
-            }
-            return Joiner.on("\n\n").join(createStmts);
-        } catch (Exception e) {
-            return "Error:" + e.getMessage();
+        LogicalPlan unboundMvPlan = new NereidsParser().parseSingle(sql);
+        StatementContext statementContext = new StatementContext(ConnectContext.get(),
+                new OriginStatement(sql, 0));
+        NereidsPlanner planner = new NereidsPlanner(statementContext);
+        if (statementContext.getConnectContext().getStatementContext() == null) {
+            statementContext.getConnectContext().setStatementContext(statementContext);
         }
+        planner.planWithLock(unboundMvPlan, PhysicalProperties.ANY, ExplainCommand.ExplainLevel.ANALYZED_PLAN);
+        LogicalPlan logicalPlan = (LogicalPlan) planner.getCascadesContext().getRewritePlan();
+
+        List<String> createStmts = PlanUtils.getLogicalScanFromRootPlan(logicalPlan).stream().map(plan -> {
+            TableIf tbl = plan.getTable();
+            List<String> createTableStmts = Lists.newArrayList();
+            Env.getDdlStmt(tbl, createTableStmts, null, null, false, true, -1L);
+            return createTableStmts.get(0);
+        }).collect(Collectors.toList());
+        return Joiner.on("\n\n").join(createStmts);
     }
 
     private static class StmtRequestBody {
