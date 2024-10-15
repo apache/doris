@@ -210,7 +210,6 @@ public final class HiveUtil {
         table.setTableType("MANAGED_TABLE");
         Map<String, String> props = new HashMap<>(hiveTable.getProperties());
         props.put(ExternalCatalog.DORIS_VERSION, ExternalCatalog.DORIS_VERSION_VALUE);
-        // TODO wuwenchi compression ?
         setCompressType(hiveTable, props);
         // set hive table comment by table properties
         props.put("comment", hiveTable.getComment());
