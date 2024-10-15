@@ -21,8 +21,12 @@ import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.MaterializedViewException;
 import org.apache.doris.common.NereidsException;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.analyzer.Scope;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.rules.analysis.ExpressionAnalyzer;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.rules.expression.rules.FoldConstantRule;
 import org.apache.doris.nereids.trees.TreeNode;
@@ -53,6 +57,7 @@ import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.visitor.ExpressionLineageReplacer;
 import org.apache.doris.nereids.types.BooleanType;
@@ -961,5 +966,29 @@ public class ExpressionUtils {
             }
         }
         return true;
+    }
+
+    /** analyze the unbound expression and fold it to literal */
+    public static Literal analyzeAndFoldToLiteral(ConnectContext ctx, Expression expression) throws UserException {
+        Scope scope = new Scope(new ArrayList<>());
+        LogicalEmptyRelation plan = new LogicalEmptyRelation(
+                ConnectContext.get().getStatementContext().getNextRelationId(),
+                new ArrayList<>());
+        CascadesContext cascadesContext = CascadesContext.initContext(ctx.getStatementContext(), plan,
+                PhysicalProperties.ANY);
+        ExpressionAnalyzer analyzer = new ExpressionAnalyzer(null, scope, cascadesContext, false, false);
+        Expression analyzedExpr;
+        try {
+            analyzedExpr = analyzer.analyze(expression, new ExpressionRewriteContext(cascadesContext));
+        } catch (AnalysisException e) {
+            throw new UserException(expression.toSql() + " must be constant value");
+        }
+        ExpressionRewriteContext context = new ExpressionRewriteContext(cascadesContext);
+        Expression foldExpression = FoldConstantRule.evaluate(analyzedExpr, context);
+        if (foldExpression instanceof Literal) {
+            return (Literal) foldExpression;
+        } else {
+            throw new UserException(expression.toSql() + " must be constant value");
+        }
     }
 }
