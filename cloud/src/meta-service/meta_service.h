@@ -300,7 +300,7 @@ public:
 
     void fix_tablet_stats(::google::protobuf::RpcController* controller,
                           const FixTabletStatsRequest* request, FixTabletStatsResponse* response,
-                          ::google::protobuf::Closure* done);
+                          ::google::protobuf::Closure* done) override;
 
 private:
     std::pair<MetaServiceCode, std::string> alter_instance(
