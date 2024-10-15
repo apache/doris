@@ -481,7 +481,7 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
         RowsetSharedPtr rowset;
         auto st = tablet->lookup_row_key(key, _tablet_schema.get(), have_input_seq_column,
                                          specified_rowsets, &loc, _mow_context->max_version,
-                                         segment_caches, &rowset);
+                                         segment_caches, &rowset, true, true);
         if (st.is<KEY_NOT_FOUND>()) {
             if (_opts.rowset_ctx->partial_update_info->is_strict_mode) {
                 ++num_rows_filtered;
