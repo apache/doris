@@ -405,6 +405,13 @@ void MemTable::_sort_one_column(std::vector<RowInBlock*>& row_in_blocks, Tie& ti
     }
 }
 
+// For load which is not flexible partial update, when aggregating rows for a specified key,
+// there will be at most one row which allocates memory from arena to store the aggregated result
+// of the current key, so we can use Arena::clear() to release the memory in _finalize_one_row() directly.
+// But for fleixble partial update, to keep the correctness of the result, we may batch more than one row
+// for a specified key. Thus there may be more than one row which allocates memory from arena to store
+// the aggregated result. So we can't release the memory in _finalize_one_row(), instead, we should
+// release memory after these batched rows are all flushed to the new block.
 template <bool is_final, bool clear_arena>
 void MemTable::_finalize_one_row(RowInBlock* row,
                                  const vectorized::ColumnsWithTypeAndName& block_data,
@@ -656,17 +663,9 @@ void MemTable::_aggregate_for_flexible_partial_update_with_seq_col(
     };
     auto get_idx = [](bool with_seq_col, bool has_delete_sign) {
         if (!with_seq_col) {
-            if (has_delete_sign) {
-                return 0;
-            } else {
-                return 1;
-            }
+            return (has_delete_sign ? 0 : 1);
         } else {
-            if (has_delete_sign) {
-                return 2;
-            } else {
-                return 3;
-            }
+            return (has_delete_sign ? 2 : 3);
         }
     };
     auto add_row = [&](RowInBlock* row, bool with_seq_col, bool has_delete_sign) {
