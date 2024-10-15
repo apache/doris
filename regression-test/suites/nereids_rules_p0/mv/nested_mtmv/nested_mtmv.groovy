@@ -169,11 +169,11 @@ suite("nested_mtmv") {
         FROM ${mv_name_2}
         GROUP BY l_orderkey;"""
     def mv_name_3 = "join_agg_mv3"
-    create_async_mv(mv_name_1, mv_stmt_1)
+    create_async_mv(db, mv_name_1, mv_stmt_1)
 
-    create_async_mv(mv_name_2, mv_stmt_2)
+    create_async_mv(db, mv_name_2, mv_stmt_2)
 
-    create_async_mv(mv_name_3, mv_stmt_3)
+    create_async_mv(db, mv_name_3, mv_stmt_3)
 
     def query_stmt_1 = """SELECT 
           l_orderkey, 
@@ -215,13 +215,13 @@ suite("nested_mtmv") {
         """
     def mv_level4_name = "mv_level4_name"
 
-    create_async_mv(mv_level1_name, mv_stmt_4)
+    create_async_mv(db, mv_level1_name, mv_stmt_4)
 
-    create_async_mv(mv_level2_name, mv_stmt_5)
+    create_async_mv(db, mv_level2_name, mv_stmt_5)
 
-    create_async_mv(mv_level3_name, mv_stmt_6)
+    create_async_mv(db, mv_level3_name, mv_stmt_6)
 
-    create_async_mv(mv_level4_name, mv_stmt_7)
+    create_async_mv(db, mv_level4_name, mv_stmt_7)
 
     def query_stmt_2 = """
         select t1.l_orderkey, t2.l_linenumber, t1.l_partkey, t2.o_orderkey, t1.o_custkey, t2.ps_partkey, t1.col1
@@ -306,15 +306,15 @@ suite("nested_mtmv") {
         group by t1.l_orderkey, t2.l_partkey, t1.l_suppkey, t2.o_orderkey, t1.o_custkey, t2.ps_partkey, t1.ps_suppkey, t2.agg1, t1.agg2, t2.agg3, t1.agg4, t2.agg5, t1.agg6
         """
 
-    create_async_mv(mv_1, join_mv_1)
+    create_async_mv(db, mv_1, join_mv_1)
 
-    create_async_mv(mv_2, join_mv_2)
+    create_async_mv(db, mv_2, join_mv_2)
 
-    create_async_mv(mv_3, join_mv_3)
+    create_async_mv(db, mv_3, join_mv_3)
 
-    create_async_mv(mv_4, join_mv_4)
+    create_async_mv(db, mv_4, join_mv_4)
 
-    create_async_mv(mv_5, join_mv_5)
+    create_async_mv(db, mv_5, join_mv_5)
 
 
     def sql_2 = """
