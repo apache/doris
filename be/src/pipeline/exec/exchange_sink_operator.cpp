@@ -170,18 +170,19 @@ Status ExchangeSinkLocalState::open(RuntimeState* state) {
     _part_type = p._part_type;
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
 
-    int local_size = 0;
-    for (int i = 0; i < channels.size(); ++i) {
-        RETURN_IF_ERROR(channels[i]->open(state));
-        if (channels[i]->is_local()) {
-            local_size++;
-        }
-    }
     if (_part_type == TPartitionType::UNPARTITIONED || _part_type == TPartitionType::RANDOM ||
         _part_type == TPartitionType::TABLE_SINK_RANDOM_PARTITIONED) {
         std::random_device rd;
         std::mt19937 g(rd());
         shuffle(channels.begin(), channels.end(), g);
+    }
+    int local_size = 0;
+    for (int i = 0; i < channels.size(); ++i) {
+        RETURN_IF_ERROR(channels[i]->open(state));
+        if (channels[i]->is_local()) {
+            local_size++;
+            _last_local_channel_idx = i;
+        }
     }
     only_local_exchange = local_size == channels.size();
 
@@ -446,11 +447,17 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
         if (local_state.only_local_exchange) {
             if (!block->empty()) {
                 Status status;
+                size_t idx = 0;
                 for (auto* channel : local_state.channels) {
                     if (!channel->is_receiver_eof()) {
-                        status = channel->send_local_block(block);
+                        // If this channel is the last, we can move this block to downstream pipeline.
+                        // Otherwise, this block also need to be broadcasted to other channels so should be copied.
+                        DCHECK_GE(local_state._last_local_channel_idx, 0);
+                        status = channel->send_local_block(
+                                block, idx == local_state._last_local_channel_idx);
                         HANDLE_CHANNEL_STATUS(state, channel, status);
                     }
+                    idx++;
                 }
             }
         } else {
@@ -471,21 +478,33 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
                     } else {
                         block_holder->get_block()->Clear();
                     }
+                    size_t idx = 0;
+                    bool moved = false;
                     for (auto* channel : local_state.channels) {
                         if (!channel->is_receiver_eof()) {
                             Status status;
                             if (channel->is_local()) {
-                                status = channel->send_local_block(&cur_block);
+                                // If this channel is the last, we can move this block to downstream pipeline.
+                                // Otherwise, this block also need to be broadcasted to other channels so should be copied.
+                                DCHECK_GE(local_state._last_local_channel_idx, 0);
+                                status = channel->send_local_block(
+                                        &cur_block, idx == local_state._last_local_channel_idx);
+                                moved = idx == local_state._last_local_channel_idx;
                             } else {
                                 SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
                                 status = channel->send_broadcast_block(block_holder, eos);
                             }
                             HANDLE_CHANNEL_STATUS(state, channel, status);
                         }
+                        idx++;
                     }
-                    cur_block.clear_column_data();
-                    local_state._serializer.get_block()->set_mutable_columns(
-                            cur_block.mutate_columns());
+                    if (moved) {
+                        local_state._serializer.reset_block();
+                    } else {
+                        cur_block.clear_column_data();
+                        local_state._serializer.get_block()->set_mutable_columns(
+                                cur_block.mutate_columns());
+                    }
                 }
             }
         }
@@ -496,7 +515,7 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
         if (!current_channel->is_receiver_eof()) {
             // 2. serialize, send and rollover block
             if (current_channel->is_local()) {
-                auto status = current_channel->send_local_block(block);
+                auto status = current_channel->send_local_block(block, true);
                 HANDLE_CHANNEL_STATUS(state, current_channel, status);
             } else {
                 SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
@@ -582,7 +601,7 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
         if (!current_channel->is_receiver_eof()) {
             // 2. serialize, send and rollover block
             if (current_channel->is_local()) {
-                auto status = current_channel->send_local_block(block);
+                auto status = current_channel->send_local_block(block, true);
                 HANDLE_CHANNEL_STATUS(state, current_channel, status);
             } else {
                 SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
