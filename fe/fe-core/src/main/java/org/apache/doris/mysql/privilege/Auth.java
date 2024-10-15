@@ -943,6 +943,11 @@ public class Auth implements Writable {
                 false /* set by resolver */, false);
     }
 
+    public void setPassword(UserIdentity userIdentity, byte[] password) throws DdlException {
+        setPasswordInternal(userIdentity, password, null, true /* err on non exist */,
+                false /* set by resolver */, false);
+    }
+
     public void replaySetPassword(PrivInfo info) {
         try {
             setPasswordInternal(info.getUserIdent(), info.getPasswd(), null, true /* err on non exist */,
@@ -982,6 +987,12 @@ public class Auth implements Writable {
     // set ldap admin password.
     public void setLdapPassword(SetLdapPassVar stmt) {
         ldapInfo = new LdapInfo(stmt.getLdapPassword());
+        Env.getCurrentEnv().getEditLog().logSetLdapPassword(ldapInfo);
+        LOG.info("finished to set ldap password.");
+    }
+
+    public void setLdapPassword(String ldapPassword) {
+        ldapInfo = new LdapInfo(ldapPassword);
         Env.getCurrentEnv().getEditLog().logSetLdapPassword(ldapInfo);
         LOG.info("finished to set ldap password.");
     }
