@@ -31,7 +31,7 @@ suite("test_ddl_file_auth","p0,auth_call") {
 
     String s3_endpoint = getS3Endpoint()
     String bucket = context.config.otherConfigs.get("s3BucketName");
-    def dataFilePath = "https://"+"${bucket}"+"."+"${s3_endpoint}"+"/auth_test.key"
+    def dataFilePath = "https://"+"${bucket}"+"."+"${s3_endpoint}"+"/regression/auth_test.key"
 
     // ddl create,show,drop
     connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
