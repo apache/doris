@@ -698,18 +698,22 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
 }
 
 Status FragmentMgr::start_query_execution(const PExecPlanFragmentStartRequest* request) {
-    std::lock_guard<std::mutex> lock(_lock);
-    TUniqueId query_id;
-    query_id.__set_hi(request->query_id().hi());
-    query_id.__set_lo(request->query_id().lo());
-    auto search = _query_ctx_map.find(query_id);
-    if (search == _query_ctx_map.end()) {
-        return Status::InternalError(
-                "Failed to get query fragments context. Query may be "
-                "timeout or be cancelled. host: {}",
-                BackendOptions::get_localhost());
+    std::shared_ptr<QueryContext> q_ctx = nullptr;
+    {
+        std::lock_guard<std::mutex> lock(_lock);
+        TUniqueId query_id;
+        query_id.__set_hi(request->query_id().hi());
+        query_id.__set_lo(request->query_id().lo());
+        auto search = _query_ctx_map.find(query_id);
+        if (search == _query_ctx_map.end()) {
+            return Status::InternalError(
+                    "Failed to get query fragments context. Query may be "
+                    "timeout or be cancelled. host: {}",
+                    BackendOptions::get_localhost());
+        }
+        q_ctx = search->second;
     }
-    search->second->set_ready_to_execute(false);
+    q_ctx->set_ready_to_execute(false);
     return Status::OK();
 }
 
