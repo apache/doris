@@ -51,6 +51,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.InternalCatalog;
@@ -70,6 +71,7 @@ import org.apache.doris.statistics.ColumnStatisticBuilder;
 import org.apache.doris.statistics.Histogram;
 import org.apache.doris.statistics.ResultRow;
 import org.apache.doris.statistics.StatisticConstants;
+import org.apache.doris.statistics.TableStatsMeta;
 import org.apache.doris.system.Frontend;
 
 import com.google.common.base.Preconditions;
@@ -902,6 +904,22 @@ public class StatisticsUtil {
             break;
         }
         return rowCount == 0;
+    }
+
+    public static boolean canCollect() {
+        return enableAutoAnalyze() && inAnalyzeTime(LocalTime.now(TimeUtils.getTimeZone().toZoneId()));
+    }
+
+    public static boolean tableNotAnalyzedForTooLong(TableStatsMeta tblStats) {
+        if (tblStats == null) {
+            LOG.warn("Table stats is null.");
+            return false;
+        }
+        if (tblStats.userInjected) {
+            return false;
+        }
+        return Config.auto_analyze_interval_seconds > 0
+                && System.currentTimeMillis() - tblStats.lastAnalyzeTime > Config.auto_analyze_interval_seconds * 1000;
     }
 
 }

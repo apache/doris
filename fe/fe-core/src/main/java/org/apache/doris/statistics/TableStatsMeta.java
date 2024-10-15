@@ -79,6 +79,9 @@ public class TableStatsMeta implements Writable, GsonPostProcessable {
     @SerializedName("updateTime")
     public long updatedTime;
 
+    @SerializedName("lat")
+    public long lastAnalyzeTime;
+
     @SerializedName("colNameToColStatsMeta")
     private ConcurrentMap<String, ColStatsMeta> deprecatedColNameToColStatsMeta = new ConcurrentHashMap<>();
 
@@ -156,16 +159,17 @@ public class TableStatsMeta implements Writable, GsonPostProcessable {
 
     public void update(AnalysisInfo analyzedJob, TableIf tableIf) {
         updatedTime = analyzedJob.tblUpdateTime;
+        lastAnalyzeTime = analyzedJob.lastExecTimeInMs;
         if (analyzedJob.userInject) {
             userInjected = true;
         }
         for (Pair<String, String> colPair : analyzedJob.jobColumns) {
             ColStatsMeta colStatsMeta = colToColStatsMeta.get(colPair);
             if (colStatsMeta == null) {
-                colToColStatsMeta.put(colPair, new ColStatsMeta(updatedTime,
+                colToColStatsMeta.put(colPair, new ColStatsMeta(lastAnalyzeTime,
                         analyzedJob.analysisMethod, analyzedJob.analysisType, analyzedJob.jobType, 0));
             } else {
-                colStatsMeta.updatedTime = updatedTime;
+                colStatsMeta.updatedTime = lastAnalyzeTime;
                 colStatsMeta.analysisType = analyzedJob.analysisType;
                 colStatsMeta.analysisMethod = analyzedJob.analysisMethod;
                 colStatsMeta.jobType = analyzedJob.jobType;
