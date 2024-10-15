@@ -101,7 +101,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         List<Long> tabletIds = pair.first;
         long totalRowCount = info.indexId == -1
                 ? tbl.getRowCount()
-                : ((OlapTable) tbl).getRowCountForIndex(info.indexId);
+                : ((OlapTable) tbl).getRowCountForIndex(info.indexId, false);
         double scaleFactor = (double) totalRowCount / (double) pair.second;
         // might happen if row count in fe metadata hasn't been updated yet
         if (Double.isInfinite(scaleFactor) || Double.isNaN(scaleFactor)) {

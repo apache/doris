@@ -178,6 +178,8 @@ public class Replica {
 
     private long userDropTime = -1;
 
+    private long lastReportVersion = 0;
+
     public Replica() {
     }
 
@@ -848,5 +850,13 @@ public class Replica {
     public boolean isScheduleAvailable() {
         return Env.getCurrentSystemInfo().checkBackendScheduleAvailable(backendId)
             && !isUserDrop();
+    }
+
+    public void setLastReportVersion(long version) {
+        this.lastReportVersion = version;
+    }
+
+    public long getLastReportVersion() {
+        return lastReportVersion;
     }
 }

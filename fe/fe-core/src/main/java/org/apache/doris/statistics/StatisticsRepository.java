@@ -392,7 +392,6 @@ public class StatisticsRepository {
             if (objects.table instanceof OlapTable) {
                 indexId = indexId == -1 ? ((OlapTable) objects.table).getBaseIndexId() : indexId;
                 mockedJobInfo.addIndexRowCount(indexId, (long) Double.parseDouble(rowCount));
-                mockedJobInfo.addIndexUpdateRowCountTime(indexId, timestamp);
             }
             Env.getCurrentEnv().getAnalysisManager().updateTableStatsForAlterStats(mockedJobInfo, objects.table);
         } else {
