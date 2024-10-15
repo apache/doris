@@ -221,7 +221,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
                 hiveConf.addResource(new Path(file.toURI())); // Add the resource to the configuration
             } else {
                 // Handle the case where the file does not exist
-                LOG.warn("Hive configuration resource file {} does not exist", resourcePath);
+                throw new IllegalArgumentException("Hive config resource file does not exist: " + resourcePath);
             }
         }
     }

@@ -19,7 +19,6 @@ package org.apache.doris.fs.remote.dfs;
 
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.backup.Status;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.security.authentication.AuthenticationConfig;
 import org.apache.doris.common.security.authentication.HadoopAuthenticator;
@@ -134,26 +133,6 @@ public class DFSFileSystem extends RemoteFileSystem {
             hdfsConf.set(PROP_ALLOW_FALLBACK_TO_SIMPLE_AUTH, "true");
         }
         return hdfsConf;
-    }
-
-    private void loadConfigFromResources(Configuration conf) {
-        // Get the Hadoop config resources from properties
-        String hadoopConfigResources = properties.get(HADOOP_CONFIG_RESOURCES);
-        if (hadoopConfigResources != null) {
-            for (String resource : hadoopConfigResources.split(",")) {
-                // Construct the full path to the resource
-                String resourcePath = Config.external_catalog_config_dir + File.separator + resource.trim();
-                File file = new File(resourcePath); // Create a File object for the resource path
-
-                // Check if the file exists and is a regular file
-                if (file.exists() && file.isFile()) {
-                    conf.addResource(new Path(file.toURI())); // Add the resource to the configuration
-                } else {
-                    // Handle the case where the file does not exist
-                    throw new IllegalArgumentException("Hadoop config resource file does not exist: " + resourcePath);
-                }
-            }
-        }
     }
 
     @Override
