@@ -47,7 +47,7 @@ import java.util.List;
  */
 public class Sum extends NullableAggregateFunction
         implements UnaryExpression, ExplicitlyCastableSignature, ComputePrecisionForSum, SupportWindowAnalytic,
-        CouldRollUp {
+        RollUpTrait {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(BigIntType.INSTANCE).args(BooleanType.INSTANCE),
@@ -128,5 +128,10 @@ public class Sum extends NullableAggregateFunction
     @Override
     public Function constructRollUp(Expression param, Expression... varParams) {
         return new Sum(this.distinct, param);
+    }
+
+    @Override
+    public boolean canRollUp() {
+        return true;
     }
 }

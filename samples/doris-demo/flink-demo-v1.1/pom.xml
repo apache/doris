@@ -30,7 +30,7 @@ under the License.
         <scala.version>2.12</scala.version>
         <java.version>1.8</java.version>
         <flink.version>1.15.3</flink.version>
-        <fastjson.version>1.2.62</fastjson.version>
+        <fastjson.version>1.2.83</fastjson.version>
         <hadoop.version>2.8.3</hadoop.version>
         <scope.mode>compile</scope.mode>
         <slf4j.version>1.7.30</slf4j.version>

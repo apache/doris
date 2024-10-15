@@ -20,16 +20,15 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.FormatOptions;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TLargeIntLiteral;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
+import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 import java.math.BigDecimal;
 import java.math.BigInteger;
@@ -39,8 +38,6 @@ import java.util.Objects;
 
 // large int for the num that native types can not
 public class LargeIntLiteral extends NumericLiteralExpr {
-    private static final Logger LOG = LogManager.getLogger(LargeIntLiteral.class);
-
     // -2^127
     public static final BigInteger LARGE_INT_MIN = new BigInteger("-170141183460469231731687303715884105728");
     // 2^127 - 1
@@ -48,6 +45,7 @@ public class LargeIntLiteral extends NumericLiteralExpr {
     // 2^127
     public static final BigInteger LARGE_INT_MAX_ABS = new BigInteger("170141183460469231731687303715884105728");
 
+    @SerializedName("v")
     private BigInteger value;
 
     public LargeIntLiteral() {
@@ -177,6 +175,9 @@ public class LargeIntLiteral extends NumericLiteralExpr {
 
     @Override
     public int compareLiteral(LiteralExpr expr) {
+        if (expr instanceof PlaceHolderExpr) {
+            return this.compareLiteral(((PlaceHolderExpr) expr).getLiteral());
+        }
         if (expr instanceof NullLiteral) {
             return 1;
         }
@@ -197,8 +198,8 @@ public class LargeIntLiteral extends NumericLiteralExpr {
     }
 
     @Override
-    public String getStringValueForArray() {
-        return "\"" + getStringValue() + "\"";
+    public String getStringValueForArray(FormatOptions options) {
+        return options.getNestedStringWrapper() + getStringValue() + options.getNestedStringWrapper();
     }
 
     @Override
@@ -241,15 +242,14 @@ public class LargeIntLiteral extends NumericLiteralExpr {
     }
 
     @Override
-    public void swapSign() {
-        // swapping sign does not change the type
-        value = value.negate();
+    public void setupParamFromBinary(ByteBuffer data, boolean isUnsigned) {
+        value = new BigInteger(Long.toUnsignedString(data.getLong()));
     }
 
     @Override
-    public void write(DataOutput out) throws IOException {
-        super.write(out);
-        Text.writeString(out, value.toString());
+    public void swapSign() {
+        // swapping sign does not change the type
+        value = value.negate();
     }
 
     public void readFields(DataInput in) throws IOException {

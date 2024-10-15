@@ -20,7 +20,9 @@ package org.apache.doris.nereids.util;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.MaterializedViewException;
 import org.apache.doris.common.NereidsException;
+import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.rules.expression.rules.FoldConstantRule;
 import org.apache.doris.nereids.trees.TreeNode;
@@ -51,9 +53,11 @@ import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.visitor.ExpressionLineageReplacer;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.coercion.NumericType;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
@@ -64,7 +68,9 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.BitSet;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -127,6 +133,13 @@ public class ExpressionUtils {
         } else {
             result.add(expr);
         }
+    }
+
+    public static Optional<Pair<Slot, Slot>> extractEqualSlot(Expression expr) {
+        if (expr instanceof EqualTo && expr.child(0).isSlot() && expr.child(1).isSlot()) {
+            return Optional.of(Pair.of((Slot) expr.child(0), (Slot) expr.child(1)));
+        }
+        return Optional.empty();
     }
 
     public static Optional<Expression> optionalAnd(List<Expression> expressions) {
@@ -225,14 +238,14 @@ public class ExpressionUtils {
         return result;
     }
 
-    public static Expression shuttleExpressionWithLineage(Expression expression, Plan plan) {
+    public static Expression shuttleExpressionWithLineage(Expression expression, Plan plan, BitSet tableBitSet) {
         return shuttleExpressionWithLineage(Lists.newArrayList(expression),
-                plan, ImmutableSet.of(), ImmutableSet.of()).get(0);
+                plan, ImmutableSet.of(), ImmutableSet.of(), tableBitSet).get(0);
     }
 
     public static List<? extends Expression> shuttleExpressionWithLineage(List<? extends Expression> expressions,
-            Plan plan) {
-        return shuttleExpressionWithLineage(expressions, plan, ImmutableSet.of(), ImmutableSet.of());
+            Plan plan, BitSet tableBitSet) {
+        return shuttleExpressionWithLineage(expressions, plan, ImmutableSet.of(), ImmutableSet.of(), tableBitSet);
     }
 
     /**
@@ -247,7 +260,8 @@ public class ExpressionUtils {
     public static List<? extends Expression> shuttleExpressionWithLineage(List<? extends Expression> expressions,
             Plan plan,
             Set<TableType> targetTypes,
-            Set<String> tableIdentifiers) {
+            Set<String> tableIdentifiers,
+            BitSet tableBitSet) {
         if (expressions.isEmpty()) {
             return ImmutableList.of();
         }
@@ -255,7 +269,8 @@ public class ExpressionUtils {
                 new ExpressionLineageReplacer.ExpressionReplaceContext(
                         expressions.stream().map(Expression.class::cast).collect(Collectors.toList()),
                         targetTypes,
-                        tableIdentifiers);
+                        tableIdentifiers,
+                        tableBitSet);
 
         plan.accept(ExpressionLineageReplacer.INSTANCE, replaceContext);
         // Replace expressions by expression map
@@ -427,32 +442,6 @@ public class ExpressionUtils {
         }
     }
 
-    private static class ExpressionReplacerContext {
-        private final Map<? extends Expression, ? extends Expression> replaceMap;
-        // if the key of replaceMap is named expr and withAlias is true, we should
-        // add alias after replaced
-        private final boolean withAliasIfKeyNamed;
-
-        private ExpressionReplacerContext(Map<? extends Expression, ? extends Expression> replaceMap,
-                boolean withAliasIfKeyNamed) {
-            this.replaceMap = replaceMap;
-            this.withAliasIfKeyNamed = withAliasIfKeyNamed;
-        }
-
-        public static ExpressionReplacerContext of(Map<? extends Expression, ? extends Expression> replaceMap,
-                boolean withAliasIfKeyNamed) {
-            return new ExpressionReplacerContext(replaceMap, withAliasIfKeyNamed);
-        }
-
-        public Map<? extends Expression, ? extends Expression> getReplaceMap() {
-            return replaceMap;
-        }
-
-        public boolean isWithAliasIfKeyNamed() {
-            return withAliasIfKeyNamed;
-        }
-    }
-
     /**
      * merge arguments into an expression array
      *
@@ -537,9 +526,7 @@ public class ExpressionUtils {
         ImmutableList<Literal> literals =
                 ImmutableList.of(new NullLiteral(BooleanType.INSTANCE), BooleanLiteral.FALSE);
         List<MarkJoinSlotReference> markJoinSlotReferenceList =
-                ((Set<MarkJoinSlotReference>) predicate
-                        .collect(MarkJoinSlotReference.class::isInstance)).stream()
-                                .collect(Collectors.toList());
+                new ArrayList<>((predicate.collect(MarkJoinSlotReference.class::isInstance)));
         int markSlotSize = markJoinSlotReferenceList.size();
         int maxMarkSlotCount = 4;
         // if the conjunct has mark slot, and maximum 4 mark slots(for performance)
@@ -715,6 +702,15 @@ public class ExpressionUtils {
         return set.build();
     }
 
+    public static <E> List<E> collectToList(Collection<? extends Expression> expressions,
+            Predicate<TreeNode<Expression>> predicate) {
+        ImmutableList.Builder<E> list = ImmutableList.builder();
+        for (Expression expr : expressions) {
+            list.addAll(expr.collectToList(predicate));
+        }
+        return list.build();
+    }
+
     /**
      * extract uniform slot for the given predicate, such as a = 1 and b = 2
      */
@@ -833,13 +829,6 @@ public class ExpressionUtils {
         return set;
     }
 
-    public static boolean checkTypeSkipCast(Expression expression, Class<? extends Expression> cls) {
-        while (expression instanceof Cast) {
-            expression = ((Cast) expression).child();
-        }
-        return cls.isInstance(expression);
-    }
-
     public static Expression getExpressionCoveredByCast(Expression expression) {
         while (expression instanceof Cast) {
             expression = ((Cast) expression).child();
@@ -934,5 +923,31 @@ public class ExpressionUtils {
             }
         }
         return result.build();
+    }
+
+    /** test whether unionConstExprs satisfy conjuncts */
+    public static boolean unionConstExprsSatisfyConjuncts(LogicalUnion union, Set<Expression> conjuncts) {
+        CascadesContext tempCascadeContext = CascadesContext.initContext(
+                ConnectContext.get().getStatementContext(), union, PhysicalProperties.ANY);
+        ExpressionRewriteContext rewriteContext = new ExpressionRewriteContext(tempCascadeContext);
+        for (List<NamedExpression> constOutput : union.getConstantExprsList()) {
+            Map<Expression, Expression> replaceMap = new HashMap<>();
+            for (int i = 0; i < constOutput.size(); i++) {
+                Expression output = constOutput.get(i);
+                if (output instanceof Alias) {
+                    replaceMap.put(union.getOutput().get(i), ((Alias) output).child());
+                } else {
+                    replaceMap.put(union.getOutput().get(i), output);
+                }
+            }
+            for (Expression conjunct : conjuncts) {
+                Expression res = FoldConstantRule.evaluate(ExpressionUtils.replace(conjunct, replaceMap),
+                        rewriteContext);
+                if (!res.equals(BooleanLiteral.TRUE)) {
+                    return false;
+                }
+            }
+        }
+        return true;
     }
 }

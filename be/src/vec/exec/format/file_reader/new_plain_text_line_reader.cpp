@@ -21,6 +21,9 @@
 #include <glog/logging.h>
 #include <string.h>
 
+#ifdef __AVX2__
+#include <immintrin.h>
+#endif
 #include <algorithm>
 #include <cstddef>
 #include <cstring>
@@ -42,7 +45,6 @@
 // leave these 2 size small for debugging
 
 namespace doris {
-
 const uint8_t* EncloseCsvLineReaderContext::read_line_impl(const uint8_t* start,
                                                            const size_t length) {
     _total_len = length;
@@ -82,12 +84,11 @@ void EncloseCsvLineReaderContext::on_col_sep_found(const uint8_t* start,
 }
 
 size_t EncloseCsvLineReaderContext::update_reading_bound(const uint8_t* start) {
-    _result = (uint8_t*)memmem(start + _idx, _total_len - _idx, line_delimiter.c_str(),
-                               line_delimiter_len);
+    _result = call_find_line_sep(start + _idx, _total_len - _idx);
     if (_result == nullptr) {
         return _total_len;
     }
-    return _result - start + line_delimiter_len;
+    return _result - start + line_delimiter_length();
 }
 
 template <bool SingleChar>
@@ -143,13 +144,12 @@ void EncloseCsvLineReaderContext::_on_normal(const uint8_t* start, size_t& len) 
 }
 
 void EncloseCsvLineReaderContext::_on_pre_match_enclose(const uint8_t* start, size_t& len) {
-    bool should_escape = false;
     do {
         do {
             if (start[_idx] == _escape) [[unlikely]] {
-                should_escape = !should_escape;
-            } else if (should_escape) [[unlikely]] {
-                should_escape = false;
+                _should_escape = !_should_escape;
+            } else if (_should_escape) [[unlikely]] {
+                _should_escape = false;
             } else if (start[_idx] == _enclose) [[unlikely]] {
                 _state.forward_to(ReaderState::MATCH_ENCLOSE);
                 ++_idx;
@@ -161,6 +161,11 @@ void EncloseCsvLineReaderContext::_on_pre_match_enclose(const uint8_t* start, si
         if (_idx != _total_len) {
             len = update_reading_bound(start);
         } else {
+            // It needs to set the result to nullptr for matching enclose may not be read
+            // after reading the output buf.
+            // Therefore, if the result is not set to nullptr,
+            // the parser will consider reading a line as there is a line delimiter.
+            _result = nullptr;
             break;
         }
     } while (true);
@@ -445,7 +450,8 @@ Status NewPlainTextLineReader::read_line(const uint8_t** ptr, size_t* size, bool
                     std::stringstream ss;
                     ss << "decompress made no progress."
                        << " input_read_bytes: " << input_read_bytes
-                       << " decompressed_len: " << decompressed_len;
+                       << " decompressed_len: " << decompressed_len
+                       << " input len: " << (_input_buf_limit - _input_buf_pos);
                     LOG(WARNING) << ss.str();
                     return Status::InternalError(ss.str());
                 }

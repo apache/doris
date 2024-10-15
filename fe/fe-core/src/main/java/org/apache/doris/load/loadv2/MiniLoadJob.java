@@ -23,9 +23,11 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.load.EtlJobType;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.transaction.TransactionState;
 
 import com.google.common.collect.Sets;
+import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -38,6 +40,7 @@ import java.util.Set;
 public class MiniLoadJob extends LoadJob {
     private static final Logger LOG = LogManager.getLogger(MiniLoadJob.class);
 
+    @SerializedName("tn")
     private String tableName;
 
     private long tableId;
@@ -67,8 +70,8 @@ public class MiniLoadJob extends LoadJob {
 
     @Override
     public void write(DataOutput out) throws IOException {
-        super.write(out);
-        Text.writeString(out, tableName);
+        String json = GsonUtils.GSON.toJson(this);
+        Text.writeString(out, json);
     }
 
     @Override

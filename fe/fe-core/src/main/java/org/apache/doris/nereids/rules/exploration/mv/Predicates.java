@@ -18,7 +18,7 @@
 package org.apache.doris.nereids.rules.exploration.mv;
 
 import org.apache.doris.nereids.CascadesContext;
-import org.apache.doris.nereids.rules.exploration.mv.mapping.EquivalenceClassSetMapping;
+import org.apache.doris.nereids.rules.exploration.mv.mapping.EquivalenceClassMapping;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.SlotMapping;
 import org.apache.doris.nereids.rules.expression.ExpressionNormalization;
 import org.apache.doris.nereids.rules.expression.ExpressionOptimization;
@@ -33,6 +33,7 @@ import org.apache.doris.nereids.util.Utils;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Sets;
 
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -41,7 +42,6 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * This record the predicates which can be pulled up or some other type predicates.
@@ -68,11 +68,6 @@ public class Predicates {
         Set<Expression> mergedPredicates = new HashSet<>(predicates);
         mergedPredicates.addAll(this.pulledUpPredicates);
         return new Predicates(mergedPredicates);
-    }
-
-    public Expression composedExpression() {
-        return ExpressionUtils.and(pulledUpPredicates.stream().map(Expression.class::cast)
-                .collect(Collectors.toList()));
     }
 
     /**
@@ -104,15 +99,15 @@ public class Predicates {
         if (queryEquivalenceClass.isEmpty() && !viewEquivalenceClass.isEmpty()) {
             return null;
         }
-        EquivalenceClassSetMapping queryToViewEquivalenceMapping =
-                EquivalenceClassSetMapping.generate(queryEquivalenceClass, viewEquivalenceClassQueryBased);
+        EquivalenceClassMapping queryToViewEquivalenceMapping =
+                EquivalenceClassMapping.generate(queryEquivalenceClass, viewEquivalenceClassQueryBased);
         // can not map all target equivalence class, can not compensate
         if (queryToViewEquivalenceMapping.getEquivalenceClassSetMap().size()
                 < viewEquivalenceClass.getEquivalenceSetList().size()) {
             return null;
         }
         // do equal compensate
-        Set<Set<SlotReference>> mappedQueryEquivalenceSet =
+        Set<List<SlotReference>> mappedQueryEquivalenceSet =
                 queryToViewEquivalenceMapping.getEquivalenceClassSetMap().keySet();
         queryEquivalenceClass.getEquivalenceSetList().forEach(
                 queryEquivalenceSet -> {
@@ -126,9 +121,9 @@ public class Predicates {
                         }
                     } else {
                         // compensate the equivalence both in query and view, but query has more equivalence
-                        Set<SlotReference> viewEquivalenceSet =
+                        List<SlotReference> viewEquivalenceSet =
                                 queryToViewEquivalenceMapping.getEquivalenceClassSetMap().get(queryEquivalenceSet);
-                        Set<SlotReference> copiedQueryEquivalenceSet = new HashSet<>(queryEquivalenceSet);
+                        List<SlotReference> copiedQueryEquivalenceSet = new ArrayList<>(queryEquivalenceSet);
                         copiedQueryEquivalenceSet.removeAll(viewEquivalenceSet);
                         SlotReference first = viewEquivalenceSet.iterator().next();
                         for (SlotReference slotReference : copiedQueryEquivalenceSet) {

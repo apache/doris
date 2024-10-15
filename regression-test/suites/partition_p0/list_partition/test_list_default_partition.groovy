@@ -76,10 +76,11 @@ suite("test_list_default_partition") {
         DISTRIBUTED BY HASH(k1) BUCKETS 5 properties("replication_num" = "1")
         """
     // insert value which is not allowed in existing partitions
+    def exception_str = isGroupCommitMode() ? "too many filtered rows" : "Insert has filtered data in strict mode"
     try {
         test {
         sql """insert into list_default_par values (10,1,1,1,24453.325,1,1)"""
-        exception """Insert has filtered data in strict mode"""
+        exception exception_str
     }
     } finally{
     }
@@ -102,7 +103,7 @@ suite("test_list_default_partition") {
     try {
         test {
         sql """insert into list_default_par values (10,1,1,1,24453.325,1,1)"""
-        exception """Insert has filtered data in strict mode"""
+        exception exception_str
     }
     } finally{
     }

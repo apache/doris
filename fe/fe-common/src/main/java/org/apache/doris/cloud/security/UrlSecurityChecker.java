@@ -18,6 +18,7 @@
 package org.apache.doris.cloud.security;
 
 import org.apache.doris.common.Config;
+import org.apache.doris.common.LogUtils;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -38,8 +39,8 @@ public class UrlSecurityChecker extends SecurityChecker {
             urlSecurityStopCheckMethod = clazz.getMethod("stopSSRFNetHookChecking", String.class);
         } catch (Exception e) {
             LOG.warn("security_checker_class_name:{} exception:", Config.security_checker_class_name, e);
+            LogUtils.stderr("Failed to find com.aliyun.securitysdk.SecurityUtil's method");
             e.printStackTrace();
-            System.out.println("Failed to find com.aliyun.securitysdk.SecurityUtil's method");
         }
     }
 

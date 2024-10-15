@@ -106,9 +106,9 @@ public class PushDownProjectThroughSemiJoin implements ExplorationRuleFactory {
                 .collect(Collectors.toSet());
         conditionLeftSlots.stream().filter(slot -> !projectUsedSlots.contains(slot))
                 .forEach(newProject::add);
-        Plan newLeft = CBOUtils.projectOrSelf(newProject, join.left());
+        Plan newLeft = new LogicalProject<>(newProject, join.left());
 
         Plan newJoin = join.withChildren(newLeft, join.right());
-        return CBOUtils.projectOrSelf(ImmutableList.copyOf(project.getOutput()), newJoin);
+        return new LogicalProject<>(ImmutableList.copyOf(project.getOutput()), newJoin);
     }
 }

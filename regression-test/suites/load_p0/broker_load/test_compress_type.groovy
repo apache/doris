@@ -17,6 +17,7 @@
 
 suite("test_compress_type", "load_p0") {
     def tableName = "basic_data"
+    def s3BucketName = getS3BucketName()
 
     // GZ/LZO/BZ2/LZ4FRAME/DEFLATE/LZOP
     def compressTypes = [
@@ -62,24 +63,24 @@ suite("test_compress_type", "load_p0") {
     ]
 
     def paths = [
-            "s3://doris-build-1308700295/regression/load/data/basic_data.csv.gz",
-            "s3://doris-build-1308700295/regression/load/data/basic_data.csv.bz2",
-            "s3://doris-build-1308700295/regression/load/data/basic_data.csv.lz4",
-            "s3://doris-build-1308700295/regression/load/data/basic_data.csv.gz",
-            "s3://doris-build-1308700295/regression/load/data/basic_data.csv.bz2",
-            "s3://doris-build-1308700295/regression/load/data/basic_data.csv.lz4",
-            "s3://doris-build-1308700295/regression/load/data/basic_data.csv.gz",
-            "s3://doris-build-1308700295/regression/load/data/basic_data.csv.bz2",
-            "s3://doris-build-1308700295/regression/load/data/basic_data.csv.lz4",
-            "s3://doris-build-1308700295/regression/load/data/basic_data.csv.gz",
-            "s3://doris-build-1308700295/regression/load/data/basic_data.csv.bz2",
-            "s3://doris-build-1308700295/regression/load/data/basic_data.csv.lz4",
-            "s3://doris-build-1308700295/regression/load/data/basic_data_by_line.json.gz",
-            "s3://doris-build-1308700295/regression/load/data/basic_data_by_line.json.bz2",
-            "s3://doris-build-1308700295/regression/load/data/basic_data_by_line.json.lz4",
-            "s3://doris-build-1308700295/regression/load/data/basic_data_by_line.json.gz",
-            "s3://doris-build-1308700295/regression/load/data/basic_data_by_line.json.bz2",
-            "s3://doris-build-1308700295/regression/load/data/basic_data_by_line.json.lz4",
+            "s3://${s3BucketName}/regression/load/data/basic_data.csv.gz",
+            "s3://${s3BucketName}/regression/load/data/basic_data.csv.bz2",
+            "s3://${s3BucketName}/regression/load/data/basic_data.csv.lz4",
+            "s3://${s3BucketName}/regression/load/data/basic_data.csv.gz",
+            "s3://${s3BucketName}/regression/load/data/basic_data.csv.bz2",
+            "s3://${s3BucketName}/regression/load/data/basic_data.csv.lz4",
+            "s3://${s3BucketName}/regression/load/data/basic_data.csv.gz",
+            "s3://${s3BucketName}/regression/load/data/basic_data.csv.bz2",
+            "s3://${s3BucketName}/regression/load/data/basic_data.csv.lz4",
+            "s3://${s3BucketName}/regression/load/data/basic_data.csv.gz",
+            "s3://${s3BucketName}/regression/load/data/basic_data.csv.bz2",
+            "s3://${s3BucketName}/regression/load/data/basic_data.csv.lz4",
+            "s3://${s3BucketName}/regression/load/data/basic_data_by_line.json.gz",
+            "s3://${s3BucketName}/regression/load/data/basic_data_by_line.json.bz2",
+            "s3://${s3BucketName}/regression/load/data/basic_data_by_line.json.lz4",
+            "s3://${s3BucketName}/regression/load/data/basic_data_by_line.json.gz",
+            "s3://${s3BucketName}/regression/load/data/basic_data_by_line.json.bz2",
+            "s3://${s3BucketName}/regression/load/data/basic_data_by_line.json.lz4",
     ]
     def labels = []
 
@@ -88,8 +89,39 @@ suite("test_compress_type", "load_p0") {
 
 
     def i = 0
-    sql new File("""${ context.file.parent }/ddl/basic_data_drop.sql""").text
-    sql new File("""${ context.file.parent }/ddl/basic_data.sql""").text
+
+    sql """ DROP TABLE IF EXISTS ${tableName} """
+    sql """
+        CREATE TABLE ${tableName}
+        (
+            k00 INT             NOT NULL,
+            k01 DATE            NOT NULL,
+            k02 BOOLEAN         NULL,
+            k03 TINYINT         NULL,
+            k04 SMALLINT        NULL,
+            k05 INT             NULL,
+            k06 BIGINT          NULL,
+            k07 LARGEINT        NULL,
+            k08 FLOAT           NULL,
+            k09 DOUBLE          NULL,
+            k10 DECIMAL(9,1)    NULL,
+            k11 DECIMALV3(9,1)  NULL,
+            k12 DATETIME        NULL,
+            k13 DATEV2          NULL,
+            k14 DATETIMEV2      NULL,
+            k15 CHAR            NULL,
+            k16 VARCHAR         NULL,
+            k17 STRING          NULL,
+            k18 JSON            NULL
+    
+        )
+        DUPLICATE KEY(k00)
+        DISTRIBUTED BY HASH(k00) BUCKETS 32
+        PROPERTIES (
+            "bloom_filter_columns"="k05",
+            "replication_num" = "1"
+        )
+    """
     for (String compressType : compressTypes) {
         def label = "test_s3_load_compress" + UUID.randomUUID().toString().replace("-", "0") + i
         labels.add(label)
@@ -106,11 +138,9 @@ suite("test_compress_type", "load_p0") {
             WITH S3 (
                 "AWS_ACCESS_KEY" = "$ak",
                 "AWS_SECRET_KEY" = "$sk",
-                "AWS_ENDPOINT" = "cos.ap-beijing.myqcloud.com",
-                "AWS_REGION" = "ap-beijing"
-            )
-            properties(
-                "use_new_load_scan_node" = "true"
+                "AWS_ENDPOINT" = "${getS3Endpoint()}",
+                "AWS_REGION" = "${getS3Region()}",
+                "provider" = "${getS3Provider()}"
             )
             """
         logger.info("submit sql: ${sql_str}");

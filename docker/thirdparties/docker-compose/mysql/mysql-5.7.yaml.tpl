@@ -30,13 +30,14 @@ services:
     ports:
       - ${DOCKER_MYSQL_57_EXTERNAL_PORT}:3306
     healthcheck:
-      test: mysqladmin ping -h 127.0.0.1 -u root --password=$$MYSQL_ROOT_PASSWORD
+      test: mysqladmin ping -h 127.0.0.1 -u root --password=$$MYSQL_ROOT_PASSWORD && mysql -h 127.0.0.1 -u root --password=$$MYSQL_ROOT_PASSWORD -e "SELECT 1 FROM doris_test.deadline;"
       interval: 5s
       timeout: 60s
       retries: 120
     volumes:
       - ./data/:/var/lib/mysql 
       - ./init:/docker-entrypoint-initdb.d
+      - ./my.cnf:/etc/mysql/conf.d/my.cnf
     networks:
       - doris--mysql_57
   doris--mysql-hello-world:

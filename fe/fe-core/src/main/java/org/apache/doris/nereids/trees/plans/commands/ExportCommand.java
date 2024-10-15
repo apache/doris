@@ -21,6 +21,7 @@ import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.analysis.OutFileClause;
 import org.apache.doris.analysis.Separator;
+import org.apache.doris.analysis.StmtType;
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.BrokerMgr;
@@ -74,6 +75,7 @@ public class ExportCommand extends Command implements ForwardWithSync {
     public static final String PARALLELISM = "parallelism";
     public static final String LABEL = "label";
     public static final String DATA_CONSISTENCY = "data_consistency";
+    public static final String COMPRESS_TYPE = "compress_type";
     private static final String DEFAULT_COLUMN_SEPARATOR = "\t";
     private static final String DEFAULT_LINE_DELIMITER = "\n";
     private static final String DEFAULT_PARALLELISM = "1";
@@ -91,6 +93,7 @@ public class ExportCommand extends Command implements ForwardWithSync {
             .add(PropertyAnalyzer.PROPERTIES_TIMEOUT)
             .add("format")
             .add(OutFileClause.PROP_WITH_BOM)
+            .add(COMPRESS_TYPE)
             .build();
 
     private final List<String> nameParts;
@@ -249,9 +252,6 @@ public class ExportCommand extends Command implements ForwardWithSync {
         exportJob.setTableName(tblName);
         exportJob.setExportTable(table);
         exportJob.setTableId(table.getId());
-        if (ctx.getExecutor() != null) {
-            exportJob.setOrigStmt(ctx.getExecutor().getOriginStmt());
-        }
         // set partitions
         exportJob.setPartitionNames(this.partitionsNames);
         // set where expression
@@ -340,8 +340,12 @@ public class ExportCommand extends Command implements ForwardWithSync {
         } catch (NumberFormatException e) {
             throw new UserException("The value of timeout is invalid!");
         }
-
         exportJob.setTimeoutSecond(timeoutSecond);
+
+        // set compress_type
+        if (fileProperties.containsKey(COMPRESS_TYPE)) {
+            exportJob.setCompressType(fileProperties.get(COMPRESS_TYPE));
+        }
 
         // exportJob generate outfile sql
         exportJob.generateOutfileLogicalPlans(RelationUtil.getQualifierName(ctx, this.nameParts));
@@ -396,5 +400,10 @@ public class ExportCommand extends Command implements ForwardWithSync {
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitExportCommand(this, context);
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.EXPORT;
     }
 }

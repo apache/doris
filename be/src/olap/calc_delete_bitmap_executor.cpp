@@ -38,7 +38,7 @@ Status CalcDeleteBitmapToken::submit(BaseTabletSPtr tablet, RowsetSharedPtr cur_
     {
         std::shared_lock rlock(_lock);
         RETURN_IF_ERROR(_status);
-        _query_thread_context.init();
+        _query_thread_context.init_unlocked();
     }
 
     return _thread_token->submit_func([=, this]() {

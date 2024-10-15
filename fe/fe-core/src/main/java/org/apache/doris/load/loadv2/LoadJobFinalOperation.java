@@ -17,6 +17,7 @@
 
 package org.apache.doris.load.loadv2;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.load.EtlStatus;
@@ -24,23 +25,42 @@ import org.apache.doris.load.FailMsg;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TxnCommitAttachment;
 
+import com.google.gson.Gson;
+import com.google.gson.annotations.SerializedName;
+import com.google.gson.reflect.TypeToken;
+
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
+import java.util.HashMap;
+import java.util.Map;
 
 /**
  * This object will be created when job finished or cancelled.
  * It is used to edit the job final state.
  */
 public class LoadJobFinalOperation extends TxnCommitAttachment implements Writable {
+    @SerializedName(value = "id")
     private long id;
+    @SerializedName(value = "ls")
     private EtlStatus loadingStatus = new EtlStatus();
+    @SerializedName(value = "pro")
     private int progress;
+    @SerializedName(value = "lst")
     private long loadStartTimestamp;
+    @SerializedName(value = "ft")
     private long finishTimestamp;
+    @SerializedName(value = "js")
     private JobState jobState;
     // optional
+    @SerializedName(value = "fm")
     private FailMsg failMsg;
+    // only used for copy into
+    @SerializedName("cid")
+    private String copyId = "";
+    @SerializedName("lfp")
+    private String loadFilePaths = "";
+    @SerializedName("prop")
+    private Map<String, String> properties = new HashMap<>();
 
     public LoadJobFinalOperation() {
         super(TransactionState.LoadJobSourceType.BATCH_LOAD_JOB);
@@ -56,6 +76,15 @@ public class LoadJobFinalOperation extends TxnCommitAttachment implements Writab
         this.finishTimestamp = finishTimestamp;
         this.jobState = jobState;
         this.failMsg = failMsg;
+    }
+
+    public LoadJobFinalOperation(long id, EtlStatus loadingStatus, int progress, long loadStartTimestamp,
+                                 long finishTimestamp, JobState jobState, FailMsg failMsg, String copyId,
+                                 String loadFilePaths, Map<String, String> properties) {
+        this(id, loadingStatus, progress, loadStartTimestamp, finishTimestamp, jobState, failMsg);
+        this.copyId = copyId;
+        this.loadFilePaths = loadFilePaths;
+        this.properties = properties;
     }
 
     public long getId() {
@@ -86,23 +115,19 @@ public class LoadJobFinalOperation extends TxnCommitAttachment implements Writab
         return failMsg;
     }
 
-    @Override
-    public void write(DataOutput out) throws IOException {
-        super.write(out);
-        out.writeLong(id);
-        loadingStatus.write(out);
-        out.writeInt(progress);
-        out.writeLong(loadStartTimestamp);
-        out.writeLong(finishTimestamp);
-        Text.writeString(out, jobState.name());
-        if (failMsg == null) {
-            out.writeBoolean(false);
-        } else {
-            out.writeBoolean(true);
-            failMsg.write(out);
-        }
+    public String getCopyId() {
+        return copyId;
     }
 
+    public String getLoadFilePaths() {
+        return loadFilePaths;
+    }
+
+    public Map<String, String> getProperties() {
+        return properties;
+    }
+
+    @Deprecated
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
         id = in.readLong();
@@ -114,6 +139,14 @@ public class LoadJobFinalOperation extends TxnCommitAttachment implements Writab
         if (in.readBoolean()) {
             failMsg = new FailMsg();
             failMsg.readFields(in);
+        }
+        if (Config.isCloudMode()) {
+            copyId = Text.readString(in);
+            loadFilePaths = Text.readString(in);
+            String property = Text.readString(in);
+            properties = property.isEmpty() ? new HashMap<>()
+                    : (new Gson().fromJson(property, new TypeToken<Map<String, String>>() {
+                    }.getType()));
         }
     }
 
@@ -127,6 +160,9 @@ public class LoadJobFinalOperation extends TxnCommitAttachment implements Writab
                 + ", finishTimestamp=" + finishTimestamp
                 + ", jobState=" + jobState
                 + ", failMsg=" + failMsg
+                + ", queryId=" + copyId
+                + ", loadFilePaths=" + loadFilePaths
+                + ", properties=" + properties
                 + '}';
     }
 }

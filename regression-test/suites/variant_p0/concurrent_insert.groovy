@@ -49,6 +49,7 @@ suite("regression_test_variant_concurrent_schema_update", ""){
     t1.join()
     t2.join()
     t3.join()
-    qt_sql_1 "select * from ${table_name} order by k, cast(v as string), cast(v1 as string) limit 100"
+    sql "sync"
+    qt_sql_1 "select * from var_concurrent order by k, cast(v as string), cast(v1 as string) limit 100"
     // qt_sql_3 """desc ${table_name}"""
 }

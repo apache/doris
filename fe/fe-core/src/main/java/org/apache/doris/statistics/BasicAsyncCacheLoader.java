@@ -39,7 +39,9 @@ public abstract class BasicAsyncCacheLoader<K, V> implements AsyncCacheLoader<K,
                 return doLoad(key);
             } finally {
                 long endTime = System.currentTimeMillis();
-                LOG.info("Load statistic cache [{}] cost time ms:{}", key, endTime - startTime);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("Load async cache [{}] cost time ms:{}", key, endTime - startTime);
+                }
             }
         }, executor);
         return future;

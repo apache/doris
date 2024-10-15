@@ -36,17 +36,18 @@ class Block;
 
 namespace doris::vectorized {
 
-const std::string TrinoConnectorJniReader::TRINO_CONNECTOR_OPTION_PREFIX =
-        "trino_connector_option_prefix.";
+const std::string TrinoConnectorJniReader::TRINO_CONNECTOR_OPTION_PREFIX = "trino.";
 
 TrinoConnectorJniReader::TrinoConnectorJniReader(
         const std::vector<SlotDescriptor*>& file_slot_descs, RuntimeState* state,
         RuntimeProfile* profile, const TFileRangeDesc& range)
-        : _file_slot_descs(file_slot_descs), _state(state), _profile(profile) {
+        : JniReader(file_slot_descs, state, profile) {
     std::vector<std::string> column_names;
+    std::vector<std::string> column_types;
     for (const auto& desc : _file_slot_descs) {
         std::string field = desc->col_name();
         column_names.emplace_back(field);
+        column_types.emplace_back(JniConnector::get_jni_type(desc->type()));
     }
     std::map<String, String> params = {
             {"catalog_name", range.table_format_params.trino_connector_params.catalog_name},
@@ -64,7 +65,8 @@ TrinoConnectorJniReader::TrinoConnectorJniReader(
              range.table_format_params.trino_connector_params.trino_connector_predicate},
             {"trino_connector_trascation_handle",
              range.table_format_params.trino_connector_params.trino_connector_trascation_handle},
-            {"required_fields", join(column_names, ",")}};
+            {"required_fields", join(column_names, ",")},
+            {"columns_types", join(column_types, "#")}};
 
     // Used to create trino connector options
     for (const auto& kv :
@@ -83,11 +85,7 @@ Status TrinoConnectorJniReader::init_reader(
 }
 
 Status TrinoConnectorJniReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
-    RETURN_IF_ERROR(_jni_connector->get_next_block(block, read_rows, eof));
-    if (*eof) {
-        RETURN_IF_ERROR(_jni_connector->close());
-    }
-    return Status::OK();
+    return _jni_connector->get_next_block(block, read_rows, eof);
 }
 
 Status TrinoConnectorJniReader::get_columns(

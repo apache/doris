@@ -28,7 +28,7 @@ import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
 
-public class RecoverPartitionStmt extends DdlStmt {
+public class RecoverPartitionStmt extends DdlStmt implements NotFallbackInParser {
     private TableName dbTblName;
     private String partitionName;
     private long partitionId = -1;
@@ -96,5 +96,10 @@ public class RecoverPartitionStmt extends DdlStmt {
         }
         sb.append(getTableName());
         return sb.toString();
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.RECOVER;
     }
 }

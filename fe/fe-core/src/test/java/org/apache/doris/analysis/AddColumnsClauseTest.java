@@ -48,21 +48,21 @@ public class AddColumnsClauseTest {
         columns.add(definition);
         AddColumnsClause clause = new AddColumnsClause(columns, null, null);
         clause.analyze(analyzer);
-        Assert.assertEquals("ADD COLUMN (`col1` INT NOT NULL DEFAULT \"0\" COMMENT \"\", "
-                + "`col2` INT NOT NULL DEFAULT \"0\" COMMENT \"\")", clause.toString());
+        Assert.assertEquals("ADD COLUMN (`col1` int NOT NULL DEFAULT \"0\" COMMENT \"\", "
+                + "`col2` int NOT NULL DEFAULT \"0\" COMMENT \"\")", clause.toString());
 
         clause = new AddColumnsClause(columns, "", null);
         clause.analyze(analyzer);
-        Assert.assertEquals("ADD COLUMN (`col1` INT NOT NULL DEFAULT \"0\" COMMENT \"\", "
-                + "`col2` INT NOT NULL DEFAULT \"0\" COMMENT \"\")",
+        Assert.assertEquals("ADD COLUMN (`col1` int NOT NULL DEFAULT \"0\" COMMENT \"\", "
+                + "`col2` int NOT NULL DEFAULT \"0\" COMMENT \"\")",
                             clause.toString());
         Assert.assertNull(clause.getRollupName());
 
         clause = new AddColumnsClause(columns, "testTable", null);
         clause.analyze(analyzer);
 
-        Assert.assertEquals("ADD COLUMN (`col1` INT NOT NULL DEFAULT \"0\" COMMENT \"\", "
-                + "`col2` INT NOT NULL DEFAULT \"0\" COMMENT \"\") IN `testTable`",
+        Assert.assertEquals("ADD COLUMN (`col1` int NOT NULL DEFAULT \"0\" COMMENT \"\", "
+                + "`col2` int NOT NULL DEFAULT \"0\" COMMENT \"\") IN `testTable`",
                 clause.toString());
         Assert.assertNull(clause.getProperties());
         Assert.assertEquals("testTable", clause.getRollupName());

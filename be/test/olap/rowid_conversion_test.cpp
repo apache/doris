@@ -154,7 +154,7 @@ protected:
         rowset_writer_context.rowset_type = BETA_ROWSET;
         rowset_writer_context.rowset_state = VISIBLE;
         rowset_writer_context.tablet_schema = tablet_schema;
-        rowset_writer_context.rowset_dir = absolute_dir + "/tablet_path";
+        rowset_writer_context.tablet_path = absolute_dir + "/tablet_path";
         rowset_writer_context.version = version;
         rowset_writer_context.segments_overlap = overlap;
         rowset_writer_context.max_rows_per_segment = max_rows_per_segment;
@@ -245,7 +245,7 @@ protected:
         rsm->set_rowset_id(id);
         rsm->set_delete_predicate(std::move(del_pred));
         rsm->set_tablet_schema(schema);
-        return std::make_shared<BetaRowset>(schema, "", rsm);
+        return std::make_shared<BetaRowset>(schema, rsm, "");
     }
 
     TabletSharedPtr create_tablet(const TabletSchema& tablet_schema,
@@ -348,9 +348,9 @@ protected:
         stats.rowid_conversion = &rowid_conversion;
         Status s;
         if (is_vertical_merger) {
-            s = Merger::vertical_merge_rowsets(tablet, ReaderType::READER_BASE_COMPACTION,
-                                               *tablet_schema, input_rs_readers,
-                                               output_rs_writer.get(), 10000000, &stats);
+            s = Merger::vertical_merge_rowsets(
+                    tablet, ReaderType::READER_BASE_COMPACTION, *tablet_schema, input_rs_readers,
+                    output_rs_writer.get(), 10000000, num_segments, &stats);
         } else {
             s = Merger::vmerge_rowsets(tablet, ReaderType::READER_BASE_COMPACTION, *tablet_schema,
                                        input_rs_readers, output_rs_writer.get(), &stats);

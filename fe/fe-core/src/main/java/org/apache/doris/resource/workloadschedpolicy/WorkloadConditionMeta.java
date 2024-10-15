@@ -40,16 +40,12 @@ public class WorkloadConditionMeta {
     }
 
     private static WorkloadMetricType getMetricType(String metricStr) throws UserException {
-        if (WorkloadMetricType.USERNAME.toString().equalsIgnoreCase(metricStr)) {
-            return WorkloadMetricType.USERNAME;
-        } else if (WorkloadMetricType.QUERY_TIME.toString().equalsIgnoreCase(metricStr)) {
-            return WorkloadMetricType.QUERY_TIME;
-        } else if (WorkloadMetricType.BE_SCAN_ROWS.toString().equalsIgnoreCase(metricStr)) {
-            return WorkloadMetricType.BE_SCAN_ROWS;
-        } else if (WorkloadMetricType.BE_SCAN_BYTES.toString().equalsIgnoreCase(metricStr)) {
-            return WorkloadMetricType.BE_SCAN_BYTES;
+        WorkloadMetricType metricType = WorkloadSchedPolicyMgr.STRING_METRIC_MAP.get(metricStr.toUpperCase());
+        if (metricType == null) {
+            throw new UserException("invalid metric name:" + metricStr);
+        } else {
+            return metricType;
         }
-        throw new UserException("invalid metric name:" + metricStr);
     }
 
     public String toString() {

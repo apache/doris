@@ -30,7 +30,7 @@ import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
 
-public class AlterDatabaseRename extends DdlStmt {
+public class AlterDatabaseRename extends DdlStmt implements NotFallbackInParser {
     private String dbName;
     private String newDbName;
 
@@ -71,6 +71,11 @@ public class AlterDatabaseRename extends DdlStmt {
     @Override
     public String toSql() {
         return "ALTER DATABASE " + dbName + " RENAME " + newDbName;
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.ALTER;
     }
 
 }

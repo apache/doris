@@ -33,7 +33,7 @@ public:
     ~AsyncCancelQueryTask() override = default;
     void run() override {
         ExecEnv::GetInstance()->fragment_mgr()->cancel_query(
-                _query_id, PPlanFragmentCancelReason::MEMORY_LIMIT_EXCEED, _exceed_msg);
+                _query_id, Status::MemoryLimitExceeded(_exceed_msg));
     }
 
 private:
@@ -46,16 +46,28 @@ void ThreadMemTrackerMgr::attach_limiter_tracker(
     DCHECK(mem_tracker);
     CHECK(init());
     flush_untracked_mem();
+    _last_attach_snapshots_stack.push_back({_reserved_mem, _consumer_tracker_stack});
+    if (_reserved_mem != 0) {
+        // _untracked_mem temporary store bytes that not synchronized to process reserved memory,
+        // but bytes have been subtracted from thread _reserved_mem.
+        doris::GlobalMemoryArbitrator::release_process_reserved_memory(_untracked_mem);
+        _reserved_mem = 0;
+        _untracked_mem = 0;
+    }
+    _consumer_tracker_stack.clear();
     _limiter_tracker = mem_tracker;
-    _limiter_tracker_raw = mem_tracker.get();
 }
 
 void ThreadMemTrackerMgr::detach_limiter_tracker(
         const std::shared_ptr<MemTrackerLimiter>& old_mem_tracker) {
     CHECK(init());
     flush_untracked_mem();
+    release_reserved();
+    DCHECK(!_last_attach_snapshots_stack.empty());
+    _reserved_mem = _last_attach_snapshots_stack.back().reserved_mem;
+    _consumer_tracker_stack = _last_attach_snapshots_stack.back().consumer_tracker_stack;
+    _last_attach_snapshots_stack.pop_back();
     _limiter_tracker = old_mem_tracker;
-    _limiter_tracker_raw = old_mem_tracker.get();
 }
 
 void ThreadMemTrackerMgr::cancel_query(const std::string& exceed_msg) {

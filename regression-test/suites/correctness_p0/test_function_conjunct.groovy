@@ -34,12 +34,7 @@ suite("test_function_conjunct") {
 
     sql """ INSERT INTO ${tableName} VALUES ("1","1"); """
 
-    sql "set enable_nereids_planner=true"
-    qt_select_default """select a, b from ${tableName} where coalesce(b, null) is NULL;"""
-
-    sql "set enable_nereids_planner=false"
     qt_select_default """select a, b from ${tableName} where coalesce(b, null) is NULL;"""
 
     sql """ DROP TABLE IF EXISTS ${tableName} """
-
 }

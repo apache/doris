@@ -17,25 +17,22 @@
 
 package org.apache.doris.nereids.trees.plans.physical;
 
-import org.apache.doris.common.IdGenerator;
-import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.CTEId;
-import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
-import org.apache.doris.planner.RuntimeFilterId;
 import org.apache.doris.statistics.Statistics;
-import org.apache.doris.thrift.TRuntimeFilterType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableMultimap;
+import com.google.common.collect.Multimap;
 
 import java.util.List;
 import java.util.Map;
@@ -48,14 +45,14 @@ import java.util.Optional;
 public class PhysicalCTEConsumer extends PhysicalRelation {
 
     private final CTEId cteId;
-    private final Map<Slot, Slot> producerToConsumerSlotMap;
+    private final Multimap<Slot, Slot> producerToConsumerSlotMap;
     private final Map<Slot, Slot> consumerToProducerSlotMap;
 
     /**
      * Constructor
      */
     public PhysicalCTEConsumer(RelationId relationId, CTEId cteId, Map<Slot, Slot> consumerToProducerSlotMap,
-            Map<Slot, Slot> producerToConsumerSlotMap, LogicalProperties logicalProperties) {
+            Multimap<Slot, Slot> producerToConsumerSlotMap, LogicalProperties logicalProperties) {
         this(relationId, cteId, consumerToProducerSlotMap, producerToConsumerSlotMap,
                 Optional.empty(), logicalProperties);
     }
@@ -64,7 +61,7 @@ public class PhysicalCTEConsumer extends PhysicalRelation {
      * Constructor
      */
     public PhysicalCTEConsumer(RelationId relationId, CTEId cteId,
-            Map<Slot, Slot> consumerToProducerSlotMap, Map<Slot, Slot> producerToConsumerSlotMap,
+            Map<Slot, Slot> consumerToProducerSlotMap, Multimap<Slot, Slot> producerToConsumerSlotMap,
             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties) {
         this(relationId, cteId, consumerToProducerSlotMap, producerToConsumerSlotMap,
                 groupExpression, logicalProperties, null, null);
@@ -74,14 +71,14 @@ public class PhysicalCTEConsumer extends PhysicalRelation {
      * Constructor
      */
     public PhysicalCTEConsumer(RelationId relationId, CTEId cteId, Map<Slot, Slot> consumerToProducerSlotMap,
-            Map<Slot, Slot> producerToConsumerSlotMap, Optional<GroupExpression> groupExpression,
+            Multimap<Slot, Slot> producerToConsumerSlotMap, Optional<GroupExpression> groupExpression,
             LogicalProperties logicalProperties, PhysicalProperties physicalProperties, Statistics statistics) {
         super(relationId, PlanType.PHYSICAL_CTE_CONSUMER, groupExpression,
                 logicalProperties, physicalProperties, statistics);
         this.cteId = cteId;
         this.consumerToProducerSlotMap = ImmutableMap.copyOf(Objects.requireNonNull(
                 consumerToProducerSlotMap, "consumerToProducerSlotMap should not null"));
-        this.producerToConsumerSlotMap = ImmutableMap.copyOf(Objects.requireNonNull(
+        this.producerToConsumerSlotMap = ImmutableMultimap.copyOf(Objects.requireNonNull(
                 producerToConsumerSlotMap, "consumerToProducerSlotMap should not null"));
     }
 
@@ -89,7 +86,7 @@ public class PhysicalCTEConsumer extends PhysicalRelation {
         return cteId;
     }
 
-    public Map<Slot, Slot> getProducerToConsumerSlotMap() {
+    public Multimap<Slot, Slot> getProducerToConsumerSlotMap() {
         return producerToConsumerSlotMap;
     }
 
@@ -104,11 +101,10 @@ public class PhysicalCTEConsumer extends PhysicalRelation {
     public String toString() {
         StringBuilder builder = new StringBuilder();
         if (!getAppliedRuntimeFilters().isEmpty()) {
-            getAppliedRuntimeFilters()
-                    .stream().forEach(rf -> builder.append(" RF").append(rf.getId().asInt()));
+            getAppliedRuntimeFilters().forEach(rf -> builder.append(" RF").append(rf.getId().asInt()));
         }
         return Utils.toSqlString("PhysicalCTEConsumer[" + id.asInt() + "]",
-                "stats", getStats(), "cteId", cteId, "RFs", builder);
+                "stats", getStats(), "cteId", cteId, "RFs", builder, "map", consumerToProducerSlotMap);
     }
 
     @Override
@@ -146,21 +142,9 @@ public class PhysicalCTEConsumer extends PhysicalRelation {
                 "cteId", cteId));
         if (!getAppliedRuntimeFilters().isEmpty()) {
             shapeBuilder.append(" apply RFs:");
-            getAppliedRuntimeFilters()
-                    .stream().forEach(rf -> shapeBuilder.append(" RF").append(rf.getId().asInt()));
+            getAppliedRuntimeFilters().forEach(rf -> shapeBuilder.append(" RF").append(rf.getId().asInt()));
         }
         return shapeBuilder.toString();
-    }
-
-    @Override
-    public boolean pushDownRuntimeFilter(CascadesContext context, IdGenerator<RuntimeFilterId> generator,
-            AbstractPhysicalJoin<?, ?> builderNode,
-            Expression src, Expression probeExpr,
-            TRuntimeFilterType type, long buildSideNdv, int exprOrder) {
-        // push down rf on cte sender
-        // TODO: refactor pushing down into cte internal here
-        return super.pushDownRuntimeFilter(context, generator, builderNode,
-                src, probeExpr, type, buildSideNdv, exprOrder);
     }
 
     @Override

@@ -31,7 +31,7 @@ import com.google.common.base.Strings;
 
 import java.util.Map;
 
-public class AlterColocateGroupStmt extends DdlStmt {
+public class AlterColocateGroupStmt extends DdlStmt implements NotFallbackInParser {
     private final ColocateGroupName colocateGroupName;
     private final Map<String, String> properties;
 
@@ -78,5 +78,10 @@ public class AlterColocateGroupStmt extends DdlStmt {
         sb.append("ALTER COLOCATE GROUP ").append(colocateGroupName.toSql()).append(" ");
         sb.append("PROPERTIES(").append(new PrintableMap<>(properties, " = ", true, false)).append(")");
         return sb.toString();
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.ALTER;
     }
 }

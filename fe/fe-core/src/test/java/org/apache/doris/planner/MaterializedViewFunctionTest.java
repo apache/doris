@@ -58,6 +58,7 @@ public class MaterializedViewFunctionTest {
         UtFrameUtils.createDorisCluster(runningDir);
         dorisAssert = new DorisAssert();
         dorisAssert.withDatabase(HR_DB_NAME).useDatabase(HR_DB_NAME);
+        dorisAssert.getSessionVariable().setEnableSyncMvCostBasedRewrite(false);
     }
 
     @Before

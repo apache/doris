@@ -62,9 +62,7 @@ suite("test_time_round") {
     qt_select "select hour_floor(dt,p,'1919-08-10 11:45:14') from dbround order by id;"
     qt_select "select hour_floor(dt,2,'1919-08-10 11:45:14') from dbround order by id;"
     
-    sql """ set enable_nereids_planner=false; """ 
-
-        // fix by issues/9711, expect: '1970-01-01T01:00:30'
+    // fix by issues/9711, expect: '1970-01-01T01:00:30'
     qt_select "select hour_ceil('1970-01-01 01:00:10', 1, '1970-01-01 00:00:30')"
 
     // fix by issues/9711, expect: '1970-01-01T00:00:30'

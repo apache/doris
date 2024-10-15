@@ -20,12 +20,15 @@ package org.apache.doris.qe;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ClientPool;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.thrift.FrontendService;
 import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.TExprNode;
+import org.apache.doris.thrift.TGroupCommitInfo;
 import org.apache.doris.thrift.TMasterOpRequest;
 import org.apache.doris.thrift.TMasterOpResult;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -84,11 +87,30 @@ public class MasterOpExecutor {
 
     public void execute() throws Exception {
         result = forward(buildStmtForwardParams());
+        if (result.getStatusCode() == 0 && ctx.isTxnModel()) {
+            if (result.isSetTxnLoadInfo()) {
+                ctx.getTxnEntry().setTxnLoadInfoInObserver(result.getTxnLoadInfo());
+            } else {
+                ctx.setTxnEntry(null);
+                LOG.info("set txn entry to null");
+            }
+        }
         waitOnReplaying();
     }
 
     public void syncJournal() throws Exception {
         result = forward(buildSyncJournalParmas());
+        waitOnReplaying();
+    }
+
+    public long getGroupCommitLoadBeId(long tableId, String cluster) throws Exception {
+        result = forward(buildGetGroupCommitLoadBeIdParmas(tableId, cluster));
+        waitOnReplaying();
+        return result.groupCommitLoadBeId;
+    }
+
+    public void updateLoadData(long tableId, long receiveData) throws Exception {
+        result = forward(buildUpdateLoadDataParams(tableId, receiveData));
         waitOnReplaying();
     }
 
@@ -175,7 +197,7 @@ public class MasterOpExecutor {
         }
     }
 
-    private TMasterOpRequest buildStmtForwardParams() {
+    private TMasterOpRequest buildStmtForwardParams() throws AnalysisException {
         TMasterOpRequest params = new TMasterOpRequest();
         // node ident
         params.setClientNodeHost(Env.getCurrentEnv().getSelfNode().getHost());
@@ -190,9 +212,17 @@ public class MasterOpExecutor {
         params.setStmtId(ctx.getStmtId());
         params.setCurrentUserIdent(ctx.getCurrentUserIdentity().toThrift());
 
-        String cluster = ctx.getCloudCluster(false);
-        if (!Strings.isNullOrEmpty(cluster)) {
-            params.setCloudCluster(cluster);
+        if (Config.isCloudMode()) {
+            String cluster = "";
+            try {
+                cluster = ctx.getCloudCluster(false);
+            } catch (Exception e) {
+                LOG.warn("failed to get cloud compute group", e);
+                throw new AnalysisException("failed to get cloud compute group", e);
+            }
+            if (!Strings.isNullOrEmpty(cluster)) {
+                params.setCloudCluster(cluster);
+            }
         }
 
         // query options
@@ -203,6 +233,10 @@ public class MasterOpExecutor {
         if (null != ctx.queryId()) {
             params.setQueryId(ctx.queryId());
         }
+        // set transaction load info
+        if (ctx.isTxnModel()) {
+            params.setTxnLoadInfo(ctx.getTxnEntry().getTxnLoadInfoInObserver());
+        }
         return params;
     }
 
@@ -212,6 +246,42 @@ public class MasterOpExecutor {
         params.setClientNodeHost(Env.getCurrentEnv().getSelfNode().getHost());
         params.setClientNodePort(Env.getCurrentEnv().getSelfNode().getPort());
         params.setSyncJournalOnly(true);
+        params.setDb(ctx.getDatabase());
+        params.setUser(ctx.getQualifiedUser());
+        // just make the protocol happy
+        params.setSql("");
+        return params;
+    }
+
+    private TMasterOpRequest buildGetGroupCommitLoadBeIdParmas(long tableId, String cluster) {
+        final TGroupCommitInfo groupCommitParams = new TGroupCommitInfo();
+        groupCommitParams.setGetGroupCommitLoadBeId(true);
+        groupCommitParams.setGroupCommitLoadTableId(tableId);
+        groupCommitParams.setCluster(cluster);
+
+        final TMasterOpRequest params = new TMasterOpRequest();
+        // node ident
+        params.setClientNodeHost(Env.getCurrentEnv().getSelfNode().getHost());
+        params.setClientNodePort(Env.getCurrentEnv().getSelfNode().getPort());
+        params.setGroupCommitInfo(groupCommitParams);
+        params.setDb(ctx.getDatabase());
+        params.setUser(ctx.getQualifiedUser());
+        // just make the protocol happy
+        params.setSql("");
+        return params;
+    }
+
+    private TMasterOpRequest buildUpdateLoadDataParams(long tableId, long receiveData) {
+        final TGroupCommitInfo groupCommitParams = new TGroupCommitInfo();
+        groupCommitParams.setUpdateLoadData(true);
+        groupCommitParams.setTableId(tableId);
+        groupCommitParams.setReceiveData(receiveData);
+
+        final TMasterOpRequest params = new TMasterOpRequest();
+        // node ident
+        params.setClientNodeHost(Env.getCurrentEnv().getSelfNode().getHost());
+        params.setClientNodePort(Env.getCurrentEnv().getSelfNode().getPort());
+        params.setGroupCommitInfo(groupCommitParams);
         params.setDb(ctx.getDatabase());
         params.setUser(ctx.getQualifiedUser());
         // just make the protocol happy
@@ -288,7 +358,9 @@ public class MasterOpExecutor {
                         .put(TTransportException.UNKNOWN, "Unknown exception")
                         .put(TTransportException.NOT_OPEN, "Connection is not open")
                         .put(TTransportException.ALREADY_OPEN, "Connection has already opened up")
-                        .put(TTransportException.TIMED_OUT, "Connection timeout")
+                        .put(TTransportException.TIMED_OUT,
+                                "Connection timeout, please check network state or enlarge session variable:"
+                                        + "`query_timeout`/`insert_timeout`")
                         .put(TTransportException.END_OF_FILE, "EOF")
                         .put(TTransportException.CORRUPTED_DATA, "Corrupted data")
                         .build();

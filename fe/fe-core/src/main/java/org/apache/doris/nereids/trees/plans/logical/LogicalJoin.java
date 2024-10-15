@@ -17,16 +17,12 @@
 
 package org.apache.doris.nereids.trees.plans.logical;
 
-import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.bitmap.LongBitmap;
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.properties.FdFactory;
-import org.apache.doris.nereids.properties.FdItem;
-import org.apache.doris.nereids.properties.FunctionalDependencies.Builder;
+import org.apache.doris.nereids.properties.DataTrait.Builder;
 import org.apache.doris.nereids.properties.LogicalProperties;
-import org.apache.doris.nereids.properties.TableFdItem;
 import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
 import org.apache.doris.nereids.trees.expressions.EqualPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
@@ -43,7 +39,6 @@ import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.ImmutableEqualSet;
 import org.apache.doris.nereids.util.JoinUtils;
-import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
@@ -457,155 +452,6 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
         return Pair.of(leftKeys, rightKeys);
     }
 
-    @Override
-    public ImmutableSet<FdItem> computeFdItems() {
-        ImmutableSet.Builder<FdItem> builder = ImmutableSet.builder();
-        if (isMarkJoin() || joinType.isNullAwareLeftAntiJoin()
-                || joinType.isFullOuterJoin()
-                || !otherJoinConjuncts.isEmpty()) {
-            return ImmutableSet.of();
-        } else if (joinType.isLeftAntiJoin() || joinType.isLefSemiJoin()) {
-            return left().getLogicalProperties().getFunctionalDependencies().getFdItems();
-        } else if (joinType.isRightSemiJoin() || joinType.isRightAntiJoin()) {
-            return right().getLogicalProperties().getFunctionalDependencies().getFdItems();
-        } else if (joinType.isInnerJoin()) {
-            Pair<Set<Slot>, Set<Slot>> keys = extractNullRejectHashKeys();
-            if (keys == null) {
-                return ImmutableSet.of();
-            }
-            Set<Slot> leftSlotSet = keys.first;
-            Set<Slot> rightSlotSet = keys.second;
-
-            // enhance the fd from candidate to formal
-            ImmutableSet<FdItem> leftItems = left().getLogicalProperties().getFunctionalDependencies().getFdItems();
-            leftItems.stream().filter(e -> e.isCandidate()).forEach(f -> {
-                        if (leftSlotSet.containsAll(f.getParentExprs())) {
-                            f.setCandidate(false);
-                        }
-                    }
-            );
-            boolean isLeftUnique = leftItems.stream().filter(e -> e.isCandidate())
-                    .anyMatch(f -> leftSlotSet.containsAll(f.getParentExprs()));
-
-            ImmutableSet<FdItem> rightItems = right().getLogicalProperties().getFunctionalDependencies().getFdItems();
-            rightItems.stream().filter(e -> e.isCandidate()).forEach(f -> {
-                        if (rightSlotSet.containsAll(f.getParentExprs())) {
-                            f.setCandidate(false);
-                        }
-                    }
-            );
-            boolean isRightUnique = rightItems.stream().filter(e -> e.isCandidate())
-                    .anyMatch(f -> rightSlotSet.containsAll(f.getParentExprs()));
-
-            if (isRightUnique) {
-                // n to 1 unique
-                ImmutableSet<TableIf> rightTableSet = PlanUtils.getTableSet((LogicalPlan) right());
-                leftItems.stream().filter(e -> e.isUnique()).forEach(f -> {
-                    TableFdItem tableFdItem = FdFactory.INSTANCE.createTableFdItem(f.getParentExprs(),
-                            f.isUnique(), false, rightTableSet);
-                            builder.add(tableFdItem);
-                        }
-                );
-            } else if (isLeftUnique) {
-                // n to 1 unique
-                ImmutableSet<TableIf> leftTableSet = PlanUtils.getTableSet((LogicalPlan) left());
-                rightItems.stream().filter(e -> e.isUnique()).forEach(f -> {
-                            TableFdItem tableFdItem = FdFactory.INSTANCE.createTableFdItem(f.getParentExprs(),
-                                    f.isUnique(), false, leftTableSet);
-                            builder.add(tableFdItem);
-                        }
-                );
-            } else {
-                // n to n, set the unique false
-                leftItems.stream().forEach(e ->
-                        e.setUnique(false)
-                );
-                rightItems.stream().forEach(e ->
-                        e.setUnique(false)
-                );
-            }
-            builder.addAll(leftItems);
-            builder.addAll(rightItems);
-            return builder.build();
-        } else if (joinType.isLeftOuterJoin()) {
-            Pair<Set<Slot>, Set<Slot>> keys = extractNullRejectHashKeys();
-            if (keys == null) {
-                return ImmutableSet.of();
-            }
-            Set<Slot> leftSlotSet = keys.first;
-            Set<Slot> rightSlotSet = keys.second;
-
-            // enhance the fd from candidate to formal
-            ImmutableSet<FdItem> leftItems = left().getLogicalProperties().getFunctionalDependencies().getFdItems();
-            leftItems.stream().filter(e -> e.isCandidate()).forEach(f -> {
-                        if (leftSlotSet.containsAll(f.getParentExprs())) {
-                            f.setCandidate(false);
-                        }
-                    }
-            );
-
-            ImmutableSet<FdItem> rightItems = right().getLogicalProperties().getFunctionalDependencies().getFdItems();
-            boolean isRightUnique = rightItems.stream().filter(e -> e.isCandidate())
-                    .anyMatch(f -> rightSlotSet.containsAll(f.getParentExprs()));
-            if (isRightUnique) {
-                // n to 1 unique
-                ImmutableSet<TableIf> rightTableSet = PlanUtils.getTableSet((LogicalPlan) right());
-                leftItems.stream().filter(e -> e.isUnique()).forEach(f -> {
-                            TableFdItem tableFdItem = FdFactory.INSTANCE.createTableFdItem(f.getParentExprs(),
-                                    f.isUnique(), false, rightTableSet);
-                            builder.add(tableFdItem);
-                        }
-                );
-            } else {
-                // n to n, set the unique false
-                leftItems.stream().forEach(e ->
-                        e.setUnique(false)
-                );
-            }
-            builder.addAll(leftItems);
-            return builder.build();
-        } else if (joinType.isRightOuterJoin()) {
-            Pair<Set<Slot>, Set<Slot>> keys = extractNullRejectHashKeys();
-            if (keys == null) {
-                return ImmutableSet.of();
-            }
-            Set<Slot> leftSlotSet = keys.first;
-            Set<Slot> rightSlotSet = keys.second;
-
-            // enhance the fd from candidate to formal
-            ImmutableSet<FdItem> leftItems = left().getLogicalProperties().getFunctionalDependencies().getFdItems();
-            boolean isLeftUnique = leftItems.stream().filter(e -> e.isCandidate())
-                    .anyMatch(f -> leftSlotSet.containsAll(f.getParentExprs()));
-
-            ImmutableSet<FdItem> rightItems = right().getLogicalProperties().getFunctionalDependencies().getFdItems();
-            rightItems.stream().filter(e -> e.isCandidate()).forEach(f -> {
-                        if (rightSlotSet.containsAll(f.getParentExprs())) {
-                            f.setCandidate(false);
-                        }
-                    }
-            );
-            if (isLeftUnique) {
-                // n to 1 unique
-                ImmutableSet<TableIf> leftTableSet = PlanUtils.getTableSet((LogicalPlan) left());
-                rightItems.stream().filter(e -> e.isUnique()).forEach(f -> {
-                            TableFdItem tableFdItem = FdFactory.INSTANCE.createTableFdItem(f.getParentExprs(),
-                                    f.isUnique(), false, leftTableSet);
-                            builder.add(tableFdItem);
-                        }
-                );
-            } else {
-                // n to n, set the unique false
-                rightItems.stream().forEach(e ->
-                        e.setUnique(false)
-                );
-            }
-            builder.addAll(rightItems);
-            return builder.build();
-        } else {
-            return ImmutableSet.of();
-        }
-    }
-
     /**
      * get Equal slot from join
      */
@@ -641,15 +487,15 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
     }
 
     @Override
-    public void computeUnique(Builder fdBuilder) {
+    public void computeUnique(Builder builder) {
         if (isMarkJoin()) {
             // TODO disable function dependence calculation for mark join, but need re-think this in future.
             return;
         }
         if (joinType.isLeftSemiOrAntiJoin()) {
-            fdBuilder.addUniqueSlot(left().getLogicalProperties().getFunctionalDependencies());
+            builder.addUniqueSlot(left().getLogicalProperties().getTrait());
         } else if (joinType.isRightSemiOrAntiJoin()) {
-            fdBuilder.addUniqueSlot(right().getLogicalProperties().getFunctionalDependencies());
+            builder.addUniqueSlot(right().getLogicalProperties().getTrait());
         }
         // if there is non-equal join conditions, don't propagate unique
         if (hashJoinConjuncts.isEmpty()) {
@@ -664,36 +510,62 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
         // So the hash condition can't be null-safe
         // TODO: consider Null-safe hash condition when left and rigth is not nullable
         boolean isLeftUnique = left().getLogicalProperties()
-                .getFunctionalDependencies().isUnique(keys.first);
+                .getTrait().isUnique(keys.first);
         boolean isRightUnique = right().getLogicalProperties()
-                .getFunctionalDependencies().isUnique(keys.second);
+                .getTrait().isUnique(keys.second);
 
         // left/right outer join propagate left/right uniforms slots
         // And if the right/left hash keys is unique,
         // join can propagate left/right functional dependencies
         if (joinType.isLeftOuterJoin() && isRightUnique) {
-            fdBuilder.addUniqueSlot(left().getLogicalProperties().getFunctionalDependencies());
+            builder.addUniqueSlot(left().getLogicalProperties().getTrait());
         } else if (joinType.isRightOuterJoin() && isLeftUnique) {
-            fdBuilder.addUniqueSlot(right().getLogicalProperties().getFunctionalDependencies());
+            builder.addUniqueSlot(right().getLogicalProperties().getTrait());
         } else if (joinType.isInnerJoin() && isLeftUnique && isRightUnique) {
             // inner join propagate uniforms slots
             // And if the hash keys is unique, inner join can propagate all functional dependencies
-            fdBuilder.addFunctionalDependencies(left().getLogicalProperties().getFunctionalDependencies());
-            fdBuilder.addFunctionalDependencies(right().getLogicalProperties().getFunctionalDependencies());
+            builder.addDataTrait(left().getLogicalProperties().getTrait());
+            builder.addDataTrait(right().getLogicalProperties().getTrait());
         }
     }
 
     @Override
-    public void computeUniform(Builder fdBuilder) {
+    public void computeUniform(Builder builder) {
         if (isMarkJoin()) {
             // TODO disable function dependence calculation for mark join, but need re-think this in future.
             return;
         }
         if (!joinType.isLeftSemiOrAntiJoin()) {
-            fdBuilder.addUniformSlot(right().getLogicalProperties().getFunctionalDependencies());
+            builder.addUniformSlot(right().getLogicalProperties().getTrait());
         }
         if (!joinType.isRightSemiOrAntiJoin()) {
-            fdBuilder.addUniformSlot(left().getLogicalProperties().getFunctionalDependencies());
+            builder.addUniformSlot(left().getLogicalProperties().getTrait());
+        }
+    }
+
+    @Override
+    public void computeEqualSet(Builder builder) {
+        if (!joinType.isLeftSemiOrAntiJoin()) {
+            builder.addEqualSet(right().getLogicalProperties().getTrait());
+        }
+        if (!joinType.isRightSemiOrAntiJoin()) {
+            builder.addEqualSet(left().getLogicalProperties().getTrait());
+        }
+        if (joinType.isInnerJoin()) {
+            for (Expression expression : getHashJoinConjuncts()) {
+                Optional<Pair<Slot, Slot>> equalSlot = ExpressionUtils.extractEqualSlot(expression);
+                equalSlot.ifPresent(slotSlotPair -> builder.addEqualPair(slotSlotPair.first, slotSlotPair.second));
+            }
+        }
+    }
+
+    @Override
+    public void computeFd(Builder builder) {
+        if (!joinType.isLeftSemiOrAntiJoin()) {
+            builder.addFuncDepsDG(right().getLogicalProperties().getTrait());
+        }
+        if (!joinType.isRightSemiOrAntiJoin()) {
+            builder.addFuncDepsDG(left().getLogicalProperties().getTrait());
         }
     }
 }

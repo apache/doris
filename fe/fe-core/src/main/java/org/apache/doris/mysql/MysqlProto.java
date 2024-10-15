@@ -24,7 +24,6 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.datasource.CatalogIf;
-import org.apache.doris.mysql.authenticate.MysqlAuth;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
@@ -92,6 +91,7 @@ public class MysqlProto {
         serializer.reset();
         MysqlHandshakePacket handshakePacket = new MysqlHandshakePacket(context.getConnectionId());
         handshakePacket.writeTo(serializer);
+        context.setMysqlHandshakePacket(handshakePacket);
         try {
             channel.sendAndFlush(serializer.toByteBuffer());
         } catch (IOException e) {
@@ -169,6 +169,12 @@ public class MysqlProto {
         if (capability.isDeprecatedEOF()) {
             context.getMysqlChannel().setClientDeprecatedEOF();
         }
+
+        // we do not save client capability to context, so here we save CLIENT_MULTI_STATEMENTS to MysqlChannel
+        if (capability.isClientMultiStatements()) {
+            context.getMysqlChannel().setClientMultiStatements();
+        }
+
         MysqlAuthPacket authPacket = new MysqlAuthPacket();
         if (!authPacket.readFrom(handshakeResponse)) {
             ErrorReport.report(ErrorCode.ERR_NOT_SUPPORTED_AUTH_MODE);
@@ -195,7 +201,8 @@ public class MysqlProto {
         }
 
         //  authenticate
-        if (!MysqlAuth.authenticate(context, qualifiedUser, channel, serializer, authPacket, handshakePacket)) {
+        if (!Env.getCurrentEnv().getAuthenticatorManager()
+                .authenticate(context, qualifiedUser, channel, serializer, authPacket, handshakePacket)) {
             return false;
         }
 
@@ -234,13 +241,15 @@ public class MysqlProto {
 
             // check catalog and db exists
             if (catalogName != null) {
-                CatalogIf catalogIf = context.getEnv().getCatalogMgr().getCatalogNullable(catalogName);
+                CatalogIf catalogIf = context.getEnv().getCatalogMgr().getCatalog(catalogName);
                 if (catalogIf == null) {
-                    context.getState().setError(ErrorCode.ERR_BAD_DB_ERROR, "No match catalog in doris: " + db);
+                    context.getState()
+                            .setError(ErrorCode.ERR_BAD_DB_ERROR, ErrorCode.ERR_BAD_DB_ERROR.formatErrorMsg(db));
                     return false;
                 }
                 if (catalogIf.getDbNullable(dbFullName) == null) {
-                    context.getState().setError(ErrorCode.ERR_BAD_DB_ERROR, "No match database in doris: " + db);
+                    context.getState()
+                            .setError(ErrorCode.ERR_BAD_DB_ERROR, ErrorCode.ERR_BAD_DB_ERROR.formatErrorMsg(db));
                     return false;
                 }
             }

@@ -57,7 +57,6 @@ public class MvInfosTableValuedFunction extends MetadataTableValuedFunction {
             new Column("RefreshState", ScalarType.createStringType()),
             new Column("RefreshInfo", ScalarType.createStringType()),
             new Column("QuerySql", ScalarType.createStringType()),
-            new Column("EnvInfo", ScalarType.createStringType()),
             new Column("MvProperties", ScalarType.createStringType()),
             new Column("MvPartitionInfo", ScalarType.createStringType()),
             new Column("SyncWithBaseTables", ScalarType.createType(PrimitiveType.BOOLEAN)));
@@ -92,7 +91,7 @@ public class MvInfosTableValuedFunction extends MetadataTableValuedFunction {
         }
         String dbName = validParams.get(DB);
         if (dbName == null) {
-            throw new AnalysisException("Invalid mtmv metadata query");
+            throw new AnalysisException("Invalid async materialized view metadata query");
         }
         this.databaseName = dbName;
         if (LOG.isDebugEnabled()) {

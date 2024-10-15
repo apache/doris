@@ -25,17 +25,17 @@ import com.google.gson.annotations.SerializedName;
  * so the update time is used instead of the version
  */
 public class MTMVMaxTimestampSnapshot implements MTMVSnapshotIf {
-    // partitionId corresponding to timestamp
-    // The reason why both timestamp and partitionId are stored is to avoid
+    // partitionName corresponding to timestamp
+    // The reason why both timestamp and partitionName are stored is to avoid
     // deleting the partition corresponding to timestamp
-    @SerializedName("p")
-    private long partitionId;
+    @SerializedName("pn")
+    private String partitionName;
     // The maximum modify time in all partitions
     @SerializedName("t")
     private long timestamp;
 
-    public MTMVMaxTimestampSnapshot(long partitionId, long timestamp) {
-        this.partitionId = partitionId;
+    public MTMVMaxTimestampSnapshot(String partitionName, long timestamp) {
+        this.partitionName = partitionName;
         this.timestamp = timestamp;
     }
 
@@ -48,12 +48,19 @@ public class MTMVMaxTimestampSnapshot implements MTMVSnapshotIf {
             return false;
         }
         MTMVMaxTimestampSnapshot that = (MTMVMaxTimestampSnapshot) o;
-        return partitionId == that.partitionId
-                && timestamp == that.timestamp;
+        return timestamp == that.timestamp && Objects.equal(partitionName, that.partitionName);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hashCode(partitionId, timestamp);
+        return Objects.hashCode(partitionName, timestamp);
+    }
+
+    @Override
+    public String toString() {
+        return "MTMVMaxTimestampSnapshot{"
+                + "partitionName='" + partitionName + '\''
+                + ", timestamp=" + timestamp
+                + '}';
     }
 }

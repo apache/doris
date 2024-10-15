@@ -22,36 +22,84 @@
 #include <sstream>
 #include <string>
 
+#include "common/status.h"
 #include "http/http_channel.h"
 #include "http/http_headers.h"
 #include "http/http_request.h"
 #include "http/http_status.h"
+#include "io/cache/block_file_cache.h"
 #include "io/cache/block_file_cache_factory.h"
+#include "io/cache/file_cache_common.h"
 #include "olap/olap_define.h"
 #include "olap/tablet_meta.h"
 #include "util/easy_json.h"
 
 namespace doris {
 
-const static std::string HEADER_JSON = "application/json";
-const static std::string OP = "op";
+constexpr static std::string_view HEADER_JSON = "application/json";
+constexpr static std::string_view OP = "op";
+constexpr static std::string_view SYNC = "sync";
+constexpr static std::string_view PATH = "path";
+constexpr static std::string_view CLEAR = "clear";
+constexpr static std::string_view RESET = "reset";
+constexpr static std::string_view HASH = "hash";
+constexpr static std::string_view CAPACITY = "capacity";
+constexpr static std::string_view RELEASE = "release";
+constexpr static std::string_view BASE_PATH = "base_path";
+constexpr static std::string_view RELEASED_ELEMENTS = "released_elements";
+constexpr static std::string_view VALUE = "value";
 
 Status FileCacheAction::_handle_header(HttpRequest* req, std::string* json_metrics) {
-    req->add_output_header(HttpHeaders::CONTENT_TYPE, HEADER_JSON.c_str());
-    std::string operation = req->param(OP);
-    if (operation == "release") {
+    req->add_output_header(HttpHeaders::CONTENT_TYPE, HEADER_JSON.data());
+    std::string operation = req->param(OP.data());
+    Status st = Status::OK();
+    if (operation == RELEASE) {
         size_t released = 0;
-        if (req->param("base_path") != "") {
-            released = io::FileCacheFactory::instance()->try_release(req->param("base_path"));
+        const std::string& base_path = req->param(BASE_PATH.data());
+        if (!base_path.empty()) {
+            released = io::FileCacheFactory::instance()->try_release(base_path);
         } else {
             released = io::FileCacheFactory::instance()->try_release();
         }
         EasyJson json;
-        json["released_elements"] = released;
+        json[RELEASED_ELEMENTS.data()] = released;
         *json_metrics = json.ToString();
-        return Status::OK();
+    } else if (operation == CLEAR) {
+        const std::string& sync = req->param(SYNC.data());
+        auto ret = io::FileCacheFactory::instance()->clear_file_caches(to_lower(sync) == "true");
+    } else if (operation == RESET) {
+        std::string capacity = req->param(CAPACITY.data());
+        int64_t new_capacity = 0;
+        bool parse = true;
+        try {
+            new_capacity = std::stoll(capacity);
+        } catch (...) {
+            parse = false;
+        }
+        if (!parse || new_capacity <= 0) {
+            st = Status::InvalidArgument(
+                    "The capacity {} failed to be parsed, the capacity needs to be in "
+                    "the interval (0, INT64_MAX]",
+                    capacity);
+        } else {
+            const std::string& path = req->param(PATH.data());
+            auto ret = io::FileCacheFactory::instance()->reset_capacity(path, new_capacity);
+            LOG(INFO) << ret;
+        }
+    } else if (operation == HASH) {
+        const std::string& segment_path = req->param(VALUE.data());
+        if (segment_path.empty()) {
+            st = Status::InvalidArgument("missing parameter: {} is required", VALUE.data());
+        } else {
+            io::UInt128Wrapper ret = io::BlockFileCache::hash(segment_path);
+            EasyJson json;
+            json[HASH.data()] = ret.to_string();
+            *json_metrics = json.ToString();
+        }
+    } else {
+        st = Status::InternalError("invalid operation: {}", operation);
     }
-    return Status::InternalError("invalid operation: {}", operation);
+    return st;
 }
 
 void FileCacheAction::handle(HttpRequest* req) {
@@ -59,7 +107,8 @@ void FileCacheAction::handle(HttpRequest* req) {
     Status status = _handle_header(req, &json_metrics);
     std::string status_result = status.to_json();
     if (status.ok()) {
-        HttpChannel::send_reply(req, HttpStatus::OK, json_metrics);
+        HttpChannel::send_reply(req, HttpStatus::OK,
+                                json_metrics.empty() ? status.to_json() : json_metrics);
     } else {
         HttpChannel::send_reply(req, HttpStatus::INTERNAL_SERVER_ERROR, status_result);
     }

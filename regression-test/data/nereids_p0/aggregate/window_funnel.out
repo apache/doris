@@ -11,6 +11,9 @@
 -- !window_funnel --
 2
 
+-- !window_funnel_deduplication_compat --
+4
+
 -- !window_funnel_deduplication --
 2
 
@@ -25,4 +28,103 @@
 
 -- !window_funnel_increase --
 2
+
+-- !window_funnel_neq --
+2
+
+-- !window_funnel_default0 --
+100123	4
+100125	3
+100126	2
+100127	2
+
+-- !window_funnel_default1 --
+100123	3
+100125	3
+100126	2
+100127	2
+
+-- !window_funnel_default2 --
+100123	1
+100125	1
+100126	1
+100127	1
+
+-- !window_funnel_default3 --
+100123	1
+100125	1
+100126	1
+100127	1
+
+-- !window_funnel_default4 --
+100123	2
+100125	2
+100126	2
+100127	2
+
+-- !window_funnel_default5 --
+100123	1
+100125	1
+100126	1
+100127	1
+
+-- !window_funnel_default6 --
+100123	4
+100125	3
+100126	2
+100127	2
+
+-- !window_funnel_default7 --
+100123	2
+100125	2
+100126	1
+100127	1
+
+-- !window_funnel_default8 --
+100123	4
+100125	2
+100126	0
+100127	1
+
+-- !window_funnel_default9 --
+100123	4
+100125	3
+100126	4
+100127	2
+
+-- !window_funnel_deduplication0 --
+100123	3
+100125	3
+100126	2
+100127	2
+
+-- !window_funnel_deduplication1 --
+100123	3
+100125	3
+100126	2
+100127	2
+
+-- !window_funnel_deduplication2 --
+100123	3
+100125	3
+100126	2
+100127	2
+
+-- !window_funnel_fixed0 --
+100123	2
+100125	3
+100126	2
+100127	2
+
+-- !window_funnel_fixed1 --
+100123	2
+100125	3
+100126	2
+100127	2
+
+-- !window_funnel_increase0 --
+100123	3
+100125	3
+100126	2
+100127	2
 

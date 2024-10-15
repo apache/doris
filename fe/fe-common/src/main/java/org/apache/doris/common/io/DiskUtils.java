@@ -44,11 +44,13 @@ public class DiskUtils {
             return df;
         }
 
-        Process process;
+        Process process = null;
+        BufferedReader reader = null;
+        InputStream inputStream = null;
         try {
             process = Runtime.getRuntime().exec("df -k " + dir);
-            InputStream inputStream = process.getInputStream();
-            BufferedReader reader = new BufferedReader(new InputStreamReader(inputStream));
+            inputStream = process.getInputStream();
+            reader = new BufferedReader(new InputStreamReader(inputStream));
             Df df = new Df();
             // Filesystem      1K-blocks       Used Available Use% Mounted on
             // /dev/sdc       5814186096 5814169712         0 100% /home/spy-sd/sdc
@@ -67,6 +69,18 @@ public class DiskUtils {
         } catch (IOException e) {
             log.info("failed to obtain disk information", e);
             return new Df();
+        } finally {
+            if (process != null) {
+                process.destroy();
+            }
+            if (reader != null) {
+                try {
+                    reader.close();
+                } catch (IOException e) {
+                    log.info("failed to obtain disk information", e);
+                    return new Df();
+                }
+            }
         }
     }
 

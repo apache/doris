@@ -189,7 +189,21 @@ MaxComputeTableDescriptor::MaxComputeTableDescriptor(const TTableDescriptor& tde
           _tunnel_url(tdesc.mcTable.tunnel_url),
           _access_key(tdesc.mcTable.access_key),
           _secret_key(tdesc.mcTable.secret_key),
-          _public_access(tdesc.mcTable.public_access) {}
+          _public_access(tdesc.mcTable.public_access) {
+    if (tdesc.mcTable.__isset.endpoint) {
+        _endpoint = tdesc.mcTable.endpoint;
+    } else {
+        _init_status = Status::InvalidArgument(
+                "fail to init MaxComputeTableDescriptor, missing endpoint.");
+    }
+
+    if (tdesc.mcTable.__isset.quota) {
+        _quota = tdesc.mcTable.quota;
+    } else {
+        _init_status =
+                Status::InvalidArgument("fail to init MaxComputeTableDescriptor, missing quota.");
+    }
+}
 
 MaxComputeTableDescriptor::~MaxComputeTableDescriptor() = default;
 
@@ -353,10 +367,12 @@ RowDescriptor::RowDescriptor(const DescriptorTbl& desc_tbl, const std::vector<TT
             << row_tuples.size();
     DCHECK_GT(row_tuples.size(), 0);
     _num_materialized_slots = 0;
+    _num_slots = 0;
 
     for (int row_tuple : row_tuples) {
         TupleDescriptor* tupleDesc = desc_tbl.get_tuple_descriptor(row_tuple);
         _num_materialized_slots += tupleDesc->num_materialized_slots();
+        _num_slots += tupleDesc->slots().size();
         _tuple_desc_map.push_back(tupleDesc);
         DCHECK(_tuple_desc_map.back() != nullptr);
     }
@@ -369,6 +385,7 @@ RowDescriptor::RowDescriptor(TupleDescriptor* tuple_desc, bool is_nullable)
         : _tuple_desc_map(1, tuple_desc), _tuple_idx_nullable_map(1, is_nullable) {
     init_tuple_idx_map();
     init_has_varlen_slots();
+    _num_slots = tuple_desc->slots().size();
 }
 
 RowDescriptor::RowDescriptor(const RowDescriptor& lhs_row_desc, const RowDescriptor& rhs_row_desc) {
@@ -384,6 +401,8 @@ RowDescriptor::RowDescriptor(const RowDescriptor& lhs_row_desc, const RowDescrip
                                    rhs_row_desc._tuple_idx_nullable_map.end());
     init_tuple_idx_map();
     init_has_varlen_slots();
+
+    _num_slots = lhs_row_desc.num_slots() + rhs_row_desc.num_slots();
 }
 
 void RowDescriptor::init_tuple_idx_map() {

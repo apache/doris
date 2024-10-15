@@ -32,7 +32,7 @@ TEST(VDateTimeValueTest, date_v2_to_uint32_test) {
     uint8_t day = 24;
 
     DateV2Value<DateV2ValueType> date_v2;
-    date_v2.set_time(year, month, day, 0, 0, 0, 0);
+    date_v2.unchecked_set_time(year, month, day, 0, 0, 0, 0);
 
     EXPECT_TRUE(date_v2.year() == year);
     EXPECT_TRUE(date_v2.month() == month);
@@ -53,7 +53,7 @@ TEST(VDateTimeValueTest, datetime_v2_to_uint64_test) {
     uint32_t microsecond = 999999;
 
     DateV2Value<DateTimeV2ValueType> datetime_v2;
-    datetime_v2.set_time(year, month, day, hour, minute, second, microsecond);
+    datetime_v2.unchecked_set_time(year, month, day, hour, minute, second, microsecond);
 
     EXPECT_TRUE(datetime_v2.year() == year);
     EXPECT_TRUE(datetime_v2.month() == month);
@@ -336,112 +336,6 @@ TEST(VDateTimeValueTest, date_diff_test) {
     }
 
     {
-        DateV2Value<DateV2ValueType> date_v2_1;
-        std::string origin_date1 = "2022-05-24";
-        std::string date_format1 = "%Y-%m-%d";
-        EXPECT_TRUE(date_v2_1.from_date_format_str(date_format1.data(), date_format1.size(),
-                                                   origin_date1.data(), origin_date1.size()));
-
-        VecDateTimeValue date_v2_2;
-        std::string origin_date2 = "2022-06-24 00:00:00";
-        std::string date_format2 = "%Y-%m-%d %H:%i:%s";
-        EXPECT_TRUE(date_v2_2.from_date_format_str(date_format2.data(), date_format2.size(),
-                                                   origin_date2.data(), origin_date2.size()));
-
-        EXPECT_TRUE(datetime_diff<TimeUnit::DAY>(date_v2_1, date_v2_2) == 31);
-        EXPECT_TRUE(datetime_diff<TimeUnit::YEAR>(date_v2_1, date_v2_2) == 0);
-        EXPECT_TRUE(datetime_diff<TimeUnit::MONTH>(date_v2_1, date_v2_2) == 1);
-        EXPECT_TRUE(datetime_diff<TimeUnit::HOUR>(date_v2_1, date_v2_2) == 31 * 24);
-        EXPECT_TRUE(datetime_diff<TimeUnit::MINUTE>(date_v2_1, date_v2_2) == 31 * 24 * 60);
-        EXPECT_TRUE(datetime_diff<TimeUnit::SECOND>(date_v2_1, date_v2_2) == 31 * 24 * 60 * 60);
-    }
-
-    {
-        DateV2Value<DateTimeV2ValueType> date_v2_1;
-        std::string origin_date1 = "2022-05-24 00:00:00.000";
-        std::string date_format1 = "%Y-%m-%d %H:%i:%s.%f";
-        EXPECT_TRUE(date_v2_1.from_date_format_str(date_format1.data(), date_format1.size(),
-                                                   origin_date1.data(), origin_date1.size()));
-
-        VecDateTimeValue date_v2_2;
-        std::string origin_date2 = "2022-06-24 00:00:00";
-        std::string date_format2 = "%Y-%m-%d %H:%i:%s";
-        EXPECT_TRUE(date_v2_2.from_date_format_str(date_format2.data(), date_format2.size(),
-                                                   origin_date2.data(), origin_date2.size()));
-
-        EXPECT_TRUE(datetime_diff<TimeUnit::DAY>(date_v2_1, date_v2_2) == 31);
-        EXPECT_TRUE(datetime_diff<TimeUnit::YEAR>(date_v2_1, date_v2_2) == 0);
-        EXPECT_TRUE(datetime_diff<TimeUnit::MONTH>(date_v2_1, date_v2_2) == 1);
-        EXPECT_TRUE(datetime_diff<TimeUnit::HOUR>(date_v2_1, date_v2_2) == 31 * 24);
-        EXPECT_TRUE(datetime_diff<TimeUnit::MINUTE>(date_v2_1, date_v2_2) == 31 * 24 * 60);
-        EXPECT_TRUE(datetime_diff<TimeUnit::SECOND>(date_v2_1, date_v2_2) == 31 * 24 * 60 * 60);
-    }
-
-    {
-        VecDateTimeValue date_v2_1;
-        std::string origin_date1 = "2022-05-24 00:00:00";
-        std::string date_format1 = "%Y-%m-%d %H:%i:%s";
-        EXPECT_TRUE(date_v2_1.from_date_format_str(date_format1.data(), date_format1.size(),
-                                                   origin_date1.data(), origin_date1.size()));
-
-        DateV2Value<DateV2ValueType> date_v2_2;
-        std::string origin_date2 = "2022-06-24";
-        std::string date_format2 = "%Y-%m-%d";
-        EXPECT_TRUE(date_v2_2.from_date_format_str(date_format2.data(), date_format2.size(),
-                                                   origin_date2.data(), origin_date2.size()));
-
-        EXPECT_TRUE(datetime_diff<TimeUnit::DAY>(date_v2_1, date_v2_2) == 31);
-        EXPECT_TRUE(datetime_diff<TimeUnit::YEAR>(date_v2_1, date_v2_2) == 0);
-        EXPECT_TRUE(datetime_diff<TimeUnit::MONTH>(date_v2_1, date_v2_2) == 1);
-        EXPECT_TRUE(datetime_diff<TimeUnit::HOUR>(date_v2_1, date_v2_2) == 31 * 24);
-        EXPECT_TRUE(datetime_diff<TimeUnit::MINUTE>(date_v2_1, date_v2_2) == 31 * 24 * 60);
-        EXPECT_TRUE(datetime_diff<TimeUnit::SECOND>(date_v2_1, date_v2_2) == 31 * 24 * 60 * 60);
-    }
-
-    {
-        VecDateTimeValue date_v2_1;
-        std::string origin_date1 = "2022-05-24 00:00:00";
-        std::string date_format1 = "%Y-%m-%d %H:%i:%s";
-        EXPECT_TRUE(date_v2_1.from_date_format_str(date_format1.data(), date_format1.size(),
-                                                   origin_date1.data(), origin_date1.size()));
-
-        DateV2Value<DateTimeV2ValueType> date_v2_2;
-        std::string origin_date2 = "2022-06-24 00:00:00.000000";
-        std::string date_format2 = "%Y-%m-%d %H:%i:%s.%f";
-        EXPECT_TRUE(date_v2_2.from_date_format_str(date_format2.data(), date_format2.size(),
-                                                   origin_date2.data(), origin_date2.size()));
-
-        EXPECT_TRUE(datetime_diff<TimeUnit::DAY>(date_v2_1, date_v2_2) == 31);
-        EXPECT_TRUE(datetime_diff<TimeUnit::YEAR>(date_v2_1, date_v2_2) == 0);
-        EXPECT_TRUE(datetime_diff<TimeUnit::MONTH>(date_v2_1, date_v2_2) == 1);
-        EXPECT_TRUE(datetime_diff<TimeUnit::HOUR>(date_v2_1, date_v2_2) == 31 * 24);
-        EXPECT_TRUE(datetime_diff<TimeUnit::MINUTE>(date_v2_1, date_v2_2) == 31 * 24 * 60);
-        EXPECT_TRUE(datetime_diff<TimeUnit::SECOND>(date_v2_1, date_v2_2) == 31 * 24 * 60 * 60);
-    }
-
-    {
-        DateV2Value<DateV2ValueType> date_v2_1;
-        std::string origin_date1 = "2022-05-24";
-        std::string date_format1 = "%Y-%m-%d";
-        EXPECT_TRUE(date_v2_1.from_date_format_str(date_format1.data(), date_format1.size(),
-                                                   origin_date1.data(), origin_date1.size()));
-
-        VecDateTimeValue date_v2_2;
-        std::string origin_date2 = "2022-06-24 06:00:00";
-        std::string date_format2 = "%Y-%m-%d %H:%i:%s";
-        EXPECT_TRUE(date_v2_2.from_date_format_str(date_format2.data(), date_format2.size(),
-                                                   origin_date2.data(), origin_date2.size()));
-
-        EXPECT_TRUE(datetime_diff<TimeUnit::DAY>(date_v2_1, date_v2_2) == 31);
-        EXPECT_TRUE(datetime_diff<TimeUnit::YEAR>(date_v2_1, date_v2_2) == 0);
-        EXPECT_TRUE(datetime_diff<TimeUnit::MONTH>(date_v2_1, date_v2_2) == 1);
-        EXPECT_TRUE(datetime_diff<TimeUnit::HOUR>(date_v2_1, date_v2_2) == 31 * 24 + 6);
-        EXPECT_TRUE(datetime_diff<TimeUnit::MINUTE>(date_v2_1, date_v2_2) == (31 * 24 + 6) * 60);
-        EXPECT_TRUE(datetime_diff<TimeUnit::SECOND>(date_v2_1, date_v2_2) ==
-                    (31 * 24 + 6) * 60 * 60);
-    }
-
-    {
         VecDateTimeValue date_v2_1;
         std::string origin_date1 = "2022-05-24";
         std::string date_format1 = "%Y-%m-%d";
@@ -517,7 +411,7 @@ TEST(VDateTimeValueTest, date_v2_to_string_test) {
 
     {
         DateV2Value<DateV2ValueType> date_v2;
-        date_v2.set_time(year, month, day, 0, 0, 0, 0);
+        date_v2.unchecked_set_time(year, month, day, 0, 0, 0, 0);
 
         char buf[30];
         int len = date_v2.to_buffer(buf);
@@ -526,7 +420,7 @@ TEST(VDateTimeValueTest, date_v2_to_string_test) {
 
     {
         DateV2Value<DateTimeV2ValueType> date_v2;
-        date_v2.set_time(year, month, day, hour, minute, second, ms);
+        date_v2.unchecked_set_time(year, month, day, hour, minute, second, ms);
 
         char buf[30];
         int len = date_v2.to_buffer(buf);
@@ -535,7 +429,7 @@ TEST(VDateTimeValueTest, date_v2_to_string_test) {
 
     {
         DateV2Value<DateTimeV2ValueType> date_v2;
-        date_v2.set_time(year, month, day, hour, minute, second, ms);
+        date_v2.unchecked_set_time(year, month, day, hour, minute, second, ms);
 
         char buf[30];
         int len = date_v2.to_buffer(buf, 3);
@@ -544,7 +438,7 @@ TEST(VDateTimeValueTest, date_v2_to_string_test) {
 
     {
         DateV2Value<DateTimeV2ValueType> date_v2;
-        date_v2.set_time(year, month, day, hour, minute, second, ms);
+        date_v2.unchecked_set_time(year, month, day, hour, minute, second, ms);
 
         char buf[30];
         int len = date_v2.to_buffer(buf, 2);
@@ -553,7 +447,7 @@ TEST(VDateTimeValueTest, date_v2_to_string_test) {
 
     {
         DateV2Value<DateTimeV2ValueType> date_v2;
-        date_v2.set_time(year, month, day, hour, minute, second, ms);
+        date_v2.unchecked_set_time(year, month, day, hour, minute, second, ms);
 
         char buf[30];
         int len = date_v2.to_buffer(buf, 6);
@@ -562,7 +456,7 @@ TEST(VDateTimeValueTest, date_v2_to_string_test) {
 
     {
         DateV2Value<DateTimeV2ValueType> date_v2;
-        date_v2.set_time(year, month, day, hour, minute, second, 0);
+        date_v2.unchecked_set_time(year, month, day, hour, minute, second, 0);
 
         char buf[30];
         int len = date_v2.to_buffer(buf);

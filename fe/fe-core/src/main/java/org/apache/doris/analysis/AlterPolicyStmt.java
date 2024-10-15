@@ -39,7 +39,7 @@ import java.util.Optional;
  * Alter policy
  **/
 @Data
-public class AlterPolicyStmt extends DdlStmt {
+public class AlterPolicyStmt extends DdlStmt implements NotFallbackInParser {
     private final String policyName;
     private final Map<String, String> properties;
 
@@ -53,8 +53,11 @@ public class AlterPolicyStmt extends DdlStmt {
         super.analyze(analyzer);
 
         // check auth
-        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
+        // check if can alter policy and use storage_resource
+        if (!Env.getCurrentEnv().getAccessManager()
+                .checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
+                    PrivPredicate.ADMIN.getPrivs().toString());
         }
 
         if (properties == null || properties.isEmpty()) {
@@ -91,6 +94,11 @@ public class AlterPolicyStmt extends DdlStmt {
         sb.append("ALTER POLICY '").append(policyName).append("' ");
         sb.append("PROPERTIES(").append(new PrintableMap<>(properties, " = ", true, false)).append(")");
         return sb.toString();
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.ALTER;
     }
 
 }

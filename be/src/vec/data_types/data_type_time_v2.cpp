@@ -47,12 +47,33 @@ bool DataTypeDateV2::equals(const IDataType& rhs) const {
     return typeid(rhs) == typeid(*this);
 }
 
+size_t DataTypeDateV2::number_length() const {
+    //2024-01-01
+    return 10;
+}
+void DataTypeDateV2::push_number(ColumnString::Chars& chars, const UInt32& num) const {
+    DateV2Value<DateV2ValueType> val = binary_cast<UInt32, DateV2Value<DateV2ValueType>>(num);
+
+    char buf[64];
+    char* pos = val.to_string(buf);
+    // DateTime to_string the end is /0
+    chars.insert(buf, pos - 1);
+}
+
 std::string DataTypeDateV2::to_string(const IColumn& column, size_t row_num) const {
     auto result = check_column_const_set_readability(column, row_num);
     ColumnPtr ptr = result.first;
     row_num = result.second;
 
     UInt32 int_val = assert_cast<const ColumnUInt32&>(*ptr).get_element(row_num);
+    DateV2Value<DateV2ValueType> val = binary_cast<UInt32, DateV2Value<DateV2ValueType>>(int_val);
+
+    char buf[64];
+    val.to_string(buf); // DateTime to_string the end is /0
+    return std::string {buf};
+}
+
+std::string DataTypeDateV2::to_string(UInt32 int_val) const {
     DateV2Value<DateV2ValueType> val = binary_cast<UInt32, DateV2Value<DateV2ValueType>>(int_val);
 
     char buf[64];
@@ -108,13 +129,15 @@ void DataTypeDateV2::cast_to_date_time_v2(const UInt32 from, UInt64& to) {
 void DataTypeDateV2::cast_from_date(const Int64 from, UInt32& to) {
     auto& to_value = (DateV2Value<DateV2ValueType>&)(to);
     auto from_value = binary_cast<Int64, VecDateTimeValue>(from);
-    to_value.set_time(from_value.year(), from_value.month(), from_value.day(), 0, 0, 0, 0);
+    to_value.unchecked_set_time(from_value.year(), from_value.month(), from_value.day(), 0, 0, 0,
+                                0);
 }
 
 void DataTypeDateV2::cast_from_date_time(const Int64 from, UInt32& to) {
     auto& to_value = (DateV2Value<DateV2ValueType>&)(to);
     auto from_value = binary_cast<Int64, VecDateTimeValue>(from);
-    to_value.set_time(from_value.year(), from_value.month(), from_value.day(), 0, 0, 0, 0);
+    to_value.unchecked_set_time(from_value.year(), from_value.month(), from_value.day(), 0, 0, 0,
+                                0);
 }
 
 bool DataTypeDateTimeV2::equals(const IDataType& rhs) const {
@@ -133,6 +156,27 @@ std::string DataTypeDateTimeV2::to_string(const IColumn& column, size_t row_num)
     char buf[64];
     val.to_string(buf, _scale);
     return buf; // DateTime to_string the end is /0
+}
+
+std::string DataTypeDateTimeV2::to_string(UInt64 int_val) const {
+    DateV2Value<DateTimeV2ValueType> val =
+            binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(int_val);
+
+    char buf[64];
+    val.to_string(buf, _scale);
+    return buf; // DateTime to_string the end is /0
+}
+
+size_t DataTypeDateTimeV2::number_length() const {
+    //2024-01-01 00:00:00-000000
+    return 32;
+}
+void DataTypeDateTimeV2::push_number(ColumnString::Chars& chars, const UInt64& num) const {
+    DateV2Value<DateTimeV2ValueType> val =
+            binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(num);
+    char buf[64];
+    char* pos = val.to_string(buf, _scale);
+    chars.insert(buf, pos - 1);
 }
 
 void DataTypeDateTimeV2::to_string(const IColumn& column, size_t row_num,
@@ -185,15 +229,15 @@ void DataTypeDateTimeV2::cast_to_date(const UInt64 from, Int64& to) {
 void DataTypeDateTimeV2::cast_from_date(const Int64 from, UInt64& to) {
     auto& to_value = (DateV2Value<DateTimeV2ValueType>&)(to);
     auto from_value = binary_cast<Int64, VecDateTimeValue>(from);
-    to_value.set_time(from_value.year(), from_value.month(), from_value.day(), from_value.hour(),
-                      from_value.minute(), from_value.second(), 0);
+    to_value.unchecked_set_time(from_value.year(), from_value.month(), from_value.day(),
+                                from_value.hour(), from_value.minute(), from_value.second(), 0);
 }
 
 void DataTypeDateTimeV2::cast_from_date_time(const Int64 from, UInt64& to) {
     auto& to_value = (DateV2Value<DateTimeV2ValueType>&)(to);
     auto from_value = binary_cast<Int64, VecDateTimeValue>(from);
-    to_value.set_time(from_value.year(), from_value.month(), from_value.day(), from_value.hour(),
-                      from_value.minute(), from_value.second(), 0);
+    to_value.unchecked_set_time(from_value.year(), from_value.month(), from_value.day(),
+                                from_value.hour(), from_value.minute(), from_value.second(), 0);
 }
 
 void DataTypeDateTimeV2::cast_to_date_v2(const UInt64 from, UInt32& to) {

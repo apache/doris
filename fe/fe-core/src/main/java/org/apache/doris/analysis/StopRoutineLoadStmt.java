@@ -26,7 +26,7 @@ import org.apache.doris.common.UserException;
   syntax:
       STOP ROUTINE LOAD [database.]name
  */
-public class StopRoutineLoadStmt extends DdlStmt {
+public class StopRoutineLoadStmt extends DdlStmt implements NotFallbackInParser {
 
     private final LabelName labelName;
 
@@ -46,5 +46,10 @@ public class StopRoutineLoadStmt extends DdlStmt {
     public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
         super.analyze(analyzer);
         labelName.analyze(analyzer);
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.STOP;
     }
 }

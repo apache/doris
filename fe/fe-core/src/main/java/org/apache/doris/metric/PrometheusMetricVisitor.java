@@ -19,6 +19,7 @@ package org.apache.doris.metric;
 
 import org.apache.doris.catalog.CloudTabletStatMgr;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.monitor.jvm.JvmStats;
@@ -29,6 +30,8 @@ import org.apache.doris.monitor.jvm.JvmStats.Threads;
 import com.codahale.metrics.Histogram;
 import com.codahale.metrics.Snapshot;
 import com.google.common.base.Joiner;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -45,6 +48,8 @@ import java.util.stream.Collectors;
  * doris_fe_job{job="load", type="mini", state="pending"} 0
  */
 public class PrometheusMetricVisitor extends MetricVisitor {
+
+    private static final Logger logger = LogManager.getLogger(PrometheusMetricVisitor.class);
     // jvm
     private static final String JVM_HEAP_SIZE_BYTES = "jvm_heap_size_bytes";
     private static final String JVM_NON_HEAP_SIZE_BYTES = "jvm_non_heap_size_bytes";
@@ -244,15 +249,15 @@ public class PrometheusMetricVisitor extends MetricVisitor {
         StringBuilder tableRowCountBuilder = new StringBuilder();
 
         long totalTableSize = 0;
-        for (CloudTabletStatMgr.CloudTableStats stats : tabletStatMgr.getCloudTableStatsMap().values()) {
-            totalTableSize += stats.getTableDataSize();
+        for (OlapTable.Statistics stats : tabletStatMgr.getCloudTableStatsMap().values()) {
+            totalTableSize += stats.getDataSize();
 
             dataSizeBuilder.append("doris_fe_table_data_size{db_name=\"");
             dataSizeBuilder.append(stats.getDbName());
             dataSizeBuilder.append("\", table_name=\"");
             dataSizeBuilder.append(stats.getTableName());
             dataSizeBuilder.append("\"} ");
-            dataSizeBuilder.append(stats.getTableDataSize());
+            dataSizeBuilder.append(stats.getDataSize());
             dataSizeBuilder.append("\n");
 
             rowsetCountBuilder.append("doris_fe_table_rowset_count{db_name=\"");
@@ -260,7 +265,7 @@ public class PrometheusMetricVisitor extends MetricVisitor {
             rowsetCountBuilder.append("\", table_name=\"");
             rowsetCountBuilder.append(stats.getTableName());
             rowsetCountBuilder.append("\"} ");
-            rowsetCountBuilder.append(stats.getTableRowsetCount());
+            rowsetCountBuilder.append(stats.getRowsetCount());
             rowsetCountBuilder.append("\n");
 
             segmentCountBuilder.append("doris_fe_table_segment_count{db_name=\"");
@@ -268,7 +273,7 @@ public class PrometheusMetricVisitor extends MetricVisitor {
             segmentCountBuilder.append("\", table_name=\"");
             segmentCountBuilder.append(stats.getTableName());
             segmentCountBuilder.append("\"} ");
-            segmentCountBuilder.append(stats.getTableSegmentCount());
+            segmentCountBuilder.append(stats.getSegmentCount());
             segmentCountBuilder.append("\n");
 
             tableRowCountBuilder.append("doris_fe_table_row_count{db_name=\"");
@@ -276,7 +281,7 @@ public class PrometheusMetricVisitor extends MetricVisitor {
             tableRowCountBuilder.append("\", table_name=\"");
             tableRowCountBuilder.append(stats.getTableName());
             tableRowCountBuilder.append("\"} ");
-            tableRowCountBuilder.append(stats.getTableRowCount());
+            tableRowCountBuilder.append(stats.getRowCount());
             tableRowCountBuilder.append("\n");
         }
 
@@ -322,5 +327,28 @@ public class PrometheusMetricVisitor extends MetricVisitor {
         sb.append(totalRecycleSize);
         sb.append("\n");
         return;
+    }
+
+    @Override
+    public void visitWorkloadGroup() {
+        StringBuilder tmpSb = new StringBuilder();
+        try {
+            String counterTitle = "doris_workload_group_query_detail";
+            tmpSb.append("# HELP " + counterTitle + "\n");
+            tmpSb.append("# TYPE " + counterTitle + " counter\n");
+            Map<String, List<String>> workloadGroupMap = Env.getCurrentEnv().getWorkloadGroupMgr()
+                    .getWorkloadGroupQueryDetail();
+            for (Map.Entry<String, List<String>> entry : workloadGroupMap.entrySet()) {
+                String name = entry.getKey();
+                List<String> valList = entry.getValue();
+                tmpSb.append(String.format("%s{name=\"%s\", type=\"%s\"} %s\n", counterTitle, name, "running_query_num",
+                        valList.get(0)));
+                tmpSb.append(String.format("%s{name=\"%s\", type=\"%s\"} %s\n", counterTitle, name, "waiting_query_num",
+                        valList.get(1)));
+            }
+            sb.append(tmpSb);
+        } catch (Exception e) {
+            logger.warn("error happends when get workload group query detail ", e);
+        }
     }
 }

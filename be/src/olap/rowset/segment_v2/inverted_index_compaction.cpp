@@ -19,15 +19,16 @@
 
 #include "inverted_index_file_writer.h"
 #include "inverted_index_fs_directory.h"
+#include "io/fs/local_file_system.h"
 #include "olap/tablet_schema.h"
 #include "util/debug_points.h"
 
 namespace doris::segment_v2 {
 Status compact_column(int64_t index_id, std::vector<lucene::store::Directory*>& src_index_dirs,
                       std::vector<lucene::store::Directory*>& dest_index_dirs,
-                      const io::FileSystemSPtr& fs, std::string tmp_path,
-                      std::vector<std::vector<std::pair<uint32_t, uint32_t>>> trans_vec,
-                      std::vector<uint32_t> dest_segment_num_rows) {
+                      std::string_view tmp_path,
+                      const std::vector<std::vector<std::pair<uint32_t, uint32_t>>>& trans_vec,
+                      const std::vector<uint32_t>& dest_segment_num_rows) {
     DBUG_EXECUTE_IF("index_compaction_compact_column_throw_error", {
         if (index_id % 2 == 0) {
             _CLTHROWA(CL_ERR_IO, "debug point: test throw error in index compaction");
@@ -39,8 +40,9 @@ Status compact_column(int64_t index_id, std::vector<lucene::store::Directory*>& 
                     "debug point: index compaction error");
         }
     })
-
-    lucene::store::Directory* dir = DorisFSDirectoryFactory::getDirectory(fs, tmp_path.c_str());
+    bool can_use_ram_dir = true;
+    lucene::store::Directory* dir = DorisFSDirectoryFactory::getDirectory(
+            io::global_local_filesystem(), tmp_path.data(), can_use_ram_dir);
     lucene::analysis::SimpleAnalyzer<char> analyzer;
     auto* index_writer = _CLNEW lucene::index::IndexWriter(dir, &analyzer, true /* create */,
                                                            true /* closeDirOnShutdown */);
@@ -58,7 +60,7 @@ Status compact_column(int64_t index_id, std::vector<lucene::store::Directory*>& 
     for (auto* d : src_index_dirs) {
         if (d != nullptr) {
             d->close();
-            //_CLDELETE(d);
+            _CLDELETE(d);
         }
     }
     for (auto* d : dest_index_dirs) {
@@ -69,8 +71,10 @@ Status compact_column(int64_t index_id, std::vector<lucene::store::Directory*>& 
         }
     }
 
-    // delete temporary segment_path
-    static_cast<void>(fs->delete_directory(tmp_path.c_str()));
+    // delete temporary segment_path, only when inverted_index_ram_dir_enable is false
+    if (!config::inverted_index_ram_dir_enable) {
+        std::ignore = io::global_local_filesystem()->delete_directory(tmp_path.data());
+    }
     return Status::OK();
 }
 } // namespace doris::segment_v2

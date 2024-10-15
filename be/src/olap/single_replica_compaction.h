@@ -37,6 +37,8 @@ public:
     Status prepare_compact() override;
     Status execute_compact() override;
 
+    inline CompactionType real_compact_type() const { return _compaction_type; }
+
 protected:
     std::string_view compaction_name() const override { return "single replica compaction"; }
     ReaderType compaction_type() const override {

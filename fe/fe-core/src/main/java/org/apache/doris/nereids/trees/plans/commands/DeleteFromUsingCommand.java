@@ -17,29 +17,15 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
-import org.apache.doris.catalog.Column;
+import org.apache.doris.analysis.StmtType;
+import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.nereids.analyzer.UnboundAlias;
-import org.apache.doris.nereids.analyzer.UnboundSlot;
-import org.apache.doris.nereids.analyzer.UnboundTableSinkCreator;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.trees.expressions.NamedExpression;
-import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
-import org.apache.doris.nereids.trees.plans.Explainable;
-import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.PlanType;
-import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
-import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
-
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Lists;
 
 import java.util.List;
 import java.util.Optional;
@@ -47,27 +33,16 @@ import java.util.Optional;
 /**
  * delete from unique key table.
  */
-public class DeleteFromUsingCommand extends Command implements ForwardWithSync, Explainable {
-
-    private final List<String> nameParts;
-    private final String tableAlias;
-    private final boolean isTempPart;
-    private final List<String> partitions;
+public class DeleteFromUsingCommand extends DeleteFromCommand {
     private final Optional<LogicalPlan> cte;
-    private final LogicalPlan logicalQuery;
 
     /**
      * constructor
      */
     public DeleteFromUsingCommand(List<String> nameParts, String tableAlias,
             boolean isTempPart, List<String> partitions, LogicalPlan logicalQuery, Optional<LogicalPlan> cte) {
-        super(PlanType.DELETE_COMMAND);
-        this.nameParts = Utils.copyRequiredList(nameParts);
-        this.tableAlias = tableAlias;
-        this.isTempPart = isTempPart;
-        this.partitions = Utils.copyRequiredList(partitions);
+        super(nameParts, tableAlias, isTempPart, partitions, logicalQuery);
         this.cte = cte;
-        this.logicalQuery = logicalQuery;
     }
 
     @Override
@@ -75,70 +50,42 @@ public class DeleteFromUsingCommand extends Command implements ForwardWithSync, 
         if (ctx.getSessionVariable().isInDebugMode()) {
             throw new AnalysisException("Delete is forbidden since current session is in debug mode."
                     + " Please check the following session variables: "
-                    + String.join(", ", SessionVariable.DEBUG_VARIABLES));
+                    + ctx.getSessionVariable().printDebugModeVariables());
         }
         // NOTE: delete from using command is executed as insert command, so txn insert can support it
-        new InsertIntoTableCommand(completeQueryPlan(ctx, logicalQuery), Optional.empty(), Optional.empty()).run(ctx,
-                executor);
+        new InsertIntoTableCommand(completeQueryPlan(ctx, logicalQuery), Optional.empty(), Optional.empty(),
+                Optional.empty()).run(ctx, executor);
+    }
+
+    @Override
+    protected LogicalPlan handleCte(LogicalPlan logicalPlan) {
+        if (cte.isPresent()) {
+            logicalPlan = ((LogicalPlan) cte.get().withChildren(logicalPlan));
+        }
+        return logicalPlan;
     }
 
     /**
-     * public for test
+     * for test
      */
-    public LogicalPlan completeQueryPlan(ConnectContext ctx, LogicalPlan logicalQuery) {
-        OlapTable targetTable = CommandUtils.checkAndGetDeleteTargetTable(ctx, nameParts);
-        // add select and insert node.
-        List<NamedExpression> selectLists = Lists.newArrayList();
-        List<String> cols = Lists.newArrayList();
-        boolean isMow = targetTable.getEnableUniqueKeyMergeOnWrite();
-        String tableName = tableAlias != null ? tableAlias : targetTable.getName();
-        for (Column column : targetTable.getFullSchema()) {
-            if (column.getName().equalsIgnoreCase(Column.DELETE_SIGN)) {
-                selectLists.add(new UnboundAlias(new TinyIntLiteral(((byte) 1)), Column.DELETE_SIGN));
-            } else if (column.getName().equalsIgnoreCase(Column.SEQUENCE_COL)) {
-                selectLists.add(new UnboundSlot(tableName, targetTable.getSequenceMapCol()));
-            } else if (column.isKey()) {
-                selectLists.add(new UnboundSlot(tableName, column.getName()));
-            } else if (!isMow && (!column.isVisible() || (!column.isAllowNull() && !column.hasDefaultValue()))) {
-                selectLists.add(new UnboundSlot(tableName, column.getName()));
-            } else {
-                continue;
-            }
-            cols.add(column.getName());
-        }
-
-        logicalQuery = new LogicalProject<>(selectLists, logicalQuery);
-        if (cte.isPresent()) {
-            logicalQuery = ((LogicalPlan) cte.get().withChildren(logicalQuery));
-        }
-
-        boolean isPartialUpdate = targetTable.getEnableUniqueKeyMergeOnWrite()
-                && cols.size() < targetTable.getColumns().size();
-
-        // make UnboundTableSink
-        return UnboundTableSinkCreator.createUnboundTableSink(nameParts, cols, ImmutableList.of(),
-                isTempPart, partitions, isPartialUpdate, DMLCommandType.DELETE, logicalQuery);
-    }
-
     public LogicalPlan getLogicalQuery() {
         return logicalQuery;
     }
 
     @Override
-    public Plan getExplainPlan(ConnectContext ctx) {
-        if (!ctx.getSessionVariable().isEnableNereidsDML()) {
-            try {
-                ctx.getSessionVariable().enableFallbackToOriginalPlannerOnce();
-            } catch (Exception e) {
-                throw new AnalysisException("failed to set fallback to original planner to true", e);
-            }
-            throw new AnalysisException("Nereids DML is disabled, will try to fall back to the original planner");
-        }
-        return completeQueryPlan(ctx, logicalQuery);
+    public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
+        return visitor.visitDeleteFromUsingCommand(this, context);
     }
 
     @Override
-    public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
-        return visitor.visitDeleteFromUsingCommand(this, context);
+    protected void checkTargetTable(OlapTable targetTable) {
+        if (targetTable.getKeysType() != KeysType.UNIQUE_KEYS) {
+            throw new AnalysisException("delete command on with using clause only supports unique key model");
+        }
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.DELETE;
     }
 }

@@ -53,7 +53,7 @@ Status VRowDistribution::_save_missing_values(
         int col_size, Block* block, std::vector<int64_t> filter,
         const std::vector<const NullMap*>& col_null_maps) {
     // de-duplication for new partitions but save all rows.
-    _batching_block->add_rows(block, filter);
+    RETURN_IF_ERROR(_batching_block->add_rows(block, filter));
     std::vector<TNullableStringLiteral> cur_row_values;
     for (int row = 0; row < col_strs[0].size(); ++row) {
         cur_row_values.clear();
@@ -68,8 +68,10 @@ Status VRowDistribution::_save_missing_values(
             }
             cur_row_values.push_back(node);
         }
-        //For duplicate cur_values, they will be filtered in FE
-        _partitions_need_create.emplace_back(cur_row_values);
+        if (!_deduper.contains(cur_row_values)) {
+            _deduper.insert(cur_row_values);
+            _partitions_need_create.emplace_back(cur_row_values);
+        }
     }
 
     // to avoid too large mem use
@@ -453,22 +455,23 @@ Status VRowDistribution::generate_rows_distribution(
         _vpartition->set_transformed_slots(partition_cols_idx);
     }
 
+    Status st = Status::OK();
     if (_vpartition->is_auto_detect_overwrite()) {
         // when overwrite, no auto create partition allowed.
-        RETURN_IF_ERROR(_generate_rows_distribution_for_auto_overwrite(
-                block.get(), has_filtered_rows, row_part_tablet_ids));
+        st = _generate_rows_distribution_for_auto_overwrite(block.get(), has_filtered_rows,
+                                                            row_part_tablet_ids);
     } else if (_vpartition->is_auto_partition() && !_deal_batched) {
-        RETURN_IF_ERROR(_generate_rows_distribution_for_auto_partition(
-                block.get(), partition_cols_idx, has_filtered_rows, row_part_tablet_ids,
-                rows_stat_val));
+        st = _generate_rows_distribution_for_auto_partition(block.get(), partition_cols_idx,
+                                                            has_filtered_rows, row_part_tablet_ids,
+                                                            rows_stat_val);
     } else { // not auto partition
-        RETURN_IF_ERROR(_generate_rows_distribution_for_non_auto_partition(
-                block.get(), has_filtered_rows, row_part_tablet_ids));
+        st = _generate_rows_distribution_for_non_auto_partition(block.get(), has_filtered_rows,
+                                                                row_part_tablet_ids);
     }
 
     filtered_rows = _block_convertor->num_filtered_rows() + _tablet_finder->num_filtered_rows() -
                     prev_filtered_rows;
-    return Status::OK();
+    return st;
 }
 
 // reuse vars for find_tablets

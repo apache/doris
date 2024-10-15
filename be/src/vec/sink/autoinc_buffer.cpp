@@ -19,12 +19,15 @@
 
 #include <gen_cpp/HeartbeatService_types.h>
 
+#include <chrono>
+#include <mutex>
+
+#include "common/logging.h"
 #include "common/status.h"
 #include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
 #include "util/runtime_profile.h"
 #include "util/thrift_rpc_helper.h"
-#include "vec/sink/vtablet_block_convertor.h"
 
 namespace doris::vectorized {
 
@@ -40,49 +43,11 @@ void AutoIncIDBuffer::set_batch_size_at_least(size_t batch_size) {
     }
 }
 
-void AutoIncIDBuffer::_wait_for_prefetching() {
-    if (_is_fetching) {
-        _rpc_token->wait();
-    }
-}
-
-Status AutoIncIDBuffer::sync_request_ids(size_t length,
-                                         std::vector<std::pair<int64_t, size_t>>* result) {
-    std::unique_lock<std::mutex> lock(_mutex);
-    RETURN_IF_ERROR(_prefetch_ids(_prefetch_size()));
-    if (_front_buffer.second > 0) {
-        auto min_length = std::min(_front_buffer.second, length);
-        length -= min_length;
-        result->emplace_back(_front_buffer.first, min_length);
-        _front_buffer.first += min_length;
-        _front_buffer.second -= min_length;
-    }
-    if (length > 0) {
-        _wait_for_prefetching();
-        if (!_rpc_status.ok()) {
-            return _rpc_status;
-        }
-
-        {
-            std::lock_guard<std::mutex> lock(_backend_buffer_latch);
-            std::swap(_front_buffer, _backend_buffer);
-        }
-
-        DCHECK_LE(length, _front_buffer.second);
-        result->emplace_back(_front_buffer.first, length);
-        _front_buffer.first += length;
-        _front_buffer.second -= length;
-    }
-    return Status::OK();
-}
-
-Status AutoIncIDBuffer::_prefetch_ids(size_t length) {
-    if (_front_buffer.second > _low_water_level_mark() || _is_fetching) {
-        return Status::OK();
-    }
+Result<int64_t> AutoIncIDBuffer::_fetch_ids_from_fe(size_t length) {
+    constexpr uint32_t FETCH_AUTOINC_MAX_RETRY_TIMES = 3;
+    _rpc_status = Status::OK();
     TNetworkAddress master_addr = ExecEnv::GetInstance()->master_info()->network_address;
-    _is_fetching = true;
-    RETURN_IF_ERROR(_rpc_token->submit_func([=, this]() {
+    for (uint32_t retry_times = 0; retry_times < FETCH_AUTOINC_MAX_RETRY_TIMES; retry_times++) {
         TAutoIncrementRangeRequest request;
         TAutoIncrementRangeResult result;
         request.__set_db_id(_db_id);
@@ -90,7 +55,7 @@ Status AutoIncIDBuffer::_prefetch_ids(size_t length) {
         request.__set_column_id(_column_id);
         request.__set_length(length);
 
-        int64_t get_auto_inc_range_rpc_ns;
+        int64_t get_auto_inc_range_rpc_ns = 0;
         {
             SCOPED_RAW_TIMER(&get_auto_inc_range_rpc_ns);
             _rpc_status = ThriftRpcHelper::rpc<FrontendServiceClient>(
@@ -99,18 +64,103 @@ Status AutoIncIDBuffer::_prefetch_ids(size_t length) {
                         client->getAutoIncrementRange(result, request);
                     });
         }
-        LOG(INFO) << "[auto-inc-range][start=" << result.start << ",length=" << result.length
-                  << "][elapsed=" << get_auto_inc_range_rpc_ns / 1000000 << " ms]";
 
-        if (!_rpc_status.ok() || result.length <= 0) {
-            LOG(WARNING) << "Failed to fetch auto-incremnt range, encounter rpc failure."
-                         << "errmsg=" << _rpc_status.to_string();
-            return;
+        if (_rpc_status.is<ErrorCode::NOT_MASTER>()) {
+            LOG_WARNING(
+                    "Failed to fetch auto-incremnt range, requested to non-master FE@{}:{}, change "
+                    "to request to FE@{}:{}. retry_time={}, db_id={}, table_id={}, column_id={}",
+                    master_addr.hostname, master_addr.port, result.master_address.hostname,
+                    result.master_address.port, retry_times, _db_id, _table_id, _column_id);
+            master_addr = result.master_address;
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            continue;
         }
 
+        if (!_rpc_status.ok()) {
+            LOG_WARNING(
+                    "Failed to fetch auto-incremnt range, encounter rpc failure. "
+                    "errmsg={}, retry_time={}, db_id={}, table_id={}, column_id={}",
+                    _rpc_status.to_string(), retry_times, _db_id, _table_id, _column_id);
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            continue;
+        }
+        if (result.length != length) [[unlikely]] {
+            auto msg = fmt::format(
+                    "Failed to fetch auto-incremnt range, request length={}, but get "
+                    "result.length={}, retry_time={}, db_id={}, table_id={}, column_id={}",
+                    length, result.length, retry_times, _db_id, _table_id, _column_id);
+            LOG(WARNING) << msg;
+            _rpc_status = Status::RpcError<true>(msg);
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            continue;
+        }
+
+        LOG_INFO(
+                "get auto-incremnt range from FE@{}:{}, start={}, length={}, elapsed={}ms, "
+                "retry_time={}, db_id={}, table_id={}, column_id={}",
+                master_addr.hostname, master_addr.port, result.start, result.length,
+                get_auto_inc_range_rpc_ns / 1000000, retry_times, _db_id, _table_id, _column_id);
+        return result.start;
+    }
+    CHECK(!_rpc_status.ok());
+    return _rpc_status;
+}
+
+void AutoIncIDBuffer::_get_autoinc_ranges_from_buffers(
+        size_t& request_length, std::vector<std::pair<int64_t, size_t>>* result) {
+    std::lock_guard<std::mutex> lock {_latch};
+    while (request_length > 0 && !_buffers.empty()) {
+        auto& autoinc_range = _buffers.front();
+        CHECK_GT(autoinc_range.length, 0);
+        auto min_length = std::min(request_length, autoinc_range.length);
+        result->emplace_back(autoinc_range.start, min_length);
+        autoinc_range.consume(min_length);
+        _current_volume -= min_length;
+        request_length -= min_length;
+        if (autoinc_range.empty()) {
+            _buffers.pop_front();
+        }
+    }
+}
+
+Status AutoIncIDBuffer::sync_request_ids(size_t request_length,
+                                         std::vector<std::pair<int64_t, size_t>>* result) {
+    std::lock_guard<std::mutex> lock(_mutex);
+    while (request_length > 0) {
+        _get_autoinc_ranges_from_buffers(request_length, result);
+        if (request_length == 0) {
+            break;
+        }
+        if (!_is_fetching) {
+            RETURN_IF_ERROR(
+                    _launch_async_fetch_task(std::max<size_t>(request_length, _prefetch_size())));
+        }
+        _rpc_token->wait();
+        CHECK(!_is_fetching);
+        if (!_rpc_status.ok()) {
+            return _rpc_status;
+        }
+    }
+    CHECK_EQ(request_length, 0);
+    if (!_is_fetching && _current_volume < _low_water_level_mark()) {
+        RETURN_IF_ERROR(_launch_async_fetch_task(_prefetch_size()));
+    }
+    return Status::OK();
+}
+
+Status AutoIncIDBuffer::_launch_async_fetch_task(size_t length) {
+    _is_fetching = true;
+    RETURN_IF_ERROR(_rpc_token->submit_func([=, this]() {
+        auto&& res = _fetch_ids_from_fe(length);
+        if (!res.has_value()) [[unlikely]] {
+            _is_fetching = false;
+            return;
+        }
+        int64_t start = res.value();
         {
-            std::lock_guard<std::mutex> lock(_backend_buffer_latch);
-            _backend_buffer = {result.start, result.length};
+            std::lock_guard<std::mutex> lock {_latch};
+            _buffers.emplace_back(start, length);
+            _current_volume += length;
         }
         _is_fetching = false;
     }));

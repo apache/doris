@@ -31,6 +31,7 @@ import org.apache.doris.analysis.IsNullPredicate;
 import org.apache.doris.analysis.LargeIntLiteral;
 import org.apache.doris.analysis.LikePredicate;
 import org.apache.doris.analysis.LikePredicate.Operator;
+import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.catalog.EsResource;
 import org.apache.doris.thrift.TExprOpcode;
@@ -40,6 +41,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.Builder;
 import lombok.Data;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.joda.time.format.DateTimeFormat;
@@ -126,9 +128,24 @@ public final class QueryBuilders {
                         .build());
     }
 
-    private static QueryBuilder parseBinaryPredicate(Expr expr, TExprOpcode opCode, String column,
+    private static TExprOpcode flipOpCode(TExprOpcode opCode) {
+        switch (opCode) {
+            case GE:
+                return TExprOpcode.LE;
+            case GT:
+                return TExprOpcode.LT;
+            case LE:
+                return TExprOpcode.GE;
+            case LT:
+                return TExprOpcode.GT;
+            default:
+                return opCode;
+        }
+    }
+
+    private static QueryBuilder parseBinaryPredicate(LiteralExpr expr, TExprOpcode opCode, String column,
             boolean needDateCompat) {
-        Object value = toDorisLiteral(expr.getChild(1));
+        Object value = toDorisLiteral(expr);
         if (needDateCompat) {
             value = compatDefaultDate(value);
         }
@@ -137,6 +154,15 @@ public final class QueryBuilders {
             case EQ_FOR_NULL:
                 return QueryBuilders.termQuery(column, value);
             case NE:
+                // col != '' means col.length() > 0 in SQL syntax.
+                // The `NULL` value should not present in results.
+                // It equals
+                // '{"bool":{"must":{"bool":{"must_not":{"term":{"col":""}},"must":{"exists":{"field":"col"}}}}}}'
+                // in Elasticsearch
+                if (value instanceof String && StringUtils.isEmpty((String) value)) {
+                    return QueryBuilders.boolQuery().mustNot(QueryBuilders.termQuery(column, value))
+                        .must(QueryBuilders.existsQuery(column));
+                }
                 return QueryBuilders.boolQuery().mustNot(QueryBuilders.termQuery(column, value));
             case GE:
                 return QueryBuilders.rangeQuery(column).gte(value);
@@ -213,6 +239,20 @@ public final class QueryBuilders {
         return new QueryBuilders.EsQueryBuilder(stringValue);
     }
 
+    private static String getColumnFromExpr(Expr expr) {
+        // Type transformed cast can not pushdown
+        if (expr instanceof CastExpr) {
+            Expr withoutCastExpr = exprWithoutCast(expr);
+            if (withoutCastExpr.getType().equals(expr.getType())
+                    || (withoutCastExpr.getType().isFloatingPointType() && expr.getType().isFloatingPointType())) {
+                return ((SlotRef) withoutCastExpr).getColumnName();
+            }
+        } else if (expr instanceof SlotRef) {
+            return ((SlotRef) expr).getColumnName();
+        }
+        return null;
+    }
+
     /**
      * Doris expr to es dsl.
      **/
@@ -231,32 +271,43 @@ public final class QueryBuilders {
             return toCompoundEsDsl(expr, notPushDownList, fieldsContext, builderOptions);
         }
         TExprOpcode opCode = expr.getOpcode();
-        String column;
+        boolean isFlip = false;
         Expr leftExpr = expr.getChild(0);
-        // Type transformed cast can not pushdown
-        if (leftExpr instanceof CastExpr) {
-            Expr withoutCastExpr = exprWithoutCast(leftExpr);
-            // pushdown col(float) >= 3
-            if (withoutCastExpr.getType().equals(leftExpr.getType()) || (withoutCastExpr.getType().isFloatingPointType()
-                    && leftExpr.getType().isFloatingPointType())) {
-                column = ((SlotRef) withoutCastExpr).getColumnName();
-            } else {
-                notPushDownList.add(expr);
-                return null;
-            }
-        } else if (leftExpr instanceof SlotRef) {
-            column = ((SlotRef) leftExpr).getColumnName();
-        } else {
+        String column = getColumnFromExpr(leftExpr);
+
+        if (StringUtils.isEmpty(column)) {
+            Expr rightExpr = expr.getChild(1);
+            column = getColumnFromExpr(rightExpr);
+            opCode = flipOpCode(opCode);
+            isFlip = true;
+        }
+
+        if (StringUtils.isEmpty(column)) {
             notPushDownList.add(expr);
             return null;
         }
+
         // Check whether the date type need compat, it must before keyword replace.
         List<String> needCompatDateFields = builderOptions.getNeedCompatDateFields();
         boolean needDateCompat = needCompatDateFields != null && needCompatDateFields.contains(column);
         // Replace col with col.keyword if mapping exist.
         column = fieldsContext.getOrDefault(column, column);
         if (expr instanceof BinaryPredicate) {
-            return parseBinaryPredicate(expr, opCode, column, needDateCompat);
+            BinaryPredicate binaryPredicate = (BinaryPredicate) expr;
+            Expr value;
+            if (isFlip) {
+                value = binaryPredicate.getChild(0);
+            } else {
+                value = binaryPredicate.getChild(1);
+            }
+            // only push down literal expr to ES
+            if (value instanceof LiteralExpr) {
+                LiteralExpr literalExpr = (LiteralExpr) value;
+                return parseBinaryPredicate(literalExpr, opCode, column, needDateCompat);
+            } else {
+                notPushDownList.add(expr);
+                return null;
+            }
         }
         if (expr instanceof IsNullPredicate) {
             return parseIsNullPredicate(expr, column);

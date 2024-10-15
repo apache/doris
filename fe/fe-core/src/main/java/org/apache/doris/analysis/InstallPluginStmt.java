@@ -29,7 +29,7 @@ import org.apache.doris.qe.ConnectContext;
 
 import java.util.Map;
 
-public class InstallPluginStmt extends DdlStmt {
+public class InstallPluginStmt extends DdlStmt implements NotFallbackInParser {
 
     private String pluginPath;
     private Map<String, String> properties;
@@ -86,5 +86,10 @@ public class InstallPluginStmt extends DdlStmt {
     @Override
     public RedirectStatus getRedirectStatus() {
         return RedirectStatus.FORWARD_WITH_SYNC;
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.INSTALL;
     }
 }

@@ -106,35 +106,30 @@ suite("test_decimal256_outfile_csv") {
     """
 
     def uuid = UUID.randomUUID().toString()
-    def outFilePath = """/tmp/test_decimal256_outfile_csv_${uuid}"""
-    List<List<Object>> backends =  sql """ show backends """
-    assertTrue(backends.size() > 0)
-    if (backends.size() > 1) {
-        outFilePath = "/tmp"
-    }
+    def outFileNamePrefix = """test_decimal256_outfile_csv_${uuid}_"""
+    def outFilePath = """/tmp/${outFileNamePrefix}"""
+    FilenameFilter filter = new FilenameFilter() {
+        @Override
+        public boolean accept(File dir, String name) {
+            return name.startsWith(outFileNamePrefix);
+        }
+    };
     try {
         logger.info("outfile: " + outFilePath)
-        // check outfile
-        File path = new File(outFilePath)
-        if (!path.exists()) {
-            assert path.mkdirs()
-        } else {
-            throw new IllegalStateException("""${outFilePath} already exists! """)
-        }
         sql """
-            SELECT * FROM test_decimal256_outfile_csv t order by 1,2,3 INTO OUTFILE "file://${outFilePath}/" properties("column_separator" = ",");
+            SELECT * FROM test_decimal256_outfile_csv t order by 1,2,3 INTO OUTFILE "file://${outFilePath}" properties("column_separator" = ",");
         """
-        File[] files = path.listFiles()
+        File path = new File("/tmp/")
+        File[] files = path.listFiles(filter)
         assert files.length == 1
         List<String> outLines = Files.readAllLines(Paths.get(files[0].getAbsolutePath()), StandardCharsets.UTF_8);
         assert outLines.size() == 19
     } finally {
-        File path = new File(outFilePath)
+        File path = new File("/tmp/")
         if (path.exists()) {
-            for (File f: path.listFiles()) {
+            for (File f: path.listFiles(filter)) {
                 f.delete();
             }
-            path.delete();
         }
     }
 }

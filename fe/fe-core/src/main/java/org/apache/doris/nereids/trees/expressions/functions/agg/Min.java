@@ -37,7 +37,7 @@ import java.util.List;
 
 /** min agg function. */
 public class Min extends NullableAggregateFunction
-        implements UnaryExpression, CustomSignature, SupportWindowAnalytic, CouldRollUp {
+        implements UnaryExpression, CustomSignature, SupportWindowAnalytic, RollUpTrait {
 
     public Min(Expression child) {
         this(false, false, child);
@@ -91,5 +91,10 @@ public class Min extends NullableAggregateFunction
     @Override
     public Function constructRollUp(Expression param, Expression... varParams) {
         return new Min(this.distinct, this.alwaysNullable, param);
+    }
+
+    @Override
+    public boolean canRollUp() {
+        return true;
     }
 }

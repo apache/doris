@@ -15,3 +15,19 @@ FAILED
 -- !task_recover --
 SUCCESS
 
+-- !test --
+1	1	2020
+
+-- !mtmv_1 --
+1	1	2020
+
+-- !mtmv_2 --
+1	1	2020
+1	1	2020
+
+-- !task_error --
+FAILED
+
+-- !task_recover --
+SUCCESS
+

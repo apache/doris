@@ -19,12 +19,12 @@ package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.mysql.FieldInfo;
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.properties.FdItem;
-import org.apache.doris.nereids.properties.FunctionalDependencies.Builder;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.plans.BlockFuncDepsPropagation;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.TreeStringPlan;
@@ -32,32 +32,37 @@ import org.apache.doris.nereids.trees.plans.algebra.SqlCache;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.proto.InternalService;
+import org.apache.doris.qe.ResultSet;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableSet;
 
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 
 /** LogicalSqlCache */
-public class LogicalSqlCache extends LogicalLeaf implements SqlCache, TreeStringPlan {
+public class LogicalSqlCache extends LogicalLeaf implements SqlCache, TreeStringPlan, BlockFuncDepsPropagation {
     private final TUniqueId queryId;
     private final List<String> columnLabels;
+    private final List<FieldInfo> fieldInfos;
     private final List<Expr> resultExprs;
+    private final Optional<ResultSet> resultSetInFe;
     private final List<InternalService.PCacheValue> cacheValues;
     private final String backendAddress;
     private final String planBody;
 
     /** LogicalSqlCache */
     public LogicalSqlCache(TUniqueId queryId,
-            List<String> columnLabels, List<Expr> resultExprs,
-            List<InternalService.PCacheValue> cacheValues, String backendAddress, String planBody) {
+            List<String> columnLabels, List<FieldInfo> fieldInfos, List<Expr> resultExprs,
+            Optional<ResultSet> resultSetInFe, List<InternalService.PCacheValue> cacheValues,
+            String backendAddress, String planBody) {
         super(PlanType.LOGICAL_SQL_CACHE, Optional.empty(), Optional.empty());
         this.queryId = Objects.requireNonNull(queryId, "queryId can not be null");
         this.columnLabels = Objects.requireNonNull(columnLabels, "columnLabels can not be null");
+        this.fieldInfos = Objects.requireNonNull(fieldInfos, "fieldInfos can not be null");
         this.resultExprs = Objects.requireNonNull(resultExprs, "resultExprs can not be null");
+        this.resultSetInFe = Objects.requireNonNull(resultSetInFe, "resultSetInFe can not be null");
         this.cacheValues = Objects.requireNonNull(cacheValues, "cacheValues can not be null");
         this.backendAddress = Objects.requireNonNull(backendAddress, "backendAddress can not be null");
         this.planBody = Objects.requireNonNull(planBody, "planBody can not be null");
@@ -65,6 +70,10 @@ public class LogicalSqlCache extends LogicalLeaf implements SqlCache, TreeString
 
     public TUniqueId getQueryId() {
         return queryId;
+    }
+
+    public Optional<ResultSet> getResultSetInFe() {
+        return resultSetInFe;
     }
 
     public List<InternalService.PCacheValue> getCacheValues() {
@@ -77,6 +86,10 @@ public class LogicalSqlCache extends LogicalLeaf implements SqlCache, TreeString
 
     public List<String> getColumnLabels() {
         return columnLabels;
+    }
+
+    public List<FieldInfo> getFieldInfos() {
+        return fieldInfos;
     }
 
     public List<Expr> getResultExprs() {
@@ -128,20 +141,5 @@ public class LogicalSqlCache extends LogicalLeaf implements SqlCache, TreeString
     @Override
     public String getChildrenTreeString() {
         return planBody;
-    }
-
-    @Override
-    public ImmutableSet<FdItem> computeFdItems() {
-        return ImmutableSet.of();
-    }
-
-    @Override
-    public void computeUnique(Builder fdBuilder) {
-
-    }
-
-    @Override
-    public void computeUniform(Builder fdBuilder) {
-
     }
 }

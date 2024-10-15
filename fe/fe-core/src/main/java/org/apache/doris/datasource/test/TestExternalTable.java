@@ -17,15 +17,15 @@
 
 package org.apache.doris.datasource.test;
 
-import org.apache.doris.catalog.Column;
 import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.List;
+import java.util.Optional;
 
 /**
  * TestExternalTable is a table for unit test.
@@ -53,7 +53,7 @@ public class TestExternalTable extends ExternalTable {
     }
 
     @Override
-    public List<Column> initSchema() {
-        return ((TestExternalCatalog) catalog).mockedSchema(dbName, name);
+    public Optional<SchemaCacheValue> initSchema() {
+        return Optional.of(new SchemaCacheValue(((TestExternalCatalog) catalog).mockedSchema(dbName, name)));
     }
 }

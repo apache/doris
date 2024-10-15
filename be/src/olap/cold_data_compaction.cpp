@@ -28,6 +28,7 @@
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
+#include "common/status.h"
 #include "io/fs/remote_file_system.h"
 #include "olap/compaction.h"
 #include "olap/olap_common.h"
@@ -75,9 +76,9 @@ Status ColdDataCompaction::execute_compact() {
 
 Status ColdDataCompaction::construct_output_rowset_writer(RowsetWriterContext& ctx) {
     // write output rowset to storage policy resource
-    io::RemoteFileSystemSPtr fs;
-    RETURN_IF_ERROR(get_remote_file_system(tablet()->storage_policy_id(), &fs));
-    ctx.fs = std::move(fs);
+    auto storage_resource =
+            DORIS_TRY(get_resource_by_storage_policy_id(tablet()->storage_policy_id()));
+    ctx.storage_resource = std::move(storage_resource);
     return CompactionMixin::construct_output_rowset_writer(ctx);
 }
 
@@ -97,7 +98,7 @@ Status ColdDataCompaction::modify_rowsets() {
         std::lock_guard wlock(_tablet->get_header_lock());
         SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
         // Merged cooldowned rowsets MUST NOT be managed by version graph, they will be reclaimed by `remove_unused_remote_files`.
-        tablet()->delete_rowsets(_input_rowsets, false);
+        RETURN_IF_ERROR(tablet()->delete_rowsets(_input_rowsets, false));
         tablet()->add_rowsets({_output_rowset});
         // TODO(plat1ko): process primary key
         _tablet->tablet_meta()->set_cooldown_meta_id(cooldown_meta_id);

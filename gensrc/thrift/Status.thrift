@@ -43,20 +43,21 @@ enum TStatusCode {
     INTERNAL_ERROR                  = 6,
     THRIFT_RPC_ERROR                = 7,
     TIMEOUT                         = 8,
-    KUDU_NOT_ENABLED                = 9,  // Deprecated
-    KUDU_NOT_SUPPORTED_ON_OS        = 10, // Deprecated
+    LIMIT_REACH                     = 9,  // Its ok to reuse this error code, because this error code is not used in 1.1
+    //KUDU_NOT_ENABLED                = 9,  // Deprecated
+    //KUDU_NOT_SUPPORTED_ON_OS        = 10, // Deprecated
     MEM_ALLOC_FAILED                = 11,
     BUFFER_ALLOCATION_FAILED        = 12,
     MINIMUM_RESERVATION_UNAVAILABLE = 13,
     PUBLISH_TIMEOUT                 = 14,
     LABEL_ALREADY_EXISTS            = 15,
     TOO_MANY_TASKS                  = 16,
-    ES_INTERNAL_ERROR               = 17,
-    ES_INDEX_NOT_FOUND              = 18,
-    ES_SHARD_NOT_FOUND              = 19,
-    ES_INVALID_CONTEXTID            = 20,
-    ES_INVALID_OFFSET               = 21,
-    ES_REQUEST_ERROR                = 22,
+    //ES_INTERNAL_ERROR               = 17,
+    //ES_INDEX_NOT_FOUND              = 18,
+    //ES_SHARD_NOT_FOUND              = 19,
+    //ES_INVALID_CONTEXTID            = 20,
+    //ES_INVALID_OFFSET               = 21,
+    //ES_REQUEST_ERROR                = 22,
 
     END_OF_FILE         = 30,
     NOT_FOUND           = 31,
@@ -68,23 +69,23 @@ enum TStatusCode {
     ILLEGAL_STATE       = 37,
     NOT_AUTHORIZED      = 38,
     ABORTED             = 39,
-    REMOTE_ERROR        = 40,
+    //REMOTE_ERROR        = 40,
     //SERVICE_UNAVAILABLE = 41, // Not used any more
     UNINITIALIZED       = 42,
-    CONFIGURATION_ERROR = 43,
+    //CONFIGURATION_ERROR = 43,
     INCOMPLETE          = 44,
     OLAP_ERR_VERSION_ALREADY_MERGED = 45,
     DATA_QUALITY_ERROR  = 46,
     INVALID_JSON_PATH   = 47,
 
-    VEC_EXCEPTION = 50,
-    VEC_LOGIC_ERROR = 51,
-    VEC_ILLEGAL_DIVISION = 52,
-    VEC_BAD_CAST = 53,
-    VEC_CANNOT_ALLOCATE_MEMORY = 54,
-    VEC_CANNOT_MUNMAP = 55,
-    VEC_CANNOT_MREMAP = 56,
-    VEC_BAD_ARGUMENTS = 57,
+    //VEC_EXCEPTION = 50,
+    //VEC_LOGIC_ERROR = 51,
+    //VEC_ILLEGAL_DIVISION = 52,
+    //VEC_BAD_CAST = 53,
+    //VEC_CANNOT_ALLOCATE_MEMORY = 54,
+    //VEC_CANNOT_MUNMAP = 55,
+    //VEC_CANNOT_MREMAP = 56,
+    //VEC_BAD_ARGUMENTS = 57,
 
     // Binlog Related from 60
     BINLOG_DISABLE = 60,
@@ -105,6 +106,8 @@ enum TStatusCode {
 
     // used for cloud
     DELETE_BITMAP_LOCK_ERROR = 100,
+    // Not be larger than 200, see status.h
+    // And all error code defined here, should also be defined in status.h
 }
 
 struct TStatus {

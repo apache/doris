@@ -72,13 +72,15 @@ public class SystemHandler extends AlterHandler {
     private static final Logger LOG = LogManager.getLogger(SystemHandler.class);
 
     public SystemHandler() {
-        super("cluster");
+        super("system");
     }
 
     @Override
     protected void runAfterCatalogReady() {
         super.runAfterCatalogReady();
-        runAlterJobV2();
+        if (Config.isNotCloudMode()) {
+            runAlterJobV2();
+        }
     }
 
     // check all decommissioned backends, if there is no available tablet on that backend, drop it.
@@ -93,8 +95,8 @@ public class SystemHandler extends AlterHandler {
             }
 
             List<Long> backendTabletIds = invertedIndex.getTabletIdsByBackendId(beId);
-            boolean hasWal = checkWal(backend);
-            if (Config.drop_backend_after_decommission && checkTablets(beId, backendTabletIds) && hasWal) {
+            long walNum = Env.getCurrentEnv().getGroupCommitManager().getAllWalQueueSize(backend);
+            if (Config.drop_backend_after_decommission && checkTablets(beId, backendTabletIds) && walNum == 0) {
                 try {
                     systemInfoService.dropBackend(beId);
                     LOG.info("no available tablet on decommission backend {}, drop it", beId);
@@ -107,7 +109,7 @@ public class SystemHandler extends AlterHandler {
 
             LOG.info("backend {} lefts {} replicas to decommission: {}{}", beId, backendTabletIds.size(),
                     backendTabletIds.subList(0, Math.min(10, backendTabletIds.size())),
-                    hasWal ? "; and has unfinished WALs" : "");
+                    walNum > 0 ? "; and has " + walNum + " unfinished WALs" : "");
         }
     }
 
@@ -154,15 +156,13 @@ public class SystemHandler extends AlterHandler {
             // for decommission operation, here is no decommission job. the system handler will check
             // all backend in decommission state
             for (Backend backend : decommissionBackends) {
-                backend.setDecommissioned(true);
-                Env.getCurrentEnv().getEditLog().logBackendStateChange(backend);
-                LOG.info("set backend {} to decommission", backend.getId());
+                Env.getCurrentSystemInfo().decommissionBackend(backend);
             }
 
         } else if (alterClause instanceof AddObserverClause) {
             AddObserverClause clause = (AddObserverClause) alterClause;
             Env.getCurrentEnv().addFrontend(FrontendNodeType.OBSERVER, clause.getHost(),
-                    clause.getPort(), "");
+                    clause.getPort());
         } else if (alterClause instanceof DropObserverClause) {
             DropObserverClause clause = (DropObserverClause) alterClause;
             Env.getCurrentEnv().dropFrontend(FrontendNodeType.OBSERVER, clause.getHost(),
@@ -170,7 +170,7 @@ public class SystemHandler extends AlterHandler {
         } else if (alterClause instanceof AddFollowerClause) {
             AddFollowerClause clause = (AddFollowerClause) alterClause;
             Env.getCurrentEnv().addFrontend(FrontendNodeType.FOLLOWER, clause.getHost(),
-                    clause.getPort(), "");
+                    clause.getPort());
         } else if (alterClause instanceof DropFollowerClause) {
             DropFollowerClause clause = (DropFollowerClause) alterClause;
             Env.getCurrentEnv().dropFrontend(FrontendNodeType.FOLLOWER, clause.getHost(),
@@ -206,10 +206,6 @@ public class SystemHandler extends AlterHandler {
             return true;
         }
         return false;
-    }
-
-    private boolean checkWal(Backend backend) {
-        return Env.getCurrentEnv().getGroupCommitManager().getAllWalQueueSize(backend) == 0;
     }
 
     private List<Backend> checkDecommission(DecommissionBackendClause decommissionBackendClause)
@@ -286,7 +282,15 @@ public class SystemHandler extends AlterHandler {
         Set<Tag> decommissionTags = decommissionBackends.stream().map(be -> be.getLocationTag())
                 .collect(Collectors.toSet());
         Map<Tag, Integer> tagAvailBackendNums = Maps.newHashMap();
-        for (Backend backend : Env.getCurrentSystemInfo().getAllBackends()) {
+        List<Backend> bes;
+        try {
+            bes = Env.getCurrentSystemInfo().getBackendsByCurrentCluster().values().asList();
+        } catch (UserException e) {
+            LOG.warn("Failed to get current cluster backend by current cluster.", e);
+            return;
+        }
+
+        for (Backend backend : bes) {
             long beId = backend.getId();
             if (!backend.isScheduleAvailable()
                     || decommissionBackends.stream().anyMatch(be -> be.getId() == beId)) {
@@ -314,7 +318,7 @@ public class SystemHandler extends AlterHandler {
             for (Table table : db.getTables()) {
                 table.readLock();
                 try {
-                    if (!table.needSchedule()) {
+                    if (!table.isManagedTable()) {
                         continue;
                     }
 

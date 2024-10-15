@@ -42,6 +42,9 @@ suite ("projectMV2") {
 
     sql """insert into projectMV2 values("2020-01-01",1,"a",1,1,1);"""
 
+    sql "analyze table projectMV2 with sync;"
+    sql """set enable_stats=false;"""
+
     explain {
         sql("select * from projectMV2 order by empid;")
         contains "(projectMV2)"
@@ -60,4 +63,20 @@ suite ("projectMV2") {
         contains "(projectMV2)"
     }
     order_qt_select_base "select name from projectMV2 where deptno -1 = 0 order by empid;"
+
+    sql """set enable_stats=true;"""
+    explain {
+        sql("select * from projectMV2 order by empid;")
+        contains "(projectMV2)"
+    }
+
+    explain {
+        sql("select empid + 1 from projectMV2 where deptno = 1 order by empid;")
+        contains "(projectMV2_mv)"
+    }
+
+    explain {
+        sql("select name from projectMV2 where deptno -1 = 0 order by empid;")
+        contains "(projectMV2)"
+    }
 }

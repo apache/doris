@@ -230,8 +230,6 @@ suite("test_ctas") {
         sql 'insert into a values(1, \'ww\'), (2, \'zs\');'
         sql 'insert into b values(1, 22);'
 
-        sql 'set enable_nereids_planner=false'
-
         sql 'create table c properties("replication_num"="1") as select b.id, a.name, b.age from a left join b on a.id = b.id;'
         
         String descC = sql 'desc c'
@@ -254,7 +252,6 @@ suite("test_ctas") {
     }
 
     try {
-        sql '''set enable_nereids_planner=true;'''
         sql'''CREATE TABLE `test_ctas_of_view` (
             `l_varchar` varchar(65533) NULL
         ) ENGINE=OLAP
@@ -292,7 +289,6 @@ suite("test_ctas") {
     }
 
     try {
-        sql '''set enable_nereids_planner=false;'''
         sql '''
             CREATE TABLE IF NOT EXISTS `ctas1` (
                 `k1` varchar(5) NULL,
@@ -335,8 +331,6 @@ suite("test_ctas") {
     }
 
     try {
-        sql '''set enable_nereids_planner=true;'''
-        sql '''set enable_fallback_to_original_planner=false;'''
         sql '''
             CREATE TABLE IF NOT EXISTS `ctas1` (
                 `k1` varchar(5) NULL,

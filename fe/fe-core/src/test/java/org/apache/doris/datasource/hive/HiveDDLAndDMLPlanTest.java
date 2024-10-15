@@ -82,12 +82,10 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
     private List<FieldSchema> checkedHiveCols;
 
     private final Set<String> createdDbs = new HashSet<>();
-    private final Set<String> createdTables = new HashSet<>();
+    private final Set<Table> createdTables = new HashSet<>();
 
     @Override
     protected void runBeforeAll() throws Exception {
-        connectContext.getSessionVariable().enableFallbackToOriginalPlanner = false;
-        connectContext.getSessionVariable().enableNereidsDML = true;
         Config.enable_query_hive_views = false;
         // create test internal table
         createDatabase(mockedDbName);
@@ -142,7 +140,12 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
 
             @Mock
             public boolean tableExists(String dbName, String tblName) {
-                return createdTables.contains(tblName);
+                for (Table table : createdTables) {
+                    if (table.getDbName().equals(dbName) && table.getTableName().equals(tblName)) {
+                        return true;
+                    }
+                }
+                return false;
             }
 
             @Mock
@@ -154,7 +157,7 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
             public void createTable(TableMetadata tbl, boolean ignoreIfExists) {
                 if (tbl instanceof HiveTableMetadata) {
                     Table table = HiveUtil.toHiveTable((HiveTableMetadata) tbl);
-                    createdTables.add(table.getTableName());
+                    createdTables.add(table);
                     if (checkedHiveCols == null) {
                         // if checkedHiveCols is null, skip column check
                         return;
@@ -168,6 +171,16 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
                         Assertions.assertEquals(checkedCol.getType(), actualCol.getType().toLowerCase());
                     }
                 }
+            }
+
+            @Mock
+            public Table getTable(String dbName, String tblName) {
+                for (Table createdTable : createdTables) {
+                    if (createdTable.getDbName().equals(dbName) && createdTable.getTableName().equals(tblName)) {
+                        return createdTable;
+                    }
+                }
+                return null;
             }
         };
         CreateDbStmt createDbStmt = new CreateDbStmt(true, new DbName("hive", mockedDbName), dbProps);
@@ -213,8 +226,10 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
             // mock after ThriftHMSCachedClient is mocked
             @Mock
             HMSExternalTable getTableNullable(String tableName) {
-                if (createdTables.contains(tableName)) {
-                    return new HMSExternalTable(0, tableName, mockedDbName, hmsExternalCatalog);
+                for (Table table : createdTables) {
+                    if (table.getTableName().equals(tableName)) {
+                        return new HMSExternalTable(0, tableName, mockedDbName, hmsExternalCatalog);
+                    }
                 }
                 return null;
             }
@@ -298,10 +313,10 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
                 + "  `col2` INT COMMENT 'col2',\n"
                 + "  `col3` BIGINT COMMENT 'col3',\n"
                 + "  `col4` DECIMAL(5,2) COMMENT 'col4',\n"
-                + "  `pt1` VARCHAR(16) COMMENT 'pt1',\n"
-                + "  `pt2` STRING COMMENT 'pt2',\n"
                 + "  `col5` DATE COMMENT 'col5',\n"
-                + "  `col6` DATETIME COMMENT 'col6'\n"
+                + "  `col6` DATETIME COMMENT 'col6',\n"
+                + "  `pt1` VARCHAR(16) COMMENT 'pt1',\n"
+                + "  `pt2` STRING COMMENT 'pt2'\n"
                 + ")  ENGINE=hive\n"
                 + "PARTITION BY LIST (pt1, pt2) ()\n"
                 + "PROPERTIES (\n"
@@ -322,8 +337,8 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
                 + "PROPERTIES (\n"
                 + "  'location'='hdfs://loc/db/tbl',\n"
                 + "  'file_format'='orc')";
-        ExceptionChecker.expectThrowsWithMsg(org.apache.doris.nereids.exceptions.AnalysisException.class,
-                "errCode = 2, detailMessage = errCode = 2,"
+        ExceptionChecker.expectThrowsWithMsg(org.apache.doris.common.UserException.class,
+                "errCode = 2,"
                         + " detailMessage = Create hive bucket table need set enable_create_hive_bucket_table to true",
                 () -> createTable(createBucketedTableErr, true));
 
@@ -593,7 +608,7 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
         }
         Assertions.assertTrue(exPlan instanceof UnboundLogicalSink);
         NereidsPlanner planner = new NereidsPlanner(statementContext);
-        return planner.plan((UnboundLogicalSink<?>) exPlan, physicalProperties);
+        return planner.planWithLock((UnboundLogicalSink<?>) exPlan, physicalProperties);
     }
 
     @Test

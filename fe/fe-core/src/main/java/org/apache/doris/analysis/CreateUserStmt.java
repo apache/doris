@@ -25,7 +25,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
-import org.apache.doris.mysql.authenticate.MysqlAuthType;
+import org.apache.doris.mysql.authenticate.AuthenticateType;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.mysql.privilege.Role;
 import org.apache.doris.qe.ConnectContext;
@@ -51,7 +51,7 @@ import java.util.UUID;
  * 3. create user user@xx [identified by 'password'] role role_name
  *      not only create the specified user, but also grant all privs of the specified role to the user.
  */
-public class CreateUserStmt extends DdlStmt {
+public class CreateUserStmt extends DdlStmt implements NotFallbackInParser {
     private static final Logger LOG = LogManager.getLogger(CreateUserStmt.class);
 
     private boolean ifNotExist;
@@ -147,7 +147,7 @@ public class CreateUserStmt extends DdlStmt {
         super.analyze(analyzer);
 
         if (Config.access_controller_type.equalsIgnoreCase("ranger-doris")
-                && MysqlAuthType.getAuthTypeConfig() == MysqlAuthType.LDAP) {
+                && AuthenticateType.getAuthTypeConfig() == AuthenticateType.LDAP) {
             throw new AnalysisException("Create user is prohibited when Ranger and LDAP are enabled at same time.");
         }
 
@@ -202,5 +202,10 @@ public class CreateUserStmt extends DdlStmt {
     @Override
     public String toString() {
         return toSql();
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.CREATE;
     }
 }

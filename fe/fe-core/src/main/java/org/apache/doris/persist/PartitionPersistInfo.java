@@ -25,6 +25,7 @@ import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.common.FeMetaVersion;
+import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.RangeUtils;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -120,19 +121,20 @@ public class PartitionPersistInfo implements Writable {
     }
 
     public void write(DataOutput out) throws IOException {
-        out.writeLong(dbId);
-        out.writeLong(tableId);
-        partition.write(out);
-
-        RangeUtils.writeRange(out, range);
-        listPartitionItem.write(out);
-        dataProperty.write(out);
-        replicaAlloc.write(out);
-        out.writeBoolean(isInMemory);
-        out.writeBoolean(isTempPartition);
-        out.writeBoolean(isMutable);
+        Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 
+    public static PartitionPersistInfo read(DataInput in) throws IOException {
+        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_136) {
+            return GsonUtils.GSON.fromJson(Text.readString(in), PartitionPersistInfo.class);
+        } else {
+            PartitionPersistInfo info = new PartitionPersistInfo();
+            info.readFields(in);
+            return info;
+        }
+    }
+
+    @Deprecated
     public void readFields(DataInput in) throws IOException {
         dbId = in.readLong();
         tableId = in.readLong();

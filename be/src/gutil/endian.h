@@ -32,7 +32,6 @@
 
 #include <assert.h>
 
-#include "gutil/int128.h"
 #include "gutil/integral_types.h"
 #include "gutil/port.h"
 #include "vec/core/wide_integer.h"
@@ -61,8 +60,8 @@ inline unsigned __int128 gbswap_128(unsigned __int128 host_int) {
 }
 
 inline wide::UInt256 gbswap_256(wide::UInt256 host_int) {
-    wide::UInt256 result{gbswap_64(host_int.items[3]), gbswap_64(host_int.items[2]),
-                         gbswap_64(host_int.items[1]), gbswap_64(host_int.items[0])};
+    wide::UInt256 result {gbswap_64(host_int.items[3]), gbswap_64(host_int.items[2]),
+                          gbswap_64(host_int.items[1]), gbswap_64(host_int.items[0])};
     return result;
 }
 
@@ -137,6 +136,9 @@ public:
     static unsigned __int128 FromHost128(unsigned __int128 x) { return x; }
     static unsigned __int128 ToHost128(unsigned __int128 x) { return x; }
 
+    static wide::UInt256 FromHost256(wide::UInt256 x) { return x; }
+    static wide::UInt256 ToHost256(wide::UInt256 x) { return x; }
+
     static bool IsLittleEndian() { return true; }
 
 #elif defined IS_BIG_ENDIAN
@@ -149,6 +151,12 @@ public:
 
     static uint64 FromHost64(uint64 x) { return gbswap_64(x); }
     static uint64 ToHost64(uint64 x) { return gbswap_64(x); }
+
+    static unsigned __int128 FromHost128(unsigned __int128 x) { return gbswap_128(x); }
+    static unsigned __int128 ToHost128(unsigned __int128 x) { return gbswap_128(x); }
+
+    static wide::UInt256 FromHost256(wide::UInt256 x) { return gbswap_256(x); }
+    static wide::UInt256 ToHost256(wide::UInt256 x) { return gbswap_256(x); }
 
     static bool IsLittleEndian() { return false; }
 
@@ -196,29 +204,6 @@ public:
     }
 
     static void Store64(void* p, uint64 v) { UNALIGNED_STORE64(p, FromHost64(v)); }
-
-    static uint128 Load128(const void* p) {
-        return uint128(ToHost64(UNALIGNED_LOAD64(reinterpret_cast<const uint64*>(p) + 1)),
-                       ToHost64(UNALIGNED_LOAD64(p)));
-    }
-
-    static void Store128(void* p, const uint128 v) {
-        UNALIGNED_STORE64(p, FromHost64(Uint128Low64(v)));
-        UNALIGNED_STORE64(reinterpret_cast<uint64*>(p) + 1, FromHost64(Uint128High64(v)));
-    }
-
-    // Build a uint128 from 1-16 bytes.
-    // 8 * len least significant bits are loaded from the memory with
-    // LittleEndian order. The 128 - 8 * len most significant bits are
-    // set all to 0.
-    static uint128 Load128VariableLength(const void* p, int len) {
-        if (len <= 8) {
-            return uint128(Load64VariableLength(p, len));
-        } else {
-            return uint128(Load64VariableLength(static_cast<const char*>(p) + 8, len - 8),
-                           Load64(p));
-        }
-    }
 
     // Load & Store in machine's word size.
     static uword_t LoadUnsignedWord(const void* p) {
@@ -278,9 +263,6 @@ public:
     static uint64 FromHost64(uint64 x) { return x; }
     static uint64 ToHost64(uint64 x) { return x; }
 
-    static uint128 FromHost128(uint128 x) { return x; }
-    static uint128 ToHost128(uint128 x) { return x; }
-
     static wide::UInt256 FromHost256(wide::UInt256 x) { return x; }
     static wide::UInt256 ToHost256(wide::UInt256 x) { return x; }
 
@@ -327,29 +309,6 @@ public:
     }
 
     static void Store64(void* p, uint64 v) { UNALIGNED_STORE64(p, FromHost64(v)); }
-
-    static uint128 Load128(const void* p) {
-        return uint128(ToHost64(UNALIGNED_LOAD64(p)),
-                       ToHost64(UNALIGNED_LOAD64(reinterpret_cast<const uint64*>(p) + 1)));
-    }
-
-    static void Store128(void* p, const uint128 v) {
-        UNALIGNED_STORE64(p, FromHost64(Uint128High64(v)));
-        UNALIGNED_STORE64(reinterpret_cast<uint64*>(p) + 1, FromHost64(Uint128Low64(v)));
-    }
-
-    // Build a uint128 from 1-16 bytes.
-    // 8 * len least significant bits are loaded from the memory with
-    // BigEndian order. The 128 - 8 * len most significant bits are
-    // set all to 0.
-    static uint128 Load128VariableLength(const void* p, int len) {
-        if (len <= 8) {
-            return uint128(Load64VariableLength(static_cast<const char*>(p) + 8, len));
-        } else {
-            return uint128(Load64VariableLength(p, len - 8),
-                           Load64(static_cast<const char*>(p) + 8));
-        }
-    }
 
     // Load & Store in machine's word size.
     static uword_t LoadUnsignedWord(const void* p) {

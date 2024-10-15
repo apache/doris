@@ -109,7 +109,7 @@ TEST_F(OlapMetaTest, TestIterate) {
     }
     bool error_flag = false;
     s = _meta->iterate(META_COLUMN_FAMILY_INDEX, "hdr_",
-                       [&error_flag](const std::string& key, const std::string& value) -> bool {
+                       [&error_flag](std::string_view key, std::string_view value) -> bool {
                            size_t pos = key.find_first_of("hdr_");
                            if (pos != 0) {
                                error_flag = true;

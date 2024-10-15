@@ -277,4 +277,164 @@ suite("test_create_view_nereids") {
     sql "create view test_backquote_in_table_alias(c1, c2) as  select * from (select a,b from mal_test_view) `ab``c`;"
     qt_test_backquote_in_table_alias "select * from test_backquote_in_table_alias order by c1, c2;"
     qt_test_backquote_in_table_alias_sql "show create view test_backquote_in_table_alias;"
+
+    sql "drop table if exists create_view_table1"
+    sql """CREATE TABLE create_view_table1 (
+            id INT,
+                    value1 INT,
+            value2 VARCHAR(50)
+    ) distributed by hash(id) buckets 10 properties("replication_num"="1");"""
+    sql """INSERT INTO create_view_table1 (id, value1, value2) VALUES
+    (1, 10, 'A'),
+    (2, 20, 'B'),
+    (3, 30, 'C'),
+    (4, 40, 'D');"""
+    sql "drop table if exists create_view_table2"
+    sql """CREATE TABLE create_view_table2 (
+            id INT,
+            table1_id INT,
+            value3 INT,
+            value4 VARCHAR(50)
+    ) distributed by hash(id) buckets 10 properties("replication_num"="1");"""
+    sql """INSERT INTO create_view_table2 (id, table1_id, value3, value4) VALUES
+    (1, 1, 100, 'X'),
+    (2, 2, 200, 'Y'),
+    (3, 2, 300, 'Z'),
+    (4, 3, 400, 'W');"""
+
+    sql "drop view if exists test_view_generate"
+    sql """create view test_view_generate as select * from create_view_table1 lateral view EXPLODE(ARRAY(30,60)) t1 as age"""
+    qt_test_generate "select * from test_view_generate order by 1,2,3,4;"
+    qt_test_generate_sql "show create view test_view_generate;"
+
+    sql "drop view if exists test_view_generate_with_column"
+    sql """create view test_view_generate_with_column as select * from create_view_table1 lateral view EXPLODE_numbers(id) t1 as age"""
+    qt_test_generate_with_column "select * from test_view_generate_with_column order by 1,2,3,4"
+    qt_test_generate_with_column_sql "show create view test_view_generate_with_column;"
+
+    sql "drop view if exists test_view_col_alias"
+    sql """create view test_view_col_alias as select id as `c1`, value1 as c2 from create_view_table1;"""
+    qt_test_col_alias "select * from test_view_col_alias order by 1,2"
+    qt_test_col_alias_sql "show create view test_view_col_alias;"
+
+    sql "drop view if exists test_view_col_alias_specific_name"
+    sql """create view test_view_col_alias_specific_name(col1,col2) as select id as `c1`, value1 as c2 from create_view_table1;"""
+    qt_test_col_alias_with_specific_name "select * from test_view_col_alias_specific_name order by 1,2"
+    qt_test_col_alias_with_specific_name_sql "show create view test_view_col_alias_specific_name;"
+
+    sql "drop view if exists test_view_table_alias"
+    sql """create view test_view_table_alias as select * from (
+            select id as `c1`, value1 as c2 from create_view_table1 limit 10) as t ;"""
+    qt_test_table_alias "select * from test_view_table_alias order by 1,2"
+    qt_test_table_alias_sql "show create view test_view_table_alias;"
+
+    sql "drop view if exists test_view_join_table_alias"
+    sql """create view test_view_join_table_alias as select * from (
+            select t1.id as `c1`, value1 as c2 from create_view_table1 t1 inner join create_view_table2 t2 on t1.id=t2.id limit 10) as t ;"""
+    qt_test_join_table_alias "select * from test_view_join_table_alias order by 1,2"
+    qt_test_join_table_alias_sql "show create view test_view_join_table_alias;"
+
+    sql "drop function if exists alias_function_create_view_test(INT)"
+    sql "CREATE ALIAS FUNCTION alias_function_create_view_test(INT) WITH PARAMETER(id) AS CONCAT(LEFT(id, 3), '****', RIGHT(id, 4));"
+    sql "drop view if exists test_view_alias_udf;"
+    sql "CREATE VIEW if not exists test_view_alias_udf AS (select alias_function_create_view_test(id) as c1,abs(id) from create_view_table1);"
+    qt_test_alias_udf "select * from test_view_alias_udf order by 1,2"
+    qt_test_alias_udf_sql "show create view test_view_alias_udf;"
+
+    String db = context.config.getDbNameByFile(context.file)
+    log.info("db:${db}")
+    sql "drop view if exists test_view_alias_udf_with_db;"
+    sql "CREATE VIEW if not exists test_view_alias_udf_with_db AS (select ${db}.alias_function_create_view_test(id) as c1,abs(id) from create_view_table1);"
+    qt_test_alias_with_db_udf "select * from test_view_alias_udf_with_db order by 1,2"
+    qt_test_alias_with_db_udf_sql "show create view test_view_alias_udf_with_db;"
+
+    def jarPath = """${context.config.suitePath}/javaudf_p0/jars/java-udf-case-jar-with-dependencies.jar"""
+    scp_udf_file_to_all_be(jarPath)
+    log.info("jarPath:${jarPath}")
+
+    sql "drop function if exists java_udf_create_view_test(date, date)"
+    sql """ CREATE FUNCTION java_udf_create_view_test(date, date) RETURNS boolean PROPERTIES (
+            "file"="file://${jarPath}",
+            "symbol"="org.apache.doris.udf.DateTest1",
+            "type"="JAVA_UDF"
+        ); """
+
+    sql "drop view if exists test_view_udf;"
+    sql """CREATE VIEW if not exists test_view_udf AS (select ${db}.alias_function_create_view_test(id) as c1, java_udf_create_view_test('2011-01-01','2011-01-02'),
+        ${db}.java_udf_create_view_test('2011-01-01','2011-01-03') from create_view_table1);"""
+    qt_test_udf_sql "show create view test_view_udf;"
+    qt_test_udf "select * from test_view_udf order by 1,2,3"
+
+    sql "DROP VIEW  if exists test_view_with_as_with_columns"
+    sql """CREATE VIEW if not exists test_view_with_as_with_columns AS (
+            with t1(c1,c2,c3) as (select * from mal_test_view),  t2 as (select * from mal_test_view),  
+            t3 as (select * from mal_test_view) SELECT * FROM t1);"""
+    qt_test_with_as_with_columns "select * from test_view_with_as_with_columns order by c1,c2,c3"
+    qt_test_with_as_with_columns_sql "show create view test_view_with_as_with_columns"
+
+    sql "drop view if exists test_having"
+    sql """create view test_having as
+    select sum(a) over(partition by a order by pk) as c1 , a from mal_test_view group by grouping sets((a),(b),(pk,a)) having a>1"""
+    qt_test_having "select * from test_having order by 1,2"
+    qt_test_having_sql "show create view test_having"
+
+    sql "drop view if exists test_view_complicated;"
+    sql """create view test_view_complicated as
+    SELECT * FROM (
+        SELECT t1.id, tt.value3, ROW_NUMBER() OVER (PARTITION BY t1.id ORDER BY tt.value3 DESC) as row_num
+    FROM (SELECT id FROM create_view_table1 GROUP BY id) t1
+    FULL OUTER JOIN (SELECT value3, id, MAX(value4) FROM create_view_table2 GROUP BY value3, id) tt
+    ON tt.id = t1.id
+    ORDER BY t1.id
+    ) t
+    WHERE value3 < 280 AND (id < 3 or id >8);"""
+    qt_complicated_view1 "select * from test_view_complicated order by 1,2,3"
+    qt_complicated_view1_sql "show create view test_view_complicated;"
+
+    sql "drop table if exists v_t1"
+    sql "drop table if exists v_t2"
+    sql """CREATE TABLE `v_t1` ( `id` VARCHAR(64) NOT NULL, `name` VARCHAR(512) NULL , `code` VARCHAR(512) NULL
+    , `hid` INT NULL , `status` VARCHAR(3) NULL, `update_time` DATETIME NULL
+    , `mark` VARCHAR(8) NULL ,
+    `create_by` VARCHAR(64) NULL , `create_time` DATETIME NULL ,
+    `update_by` VARCHAR(64) NULL , `operate_status` INT NULL DEFAULT "0" )
+    ENGINE=OLAP UNIQUE KEY(`id`)  DISTRIBUTED BY HASH(`id`) BUCKETS 1 PROPERTIES
+    ( "replication_allocation" = "tag.location.default: 1");"""
+    sql """CREATE TABLE `v_t2` ( `id` INT NULL , `name` VARCHAR(500) NULL , `hid` INT NULL , 
+    `hname` VARCHAR(200) NULL , `com_id` INT NULL , `com_name` VARCHAR(200) NULL , `hsid` INT NULL ,
+    `subcom_name` VARCHAR(255) NULL , `status` VARCHAR(3) NULL, `update_time` DATETIME NULL ) ENGINE=OLAP UNIQUE KEY(`id`)
+     DISTRIBUTED BY HASH(`id`) BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1");"""
+
+    sql """drop view if exists t_view_nullable1;"""
+    sql """CREATE VIEW `t_view_nullable1` COMMENT 'VIEW' AS SELECT `t`.`id` AS `community_id`, `t`.`name` AS `community_name`, `t2`.`com_id`
+    AS `company_id`, `t`.`status` AS `del_flag`, `t`.`create_time` AS `create_time`, `t`.`update_time` AS `update_time`
+    FROM `v_t1` t  LEFT OUTER JOIN `v_t2` t2
+    ON (`t2`.`id` = `t`.`hid`) AND (`t2`.`status` != '0') GROUP BY `t`.`id`, `t`.`name`, `t2`.`com_id`, `t`.`status`,
+    `t`.`create_time`, `t`.`update_time`;"""
+
+    sql """INSERT INTO v_t2 (id, name, hid, hname, com_id, com_name, hsid, subcom_name, status, update_time)
+    VALUES
+    (100, '中心站A', 1, '供热处A', 10, '分公司A', 1000, '公司A', '1', '2024-09-01 10:00:00'),
+    (101, '中心站B', 2, '供热处B', 11, '分公司B', 1001, '公司B', '1', '2024-09-01 10:00:00'),
+    (102, '中心站C', 3, '供热处C', 12, '分公司C', 1002, '公司C', '0', '2024-09-01 10:00:00');
+    """
+
+    sql """INSERT INTO v_t1 (id, name, code, hid, status, update_time, mark, create_by, create_time, update_by, operate_status)
+    VALUES
+    ('1', '小区A', '001', 100, '1', '2024-09-01 10:00:00', '0', 'user1', '2024-09-01 09:00:00', 'user2', 1),
+    ('2', '小区B', '002', 101, '1', '2024-09-01 10:00:00', '0', 'user1', '2024-09-01 09:00:00', 'user2', 1),
+    ('3', '小区C', '003', NULL, '1', '2024-09-01 10:00:00', '0', 'user1', '2024-09-01 09:00:00', 'user2', 0);"""
+    qt_nullable """SELECT * FROM t_view_nullable1 order by community_id;"""
+
+    sql "drop view if exists t_view_nullable2"
+    sql """CREATE VIEW `t_view_nullable2`(a,b,c,d,e,f) COMMENT 'VIEW' AS SELECT `t`.`id` AS `community_id`, `t`.`name` AS `community_name`, `t2`.`com_id`
+    AS `company_id`, `t`.`status` AS `del_flag`, `t`.`create_time` AS `create_time`, `t`.`update_time` AS `update_time`
+    FROM `v_t1` t  LEFT OUTER JOIN `v_t2` t2
+    ON (`t2`.`id` = `t`.`hid`) AND (`t2`.`status` != '0') GROUP BY `t`.`id`, `t`.`name`, `t2`.`com_id`, `t`.`status`,
+    `t`.`create_time`, `t`.`update_time`;"""
+    qt_nullable_view_with_cols "select * from t_view_nullable2 order by a;"
+    def res1 = sql "desc t_view_nullable1"
+    def res2 = sql "desc t_view_nullable2"
+    mustContain(res1[1][2], "Yes")
+    mustContain(res2[1][2], "Yes")
 }

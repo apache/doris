@@ -17,7 +17,7 @@
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
-suite("github_event_advance_p2", "variant_type,p2"){
+suite("load_p2", "variant_type,p2"){
 
     def load_json_data = {table_name, file_name ->
         // load the json data
@@ -107,7 +107,8 @@ suite("github_event_advance_p2", "variant_type,p2"){
                     "AWS_ACCESS_KEY" = "$ak",
                     "AWS_SECRET_KEY" = "$sk",
                     "AWS_ENDPOINT" = "${s3Endpoint}",
-                    "AWS_REGION" = "${s3Region}"
+                    "AWS_REGION" = "${s3Region}",
+                    "provider" = "${getS3Provider()}"
                 )
                 PROPERTIES(
                     "load_parallelism" = "${paral}"

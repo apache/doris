@@ -65,7 +65,8 @@ Status DataTypeHLLSerDe::serialize_one_cell_to_json(const IColumn& column, int r
     ColumnPtr ptr = col_row.first;
     row_num = col_row.second;
     auto& data = const_cast<HyperLogLog&>(assert_cast<const ColumnHLL&>(*ptr).get_element(row_num));
-    std::unique_ptr<char[]> buf = std::make_unique<char[]>(data.max_serialized_size());
+    std::unique_ptr<char[]> buf =
+            std::make_unique_for_overwrite<char[]>(data.max_serialized_size());
     size_t size = data.serialize((uint8*)buf.get());
     bw.write(buf.get(), size);
     return Status::OK();
@@ -155,13 +156,14 @@ void DataTypeHLLSerDe::write_column_to_arrow(const IColumn& column, const NullMa
 template <bool is_binary_format>
 Status DataTypeHLLSerDe::_write_column_to_mysql(const IColumn& column,
                                                 MysqlRowBuffer<is_binary_format>& result,
-                                                int row_idx, bool col_const) const {
+                                                int row_idx, bool col_const,
+                                                const FormatOptions& options) const {
     auto& data_column = assert_cast<const ColumnHLL&>(column);
     if (_return_object_as_string) {
         const auto col_index = index_check_const(row_idx, col_const);
         HyperLogLog hyperLogLog = data_column.get_element(col_index);
         size_t size = hyperLogLog.max_serialized_size();
-        std::unique_ptr<char[]> buf = std::make_unique<char[]>(size);
+        std::unique_ptr<char[]> buf = std::make_unique_for_overwrite<char[]>(size);
         hyperLogLog.serialize((uint8*)buf.get());
         if (UNLIKELY(0 != result.push_string(buf.get(), size))) {
             return Status::InternalError("pack mysql buffer failed.");
@@ -176,14 +178,14 @@ Status DataTypeHLLSerDe::_write_column_to_mysql(const IColumn& column,
 
 Status DataTypeHLLSerDe::write_column_to_mysql(const IColumn& column,
                                                MysqlRowBuffer<true>& row_buffer, int row_idx,
-                                               bool col_const) const {
-    return _write_column_to_mysql(column, row_buffer, row_idx, col_const);
+                                               bool col_const, const FormatOptions& options) const {
+    return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
 }
 
 Status DataTypeHLLSerDe::write_column_to_mysql(const IColumn& column,
                                                MysqlRowBuffer<false>& row_buffer, int row_idx,
-                                               bool col_const) const {
-    return _write_column_to_mysql(column, row_buffer, row_idx, col_const);
+                                               bool col_const, const FormatOptions& options) const {
+    return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
 }
 
 Status DataTypeHLLSerDe::write_column_to_orc(const std::string& timezone, const IColumn& column,

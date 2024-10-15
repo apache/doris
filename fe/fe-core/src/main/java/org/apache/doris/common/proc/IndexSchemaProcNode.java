@@ -65,17 +65,18 @@ public class IndexSchemaProcNode implements ProcNodeInterface {
             if (column.isAutoInc()) {
                 extras.add("AUTO_INCREMENT");
             }
+            if (column.getGeneratedColumnInfo() != null) {
+                extras.add("STORED GENERATED");
+            }
             String extraStr = StringUtils.join(extras, ",");
 
             List<String> rowList = Arrays.asList(column.getDisplayName(),
-                                                 column.getOriginType().toString(),
+                                                 column.getOriginType().hideVersionForVersionColumn(true),
                                                  column.isAllowNull() ? "Yes" : "No",
                                                  ((Boolean) column.isKey()).toString(),
                                                  column.getDefaultValue() == null
                                                          ? FeConstants.null_string : column.getDefaultValue(),
                                                  extraStr);
-
-            rowList.set(1, column.getOriginType().hideVersionForVersionColumn(false));
             result.addRow(rowList);
         }
         return result;

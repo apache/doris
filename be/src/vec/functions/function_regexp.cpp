@@ -184,8 +184,9 @@ struct RegexpReplaceOneImpl {
     }
 };
 
+template <bool ReturnNull>
 struct RegexpExtractImpl {
-    static constexpr auto name = "regexp_extract";
+    static constexpr auto name = ReturnNull ? "regexp_extract_or_null" : "regexp_extract";
     // 3 args
     static void execute_impl(FunctionContext* context, ColumnPtr argument_columns[],
                              size_t input_rows_count, ColumnString::Chars& result_data,
@@ -201,7 +202,8 @@ struct RegexpExtractImpl {
             }
             const auto& index_data = index_col->get_int(i);
             if (index_data < 0) {
-                StringOP::push_empty_string(i, result_data, result_offset);
+                ReturnNull ? StringOP::push_null_string(i, result_data, result_offset, null_map)
+                           : StringOP::push_empty_string(i, result_data, result_offset);
                 continue;
             }
             _execute_inner_loop<false>(context, str_col, pattern_col, index_data, result_data,
@@ -220,7 +222,8 @@ struct RegexpExtractImpl {
         const auto& index_data = index_col->get_int(0);
         if (index_data < 0) {
             for (size_t i = 0; i < input_rows_count; ++i) {
-                StringOP::push_empty_string(i, result_data, result_offset);
+                ReturnNull ? StringOP::push_null_string(i, result_data, result_offset, null_map)
+                           : StringOP::push_empty_string(i, result_data, result_offset);
             }
             return;
         }
@@ -260,7 +263,8 @@ struct RegexpExtractImpl {
 
         int max_matches = 1 + re->NumberOfCapturingGroups();
         if (index_data >= max_matches) {
-            StringOP::push_empty_string(index_now, result_data, result_offset);
+            ReturnNull ? StringOP::push_null_string(index_now, result_data, result_offset, null_map)
+                       : StringOP::push_empty_string(index_now, result_data, result_offset);
             return;
         }
 
@@ -268,7 +272,8 @@ struct RegexpExtractImpl {
         bool success =
                 re->Match(str_sp, 0, str.size, re2::RE2::UNANCHORED, &matches[0], max_matches);
         if (!success) {
-            StringOP::push_empty_string(index_now, result_data, result_offset);
+            ReturnNull ? StringOP::push_null_string(index_now, result_data, result_offset, null_map)
+                       : StringOP::push_empty_string(index_now, result_data, result_offset);
             return;
         }
         const re2::StringPiece& match = matches[index_data];
@@ -486,7 +491,8 @@ public:
 
 void register_function_regexp_extract(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionRegexp<RegexpReplaceImpl>>();
-    factory.register_function<FunctionRegexp<RegexpExtractImpl>>();
+    factory.register_function<FunctionRegexp<RegexpExtractImpl<true>>>();
+    factory.register_function<FunctionRegexp<RegexpExtractImpl<false>>>();
     factory.register_function<FunctionRegexp<RegexpReplaceOneImpl>>();
     factory.register_function<FunctionRegexp<RegexpExtractAllImpl>>();
 }

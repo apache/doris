@@ -25,6 +25,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <memory>
 #include <ostream>
 #include <string>
 
@@ -32,6 +33,7 @@
 #include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/serde/data_type_nothing_serde.h"
 #include "vec/data_types/serde/data_type_serde.h"
 
 namespace doris {
@@ -74,26 +76,25 @@ public:
         return 0;
     }
     char* serialize(const IColumn& column, char* buf, int be_exec_version) const override;
-    const char* deserialize(const char* buf, IColumn* column, int be_exec_version) const override;
+    const char* deserialize(const char* buf, MutableColumnPtr* column,
+                            int be_exec_version) const override;
 
     [[noreturn]] Field get_default() const override {
-        LOG(FATAL) << "Method get_default() is not implemented for data type " << get_name();
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "Method get_default() is not implemented for data type {}.",
+                               get_name());
         __builtin_unreachable();
     }
 
     [[noreturn]] Field get_field(const TExprNode& node) const override {
-        LOG(FATAL) << "Unimplemented get_field for Nothing";
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "Unimplemented get_field for Nothing");
         __builtin_unreachable();
-    }
-
-    void insert_default_into(IColumn&) const override {
-        LOG(FATAL) << "Method insert_default_into() is not implemented for data type "
-                   << get_name();
     }
 
     bool have_subtypes() const override { return false; }
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
-        LOG(FATAL) << get_name() << " not support serde";
+        return std::make_shared<DataTypeNothingSerde>();
     };
 };
 

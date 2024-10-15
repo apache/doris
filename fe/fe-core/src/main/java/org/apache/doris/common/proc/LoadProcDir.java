@@ -18,7 +18,9 @@
 package org.apache.doris.common.proc;
 
 import org.apache.doris.catalog.Database;
+import org.apache.doris.cloud.load.CloudLoadManager;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.load.loadv2.LoadManager;
 
 import com.google.common.collect.ImmutableList;
@@ -34,6 +36,9 @@ public class LoadProcDir implements ProcDirInterface {
             .add("EtlStartTime").add("EtlFinishTime").add("LoadStartTime").add("LoadFinishTime")
             .add("URL").add("JobDetails").add("TransactionId").add("ErrorTablets").add("User").add("Comment")
             .build();
+
+    public static final ImmutableList<String> COPY_TITLE_NAMES = new ImmutableList.Builder<String>()
+            .add("Id").addAll(TITLE_NAMES).add("TableName").add("Files").build();
 
     // label and state column index of result
     public static final int LABEL_INDEX = 1;
@@ -63,7 +68,13 @@ public class LoadProcDir implements ProcDirInterface {
         if (db == null) {
             loadJobInfos = loadManager.getAllLoadJobInfos();
         } else {
-            loadJobInfos = loadManager.getLoadJobInfosByDb(db.getId(), null, false, null);
+            if (!Config.isCloudMode()) {
+                loadJobInfos = loadManager.getLoadJobInfosByDb(db.getId(), null, false, null);
+            } else {
+                loadJobInfos = ((CloudLoadManager) loadManager)
+                        .getLoadJobInfosByDb(db.getId(), null, false,
+                        null, null, null, false, null, false, null, false);
+            }
         }
 
         int counter = 0;
@@ -99,10 +110,24 @@ public class LoadProcDir implements ProcDirInterface {
         return new LoadJobProcNode(loadManager, jobId);
     }
 
+    public static int analyzeCopyColumn(String columnName) throws AnalysisException {
+        return analyzeColumn(COPY_TITLE_NAMES, columnName);
+    }
+
     public static int analyzeColumn(String columnName) throws AnalysisException {
         for (String title : TITLE_NAMES) {
             if (title.equalsIgnoreCase(columnName)) {
                 return TITLE_NAMES.indexOf(title);
+            }
+        }
+
+        throw new AnalysisException("Title name[" + columnName + "] does not exist");
+    }
+
+    private static int analyzeColumn(ImmutableList<String> titleNames, String columnName) throws AnalysisException {
+        for (String title : titleNames) {
+            if (title.equalsIgnoreCase(columnName)) {
+                return titleNames.indexOf(title);
             }
         }
 

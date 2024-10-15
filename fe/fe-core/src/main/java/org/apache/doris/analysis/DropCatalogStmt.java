@@ -30,7 +30,7 @@ import org.apache.doris.qe.ConnectContext;
 /**
  * Statement for drop a catalog.
  */
-public class DropCatalogStmt extends DdlStmt {
+public class DropCatalogStmt extends DdlStmt implements NotFallbackInParser {
     private final boolean ifExists;
     private final String catalogName;
 
@@ -71,5 +71,10 @@ public class DropCatalogStmt extends DdlStmt {
     @Override
     public String toString() {
         return toSql();
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.DROP;
     }
 }

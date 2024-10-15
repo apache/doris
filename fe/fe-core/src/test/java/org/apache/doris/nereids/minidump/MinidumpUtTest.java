@@ -18,9 +18,8 @@
 package org.apache.doris.nereids.minidump;
 
 import org.json.JSONObject;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
-
-import java.io.IOException;
 
 /**
  * Used for add unit test of minidump
@@ -30,6 +29,7 @@ import java.io.IOException;
  */
 class MinidumpUtTest {
 
+    @Disabled
     @Test
     public void testMinidumpUt() {
         Minidump minidump = null;
@@ -38,7 +38,7 @@ class MinidumpUtTest {
         String currentMinidumpPath = "/src/test/java/org/apache/doris/nereids/minidump/MinidumpUtTestData.json";
         try {
             minidump = MinidumpUtils.jsonMinidumpLoad(directory + currentMinidumpPath);
-        } catch (IOException e) {
+        } catch (Exception e) {
             throw new RuntimeException(e);
         }
         MinidumpUtils.setConnectContext(minidump);

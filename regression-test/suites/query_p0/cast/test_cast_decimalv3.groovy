@@ -16,7 +16,6 @@
 // under the License.
 
 suite('test_cast_with_decimalv3') {
-    sql """ set enable_nereids_planner=false; """
     sql """ set enable_fold_constant_by_be=true; """
 
     // string to decimalv3 with max value

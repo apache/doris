@@ -44,7 +44,7 @@ public class ExternalMysqlDatabase extends ExternalDatabase {
     }
 
     @Override
-    protected ExternalTable newExternalTable(String tableName, long tblId, ExternalCatalog catalog) {
+    protected ExternalTable buildTableForInit(String tableName, long tblId, ExternalCatalog catalog) {
         return new ExternalMysqlTable(tblId, tableName, catalog);
     }
 

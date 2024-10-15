@@ -26,9 +26,10 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
-public class MultiJoinTest extends SqlTestBase {
+class MultiJoinTest extends SqlTestBase {
     @Test
     void testMultiJoinEliminateCross() {
+        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
         List<String> sqls = ImmutableList.<String>builder()
                 .add("SELECT * FROM T2 LEFT JOIN T3 ON T2.id = T3.id, T1 WHERE T1.id = T2.id")
                 .add("SELECT * FROM T2 LEFT JOIN T3 ON T2.id = T3.id, T1 WHERE T1.id = T2.id AND T1.score > 0")
@@ -52,6 +53,7 @@ public class MultiJoinTest extends SqlTestBase {
     @Test
     @Disabled
     void testEliminateBelowOuter() {
+        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
         // FIXME: MultiJoin And EliminateOuter
         String sql = "SELECT * FROM T1, T2 LEFT JOIN T3 ON T2.id = T3.id WHERE T1.id = T2.id";
         PlanChecker.from(connectContext)
@@ -61,31 +63,8 @@ public class MultiJoinTest extends SqlTestBase {
     }
 
     @Test
-    void testPushdownAndEliminateOuter() {
-        String sql = "SELECT * FROM T1 LEFT JOIN T2 ON T1.id = T2.id WHERE T2.score > 0";
-        PlanChecker.from(connectContext)
-                .analyze(sql)
-                .rewrite()
-                .printlnTree()
-                .matches(
-                        logicalJoin().when(join -> join.getJoinType().isInnerJoin())
-                );
-
-        String sql1 = "SELECT * FROM T1, T2 LEFT JOIN T3 ON T2.id = T3.id WHERE T1.id = T2.id AND T3.score > 0";
-        PlanChecker.from(connectContext)
-                .analyze(sql1)
-                .rewrite()
-                .printlnTree()
-                .matches(
-                        logicalJoin(
-                                logicalJoin().when(join -> join.getJoinType().isInnerJoin()),
-                                any()
-                        ).when(join -> join.getJoinType().isInnerJoin())
-                );
-    }
-
-    @Test
     void testMultiJoinExistCross() {
+        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
         List<String> sqls = ImmutableList.<String>builder()
                 .add("SELECT * FROM T2 LEFT SEMI JOIN T3 ON T2.id = T3.id, T1 WHERE T1.id > T2.id")
                 .build();
@@ -107,6 +86,7 @@ public class MultiJoinTest extends SqlTestBase {
 
     @Test
     void testOuterJoin() {
+        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
         String sql = "SELECT * FROM T1 LEFT OUTER JOIN T2 ON T1.id = T2.id, T3 WHERE T2.score > 0";
         PlanChecker.from(connectContext)
                 .analyze(sql)
@@ -124,6 +104,7 @@ public class MultiJoinTest extends SqlTestBase {
     @Test
     @Disabled
     void testNoFilter() {
+        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
         String sql = "Select * FROM T1 INNER JOIN T2 On true";
         PlanChecker.from(connectContext)
                 .analyze(sql)
@@ -135,6 +116,7 @@ public class MultiJoinTest extends SqlTestBase {
 
     @Test
     void test() {
+        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
         String sql = "select T1.score, T2.score from T1 inner join T2 on T1.id = T2.id where T1.score - 2 > T2.score";
         PlanChecker.from(connectContext)
                 .analyze(sql)

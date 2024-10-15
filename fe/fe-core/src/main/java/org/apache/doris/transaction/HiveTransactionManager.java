@@ -17,63 +17,26 @@
 
 package org.apache.doris.transaction;
 
-import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.hive.HMSTransaction;
 import org.apache.doris.datasource.hive.HiveMetadataOps;
-import org.apache.doris.persist.EditLog;
+import org.apache.doris.fs.FileSystemProvider;
 
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executor;
 
-public class HiveTransactionManager implements TransactionManager {
+public class HiveTransactionManager extends AbstractExternalTransactionManager<HMSTransaction> {
 
-    private final Map<Long, HMSTransaction> transactions = new ConcurrentHashMap<>();
-    private final TransactionIdGenerator idGenerator = new TransactionIdGenerator();
-    private final HiveMetadataOps ops;
+    private final FileSystemProvider fileSystemProvider;
+    private final Executor fileSystemExecutor;
 
-    public HiveTransactionManager(HiveMetadataOps ops) {
-        this.ops = ops;
-    }
-
-    public Long getNextTransactionId() {
-        return idGenerator.getNextTransactionId();
+    public HiveTransactionManager(HiveMetadataOps ops, FileSystemProvider fileSystemProvider,
+            Executor fileSystemExecutor) {
+        super(ops);
+        this.fileSystemProvider = fileSystemProvider;
+        this.fileSystemExecutor = fileSystemExecutor;
     }
 
     @Override
-    public void setEditLog(EditLog editLog) {
-        this.idGenerator.setEditLog(editLog);
-    }
-
-    @Override
-    public long begin() {
-        long id = idGenerator.getNextTransactionId();
-        HMSTransaction hiveTransaction = new HMSTransaction(ops);
-        transactions.put(id, hiveTransaction);
-        return id;
-    }
-
-    @Override
-    public void commit(long id) throws UserException {
-        getTransactionWithException(id).commit();
-        transactions.remove(id);
-    }
-
-    @Override
-    public void rollback(long id) {
-        getTransactionWithException(id).rollback();
-        transactions.remove(id);
-    }
-
-    @Override
-    public HMSTransaction getTransaction(long id) {
-        return getTransactionWithException(id);
-    }
-
-    public HMSTransaction getTransactionWithException(long id) {
-        HMSTransaction hiveTransaction = transactions.get(id);
-        if (hiveTransaction == null) {
-            throw new RuntimeException("Can't find transaction for " + id);
-        }
-        return hiveTransaction;
+    HMSTransaction createTransaction() {
+        return new HMSTransaction((HiveMetadataOps) ops, fileSystemProvider, fileSystemExecutor);
     }
 }

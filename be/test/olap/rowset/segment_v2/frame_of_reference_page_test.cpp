@@ -50,6 +50,8 @@ public:
         PageBuilderOptions builder_options;
         builder_options.data_page_size = 256 * 1024;
         PageBuilderType for_page_builder(builder_options);
+        Status ret0 = for_page_builder.init();
+        EXPECT_TRUE(ret0.ok());
         for_page_builder.add(reinterpret_cast<const uint8_t*>(src), &size);
         OwnedSlice s = for_page_builder.finish();
         EXPECT_EQ(size, for_page_builder.count());
@@ -234,6 +236,8 @@ TEST_F(FrameOfReferencePageTest, TestInt32SequenceBlockEncoderSize) {
     builder_options.data_page_size = 256 * 1024;
     segment_v2::FrameOfReferencePageBuilder<FieldType::OLAP_FIELD_TYPE_INT> page_builder(
             builder_options);
+    Status ret0 = page_builder.init();
+    EXPECT_TRUE(ret0.ok());
     page_builder.add(reinterpret_cast<const uint8_t*>(ints.get()), &size);
     OwnedSlice s = page_builder.finish();
     // body: 4 bytes min value + 128 * 1 /8 packing value = 20
@@ -251,6 +255,8 @@ TEST_F(FrameOfReferencePageTest, TestFirstLastValue) {
     builder_options.data_page_size = 256 * 1024;
     segment_v2::FrameOfReferencePageBuilder<FieldType::OLAP_FIELD_TYPE_INT> page_builder(
             builder_options);
+    Status ret0 = page_builder.init();
+    EXPECT_TRUE(ret0.ok());
     page_builder.add(reinterpret_cast<const uint8_t*>(ints.get()), &size);
     OwnedSlice s = page_builder.finish();
     int32_t first_value = -1;
@@ -271,6 +277,8 @@ TEST_F(FrameOfReferencePageTest, TestInt32NormalBlockEncoderSize) {
     builder_options.data_page_size = 256 * 1024;
     segment_v2::FrameOfReferencePageBuilder<FieldType::OLAP_FIELD_TYPE_INT> page_builder(
             builder_options);
+    Status ret0 = page_builder.init();
+    EXPECT_TRUE(ret0.ok());
     page_builder.add(reinterpret_cast<const uint8_t*>(ints.get()), &size);
     OwnedSlice s = page_builder.finish();
     // body: 4 bytes min value + 128 * 7 /8 packing value = 116

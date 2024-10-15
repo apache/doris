@@ -28,12 +28,17 @@ import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.thrift.TQueryOptions;
 
 import com.google.common.base.Preconditions;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
 public abstract class StatementBase implements ParseNode {
+    private static final Logger LOG = LogManager.getLogger(StatementBase.class);
+    private String clusterName;
+
     // Set this variable if this QueryStmt is the top level query from an EXPLAIN <query>
     protected ExplainOptions explainOptions = null;
 
@@ -51,7 +56,6 @@ public abstract class StatementBase implements ParseNode {
     private UserIdentity userInfo;
 
     private boolean isPrepared = false;
-
     // select * from tbl where a = ? and b = ?
     // `?` is the placeholder
     private ArrayList<PlaceHolderExpr> placeholders = new ArrayList<>();
@@ -100,12 +104,13 @@ public abstract class StatementBase implements ParseNode {
         this.explainOptions = options;
     }
 
-    public boolean isExplain() {
-        return this.explainOptions != null;
+    public void setPlaceHolders(ArrayList<PlaceHolderExpr> placeholders) {
+        LOG.debug("setPlaceHolders {}", placeholders);
+        this.placeholders = new ArrayList<PlaceHolderExpr>(placeholders);
     }
 
-    public void setPlaceHolders(ArrayList<PlaceHolderExpr> placeholders) {
-        this.placeholders = new ArrayList<PlaceHolderExpr>(placeholders);
+    public boolean isExplain() {
+        return this.explainOptions != null;
     }
 
     public ArrayList<PlaceHolderExpr> getPlaceHolders() {
@@ -136,6 +141,10 @@ public abstract class StatementBase implements ParseNode {
     @Override
     public String toSql() {
         return "";
+    }
+
+    public StmtType stmtType() {
+        return StmtType.OTHER;
     }
 
     public abstract RedirectStatus getRedirectStatus();

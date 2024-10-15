@@ -125,11 +125,19 @@ std::string ESScrollQueryBuilder::build(const std::map<std::string, std::string>
     } else {
         size = atoi(properties.at(ESScanReader::KEY_BATCH_SIZE).c_str());
     }
-    rapidjson::Value sort_node(rapidjson::kArrayType);
-    // use the scroll-scan mode for scan index documents
-    rapidjson::Value field("_doc", allocator);
-    sort_node.PushBack(field, allocator);
-    es_query_dsl.AddMember("sort", sort_node, allocator);
+
+    std::string shard_id;
+    if (properties.find(ESScanReader::KEY_SHARD) != properties.end()) {
+        shard_id = properties.at(ESScanReader::KEY_SHARD);
+    }
+    // To maintain consistency with the query, when shard_id is negative, do not add sort node in scroll request body.
+    if (!shard_id.empty() && std::stoi(shard_id) >= 0) {
+        rapidjson::Value sort_node(rapidjson::kArrayType);
+        // use the scroll-scan mode for scan index documents
+        rapidjson::Value field("_doc", allocator);
+        sort_node.PushBack(field, allocator);
+        es_query_dsl.AddMember("sort", sort_node, allocator);
+    }
     // number of documents returned
     es_query_dsl.AddMember("size", size, allocator);
     rapidjson::StringBuffer buffer;

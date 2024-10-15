@@ -40,11 +40,23 @@ namespace doris::vectorized {
 
 static constexpr size_t INIT_PAGE_HEADER_SIZE = 128;
 
+std::unique_ptr<PageReader> create_page_reader(io::BufferedStreamReader* reader,
+                                               io::IOContext* io_ctx, uint64_t offset,
+                                               uint64_t length, int64_t num_values,
+                                               const tparquet::OffsetIndex* offset_index) {
+    if (offset_index) {
+        return std::make_unique<PageReaderWithOffsetIndex>(reader, io_ctx, offset, length,
+                                                           num_values, offset_index);
+    } else {
+        return std::make_unique<PageReader>(reader, io_ctx, offset, length);
+    }
+}
+
 PageReader::PageReader(io::BufferedStreamReader* reader, io::IOContext* io_ctx, uint64_t offset,
                        uint64_t length)
         : _reader(reader), _io_ctx(io_ctx), _start_offset(offset), _end_offset(offset + length) {}
 
-Status PageReader::next_page_header() {
+Status PageReader::_parse_page_header() {
     if (UNLIKELY(_offset < _start_offset || _offset >= _end_offset)) {
         return Status::IOError("Out-of-bounds Access");
     }
@@ -82,6 +94,7 @@ Status PageReader::next_page_header() {
         header_size <<= 2;
     }
 
+    _statistics.parse_page_header_num++;
     _offset += real_header_size;
     _next_header_offset = _offset + _cur_page_header.compressed_page_size;
     _state = HEADER_PARSED;

@@ -27,17 +27,8 @@ namespace path_util {
 // NOTE: The methods here are only related to path processing, do not involve
 // any file and IO operations.
 
-extern const std::string kTmpInfix;
-
 // Join two path segments with the appropriate path separator, if necessary.
 std::string join_path_segments(const std::string& a, const std::string& b);
-
-// Join each path segment in a list with a common suffix segment.
-std::vector<std::string> join_path_segments_v(const std::vector<std::string>& v,
-                                              const std::string& s);
-
-// Split a path into segments with the appropriate path separator.
-std::vector<std::string> split_path(const std::string& path);
 
 // Return the enclosing directory of path.
 // This is like dirname(3) but for C++ strings.

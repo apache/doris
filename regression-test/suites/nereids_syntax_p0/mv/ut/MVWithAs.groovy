@@ -39,6 +39,9 @@ suite ("MVWithAs") {
 
     sql """insert into MVWithAs values("2020-01-01",1,"a",1);"""
 
+    sql "analyze table MVWithAs with sync;"
+    sql """set enable_stats=false;"""
+
     explain {
         sql("select * from MVWithAs order by time_col;")
         contains "(MVWithAs)"
@@ -50,4 +53,14 @@ suite ("MVWithAs") {
         contains "(MVWithAs_mv)"
     }
     order_qt_select_mv "select count(tag_id) from MVWithAs t;"
+
+    sql """set enable_stats=true;"""
+    explain {
+        sql("select * from MVWithAs order by time_col;")
+        contains "(MVWithAs)"
+    }
+    explain {
+        sql("select count(tag_id) from MVWithAs t;")
+        contains "(MVWithAs_mv)"
+    }
 }

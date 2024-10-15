@@ -33,6 +33,7 @@ import org.apache.doris.thrift.TExprOpcode;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -56,14 +57,23 @@ public class TimestampArithmeticExpr extends Expr {
     }
 
     // Set for function call-like arithmetic.
-    private final String funcName;
+    @SerializedName("funcn")
+    private String funcName;
     // Keep the original string passed in the c'tor to resolve
     // ambiguities with other uses of IDENT during query parsing.
-    private final String timeUnitIdent;
+    @SerializedName("tui")
+    private String timeUnitIdent;
     // Indicates an expr where the interval comes first, e.g., 'interval b year + a'.
-    private final boolean intervalFirst;
+    @SerializedName("if")
+    private boolean intervalFirst;
+    @SerializedName("op")
     private ArithmeticExpr.Operator op;
+    @SerializedName("tu")
     private TimeUnit timeUnit;
+
+    private TimestampArithmeticExpr() {
+        // use for serde only
+    }
 
     // C'tor for function-call like arithmetic, e.g., 'date_add(a, interval b year)'.
     public TimestampArithmeticExpr(String funcName, Expr e1, Expr e2, String timeUnitIdent) {

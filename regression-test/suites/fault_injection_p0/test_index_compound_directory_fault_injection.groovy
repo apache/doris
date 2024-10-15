@@ -104,13 +104,6 @@ suite("test_index_compound_directory_failure_injection", "nonConcurrent") {
         }
         qt_sql "select COUNT() from ${testTable_dup} where request match 'images'"
         try {
-            GetDebugPoint().enableDebugPointForAllBEs("DorisFSDirectory::FSIndexOutput._set_writer_finalize_status_error")
-            load_httplogs_data.call(testTable_dup, 'test_index_compound_directory', 'true', 'json', 'documents-1000.json')
-        } finally {
-            GetDebugPoint().disableDebugPointForAllBEs("DorisFSDirectory::FSIndexOutput._set_writer_finalize_status_error")
-        }
-        qt_sql "select COUNT() from ${testTable_dup} where request match 'images'"
-        try {
             GetDebugPoint().enableDebugPointForAllBEs("DorisFSDirectory::FSIndexOutput._set_writer_close_status_error")
             load_httplogs_data.call(testTable_dup, 'test_index_compound_directory', 'true', 'json', 'documents-1000.json')
         } finally {

@@ -129,7 +129,7 @@ std::string PrintFrontendInfo(const TFrontendInfo& fe_info) {
 }
 
 std::string PrintInstanceStandardInfo(const TUniqueId& qid, const TUniqueId& iid) {
-    return fmt::format("{}|{}", print_id(iid), print_id(qid));
+    return fmt::format("{}|{}", print_id(qid), print_id(iid));
 }
 
 } // namespace doris

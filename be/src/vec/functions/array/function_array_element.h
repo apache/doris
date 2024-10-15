@@ -38,6 +38,7 @@
 #include "vec/columns/column_struct.h"
 #include "vec/columns/column_vector.h"
 #include "vec/columns/columns_number.h"
+#include "vec/common/assert_cast.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
 #include "vec/core/column_with_type_and_name.h"
@@ -360,8 +361,8 @@ private:
             res = _execute_number<ColumnDateV2>(offsets, *nested_column, src_null_map, *idx_col,
                                                 nested_null_map, dst_null_map);
         } else if (which_type.is_date_time_v2()) {
-            res = _execute_number<ColumnDateTime>(offsets, *nested_column, src_null_map, *idx_col,
-                                                  nested_null_map, dst_null_map);
+            res = _execute_number<ColumnDateTimeV2>(offsets, *nested_column, src_null_map, *idx_col,
+                                                    nested_null_map, dst_null_map);
         } else if (which_type.is_uint8()) {
             res = _execute_number<ColumnUInt8>(offsets, *nested_column, src_null_map, *idx_col,
                                                nested_null_map, dst_null_map);

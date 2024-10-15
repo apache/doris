@@ -39,7 +39,8 @@ import java.util.ArrayList;
  * @version 1.0
  * @date 2020/10/7 10:32 上午
  */
-public class CreateTableLikeStmt extends DdlStmt {
+@Deprecated
+public class CreateTableLikeStmt extends DdlStmt implements NotFallbackInParser {
     private static final Logger LOG = LogManager.getLogger(CreateTableLikeStmt.class);
 
     private final boolean ifNotExists;
@@ -127,5 +128,10 @@ public class CreateTableLikeStmt extends DdlStmt {
     @Override
     public String toString() {
         return toSql();
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.CREATE;
     }
 }

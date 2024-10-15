@@ -18,6 +18,7 @@
 package org.apache.doris.catalog.authorizer.ranger;
 
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.authorizer.ranger.doris.DorisAccessType;
 import org.apache.doris.common.AuthorizationException;
 import org.apache.doris.mysql.privilege.CatalogAccessController;
 import org.apache.doris.mysql.privilege.DataMaskPolicy;
@@ -68,7 +69,6 @@ public abstract class RangerAccessController implements CatalogAccessController 
         }
     }
 
-
     public static void checkRequestResults(Collection<RangerAccessResult> results, String name)
             throws AuthorizationException {
         for (RangerAccessResult result : results) {
@@ -82,7 +82,8 @@ public abstract class RangerAccessController implements CatalogAccessController 
                 throw new AuthorizationException(String.format(
                         "Permission denied: user [%s] does not have privilege for [%s] command on [%s]",
                         result.getAccessRequest().getUser(), name,
-                        result.getAccessRequest().getResource().getAsString().replaceAll("/", ".")));
+                        Optional.ofNullable(result.getAccessRequest().getResource().getAsString())
+                                .orElse("unknown resource").replaceAll("/", ".")));
             }
         }
     }
@@ -92,6 +93,11 @@ public abstract class RangerAccessController implements CatalogAccessController 
             String tbl) {
         RangerAccessResourceImpl resource = createResource(ctl, db, tbl);
         RangerAccessRequestImpl request = createRequest(currentUser);
+        // If the access type is not set here, it defaults to ANY1 ACCESS.
+        // The internal logic of the ranger is to traverse all permission items.
+        // Since the ranger UI will set the access type to 'SELECT',
+        // we will keep it consistent with the UI here to avoid performance issues
+        request.setAccessType(DorisAccessType.SELECT.name());
         request.setResource(resource);
 
         if (LOG.isDebugEnabled()) {
@@ -119,6 +125,7 @@ public abstract class RangerAccessController implements CatalogAccessController 
             String col) {
         RangerAccessResourceImpl resource = createResource(ctl, db, tbl, col);
         RangerAccessRequestImpl request = createRequest(currentUser);
+        request.setAccessType(DorisAccessType.SELECT.name());
         request.setResource(resource);
 
         if (LOG.isDebugEnabled()) {
@@ -135,12 +142,27 @@ public abstract class RangerAccessController implements CatalogAccessController 
         if (StringUtils.isEmpty(maskType)) {
             return Optional.empty();
         }
-        String transformer = policy.getMaskTypeDef().getTransformer();
-        if (StringUtils.isEmpty(transformer)) {
-            return Optional.empty();
+        switch (maskType) {
+            case "MASK_NULL":
+                return Optional.of(new RangerDataMaskPolicy(currentUser, ctl, db, tbl, col, policy.getPolicyId(),
+                        policy.getPolicyVersion(), maskType, "NULL"));
+            case "MASK_NONE":
+                return Optional.empty();
+            case "CUSTOM":
+                String maskedValue = policy.getMaskedValue();
+                if (StringUtils.isEmpty(maskedValue)) {
+                    return Optional.empty();
+                }
+                return Optional.of(new RangerDataMaskPolicy(currentUser, ctl, db, tbl, col, policy.getPolicyId(),
+                        policy.getPolicyVersion(), maskType, maskedValue.replace("{col}", col)));
+            default:
+                String transformer = policy.getMaskTypeDef().getTransformer();
+                if (StringUtils.isEmpty(transformer)) {
+                    return Optional.empty();
+                }
+                return Optional.of(new RangerDataMaskPolicy(currentUser, ctl, db, tbl, col, policy.getPolicyId(),
+                        policy.getPolicyVersion(), maskType, transformer.replace("{col}", col)));
         }
-        return Optional.of(new RangerDataMaskPolicy(currentUser, ctl, db, tbl, col, policy.getPolicyId(),
-                policy.getPolicyVersion(), maskType, transformer.replace("{col}", col)));
     }
 
     protected abstract RangerAccessRequestImpl createRequest(UserIdentity currentUser);

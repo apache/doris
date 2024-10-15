@@ -21,10 +21,8 @@ import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullableOnDateLikeV2Args;
-import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
-import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateV2Type;
@@ -95,21 +93,5 @@ public class TimeDiff extends ScalarFunction
             signature = signature.withReturnType(TimeV2Type.of(scale));
         }
         return signature;
-    }
-
-    @Override
-    public List<DataType> expectedInputTypes() {
-        FunctionSignature signature = getSignature();
-        if (getArgument(0) instanceof StringLikeLiteral) {
-            StringLikeLiteral str = (StringLikeLiteral) getArgument(0);
-            DateTimeV2Type left = DateTimeV2Type.forTypeFromString(str.getStringValue());
-            signature = signature.withArgumentType(0, left);
-        }
-        if (getArgument(1) instanceof StringLikeLiteral) {
-            StringLikeLiteral str = (StringLikeLiteral) getArgument(1);
-            DateTimeV2Type right = DateTimeV2Type.forTypeFromString(str.getStringValue());
-            signature = signature.withArgumentType(1, right);
-        }
-        return signature.argumentsTypes;
     }
 }

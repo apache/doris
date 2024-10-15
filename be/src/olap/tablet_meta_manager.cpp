@@ -89,7 +89,7 @@ Status TabletMetaManager::get_json_meta(DataDir* store, TTabletId tablet_id,
 // 1. if term > 0 then save to remote meta store first using term
 // 2. save to local meta store
 Status TabletMetaManager::save(DataDir* store, TTabletId tablet_id, TSchemaHash schema_hash,
-                               TabletMetaSharedPtr tablet_meta, const string& header_prefix) {
+                               TabletMetaSharedPtr tablet_meta, std::string_view header_prefix) {
     std::string key = fmt::format("{}{}_{}", header_prefix, tablet_id, schema_hash);
     std::string value;
     tablet_meta->serialize(&value);
@@ -107,7 +107,7 @@ Status TabletMetaManager::save(DataDir* store, TTabletId tablet_id, TSchemaHash 
 }
 
 Status TabletMetaManager::save(DataDir* store, TTabletId tablet_id, TSchemaHash schema_hash,
-                               const std::string& meta_binary, const string& header_prefix) {
+                               const std::string& meta_binary, std::string_view header_prefix) {
     std::string key = fmt::format("{}{}_{}", header_prefix, tablet_id, schema_hash);
     OlapMeta* meta = store->get_meta();
     VLOG_NOTICE << "save tablet meta "
@@ -119,7 +119,7 @@ Status TabletMetaManager::save(DataDir* store, TTabletId tablet_id, TSchemaHash 
 // 1. remove load data first
 // 2. remove from load meta store using term if term > 0
 Status TabletMetaManager::remove(DataDir* store, TTabletId tablet_id, TSchemaHash schema_hash,
-                                 const string& header_prefix) {
+                                 std::string_view header_prefix) {
     std::string key = fmt::format("{}{}_{}", header_prefix, tablet_id, schema_hash);
     OlapMeta* meta = store->get_meta();
     Status res = meta->remove(META_COLUMN_FAMILY_INDEX, key);
@@ -128,13 +128,13 @@ Status TabletMetaManager::remove(DataDir* store, TTabletId tablet_id, TSchemaHas
 }
 
 Status TabletMetaManager::traverse_headers(
-        OlapMeta* meta, std::function<bool(long, long, const std::string&)> const& func,
-        const string& header_prefix) {
-    auto traverse_header_func = [&func](const std::string& key, const std::string& value) -> bool {
+        OlapMeta* meta, std::function<bool(long, long, std::string_view)> const& func,
+        std::string_view header_prefix) {
+    auto traverse_header_func = [&func](std::string_view key, std::string_view value) -> bool {
         std::vector<std::string> parts;
         // old format key format: "hdr_" + tablet_id + "_" + schema_hash  0.11
         // new format key format: "tabletmeta_" + tablet_id + "_" + schema_hash  0.10
-        static_cast<void>(split_string<char>(key, '_', &parts));
+        static_cast<void>(split_string(key, '_', &parts));
         if (parts.size() != 3) {
             LOG(WARNING) << "invalid tablet_meta key:" << key << ", split size:" << parts.size();
             return true;
@@ -190,11 +190,11 @@ Status TabletMetaManager::remove_pending_publish_info(DataDir* store, TTabletId 
 }
 
 Status TabletMetaManager::traverse_pending_publish(
-        OlapMeta* meta, std::function<bool(int64_t, int64_t, const std::string&)> const& func) {
-    auto traverse_header_func = [&func](const std::string& key, const std::string& value) -> bool {
+        OlapMeta* meta, std::function<bool(int64_t, int64_t, std::string_view)> const& func) {
+    auto traverse_header_func = [&func](std::string_view key, std::string_view value) -> bool {
         std::vector<std::string> parts;
         // key format: "ppi_" + tablet_id + "_" + publish_version
-        static_cast<void>(split_string<char>(key, '_', &parts));
+        static_cast<void>(split_string(key, '_', &parts));
         if (parts.size() != 3) {
             LOG(WARNING) << "invalid pending publish info key:" << key
                          << ", split size:" << parts.size();
@@ -226,7 +226,7 @@ std::string TabletMetaManager::encode_delete_bitmap_key(TTabletId tablet_id) {
     return key;
 }
 
-void TabletMetaManager::decode_delete_bitmap_key(const string& enc_key, TTabletId* tablet_id,
+void TabletMetaManager::decode_delete_bitmap_key(std::string_view enc_key, TTabletId* tablet_id,
                                                  int64_t* version) {
     DCHECK_EQ(enc_key.size(), 20);
     *tablet_id = BigEndian::ToHost64(UNALIGNED_LOAD64(enc_key.data() + 4));
@@ -263,8 +263,8 @@ Status TabletMetaManager::save_delete_bitmap(DataDir* store, TTabletId tablet_id
 }
 
 Status TabletMetaManager::traverse_delete_bitmap(
-        OlapMeta* meta, std::function<bool(int64_t, int64_t, const std::string&)> const& func) {
-    auto traverse_header_func = [&func](const std::string& key, const std::string& value) -> bool {
+        OlapMeta* meta, std::function<bool(int64_t, int64_t, std::string_view)> const& func) {
+    auto traverse_header_func = [&func](std::string_view key, std::string_view value) -> bool {
         TTabletId tablet_id;
         int64_t version;
         decode_delete_bitmap_key(key, &tablet_id, &version);
@@ -282,12 +282,12 @@ Status TabletMetaManager::remove_old_version_delete_bitmap(DataDir* store, TTabl
     std::string end_key = encode_delete_bitmap_key(tablet_id, version);
 
     std::vector<std::string> remove_keys;
-    auto get_remove_keys_func = [&](const std::string& key, const std::string& val) -> bool {
+    auto get_remove_keys_func = [&](std::string_view key, std::string_view val) -> bool {
         // include end_key
         if (key > end_key) {
             return false;
         }
-        remove_keys.push_back(key);
+        remove_keys.emplace_back(key);
         return true;
     };
     LOG(INFO) << "remove old version delete bitmap, tablet_id: " << tablet_id

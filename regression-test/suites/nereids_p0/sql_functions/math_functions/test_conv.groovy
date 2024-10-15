@@ -19,5 +19,19 @@ suite("test_conv") {
     sql "SET enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
     qt_select "SELECT CONV(15,10,2)"
+    qt_select2 "select conv('ffffffffffffff', 24, 2);"
+    qt_select3 "select conv('-ff', 24, 2);"
+    // if beyond the max value of uint64, use max_uint64 as res
+    qt_select4 "select conv('fffffffffffffffffffffffffffffffff', 24, 10);"
+
+    sql """DROP TABLE IF EXISTS `test_tb`; """
+    sql """ create table test_tb(int_1 int, float_2 float) PROPERTIES (
+            "replication_num" = "1"
+            ); 
+    """
+
+    sql """ insert into test_tb values(1, 1.464868); """
+
+    qt_select5 """ select conv(float_2,10,2),float_2 from test_tb; """
 }
 

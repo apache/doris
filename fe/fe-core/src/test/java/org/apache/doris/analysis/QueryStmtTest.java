@@ -19,7 +19,6 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
@@ -34,6 +33,7 @@ import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
 
 import java.util.HashMap;
 import java.util.List;
@@ -51,7 +51,6 @@ public class QueryStmtTest {
 
     @BeforeClass
     public static void setUp() throws Exception {
-        Config.enable_batch_delete_by_default = true;
         UtFrameUtils.createDorisCluster(runningDir);
         String createTblStmtStr = "create table db1.tbl1(k1 varchar(32), k2 varchar(32), k3 varchar(32), k4 int) "
                 + "AGGREGATE KEY(k1, k2,k3,k4) distributed by hash(k1) buckets 3 properties('replication_num' = '1');";
@@ -371,5 +370,33 @@ public class QueryStmtTest {
             resultMap.putAll(constMap);
         }
         return resultMap;
+    }
+
+    @Test
+    public void testParseStmtType() throws Exception {
+        ConnectContext ctx = UtFrameUtils.createDefaultCtx();
+        String sql = "select a from c.b";
+        StatementBase stmt = UtFrameUtils.onlyParse(sql, ctx);
+        Assert.assertEquals(stmt.stmtType(), StmtType.SELECT);
+
+        sql = "drop table a";
+        stmt = UtFrameUtils.onlyParse(sql, ctx);
+        Assertions.assertEquals(stmt.stmtType(), StmtType.DROP);
+
+        sql = "use a";
+        stmt = UtFrameUtils.onlyParse(sql, ctx);
+        Assertions.assertEquals(stmt.stmtType(), StmtType.USE);
+
+        sql = "CREATE TABLE tbl (`id` INT NOT NULL) DISTRIBUTED BY HASH(`id`) BUCKETS 1";
+        stmt = UtFrameUtils.onlyParse(sql, ctx);
+        Assertions.assertEquals(stmt.stmtType(), StmtType.CREATE);
+
+        sql = "update a set b =1";
+        stmt = UtFrameUtils.onlyParse(sql, ctx);
+        Assertions.assertEquals(stmt.stmtType(), StmtType.UPDATE);
+
+        sql = "insert into a values(1)";
+        stmt = UtFrameUtils.onlyParse(sql, ctx);
+        Assertions.assertEquals(stmt.stmtType(), StmtType.INSERT);
     }
 }

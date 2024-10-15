@@ -19,6 +19,7 @@ package org.apache.doris.clone;
 
 import org.apache.doris.analysis.AdminCancelRepairTableStmt;
 import org.apache.doris.analysis.AdminRepairTableStmt;
+import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
@@ -29,6 +30,7 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Partition.PartitionState;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
+import org.apache.doris.catalog.Tablet.TabletHealth;
 import org.apache.doris.catalog.Tablet.TabletStatus;
 import org.apache.doris.clone.TabletScheduler.AddResult;
 import org.apache.doris.common.Config;
@@ -76,6 +78,7 @@ public class TabletChecker extends MasterDaemon {
             put("added", new AtomicLong(0L));
             put("in_sched", new AtomicLong(0L));
             put("not_ready", new AtomicLong(0L));
+            put("exceed_limit", new AtomicLong(0L));
         }
     };
 
@@ -196,7 +199,7 @@ public class TabletChecker extends MasterDaemon {
      * If a tablet is not healthy, a TabletInfo will be created and sent to TabletScheduler for repairing.
      */
     @Override
-    protected void runAfterCatalogReady() {
+    public void runAfterCatalogReady() {
         int pendingNum = tabletScheduler.getPendingNum();
         int runningNum = tabletScheduler.getRunningNum();
         if (pendingNum > Config.max_scheduling_tablets
@@ -222,6 +225,7 @@ public class TabletChecker extends MasterDaemon {
         public long addToSchedulerTabletNum = 0;
         public long tabletInScheduler = 0;
         public long tabletNotReady = 0;
+        public long tabletExceedLimit = 0;
     }
 
     private enum LoopControlStatus {
@@ -241,6 +245,8 @@ public class TabletChecker extends MasterDaemon {
             copiedPrios = HashBasedTable.create(prios);
         }
 
+        ColocateTableIndex colocateTableIndex = Env.getCurrentColocateIndex();
+
         OUT:
         for (long dbId : copiedPrios.rowKeySet()) {
             Database db = env.getInternalCatalog().getDbNullable(dbId);
@@ -250,17 +256,21 @@ public class TabletChecker extends MasterDaemon {
             List<Long> aliveBeIds = infoService.getAllBackendIds(true);
             Map<Long, Set<PrioPart>> tblPartMap = copiedPrios.row(dbId);
             for (long tblId : tblPartMap.keySet()) {
-                OlapTable tbl = (OlapTable) db.getTableNullable(tblId);
-                if (tbl == null) {
+                Table tbl = db.getTableNullable(tblId);
+                if (tbl == null || !tbl.isManagedTable()) {
                     continue;
                 }
-                tbl.readLock();
+                OlapTable olapTable = (OlapTable) tbl;
+                olapTable.readLock();
                 try {
-                    if (!tbl.needSchedule()) {
+                    if (colocateTableIndex.isColocateTable(olapTable.getId())) {
+                        if (LOG.isDebugEnabled()) {
+                            LOG.debug("table {} is a colocate table, skip tablet checker.", olapTable.getName());
+                        }
                         continue;
                     }
-                    for (Partition partition : tbl.getAllPartitions()) {
-                        LoopControlStatus st = handlePartitionTablet(db, tbl, partition, true, aliveBeIds, start,
+                    for (Partition partition : olapTable.getAllPartitions()) {
+                        LoopControlStatus st = handlePartitionTablet(db, olapTable, partition, true, aliveBeIds, start,
                                 counter);
                         if (st == LoopControlStatus.BREAK_OUT) {
                             break OUT;
@@ -269,7 +279,7 @@ public class TabletChecker extends MasterDaemon {
                         }
                     }
                 } finally {
-                    tbl.readUnlock();
+                    olapTable.readUnlock();
                 }
             }
         }
@@ -291,9 +301,16 @@ public class TabletChecker extends MasterDaemon {
             List<Long> aliveBeIds = infoService.getAllBackendIds(true);
 
             for (Table table : tableList) {
+                if (!table.isManagedTable()) {
+                    continue;
+                }
+
                 table.readLock();
                 try {
-                    if (!table.needSchedule()) {
+                    if (colocateTableIndex.isColocateTable(table.getId())) {
+                        if (LOG.isDebugEnabled()) {
+                            LOG.debug("table {} is a colocate table, skip tablet checker.", table.getName());
+                        }
                         continue;
                     }
 
@@ -329,10 +346,12 @@ public class TabletChecker extends MasterDaemon {
         tabletCountByStatus.get("added").set(counter.addToSchedulerTabletNum);
         tabletCountByStatus.get("in_sched").set(counter.tabletInScheduler);
         tabletCountByStatus.get("not_ready").set(counter.tabletNotReady);
+        tabletCountByStatus.get("exceed_limit").set(counter.tabletExceedLimit);
 
-        LOG.info("finished to check tablets. unhealth/total/added/in_sched/not_ready: {}/{}/{}/{}/{}, cost: {} ms",
+        LOG.info("finished to check tablets. unhealth/total/added/in_sched/not_ready/exceed_limit: {}/{}/{}/{}/{}/{},"
+                + "cost: {} ms",
                 counter.unhealthyTabletNum, counter.totalTabletNum, counter.addToSchedulerTabletNum,
-                counter.tabletInScheduler, counter.tabletNotReady, cost);
+                counter.tabletInScheduler, counter.tabletNotReady, counter.tabletExceedLimit, cost);
     }
 
     private LoopControlStatus handlePartitionTablet(Database db, OlapTable tbl, Partition partition, boolean isInPrios,
@@ -343,6 +362,7 @@ public class TabletChecker extends MasterDaemon {
             return LoopControlStatus.CONTINUE;
         }
         boolean prioPartIsHealthy = true;
+        boolean isUniqKeyMergeOnWrite = tbl.isUniqKeyMergeOnWrite();
         /*
          * Tablet in SHADOW index can not be repaired of balanced
          */
@@ -355,26 +375,25 @@ public class TabletChecker extends MasterDaemon {
                     continue;
                 }
 
-                Pair<TabletStatus, TabletSchedCtx.Priority> statusWithPrio = tablet.getHealthStatusWithPriority(
-                        infoService, partition.getVisibleVersion(),
+                TabletHealth tabletHealth = tablet.getHealth(infoService, partition.getVisibleVersion(),
                         tbl.getPartitionInfo().getReplicaAllocation(partition.getId()), aliveBeIds);
 
-                if (statusWithPrio.first == TabletStatus.HEALTHY) {
+                if (tabletHealth.status == TabletStatus.HEALTHY) {
                     // Only set last status check time when status is healthy.
                     tablet.setLastStatusCheckTime(startTime);
                     continue;
-                } else if (statusWithPrio.first == TabletStatus.UNRECOVERABLE) {
+                } else if (tabletHealth.status == TabletStatus.UNRECOVERABLE) {
                     // This tablet is not recoverable, do not set it into tablet scheduler
                     // all UNRECOVERABLE tablet can be seen from "show proc '/statistic'"
                     counter.unhealthyTabletNum++;
                     continue;
                 } else if (isInPrios) {
-                    statusWithPrio.second = TabletSchedCtx.Priority.VERY_HIGH;
+                    tabletHealth.priority = TabletSchedCtx.Priority.VERY_HIGH;
                     prioPartIsHealthy = false;
                 }
 
                 counter.unhealthyTabletNum++;
-                if (!tablet.readyToBeRepaired(infoService, statusWithPrio.second)) {
+                if (!tablet.readyToBeRepaired(infoService, tabletHealth.priority)) {
                     continue;
                 }
 
@@ -385,15 +404,17 @@ public class TabletChecker extends MasterDaemon {
                         tbl.getPartitionInfo().getReplicaAllocation(partition.getId()),
                         System.currentTimeMillis());
                 // the tablet status will be set again when being scheduled
-                tabletCtx.setTabletStatus(statusWithPrio.first);
-                tabletCtx.setPriority(statusWithPrio.second);
+                tabletCtx.setTabletHealth(tabletHealth);
+                tabletCtx.setIsUniqKeyMergeOnWrite(isUniqKeyMergeOnWrite);
 
                 AddResult res = tabletScheduler.addTablet(tabletCtx, false /* not force */);
-                if (res == AddResult.LIMIT_EXCEED || res == AddResult.DISABLED) {
+                if (res == AddResult.DISABLED) {
                     LOG.info("tablet scheduler return: {}. stop tablet checker", res.name());
                     return LoopControlStatus.BREAK_OUT;
                 } else if (res == AddResult.ADDED) {
                     counter.addToSchedulerTabletNum++;
+                } else if (res == AddResult.REPLACE_ADDED || res == AddResult.LIMIT_EXCEED) {
+                    counter.tabletExceedLimit++;
                 }
             }
         } // indices

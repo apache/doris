@@ -165,7 +165,7 @@ public class StmtExecutionAction extends RestBaseController {
     private ResponseEntity executeQuery(ActionAuthorizationInfo authInfo, boolean isSync, long limit,
             StmtRequestBody stmtRequestBody, HttpServletResponse response, boolean isStream) {
         StatementSubmitter.StmtContext stmtCtx = new StatementSubmitter.StmtContext(stmtRequestBody.stmt,
-                authInfo.fullUserName, authInfo.password, limit, isStream, response);
+                authInfo.fullUserName, authInfo.password, limit, isStream, response, "");
         Future<ExecutionResultSet> future = stmtSubmitter.submit(stmtCtx);
 
         if (isSync) {

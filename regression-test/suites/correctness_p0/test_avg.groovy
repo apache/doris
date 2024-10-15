@@ -67,14 +67,8 @@ suite("test_avg") {
             "replication_allocation" = "tag.location.default: 1"
             );
         """
-    sql "set enable_nereids_planner=true"
-    sql "set enable_fallback_to_original_planner=false;"
     qt_select2 """select avg(distinct k2), avg(distinct cast(k4 as largeint)) from avg_test;"""
-    sql "set enable_nereids_planner=false"
-    qt_select3 """select avg(distinct k2), avg(distinct cast(k4 as largeint)) from avg_test;"""
 
     sql """ drop table if exists avg_test; """
-
-    sql """set enable_nereids_planner=false;"""
     qt_select4 """SELECT avg(col) from ( SELECT 0.01 col  union all  select 0.01 col ) t;"""
 }

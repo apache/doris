@@ -30,6 +30,7 @@
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
+#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
@@ -74,7 +75,7 @@ public:
         if (arguments.size() == 2) {
             ColumnPtr seed_column =
                     block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
-            seed = seed_column->get_uint(0);
+            seed = assert_cast<const ColumnInt64*>(seed_column.get())->get_element(0);
         }
 
         std::mt19937 g(seed);

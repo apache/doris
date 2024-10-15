@@ -63,12 +63,13 @@ public:
     int64_t get_uncompressed_serialized_bytes(const IColumn& column,
                                               int data_version) const override;
     char* serialize(const IColumn& column, char* buf, int data_version) const override;
-    const char* deserialize(const char* buf, IColumn* column, int data_version) const override;
+    const char* deserialize(const char* buf, MutableColumnPtr* column,
+                            int data_version) const override;
 
     MutableColumnPtr create_column() const override;
 
     virtual Field get_default() const override {
-        std::string default_json = "{}";
+        std::string default_json = "null";
         JsonBinaryValue binary_val(default_json.c_str(), default_json.size());
         return JsonbField(binary_val.value(), binary_val.size());
     }

@@ -40,6 +40,7 @@ import org.apache.doris.task.LoadTaskInfo;
 import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.thrift.TUniqueKeyUpdateMode;
 
 import com.google.common.base.Function;
 import com.google.common.base.Joiner;
@@ -155,12 +156,16 @@ public class DataDescription implements InsertStmt.DataDesc {
     private boolean trimDoubleQuotes = false;
     private boolean isMysqlLoad = false;
     private int skipLines = 0;
+    // use for copy into
+    private boolean ignoreCsvRedundantCol = false;
 
     private boolean isAnalyzed = false;
 
     private byte enclose = 0;
 
     private byte escape = 0;
+
+    TUniqueKeyUpdateMode uniquekeyUpdateMode = TUniqueKeyUpdateMode.UPSERT;
 
     public DataDescription(String tableName,
                            PartitionNames partitionNames,
@@ -330,6 +335,7 @@ public class DataDescription implements InsertStmt.DataDesc {
         this.properties = Maps.newHashMap();
         this.trimDoubleQuotes = taskInfo.getTrimDoubleQuotes();
         this.skipLines = taskInfo.getSkipLines();
+        this.uniquekeyUpdateMode = taskInfo.getUniqueKeyUpdateMode();
         columnsNameToLowerCase(fileFieldNames);
     }
 
@@ -597,6 +603,10 @@ public class DataDescription implements InsertStmt.DataDesc {
         return fileFormat;
     }
 
+    public void setCompressType(TFileCompressType compressType) {
+        this.compressType = compressType;
+    }
+
     public TFileCompressType getCompressType() {
         return compressType;
     }
@@ -757,6 +767,14 @@ public class DataDescription implements InsertStmt.DataDesc {
 
     public int getSkipLines() {
         return skipLines;
+    }
+
+    public boolean getIgnoreCsvRedundantCol() {
+        return ignoreCsvRedundantCol;
+    }
+
+    public void setIgnoreCsvRedundantCol(boolean ignoreCsvRedundantCol) {
+        this.ignoreCsvRedundantCol = ignoreCsvRedundantCol;
     }
 
     /*
@@ -927,6 +945,9 @@ public class DataDescription implements InsertStmt.DataDesc {
         }
         // check olapTable schema and sequenceCol
         if (olapTable.hasSequenceCol() && !hasSequenceCol()) {
+            if (uniquekeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS) {
+                return;
+            }
             throw new AnalysisException("Table " + olapTable.getName()
                     + " has sequence column, need to specify the sequence column");
         }

@@ -45,17 +45,10 @@ class VExprContext;
 
 namespace doris::vectorized {
 
-class NewEsScanNode;
-
 class NewEsScanner : public VScanner {
     ENABLE_FACTORY_CREATOR(NewEsScanner);
 
 public:
-    NewEsScanner(RuntimeState* state, NewEsScanNode* parent, int64_t limit, TupleId tuple_id,
-                 const std::map<std::string, std::string>& properties,
-                 const std::map<std::string, std::string>& docvalue_context, bool doc_value_mode,
-                 RuntimeProfile* profile);
-
     NewEsScanner(RuntimeState* state, pipeline::ScanLocalStateBase* local_state, int64_t limit,
                  TupleId tuple_id, const std::map<std::string, std::string>& properties,
                  const std::map<std::string, std::string>& docvalue_context, bool doc_value_mode,
@@ -63,17 +56,13 @@ public:
 
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state) override;
-
-public:
-    Status prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts);
+    Status prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts) override;
 
 protected:
     Status _get_block_impl(RuntimeState* state, Block* block, bool* eof) override;
 
 private:
     Status _get_next(std::vector<vectorized::MutableColumnPtr>& columns);
-
-private:
     bool _es_eof;
 
     const std::map<std::string, std::string>& _properties;

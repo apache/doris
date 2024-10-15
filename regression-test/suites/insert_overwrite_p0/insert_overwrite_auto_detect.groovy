@@ -77,13 +77,17 @@ suite("test_iot_auto_detect") {
    qt_sql " select * from list1 order by k0; "
 
    // with label - transactions
-   sql """ insert overwrite table list1 partition(*) with label `txn1` values ("BEIJING"), ("7654321"); """
-   sql """ insert overwrite table list1 partition(*) with label `txn2` values ("SHANGHAI"), ("LIST"); """
-   sql """ insert overwrite table list1 partition(*) with label `txn3` values  ("XXX"); """
+   def uniqueID1 = Math.abs(UUID.randomUUID().hashCode()).toString()
+   def uniqueID2 = Math.abs(UUID.randomUUID().hashCode()).toString()
+   def uniqueID3 = Math.abs(UUID.randomUUID().hashCode()).toString()
+   sql """ insert overwrite table list1 partition(*) with label `iot_auto_txn${uniqueID1}` values ("BEIJING"), ("7654321"); """
+   sql """ insert overwrite table list1 partition(*) with label `iot_auto_txn${uniqueID2}` values ("SHANGHAI"), ("LIST"); """
+   sql """ insert overwrite table list1 partition(*) with label `iot_auto_txn${uniqueID3}` values  ("XXX"); """
 
    def max_try_milli_secs = 10000
    while(max_try_milli_secs) {
-      def result = sql " show load where label like 'txn_' "
+      def result = sql " show load where label like 'iot_auto_txn%' order by LoadStartTime desc "
+      // the last three loads are loads upper
       if(result[0][2] == "FINISHED" && result[1][2] == "FINISHED" && result[2][2] == "FINISHED" ) {
          break
       } else {
@@ -144,12 +148,18 @@ suite("test_iot_auto_detect") {
    sql """ insert into dt values ("2005-01-01"), ("2013-02-02"), ("2022-03-03"); """
    sql """ insert overwrite table dt partition(*) values ("2008-01-01"), ("2008-02-02"); """
    qt_sql " select * from dt order by k0; "
-   try {
+   test {
       sql """ insert overwrite table dt partition(*) values ("2023-02-02"), ("3000-12-12"); """
-   } catch (Exception e) {
-        log.info(e.getMessage())
-        assertTrue(e.getMessage().contains('Insert has filtered data in strict mode') || 
-            e.getMessage().contains('Cannot found origin partitions in auto detect overwriting'))
-    }
-
+      check { result, exception, startTime, endTime ->
+         assertTrue(exception.getMessage().contains('Insert has filtered data in strict mode') || 
+               exception.getMessage().contains('Cannot found origin partitions in auto detect overwriting'))
+      }
+   } 
+   // test no rows(no partition hits) overwrite
+   sql " drop table if exists dt2"
+   sql " create table dt2 like dt"
+   sql " insert overwrite table dt2 partition(*) select * from dt2"
+   sql " insert overwrite table dt partition(*) select * from dt2"
+   sql " insert overwrite table dt partition(p10, pMAX) select * from dt2"
+   sql " insert overwrite table dt select * from dt2"
 }

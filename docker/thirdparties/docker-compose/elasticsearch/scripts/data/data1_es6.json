@@ -23,5 +23,9 @@
   "c_person": [
     {"name": "Andy", "age": 18},
     {"name": "Tim", "age": 28}
+  ],
+  "c_user": [
+    {"first": "John", "last":  "Smith"},
+    {"first": "Alice", "last":  "White"}
   ]
 }

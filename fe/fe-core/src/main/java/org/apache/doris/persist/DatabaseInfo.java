@@ -20,7 +20,9 @@ package org.apache.doris.persist;
 import org.apache.doris.analysis.AlterDatabaseQuotaStmt.QuotaType;
 import org.apache.doris.catalog.BinlogConfig;
 import org.apache.doris.catalog.Database.DbState;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonPostProcessable;
@@ -86,22 +88,22 @@ public class DatabaseInfo implements Writable, GsonPostProcessable {
         return binlogConfig;
     }
 
-    public static DatabaseInfo read(DataInput in) throws IOException {
-        DatabaseInfo dbInfo = new DatabaseInfo();
-        dbInfo.readFields(in);
-        return dbInfo;
-    }
-
     @Override
     public void write(DataOutput out) throws IOException {
-        Text.writeString(out, ClusterNamespace.getNameFromFullName(dbName));
-        Text.writeString(out, ClusterNamespace.getNameFromFullName(newDbName));
-        out.writeLong(quota);
-        Text.writeString(out, this.clusterName);
-        Text.writeString(out, this.dbState.name());
-        Text.writeString(out, this.quotaType.name());
+        Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 
+    public static DatabaseInfo read(DataInput in) throws IOException {
+        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_134) {
+            DatabaseInfo dbInfo = new DatabaseInfo();
+            dbInfo.readFields(in);
+            return dbInfo;
+        } else {
+            return GsonUtils.GSON.fromJson(Text.readString(in), DatabaseInfo.class);
+        }
+    }
+
+    @Deprecated
     public void readFields(DataInput in) throws IOException {
         this.dbName = ClusterNamespace.getNameFromFullName(Text.readString(in));
         newDbName = ClusterNamespace.getNameFromFullName(Text.readString(in));

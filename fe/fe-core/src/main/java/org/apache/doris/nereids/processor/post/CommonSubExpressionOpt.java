@@ -50,13 +50,12 @@ import java.util.Set;
  */
 public class CommonSubExpressionOpt extends PlanPostProcessor {
     @Override
-    public PhysicalProject visitPhysicalProject(PhysicalProject<? extends Plan> project, CascadesContext ctx) {
+    public PhysicalProject<? extends Plan> visitPhysicalProject(
+            PhysicalProject<? extends Plan> project, CascadesContext ctx) {
         project.child().accept(this, ctx);
-        if (!project.hasPushedDownToProjectionFunctions()) {
-            List<List<NamedExpression>> multiLayers = computeMultiLayerProjections(
-                    project.getInputSlots(), project.getProjects());
-            project.setMultiLayerProjects(multiLayers);
-        }
+        List<List<NamedExpression>> multiLayers = computeMultiLayerProjections(
+                project.getInputSlots(), project.getProjects());
+        project.setMultiLayerProjects(multiLayers);
         return project;
     }
 
@@ -83,8 +82,9 @@ public class CommonSubExpressionOpt extends PlanPostProcessor {
                         // 'case slot whenClause2 END'
                         // This is illegal.
                         Expression rewritten = expr.accept(ExpressionReplacer.INSTANCE, aliasMap);
-                        Alias alias = new Alias(rewritten);
-                        aliasMap.put(expr, alias);
+                        // if rewritten is already alias, use it directly, because in materialized view rewriting
+                        // Should keep out slot immutably after rewritten successfully
+                        aliasMap.put(expr, rewritten instanceof Alias ? (Alias) rewritten : new Alias(rewritten));
                     }
                 });
                 layer.addAll(aliasMap.values());

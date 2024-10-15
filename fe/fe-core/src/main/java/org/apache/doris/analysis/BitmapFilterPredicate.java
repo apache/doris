@@ -24,16 +24,12 @@ import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TRuntimeFilterType;
 
 import com.google.common.base.Preconditions;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 /**
  * Only used to plan the in bitmap syntax into join + bitmap filter.
  * This predicate not need to be sent to BE.
  */
 public class BitmapFilterPredicate extends Predicate {
-
-    private static final Logger LOG = LogManager.getLogger(BitmapFilterPredicate.class);
 
     private boolean notIn = false;
 
@@ -96,5 +92,10 @@ public class BitmapFilterPredicate extends Predicate {
     @Override
     public Expr clone() {
         return new BitmapFilterPredicate(this);
+    }
+
+    @Override
+    public boolean supportSerializable() {
+        return false;
     }
 }

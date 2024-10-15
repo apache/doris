@@ -16,43 +16,38 @@
 # under the License.
 
 # how to use Dockerfile.
-# this is dockerfile for build doris broker image on amd64.
+# this is dockerfile for build doris broker image.
 # when build youself image.
-# 1. pull binary from official website and decompress into resource directory that the level equals with Dockerfile_broker_ubuntu.
-# 2. untar xxxx.tar.gz in resource directory, update the dockerfile field `apache-doris-xxx`, replace with real version.
-# 3. run commad docker build -t xxx.doris.broker:xx -f Dockerfile_broker_ubuntu.
+# 1. pull binary from official website and decompress into resource directory that the level equals with this Dockerfile.
+# 2. untar xxxx.tar.gz in resource/{arch} directory, makesure your doris package real version and target arch.
+# 3. run commad docker build -t xxx.doris.broker:xx -f Dockerfile --build-arg DORIS_VERSION=2.1.2
 
 # we have support buildx for amd64 and arm64 architecture image build.
 # get the binary from doris github and utar into resource, update the directory as apache-`version(example:2.0.1)`-bin-`architecture(amd64/arm64)` mode.
-#
 
-FROM ubuntu:22.04
+FROM selectdb/base:latest
 
 ARG TARGETARCH
 
 ARG DORIS_VERSION="x.x.x"
 
-RUN apt-get update -y &&  DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-    patchelf gdb binutils binutils-common mysql-client \
-    curl wget less vim htop iproute2 numactl jq iotop sysstat \
-    tcpdump iputils-ping dnsutils strace lsof blktrace tzdata \
-    bpfcc-tools linux-headers-realtime linux-tools-realtime silversearcher-ag \
-    net-tools openjdk-8-jdk && \
-    rm -rf /var/lib/apt/lists/*
+RUN if echo $DORIS_VERSION | grep -E '^([3-9]|([1-9]([0-9])))|^branch\-([3-9]|([1-9]([0-9])))|master.*' >>/dev/null ; then \
+        ln -s /usr/lib/jvm/jdk-17 /usr/lib/jvm/java && \
+        rm -rf /usr/lib/jvm/jdk-8; \
+    else \
+        ln -s /usr/lib/jvm/jdk-8 /usr/lib/jvm/java && \
+        rm -rf /usr/lib/jvm/jdk-17; \
+    fi;
 
 # set environment variables
-ENV JAVA_HOME=/usr/lib/jvm/java-8-openjdk-${TARGETARCH:-amd64}
+ENV JAVA_HOME=/usr/lib/jvm/java
+ENV PATH=$PATH:$JAVA_HOME/bin:/opt/apache-doris/apache_hdfs_broker/bin
 
-# apache-doris/broker from doris release xxxx.tar.gz
-ADD resource/apache-doris-${DORIS_VERSION}-bin-${TARGETARCH:-amd64}/extensions/apache_hdfs_broker /opt/apache-doris/apache_hdfs_broker
+ADD resource/${TARGETARCH:-amd64}/apache-doris-${DORIS_VERSION}-bin-*/extensions/apache_hdfs_broker /opt/apache-doris/apache_hdfs_broker
 
 COPY resource/broker_*.sh /opt/apache-doris/
 
-RUN chmod +x /opt/apache-doris/broker_*.sh
-
-ADD ./resource/init_broker.sh /usr/local/bin/
-
-RUN chmod 755 /usr/local/bin/init_broker.sh
+ADD resource/init_broker.sh /usr/local/bin/
 
 WORKDIR /opt/apache-doris
 

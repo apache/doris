@@ -71,6 +71,11 @@ public class LogicalTestScan extends LogicalCatalogRelation {
     }
 
     @Override
+    public LogicalTestScan withRelationId(RelationId relationId) {
+        throw new RuntimeException("should not call LogicalTestScan's withRelationId method");
+    }
+
+    @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitLogicalTestScan(this, context);
     }

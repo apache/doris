@@ -27,7 +27,6 @@ suite("max_msg_size_of_result_receiver") {
         ENGINE=OLAP DISTRIBUTED BY HASH(id)
         PROPERTIES("replication_num"="1")
     """
-    sql """set repeat_max_num=100000;"""
     sql """set max_msg_size_of_result_receiver=90000;""" // so the test of repeat("a", 80000) could pass, and repeat("a", 100000) will be failed
     sql """
         INSERT INTO ${table_name} VALUES (104, repeat("a", 80000))

@@ -61,36 +61,40 @@ public class CheckWalSizeAction extends RestBaseController {
         checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.OPERATOR);
 
         String hostPorts = request.getParameter(HOST_PORTS);
+        List<Backend> backends = new ArrayList<>();
         if (Strings.isNullOrEmpty(hostPorts)) {
-            return ResponseEntityBuilder.badRequest("No host:port specified");
-        }
-
-        String[] hostPortArr = hostPorts.split(",");
-        if (hostPortArr.length == 0) {
-            return ResponseEntityBuilder.badRequest("No host:port specified");
-        }
-
-        List<HostInfo> hostInfos = Lists.newArrayList();
-        for (String hostPort : hostPortArr) {
             try {
-                HostInfo hostInfo = SystemInfoService.getHostAndPort(hostPort);
-                hostInfos.add(hostInfo);
+                backends = Env.getCurrentSystemInfo().getAllBackendsByAllCluster().values().asList();
             } catch (AnalysisException e) {
-                return ResponseEntityBuilder.badRequest(e.getMessage());
+                return ResponseEntityBuilder.okWithCommonError(e.getMessage());
+            }
+        } else {
+            String[] hostPortArr = hostPorts.split(",");
+            if (hostPortArr.length == 0) {
+                return ResponseEntityBuilder.badRequest("No host:port specified");
+            }
+            List<HostInfo> hostInfos = new ArrayList<>();
+            for (String hostPort : hostPortArr) {
+                try {
+                    HostInfo hostInfo = SystemInfoService.getHostAndPort(hostPort);
+                    hostInfos.add(hostInfo);
+                } catch (AnalysisException e) {
+                    return ResponseEntityBuilder.badRequest(e.getMessage());
+                }
+            }
+            try {
+                backends = getBackends(hostInfos);
+            } catch (DdlException e) {
+                return ResponseEntityBuilder.okWithCommonError(e.getMessage());
             }
         }
 
-        try {
-            List<Backend> backends = getBackends(hostInfos);
-            List<String> backendsList = new ArrayList<>();
-            for (Backend backend : backends) {
-                long size = Env.getCurrentEnv().getGroupCommitManager().getAllWalQueueSize(backend);
-                backendsList.add(backend.getHost() + ":" + backend.getHeartbeatPort() + ":" + size);
-            }
-            return ResponseEntityBuilder.ok(backendsList);
-        } catch (DdlException e) {
-            return ResponseEntityBuilder.okWithCommonError(e.getMessage());
+        List<String> backendsList = new ArrayList<>();
+        for (Backend backend : backends) {
+            long size = Env.getCurrentEnv().getGroupCommitManager().getAllWalQueueSize(backend);
+            backendsList.add(backend.getHost() + ":" + backend.getHeartbeatPort() + ":" + size);
         }
+        return ResponseEntityBuilder.ok(backendsList);
     }
 
     private List<Backend> getBackends(List<HostInfo> hostInfos) throws DdlException {

@@ -33,16 +33,13 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
 
 import java.util.List;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 
 /**
  * Logical scan for external jdbc catalog and jdbc table.
  */
-public class LogicalJdbcScan extends LogicalCatalogRelation {
-
-    private final Set<Expression> conjuncts;
+public class LogicalJdbcScan extends LogicalExternalRelation {
 
     /**
      * Constructor for LogicalJdbcScan.
@@ -51,9 +48,7 @@ public class LogicalJdbcScan extends LogicalCatalogRelation {
                            Optional<GroupExpression> groupExpression,
                            Optional<LogicalProperties> logicalProperties,
                            Set<Expression> conjuncts) {
-        super(id, PlanType.LOGICAL_JDBC_SCAN, table, qualifier,
-                groupExpression, logicalProperties);
-        this.conjuncts = ImmutableSet.copyOf(Objects.requireNonNull(conjuncts, "conjuncts should not be null"));
+        super(id, PlanType.LOGICAL_JDBC_SCAN, table, qualifier, conjuncts, groupExpression, logicalProperties);
     }
 
     public LogicalJdbcScan(RelationId id, TableIf table, List<String> qualifier) {
@@ -81,8 +76,9 @@ public class LogicalJdbcScan extends LogicalCatalogRelation {
             Optional.of(getLogicalProperties()), conjuncts);
     }
 
+    @Override
     public LogicalJdbcScan withConjuncts(Set<Expression> conjuncts) {
-        return new LogicalJdbcScan(relationId, table, qualifier, groupExpression,
+        return new LogicalJdbcScan(relationId, table, qualifier, Optional.empty(),
             Optional.of(getLogicalProperties()), conjuncts);
     }
 
@@ -93,16 +89,12 @@ public class LogicalJdbcScan extends LogicalCatalogRelation {
     }
 
     @Override
-    public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
-        return visitor.visitLogicalJdbcScan(this, context);
+    public LogicalJdbcScan withRelationId(RelationId relationId) {
+        return new LogicalJdbcScan(relationId, table, qualifier, Optional.empty(), Optional.empty(), conjuncts);
     }
 
     @Override
-    public boolean equals(Object o) {
-        return super.equals(o) && Objects.equals(conjuncts, ((LogicalJdbcScan) o).conjuncts);
-    }
-
-    public Set<Expression> getConjuncts() {
-        return this.conjuncts;
+    public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
+        return visitor.visitLogicalJdbcScan(this, context);
     }
 }

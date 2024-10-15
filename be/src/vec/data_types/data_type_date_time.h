@@ -84,6 +84,7 @@ public:
     bool equals(const IDataType& rhs) const override;
 
     std::string to_string(const IColumn& column, size_t row_num) const override;
+    std::string to_string(Int64 value) const;
 
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
         return std::make_shared<DataTypeDateTimeSerDe>(nesting_level);
@@ -101,6 +102,13 @@ public:
     }
 
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
+    void to_string_batch(const IColumn& column, ColumnString& column_to) const final {
+        DataTypeNumberBase<Int64>::template to_string_batch_impl<DataTypeDateTime>(column,
+                                                                                   column_to);
+    }
+
+    size_t number_length() const;
+    void push_number(ColumnString::Chars& chars, const Int64& num) const;
 
     Status from_string(ReadBuffer& rb, IColumn* column) const override;
 

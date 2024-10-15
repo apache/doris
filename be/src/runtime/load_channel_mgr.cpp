@@ -24,25 +24,17 @@
 // IWYU pragma: no_include <bits/chrono.h>
 #include <chrono> // IWYU pragma: keep
 #include <ctime>
-#include <functional>
-#include <map>
 #include <memory>
 #include <ostream>
-#include <queue>
 #include <string>
-#include <tuple>
 #include <vector>
 
 #include "common/config.h"
 #include "common/logging.h"
 #include "runtime/exec_env.h"
 #include "runtime/load_channel.h"
-#include "runtime/memory/mem_tracker.h"
 #include "util/doris_metrics.h"
-#include "util/mem_info.h"
 #include "util/metrics.h"
-#include "util/perf_counters.h"
-#include "util/pretty_printer.h"
 #include "util/thread.h"
 
 namespace doris {
@@ -102,9 +94,13 @@ Status LoadChannelMgr::open(const PTabletWriterOpenRequest& params) {
             int64_t channel_timeout_s = calc_channel_timeout_s(timeout_in_req_s);
             bool is_high_priority = (params.has_is_high_priority() && params.is_high_priority());
 
+            int64_t wg_id = -1;
+            if (params.has_workload_group_id()) {
+                wg_id = params.workload_group_id();
+            }
             channel.reset(new LoadChannel(load_id, channel_timeout_s, is_high_priority,
                                           params.sender_ip(), params.backend_id(),
-                                          params.enable_profile()));
+                                          params.enable_profile(), wg_id));
             _load_channels.insert({load_id, channel});
         }
     }

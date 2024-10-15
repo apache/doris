@@ -17,6 +17,7 @@
 
 #include "vec/olap/olap_data_convertor.h"
 
+#include <memory>
 #include <new>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
@@ -42,10 +43,10 @@
 #include "vec/columns/column_struct.h"
 #include "vec/columns/column_vector.h"
 #include "vec/common/assert_cast.h"
+#include "vec/common/schema_util.h"
 #include "vec/core/block.h"
 #include "vec/data_types/data_type_agg_state.h"
 #include "vec/data_types/data_type_array.h"
-#include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_map.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_struct.h"
@@ -75,6 +76,58 @@ void OlapBlockDataConvertor::add_column_data_convertor(const TabletColumn& colum
 }
 
 OlapBlockDataConvertor::OlapColumnDataConvertorBaseUPtr
+OlapBlockDataConvertor::create_map_convertor(const TabletColumn& column) {
+    const auto& key_column = column.get_sub_column(0);
+    const auto& value_column = column.get_sub_column(1);
+    return std::make_unique<OlapColumnDataConvertorMap>(key_column, value_column);
+}
+
+OlapBlockDataConvertor::OlapColumnDataConvertorBaseUPtr
+OlapBlockDataConvertor::create_array_convertor(const TabletColumn& column) {
+    const auto& sub_column = column.get_sub_column(0);
+    return std::make_unique<OlapColumnDataConvertorArray>(
+            create_olap_column_data_convertor(sub_column), sub_column);
+}
+
+OlapBlockDataConvertor::OlapColumnDataConvertorBaseUPtr
+OlapBlockDataConvertor::create_struct_convertor(const TabletColumn& column) {
+    std::vector<OlapColumnDataConvertorBaseUPtr> sub_convertors;
+    for (uint32_t i = 0; i < column.get_subtype_count(); i++) {
+        const TabletColumn& sub_column = column.get_sub_column(i);
+        sub_convertors.emplace_back(create_olap_column_data_convertor(sub_column));
+    }
+    return std::make_unique<OlapColumnDataConvertorStruct>(sub_convertors);
+}
+
+OlapBlockDataConvertor::OlapColumnDataConvertorBaseUPtr
+OlapBlockDataConvertor::create_agg_state_convertor(const TabletColumn& column) {
+    auto data_type = DataTypeFactory::instance().create_data_type(column);
+    const auto* agg_state_type = assert_cast<const vectorized::DataTypeAggState*>(data_type.get());
+    auto type = agg_state_type->get_serialized_type()->get_type_as_type_descriptor().type;
+
+    // Terialized type of most functions is string, and some of them are fixed object.
+    // Finally, the serialized type of some special functions is bitmap/array/map...
+    if (type == PrimitiveType::TYPE_STRING) {
+        return std::make_unique<OlapColumnDataConvertorVarChar>(false);
+    } else if (type == PrimitiveType::TYPE_OBJECT) {
+        return std::make_unique<OlapColumnDataConvertorBitMap>();
+    } else if (type == PrimitiveType::INVALID_TYPE) {
+        // INVALID_TYPE means function's serialized type is fixed object
+        return std::make_unique<OlapColumnDataConvertorAggState>();
+    } else if (type == PrimitiveType::TYPE_MAP) {
+        return create_map_convertor(column);
+    } else if (type == PrimitiveType::TYPE_STRUCT) {
+        return create_struct_convertor(column);
+    } else if (type == PrimitiveType::TYPE_ARRAY) {
+        return create_array_convertor(column);
+    } else {
+        throw Exception(ErrorCode::INTERNAL_ERROR,
+                        "OLAP_FIELD_TYPE_AGG_STATE meet unsupported type: {}",
+                        agg_state_type->get_name());
+    }
+}
+
+OlapBlockDataConvertor::OlapColumnDataConvertorBaseUPtr
 OlapBlockDataConvertor::create_olap_column_data_convertor(const TabletColumn& column) {
     switch (column.type()) {
     case FieldType::OLAP_FIELD_TYPE_OBJECT: {
@@ -84,18 +137,7 @@ OlapBlockDataConvertor::create_olap_column_data_convertor(const TabletColumn& co
         return std::make_unique<OlapColumnDataConvertorQuantileState>();
     }
     case FieldType::OLAP_FIELD_TYPE_AGG_STATE: {
-        DataTypes dataTypes;
-        for (size_t i = 0; i < column.get_subtype_count(); i++) {
-            dataTypes.push_back(
-                    DataTypeFactory::instance().create_data_type(column.get_sub_column(i)));
-        }
-        auto agg_state_type = std::make_shared<vectorized::DataTypeAggState>(
-                dataTypes, column.get_result_is_nullable(), column.get_aggregation_name());
-        if (agg_state_type->get_serialized_type()->get_type_as_type_descriptor().type ==
-            TYPE_STRING) {
-            return std::make_unique<OlapColumnDataConvertorVarChar>(false);
-        }
-        return std::make_unique<OlapColumnDataConvertorAggState>();
+        return create_agg_state_convertor(column);
     }
     case FieldType::OLAP_FIELD_TYPE_HLL: {
         return std::make_unique<OlapColumnDataConvertorHLL>();
@@ -158,10 +200,10 @@ OlapBlockDataConvertor::create_olap_column_data_convertor(const TabletColumn& co
         return std::make_unique<OlapColumnDataConvertorSimple<vectorized::Int128>>();
     }
     case FieldType::OLAP_FIELD_TYPE_IPV4: {
-        return std::make_unique<OlapColumnDataConvertorSimple<vectorized::IPv4>>();
+        return std::make_unique<OlapColumnDataConvertorSimple<IPv4>>();
     }
     case FieldType::OLAP_FIELD_TYPE_IPV6: {
-        return std::make_unique<OlapColumnDataConvertorSimple<vectorized::IPv6>>();
+        return std::make_unique<OlapColumnDataConvertorSimple<IPv6>>();
     }
     case FieldType::OLAP_FIELD_TYPE_FLOAT: {
         return std::make_unique<OlapColumnDataConvertorSimple<vectorized::Float32>>();
@@ -173,31 +215,20 @@ OlapBlockDataConvertor::create_olap_column_data_convertor(const TabletColumn& co
         return std::make_unique<OlapColumnDataConvertorVariant>();
     }
     case FieldType::OLAP_FIELD_TYPE_STRUCT: {
-        std::vector<OlapColumnDataConvertorBaseUPtr> sub_convertors;
-        for (uint32_t i = 0; i < column.get_subtype_count(); i++) {
-            const TabletColumn& sub_column = column.get_sub_column(i);
-            sub_convertors.emplace_back(create_olap_column_data_convertor(sub_column));
-        }
-        return std::make_unique<OlapColumnDataConvertorStruct>(sub_convertors);
+        return create_struct_convertor(column);
     }
     case FieldType::OLAP_FIELD_TYPE_ARRAY: {
-        const auto& sub_column = column.get_sub_column(0);
-        return std::make_unique<OlapColumnDataConvertorArray>(
-                create_olap_column_data_convertor(sub_column));
+        return create_array_convertor(column);
     }
     case FieldType::OLAP_FIELD_TYPE_MAP: {
-        const auto& key_column = column.get_sub_column(0);
-        const auto& value_column = column.get_sub_column(1);
-        return std::make_unique<OlapColumnDataConvertorMap>(
-                create_olap_column_data_convertor(key_column),
-                create_olap_column_data_convertor(value_column));
+        return create_map_convertor(column);
     }
     default: {
-        DCHECK(false) << "Invalid type in olap data convertor:" << int(column.type());
-        return nullptr;
+        throw Exception(ErrorCode::INTERNAL_ERROR, "Invalid type in olap data convertor: {}",
+                        int(column.type()));
     }
     }
-} // namespace doris::vectorized
+}
 
 void OlapBlockDataConvertor::set_source_content(const vectorized::Block* block, size_t row_pos,
                                                 size_t num_rows) {
@@ -206,24 +237,40 @@ void OlapBlockDataConvertor::set_source_content(const vectorized::Block* block, 
     size_t cid = 0;
     for (const auto& typed_column : *block) {
         if (typed_column.column->size() != block->rows()) {
-            throw Exception(ErrorCode::INTERNAL_ERROR, "input invalid block, block={}",
-                            block->dump_structure());
+            throw Exception(
+                    ErrorCode::INTERNAL_ERROR,
+                    "input invalid block, column_size={} != block_rows_num={}, column={}, block={}",
+                    typed_column.column->size(), block->rows(), typed_column.dump_structure(),
+                    block->dump_structure());
         }
         _convertors[cid]->set_source_column(typed_column, row_pos, num_rows);
         ++cid;
     }
 }
 
-void OlapBlockDataConvertor::set_source_content_with_specifid_columns(
+Status OlapBlockDataConvertor::set_source_content_with_specifid_column(
+        const ColumnWithTypeAndName& typed_column, size_t row_pos, size_t num_rows, uint32_t cid) {
+    DCHECK(num_rows > 0);
+    DCHECK(row_pos + num_rows <= typed_column.column->size());
+    DCHECK(cid < _convertors.size());
+    RETURN_IF_CATCH_EXCEPTION(
+            { _convertors[cid]->set_source_column(typed_column, row_pos, num_rows); });
+    return Status::OK();
+}
+
+Status OlapBlockDataConvertor::set_source_content_with_specifid_columns(
         const vectorized::Block* block, size_t row_pos, size_t num_rows,
         std::vector<uint32_t> cids) {
     DCHECK(block != nullptr);
     DCHECK(num_rows > 0);
     DCHECK(row_pos + num_rows <= block->rows());
-    for (auto i : cids) {
-        DCHECK(i < _convertors.size());
-        _convertors[i]->set_source_column(block->get_by_position(i), row_pos, num_rows);
-    }
+    RETURN_IF_CATCH_EXCEPTION({
+        for (auto i : cids) {
+            DCHECK(i < _convertors.size());
+            _convertors[i]->set_source_column(block->get_by_position(i), row_pos, num_rows);
+        }
+    });
+    return Status::OK();
 }
 
 void OlapBlockDataConvertor::clear_source_content() {
@@ -235,7 +282,11 @@ void OlapBlockDataConvertor::clear_source_content() {
 std::pair<Status, IOlapColumnDataAccessor*> OlapBlockDataConvertor::convert_column_data(
         size_t cid) {
     assert(cid < _convertors.size());
-    auto status = _convertors[cid]->convert_to_olap();
+    auto convert_func = [&]() -> Status {
+        RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_convertors[cid]->convert_to_olap());
+        return Status::OK();
+    };
+    auto status = convert_func();
     return {status, _convertors[cid].get()};
 }
 
@@ -249,7 +300,7 @@ void OlapBlockDataConvertor::OlapColumnDataConvertorBase::set_source_column(
     _row_pos = row_pos;
     _num_rows = num_rows;
     if (_typed_column.column->is_nullable()) {
-        auto nullable_column =
+        const auto* nullable_column =
                 assert_cast<const vectorized::ColumnNullable*>(_typed_column.column.get());
         _nullmap = nullable_column->get_null_map_data().data();
     }
@@ -295,7 +346,7 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorBitMap::convert_to_olap() 
     assert(_typed_column.column);
     const vectorized::ColumnBitmap* column_bitmap = nullptr;
     if (_nullmap) {
-        auto nullable_column =
+        const auto* nullable_column =
                 assert_cast<const vectorized::ColumnNullable*>(_typed_column.column.get());
         column_bitmap = assert_cast<const vectorized::ColumnBitmap*>(
                 nullable_column->get_nested_column_ptr().get());
@@ -304,8 +355,7 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorBitMap::convert_to_olap() 
     }
 
     assert(column_bitmap);
-    BitmapValue* bitmap_value =
-            const_cast<BitmapValue*>(column_bitmap->get_data().data() + _row_pos);
+    auto* bitmap_value = const_cast<BitmapValue*>(column_bitmap->get_data().data() + _row_pos);
     BitmapValue* bitmap_value_cur = bitmap_value;
     BitmapValue* bitmap_value_end = bitmap_value_cur + _num_rows;
 
@@ -373,7 +423,7 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorQuantileState::convert_to_
 
     const vectorized::ColumnQuantileState* column_quantile_state = nullptr;
     if (_nullmap) {
-        auto nullable_column =
+        const auto* nullable_column =
                 assert_cast<const vectorized::ColumnNullable*>(_typed_column.column.get());
         column_quantile_state = assert_cast<const vectorized::ColumnQuantileState*>(
                 nullable_column->get_nested_column_ptr().get());
@@ -383,7 +433,7 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorQuantileState::convert_to_
     }
 
     assert(column_quantile_state);
-    QuantileState* quantile_state =
+    auto* quantile_state =
             const_cast<QuantileState*>(column_quantile_state->get_data().data() + _row_pos);
     QuantileState* quantile_state_cur = quantile_state;
     QuantileState* quantile_state_end = quantile_state_cur + _num_rows;
@@ -451,7 +501,7 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorHLL::convert_to_olap() {
     assert(_typed_column.column);
     const vectorized::ColumnHLL* column_hll = nullptr;
     if (_nullmap) {
-        auto nullable_column =
+        const auto* nullable_column =
                 assert_cast<const vectorized::ColumnNullable*>(_typed_column.column.get());
         column_hll = assert_cast<const vectorized::ColumnHLL*>(
                 nullable_column->get_nested_column_ptr().get());
@@ -460,7 +510,7 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorHLL::convert_to_olap() {
     }
 
     assert(column_hll);
-    HyperLogLog* hll_value = const_cast<HyperLogLog*>(column_hll->get_data().data() + _row_pos);
+    auto* hll_value = const_cast<HyperLogLog*>(column_hll->get_data().data() + _row_pos);
     HyperLogLog* hll_value_cur = hll_value;
     HyperLogLog* hll_value_end = hll_value_cur + _num_rows;
 
@@ -551,7 +601,7 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorChar::convert_to_olap() {
     assert(_typed_column.column);
     const vectorized::ColumnString* column_string = nullptr;
     if (_nullmap) {
-        auto nullable_column =
+        const auto* nullable_column =
                 assert_cast<const vectorized::ColumnNullable*>(_typed_column.column.get());
         column_string = assert_cast<const vectorized::ColumnString*>(
                 nullable_column->get_nested_column_ptr().get());
@@ -658,7 +708,7 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorVarChar::convert_to_olap()
     assert(_typed_column.column);
     const vectorized::ColumnString* column_string = nullptr;
     if (_nullmap) {
-        auto nullable_column =
+        const auto* nullable_column =
                 assert_cast<const vectorized::ColumnNullable*>(_typed_column.column.get());
         column_string = assert_cast<const vectorized::ColumnString*>(
                 nullable_column->get_nested_column_ptr().get());
@@ -694,7 +744,7 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorAggState::convert_to_olap(
     assert(_typed_column.column);
     const vectorized::ColumnFixedLengthObject* column_fixed_object = nullptr;
     if (_nullmap) {
-        auto nullable_column =
+        const auto* nullable_column =
                 assert_cast<const vectorized::ColumnNullable*>(_typed_column.column.get());
         column_fixed_object = assert_cast<const vectorized::ColumnFixedLengthObject*>(
                 nullable_column->get_nested_column_ptr().get());
@@ -706,8 +756,8 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorAggState::convert_to_olap(
     assert(column_fixed_object);
     auto item_size = column_fixed_object->item_size();
 
-    auto cur_values = (uint8_t*)(column_fixed_object->get_data().data()) + (item_size * _row_pos);
-    auto end_values = cur_values + (item_size * _num_rows);
+    auto* cur_values = (uint8_t*)(column_fixed_object->get_data().data()) + (item_size * _row_pos);
+    auto* end_values = cur_values + (item_size * _num_rows);
     Slice* slice = _slice.data();
 
     if (_nullmap) {
@@ -748,7 +798,7 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorDate::convert_to_olap() {
     assert(_typed_column.column);
     const vectorized::ColumnVector<vectorized::Int64>* column_datetime = nullptr;
     if (_nullmap) {
-        auto nullable_column =
+        const auto* nullable_column =
                 assert_cast<const vectorized::ColumnNullable*>(_typed_column.column.get());
         column_datetime = assert_cast<const vectorized::ColumnVector<vectorized::Int64>*>(
                 nullable_column->get_nested_column_ptr().get());
@@ -797,7 +847,7 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorDateTime::convert_to_olap(
     assert(_typed_column.column);
     const vectorized::ColumnVector<vectorized::Int64>* column_datetime = nullptr;
     if (_nullmap) {
-        auto nullable_column =
+        const auto* nullable_column =
                 assert_cast<const vectorized::ColumnNullable*>(_typed_column.column.get());
         column_datetime = assert_cast<const vectorized::ColumnVector<vectorized::Int64>*>(
                 nullable_column->get_nested_column_ptr().get());
@@ -840,7 +890,7 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorDecimal::convert_to_olap()
     assert(_typed_column.column);
     const vectorized::ColumnDecimal<vectorized::Decimal128V2>* column_decimal = nullptr;
     if (_nullmap) {
-        auto nullable_column =
+        const auto* nullable_column =
                 assert_cast<const vectorized::ColumnNullable*>(_typed_column.column.get());
         column_decimal = assert_cast<const vectorized::ColumnDecimal<vectorized::Decimal128V2>*>(
                 nullable_column->get_nested_column_ptr().get());
@@ -902,7 +952,7 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorStruct::convert_to_olap() 
     const vectorized::ColumnStruct* column_struct = nullptr;
     const vectorized::DataTypeStruct* data_type_struct = nullptr;
     if (_nullmap) {
-        auto nullable_column =
+        const auto* nullable_column =
                 assert_cast<const vectorized::ColumnNullable*>(_typed_column.column.get());
         column_struct = assert_cast<const vectorized::ColumnStruct*>(
                 nullable_column->get_nested_column_ptr().get());
@@ -935,27 +985,21 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorStruct::convert_to_olap() 
 
 Status OlapBlockDataConvertor::OlapColumnDataConvertorArray::convert_to_olap() {
     const ColumnArray* column_array = nullptr;
-    const DataTypeArray* data_type_array = nullptr;
     if (_nullmap) {
         const auto* nullable_column =
                 assert_cast<const ColumnNullable*>(_typed_column.column.get());
         column_array =
                 assert_cast<const ColumnArray*>(nullable_column->get_nested_column_ptr().get());
-        data_type_array = assert_cast<const DataTypeArray*>(
-                (assert_cast<const DataTypeNullable*>(_typed_column.type.get())->get_nested_type())
-                        .get());
     } else {
         column_array = assert_cast<const ColumnArray*>(_typed_column.column.get());
-        data_type_array = assert_cast<const DataTypeArray*>(_typed_column.type.get());
     }
     assert(column_array);
-    assert(data_type_array);
 
-    return convert_to_olap(column_array, data_type_array);
+    return convert_to_olap(column_array);
 }
 
 Status OlapBlockDataConvertor::OlapColumnDataConvertorArray::convert_to_olap(
-        const ColumnArray* column_array, const DataTypeArray* data_type_array) {
+        const ColumnArray* column_array) {
     ColumnPtr item_data = column_array->get_data_ptr();
 
     auto start_offset = column_array->offset_at(_row_pos);
@@ -971,7 +1015,7 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorArray::convert_to_olap(
 
     _base_offset += elem_size;
 
-    ColumnWithTypeAndName item_typed_column = {item_data, data_type_array->get_nested_type(),
+    ColumnWithTypeAndName item_typed_column = {item_data, _data_type.get_nested_type(),
                                                "array.item"};
     _item_convertor->set_source_column(item_typed_column, start_offset, elem_size);
     RETURN_IF_ERROR(_item_convertor->convert_to_olap());
@@ -985,26 +1029,20 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorArray::convert_to_olap(
 
 Status OlapBlockDataConvertor::OlapColumnDataConvertorMap::convert_to_olap() {
     const ColumnMap* column_map = nullptr;
-    const DataTypeMap* data_type_map = nullptr;
     if (_nullmap) {
         const auto* nullable_column =
                 assert_cast<const ColumnNullable*>(_typed_column.column.get());
         column_map = assert_cast<const ColumnMap*>(nullable_column->get_nested_column_ptr().get());
-        data_type_map = assert_cast<const DataTypeMap*>(
-                (assert_cast<const DataTypeNullable*>(_typed_column.type.get())->get_nested_type())
-                        .get());
     } else {
         column_map = assert_cast<const ColumnMap*>(_typed_column.column.get());
-        data_type_map = assert_cast<const DataTypeMap*>(_typed_column.type.get());
     }
     assert(column_map);
-    assert(data_type_map);
 
-    return convert_to_olap(column_map, data_type_map);
+    return convert_to_olap(column_map);
 }
 
 Status OlapBlockDataConvertor::OlapColumnDataConvertorMap::convert_to_olap(
-        const ColumnMap* column_map, const DataTypeMap* data_type_map) {
+        const ColumnMap* column_map) {
     ColumnPtr key_data = column_map->get_keys_ptr();
     ColumnPtr value_data = column_map->get_values_ptr();
 
@@ -1038,11 +1076,11 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorMap::convert_to_olap(
         _offsets.push_back(column_map->offset_at(i + _row_pos) - start_offset + _base_offset);
     }
     _base_offset += elem_size;
-    ColumnWithTypeAndName key_typed_column = {key_data, data_type_map->get_key_type(), "map.key"};
+    ColumnWithTypeAndName key_typed_column = {key_data, _data_type.get_key_type(), "map.key"};
     _key_convertor->set_source_column(key_typed_column, start_offset, elem_size);
     RETURN_IF_ERROR(_key_convertor->convert_to_olap());
 
-    ColumnWithTypeAndName value_typed_column = {value_data, data_type_map->get_value_type(),
+    ColumnWithTypeAndName value_typed_column = {value_data, _data_type.get_value_type(),
                                                 "map.value"};
     _value_convertor->set_source_column(value_typed_column, start_offset, elem_size);
     RETURN_IF_ERROR(_value_convertor->convert_to_olap());
@@ -1071,8 +1109,6 @@ void OlapBlockDataConvertor::OlapColumnDataConvertorVariant::set_source_column(
                     ? assert_cast<const vectorized::ColumnObject&>(*typed_column.column)
                     : assert_cast<const vectorized::ColumnObject&>(
                               nullable_column->get_nested_column());
-
-    const_cast<ColumnObject&>(variant).finalize_if_not();
     if (variant.is_null_root()) {
         auto root_type = make_nullable(std::make_shared<ColumnObject::MostCommonType>());
         auto root_col = root_type->create_column();
@@ -1080,19 +1116,25 @@ void OlapBlockDataConvertor::OlapColumnDataConvertorVariant::set_source_column(
         const_cast<ColumnObject&>(variant).create_root(root_type, std::move(root_col));
         variant.check_consistency();
     }
-    auto root_of_variant = variant.get_root();
-    auto nullable = assert_cast<const ColumnNullable*>(root_of_variant.get());
-    CHECK(nullable);
-    _root_data_column = assert_cast<const ColumnString*>(&nullable->get_nested_column());
-    _root_data_convertor->set_source_column({root_of_variant->get_ptr(), nullptr, ""}, row_pos,
-                                            num_rows);
+    // ensure data finalized
+    _source_column_ptr = &const_cast<ColumnObject&>(variant);
+    _source_column_ptr->finalize(ColumnObject::FinalizeMode::WRITE_MODE);
+    _root_data_convertor = std::make_unique<OlapColumnDataConvertorVarChar>(true);
+    _root_data_convertor->set_source_column(
+            {_source_column_ptr->get_root()->get_ptr(), nullptr, ""}, row_pos, num_rows);
     OlapBlockDataConvertor::OlapColumnDataConvertorBase::set_source_column(typed_column, row_pos,
                                                                            num_rows);
 }
 
 // convert root data
 Status OlapBlockDataConvertor::OlapColumnDataConvertorVariant::convert_to_olap() {
-    RETURN_IF_ERROR(_root_data_convertor->convert_to_olap(_nullmap, _root_data_column));
+    RETURN_IF_ERROR(vectorized::schema_util::encode_variant_sparse_subcolumns(*_source_column_ptr));
+#ifndef NDEBUG
+    _source_column_ptr->check_consistency();
+#endif
+    const auto* nullable = assert_cast<const ColumnNullable*>(_source_column_ptr->get_root().get());
+    const auto* root_column = assert_cast<const ColumnString*>(&nullable->get_nested_column());
+    RETURN_IF_ERROR(_root_data_convertor->convert_to_olap(_nullmap, root_column));
     return Status::OK();
 }
 

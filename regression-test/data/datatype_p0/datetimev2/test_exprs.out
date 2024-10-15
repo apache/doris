@@ -46,9 +46,6 @@
 -- !compare_dt1 --
 false
 
--- !compare_dt2 --
-false
-
 -- !sql_milliseconds_add_datetimev2_1 --
 2022-01-01T11:11:11.111	2022-01-01T11:11:11.211
 2022-01-01T11:11:11.222	2022-01-01T11:11:11.322

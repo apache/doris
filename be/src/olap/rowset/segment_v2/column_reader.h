@@ -29,6 +29,7 @@
 #include <vector>
 
 #include "common/config.h"
+#include "common/exception.h"
 #include "common/logging.h"
 #include "common/status.h" // for Status
 #include "io/fs/file_reader_writer_fwd.h"
@@ -46,6 +47,7 @@
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h" // ColumnArray
 #include "vec/columns/subcolumn_tree.h"
+#include "vec/common/hash_table/hash_map_context_creator.h"
 #include "vec/data_types/data_type.h"
 #include "vec/json/path_in_data.h"
 
@@ -83,6 +85,8 @@ struct ColumnReaderOptions {
     bool verify_checksum = true;
     // for in memory olap table, use DURABLE CachePriority in page cache
     bool kept_in_memory = false;
+
+    int be_exec_version = -1;
 };
 
 struct ColumnIteratorOptions {
@@ -91,7 +95,7 @@ struct ColumnIteratorOptions {
     // for page cache allocation
     // page types are divided into DATA_PAGE & INDEX_PAGE
     // INDEX_PAGE including index_page, dict_page and short_key_page
-    PageTypePB type;
+    PageTypePB type = PageTypePB::UNKNOWN_PAGE_TYPE;
     io::FileReader* file_reader = nullptr; // Ref
     // reader statistics
     OlapReaderStatistics* stats = nullptr; // Ref
@@ -107,20 +111,35 @@ struct ColumnIteratorOptions {
 // we should do our best to reduce resource usage through share
 // same information, such as OrdinalPageIndex and Page data.
 // This will cache data shared by all reader
-class ColumnReader {
+class ColumnReader : public MetadataAdder<ColumnReader> {
 public:
     // Create an initialized ColumnReader in *reader.
     // This should be a lightweight operation without I/O.
     static Status create(const ColumnReaderOptions& opts, const ColumnMetaPB& meta,
                          uint64_t num_rows, const io::FileReaderSPtr& file_reader,
                          std::unique_ptr<ColumnReader>* reader);
-
+    static Status create_array(const ColumnReaderOptions& opts, const ColumnMetaPB& meta,
+                               const io::FileReaderSPtr& file_reader,
+                               std::unique_ptr<ColumnReader>* reader);
+    static Status create_map(const ColumnReaderOptions& opts, const ColumnMetaPB& meta,
+                             const io::FileReaderSPtr& file_reader,
+                             std::unique_ptr<ColumnReader>* reader);
+    static Status create_struct(const ColumnReaderOptions& opts, const ColumnMetaPB& meta,
+                                uint64_t num_rows, const io::FileReaderSPtr& file_reader,
+                                std::unique_ptr<ColumnReader>* reader);
+    static Status create_agg_state(const ColumnReaderOptions& opts, const ColumnMetaPB& meta,
+                                   uint64_t num_rows, const io::FileReaderSPtr& file_reader,
+                                   std::unique_ptr<ColumnReader>* reader);
     enum DictEncodingType { UNKNOWN_DICT_ENCODING, PARTIAL_DICT_ENCODING, ALL_DICT_ENCODING };
 
-    ~ColumnReader();
+    virtual ~ColumnReader();
 
     // create a new column iterator. Client should delete returned iterator
     Status new_iterator(ColumnIterator** iterator);
+    Status new_array_iterator(ColumnIterator** iterator);
+    Status new_struct_iterator(ColumnIterator** iterator);
+    Status new_map_iterator(ColumnIterator** iterator);
+    Status new_agg_state_iterator(ColumnIterator** iterator);
     // Client should delete returned iterator
     Status new_bitmap_index_iterator(BitmapIndexIterator** iterator);
 
@@ -225,12 +244,15 @@ private:
 
     Status _calculate_row_ranges(const std::vector<uint32_t>& page_indexes, RowRanges* row_ranges);
 
+    int64_t get_metadata_size() const override;
+
 private:
     int64_t _meta_length;
     FieldType _meta_type;
     FieldType _meta_children_column_type;
     bool _meta_is_nullable;
     bool _use_index_page_cache;
+    int _be_exec_version = -1;
 
     PagePointer _meta_dict_page;
     CompressionTypePB _meta_compression;
@@ -250,7 +272,7 @@ private:
     // meta for various column indexes (null if the index is absent)
     std::unique_ptr<ZoneMapPB> _segment_zone_map;
 
-    mutable std::mutex _load_index_lock;
+    mutable std::shared_mutex _load_index_lock;
     std::unique_ptr<ZoneMapIndexReader> _zone_map_index;
     std::unique_ptr<OrdinalIndexReader> _ordinal_index;
     std::unique_ptr<BitmapIndexReader> _bitmap_index;
@@ -558,7 +580,7 @@ private:
 class RowIdColumnIterator : public ColumnIterator {
 public:
     RowIdColumnIterator() = delete;
-    RowIdColumnIterator(int32_t tid, RowsetId rid, int32_t segid)
+    RowIdColumnIterator(int64_t tid, RowsetId rid, int32_t segid)
             : _tablet_id(tid), _rowset_id(rid), _segment_id(segid) {}
 
     Status seek_to_first() override {
@@ -600,7 +622,7 @@ public:
 
 private:
     rowid_t _current_rowid = 0;
-    int32_t _tablet_id = 0;
+    int64_t _tablet_id = 0;
     RowsetId _rowset_id;
     int32_t _segment_id = 0;
 };
@@ -695,6 +717,61 @@ private:
     int _scale;
     std::vector<char> _mem_value;
 
+    // current rowid
+    ordinal_t _current_rowid = 0;
+};
+
+// This iterator is used to read default value column
+class DefaultNestedColumnIterator : public ColumnIterator {
+public:
+    DefaultNestedColumnIterator(std::unique_ptr<ColumnIterator>&& sibling,
+                                DataTypePtr file_column_type)
+            : _sibling_iter(std::move(sibling)), _file_column_type(std::move(file_column_type)) {}
+
+    Status init(const ColumnIteratorOptions& opts) override {
+        if (_sibling_iter) {
+            return _sibling_iter->init(opts);
+        }
+        return Status::OK();
+    }
+
+    Status seek_to_first() override {
+        _current_rowid = 0;
+        if (_sibling_iter) {
+            return _sibling_iter->seek_to_first();
+        }
+        return Status::OK();
+    }
+
+    Status seek_to_ordinal(ordinal_t ord_idx) override {
+        _current_rowid = ord_idx;
+        if (_sibling_iter) {
+            return _sibling_iter->seek_to_ordinal(ord_idx);
+        }
+        return Status::OK();
+    }
+
+    Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst);
+
+    Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) override;
+
+    Status read_by_rowids(const rowid_t* rowids, const size_t count,
+                          vectorized::MutableColumnPtr& dst) override;
+
+    Status next_batch_of_zone_map(size_t* n, vectorized::MutableColumnPtr& dst) override {
+        return Status::NotSupported("Not supported next_batch_of_zone_map");
+    }
+
+    ordinal_t get_current_ordinal() const override {
+        if (_sibling_iter) {
+            return _sibling_iter->get_current_ordinal();
+        }
+        return _current_rowid;
+    }
+
+private:
+    std::unique_ptr<ColumnIterator> _sibling_iter;
+    std::shared_ptr<const vectorized::IDataType> _file_column_type;
     // current rowid
     ordinal_t _current_rowid = 0;
 };

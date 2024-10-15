@@ -55,11 +55,11 @@ public class HllTest {
 
         // test explicit
         Hll explicitHll = new Hll();
-        for (int i = 0; i < Hll.HLL_EXPLICLIT_INT64_NUM; i++) {
+        for (int i = 0; i < Hll.HLL_EXPLICIT_INT64_NUM; i++) {
             explicitHll.updateWithHash(i);
         }
         Assert.assertTrue(explicitHll.getType() == Hll.HLL_DATA_EXPLICIT);
-        Assert.assertTrue(explicitHll.estimateCardinality() == Hll.HLL_EXPLICLIT_INT64_NUM);
+        Assert.assertTrue(explicitHll.estimateCardinality() == Hll.HLL_EXPLICIT_INT64_NUM);
 
         ByteArrayOutputStream explicitOutputStream = new ByteArrayOutputStream();
         DataOutput explicitOutput = new DataOutputStream(explicitOutputStream);

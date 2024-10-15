@@ -35,6 +35,7 @@
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/global_types.h"
 #include "common/status.h"
+#include "olap/utils.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/types.h"
 #include "vec/data_types/data_type.h"
@@ -82,6 +83,9 @@ public:
     const std::vector<std::string>& column_paths() const { return _column_paths; };
 
     bool is_auto_increment() const { return _is_auto_increment; }
+
+    bool is_skip_bitmap_col() const { return _col_name == SKIP_BITMAP_COL; }
+    bool is_sequence_col() const { return _col_name == SEQUENCE_COL; }
 
     const std::string& col_default_value() const { return _col_default_value; }
     PrimitiveType col_type() const { return _col_type; }
@@ -147,13 +151,13 @@ public:
     ::doris::TTableType::type table_type() const { return _table_type; }
     const std::string& name() const { return _name; }
     const std::string& database() const { return _database; }
-    int32_t table_id() const { return _table_id; }
+    int64_t table_id() const { return _table_id; }
 
 private:
     ::doris::TTableType::type _table_type;
     std::string _name;
     std::string _database;
-    int32_t _table_id;
+    int64_t _table_id;
     int _num_cols;
     int _num_clustering_cols;
 };
@@ -215,16 +219,22 @@ public:
     std::string access_key() const { return _access_key; }
     std::string secret_key() const { return _secret_key; }
     std::string public_access() const { return _public_access; }
+    std::string endpoint() const { return _endpoint; }
+    std::string quota() const { return _quota; }
+    Status init_status() const { return _init_status; }
 
 private:
-    std::string _region;
+    std::string _region; //deprecated
     std::string _project;
     std::string _table;
-    std::string _odps_url;
-    std::string _tunnel_url;
+    std::string _odps_url;   //deprecated
+    std::string _tunnel_url; //deprecated
     std::string _access_key;
     std::string _secret_key;
-    std::string _public_access;
+    std::string _public_access; //deprecated
+    std::string _endpoint;
+    std::string _quota;
+    Status _init_status = Status::OK();
 };
 
 class TrinoConnectorTableDescriptor : public TableDescriptor {
@@ -437,8 +447,6 @@ public:
               _tuple_idx_nullable_map(desc._tuple_idx_nullable_map),
               _tuple_idx_map(desc._tuple_idx_map),
               _has_varlen_slots(desc._has_varlen_slots) {
-        _num_materialized_slots = 0;
-        _num_slots = 0;
         auto it = desc._tuple_desc_map.begin();
         for (; it != desc._tuple_desc_map.end(); ++it) {
             _num_materialized_slots += (*it)->num_materialized_slots();
@@ -500,10 +508,10 @@ private:
     std::vector<int> _tuple_idx_map;
 
     // Provide quick way to check if there are variable length slots.
-    bool _has_varlen_slots;
+    bool _has_varlen_slots = false;
 
-    int _num_materialized_slots;
-    int _num_slots;
+    int _num_materialized_slots = 0;
+    int _num_slots = 0;
 };
 
 } // namespace doris

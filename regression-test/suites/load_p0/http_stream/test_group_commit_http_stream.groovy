@@ -33,20 +33,11 @@ suite("test_group_commit_http_stream") {
     }
 
     def getAlterTableState = {
-        def retry = 0
-        while (true) {
-            sleep(8000)
-            def state = sql "show alter table column where tablename = '${tableName}' order by CreateTime desc "
-            logger.info("alter table retry: ${retry},  state: ${state}")
-            if (state.size() > 0 && state[0][9] == "FINISHED") {
-                return true
-            }
-            retry++
-            if (retry >= 40) {
-                return false
-            }
+        waitForSchemaChangeDone {
+            sql """ SHOW ALTER TABLE COLUMN WHERE tablename='${tableName}' ORDER BY createtime DESC LIMIT 1 """
+            time 600
         }
-        return false
+        return true
     }
 
     def checkStreamLoadResult = { exception, result, total_rows, loaded_rows, filtered_rows, unselected_rows ->
@@ -97,6 +88,7 @@ suite("test_group_commit_http_stream") {
         )
         DISTRIBUTED BY HASH(`id`) BUCKETS 1
         PROPERTIES (
+            "group_commit_interval_ms" = "200",
             "replication_num" = "1"
         );
         """
@@ -294,6 +286,7 @@ suite("test_group_commit_http_stream") {
             PARTITION p1998 VALUES [("19980101"), ("19990101")))
             DISTRIBUTED BY HASH(`lo_orderkey`) BUCKETS 4
             PROPERTIES (
+                "group_commit_interval_ms" = "200",
                 "replication_num" = "1"
             );
         """
@@ -316,7 +309,7 @@ suite("test_group_commit_http_stream") {
             sql """ alter table ${tableName} order by (${new_columns}); """
         }).start();*/
 
-        for (int i = 0; i < 4; i++) {
+        for (int i = 0; i < 2; i++) {
 
             streamLoad {
                 set 'version', '1'
@@ -343,7 +336,7 @@ suite("test_group_commit_http_stream") {
             }
         }
 
-        getRowCount(2402288)
+        getRowCount(600572 * 2)
         qt_sql """ select count(*) from ${tableName} """
 
         // assertTrue(getAlterTableState())

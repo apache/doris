@@ -19,6 +19,7 @@ package org.apache.doris.datasource.jdbc.client;
 
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.datasource.jdbc.util.JdbcFieldSchema;
 
 public class JdbcSQLServerClient extends JdbcClient {
 
@@ -28,7 +29,7 @@ public class JdbcSQLServerClient extends JdbcClient {
 
     @Override
     protected Type jdbcTypeToDoris(JdbcFieldSchema fieldSchema) {
-        String originSqlserverType = fieldSchema.getDataTypeName();
+        String originSqlserverType = fieldSchema.getDataTypeName().orElse("unknown");
         // For sqlserver IDENTITY type, such as 'INT IDENTITY'
         // originSqlserverType is "int identity", so we only get "int".
         String sqlserverType = originSqlserverType.split(" ")[0];
@@ -52,8 +53,8 @@ public class JdbcSQLServerClient extends JdbcClient {
                 return ScalarType.createDecimalV3Type(10, 4);
             case "decimal":
             case "numeric": {
-                int precision = fieldSchema.getColumnSize();
-                int scale = fieldSchema.getDecimalDigits();
+                int precision = fieldSchema.getColumnSize().orElse(0);
+                int scale = fieldSchema.getDecimalDigits().orElse(0);
                 return ScalarType.createDecimalV3Type(precision, scale);
             }
             case "date":
@@ -62,7 +63,7 @@ public class JdbcSQLServerClient extends JdbcClient {
             case "datetime2":
             case "smalldatetime": {
                 // postgres can support microsecond
-                int scale = fieldSchema.getDecimalDigits();
+                int scale = fieldSchema.getDecimalDigits().orElse(0);
                 if (scale > 6) {
                     scale = 6;
                 }

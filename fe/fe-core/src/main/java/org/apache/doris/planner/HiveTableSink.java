@@ -25,19 +25,21 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
+import org.apache.doris.datasource.hive.HiveMetaStoreClientHelper;
 import org.apache.doris.nereids.trees.plans.commands.insert.HiveInsertCommandContext;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertCommandContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TDataSink;
 import org.apache.doris.thrift.TDataSinkType;
 import org.apache.doris.thrift.TExplainLevel;
-import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
+import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.THiveBucket;
 import org.apache.doris.thrift.THiveColumn;
 import org.apache.doris.thrift.THiveColumnType;
 import org.apache.doris.thrift.THiveLocationParams;
 import org.apache.doris.thrift.THivePartition;
+import org.apache.doris.thrift.THiveSerDeProperties;
 import org.apache.doris.thrift.THiveTableSink;
 
 import org.apache.hadoop.hive.metastore.api.StorageDescriptor;
@@ -49,14 +51,36 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-public class HiveTableSink extends DataSink {
+public class HiveTableSink extends BaseExternalTableDataSink {
+    public static final String PROP_FIELD_DELIMITER = "field.delim";
+    public static final String DEFAULT_FIELD_DELIMITER = "\1";
+    public static final String PROP_SERIALIZATION_FORMAT = "serialization.format";
+    public static final String PROP_LINE_DELIMITER = "line.delim";
+    public static final String DEFAULT_LINE_DELIMITER = "\n";
+    public static final String PROP_COLLECT_DELIMITER = "collection.delim";
+    public static final String DEFAULT_COLLECT_DELIMITER = "\2";
+    public static final String PROP_MAPKV_DELIMITER = "mapkv.delim";
+    public static final String DEFAULT_MAPKV_DELIMITER = "\3";
+    public static final String PROP_ESCAPE_DELIMITER = "escape.delim";
+    public static final String DEFAULT_ESCAPE_DELIMIER = "\\";
+    public static final String PROP_NULL_FORMAT = "serialization.null.format";
+    public static final String DEFAULT_NULL_FORMAT = "\\N";
 
-    private HMSExternalTable targetTable;
-    protected TDataSink tDataSink;
+    private final HMSExternalTable targetTable;
+    private static final HashSet<TFileFormatType> supportedTypes = new HashSet<TFileFormatType>() {{
+            add(TFileFormatType.FORMAT_CSV_PLAIN);
+            add(TFileFormatType.FORMAT_ORC);
+            add(TFileFormatType.FORMAT_PARQUET);
+        }};
 
     public HiveTableSink(HMSExternalTable targetTable) {
         super();
         this.targetTable = targetTable;
+    }
+
+    @Override
+    protected Set<TFileFormatType> supportedFileFormatTypes() {
+        return supportedTypes;
     }
 
     @Override
@@ -71,26 +95,7 @@ public class HiveTableSink extends DataSink {
     }
 
     @Override
-    protected TDataSink toThrift() {
-        return tDataSink;
-    }
-
-    @Override
-    public PlanNodeId getExchNodeId() {
-        return null;
-    }
-
-    @Override
-    public DataPartition getOutputPartition() {
-        return DataPartition.RANDOM;
-    }
-
-    /**
-     * check sink params and generate thrift data sink to BE
-     * @param insertCtx insert info context
-     * @throws AnalysisException if source file format cannot be read
-     */
-    public void bindDataSink(List<Column> insertCols, Optional<InsertCommandContext> insertCtx)
+    public void bindDataSink(Optional<InsertCommandContext> insertCtx)
             throws AnalysisException {
         THiveTableSink tSink = new THiveTableSink();
         tSink.setDbName(targetTable.getDbName());
@@ -123,25 +128,43 @@ public class HiveTableSink extends DataSink {
         bucketInfo.setBucketCount(sd.getNumBuckets());
         tSink.setBucketInfo(bucketInfo);
 
-        TFileFormatType formatType = getFileFormatType(sd);
+        TFileFormatType formatType = getTFileFormatType(sd.getInputFormat());
         tSink.setFileFormat(formatType);
         setCompressType(tSink, formatType);
+        setSerDeProperties(tSink);
 
         THiveLocationParams locationParams = new THiveLocationParams();
-        String location = sd.getLocation();
-
-        String writeTempPath = createTempPath(location);
-        locationParams.setWritePath(writeTempPath);
-        locationParams.setTargetPath(location);
-        locationParams.setFileType(LocationPath.getTFileTypeForBE(location));
+        LocationPath locationPath = new LocationPath(sd.getLocation(), targetTable.getHadoopProperties());
+        String location = locationPath.getPath().toString();
+        String storageLocation = locationPath.toStorageLocation().toString();
+        TFileType fileType = locationPath.getTFileTypeForBE();
+        if (fileType == TFileType.FILE_S3) {
+            locationParams.setWritePath(storageLocation);
+            locationParams.setOriginalWritePath(location);
+            locationParams.setTargetPath(location);
+            if (insertCtx.isPresent()) {
+                HiveInsertCommandContext context = (HiveInsertCommandContext) insertCtx.get();
+                tSink.setOverwrite(context.isOverwrite());
+                context.setWritePath(storageLocation);
+                context.setFileType(fileType);
+            }
+        } else {
+            String writeTempPath = createTempPath(location);
+            locationParams.setWritePath(writeTempPath);
+            locationParams.setOriginalWritePath(writeTempPath);
+            locationParams.setTargetPath(location);
+            if (insertCtx.isPresent()) {
+                HiveInsertCommandContext context = (HiveInsertCommandContext) insertCtx.get();
+                tSink.setOverwrite(context.isOverwrite());
+                context.setWritePath(writeTempPath);
+                context.setFileType(fileType);
+            }
+        }
+        locationParams.setFileType(fileType);
         tSink.setLocation(locationParams);
 
         tSink.setHadoopConfig(targetTable.getHadoopProperties());
 
-        if (insertCtx.isPresent()) {
-            HiveInsertCommandContext context = (HiveInsertCommandContext) insertCtx.get();
-            tSink.setOverwrite(context.isOverwrite());
-        }
         tDataSink = new TDataSink(getDataSinkType());
         tDataSink.setHiveTableSink(tSink);
     }
@@ -160,27 +183,14 @@ public class HiveTableSink extends DataSink {
             case FORMAT_PARQUET:
                 compressType = targetTable.getRemoteTable().getParameters().get("parquet.compression");
                 break;
+            case FORMAT_CSV_PLAIN:
+                compressType = ConnectContext.get().getSessionVariable().hiveTextCompression();
+                break;
             default:
                 compressType = "uncompressed";
                 break;
         }
-
-        if ("snappy".equalsIgnoreCase(compressType)) {
-            tSink.setCompressionType(TFileCompressType.SNAPPYBLOCK);
-        } else if ("lz4".equalsIgnoreCase(compressType)) {
-            tSink.setCompressionType(TFileCompressType.LZ4BLOCK);
-        } else if ("lzo".equalsIgnoreCase(compressType)) {
-            tSink.setCompressionType(TFileCompressType.LZO);
-        } else if ("zlib".equalsIgnoreCase(compressType)) {
-            tSink.setCompressionType(TFileCompressType.ZLIB);
-        } else if ("zstd".equalsIgnoreCase(compressType)) {
-            tSink.setCompressionType(TFileCompressType.ZSTD);
-        } else if ("uncompressed".equalsIgnoreCase(compressType)) {
-            tSink.setCompressionType(TFileCompressType.PLAIN);
-        } else {
-            // try to use plain type to decompress parquet or orc file
-            tSink.setCompressionType(TFileCompressType.PLAIN);
-        }
+        tSink.setCompressionType(getTFileCompressType(compressType));
     }
 
     private void setPartitionValues(THiveTableSink tSink) throws AnalysisException {
@@ -191,7 +201,7 @@ public class HiveTableSink extends DataSink {
         for (org.apache.hadoop.hive.metastore.api.Partition partition : hivePartitions) {
             THivePartition hivePartition = new THivePartition();
             StorageDescriptor sd = partition.getSd();
-            hivePartition.setFileFormat(getFileFormatType(sd));
+            hivePartition.setFileFormat(getTFileFormatType(sd.getInputFormat()));
 
             hivePartition.setValues(partition.getValues());
             THiveLocationParams locationParams = new THiveLocationParams();
@@ -206,18 +216,50 @@ public class HiveTableSink extends DataSink {
         tSink.setPartitions(partitions);
     }
 
-    private TFileFormatType getFileFormatType(StorageDescriptor sd) throws AnalysisException {
-        TFileFormatType fileFormatType;
-        if (sd.getInputFormat().toLowerCase().contains("orc")) {
-            fileFormatType = TFileFormatType.FORMAT_ORC;
-        } else if (sd.getInputFormat().toLowerCase().contains("parquet")) {
-            fileFormatType = TFileFormatType.FORMAT_PARQUET;
-        } else if (sd.getInputFormat().toLowerCase().contains("text")) {
-            fileFormatType = TFileFormatType.FORMAT_CSV_PLAIN;
-        } else {
-            throw new AnalysisException("Unsupported input format type: " + sd.getInputFormat());
+    private void setSerDeProperties(THiveTableSink tSink) {
+        THiveSerDeProperties serDeProperties = new THiveSerDeProperties();
+        // 1. set field delimiter
+        Optional<String> fieldDelim = HiveMetaStoreClientHelper.getSerdeProperty(targetTable.getRemoteTable(),
+                PROP_FIELD_DELIMITER);
+        Optional<String> serFormat = HiveMetaStoreClientHelper.getSerdeProperty(targetTable.getRemoteTable(),
+                PROP_SERIALIZATION_FORMAT);
+        serDeProperties.setFieldDelim(HiveMetaStoreClientHelper.getByte(HiveMetaStoreClientHelper.firstPresentOrDefault(
+                DEFAULT_FIELD_DELIMITER, fieldDelim, serFormat)));
+        // 2. set line delimiter
+        Optional<String> lineDelim = HiveMetaStoreClientHelper.getSerdeProperty(targetTable.getRemoteTable(),
+                PROP_LINE_DELIMITER);
+        serDeProperties.setLineDelim(HiveMetaStoreClientHelper.getByte(HiveMetaStoreClientHelper.firstPresentOrDefault(
+                DEFAULT_LINE_DELIMITER, lineDelim)));
+        // 3. set collection delimiter
+        Optional<String> collectDelim = HiveMetaStoreClientHelper.getSerdeProperty(targetTable.getRemoteTable(),
+                PROP_COLLECT_DELIMITER);
+        serDeProperties
+                .setCollectionDelim(HiveMetaStoreClientHelper.getByte(HiveMetaStoreClientHelper.firstPresentOrDefault(
+                        DEFAULT_COLLECT_DELIMITER, collectDelim)));
+        // 4. set mapkv delimiter
+        Optional<String> mapkvDelim = HiveMetaStoreClientHelper.getSerdeProperty(targetTable.getRemoteTable(),
+                PROP_MAPKV_DELIMITER);
+        serDeProperties.setMapkvDelim(HiveMetaStoreClientHelper.getByte(HiveMetaStoreClientHelper.firstPresentOrDefault(
+                DEFAULT_MAPKV_DELIMITER, mapkvDelim)));
+        // 5. set escape delimiter
+        Optional<String> escapeDelim = HiveMetaStoreClientHelper.getSerdeProperty(targetTable.getRemoteTable(),
+                PROP_ESCAPE_DELIMITER);
+        if (escapeDelim.isPresent()) {
+            String escape = HiveMetaStoreClientHelper.getByte(
+                    escapeDelim.get());
+            if (escape != null) {
+                serDeProperties
+                        .setEscapeChar(escape);
+            } else {
+                serDeProperties.setEscapeChar(DEFAULT_ESCAPE_DELIMIER);
+            }
         }
-        return fileFormatType;
+        // 6. set null format
+        Optional<String> nullFormat = HiveMetaStoreClientHelper.getSerdeProperty(targetTable.getRemoteTable(),
+                PROP_NULL_FORMAT);
+        serDeProperties.setNullFormat(HiveMetaStoreClientHelper.firstPresentOrDefault(
+                DEFAULT_NULL_FORMAT, nullFormat));
+        tSink.setSerdeProperties(serDeProperties);
     }
 
     protected TDataSinkType getDataSinkType() {

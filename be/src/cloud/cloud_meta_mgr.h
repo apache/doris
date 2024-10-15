@@ -43,7 +43,8 @@ class TabletJobInfoPB;
 class TabletStatsPB;
 class TabletIndexPB;
 
-using StorageVaultInfos = std::vector<std::tuple<std::string, std::variant<S3Conf, HdfsVaultInfo>>>;
+using StorageVaultInfos = std::vector<
+        std::tuple<std::string, std::variant<S3Conf, HdfsVaultInfo>, StorageVaultPB_PathFormat>>;
 
 Status bthread_fork_join(const std::vector<std::function<Status()>>& tasks, int concurrency);
 
@@ -72,7 +73,14 @@ public:
 
     Status precommit_txn(const StreamLoadContext& ctx);
 
-    Status get_storage_vault_info(StorageVaultInfos* vault_infos);
+    /**
+     * Gets storage vault (storage backends) from meta-service
+     * 
+     * @param vault_info output param, all storage backends
+     * @param is_vault_mode output param, true for pure vault mode, false for legacy mode
+     * @return status
+     */
+    Status get_storage_vault_info(StorageVaultInfos* vault_infos, bool* is_vault_mode);
 
     Status prepare_tablet_job(const TabletJobInfoPB& job, StartTabletJobResponse* res);
 
@@ -87,10 +95,21 @@ public:
     Status update_delete_bitmap(const CloudTablet& tablet, int64_t lock_id, int64_t initiator,
                                 DeleteBitmap* delete_bitmap);
 
+    Status update_delete_bitmap_without_lock(const CloudTablet& tablet,
+                                             DeleteBitmap* delete_bitmap);
+
     Status get_delete_bitmap_update_lock(const CloudTablet& tablet, int64_t lock_id,
                                          int64_t initiator);
 
+    Status remove_old_version_delete_bitmap(
+            int64_t tablet_id,
+            const std::vector<std::tuple<std::string, uint64_t, uint64_t>>& to_delete);
+
 private:
+    bool sync_tablet_delete_bitmap_by_cache(CloudTablet* tablet, int64_t old_max_version,
+                                            std::ranges::range auto&& rs_metas,
+                                            DeleteBitmap* delete_bitmap);
+
     Status sync_tablet_delete_bitmap(CloudTablet* tablet, int64_t old_max_version,
                                      std::ranges::range auto&& rs_metas, const TabletStatsPB& stats,
                                      const TabletIndexPB& idx, DeleteBitmap* delete_bitmap);

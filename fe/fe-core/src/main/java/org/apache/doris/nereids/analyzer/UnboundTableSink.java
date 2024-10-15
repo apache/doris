@@ -48,7 +48,7 @@ public class UnboundTableSink<CHILD_TYPE extends Plan> extends UnboundLogicalSin
     private final List<String> hints;
     private final boolean temporaryPartition;
     private final List<String> partitions;
-    private final boolean isPartialUpdate;
+    private boolean isPartialUpdate;
     private final DMLCommandType dmlCommandType;
     private final boolean autoDetectPartition;
 
@@ -112,6 +112,10 @@ public class UnboundTableSink<CHILD_TYPE extends Plan> extends UnboundLogicalSin
 
     public boolean isPartialUpdate() {
         return isPartialUpdate;
+    }
+
+    public void setPartialUpdate(boolean isPartialUpdate) {
+        this.isPartialUpdate = isPartialUpdate;
     }
 
     @Override

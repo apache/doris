@@ -58,7 +58,7 @@ namespace doris::vectorized {
 
 template <typename T>
 struct NearestFieldTypeImpl {
-    using Type = T;
+    using Type = T; // for HLL or some origin types. see def. of storage
 };
 
 template <typename T>
@@ -217,29 +217,37 @@ public:
 
     bool operator<(const JsonbField& r) const {
         LOG(FATAL) << "comparing between JsonbField is not supported";
+        __builtin_unreachable();
     }
     bool operator<=(const JsonbField& r) const {
         LOG(FATAL) << "comparing between JsonbField is not supported";
+        __builtin_unreachable();
     }
     bool operator==(const JsonbField& r) const {
         LOG(FATAL) << "comparing between JsonbField is not supported";
+        __builtin_unreachable();
     }
     bool operator>(const JsonbField& r) const {
         LOG(FATAL) << "comparing between JsonbField is not supported";
+        __builtin_unreachable();
     }
     bool operator>=(const JsonbField& r) const {
         LOG(FATAL) << "comparing between JsonbField is not supported";
+        __builtin_unreachable();
     }
     bool operator!=(const JsonbField& r) const {
         LOG(FATAL) << "comparing between JsonbField is not supported";
+        __builtin_unreachable();
     }
 
     const JsonbField& operator+=(const JsonbField& r) {
         LOG(FATAL) << "Not support plus opration on JsonbField";
+        __builtin_unreachable();
     }
 
     const JsonbField& operator-=(const JsonbField& r) {
         LOG(FATAL) << "Not support minus opration on JsonbField";
+        __builtin_unreachable();
     }
 
 private:
@@ -298,6 +306,7 @@ public:
     const DecimalField<T>& operator+=(const DecimalField<T>& r) {
         if (scale != r.get_scale()) {
             LOG(FATAL) << "Add different decimal fields";
+            __builtin_unreachable();
         }
         dec += r.get_value();
         return *this;
@@ -306,6 +315,7 @@ public:
     const DecimalField<T>& operator-=(const DecimalField<T>& r) {
         if (scale != r.get_scale()) {
             LOG(FATAL) << "Sub different decimal fields";
+            __builtin_unreachable();
         }
         dec -= r.get_value();
         return *this;
@@ -415,6 +425,7 @@ public:
                 LOG(FATAL) << "type not supported, type=" << Types::to_string(which);
                 break;
             }
+            __builtin_unreachable();
         }
     };
 
@@ -480,6 +491,11 @@ public:
                 assign(rhs); /// This assigns string or vector without deallocation of existing buffer.
         }
         return *this;
+    }
+
+    bool is_complex_field() const {
+        return which == Types::Array || which == Types::Map || which == Types::Tuple ||
+               which == Types::VariantMap;
     }
 
     Field& operator=(Field&& rhs) {
@@ -752,7 +768,9 @@ private:
     }
 
     ALWAYS_INLINE void destroy() {
-        if (which < Types::MIN_NON_POD) return;
+        if (which < Types::MIN_NON_POD) {
+            return;
+        }
 
         switch (which) {
         case Types::String:
@@ -772,6 +790,15 @@ private:
             break;
         case Types::VariantMap:
             destroy<VariantMap>();
+            break;
+        case Types::Bitmap:
+            destroy<BitmapValue>();
+            break;
+        case Types::HyperLogLog:
+            destroy<HyperLogLog>();
+            break;
+        case Types::QuantileState:
+            destroy<QuantileState>();
             break;
         default:
             break;

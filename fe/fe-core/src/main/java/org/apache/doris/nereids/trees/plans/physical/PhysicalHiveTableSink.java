@@ -25,30 +25,20 @@ import org.apache.doris.nereids.properties.DistributionSpecTableSinkHashPartitio
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.ExprId;
-import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
-import org.apache.doris.nereids.trees.plans.algebra.Sink;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
-import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.statistics.Statistics;
-
-import com.google.common.collect.ImmutableList;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-/** abstract physical hive sink */
-public class PhysicalHiveTableSink<CHILD_TYPE extends Plan> extends PhysicalTableSink<CHILD_TYPE> implements Sink {
-
-    private final HMSExternalDatabase database;
-    private final HMSExternalTable targetTable;
-    private final List<Column> cols;
+/** physical hive sink */
+public class PhysicalHiveTableSink<CHILD_TYPE extends Plan> extends PhysicalBaseExternalTableSink<CHILD_TYPE> {
 
     /**
      * constructor
@@ -76,28 +66,14 @@ public class PhysicalHiveTableSink<CHILD_TYPE extends Plan> extends PhysicalTabl
                                  PhysicalProperties physicalProperties,
                                  Statistics statistics,
                                  CHILD_TYPE child) {
-        super(PlanType.PHYSICAL_HIVE_TABLE_SINK, outputExprs, groupExpression,
+        super(PlanType.PHYSICAL_HIVE_TABLE_SINK, database, targetTable, cols, outputExprs, groupExpression,
                 logicalProperties, physicalProperties, statistics, child);
-        this.database = Objects.requireNonNull(database, "database != null in PhysicalHiveTableSink");
-        this.targetTable = Objects.requireNonNull(targetTable, "targetTable != null in PhysicalHiveTableSink");
-        this.cols = Utils.copyRequiredList(cols);
-    }
-
-    public HMSExternalDatabase getDatabase() {
-        return database;
-    }
-
-    public HMSExternalTable getTargetTable() {
-        return targetTable;
-    }
-
-    public List<Column> getCols() {
-        return cols;
     }
 
     @Override
     public Plan withChildren(List<Plan> children) {
-        return new PhysicalHiveTableSink<>(database, targetTable, cols, outputExprs, groupExpression,
+        return new PhysicalHiveTableSink<>(
+                (HMSExternalDatabase) database, (HMSExternalTable) targetTable, cols, outputExprs, groupExpression,
                 getLogicalProperties(), physicalProperties, statistics, children.get(0));
     }
 
@@ -107,26 +83,24 @@ public class PhysicalHiveTableSink<CHILD_TYPE extends Plan> extends PhysicalTabl
     }
 
     @Override
-    public List<? extends Expression> getExpressions() {
-        return ImmutableList.of();
-    }
-
-    @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new PhysicalHiveTableSink<>(database, targetTable, cols, outputExprs,
+        return new PhysicalHiveTableSink<>(
+                (HMSExternalDatabase) database, (HMSExternalTable) targetTable, cols, outputExprs,
                 groupExpression, getLogicalProperties(), child());
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
                                                  Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new PhysicalHiveTableSink<>(database, targetTable, cols, outputExprs,
+        return new PhysicalHiveTableSink<>(
+                (HMSExternalDatabase) database, (HMSExternalTable) targetTable, cols, outputExprs,
                 groupExpression, logicalProperties.get(), children.get(0));
     }
 
     @Override
     public PhysicalPlan withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties, Statistics statistics) {
-        return new PhysicalHiveTableSink<>(database, targetTable, cols, outputExprs,
+        return new PhysicalHiveTableSink<>(
+                (HMSExternalDatabase) database, (HMSExternalTable) targetTable, cols, outputExprs,
                 groupExpression, getLogicalProperties(), physicalProperties, statistics, child());
     }
 
@@ -135,7 +109,7 @@ public class PhysicalHiveTableSink<CHILD_TYPE extends Plan> extends PhysicalTabl
      */
     @Override
     public PhysicalProperties getRequirePhysicalProperties() {
-        Set<String> hivePartitionKeys = targetTable.getPartitionColumnNames();
+        Set<String> hivePartitionKeys = ((HMSExternalTable) targetTable).getPartitionColumnNames();
         if (!hivePartitionKeys.isEmpty()) {
             List<Integer> columnIdx = new ArrayList<>();
             List<Column> fullSchema = targetTable.getFullSchema();

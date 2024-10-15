@@ -74,7 +74,7 @@ struct PageReadOptions {
     }
 };
 
-inline ostream& operator<<(ostream& os, const PageReadOptions& opt) {
+inline std::ostream& operator<<(std::ostream& os, const PageReadOptions& opt) {
     return os << "PageReadOptions { verify_checksum=" << opt.verify_checksum
               << " use_page_cache=" << opt.use_page_cache
               << " kept_in_memory=" << opt.kept_in_memory << " pre_decode=" << opt.pre_decode
@@ -123,8 +123,17 @@ public:
     //     `handle' holds the memory of page data,
     //     `body' points to page body,
     //     `footer' stores the page footer.
+    // This method is exception safe, it will failed when allocate memory failed.
     static Status read_and_decompress_page(const PageReadOptions& opts, PageHandle* handle,
-                                           Slice* body, PageFooterPB* footer);
+                                           Slice* body, PageFooterPB* footer) {
+        RETURN_IF_CATCH_EXCEPTION(
+                { return read_and_decompress_page_(opts, handle, body, footer); });
+    }
+
+private:
+    // An internal method that not deal with exception.
+    static Status read_and_decompress_page_(const PageReadOptions& opts, PageHandle* handle,
+                                            Slice* body, PageFooterPB* footer);
 };
 
 } // namespace segment_v2

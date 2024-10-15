@@ -241,12 +241,7 @@ suite("test_primary_key_partial_update_parallel", "p0") {
     t2.join()
     t3.join()
 
-    sql "set show_hidden_columns=true;"
-    sql "sync"
-
-    qt_sql """ select * from ${tableName} order by id;"""
-    sql "set show_hidden_columns=false;"
-    sql "sync"
+    qt_sql """ select id,name,score,test,dft,__DORIS_DELETE_SIGN__,__DORIS_VERSION_COL__,__DORIS_SEQUENCE_COL__ from ${tableName} order by id;"""
     sql """ DROP TABLE IF EXISTS ${tableName}; """
 
 

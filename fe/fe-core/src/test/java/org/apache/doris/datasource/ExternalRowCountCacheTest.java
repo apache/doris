@@ -17,84 +17,58 @@
 
 package org.apache.doris.datasource;
 
-import org.apache.doris.datasource.ExternalRowCountCache.RowCountKey;
-import org.apache.doris.statistics.BasicAsyncCacheLoader;
+import org.apache.doris.common.ThreadPoolManager;
 
+import mockit.Mock;
+import mockit.MockUp;
 import org.junit.jupiter.api.Assertions;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.util.Optional;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class ExternalRowCountCacheTest {
-    private ExternalRowCountCache cache;
-    private ExecutorService executorService;
-
-    public static class TestLoader extends BasicAsyncCacheLoader<RowCountKey, Optional<Long>> {
-
-        private AtomicLong incr = new AtomicLong(333);
-
-        @Override
-        protected Optional<Long> doLoad(RowCountKey rowCountKey) {
-            if (rowCountKey.getTableId() == 1) {
-                return Optional.of(111L);
-            } else if (rowCountKey.getTableId() == 2) {
-                return Optional.of(222L);
-            } else if (rowCountKey.getTableId() == 3) {
-                try {
-                    Thread.sleep(1000);
-                } catch (InterruptedException e) {
-                    throw new RuntimeException(e);
-                }
-                System.out.println("load: " + incr.get());
-                return Optional.of(incr.incrementAndGet());
-            }
-            return Optional.empty();
-        }
-    }
-
-    @BeforeEach
-    public void setUp() {
-        executorService = Executors.newFixedThreadPool(2);
-        cache = new ExternalRowCountCache(executorService, 2, new TestLoader());
-    }
-
     @Test
-    public void test() throws Exception {
-        // table 1
-        long rowCount = cache.getCachedRowCount(1, 1, 1);
-        Assertions.assertEquals(0, rowCount);
-        Thread.sleep(1000);
-        rowCount = cache.getCachedRowCount(1, 1, 1);
-        Assertions.assertEquals(111, rowCount);
+    public void testLoadWithException() throws Exception {
+        ThreadPoolExecutor executor = ThreadPoolManager.newDaemonFixedThreadPool(
+                1, Integer.MAX_VALUE, "TEST", true);
+        AtomicInteger counter = new AtomicInteger(0);
 
-        // table 2
-        rowCount = cache.getCachedRowCount(1, 1, 2);
-        Assertions.assertEquals(0, rowCount);
-        Thread.sleep(1000);
-        rowCount = cache.getCachedRowCount(1, 1, 2);
-        Assertions.assertEquals(222, rowCount);
+        new MockUp<ExternalRowCountCache.RowCountCacheLoader>() {
+            @Mock
+            protected Optional<Long> doLoad(ExternalRowCountCache.RowCountKey rowCountKey) {
+                counter.incrementAndGet();
+                return null;
+            }
+        };
+        ExternalRowCountCache cache = new ExternalRowCountCache(executor);
+        long cachedRowCount = cache.getCachedRowCount(1, 1, 1);
+        Assertions.assertEquals(-1, cachedRowCount);
+        for (int i = 0; i < 60; i++) {
+            if (counter.get() == 1) {
+                break;
+            }
+            Thread.sleep(1000);
+        }
+        Assertions.assertEquals(1, counter.get());
 
-        // table 3
-        rowCount = cache.getCachedRowCount(1, 1, 3);
-        // first get, it should be 0 because the loader is async
-        Assertions.assertEquals(0, rowCount);
-        // After sleep 2 sec and then get, it should be 1
-        Thread.sleep(2000);
-        rowCount = cache.getCachedRowCount(1, 1, 3);
-        Assertions.assertEquals(334, rowCount);
-        // sleep 3 sec to trigger refresh
-        Thread.sleep(3000);
-        rowCount = cache.getCachedRowCount(1, 1, 3);
-        // the refresh will be triggered only when query it, so it should still be 1
-        Assertions.assertEquals(334, rowCount);
-        // sleep 2 sec to wait for the doLoad
-        Thread.sleep(2000);
-        rowCount = cache.getCachedRowCount(1, 1, 3);
-        // refresh done, value should be 2
-        Assertions.assertEquals(335, rowCount);
+        new MockUp<ExternalRowCountCache.RowCountCacheLoader>() {
+            @Mock
+            protected Optional<Long> doLoad(ExternalRowCountCache.RowCountKey rowCountKey) {
+                counter.incrementAndGet();
+                return Optional.of(100L);
+            }
+        };
+        cache.getCachedRowCount(1, 1, 1);
+        for (int i = 0; i < 60; i++) {
+            cachedRowCount = cache.getCachedRowCount(1, 1, 1);
+            if (cachedRowCount != -1) {
+                Assertions.assertEquals(100, cachedRowCount);
+                break;
+            }
+            Thread.sleep(1000);
+        }
+        Assertions.assertEquals(2, counter.get());
     }
 }

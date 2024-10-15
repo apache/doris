@@ -40,6 +40,9 @@ suite ("testProjectionMV3") {
 
     sql """insert into emps values("2020-01-01",1,"a",1,1,1);"""
 
+    sql """analyze table emps with sync;"""
+    sql """set enable_stats=false;"""
+
     explain {
         sql("select * from emps order by empid;")
         contains "(emps)"
@@ -54,8 +57,23 @@ suite ("testProjectionMV3") {
     qt_select_mv "select empid + 1, name from emps where deptno = 1 order by empid;"
 
     explain {
-        sql("select name from emps where deptno -1 = 0 order by empid;")
+        sql("select name from emps where deptno = 1 order by empid;")
         contains "(emps_mv)"
     }
-    qt_select_mv2 "select name from emps where deptno -1 = 0 order by empid;"
+    qt_select_mv2 "select name from emps where deptno = 1 order by empid;"
+
+    sql """set enable_stats=true;"""
+    explain {
+        sql("select * from emps order by empid;")
+        contains "(emps)"
+    }
+    explain {
+        sql("select empid + 1, name from emps where deptno = 1 order by empid;")
+        contains "(emps_mv)"
+    }
+
+    explain {
+        sql("select name from emps where deptno = 1 order by empid;")
+        contains "(emps_mv)"
+    }
 }

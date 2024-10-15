@@ -30,6 +30,7 @@
 #include "olap/tablet_manager.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/frontend_info.h"
+#include "runtime/load_stream_mgr.h"
 #include "util/debug_util.h"
 #include "util/time.h"
 #include "vec/sink/delta_writer_v2_pool.h"

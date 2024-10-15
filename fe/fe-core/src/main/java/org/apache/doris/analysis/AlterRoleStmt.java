@@ -26,7 +26,7 @@ import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
 
-public class AlterRoleStmt extends DdlStmt {
+public class AlterRoleStmt extends DdlStmt implements NotFallbackInParser {
 
     private String role;
 
@@ -61,5 +61,10 @@ public class AlterRoleStmt extends DdlStmt {
         sb.append(role);
         sb.append(" COMMENT \"").append(comment).append("\"");
         return sb.toString();
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.ALTER;
     }
 }

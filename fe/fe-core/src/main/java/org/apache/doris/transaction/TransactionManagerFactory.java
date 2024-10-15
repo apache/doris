@@ -18,10 +18,19 @@
 package org.apache.doris.transaction;
 
 import org.apache.doris.datasource.hive.HiveMetadataOps;
+import org.apache.doris.datasource.iceberg.IcebergMetadataOps;
+import org.apache.doris.fs.FileSystemProvider;
+
+import java.util.concurrent.Executor;
 
 public class TransactionManagerFactory {
 
-    public static TransactionManager createHiveTransactionManager(HiveMetadataOps ops) {
-        return new HiveTransactionManager(ops);
+    public static TransactionManager createHiveTransactionManager(HiveMetadataOps ops,
+            FileSystemProvider fileSystemProvider, Executor fileSystemExecutor) {
+        return new HiveTransactionManager(ops, fileSystemProvider, fileSystemExecutor);
+    }
+
+    public static TransactionManager createIcebergTransactionManager(IcebergMetadataOps ops) {
+        return new IcebergTransactionManager(ops);
     }
 }

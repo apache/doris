@@ -58,6 +58,10 @@ static bvar::PerSecond<bvar::Adder<uint64_t>> g_index_reader_pk_bytes_per_second
 
 using strings::Substitute;
 
+int64_t IndexedColumnReader::get_metadata_size() const {
+    return sizeof(IndexedColumnReader) + _meta.ByteSizeLong();
+}
+
 Status IndexedColumnReader::load(bool use_page_cache, bool kept_in_memory) {
     _use_page_cache = use_page_cache;
     _kept_in_memory = kept_in_memory;
@@ -91,6 +95,8 @@ Status IndexedColumnReader::load(bool use_page_cache, bool kept_in_memory) {
         }
     }
     _num_values = _meta.num_values();
+
+    update_metadata_size();
     return Status::OK();
 }
 
@@ -133,6 +139,8 @@ Status IndexedColumnReader::read_page(const PagePointer& pp, PageHandle* handle,
     g_index_reader_cached_pages << tmp_stats.cached_pages_num;
     return st;
 }
+
+IndexedColumnReader::~IndexedColumnReader() = default;
 
 ///////////////////////////////////////////////////////////////////////////////
 

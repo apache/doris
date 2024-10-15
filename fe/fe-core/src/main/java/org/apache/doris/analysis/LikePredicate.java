@@ -30,6 +30,7 @@ import org.apache.doris.thrift.TExprNodeType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+import com.google.gson.annotations.SerializedName;
 
 import java.util.Objects;
 import java.util.regex.Pattern;
@@ -68,7 +69,12 @@ public class LikePredicate extends Predicate {
                 "_ZN5doris13LikePredicate11regex_closeEPN9doris_udf15FunctionContextENS2_18FunctionStateScopeE", true));
     }
 
-    private final Operator op;
+    @SerializedName("op")
+    private Operator op;
+
+    private LikePredicate() {
+        // use for serde only
+    }
 
     public LikePredicate(Operator op, Expr e1, Expr e2) {
         super();

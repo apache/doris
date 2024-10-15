@@ -51,7 +51,7 @@ public class DropMaterializedViewStmtTest {
         new Expectations() {
             {
                 accessManager.checkTblPriv(ConnectContext.get(), tableName.getCtl(), tableName.getDb(),
-                        tableName.getTbl(), PrivPredicate.DROP);
+                        tableName.getTbl(), PrivPredicate.ALTER);
                 result = false;
             }
         };

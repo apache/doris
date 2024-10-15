@@ -16,7 +16,10 @@
 // under the License.
 
 suite("test_multi_table_load", "load_p0") {
-
+    def s3BucketName = getS3BucketName()
+    def s3Endpoint = getS3Endpoint()
+    def s3Region = getS3Region()
+    
     def tableName = "test_multi_table_load"
 
     sql """ DROP TABLE IF EXISTS ${tableName} """
@@ -81,7 +84,7 @@ suite("test_multi_table_load", "load_p0") {
         );
     """
 
-    def path = "s3://doris-build-1308700295/regression/load/data/basic_data.csv"
+    def path = "s3://${s3BucketName}/regression/load/data/basic_data.csv"
     def format_str = "CSV"
     def ak = getS3AK()
     def sk = getS3SK()
@@ -129,8 +132,9 @@ suite("test_multi_table_load", "load_p0") {
             WITH S3 (
                 "AWS_ACCESS_KEY" = "$ak",
                 "AWS_SECRET_KEY" = "$sk",
-                "AWS_ENDPOINT" = "cos.ap-beijing.myqcloud.com",
-                "AWS_REGION" = "ap-beijing"
+                "AWS_ENDPOINT" = "${s3Endpoint}",
+                "AWS_REGION" = "${s3Region}",
+                "provider" = "${getS3Provider()}"
             )
             properties(
                 "use_new_load_scan_node" = "true",
@@ -163,4 +167,37 @@ suite("test_multi_table_load", "load_p0") {
 
         qt_sql """ SELECT COUNT(*) FROM ${tableName} """
     }
+
+    // test cancel load
+    def tuple = data_desces[0]
+    def data_desc = tuple.get(0)
+    def load_result = tuple.get(1)
+
+    def label = UUID.randomUUID().toString().replace("-", "0")
+    def sql_str = """
+        LOAD LABEL $label (
+            $data_desc
+        )
+        WITH S3 (
+            "AWS_ACCESS_KEY" = "$ak",
+            "AWS_SECRET_KEY" = "$sk",
+            "AWS_ENDPOINT" = "${s3Endpoint}",
+            "AWS_REGION" = "${s3Region}",
+            "provider" = "${getS3Provider()}"
+        )
+        properties(
+            "use_new_load_scan_node" = "true",
+            "max_filter_ratio" = "1.0"
+        )
+        """
+    try {
+        sql """${sql_str}"""
+        sql """cancel load where label = "$label";"""
+    } catch (Exception e) {
+        logger.info("xx cancel load failed", e)
+        assertFalse(true);
+    }
+
+    String[][] result = sql """ show load where label="$label" order by createtime desc limit 1; """
+    assertEquals("CANCELLED", result[0][2])
 }

@@ -57,7 +57,7 @@ public class ShowReplicaTest extends TestWithFeService {
         ShowExecutor executor = new ShowExecutor(connectContext, stmt);
         ShowResultSet resultSet = executor.execute();
         Assert.assertEquals(1, resultSet.getResultRows().size());
-        Assert.assertEquals(7, resultSet.getResultRows().get(0).size());
+        Assert.assertEquals(9, resultSet.getResultRows().get(0).size());
 
         stmtStr = "show data skew from test.tbl1 partition(p1)";
         ShowDataSkewStmt skewStmt = (ShowDataSkewStmt) parseAndAnalyzeStmt(stmtStr);
@@ -73,7 +73,8 @@ public class ShowReplicaTest extends TestWithFeService {
             for (MaterializedIndex index : partition.getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE)) {
                 for (Tablet tablet : index.getTablets()) {
                     for (Replica replica : tablet.getReplicas()) {
-                        replica.updateStat(1024, 2);
+                        replica.setDataSize(1024L);
+                        replica.setRowCount(2L);
                     }
                 }
             }
@@ -82,7 +83,7 @@ public class ShowReplicaTest extends TestWithFeService {
         executor = new ShowExecutor(connectContext, stmt);
         resultSet = executor.execute();
         Assert.assertEquals(1, resultSet.getResultRows().size());
-        Assert.assertEquals(7, resultSet.getResultRows().get(0).size());
+        Assert.assertEquals(9, resultSet.getResultRows().get(0).size());
 
         executor = new ShowExecutor(connectContext, skewStmt);
         resultSet = executor.execute();

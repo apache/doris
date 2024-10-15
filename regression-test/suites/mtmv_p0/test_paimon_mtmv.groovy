@@ -20,7 +20,7 @@ suite("test_paimon_mtmv", "p0,external,paimon,external_docker,external_docker_hi
     logger.info("enabled: " + enabled)
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
     logger.info("externalEnvIp: " + externalEnvIp)
-    String hdfs_port = context.config.otherConfigs.get("hdfs_port")
+    String hdfs_port = context.config.otherConfigs.get("hive2HdfsPort")
     logger.info("hdfs_port: " + hdfs_port)
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String catalog_name = "paimon_mtmv_catalog";

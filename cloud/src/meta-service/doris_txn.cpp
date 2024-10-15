@@ -17,6 +17,8 @@
 
 #include "doris_txn.h"
 
+#include <bit>
+
 namespace doris::cloud {
 
 int get_txn_id_from_fdb_ts(std::string_view fdb_vts, int64_t* txn_id) {
@@ -29,7 +31,8 @@ int get_txn_id_from_fdb_ts(std::string_view fdb_vts, int64_t* txn_id) {
     // byte addr 0 1 2 3 4 5 6 7  8 9
     int64_t ver = *reinterpret_cast<const int64_t*>(fdb_vts.data());
 
-    // static_assert(std::endian::little); // Since c++20
+    // TODO(gavin): implementation for big-endian or make it endian-independent
+    static_assert(std::endian::native == std::endian::little); // Since c++20
     // Convert big endian to little endian
     static auto to_little = [](int64_t v) {
         v = ((v & 0xffffffff00000000) >> 32) | ((v & 0x00000000ffffffff) << 32);

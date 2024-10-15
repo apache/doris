@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.implementation;
 import org.apache.doris.nereids.properties.DistributionSpecAny;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.plans.logical.LogicalHudiScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
 
 import java.util.Optional;
@@ -30,7 +31,7 @@ import java.util.Optional;
 public class LogicalFileScanToPhysicalFileScan extends OneImplementationRuleFactory {
     @Override
     public Rule build() {
-        return logicalFileScan().then(fileScan ->
+        return logicalFileScan().when(plan -> !(plan instanceof LogicalHudiScan)).then(fileScan ->
             new PhysicalFileScan(
                     fileScan.getRelationId(),
                     fileScan.getTable(),
@@ -40,7 +41,8 @@ public class LogicalFileScanToPhysicalFileScan extends OneImplementationRuleFact
                     fileScan.getLogicalProperties(),
                     fileScan.getConjuncts(),
                     fileScan.getSelectedPartitions(),
-                    fileScan.getTableSample())
+                    fileScan.getTableSample(),
+                    fileScan.getTableSnapshot())
         ).toRule(RuleType.LOGICAL_FILE_SCAN_TO_PHYSICAL_FILE_SCAN_RULE);
     }
 }

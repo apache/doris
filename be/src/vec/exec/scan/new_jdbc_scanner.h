@@ -37,7 +37,6 @@ class TupleDescriptor;
 
 namespace vectorized {
 class Block;
-class NewJdbcScanNode;
 class VExprContext;
 
 class NewJdbcScanner : public VScanner {
@@ -46,16 +45,13 @@ class NewJdbcScanner : public VScanner {
 public:
     friend class JdbcConnector;
 
-    NewJdbcScanner(RuntimeState* state, NewJdbcScanNode* parent, int64_t limit,
-                   const TupleId& tuple_id, const std::string& query_string,
-                   TOdbcTableType::type table_type, RuntimeProfile* profile);
     NewJdbcScanner(RuntimeState* state, doris::pipeline::JDBCScanLocalState* parent, int64_t limit,
                    const TupleId& tuple_id, const std::string& query_string,
                    TOdbcTableType::type table_type, RuntimeProfile* profile);
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state) override;
 
-    Status prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts);
+    Status prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts) override;
 
 protected:
     Status _get_block_impl(RuntimeState* state, Block* block, bool* eos) override;

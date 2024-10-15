@@ -51,7 +51,7 @@ public:
 
     ~RoutineLoadTaskExecutor();
 
-    Status init();
+    Status init(int64_t process_mem_limit);
 
     void stop();
 
@@ -62,10 +62,16 @@ public:
                                     std::vector<int32_t>* partition_ids);
 
     Status get_kafka_partition_offsets_for_times(const PKafkaMetaProxyRequest& request,
-                                                 std::vector<PIntegerPair>* partition_offsets);
+                                                 std::vector<PIntegerPair>* partition_offsets,
+                                                 int timeout);
 
     Status get_kafka_latest_offsets_for_partitions(const PKafkaMetaProxyRequest& request,
-                                                   std::vector<PIntegerPair>* partition_offsets);
+                                                   std::vector<PIntegerPair>* partition_offsets,
+                                                   int timeout);
+
+    Status get_kafka_real_offsets_for_partitions(const PKafkaMetaProxyRequest& request,
+                                                 std::vector<PIntegerPair>* partition_offsets,
+                                                 int timeout);
 
 private:
     // execute the task
@@ -80,6 +86,7 @@ private:
     // create a dummy StreamLoadContext for PKafkaMetaProxyRequest
     Status _prepare_ctx(const PKafkaMetaProxyRequest& request,
                         std::shared_ptr<StreamLoadContext> ctx);
+    bool _reach_memory_limit();
 
 private:
     ExecEnv* _exec_env = nullptr;
@@ -89,6 +96,8 @@ private:
     std::mutex _lock;
     // task id -> load context
     std::unordered_map<UniqueId, std::shared_ptr<StreamLoadContext>> _task_map;
+
+    int64_t _load_mem_limit = -1;
 };
 
 } // namespace doris

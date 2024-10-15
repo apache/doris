@@ -40,8 +40,9 @@ public class TableIdentifier {
         Preconditions.checkArgument(tableIf != null,
                 "Table can not be null in constraint");
         tableId = tableIf.getId();
-        databaseId = tableIf.getDatabase().getId();
-        catalogId = tableIf.getDatabase().getCatalog().getId();
+        databaseId = tableIf.getDatabase() == null ? 0L : tableIf.getDatabase().getId();
+        catalogId = tableIf.getDatabase() == null || tableIf.getDatabase().getCatalog() == null
+                ? 0L : tableIf.getDatabase().getCatalog().getId();
     }
 
     public TableIf toTableIf() {
@@ -69,13 +70,14 @@ public class TableIdentifier {
             return false;
         }
         TableIdentifier that = (TableIdentifier) o;
-        return databaseId == that.databaseId
+        return catalogId == that.catalogId
+                && databaseId == that.databaseId
                 && tableId == that.tableId;
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(databaseId, tableId);
+        return Objects.hash(catalogId, databaseId, tableId);
     }
 
     @Override

@@ -49,7 +49,7 @@ suite("test_insert") {
 
     qt_sql1 "select * from ${insert_tbl} order by 1, 2, 3, 4"
 
-    def insert_tbl_dft = "test_insert_dft_tbl"
+    def insert_tbl_dft = "test_insert_dft2_tbl"
     sql """ DROP TABLE IF EXISTS ${insert_tbl_dft}"""
     
     // `k7` should be float type, and bug exists now, https://github.com/apache/doris/pull/20867
@@ -78,13 +78,8 @@ suite("test_insert") {
             "replication_num"="1"
         );
     """
-    
-    sql """ set enable_nereids_planner=true """
-    sql """ set enable_nereids_dml=true """
-    sql """ insert into ${insert_tbl_dft} values() """
 
-    sql """ set enable_nereids_planner=false """
-    sql """ set enable_nereids_dml=false """
+    sql """ insert into ${insert_tbl_dft} values() """
     sql """ insert into ${insert_tbl_dft} values() """
     
     qt_select """ select k1, k2, k3, k4, k5, k6, k8, k10, k11, k12 from ${insert_tbl_dft} """

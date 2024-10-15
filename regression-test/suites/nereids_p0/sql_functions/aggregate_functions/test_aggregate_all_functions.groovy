@@ -69,7 +69,7 @@ suite("test_aggregate_all_functions") {
 	CREATE TABLE IF NOT EXISTS ${tableName_03} (
 	 `dt` int(11) NULL COMMENT "",
 	 `page` varchar(10) NULL COMMENT "",
-	 `user_id` bitmap BITMAP_UNION NULL COMMENT ""
+	 `user_id` bitmap BITMAP_UNION  COMMENT ""
 	) ENGINE=OLAP
 	AGGREGATE KEY(`dt`, `page`)
 	COMMENT "OLAP"
@@ -85,7 +85,7 @@ suite("test_aggregate_all_functions") {
 	CREATE TABLE IF NOT EXISTS ${tableName_04} (
 	 `dt` int(11) NULL COMMENT "",
 	 `page` varchar(10) NULL COMMENT "",
-	 `user_id_bitmap` bitmap BITMAP_UNION NULL COMMENT "",
+	 `user_id_bitmap` bitmap BITMAP_UNION  COMMENT "",
 	 `user_id_int` int(11) REPLACE NULL COMMENT "",
 	 `user_id_str` string REPLACE NULL COMMENT ""
 	) ENGINE=OLAP

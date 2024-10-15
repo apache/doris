@@ -221,6 +221,13 @@
 19	Supplier#000000019	edZT3es,nBFD8lBXTGeTl	24	34-278-310-2731	6150.38	refully final foxes across the dogged theodolites sleep slyly abou
 20	Supplier#000000020	iybAE,RmTymrZVYaFZva2SH,j	3	13-715-945-6730	530.82	n, ironic ideas would nag blithely about the slyly regular accounts. silent, expr
 
+-- !parquet_decimal256 --
+1	99999999999999999999999999999999999999.99999999999999999999999999999999999999
+2	-99999999999999999999999999999999999999.99999999999999999999999999999999999999
+3	1E-38
+4	-1E-38
+5	0E-38
+
 -- !orc --
 1	goldenrod lavender spring chocolate lace	Manufacturer#1	Brand#13	PROMO BURNISHED COPPER	7	JUMBO PKG	901.00	ly. slyly ironi
 2	blush thistle blue yellow saddle	Manufacturer#1	Brand#13	LARGE BRUSHED BRASS	1	LG CASE	902.00	lar accounts amo
@@ -346,16 +353,15 @@
 2	shanghai	2345672
 3	hangzhou	2345673
 4	shenzhen	2345674
-5	guangzhou	2345675
 
 -- !desc --
-s_suppkey	INT	Yes	false	\N	NONE
-s_name	TEXT	Yes	false	\N	NONE
-s_address	TEXT	Yes	false	\N	NONE
-s_nationkey	INT	Yes	false	\N	NONE
-s_phone	TEXT	Yes	false	\N	NONE
-s_acctbal	DECIMAL(12, 2)	Yes	false	\N	NONE
-s_comment	TEXT	Yes	false	\N	NONE
+s_suppkey	int	Yes	false	\N	NONE
+s_name	text	Yes	false	\N	NONE
+s_address	text	Yes	false	\N	NONE
+s_nationkey	int	Yes	false	\N	NONE
+s_phone	text	Yes	false	\N	NONE
+s_acctbal	decimal(12,2)	Yes	false	\N	NONE
+s_comment	text	Yes	false	\N	NONE
 
 -- !hdfs_compatible --
 0	2	3	4	5	6.6	7.7	8.8	abc	def	ghiaaaaaa	2020-10-10	2020-10-10 11:12:59
@@ -602,17 +608,61 @@ s_comment	TEXT	Yes	false	\N	NONE
 99	2	3	4	5	6.6	7.7	8.80000	abc	abc	abc	2020-10-10	2020-10-10T11:12:59
 
 -- !hdfs_desc_csv_schema --
-bigint_col	BIGINT	Yes	false	\N	NONE
-date_col	DATE	Yes	false	\N	NONE
-datetime_col	DATETIME(3)	Yes	false	\N	NONE
-decimal_col	DECIMAL(10, 5)	Yes	false	\N	NONE
-double_col	DOUBLE	Yes	false	\N	NONE
-float_col	FLOAT	Yes	false	\N	NONE
-id	INT	Yes	false	\N	NONE
-largeint_col	LARGEINT	Yes	false	\N	NONE
-smallint_col	SMALLINT	Yes	false	\N	NONE
-string_col	TEXT	Yes	false	\N	NONE
-string_col	TEXT	Yes	false	\N	NONE
-string_col	TEXT	Yes	false	\N	NONE
-tinyint_col	TINYINT	Yes	false	\N	NONE
+bigint_col	bigint	Yes	false	\N	NONE
+date_col	date	Yes	false	\N	NONE
+datetime_col	datetime(3)	Yes	false	\N	NONE
+decimal_col	decimal(10,5)	Yes	false	\N	NONE
+double_col	double	Yes	false	\N	NONE
+float_col	float	Yes	false	\N	NONE
+id	int	Yes	false	\N	NONE
+largeint_col	largeint	Yes	false	\N	NONE
+smallint_col	smallint	Yes	false	\N	NONE
+string_col	text	Yes	false	\N	NONE
+string_col	text	Yes	false	\N	NONE
+string_col	text	Yes	false	\N	NONE
+tinyint_col	tinyint	Yes	false	\N	NONE
+
+-- !create_view --
+0	2	3	4	5	6.6	7.7	8.8	abc	def	ghiaaaaaa	2020-10-10	2020-10-10 11:12:59
+1	2	3	4	5	6.6	7.7	8.8	abc	def	ghiaaaaaa	2020-10-10	2020-10-10 11:12:59
+10	2	3	4	5	6.6	7.7	8.8	abc	def	ghiaaaaaa	2020-10-10	2020-10-10 11:12:59
+100	2	3	4	5	6.6	7.7	8.8	abc	def	ghiaaaaaa	2020-10-10	2020-10-10 11:12:59
+101	2	3	4	5	6.6	7.7	8.8	abc	def	ghiaaaaaa	2020-10-10	2020-10-10 11:12:59
+102	2	3	4	5	6.6	7.7	8.8	abc	def	ghiaaaaaa	2020-10-10	2020-10-10 11:12:59
+103	2	3	4	5	6.6	7.7	8.8	abc	def	ghiaaaaaa	2020-10-10	2020-10-10 11:12:59
+104	2	3	4	5	6.6	7.7	8.8	abc	def	ghiaaaaaa	2020-10-10	2020-10-10 11:12:59
+105	2	3	4	5	6.6	7.7	8.8	abc	def	ghiaaaaaa	2020-10-10	2020-10-10 11:12:59
+106	2	3	4	5	6.6	7.7	8.8	abc	def	ghiaaaaaa	2020-10-10	2020-10-10 11:12:59
+107	2	3	4	5	6.6	7.7	8.8	abc	def	ghiaaaaaa	2020-10-10	2020-10-10 11:12:59
+108	2	3	4	5	6.6	7.7	8.8	abc	def	ghiaaaaaa	2020-10-10	2020-10-10 11:12:59
+109	2	3	4	5	6.6	7.7	8.8	abc	def	ghiaaaaaa	2020-10-10	2020-10-10 11:12:59
+11	2	3	4	5	6.6	7.7	8.8	abc	def	ghiaaaaaa	2020-10-10	2020-10-10 11:12:59
+110	2	3	4	5	6.6	7.7	8.8	abc	def	ghiaaaaaa	2020-10-10	2020-10-10 11:12:59
+111	2	3	4	5	6.6	7.7	8.8	abc	def	ghiaaaaaa	2020-10-10	2020-10-10 11:12:59
+112	2	3	4	5	6.6	7.7	8.8	abc	def	ghiaaaaaa	2020-10-10	2020-10-10 11:12:59
+113	2	3	4	5	6.6	7.7	8.8	abc	def	ghiaaaaaa	2020-10-10	2020-10-10 11:12:59
+114	2	3	4	5	6.6	7.7	8.8	abc	def	ghiaaaaaa	2020-10-10	2020-10-10 11:12:59
+115	2	3	4	5	6.6	7.7	8.8	abc	def	ghiaaaaaa	2020-10-10	2020-10-10 11:12:59
+
+-- !alter_view --
+0
+1
+10
+100
+101
+102
+103
+104
+105
+106
+107
+108
+109
+11
+110
+111
+112
+113
+114
+115
 

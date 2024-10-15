@@ -17,9 +17,6 @@
 
 suite("query_stats_test") {
 
-    // nereids not support query stats now, fallback to legacy planner.
-    sql """set enable_nereids_planner=false"""
-
     def tbName = "stats_table"
     sql """ DROP TABLE IF EXISTS ${tbName} """
     sql """
@@ -57,5 +54,4 @@ suite("query_stats_test") {
     qt_sql "show query stats from ${tbName} all"
     qt_sql "show query stats from ${tbName} all verbose"
     sql "admin set frontend config (\"enable_query_hit_stats\"=\"false\");"
-    sql "set enable_nereids_planner=false"
 }

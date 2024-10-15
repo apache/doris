@@ -19,8 +19,7 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("test_nested_types_insert_into_with_unique_table", "p0") {
     sql 'use regression_test_datatype_p0_nested_types'
-    sql 'set enable_nereids_planner=false'
-    
+
     // test action for scala to array with scala type
     //  current we support char family to insert nested type
     // mor table test

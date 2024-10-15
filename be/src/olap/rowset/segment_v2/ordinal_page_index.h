@@ -64,13 +64,15 @@ private:
 
 class OrdinalPageIndexIterator;
 
-class OrdinalIndexReader {
+class OrdinalIndexReader : public MetadataAdder<OrdinalIndexReader> {
 public:
     explicit OrdinalIndexReader(io::FileReaderSPtr file_reader, ordinal_t num_values,
                                 const OrdinalIndexPB& meta_pb)
             : _file_reader(std::move(file_reader)), _num_values(num_values) {
         _meta_pb.reset(new OrdinalIndexPB(meta_pb));
     }
+
+    virtual ~OrdinalIndexReader();
 
     // load and parse the index page into memory
     Status load(bool use_page_cache, bool kept_in_memory);
@@ -93,6 +95,8 @@ public:
 private:
     Status _load(bool use_page_cache, bool kept_in_memory,
                  std::unique_ptr<OrdinalIndexPB> index_meta);
+
+    int64_t get_metadata_size() const override;
 
 private:
     friend OrdinalPageIndexIterator;

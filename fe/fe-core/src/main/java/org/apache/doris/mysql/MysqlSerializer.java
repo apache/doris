@@ -161,6 +161,35 @@ public class MysqlSerializer {
         }
     }
 
+    public void writeField(FieldInfo fieldInfo, Type type) {
+        // Catalog Name: length encoded string
+        writeLenEncodedString("def");
+        // Schema: length encoded string
+        writeLenEncodedString(fieldInfo.getSchema());
+        // Table: length encoded string
+        writeLenEncodedString(fieldInfo.getTable());
+        // Origin Table: length encoded string
+        writeLenEncodedString(fieldInfo.getOriginalTable());
+        // Name: length encoded string
+        writeLenEncodedString(fieldInfo.getName());
+        // Original Name: length encoded string
+        writeLenEncodedString(fieldInfo.getOriginalName());
+        // length of the following fields(always 0x0c)
+        writeVInt(0x0c);
+        // Character set: two byte integer
+        writeInt2(33);
+        // Column length: four byte integer
+        writeInt4(getMysqlTypeLength(type));
+        // Column type: one byte integer
+        writeInt1(type.getPrimitiveType().toMysqlType().getCode());
+        // Flags: two byte integer
+        writeInt2(0);
+        // Decimals: one byte integer
+        writeInt1(getMysqlDecimals(type));
+        // filler: two byte integer
+        writeInt2(0);
+    }
+
     public void writeField(String db, String table, Column column, boolean sendDefault) {
         // Catalog Name: length encoded string
         writeLenEncodedString("def");
@@ -298,6 +327,8 @@ public class MysqlSerializer {
             case DECIMAL64:
             case DECIMAL128:
             case DECIMAL256:
+            case TIMEV2:
+            case DATETIMEV2:
                 return ((ScalarType) type).decimalScale();
             case FLOAT:
             case DOUBLE:

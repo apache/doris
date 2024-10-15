@@ -22,7 +22,6 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.DuplicatedRequestException;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.UserException;
@@ -32,6 +31,7 @@ import org.apache.doris.load.sync.SyncJob;
 import org.apache.doris.load.sync.model.Data;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.qe.InsertStreamTxnExecutor;
+import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.task.SyncTask;
 import org.apache.doris.task.SyncTaskPool;
@@ -132,8 +132,10 @@ public class CanalSyncChannel extends SyncChannel {
                 try {
                     long txnId = globalTransactionMgr.beginTransaction(db.getId(),
                             Lists.newArrayList(tbl.getId()), label,
-                        new TransactionState.TxnCoordinator(TransactionState.TxnSourceType.FE,
-                            FrontendOptions.getLocalHostAddress()), sourceType, timeoutSecond);
+                            new TransactionState.TxnCoordinator(TransactionState.TxnSourceType.FE, 0,
+                                    FrontendOptions.getLocalHostAddress(),
+                                    ExecuteEnv.getInstance().getStartupTime()),
+                            sourceType, timeoutSecond);
                     String token = Env.getCurrentEnv().getLoadManager().getTokenManager().acquireToken();
                     request = new TStreamLoadPutRequest()
                         .setTxnId(txnId).setDb(txnConf.getDb()).setTbl(txnConf.getTbl())
@@ -246,9 +248,8 @@ public class CanalSyncChannel extends SyncChannel {
             UUID uuid = UUID.randomUUID();
             TUniqueId loadId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
             this.timeoutSecond = timeoutSecond;
-            TTxnParams txnConf = new TTxnParams().setNeedTxn(true).setEnablePipelineTxnLoad(Config.enable_pipeline_load)
-                    .setThriftRpcTimeoutMs(5000).setTxnId(-1).setDb(db.getFullName())
-                    .setTbl(tbl.getName()).setDbId(db.getId());
+            TTxnParams txnConf = new TTxnParams().setNeedTxn(true).setThriftRpcTimeoutMs(5000).setTxnId(-1)
+                    .setDb(db.getFullName()).setTbl(tbl.getName()).setDbId(db.getId());
             this.txnExecutor = new InsertStreamTxnExecutor(new TransactionEntry(txnConf, db, tbl));
             txnExecutor.setTxnId(-1L);
             txnExecutor.setLoadId(loadId);

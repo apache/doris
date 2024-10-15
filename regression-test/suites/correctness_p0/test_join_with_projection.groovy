@@ -80,7 +80,6 @@ suite("test_join_with_projection") {
         drop table if exists test_join_with_projection_outerjoin_B;
     """
 
-    sql """set enable_nereids_planner=false;"""
     sql """drop table if exists c5870_t;"""
     sql """create table  c5870_t ( 
             order_item_seq_id varchar(80) NOT NULL,

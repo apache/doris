@@ -22,10 +22,13 @@
 
 #include <glog/logging.h>
 
+#include <algorithm>
+#include <ranges>
 #include <utility>
 #include <vector>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/status.h"
 #include "gutil/integral_types.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
@@ -53,7 +56,7 @@ using namespace FunctionsLogicalDetail;
 template <class Op>
 void vector_const(const IColumn* left, const ColumnConst* right, IColumn* res, size_t rows) {
     const auto* __restrict l_datas = assert_cast<const ColumnUInt8*>(left)->get_data().data();
-    auto r_data = (uint8)right->get_uint(0);
+    auto r_data = (uint8_t)right->get_bool(0);
     auto* __restrict res_datas = assert_cast<ColumnUInt8*>(res)->get_data().data();
 
     for (size_t i = 0; i < rows; ++i) {
@@ -168,7 +171,8 @@ template <typename Impl, typename Name>
 DataTypePtr FunctionAnyArityLogical<Impl, Name>::get_return_type_impl(
         const DataTypes& arguments) const {
     if (arguments.size() < 2) {
-        LOG(FATAL) << fmt::format(
+        throw doris::Exception(
+                ErrorCode::INVALID_ARGUMENT,
                 "Number of arguments for function \"{}\" should be at least 2: passed {}",
                 get_name(), arguments.size());
     }
@@ -189,8 +193,9 @@ DataTypePtr FunctionAnyArityLogical<Impl, Name>::get_return_type_impl(
 
         if (!(is_native_number(arg_type) || (Impl::special_implementation_for_nulls() &&
                                              is_native_number(remove_nullable(arg_type))))) {
-            LOG(FATAL) << fmt::format("Illegal type ({}) of {} argument of function {}",
-                                      arg_type->get_name(), i + 1, get_name());
+            throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                                   "Illegal type ({}) of {} argument of function {}",
+                                   arg_type->get_name(), i + 1, get_name());
         }
     }
 
@@ -208,9 +213,14 @@ Status FunctionAnyArityLogical<Impl, Name>::execute_impl(FunctionContext* contex
         args_in.push_back(block.get_by_position(arg_index).column.get());
 
     auto& result_info = block.get_by_position(result_index);
-    if (result_info.type->is_nullable()) {
-        null_execute_impl<Impl>(std::move(args_in), result_info, input_rows_count);
+    if constexpr (Impl::special_implementation_for_nulls()) {
+        if (result_info.type->is_nullable()) {
+            null_execute_impl<Impl>(std::move(args_in), result_info, input_rows_count);
+        } else {
+            basic_execute_impl<Impl>(std::move(args_in), result_info, input_rows_count);
+        }
     } else {
+        DCHECK(std::ranges::all_of(args_in, [](const auto& arg) { return !arg->is_nullable(); }));
         basic_execute_impl<Impl>(std::move(args_in), result_info, input_rows_count);
     }
     return Status::OK();
@@ -231,8 +241,9 @@ template <template <typename> class Impl, typename Name>
 DataTypePtr FunctionUnaryLogical<Impl, Name>::get_return_type_impl(
         const DataTypes& arguments) const {
     if (!is_native_number(arguments[0])) {
-        LOG(FATAL) << fmt::format("Illegal type ({}) of argument of function {}",
-                                  arguments[0]->get_name(), get_name());
+        throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                               "Illegal type ({}) of argument of function {}",
+                               arguments[0]->get_name(), get_name());
     }
 
     return std::make_shared<DataTypeUInt8>();
@@ -260,9 +271,9 @@ Status FunctionUnaryLogical<Impl, Name>::execute_impl(FunctionContext* context, 
                                                       const ColumnNumbers& arguments, size_t result,
                                                       size_t /*input_rows_count*/) const {
     if (!functionUnaryExecuteType<Impl, UInt8>(block, arguments, result)) {
-        LOG(FATAL) << fmt::format("Illegal column {} of argument of function {}",
-                                  block.get_by_position(arguments[0]).column->get_name(),
-                                  get_name());
+        throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                               "Illegal column {} of argument of function {}",
+                               block.get_by_position(arguments[0]).column->get_name(), get_name());
     }
 
     return Status::OK();
@@ -272,6 +283,7 @@ void register_function_logical(SimpleFunctionFactory& instance) {
     instance.register_function<FunctionAnd>();
     instance.register_function<FunctionOr>();
     instance.register_function<FunctionNot>();
+    instance.register_function<FunctionXor>();
 }
 
 } // namespace doris::vectorized

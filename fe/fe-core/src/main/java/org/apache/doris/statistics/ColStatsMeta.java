@@ -23,6 +23,9 @@ import org.apache.doris.statistics.AnalysisInfo.JobType;
 
 import com.google.gson.annotations.SerializedName;
 
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicLong;
 
 public class ColStatsMeta {
@@ -43,16 +46,26 @@ public class ColStatsMeta {
     @SerializedName("trigger")
     public JobType jobType;
 
-    public ColStatsMeta(long updatedTime, AnalysisMethod analysisMethod,
-            AnalysisType analysisType, JobType jobType, long queriedTimes) {
+    @SerializedName("updatedRows")
+    public long updatedRows;
+
+    @SerializedName("rowCount")
+    public long rowCount;
+
+    @SerializedName("pur")
+    public ConcurrentMap<Long, Long> partitionUpdateRows = new ConcurrentHashMap<>();
+
+    public ColStatsMeta(long updatedTime, AnalysisMethod analysisMethod, AnalysisType analysisType, JobType jobType,
+            long queriedTimes, long rowCount, long updatedRows, Map<Long, Long> partitionUpdateRows) {
         this.updatedTime = updatedTime;
         this.analysisMethod = analysisMethod;
         this.analysisType = analysisType;
         this.jobType = jobType;
         this.queriedTimes.addAndGet(queriedTimes);
-    }
-
-    public void clear() {
-        updatedTime = 0;
+        this.updatedRows = updatedRows;
+        this.rowCount = rowCount;
+        if (partitionUpdateRows != null) {
+            this.partitionUpdateRows.putAll(partitionUpdateRows);
+        }
     }
 }

@@ -2,5 +2,5 @@
 -- !select1 --
 
 -- !desc1 --
-__dummy_col	TEXT	Yes	false	\N	NONE
+__dummy_col	text	Yes	false	\N	NONE
 

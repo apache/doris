@@ -28,5 +28,9 @@
     {"name": "Andy", "age": 18},
     {"name": "Tim", "age": 28}
   ],
-  "message": "I'm not null or empty"
+  "message": "I'm not null or empty",
+  "c_user": [
+    {"first": "John", "last":  "Smith"},
+    {"first": "Alice", "last":  "White"}
+  ]
 }

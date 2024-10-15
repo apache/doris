@@ -28,6 +28,7 @@ class EliminateJoinByUniqueTest extends TestWithFeService implements MemoPattern
     protected void runBeforeAll() throws Exception {
         createDatabase("test");
         connectContext.setDatabase("default_cluster:test");
+        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
         createTables(
                 "CREATE TABLE IF NOT EXISTS t1 (\n"
                         + "    id1 int not null,\n"

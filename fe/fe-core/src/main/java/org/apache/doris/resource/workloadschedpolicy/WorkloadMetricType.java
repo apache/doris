@@ -18,5 +18,5 @@
 package org.apache.doris.resource.workloadschedpolicy;
 
 public enum WorkloadMetricType {
-    USERNAME, QUERY_TIME, BE_SCAN_ROWS, BE_SCAN_BYTES
+    USERNAME, QUERY_TIME, BE_SCAN_ROWS, BE_SCAN_BYTES, QUERY_BE_MEMORY_BYTES
 }

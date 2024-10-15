@@ -18,6 +18,8 @@
 suite("test_case_when_to_if") {
     sql 'set enable_nereids_planner=true'
     sql 'set enable_fallback_to_original_planner=false'
+    sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
+
 
     sql 'drop table if exists test_case_when_to_if;'
 

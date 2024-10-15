@@ -19,13 +19,16 @@ package org.apache.doris.nereids.rules.exploration.mv.mapping;
 
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.types.VariantType;
 
 import com.google.common.collect.BiMap;
 import com.google.common.collect.HashBiMap;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 
 /**
@@ -33,11 +36,15 @@ import javax.annotation.Nullable;
  */
 public class SlotMapping extends Mapping {
 
+    public static final Logger LOG = LogManager.getLogger(SlotMapping.class);
+
     private final BiMap<MappedSlot, MappedSlot> relationSlotMap;
     private Map<SlotReference, SlotReference> slotReferenceMap;
 
-    public SlotMapping(BiMap<MappedSlot, MappedSlot> relationSlotMap) {
+    public SlotMapping(BiMap<MappedSlot, MappedSlot> relationSlotMap,
+            Map<SlotReference, SlotReference> slotReferenceMap) {
         this.relationSlotMap = relationSlotMap;
+        this.slotReferenceMap = slotReferenceMap;
     }
 
     public BiMap<MappedSlot, MappedSlot> getRelationSlotMap() {
@@ -45,11 +52,12 @@ public class SlotMapping extends Mapping {
     }
 
     public SlotMapping inverse() {
-        return SlotMapping.of(relationSlotMap.inverse());
+        return SlotMapping.of(relationSlotMap.inverse(), null);
     }
 
-    public static SlotMapping of(BiMap<MappedSlot, MappedSlot> relationSlotMap) {
-        return new SlotMapping(relationSlotMap);
+    public static SlotMapping of(BiMap<MappedSlot, MappedSlot> relationSlotMap,
+            Map<SlotReference, SlotReference> slotReferenceMap) {
+        return new SlotMapping(relationSlotMap, slotReferenceMap);
     }
 
     /**
@@ -58,26 +66,40 @@ public class SlotMapping extends Mapping {
     @Nullable
     public static SlotMapping generate(RelationMapping relationMapping) {
         BiMap<MappedSlot, MappedSlot> relationSlotMap = HashBiMap.create();
+        Map<SlotReference, SlotReference> slotReferenceMap = new HashMap<>();
         BiMap<MappedRelation, MappedRelation> mappedRelationMap = relationMapping.getMappedRelationMap();
         for (Map.Entry<MappedRelation, MappedRelation> mappedRelationEntry : mappedRelationMap.entrySet()) {
-            Map<String, Slot> targetNameSlotMap =
-                    mappedRelationEntry.getValue().getBelongedRelation().getOutput().stream()
-                            .collect(Collectors.toMap(Slot::getName, slot -> slot));
-            for (Slot sourceSlot : mappedRelationEntry.getKey().getBelongedRelation().getOutput()) {
-                Slot targetSlot = targetNameSlotMap.get(sourceSlot.getName());
+            MappedRelation sourceRelation = mappedRelationEntry.getKey();
+            Map<List<String>, Slot> sourceSlotNameToSlotMap = sourceRelation.getSlotNameToSlotMap();
+
+            MappedRelation targetRelation = mappedRelationEntry.getValue();
+            Map<List<String>, Slot> targetSlotNameSlotMap = targetRelation.getSlotNameToSlotMap();
+
+            for (List<String> sourceSlotName : sourceSlotNameToSlotMap.keySet()) {
+                Slot sourceSlot = sourceSlotNameToSlotMap.get(sourceSlotName);
+                Slot targetSlot = targetSlotNameSlotMap.get(sourceSlotName);
                 // source slot can not map from target, bail out
-                if (targetSlot == null) {
+                if (targetSlot == null && !(((SlotReference) sourceSlot).getDataType() instanceof VariantType)) {
+                    LOG.warn(String.format("SlotMapping generate is null, source relation is %s, "
+                            + "target relation is %s", sourceRelation, targetRelation));
                     return null;
                 }
-                relationSlotMap.put(MappedSlot.of(sourceSlot, mappedRelationEntry.getKey().getBelongedRelation()),
-                        MappedSlot.of(targetSlot, mappedRelationEntry.getValue().getBelongedRelation()));
+                if (targetSlot == null) {
+                    // if variant, though can not map slot from query to view, but we maybe derive slot from query
+                    // variant self, such as query slot to view slot mapping is payload#4 -> payload#10
+                    // and query has a variant which is payload['issue']['number']#20, this can not get from view.
+                    // in this scene, we can derive
+                    // payload['issue']['number']#20 -> element_at(element_at(payload#10, 'issue'), 'number') mapping
+                    // in expression rewrite
+                    continue;
+                }
+                relationSlotMap.put(MappedSlot.of(sourceSlot,
+                                sourceRelation.getBelongedRelation()),
+                        MappedSlot.of(targetSlot, targetRelation.getBelongedRelation()));
+                slotReferenceMap.put((SlotReference) sourceSlot, (SlotReference) targetSlot);
             }
         }
-        return SlotMapping.of(relationSlotMap);
-    }
-
-    public Map<MappedSlot, MappedSlot> toMappedSlotMap() {
-        return (Map) this.getRelationSlotMap();
+        return SlotMapping.of(relationSlotMap, slotReferenceMap);
     }
 
     /**
@@ -87,12 +109,11 @@ public class SlotMapping extends Mapping {
         if (this.slotReferenceMap != null) {
             return this.slotReferenceMap;
         }
-        Map<SlotReference, SlotReference> slotReferenceSlotReferenceMap = new HashMap<>();
+        this.slotReferenceMap = new HashMap<>();
         for (Map.Entry<MappedSlot, MappedSlot> entry : this.getRelationSlotMap().entrySet()) {
-            slotReferenceSlotReferenceMap.put((SlotReference) entry.getKey().getSlot(),
+            this.slotReferenceMap.put((SlotReference) entry.getKey().getSlot(),
                     (SlotReference) entry.getValue().getSlot());
         }
-        this.slotReferenceMap = slotReferenceSlotReferenceMap;
         return this.slotReferenceMap;
     }
 

@@ -91,12 +91,6 @@ show_backends(){
     fi
 
     echo "$backends"
-
-    #if [[ "x$DB_ADMIN_PASSWD" != "x" ]]; then
-    #   timeout 15 mysql --connect-timeout 2 -h $svc -P $FE_QUERY_PORT -u$DB_ADMIN_USER -p$DB_ADMIN_PASSWD --skip-column-names --batch -e 'SHOW BACKENDS;'
-    #else
-    #   timeout 15 mysql --connect-timeout 2 -h $svc -P $FE_QUERY_PORT -u$DB_ADMIN_USER --skip-column-names --batch -e 'SHOW BACKENDS;'
-    #fi
 }
 
 # get all registered fe in cluster, for check the fe have `MASTER`.
@@ -111,11 +105,6 @@ function show_frontends()
     fi
 
     echo "$frontends"
-    #if [[ "x$DB_ADMIN_PASSWD" != "x" ]]; then
-    #    timeout 15 mysql --connect-timeout 2 -h $addr -P $FE_QUERY_PORT -u$DB_ADMIN_USER -p$DB_ADMIN_PASSWD --batch -e 'show frontends;'
-    #else
-    #    timeout 15 mysql --connect-timeout 2 -h $addr -P $FE_QUERY_PORT -u$DB_ADMIN_USER --batch -e 'show frontends;'
-    #fi
 }
 
 #parse the `$BE_CONFIG` file, passing the key need resolve as parameter.
@@ -174,17 +163,12 @@ add_self()
         fi
 
         if [[ "x$leader" != "x" ]]; then
+            create_account $leader
             log_stderr "[info] myself ($MY_SELF:$HEARTBEAT_PORT)  not exist in FE and fe have leader register myself into fe."
             add_result=`timeout 15 mysql --connect-timeout 2 -h $svc -P $FE_QUERY_PORT -uroot --skip-column-names --batch -e "ALTER SYSTEM ADD BACKEND \"$MY_SELF:$HEARTBEAT_PORT\";" 2>&1`
             if echo $add_result | grep -w "1045" | grep -q -w "28000" &>/dev/null ; then
                 timeout 15 mysql --connect-timeout 2 -h $svc -P $FE_QUERY_PORT -u$DB_ADMIN_USER -p$DB_ADMIN_PASSWD --skip-column-names --batch -e "ALTER SYSTEM ADD BACKEND \"$MY_SELF:$HEARTBEAT_PORT\";"
             fi
-
-            #if [[ "x$DB_ADMIN_PASSWD" != "x" ]]; then
-            #    timeout 15 mysql --connect-timeout 2 -h $svc -P $FE_QUERY_PORT -u$DB_ADMIN_USER -p$DB_ADMIN_PASSWD --skip-column-names --batch -e "ALTER SYSTEM ADD BACKEND \"$MY_SELF:$HEARTBEAT_PORT\";"
-            #else
-            #    timeout 15 mysql --connect-timeout 2 -h $svc -P $FE_QUERY_PORT -u$DB_ADMIN_USER --skip-column-names --batch -e "ALTER SYSTEM ADD BACKEND \"$MY_SELF:$HEARTBEAT_PORT\";"
-            #fi
 
             let "expire=start+timeout"
             now=`date +%s`
@@ -197,6 +181,23 @@ add_self()
             sleep $PROBE_INTERVAL
         fi
     done
+}
+
+function create_account()
+{
+    master=$1
+    users=`mysql --connect-timeout 2 -h $master -P $FE_QUERY_PORT -uroot --skip-column-names --batch -e 'SHOW ALL GRANTS;' 2>&1`
+    if echo $users | grep -w "1045" | grep -q -w "28000" &>/dev/null; then
+        log_stderr "the 'root' account have set password! not need auto create management account."
+        return 0
+    fi
+    if echo $users | grep -q -w "$DB_ADMIN_USER" &>/dev/null; then
+       log_stderr "the $DB_ADMIN_USER have exist in doris."
+       return 0
+    fi
+    mysql --connect-timeout 2 -h $master -P$FE_QUERY_PORT -uroot --skip-column-names --batch -e "CREATE USER '$DB_ADMIN_USER' IDENTIFIED BY '$DB_ADMIN_PASSWD';GRANT NODE_PRIV ON *.*.* TO $DB_ADMIN_USER;" 2>&1
+    log_stderr "created new account and grant NODE_PRIV!"
+
 }
 
 # check be exist or not, if exist return 0, or register self in fe cluster. when all fe address failed exit script.

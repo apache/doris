@@ -70,7 +70,7 @@ public class Numbers extends TableValuedFunction {
 
             Map<Expression, ColumnStatistic> columnToStatistics = Maps.newHashMap();
             ColumnStatisticBuilder statBuilder = new ColumnStatisticBuilder()
-                    .setCount(rowNum).setAvgSizeByte(8).setNumNulls(0).setDataSize(8);
+                    .setAvgSizeByte(8).setNumNulls(0).setDataSize(8);
             if (numberTvf.getUseConst()) { // a column of const value
                 long value = numberTvf.getConstValue();
                 statBuilder = statBuilder.setNdv(1).setMinValue(value).setMaxValue(value)

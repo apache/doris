@@ -369,35 +369,6 @@ static const unsigned int T8_7[256] = {
         0xCF56CE31, 0x14124958, 0x5D2E347F, 0xE54C35A1, 0xAC704886, 0x7734CFEF, 0x3E08B2C8,
         0xC451B7CC, 0x8D6DCAEB, 0x56294D82, 0x1F1530A5};
 
-unsigned int crc32c_lut(char const* b, unsigned int off, unsigned int len, unsigned int crc) {
-    unsigned int localCrc = crc;
-    while (len > 7) {
-        unsigned int c0 = b[off++] ^ localCrc;
-        unsigned int c1 = b[off++] ^ (localCrc >>= 8);
-        unsigned int c2 = b[off++] ^ (localCrc >>= 8);
-        unsigned int c3 = b[off++] ^ (localCrc >>= 8);
-
-        localCrc = (T8_7[c0 & 0xff] ^ T8_6[c1 & 0xff]) ^ (T8_5[c2 & 0xff] ^ T8_4[c3 & 0xff]);
-
-        c0 = b[off++] & 0xff;
-        c1 = b[off++] & 0xff;
-        c2 = b[off++] & 0xff;
-        c3 = b[off++] & 0xff;
-
-        localCrc ^= (T8_3[c0] ^ T8_2[c1]) ^ (T8_1[c2] ^ T8_0[c3]);
-
-        len -= 8;
-    }
-
-    while (len > 0) {
-        localCrc = (localCrc >> 8) ^ T8_0[(localCrc ^ b[off++]) & 0xffL];
-        len--;
-    }
-
-    // Publish crc out to object
-    return localCrc;
-}
-
 Status gen_timestamp_string(std::string* out_string) {
     time_t now = time(nullptr);
     tm local_tm;
@@ -412,10 +383,6 @@ Status gen_timestamp_string(std::string* out_string) {
 
     *out_string = time_suffix;
     return Status::OK();
-}
-
-int operator-(const BinarySearchIterator& left, const BinarySearchIterator& right) {
-    return *left - *right;
 }
 
 Status read_write_test_file(const std::string& test_file_path) {
@@ -537,7 +504,7 @@ bool valid_signed_number<int128_t>(const std::string& value_str) {
 }
 
 bool valid_decimal(const std::string& value_str, const uint32_t precision, const uint32_t frac) {
-    const char* decimal_pattern = "-?\\d+(.\\d+)?";
+    const char* decimal_pattern = "-?(\\d+)(.\\d+)?";
     std::regex e(decimal_pattern);
     std::smatch what;
     if (!std::regex_match(value_str, what, e) || what[0].str().size() != value_str.size()) {
@@ -546,7 +513,8 @@ bool valid_decimal(const std::string& value_str, const uint32_t precision, const
     }
 
     size_t number_length = value_str.size();
-    if (value_str[0] == '-') {
+    bool is_negative = value_str[0] == '-';
+    if (is_negative) {
         --number_length;
     }
 
@@ -557,15 +525,18 @@ bool valid_decimal(const std::string& value_str, const uint32_t precision, const
         integer_len = number_length;
         fractional_len = 0;
     } else {
-        integer_len = point_pos;
+        integer_len = point_pos - (is_negative ? 1 : 0);
         fractional_len = number_length - point_pos - 1;
     }
 
-    if (integer_len <= (precision - frac) && fractional_len <= frac) {
-        return true;
-    } else {
-        return false;
+    /// For value likes "0.xxxxxx", the integer_len should actually be 0.
+    if (integer_len == 1 && precision - frac == 0) {
+        if (what[1].str() == "0") {
+            integer_len = 0;
+        }
     }
+
+    return (integer_len <= (precision - frac) && fractional_len <= frac);
 }
 
 bool valid_datetime(const std::string& value_str, const uint32_t scale) {
@@ -650,15 +621,6 @@ bool valid_ipv4(const std::string& value_str) {
 
 bool valid_ipv6(const std::string& value_str) {
     return IPv6Value::is_valid_string(value_str.c_str(), value_str.size());
-}
-
-void write_log_info(char* buf, size_t buf_len, const char* fmt, ...) {
-    va_list args;
-    va_start(args, fmt);
-
-    vsnprintf(buf, buf_len, fmt, args);
-
-    va_end(args);
 }
 
 } // namespace doris

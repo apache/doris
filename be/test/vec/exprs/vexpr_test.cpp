@@ -40,6 +40,7 @@
 #include "runtime/large_int_value.h"
 #include "runtime/runtime_state.h"
 #include "testutil/desc_tbl_builder.h"
+#include "vec/columns/columns_number.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/exprs/vexpr_context.h"
@@ -376,12 +377,11 @@ TEST(TEST_VEXPR, LITERALTEST) {
     // bool
     {
         VLiteral literal(create_literal<TYPE_BOOLEAN>(true));
-        std::cout << "data type: " << literal.data_type().get()->get_name() << std::endl;
         Block block;
         int ret = -1;
         static_cast<void>(literal.execute(nullptr, &block, &ret));
         auto ctn = block.safe_get_by_position(ret);
-        bool v = ctn.column->get_bool(0);
+        auto v = (*ctn.column)[0].get<uint8_t>();
         EXPECT_EQ(v, true);
         EXPECT_EQ("1", literal.value());
     }
@@ -392,7 +392,7 @@ TEST(TEST_VEXPR, LITERALTEST) {
         int ret = -1;
         static_cast<void>(literal.execute(nullptr, &block, &ret));
         auto ctn = block.safe_get_by_position(ret);
-        auto v = ctn.column->get64(0);
+        auto v = (*ctn.column)[0].get<int16_t>();
         EXPECT_EQ(v, 1024);
         EXPECT_EQ("1024", literal.value());
     }
@@ -403,7 +403,7 @@ TEST(TEST_VEXPR, LITERALTEST) {
         int ret = -1;
         static_cast<void>(literal.execute(nullptr, &block, &ret));
         auto ctn = block.safe_get_by_position(ret);
-        auto v = ctn.column->get64(0);
+        auto v = (*ctn.column)[0].get<int32_t>();
         EXPECT_EQ(v, 1024);
         EXPECT_EQ("1024", literal.value());
     }
@@ -414,7 +414,7 @@ TEST(TEST_VEXPR, LITERALTEST) {
         int ret = -1;
         static_cast<void>(literal.execute(nullptr, &block, &ret));
         auto ctn = block.safe_get_by_position(ret);
-        auto v = ctn.column->get64(0);
+        auto v = (*ctn.column)[0].get<int64_t>();
         EXPECT_EQ(v, 1024);
         EXPECT_EQ("1024", literal.value());
     }
@@ -478,7 +478,7 @@ TEST(TEST_VEXPR, LITERALTEST) {
         uint8_t second = 46;
         uint32_t microsecond = 999999; // target scale is 4, so the microsecond will be rounded up
         DateV2Value<DateTimeV2ValueType> datetime_v2;
-        datetime_v2.set_time(year, month, day, hour, minute, second, microsecond);
+        datetime_v2.unchecked_set_time(year, month, day, hour, minute, second, microsecond);
         std::string date = datetime_v2.debug_string();
 
         VLiteral literal(create_literal<TYPE_DATETIMEV2, std::string>(date, 4));
@@ -518,6 +518,30 @@ TEST(TEST_VEXPR, LITERALTEST) {
         auto v = (*ctn.column)[0].get<uint32_t>();
         EXPECT_EQ(v, dt);
         EXPECT_EQ("2021-04-07", literal.value());
+    }
+    {
+        DateV2Value<DateV2ValueType> data_time_value;
+        const char* date = "00000000";
+        EXPECT_EQ(data_time_value.from_date_str(date, strlen(date), -1, true), true);
+
+        DateV2Value<DateV2ValueType> data_time_value1;
+        const char* date1 = "00000101";
+        EXPECT_EQ(data_time_value1.from_date_str(date1, strlen(date1), -1, true), true);
+        EXPECT_EQ(data_time_value.to_int64(), data_time_value1.to_int64());
+
+        EXPECT_EQ(data_time_value.from_date_str(date, strlen(date)), false);
+    }
+    {
+        DateV2Value<DateTimeV2ValueType> data_time_value;
+        const char* date = "00000000111111";
+        EXPECT_EQ(data_time_value.from_date_str(date, strlen(date), -1, true), true);
+
+        DateV2Value<DateTimeV2ValueType> data_time_value1;
+        const char* date1 = "00000101111111";
+        EXPECT_EQ(data_time_value1.from_date_str(date1, strlen(date1), -1, true), true);
+        EXPECT_EQ(data_time_value.to_int64(), data_time_value1.to_int64());
+
+        EXPECT_EQ(data_time_value.from_date_str(date, strlen(date)), false);
     }
     // jsonb
     {

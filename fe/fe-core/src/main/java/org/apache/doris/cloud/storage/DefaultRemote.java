@@ -110,7 +110,7 @@ public class DefaultRemote extends RemoteBase {
             }
             return new ListObjectsResult(objectFiles, response.isTruncated(), response.nextContinuationToken());
         } catch (SdkException e) {
-            LOG.warn("Failed to list objects for S3", e);
+            LOG.warn("Failed to list objects for S3, prefix {}", prefix, e);
             throw new DdlException("Failed to list objects for S3, Error message=" + e.getMessage());
         }
     }

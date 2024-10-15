@@ -77,10 +77,6 @@ suite("test_analyze_triggered_by_update_row_count") {
         """
 
     sql """
-        SET GLOBAL enable_auto_analyze=true;
-        """
-
-    sql """
          analyze table ${tbl} with sync;
         """
 

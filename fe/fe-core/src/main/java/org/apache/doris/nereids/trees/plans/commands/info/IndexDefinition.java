@@ -24,7 +24,6 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.Utils;
 
@@ -100,12 +99,9 @@ public class IndexDefinition {
             String indexColName = column.getName();
             caseSensitivityCols.add(indexColName);
             DataType colType = column.getType();
-            if (indexType == IndexType.INVERTED && colType.isArrayType()) {
-                colType = ((ArrayType) colType).getItemType();
-            }
-            if (!(colType.isDateLikeType() || colType.isDecimalLikeType()
+            if (!(colType.isDateLikeType() || colType.isDecimalLikeType() || colType.isArrayType()
                     || colType.isIntegralType() || colType.isStringLikeType()
-                    || colType.isBooleanType() || colType.isVariantType())) {
+                    || colType.isBooleanType() || colType.isVariantType() || colType.isIPType())) {
                 // TODO add colType.isAggState()
                 throw new AnalysisException(colType + " is not supported in " + indexType.toString()
                         + " index. " + "invalid index: " + name);

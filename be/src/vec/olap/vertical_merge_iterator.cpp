@@ -21,12 +21,16 @@
 #include <gen_cpp/olap_file.pb.h>
 #include <stdlib.h>
 
+#include <cstddef>
 #include <ostream>
 
+#include "cloud/config.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/logging.h"
+#include "io/cache/block_file_cache_factory.h"
 #include "olap/field.h"
+#include "olap/iterators.h"
 #include "olap/olap_common.h"
 #include "vec/columns/column.h"
 #include "vec/common/string_ref.h"
@@ -160,7 +164,18 @@ Status RowSourcesBuffer::_create_buffer_file() {
         return Status::OK();
     }
     std::stringstream file_path_ss;
-    file_path_ss << _tablet_path << "/compaction_row_source_" << _tablet_id;
+    if (config::is_cloud_mode()) {
+        std::vector<std::string> paths = io::FileCacheFactory::instance()->get_base_paths();
+        if (paths.empty()) {
+            return Status::InternalError("fail to create write buffer due to missing cache path");
+        }
+        std::size_t hash_val = std::hash<int64_t> {}(_tablet_id);
+        int idx = hash_val % paths.size();
+        file_path_ss << paths[idx] << "/compaction_row_source_" << _tablet_id;
+    } else {
+        file_path_ss << _tablet_path << "/compaction_row_source_" << _tablet_id;
+    }
+
     if (_reader_type == ReaderType::READER_BASE_COMPACTION) {
         file_path_ss << "_base";
     } else if (_reader_type == ReaderType::READER_CUMULATIVE_COMPACTION ||
@@ -327,13 +342,18 @@ Status VerticalMergeIteratorContext::copy_rows(Block* block, bool advanced) {
     return Status::OK();
 }
 
-Status VerticalMergeIteratorContext::init(const StorageReadOptions& opts) {
+Status VerticalMergeIteratorContext::init(const StorageReadOptions& opts,
+                                          CompactionSampleInfo* sample_info) {
     if (LIKELY(_inited)) {
         return Status::OK();
     }
     _block_row_max = opts.block_row_max;
     _record_rowids = opts.record_rowids;
     RETURN_IF_ERROR(_load_next_block());
+    if (sample_info != nullptr) {
+        sample_info->bytes += bytes();
+        sample_info->rows += rows();
+    }
     if (valid()) {
         RETURN_IF_ERROR(advance());
     }
@@ -492,7 +512,8 @@ Status VerticalHeapMergeIterator::next_batch(Block* block) {
     return Status::EndOfFile("no more data in segment");
 }
 
-Status VerticalHeapMergeIterator::init(const StorageReadOptions& opts) {
+Status VerticalHeapMergeIterator::init(const StorageReadOptions& opts,
+                                       CompactionSampleInfo* sample_info) {
     DCHECK(_origin_iters.size() == _iterator_init_flags.size());
     _record_rowids = opts.record_rowids;
     if (_origin_iters.empty()) {
@@ -520,7 +541,7 @@ Status VerticalHeapMergeIterator::init(const StorageReadOptions& opts) {
     for (size_t i = 0; i < num_iters; ++i) {
         if (_iterator_init_flags[i] || pre_iter_invalid) {
             auto& ctx = _ori_iter_ctx[i];
-            RETURN_IF_ERROR(ctx->init(opts));
+            RETURN_IF_ERROR(ctx->init(opts, sample_info));
             if (!ctx->valid()) {
                 pre_iter_invalid = true;
                 continue;
@@ -593,7 +614,8 @@ Status VerticalFifoMergeIterator::next_batch(Block* block) {
     return Status::EndOfFile("no more data in segment");
 }
 
-Status VerticalFifoMergeIterator::init(const StorageReadOptions& opts) {
+Status VerticalFifoMergeIterator::init(const StorageReadOptions& opts,
+                                       CompactionSampleInfo* sample_info) {
     DCHECK(_origin_iters.size() == _iterator_init_flags.size());
     DCHECK(_keys_type == KeysType::DUP_KEYS);
     _record_rowids = opts.record_rowids;
@@ -613,7 +635,7 @@ Status VerticalFifoMergeIterator::init(const StorageReadOptions& opts) {
         std::unique_ptr<VerticalMergeIteratorContext> ctx(
                 new VerticalMergeIteratorContext(std::move(iter), _rowset_ids[seg_order],
                                                  _ori_return_cols, seg_order, _seq_col_idx));
-        RETURN_IF_ERROR(ctx->init(opts));
+        RETURN_IF_ERROR(ctx->init(opts, sample_info));
         if (!ctx->valid()) {
             ++seg_order;
             continue;
@@ -654,7 +676,7 @@ Status VerticalMaskMergeIterator::next_row(vectorized::IteratorRowRef* ref) {
     uint16_t order = row_source.get_source_num();
     auto& ctx = _origin_iter_ctx[order];
     // init ctx and this ctx must be valid
-    RETURN_IF_ERROR(ctx->init(_opts));
+    RETURN_IF_ERROR(ctx->init(_opts, _sample_info));
     DCHECK(ctx->valid());
 
     if (UNLIKELY(ctx->is_first_row())) {
@@ -688,7 +710,7 @@ Status VerticalMaskMergeIterator::unique_key_next_row(vectorized::IteratorRowRef
         auto row_source = _row_sources_buf->current();
         uint16_t order = row_source.get_source_num();
         auto& ctx = _origin_iter_ctx[order];
-        RETURN_IF_ERROR(ctx->init(_opts));
+        RETURN_IF_ERROR(ctx->init(_opts, _sample_info));
         DCHECK(ctx->valid());
         if (!ctx->valid()) {
             LOG(INFO) << "VerticalMergeIteratorContext not valid";
@@ -727,7 +749,7 @@ Status VerticalMaskMergeIterator::next_batch(Block* block) {
         uint16_t order = _row_sources_buf->current().get_source_num();
         DCHECK(order < _origin_iter_ctx.size());
         auto& ctx = _origin_iter_ctx[order];
-        RETURN_IF_ERROR(ctx->init(_opts));
+        RETURN_IF_ERROR(ctx->init(_opts, _sample_info));
         DCHECK(ctx->valid());
         if (!ctx->valid()) {
             LOG(INFO) << "VerticalMergeIteratorContext not valid";
@@ -750,7 +772,8 @@ Status VerticalMaskMergeIterator::next_batch(Block* block) {
     return st;
 }
 
-Status VerticalMaskMergeIterator::init(const StorageReadOptions& opts) {
+Status VerticalMaskMergeIterator::init(const StorageReadOptions& opts,
+                                       CompactionSampleInfo* sample_info) {
     if (_origin_iters.empty()) {
         return Status::OK();
     }
@@ -765,6 +788,7 @@ Status VerticalMaskMergeIterator::init(const StorageReadOptions& opts) {
     }
     _origin_iters.clear();
 
+    _sample_info = sample_info;
     _block_row_max = opts.block_row_max;
     return Status::OK();
 }

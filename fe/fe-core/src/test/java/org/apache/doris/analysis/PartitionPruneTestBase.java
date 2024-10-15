@@ -34,7 +34,9 @@ public abstract class PartitionPruneTestBase extends TestWithFeService {
     }
 
     private void assertExplainContains(String sql, String subString) throws Exception {
-        Assert.assertTrue(String.format("sql=%s, expectResult=%s", sql, subString),
+        Assert.assertTrue(
+                String.format("sql=%s, expectResult=%s, but got %s", sql, subString,
+                        getSQLPlanOrErrorMsg("explain " + sql)),
                 getSQLPlanOrErrorMsg("explain " + sql).contains(subString));
     }
 

@@ -31,12 +31,16 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
+import java.util.Objects;
+import java.util.function.Predicate;
 
 /** PlanTreeRewriteJob */
 public abstract class PlanTreeRewriteJob extends Job {
+    protected final Predicate<Plan> isTraverseChildren;
 
-    public PlanTreeRewriteJob(JobType type, JobContext context) {
+    public PlanTreeRewriteJob(JobType type, JobContext context, Predicate<Plan> isTraverseChildren) {
         super(type, context);
+        this.isTraverseChildren = Objects.requireNonNull(isTraverseChildren, "isTraverseChildren can not be null");
     }
 
     protected final RewriteResult rewrite(Plan plan, List<Rule> rules, RewriteJobContext rewriteJobContext) {

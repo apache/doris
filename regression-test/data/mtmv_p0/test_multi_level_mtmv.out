@@ -5,6 +5,23 @@
 -- !mv2 --
 1	1
 
+-- !mv1_should_one_partition --
+["p_2"]
+
+-- !mv2_should_one_partition --
+["p_2"]
+
+-- !mv1_should_one_partition_again --
+["p_2"]
+
+-- !mv2_should_one_partition_again --
+["p_2"]
+
+-- !mv2_again --
+1	1
+2	2
+2	3
+
 -- !status1 --
 multi_level_mtmv1	SCHEMA_CHANGE	SUCCESS
 

@@ -73,7 +73,7 @@ struct PagePointer {
     bool operator!=(const PagePointer& other) const { return !(*this == other); }
 };
 
-inline ostream& operator<<(ostream& os, const PagePointer& pp) {
+inline std::ostream& operator<<(std::ostream& os, const PagePointer& pp) {
     os << "PagePointer { offset=" << pp.offset << " size=" << pp.size << " }";
     return os;
 }

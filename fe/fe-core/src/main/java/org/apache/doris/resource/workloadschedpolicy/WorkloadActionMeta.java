@@ -37,14 +37,12 @@ public class WorkloadActionMeta {
     }
 
     static WorkloadActionType getWorkloadActionType(String strType) throws UserException {
-        if (WorkloadActionType.CANCEL_QUERY.toString().equalsIgnoreCase(strType)) {
-            return WorkloadActionType.CANCEL_QUERY;
-        } else if (WorkloadActionType.MOVE_QUERY_TO_GROUP.toString().equalsIgnoreCase(strType)) {
-            return WorkloadActionType.MOVE_QUERY_TO_GROUP;
-        } else if (WorkloadActionType.SET_SESSION_VARIABLE.toString().equalsIgnoreCase(strType)) {
-            return WorkloadActionType.SET_SESSION_VARIABLE;
+        WorkloadActionType workloadActionType = WorkloadSchedPolicyMgr.STRING_ACTION_MAP.get(strType.toUpperCase());
+        if (workloadActionType == null) {
+            throw new UserException("invalid action type " + strType);
+        } else {
+            return workloadActionType;
         }
-        throw new UserException("invalid action type " + strType);
     }
 
     public String toString() {

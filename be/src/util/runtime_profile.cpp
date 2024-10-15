@@ -25,6 +25,7 @@
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/writer.h>
 
+#include <algorithm>
 #include <iomanip>
 #include <iostream>
 
@@ -273,7 +274,7 @@ void RuntimeProfile::compute_time_in_profile(int64_t total) {
 
 RuntimeProfile* RuntimeProfile::create_child(const std::string& name, bool indent, bool prepend) {
     std::lock_guard<std::mutex> l(_children_lock);
-    DCHECK(_child_map.find(name) == _child_map.end());
+    DCHECK(_child_map.find(name) == _child_map.end()) << ", name: " << name;
     RuntimeProfile* child = _pool->add(new RuntimeProfile(name));
     if (this->is_set_metadata()) {
         child->set_metadata(this->metadata());
@@ -284,8 +285,8 @@ RuntimeProfile* RuntimeProfile::create_child(const std::string& name, bool inden
     if (_children.empty()) {
         add_child_unlock(child, indent, nullptr);
     } else {
-        ChildVector::iterator pos = prepend ? _children.begin() : _children.end();
-        add_child_unlock(child, indent, (*pos).first);
+        auto* pos = prepend ? _children.begin()->first : nullptr;
+        add_child_unlock(child, indent, pos);
     }
     return child;
 }
@@ -588,15 +589,12 @@ void RuntimeProfile::to_thrift(std::vector<TRuntimeProfileNode>* nodes) {
     if (this->is_set_sink()) {
         node.__set_is_sink(this->is_sink());
     }
-    CounterMap counter_map;
     {
         std::lock_guard<std::mutex> l(_counter_map_lock);
-        counter_map = _counter_map;
         node.child_counters_map = _child_counter_map;
-    }
-
-    for (auto&& [name, counter] : counter_map) {
-        counter->to_thrift(name, node.counters, node.child_counters_map);
+        for (auto&& [name, counter] : _counter_map) {
+            counter->to_thrift(name, node.counters, node.child_counters_map);
+        }
     }
 
     {

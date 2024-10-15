@@ -163,8 +163,9 @@ public class StoragePolicy extends Policy {
         }
         if (hasCooldownDatetime) {
             try {
-                this.cooldownTimestampMs = LocalDateTime.parse(props.get(COOLDOWN_DATETIME), TimeUtils.DATETIME_FORMAT)
-                        .atZone(TimeUtils.TIME_ZONE).toInstant().toEpochMilli();
+                this.cooldownTimestampMs = LocalDateTime
+                        .parse(props.get(COOLDOWN_DATETIME), TimeUtils.getDatetimeFormatWithTimeZone())
+                        .atZone(TimeUtils.getDorisZoneId()).toInstant().toEpochMilli();
             } catch (DateTimeParseException e) {
                 throw new AnalysisException(String.format("cooldown_datetime format error: %s",
                         props.get(COOLDOWN_DATETIME)), e);
@@ -337,7 +338,8 @@ public class StoragePolicy extends Policy {
             } else {
                 try {
                     cooldownTimestampMs = LocalDateTime.parse(properties.get(COOLDOWN_DATETIME),
-                            TimeUtils.DATETIME_FORMAT).atZone(TimeUtils.TIME_ZONE).toInstant().toEpochMilli();
+                            TimeUtils.getDatetimeFormatWithTimeZone()).atZone(TimeUtils.getDorisZoneId()).toInstant()
+                            .toEpochMilli();
                 } catch (DateTimeParseException e) {
                     throw new RuntimeException(e);
                 }

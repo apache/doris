@@ -18,19 +18,17 @@
 package org.apache.doris.nereids.trees.plans.algebra;
 
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.PushDownToProjectionFunction;
+import org.apache.doris.nereids.trees.expressions.functions.NoneMovableFunction;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.PlanUtils;
-import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableMap;
 
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
@@ -65,33 +63,15 @@ public interface Project {
      * @return project list for merged project
      */
     default List<NamedExpression> mergeProjections(Project childProject) {
-        return PlanUtils.mergeProjections(childProject.getProjects(), getProjects());
-    }
-
-    /**
-     * Check if it is a project that is pull up from scan in analyze rule
-     * e.g. BindSlotWithPaths
-     * And check if contains PushDownToProjectionFunction that can pushed down to project
-     */
-    default boolean hasPushedDownToProjectionFunctions() {
-        if ((ConnectContext.get() == null
-                || ConnectContext.get().getSessionVariable() == null
-                || !ConnectContext.get().getSessionVariable().isEnableRewriteElementAtToSlot())) {
-            return false;
-        }
-
-        boolean hasValidAlias = false;
-        for (NamedExpression namedExpr : getProjects()) {
-            if (namedExpr instanceof Alias) {
-                if (!PushDownToProjectionFunction.validToPushDown(((Alias) namedExpr).child())) {
-                    return false;
-                }
-                hasValidAlias = true;
-            } else if (!(namedExpr instanceof SlotReference)) {
-                return false;
+        List<NamedExpression> projects = new ArrayList<>();
+        projects.addAll(PlanUtils.mergeProjections(childProject.getProjects(), getProjects()));
+        for (NamedExpression expression : childProject.getProjects()) {
+            // keep NoneMovableFunction for later use
+            if (expression.containsType(NoneMovableFunction.class)) {
+                projects.add(expression);
             }
         }
-        return hasValidAlias;
+        return projects;
     }
 
     /**
@@ -116,5 +96,25 @@ public interface Project {
                     }
                     return expr;
                 });
+    }
+
+    /** isAllSlots */
+    default boolean isAllSlots() {
+        for (NamedExpression project : getProjects()) {
+            if (!project.isSlot()) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /** containsNoneMovableFunction */
+    default boolean containsNoneMovableFunction() {
+        for (NamedExpression expression : getProjects()) {
+            if (expression.containsType(NoneMovableFunction.class)) {
+                return true;
+            }
+        }
+        return false;
     }
 }

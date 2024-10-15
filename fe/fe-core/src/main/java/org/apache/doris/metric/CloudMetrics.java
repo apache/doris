@@ -42,61 +42,29 @@ public class CloudMetrics {
         if (Config.isNotCloudMode()) {
             return;
         }
-        CLUSTER_REQUEST_ALL_COUNTER = new AutoMappedMetric<>(name -> {
-            LongCounterMetric counter  = new LongCounterMetric("request_total", MetricUnit.REQUESTS,
-                    "total request");
-            MetricRepo.DORIS_METRIC_REGISTER.addMetrics(counter);
-            return counter;
-        });
+        CLUSTER_REQUEST_ALL_COUNTER = new AutoMappedMetric<>(name -> new LongCounterMetric("request_total",
+            MetricUnit.REQUESTS, "total request"));
 
-        CLUSTER_QUERY_ALL_COUNTER = new AutoMappedMetric<>(name -> {
-            LongCounterMetric counter  = new LongCounterMetric("query_total", MetricUnit.REQUESTS,
-                    "total query");
-            MetricRepo.DORIS_METRIC_REGISTER.addMetrics(counter);
-            return counter;
-        });
+        CLUSTER_QUERY_ALL_COUNTER = new AutoMappedMetric<>(name -> new LongCounterMetric("query_total",
+            MetricUnit.REQUESTS, "total query"));
 
-        CLUSTER_QUERY_ERR_COUNTER = new AutoMappedMetric<>(name -> {
-            LongCounterMetric counter  = new LongCounterMetric("query_err", MetricUnit.REQUESTS,
-                    "total error query");
-            MetricRepo.DORIS_METRIC_REGISTER.addMetrics(counter);
-            return counter;
-        });
+        CLUSTER_QUERY_ERR_COUNTER = new AutoMappedMetric<>(name -> new LongCounterMetric("query_err",
+            MetricUnit.REQUESTS, "total error query"));
 
-        CLUSTER_REQUEST_PER_SECOND_GAUGE = new AutoMappedMetric<>(name -> {
-            GaugeMetricImpl<Double> gauge  = new GaugeMetricImpl<Double>("rps", MetricUnit.NOUNIT,
-                    "request per second");
-            MetricRepo.DORIS_METRIC_REGISTER.addMetrics(gauge);
-            return gauge;
-        });
+        CLUSTER_REQUEST_PER_SECOND_GAUGE = new AutoMappedMetric<>(name -> new GaugeMetricImpl<Double>("rps",
+            MetricUnit.NOUNIT, "request per second", 0.0));
 
-        CLUSTER_QUERY_PER_SECOND_GAUGE = new AutoMappedMetric<>(name -> {
-            GaugeMetricImpl<Double> gauge  = new GaugeMetricImpl<Double>("qps", MetricUnit.NOUNIT,
-                    "query per second");
-            MetricRepo.DORIS_METRIC_REGISTER.addMetrics(gauge);
-            return gauge;
-        });
+        CLUSTER_QUERY_PER_SECOND_GAUGE = new AutoMappedMetric<>(name -> new GaugeMetricImpl<Double>("qps",
+            MetricUnit.NOUNIT, "query per second", 0.0));
 
-        CLUSTER_QUERY_ERR_RATE_GAUGE = new AutoMappedMetric<>(name -> {
-            GaugeMetricImpl<Double> gauge  = new GaugeMetricImpl<Double>("query_err_rate", MetricUnit.NOUNIT,
-                    "query error rate");
-            MetricRepo.DORIS_METRIC_REGISTER.addMetrics(gauge);
-            return gauge;
-        });
+        CLUSTER_QUERY_ERR_RATE_GAUGE = new AutoMappedMetric<>(name -> new GaugeMetricImpl<Double>("query_err_rate",
+            MetricUnit.NOUNIT, "query error rate", 0.0));
 
-        CLUSTER_BACKEND_ALIVE = new AutoMappedMetric<>(name -> {
-            GaugeMetricImpl<Integer> gauge  = new GaugeMetricImpl<Integer>("backend_alive", MetricUnit.NOUNIT,
-                    "backend alive or not");
-            MetricRepo.DORIS_METRIC_REGISTER.addMetrics(gauge);
-            return gauge;
-        });
+        CLUSTER_BACKEND_ALIVE = new AutoMappedMetric<>(name -> new GaugeMetricImpl<Integer>("backend_alive",
+            MetricUnit.NOUNIT, "backend alive or not", 0));
 
-        CLUSTER_BACKEND_ALIVE_TOTAL = new AutoMappedMetric<>(name -> {
-            GaugeMetricImpl<Integer> gauge  = new GaugeMetricImpl<Integer>("backend_alive_total", MetricUnit.NOUNIT,
-                    "backend alive num in cluster");
-            MetricRepo.DORIS_METRIC_REGISTER.addMetrics(gauge);
-            return gauge;
-        });
+        CLUSTER_BACKEND_ALIVE_TOTAL = new AutoMappedMetric<>(name -> new GaugeMetricImpl<Integer>("backend_alive_total",
+            MetricUnit.NOUNIT, "backend alive num in cluster", 0));
 
         CLUSTER_QUERY_LATENCY_HISTO = new AutoMappedMetric<>(key -> {
             String[] values = key.split(CLOUD_CLUSTER_DELIMITER);

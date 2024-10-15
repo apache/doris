@@ -36,8 +36,10 @@ import org.apache.doris.analysis.SetUserPropertyStmt;
 import org.apache.doris.analysis.TablePattern;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.analysis.WorkloadGroupPattern;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InfoSchemaDb;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.cloud.datasource.CloudInternalCatalog;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cluster.ClusterNamespace;
@@ -54,9 +56,10 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.PatternMatcherException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.MysqlPassword;
-import org.apache.doris.mysql.authenticate.MysqlAuthType;
+import org.apache.doris.mysql.authenticate.AuthenticateType;
 import org.apache.doris.mysql.authenticate.ldap.LdapManager;
 import org.apache.doris.mysql.authenticate.ldap.LdapUserInfo;
 import org.apache.doris.persist.AlterUserOperationLog;
@@ -64,6 +67,7 @@ import org.apache.doris.persist.LdapInfo;
 import org.apache.doris.persist.PrivInfo;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.Tag;
+import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
 import org.apache.doris.thrift.TPrivilegeStatus;
 
 import com.google.common.base.Joiner;
@@ -81,9 +85,11 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
@@ -133,7 +139,7 @@ public class Auth implements Writable {
     }
 
     public enum PrivLevel {
-        GLOBAL, CATALOG, DATABASE, TABLE, RESOURCE, WORKLOAD_GROUP, CLUSTER, STAGE,
+        GLOBAL, CATALOG, DATABASE, TABLE, RESOURCE, WORKLOAD_GROUP, CLUSTER, STAGE, STORAGE_VAULT
     }
 
     public Auth() {
@@ -385,10 +391,32 @@ public class Auth implements Writable {
         }
     }
 
+    // ==== Storage Vault ====
+    public boolean checkStorageVaultPriv(UserIdentity currentUser, String storageVaultName, PrivPredicate wanted) {
+        readLock();
+        try {
+            Set<Role> roles = getRolesByUserWithLdap(currentUser);
+            for (Role role : roles) {
+                if (role.checkStorageVaultPriv(storageVaultName, wanted)) {
+                    return true;
+                }
+            }
+            return false;
+        } finally {
+            readUnlock();
+        }
+    }
+
     // ==== Workload Group ====
     public boolean checkWorkloadGroupPriv(UserIdentity currentUser, String workloadGroupName, PrivPredicate wanted) {
         readLock();
         try {
+            // currently stream load not support ip based auth, so normal should not auth temporary
+            // need remove later
+            if (WorkloadGroupMgr.DEFAULT_GROUP_NAME.equals(workloadGroupName)) {
+                return true;
+            }
+
             Set<Role> roles = getRolesByUserWithLdap(currentUser);
             for (Role role : roles) {
                 if (role.checkWorkloadGroupPriv(workloadGroupName, wanted)) {
@@ -446,7 +474,7 @@ public class Auth implements Writable {
 
     // Check if LDAP authentication is enabled.
     private boolean isLdapAuthEnabled() {
-        return MysqlAuthType.getAuthTypeConfig() == MysqlAuthType.LDAP;
+        return AuthenticateType.getAuthTypeConfig() == AuthenticateType.LDAP;
     }
 
     // create user
@@ -653,6 +681,7 @@ public class Auth implements Writable {
             throws DdlException {
         writeLock();
         try {
+            checkTablePatternExist(tblPattern);
             if (role == null) {
                 if (!doesUserExist(userIdent)) {
                     throw new DdlException("user " + userIdent + " does not exist");
@@ -668,6 +697,32 @@ public class Auth implements Writable {
             LOG.info("finished to grant privilege. is replay: {}", isReplay);
         } finally {
             writeUnlock();
+        }
+    }
+
+    private void checkTablePatternExist(TablePattern tablePattern) throws DdlException {
+        Objects.requireNonNull(tablePattern, "tablePattern can not be null");
+        PrivLevel privLevel = tablePattern.getPrivLevel();
+        if (privLevel == PrivLevel.GLOBAL) {
+            return;
+        }
+        CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(tablePattern.getQualifiedCtl());
+        if (catalog == null) {
+            throw new DdlException("catalog:" + tablePattern.getQualifiedCtl() + " does not exist");
+        }
+        if (privLevel == PrivLevel.CATALOG) {
+            return;
+        }
+        DatabaseIf db = catalog.getDbNullable(tablePattern.getQualifiedDb());
+        if (db == null) {
+            throw new DdlException("database:" + tablePattern.getQualifiedDb() + " does not exist");
+        }
+        if (privLevel == PrivLevel.DATABASE) {
+            return;
+        }
+        TableIf table = db.getTableNullable(tablePattern.getTbl());
+        if (table == null) {
+            throw new DdlException("table:" + tablePattern.getTbl() + " does not exist");
         }
     }
 
@@ -1353,6 +1408,20 @@ public class Auth implements Writable {
             userAuthInfo.add(Joiner.on("; ").join(cloudStagePrivs));
         }
 
+        // storage vault
+        List<String> storageVaultPrivs = Lists.newArrayList();
+        for (PrivEntry entry : getUserStorageVaultPrivTable(userIdent).entries) {
+            ResourcePrivEntry rEntry = (ResourcePrivEntry) entry;
+            PrivBitSet savedPrivs = rEntry.getPrivSet().copy();
+            storageVaultPrivs.add(rEntry.getOrigResource() + ": " + savedPrivs.toString());
+        }
+
+        if (storageVaultPrivs.isEmpty()) {
+            userAuthInfo.add(FeConstants.null_string);
+        } else {
+            userAuthInfo.add(Joiner.on("; ").join(storageVaultPrivs));
+        }
+
         // workload group
         List<String> workloadGroupPrivs = Lists.newArrayList();
         for (PrivEntry entry : getUserWorkloadGroupPrivTable(userIdent).entries) {
@@ -1367,7 +1436,55 @@ public class Auth implements Writable {
             userAuthInfo.add(Joiner.on("; ").join(workloadGroupPrivs));
         }
 
+        // compute groups
+        if (cloudClusterPrivs.isEmpty()) {
+            userAuthInfo.add(FeConstants.null_string);
+        } else {
+            userAuthInfo.add(Joiner.on("; ").join(cloudClusterPrivs));
+        }
+
         userAuthInfos.add(userAuthInfo);
+    }
+
+    public void getUserRoleWorkloadGroupPrivs(List<List<String>> result, UserIdentity currentUserIdentity) {
+        readLock();
+        try {
+            boolean isCurrentUserAdmin = checkGlobalPriv(currentUserIdentity, PrivPredicate.ADMIN);
+            Map<String, List<User>> nameToUsers = userManager.getNameToUsers();
+            for (List<User> users : nameToUsers.values()) {
+                for (User user : users) {
+                    if (!user.isSetByDomainResolver()) {
+                        if (!isCurrentUserAdmin && !currentUserIdentity.equals(user.getUserIdentity())) {
+                            continue;
+                        }
+                        String isGrantable = checkGlobalPriv(user.getUserIdentity(), PrivPredicate.ADMIN) ? "YES"
+                                : "NO";
+
+                        // workload group
+                        for (PrivEntry entry : getUserWorkloadGroupPrivTable(user.getUserIdentity()).entries) {
+                            WorkloadGroupPrivEntry workloadGroupPrivEntry = (WorkloadGroupPrivEntry) entry;
+                            PrivBitSet savedPrivs = workloadGroupPrivEntry.getPrivSet().copy();
+
+                            List<String> row = Lists.newArrayList();
+                            row.add(user.getUserIdentity().toString());
+                            row.add(workloadGroupPrivEntry.getOrigWorkloadGroupName());
+                            row.add(savedPrivs.toString());
+                            row.add(isGrantable);
+                            result.add(row);
+                        }
+                    }
+                }
+            }
+
+            Set<String> currentUserRole = null;
+            if (!isCurrentUserAdmin) {
+                currentUserRole = userRoleManager.getRolesByUser(currentUserIdentity, false);
+                currentUserRole = currentUserRole == null ? new HashSet<>() : currentUserRole;
+            }
+            roleManager.getRoleWorkloadGroupPrivs(result, currentUserRole);
+        } finally {
+            readUnlock();
+        }
     }
 
     private ResourcePrivTable getUserCloudClusterPrivTable(UserIdentity userIdentity) {
@@ -1384,6 +1501,15 @@ public class Auth implements Writable {
         Set<String> roles = userRoleManager.getRolesByUser(userIdentity);
         for (String roleName : roles) {
             table.merge(roleManager.getRole(roleName).getCloudStagePrivTable());
+        }
+        return table;
+    }
+
+    private ResourcePrivTable getUserStorageVaultPrivTable(UserIdentity userIdentity) {
+        ResourcePrivTable table = new ResourcePrivTable();
+        Set<String> roles = userRoleManager.getRolesByUser(userIdentity);
+        for (String roleName : roles) {
+            table.merge(roleManager.getRole(roleName).getStorageVaultPrivTable());
         }
         return table;
     }

@@ -22,6 +22,7 @@ import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.analysis.CreatePolicyStmt;
 import org.apache.doris.analysis.DropPolicyStmt;
 import org.apache.doris.analysis.ShowPolicyStmt;
+import org.apache.doris.analysis.ShowStoragePolicyUsingStmt;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -55,7 +56,9 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -485,6 +488,109 @@ public class PolicyMgr implements Writable {
         }
     }
 
+    /**
+     * Show objects which is using the storage policy
+     **/
+    public ShowResultSet showStoragePolicyUsing(ShowStoragePolicyUsingStmt showStmt) throws AnalysisException {
+        List<List<String>> rows = Lists.newArrayList();
+        String targetPolicyName = showStmt.getPolicyName();
+
+        readLock();
+        try {
+            List<Database> databases = Env.getCurrentEnv().getInternalCatalog().getDbs();
+            // show for all storage policies
+            if (Strings.isNullOrEmpty(targetPolicyName)) {
+                for (Database db : databases) {
+                    List<Table> tables = db.getTables();
+                    for (Table table : tables) {
+                        if (!(table instanceof OlapTable)) {
+                            continue;
+                        }
+
+                        Map<String, List<String>> policyToPartitionsMap = new HashMap<>();
+                        OlapTable olapTable = (OlapTable) table;
+                        PartitionInfo partitionInfo = olapTable.getPartitionInfo();
+                        // classify a table's all partitions by storage policy
+                        for (Long partitionId : olapTable.getPartitionIds()) {
+                            String policyName = partitionInfo.getDataProperty(partitionId).getStoragePolicy();
+                            if (StringUtils.isEmpty(policyName)) {
+                                continue;
+                            }
+                            if (policyToPartitionsMap.containsKey(policyName)) {
+                                policyToPartitionsMap.get(policyName)
+                                        .add(olapTable.getPartition(partitionId).getName());
+                            } else {
+                                List<String> partitionList = new ArrayList<>();
+                                partitionList.add(olapTable.getPartition(partitionId).getName());
+                                policyToPartitionsMap.put(policyName, partitionList);
+                            }
+                        }
+
+                        //output, all partitions with same storage policy in a table will be shown in one line
+                        if (policyToPartitionsMap.size() == 1) {
+                            String[] policyArray = policyToPartitionsMap.keySet().toArray(new String[0]);
+                            List<String> partitionsList = new ArrayList<>(policyToPartitionsMap.values()).get(0);
+                            if (partitionsList.size() == olapTable.getPartitionNum()) {
+                                List<String> row = Arrays.asList(policyArray[0], db.getName(), olapTable.getName(),
+                                        "ALL");
+                                rows.add(row);
+                            } else {
+                                List<String> row = Arrays.asList(policyArray[0], db.getName(), olapTable.getName(),
+                                        String.join(",", partitionsList));
+                                rows.add(row);
+                            }
+                        } else {
+                            for (Map.Entry<String, List<String>> entry : policyToPartitionsMap.entrySet()) {
+                                List<String> row = Arrays.asList(entry.getKey(), db.getName(), olapTable.getName(),
+                                        String.join(",", entry.getValue()));
+                                rows.add(row);
+                            }
+                        }
+                    }
+                }
+            } else {
+                // show for specific storage policy
+                for (Database db : databases) {
+                    List<Table> tables = db.getTables();
+                    for (Table table : tables) {
+                        if (!(table instanceof OlapTable)) {
+                            continue;
+                        }
+
+                        OlapTable olapTable = (OlapTable) table;
+                        int partitionMatchNum = 0;
+                        StringBuilder matchPartitionsSB = new StringBuilder();
+                        PartitionInfo partitionInfo = olapTable.getPartitionInfo();
+                        for (Long partitionId : olapTable.getPartitionIds()) {
+                            String policyName = partitionInfo.getDataProperty(partitionId).getStoragePolicy();
+                            if (policyName.equals(targetPolicyName)) {
+                                partitionMatchNum++;
+                                matchPartitionsSB.append(olapTable.getPartition(partitionId).getName()).append(",");
+                            }
+                        }
+
+                        if (partitionMatchNum == 0) {
+                            continue;
+                        }
+
+                        String matchPartitionsStr = "ALL";
+                        if (partitionMatchNum < olapTable.getPartitionNum()) {
+                            matchPartitionsStr = matchPartitionsSB.toString();
+                            matchPartitionsStr = matchPartitionsStr.substring(0, matchPartitionsStr.length() - 1);
+                        }
+
+                        List<String> row = Arrays.asList(targetPolicyName, db.getName(), olapTable.getName(),
+                                matchPartitionsStr);
+                        rows.add(row);
+                    }
+                }
+            }
+            return new ShowResultSet(showStmt.getMetaData(), rows);
+        } finally {
+            readUnlock();
+        }
+    }
+
     private void addTablePolicies(RowPolicy policy) {
         if (policy.getUser() != null) {
             policy.getUser().setIsAnalyzed();
@@ -625,7 +731,7 @@ public class PolicyMgr implements Writable {
         // log alter
         Env.getCurrentEnv().getEditLog().logAlterStoragePolicy(storagePolicy);
         AgentBatchTask batchTask = new AgentBatchTask();
-        for (long backendId : Env.getCurrentSystemInfo().getIdToBackend().keySet()) {
+        for (long backendId : Env.getCurrentSystemInfo().getAllBackendsByAllCluster().keySet()) {
             PushStoragePolicyTask pushStoragePolicyTask = new PushStoragePolicyTask(backendId,
                     Collections.singletonList(storagePolicy), Collections.emptyList(), Collections.emptyList());
             batchTask.addTask(pushStoragePolicyTask);

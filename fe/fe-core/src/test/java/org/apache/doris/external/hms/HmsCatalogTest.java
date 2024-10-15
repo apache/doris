@@ -33,6 +33,7 @@ import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalDatabase;
 import org.apache.doris.datasource.hive.HMSExternalTable;
+import org.apache.doris.datasource.hive.HMSExternalTable.DLAType;
 import org.apache.doris.nereids.datasets.tpch.AnalyzeCheckTestBase;
 import org.apache.doris.qe.SessionVariable;
 
@@ -44,6 +45,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Optional;
 
 public class HmsCatalogTest extends AnalyzeCheckTestBase {
     private static final String HMS_CATALOG = "hms_ctl";
@@ -90,6 +92,7 @@ public class HmsCatalogTest extends AnalyzeCheckTestBase {
     private void createDbAndTableForHmsCatalog(HMSExternalCatalog hmsCatalog) {
         Deencapsulation.setField(hmsCatalog, "initialized", true);
         Deencapsulation.setField(hmsCatalog, "objectCreated", true);
+        Deencapsulation.setField(hmsCatalog, "useMetaCache", Optional.of(false));
 
         List<Column> schema = Lists.newArrayList();
         schema.add(new Column("k1", PrimitiveType.INT));
@@ -131,6 +134,10 @@ public class HmsCatalogTest extends AnalyzeCheckTestBase {
                 tbl.getDatabase();
                 minTimes = 0;
                 result = db;
+
+                tbl.getDlaType();
+                minTimes = 0;
+                result = DLAType.HIVE;
             }
         };
 
@@ -331,8 +338,6 @@ public class HmsCatalogTest extends AnalyzeCheckTestBase {
     public void testQueryView() {
         SessionVariable sv = connectContext.getSessionVariable();
         Assertions.assertNotNull(sv);
-        sv.setEnableNereidsPlanner(true);
-        sv.enableFallbackToOriginalPlanner = false;
 
         createDbAndTableForHmsCatalog((HMSExternalCatalog) env.getCatalogMgr().getCatalog(HMS_CATALOG));
         queryViews(false);

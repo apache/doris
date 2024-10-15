@@ -24,6 +24,12 @@ import org.apache.paimon.data.DataGetters;
 import org.apache.paimon.data.InternalArray;
 import org.apache.paimon.data.InternalMap;
 import org.apache.paimon.data.InternalRow;
+import org.apache.paimon.data.Timestamp;
+import org.apache.paimon.types.ArrayType;
+import org.apache.paimon.types.DataType;
+import org.apache.paimon.types.LocalZonedTimestampType;
+import org.apache.paimon.types.MapType;
+import org.apache.paimon.types.RowType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -31,6 +37,7 @@ import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.List;
 
 public class PaimonColumnValue implements ColumnValue {
@@ -38,19 +45,22 @@ public class PaimonColumnValue implements ColumnValue {
     private int idx;
     private DataGetters record;
     private ColumnType dorisType;
+    private DataType dataType;
 
     public PaimonColumnValue() {
     }
 
-    public PaimonColumnValue(DataGetters record, int idx, ColumnType columnType) {
+    public PaimonColumnValue(DataGetters record, int idx, ColumnType columnType, DataType dataType) {
         this.idx = idx;
         this.record = record;
         this.dorisType = columnType;
+        this.dataType = dataType;
     }
 
-    public void setIdx(int idx, ColumnType dorisType) {
+    public void setIdx(int idx, ColumnType dorisType, DataType dataType) {
         this.idx = idx;
         this.dorisType = dorisType;
+        this.dataType = dataType;
     }
 
     public void setOffsetRow(InternalRow record) {
@@ -124,7 +134,12 @@ public class PaimonColumnValue implements ColumnValue {
 
     @Override
     public LocalDateTime getDateTime() {
-        return record.getTimestamp(idx, dorisType.getPrecision()).toLocalDateTime();
+        Timestamp ts = record.getTimestamp(idx, dorisType.getPrecision());
+        if (dataType instanceof LocalZonedTimestampType) {
+            return LocalDateTime.ofInstant(ts.toInstant(), ZoneId.systemDefault());
+        } else {
+            return ts.toLocalDateTime();
+        }
     }
 
     @Override
@@ -142,7 +157,7 @@ public class PaimonColumnValue implements ColumnValue {
         InternalArray recordArray = record.getArray(idx);
         for (int i = 0; i < recordArray.size(); i++) {
             PaimonColumnValue arrayColumnValue = new PaimonColumnValue((DataGetters) recordArray, i,
-                    dorisType.getChildTypes().get(0));
+                    dorisType.getChildTypes().get(0), ((ArrayType) dataType).getElementType());
             values.add(arrayColumnValue);
         }
     }
@@ -153,19 +168,24 @@ public class PaimonColumnValue implements ColumnValue {
         InternalArray key = map.keyArray();
         for (int i = 0; i < key.size(); i++) {
             PaimonColumnValue keyColumnValue = new PaimonColumnValue((DataGetters) key, i,
-                    dorisType.getChildTypes().get(0));
+                    dorisType.getChildTypes().get(0), ((MapType) dataType).getKeyType());
             keys.add(keyColumnValue);
         }
         InternalArray value = map.valueArray();
         for (int i = 0; i < value.size(); i++) {
             PaimonColumnValue valueColumnValue = new PaimonColumnValue((DataGetters) value, i,
-                    dorisType.getChildTypes().get(1));
+                    dorisType.getChildTypes().get(1), ((MapType) dataType).getValueType());
             values.add(valueColumnValue);
         }
     }
 
     @Override
     public void unpackStruct(List<Integer> structFieldIndex, List<ColumnValue> values) {
-
+        // todo: support pruned struct fields
+        InternalRow row = record.getRow(idx, structFieldIndex.size());
+        for (int i : structFieldIndex) {
+            values.add(new PaimonColumnValue(row, i, dorisType.getChildTypes().get(i),
+                    ((RowType) dataType).getFields().get(i).type()));
+        }
     }
 }

@@ -58,6 +58,10 @@ public class DropTableRecord {
         return GsonUtils.GSON.toJson(this);
     }
 
+    public static DropTableRecord fromJson(String json) {
+        return GsonUtils.GSON.fromJson(json, DropTableRecord.class);
+    }
+
     @Override
     public String toString() {
         return toJson();

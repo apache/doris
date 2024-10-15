@@ -20,9 +20,9 @@ package org.apache.doris.nereids.trees.expressions.functions.combinator;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AggCombinerFunctionBuilder;
-import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.agg.NullableAggregateFunction;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
@@ -36,8 +36,8 @@ import java.util.Objects;
 /**
  * combinator foreach
  */
-public class ForEachCombinator extends AggregateFunction
-        implements UnaryExpression, ExplicitlyCastableSignature, AlwaysNullable {
+public class ForEachCombinator extends NullableAggregateFunction
+        implements UnaryExpression, ExplicitlyCastableSignature, Combinator {
 
     private final AggregateFunction nested;
 
@@ -45,7 +45,11 @@ public class ForEachCombinator extends AggregateFunction
      * constructor of ForEachCombinator
      */
     public ForEachCombinator(List<Expression> arguments, AggregateFunction nested) {
-        super(nested.getName() + AggCombinerFunctionBuilder.FOREACH_SUFFIX, arguments);
+        this(arguments, false, nested);
+    }
+
+    public ForEachCombinator(List<Expression> arguments, boolean alwaysNullable, AggregateFunction nested) {
+        super(nested.getName() + AggCombinerFunctionBuilder.FOREACH_SUFFIX, false, alwaysNullable, arguments);
 
         this.nested = Objects.requireNonNull(nested, "nested can not be null");
     }
@@ -56,7 +60,7 @@ public class ForEachCombinator extends AggregateFunction
 
     @Override
     public ForEachCombinator withChildren(List<Expression> children) {
-        return new ForEachCombinator(children, nested);
+        return new ForEachCombinator(children, alwaysNullable, nested);
     }
 
     @Override
@@ -79,6 +83,7 @@ public class ForEachCombinator extends AggregateFunction
         return ArrayType.of(nested.getDataType(), nested.nullable());
     }
 
+    @Override
     public AggregateFunction getNestedFunction() {
         return nested;
     }
@@ -86,5 +91,10 @@ public class ForEachCombinator extends AggregateFunction
     @Override
     public AggregateFunction withDistinctAndChildren(boolean distinct, List<Expression> children) {
         throw new UnsupportedOperationException("Unimplemented method 'withDistinctAndChildren'");
+    }
+
+    @Override
+    public NullableAggregateFunction withAlwaysNullable(boolean alwaysNullable) {
+        return new ForEachCombinator(children, alwaysNullable, nested);
     }
 }

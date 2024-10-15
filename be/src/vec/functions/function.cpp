@@ -179,7 +179,7 @@ Status PreparedFunctionImpl::default_implementation_for_constant_arguments(
     } else {
         result_column = temporary_block.get_by_position(arguments_size).column;
     }
-
+    // We shuold handle the case where the result column is also a ColumnConst.
     block.get_by_position(result).column = ColumnConst::create(result_column, input_rows_count);
     *executed = true;
     return Status::OK();
@@ -216,7 +216,8 @@ Status PreparedFunctionImpl::default_implementation_for_nulls(
         }
         RETURN_IF_ERROR(execute_without_low_cardinality_columns(context, block, new_args, result,
                                                                 block.rows(), dry_run));
-        // after run with nested, wrap them in null.
+        // After run with nested, wrap them in null. Before this, block.get_by_position(result).type
+        // is not compatible with get_by_position(result).column
         block.get_by_position(result).column = wrap_in_nullable(
                 block.get_by_position(result).column, block, args, result, input_rows_count);
 

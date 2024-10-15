@@ -28,15 +28,26 @@
 
 namespace doris {
 
+inline uint8_t leading_zeroes(const uint64_t v) {
+    if (v == 0) {
+        return 64;
+    }
+    return __builtin_clzll(v);
+}
+
 inline uint8_t bits_less_than_64(const uint64_t v) {
-    return v == 0 ? 0 : 64 - __builtin_clzll(v);
+    return 64 - leading_zeroes(v);
 }
 
 // See https://stackoverflow.com/questions/28423405/counting-the-number-of-leading-zeros-in-a-128-bit-integer
 inline uint8_t bits_may_more_than_64(const uint128_t v) {
+    // See https://stackoverflow.com/questions/49580083/builtin-clz-returns-incorrect-value-for-input-zero
+    if (v == 0) {
+        return 0;
+    }
     uint64_t hi = v >> 64;
     uint64_t lo = v;
-    int z[3] = {__builtin_clzll(hi), __builtin_clzll(lo) + 64, 128};
+    int z[3] = {leading_zeroes(hi), leading_zeroes(lo) + 64, 128};
     int idx = !hi + ((!lo) & (!hi));
     return 128 - z[idx];
 }

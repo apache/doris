@@ -23,10 +23,11 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCheckPolicy;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCheckPolicy.RelatedPolicy;
-import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalHudiScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.util.ExpressionUtils;
@@ -49,12 +50,23 @@ public class CheckPolicy implements AnalysisRuleFactory {
                         logicalCheckPolicy(any().when(child -> !(child instanceof UnboundRelation))).thenApply(ctx -> {
                             LogicalCheckPolicy<Plan> checkPolicy = ctx.root;
                             LogicalFilter<Plan> upperFilter = null;
+                            Plan upAgg = null;
 
                             Plan child = checkPolicy.child();
                             // Because the unique table will automatically include a filter condition
-                            if (child instanceof LogicalFilter && child.bound() && child
-                                    .child(0) instanceof LogicalRelation) {
+                            if ((child instanceof LogicalFilter) && child.bound()) {
                                 upperFilter = (LogicalFilter) child;
+                                if (child.child(0) instanceof LogicalRelation) {
+                                    child = child.child(0);
+                                } else if (child.child(0) instanceof LogicalAggregate
+                                        && child.child(0).child(0) instanceof LogicalRelation) {
+                                    upAgg = child.child(0);
+                                    child = child.child(0).child(0);
+                                }
+                            }
+                            if ((child instanceof LogicalAggregate)
+                                    && child.bound() && child.child(0) instanceof LogicalRelation) {
+                                upAgg = child;
                                 child = child.child(0);
                             }
                             if (!(child instanceof LogicalRelation)
@@ -65,28 +77,28 @@ public class CheckPolicy implements AnalysisRuleFactory {
                             Set<Expression> combineFilter = new LinkedHashSet<>();
 
                             // replace incremental params as AND expression
-                            if (relation instanceof LogicalFileScan) {
-                                LogicalFileScan fileScan = (LogicalFileScan) relation;
-                                if (fileScan.getTable() instanceof HMSExternalTable) {
-                                    HMSExternalTable hmsTable = (HMSExternalTable) fileScan.getTable();
-                                    combineFilter.addAll(hmsTable.generateIncrementalExpression(
-                                            fileScan.getLogicalProperties().getOutput()));
+                            if (relation instanceof LogicalHudiScan) {
+                                LogicalHudiScan hudiScan = (LogicalHudiScan) relation;
+                                if (hudiScan.getTable() instanceof HMSExternalTable) {
+                                    combineFilter.addAll(hudiScan.generateIncrementalExpression(
+                                            hudiScan.getLogicalProperties().getOutput()));
                                 }
                             }
 
                             RelatedPolicy relatedPolicy = checkPolicy.findPolicy(relation, ctx.cascadesContext);
                             relatedPolicy.rowPolicyFilter.ifPresent(expression -> combineFilter.addAll(
                                             ExpressionUtils.extractConjunctionToSet(expression)));
-                            Plan result = relation;
+                            Plan result = upAgg != null ? upAgg.withChildren(relation) : relation;
                             if (upperFilter != null) {
                                 combineFilter.addAll(upperFilter.getConjuncts());
                             }
                             if (!combineFilter.isEmpty()) {
-                                result = new LogicalFilter<>(combineFilter, relation);
+                                result = new LogicalFilter<>(combineFilter, result);
                             }
                             if (relatedPolicy.dataMaskProjects.isPresent()) {
                                 result = new LogicalProject<>(relatedPolicy.dataMaskProjects.get(), result);
                             }
+
                             return result;
                         })
                 )

@@ -20,5 +20,5 @@ package org.apache.doris.binlog;
 import org.apache.doris.thrift.TBinlog;
 
 public interface BinlogComparator {
-    boolean isExpired(TBinlog binlog, long expired);
+    boolean isExpired(TBinlog binlog);
 }

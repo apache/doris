@@ -33,12 +33,19 @@ public class ExprId extends Id<ExprId> {
      * Should be only called by {@link StatementScopeIdGenerator}.
      */
     public static IdGenerator<ExprId> createGenerator() {
+        return createGenerator(0);
+    }
+
+    /**
+     * for ut test only
+     */
+    public static IdGenerator<ExprId> createGenerator(int initialId) {
         return new IdGenerator<ExprId>() {
             @Override
             public ExprId getNextId() {
                 return new ExprId(nextId++);
             }
-        };
+        }.resetId(initialId);
     }
 
     @Override

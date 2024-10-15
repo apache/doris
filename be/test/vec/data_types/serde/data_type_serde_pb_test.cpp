@@ -112,7 +112,7 @@ TEST(DataTypeSerDePbTest, DataTypeScalaSerDeTest2) {
     std::cout << "==== double === " << std::endl;
     // double
     {
-        auto vec = vectorized::ColumnVector<Float64>::create();
+        auto vec = vectorized::ColumnFloat64::create();
         auto& data = vec->get_data();
         for (int i = 0; i < 10; ++i) {
             data.push_back(i);

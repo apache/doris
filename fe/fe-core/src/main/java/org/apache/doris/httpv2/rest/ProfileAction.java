@@ -69,7 +69,7 @@ public class ProfileAction extends RestBaseController {
 
         String queryId = request.getParameter("query_id");
         if (Strings.isNullOrEmpty(queryId)) {
-            return "Missing query_id";
+            queryId = ProfileManager.getInstance().getLastProfileId();
         }
 
         String queryProfileStr = ProfileManager.getInstance().getProfile(queryId);

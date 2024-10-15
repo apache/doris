@@ -48,4 +48,7 @@ suite("group_unique_array") {
     qt_2 """
     select k1,collect_set(k2),collect_set(k3,1) from test_group_unique_array_table group by k1 order by k1;
     """
+    qt_3 """
+    select collect_set(k3) over() from test_group_unique_array_table;
+    """
 }

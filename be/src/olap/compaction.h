@@ -81,6 +81,8 @@ protected:
 
     void _load_segment_to_cache();
 
+    int64_t merge_way_num();
+
     // the root tracker for this compaction
     std::shared_ptr<MemTrackerLimiter> _mem_tracker;
 
@@ -106,7 +108,7 @@ protected:
     Version _output_version;
 
     int64_t _newest_write_timestamp {-1};
-    RowIdConversion _rowid_conversion;
+    std::unique_ptr<RowIdConversion> _rowid_conversion = nullptr;
     TabletSchemaSPtr _cur_tablet_schema;
 
     std::unique_ptr<RuntimeProfile> _profile;

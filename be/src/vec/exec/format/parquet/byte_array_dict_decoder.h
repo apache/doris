@@ -17,32 +17,26 @@
 
 #pragma once
 
-#include <string.h>
-
 #include <cstdint>
+#include <cstring>
 #include <memory>
 #include <unordered_map>
 #include <vector>
 
 #include "common/status.h"
-#include "util/bit_util.h"
 #include "vec/columns/columns_number.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
-#include "vec/exec/format/format_common.h"
 #include "vec/exec/format/parquet/decoder.h"
 #include "vec/exec/format/parquet/parquet_common.h"
 
-namespace doris {
-namespace vectorized {
-class ColumnString;
+namespace doris::vectorized {
 template <typename T>
 class ColumnDecimal;
-} // namespace vectorized
-} // namespace doris
-
-namespace doris::vectorized {
+template <typename T>
+class ColumnStr;
+using ColumnString = ColumnStr<UInt32>;
 
 class ByteArrayDictDecoder final : public BaseDictDecoder {
 public:
@@ -60,9 +54,6 @@ public:
 
     Status read_dict_values_to_column(MutableColumnPtr& doris_column) override;
 
-    Status get_dict_codes(const ColumnString* column_string,
-                          std::vector<int32_t>* dict_codes) override;
-
     MutableColumnPtr convert_dict_column_to_string_column(const ColumnInt32* dict_column) override;
 
 protected:
@@ -70,6 +61,5 @@ protected:
     std::vector<StringRef> _dict_items;
     std::vector<uint8_t> _dict_data;
     size_t _max_value_length;
-    std::unordered_map<StringRef, int32_t> _dict_value_to_code;
 };
 } // namespace doris::vectorized

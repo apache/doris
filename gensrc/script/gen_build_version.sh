@@ -31,10 +31,12 @@ build_version_prefix="doris"
 build_version_major=0
 build_version_minor=0
 build_version_patch=0
-build_version_rc_version="trunk"
+build_version_rc_version=""
 
 build_version="${build_version_prefix}-${build_version_major}.${build_version_minor}.${build_version_patch}-${build_version_rc_version}"
 
+# This version is used to check FeMetaVersion is not changed during release
+build_fe_meta_version=0
 unset LANG
 unset LC_CTYPE
 
@@ -131,6 +133,7 @@ public class Version {
   public static final String DORIS_BUILD_TIME = "${build_time}";
   public static final String DORIS_BUILD_INFO = "${build_info}";
   public static final String DORIS_JAVA_COMPILE_VERSION = "${java_version_str}";
+  public static final int DORIS_FE_META_VERSION = ${build_fe_meta_version};
 
   public static void main(String[] args) {
     System.out.println("doris_build_version_prefix: " + DORIS_BUILD_VERSION_PREFIX);

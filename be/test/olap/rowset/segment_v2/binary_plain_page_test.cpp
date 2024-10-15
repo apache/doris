@@ -47,6 +47,8 @@ public:
         PageBuilderOptions options;
         options.data_page_size = 256 * 1024;
         PageBuilderType page_builder(options);
+        Status ret0 = page_builder.init();
+        EXPECT_TRUE(ret0.ok());
         size_t count = slices.size();
 
         Slice* ptr = &slices[0];

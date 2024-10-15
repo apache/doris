@@ -20,10 +20,10 @@ package org.apache.doris.journal.bdbje;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.LogUtils;
 import org.apache.doris.common.io.DataOutputBuffer;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.NetUtils;
-import org.apache.doris.common.util.Util;
 import org.apache.doris.journal.Journal;
 import org.apache.doris.journal.JournalBatch;
 import org.apache.doris.journal.JournalCursor;
@@ -120,7 +120,7 @@ public class BDBJEJournal implements Journal { // CHECKSTYLE IGNORE THIS LINE: B
                             + "journal id: %d, current db: %s, expected db count: %d",
                     newName, currentDbName, newNameVerify);
             LOG.error(msg);
-            Util.stdoutWithTime(msg);
+            LogUtils.stderr(msg);
             System.exit(-1);
         }
     }
@@ -193,7 +193,7 @@ public class BDBJEJournal implements Journal { // CHECKSTYLE IGNORE THIS LINE: B
                 String msg = "write bdb failed. will exit. the first journalId: " + firstId + ", bdb database Name: "
                         + currentJournalDB.getDatabaseName();
                 LOG.error(msg);
-                Util.stdoutWithTime(msg);
+                LogUtils.stderr(msg);
                 System.exit(-1);
             } catch (DatabaseException e) {
                 LOG.error("catch an exception when writing to database. sleep and retry. the first journal id {}",
@@ -218,7 +218,7 @@ public class BDBJEJournal implements Journal { // CHECKSTYLE IGNORE THIS LINE: B
         String msg = "write bdb failed. will exit. the first journalId: " + firstId + ", bdb database Name: "
                 + currentJournalDB.getDatabaseName();
         LOG.error(msg);
-        Util.stdoutWithTime(msg);
+        LogUtils.stderr(msg);
         System.exit(-1);
         return 0; // unreachable!
     }
@@ -242,12 +242,25 @@ public class BDBJEJournal implements Journal { // CHECKSTYLE IGNORE THIS LINE: B
             MetricRepo.COUNTER_EDIT_LOG_SIZE_BYTES.increase((long) theData.getSize());
             MetricRepo.COUNTER_CURRENT_EDIT_LOG_SIZE_BYTES.increase((long) theData.getSize());
         }
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("opCode = {}, journal size = {}", op, theData.getSize());
+        if (LOG.isDebugEnabled() || theData.getSize() > (1 << 20)) {
+            LOG.info("opCode = {}, journal size = {}", op, theData.getSize());
+            if (MetricRepo.isInit) {
+                MetricRepo.COUNTER_LARGE_EDIT_LOG.increase(1L);
+            }
+
         }
+
         // Write the key value pair to bdb.
         boolean writeSucceed = false;
-        for (int i = 0; i < RETRY_TIME; i++) {
+        // ATTN: If all the followers exit except master, master should continue provide
+        // query service, so do not exit if the write operation is OP_TIMESTAMP.
+        //
+        // Because BDBJE will replicate the committed txns to FOLLOWERs after the connection
+        // resumed, directly reseting the next journal id and returning will cause subsequent
+        // txn written to the same journal ID not to be replayed by the FOLLOWERS. So for
+        // OP_TIMESTAMP operation, try to write until it succeeds here.
+        int retryTimes = op == OperationType.OP_TIMESTAMP ? Integer.MAX_VALUE : RETRY_TIME;
+        for (int i = 0; i < retryTimes; i++) {
             try {
                 // Parameter null means auto commit
                 if (currentJournalDB.put(null, theKey, theData) == OperationStatus.SUCCESS) {
@@ -276,7 +289,7 @@ public class BDBJEJournal implements Journal { // CHECKSTYLE IGNORE THIS LINE: B
                 String msg = "write bdb failed. will exit. journalId: " + id + ", bdb database Name: "
                         + currentJournalDB.getDatabaseName();
                 LOG.error(msg);
-                Util.stdoutWithTime(msg);
+                LogUtils.stderr(msg);
                 System.exit(-1);
             } catch (DatabaseException e) {
                 LOG.error("catch an exception when writing to database. sleep and retry. journal id {}", id, e);
@@ -289,21 +302,10 @@ public class BDBJEJournal implements Journal { // CHECKSTYLE IGNORE THIS LINE: B
         }
 
         if (!writeSucceed) {
-            if (op == OperationType.OP_TIMESTAMP) {
-                /*
-                 * Do not exit if the write operation is OP_TIMESTAMP.
-                 * If all the followers exit except master, master should continue provide query
-                 * service.
-                 * To prevent master exit, we should exempt OP_TIMESTAMP write
-                 */
-                nextJournalId.set(id);
-                LOG.warn("master can not achieve quorum. write timestamp fail. but will not exit.");
-                return -1;
-            }
             String msg = "write bdb failed. will exit. journalId: " + id + ", bdb database Name: "
                     + currentJournalDB.getDatabaseName();
             LOG.error(msg);
-            Util.stdoutWithTime(msg);
+            LogUtils.stderr(msg);
             System.exit(-1);
         }
         return id;
@@ -359,7 +361,7 @@ public class BDBJEJournal implements Journal { // CHECKSTYLE IGNORE THIS LINE: B
                     LOG.warn("", e);
                 }
             } else {
-                System.out.println("No record found for key '" + journalId + "'.");
+                LOG.warn("No record found for key '{}'.", journalId);
             }
         } catch (Exception e) {
             LOG.warn("catch an exception when get JournalEntity. key:{}", journalId, e);
@@ -708,5 +710,28 @@ public class BDBJEJournal implements Journal { // CHECKSTYLE IGNORE THIS LINE: B
             return "replicatedEnvironment is null";
         }
         return bdbEnvironment.getNotReadyReason();
+    }
+
+    @Override
+    public boolean exceedMaxJournalSize(short op, Writable writable) throws IOException {
+        JournalEntity entity = new JournalEntity();
+        entity.setOpCode(op);
+        entity.setData(writable);
+
+        DataOutputBuffer buffer = new DataOutputBuffer(OUTPUT_BUFFER_INIT_SIZE);
+        entity.write(buffer);
+
+        DatabaseEntry theData = new DatabaseEntry(buffer.getData());
+
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("opCode = {}, journal size = {}", op, theData.getSize());
+        }
+
+        // 1GB
+        if (theData.getSize() > (1 << 30)) {
+            return true;
+        }
+
+        return false;
     }
 }

@@ -32,6 +32,8 @@
 
 namespace doris {
 
+static bvar::Adder<size_t> g_primary_key_index_memory_bytes("doris_primary_key_index_memory_bytes");
+
 Status PrimaryKeyIndexBuilder::init() {
     // TODO(liaoxin) using the column type directly if there's only one column in unique key columns
     const auto* type_info = get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_VARCHAR>();
@@ -55,7 +57,7 @@ Status PrimaryKeyIndexBuilder::init() {
 Status PrimaryKeyIndexBuilder::add_item(const Slice& key) {
     RETURN_IF_ERROR(_primary_key_index_builder->add(&key));
     Slice key_without_seq = Slice(key.get_data(), key.get_size() - _seq_col_length - _rowid_length);
-    _bloom_filter_index_builder->add_values(&key_without_seq, 1);
+    RETURN_IF_ERROR(_bloom_filter_index_builder->add_values(&key_without_seq, 1));
     // the key is already sorted, so the first key is min_key, and
     // the last key is max_key.
     if (UNLIKELY(_num_rows == 0)) {

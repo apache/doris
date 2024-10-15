@@ -20,16 +20,15 @@ package org.apache.doris.fs.obj;
 import org.apache.doris.backup.Status;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.credentials.CloudCredential;
 import org.apache.doris.common.util.S3URI;
 import org.apache.doris.common.util.S3Util;
-import org.apache.doris.datasource.credentials.CloudCredential;
 import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.datasource.property.constants.S3Properties;
 
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.tuple.Triple;
 import org.apache.http.HttpStatus;
-import org.apache.http.client.utils.URIBuilder;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -55,6 +54,7 @@ import software.amazon.awssdk.services.s3.model.S3Exception;
 import software.amazon.awssdk.services.s3.model.S3Object;
 
 import java.io.File;
+import java.io.InputStream;
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
@@ -68,15 +68,9 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
 
     protected Map<String, String> properties;
 
-    // false: the s3 client will automatically convert endpoint to virtual-hosted style, eg:
-    //          endpoint:           http://s3.us-east-2.amazonaws.com
-    //          bucket/path:        my_bucket/file.txt
-    //          auto convert:       http://my_bucket.s3.us-east-2.amazonaws.com/file.txt
-    // true: the s3 client will NOT automatically convert endpoint to virtual-hosted style, we need to do some tricks:
-    //          endpoint:           http://cos.ap-beijing.myqcloud.com
-    //          bucket/path:        my_bucket/file.txt
-    //          convert manually:   See S3URI()
-    private boolean forceHostedStyle = false;
+    private boolean isUsePathStyle = false;
+
+    private boolean forceParsingByStandardUri = false;
 
     public S3ObjStorage(Map<String, String> properties) {
         this.properties = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
@@ -104,38 +98,27 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
         // Some of them, such as aliyun's oss, only support virtual hosted-style,
         // and some of them(ceph) may only support
         // path-style, so we need to do some additional conversion.
-        //
-        //          use_path_style          |     !use_path_style
-        //   S3     forceHostedStyle=false  |     forceHostedStyle=false
-        //  !S3     forceHostedStyle=false  |     forceHostedStyle=true
-        //
-        // That is, for S3 endpoint, ignore the `use_path_style` property, and the s3 client will automatically use
-        // virtual hosted-sytle.
-        // And for other endpoint, if `use_path_style` is true, use path style. Otherwise, use virtual hosted-sytle.
-        // 'forceHostedStyle==false' means that use path style.
-        if (!this.properties.get(S3Properties.ENDPOINT).toLowerCase().contains(S3Properties.S3_PREFIX)) {
-            String usePathStyle = this.properties.getOrDefault(PropertyConverter.USE_PATH_STYLE, "false");
-            boolean isUsePathStyle = usePathStyle.equalsIgnoreCase("true");
-            // when it's path style, we will not use virtual hosted-style
-            forceHostedStyle = !isUsePathStyle;
-        } else {
-            forceHostedStyle = false;
-        }
+        isUsePathStyle = this.properties.getOrDefault(PropertyConverter.USE_PATH_STYLE, "false")
+                .equalsIgnoreCase("true");
+        forceParsingByStandardUri = this.properties.getOrDefault(PropertyConverter.FORCE_PARSING_BY_STANDARD_URI,
+                "false").equalsIgnoreCase("true");
     }
 
     @Override
-    public S3Client getClient(String bucket) throws UserException {
+    public S3Client getClient() throws UserException {
         if (client == null) {
-            URI tmpEndpoint = URI.create(properties.get(S3Properties.ENDPOINT));
-            URI endpoint = StringUtils.isEmpty(bucket) ? tmpEndpoint :
-                    URI.create(new URIBuilder(tmpEndpoint).setHost(bucket + "." + tmpEndpoint.getHost()).toString());
+            String endpointStr = properties.get(S3Properties.ENDPOINT);
+            if (!endpointStr.contains("://")) {
+                endpointStr = "http://" + endpointStr;
+            }
+            URI endpoint = URI.create(endpointStr);
             CloudCredential credential = new CloudCredential();
             credential.setAccessKey(properties.get(S3Properties.ACCESS_KEY));
             credential.setSecretKey(properties.get(S3Properties.SECRET_KEY));
             if (properties.containsKey(S3Properties.SESSION_TOKEN)) {
                 credential.setSessionToken(properties.get(S3Properties.SESSION_TOKEN));
             }
-            client = S3Util.buildS3Client(endpoint, properties.get(S3Properties.REGION), credential);
+            client = S3Util.buildS3Client(endpoint, properties.get(S3Properties.REGION), credential, isUsePathStyle);
         }
         return client;
     }
@@ -148,8 +131,8 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
     @Override
     public Status headObject(String remotePath) {
         try {
-            S3URI uri = S3URI.create(remotePath, forceHostedStyle);
-            HeadObjectResponse response = getClient(uri.getVirtualBucket())
+            S3URI uri = S3URI.create(remotePath, isUsePathStyle, forceParsingByStandardUri);
+            HeadObjectResponse response = getClient()
                     .headObject(HeadObjectRequest.builder().bucket(uri.getBucket()).key(uri.getKey()).build());
             LOG.info("head file " + remotePath + " success: " + response.toString());
             return Status.OK;
@@ -169,8 +152,8 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
     @Override
     public Status getObject(String remoteFilePath, File localFile) {
         try {
-            S3URI uri = S3URI.create(remoteFilePath, forceHostedStyle);
-            GetObjectResponse response = getClient(uri.getVirtualBucket()).getObject(
+            S3URI uri = S3URI.create(remoteFilePath, isUsePathStyle, forceParsingByStandardUri);
+            GetObjectResponse response = getClient().getObject(
                     GetObjectRequest.builder().bucket(uri.getBucket()).key(uri.getKey()).build(), localFile.toPath());
             LOG.info("get file " + remoteFilePath + " success: " + response.toString());
             return Status.OK;
@@ -187,14 +170,15 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
     }
 
     @Override
-    public Status putObject(String remotePath, @Nullable RequestBody requestBody) {
+    public Status putObject(String remotePath, @Nullable InputStream content, long contentLength) {
         try {
-            S3URI uri = S3URI.create(remotePath, forceHostedStyle);
+            S3URI uri = S3URI.create(remotePath, isUsePathStyle, forceParsingByStandardUri);
+            RequestBody body = RequestBody.fromInputStream(content, contentLength);
             PutObjectResponse response =
-                    getClient(uri.getVirtualBucket())
+                    getClient()
                             .putObject(
                                     PutObjectRequest.builder().bucket(uri.getBucket()).key(uri.getKey()).build(),
-                                    requestBody);
+                                    body);
             LOG.info("put object success: " + response.toString());
             return Status.OK;
         } catch (S3Exception e) {
@@ -209,9 +193,9 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
     @Override
     public Status deleteObject(String remotePath) {
         try {
-            S3URI uri = S3URI.create(remotePath, forceHostedStyle);
+            S3URI uri = S3URI.create(remotePath, isUsePathStyle, forceParsingByStandardUri);
             DeleteObjectResponse response =
-                    getClient(uri.getVirtualBucket())
+                    getClient()
                             .deleteObject(
                                     DeleteObjectRequest.builder().bucket(uri.getBucket()).key(uri.getKey()).build());
             LOG.info("delete file " + remotePath + " success: " + response.toString());
@@ -231,7 +215,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
     @Override
     public Status deleteObjects(String absolutePath) {
         try {
-            S3URI baseUri = S3URI.create(absolutePath, forceHostedStyle);
+            S3URI baseUri = S3URI.create(absolutePath, isUsePathStyle, forceParsingByStandardUri);
             String continuationToken = "";
             boolean isTruncated = false;
             long totalObjects = 0;
@@ -250,7 +234,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
                             .delete(delete)
                             .build();
 
-                    DeleteObjectsResponse resp = getClient(baseUri.getVirtualBucket()).deleteObjects(req);
+                    DeleteObjectsResponse resp = getClient().deleteObjects(req);
                     if (resp.errors().size() > 0) {
                         LOG.warn("{} errors returned while deleting {} objects for dir {}",
                                 resp.errors().size(), objectList.size(), absolutePath);
@@ -268,7 +252,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
         } catch (DdlException e) {
             return new Status(Status.ErrCode.COMMON_ERROR, "list objects for delete objects failed: " + e.getMessage());
         } catch (Exception e) {
-            LOG.warn("delete objects {} failed, force visual host style {}", absolutePath, e, forceHostedStyle);
+            LOG.warn(String.format("delete objects %s failed", absolutePath), e);
             return new Status(Status.ErrCode.COMMON_ERROR, "delete objects failed: " + e.getMessage());
         }
     }
@@ -276,9 +260,9 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
     @Override
     public Status copyObject(String origFilePath, String destFilePath) {
         try {
-            S3URI origUri = S3URI.create(origFilePath);
-            S3URI descUri = S3URI.create(destFilePath, forceHostedStyle);
-            CopyObjectResponse response = getClient(descUri.getVirtualBucket())
+            S3URI origUri = S3URI.create(origFilePath, isUsePathStyle, forceParsingByStandardUri);
+            S3URI descUri = S3URI.create(destFilePath, isUsePathStyle, forceParsingByStandardUri);
+            CopyObjectResponse response = getClient()
                     .copyObject(
                             CopyObjectRequest.builder()
                                     .copySource(origUri.getBucket() + "/" + origUri.getKey())
@@ -299,31 +283,16 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
     @Override
     public RemoteObjects listObjects(String absolutePath, String continuationToken) throws DdlException {
         try {
-            S3URI uri = S3URI.create(absolutePath, forceHostedStyle);
+            S3URI uri = S3URI.create(absolutePath, isUsePathStyle, forceParsingByStandardUri);
             String bucket = uri.getBucket();
             String prefix = uri.getKey();
-            if (!StringUtils.isEmpty(uri.getVirtualBucket())) {
-                // Support s3 compatible service. The generated HTTP request for list objects likes:
-                //
-                //  GET /<bucket-name>?list-type=2&prefix=<prefix>
-                prefix = bucket + "/" + prefix;
-                String endpoint = properties.get(S3Properties.ENDPOINT);
-                if (endpoint.contains("cos.")) {
-                    bucket = "/";
-                } else if (endpoint.contains("oss-")) {
-                    bucket = uri.getVirtualBucket();
-                } else if (endpoint.contains("obs.")) {
-                    // FIXME: unlike cos and oss, the obs will report 'The specified key does not exist'.
-                    throw new DdlException("obs does not support list objects via s3 sdk. path: " + absolutePath);
-                }
-            }
             ListObjectsV2Request.Builder requestBuilder = ListObjectsV2Request.builder()
                     .bucket(bucket)
                     .prefix(normalizePrefix(prefix));
             if (!StringUtils.isEmpty(continuationToken)) {
                 requestBuilder.continuationToken(continuationToken);
             }
-            ListObjectsV2Response response = getClient(uri.getVirtualBucket()).listObjectsV2(requestBuilder.build());
+            ListObjectsV2Response response = getClient().listObjectsV2(requestBuilder.build());
             List<RemoteObject> remoteObjects = new ArrayList<>();
             for (S3Object c : response.contents()) {
                 String relativePath = getRelativePath(prefix, c.key());
@@ -331,7 +300,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
             }
             return new RemoteObjects(remoteObjects, response.isTruncated(), response.nextContinuationToken());
         } catch (Exception e) {
-            LOG.warn("Failed to list objects for S3: {}", absolutePath, e);
+            LOG.warn(String.format("Failed to list objects for S3: %s", absolutePath), e);
             throw new DdlException("Failed to list objects for S3, Error message: " + e.getMessage(), e);
         }
     }

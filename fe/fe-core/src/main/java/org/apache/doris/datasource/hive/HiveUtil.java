@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.ExternalCatalog;
+import org.apache.doris.datasource.statistics.CommonStatistics;
 import org.apache.doris.fs.remote.BrokerFileSystem;
 import org.apache.doris.fs.remote.RemoteFileSystem;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -75,14 +76,14 @@ public final class HiveUtil {
     /**
      * get input format class from inputFormatName.
      *
-     * @param jobConf         jobConf used when getInputFormatClass
+     * @param jobConf jobConf used when getInputFormatClass
      * @param inputFormatName inputFormat class name
-     * @param symlinkTarget   use target inputFormat class when inputFormat is SymlinkTextInputFormat
+     * @param symlinkTarget use target inputFormat class when inputFormat is SymlinkTextInputFormat
      * @return a class of inputFormat.
      * @throws UserException when class not found.
      */
     public static InputFormat<?, ?> getInputFormat(JobConf jobConf,
-                                                   String inputFormatName, boolean symlinkTarget) throws UserException {
+            String inputFormatName, boolean symlinkTarget) throws UserException {
         try {
             Class<? extends InputFormat<?, ?>> inputFormatClass = getInputFormatClass(jobConf, inputFormatName);
             if (symlinkTarget && (inputFormatClass == SymlinkTextInputFormat.class)) {
@@ -110,7 +111,7 @@ public final class HiveUtil {
     }
 
     public static boolean isSplittable(RemoteFileSystem remoteFileSystem, String inputFormat,
-            String location, JobConf jobConf) throws UserException {
+            String location) throws UserException {
         if (remoteFileSystem instanceof BrokerFileSystem) {
             return ((BrokerFileSystem) remoteFileSystem).isSplittable(location, inputFormat);
         }
@@ -167,12 +168,12 @@ public final class HiveUtil {
 
         Map<String, List<String>> partitionNameToPartitionValues =
                 partitionNames
-                    .stream()
-                    .collect(Collectors.toMap(partitionName -> partitionName, HiveUtil::toPartitionValues));
+                        .stream()
+                        .collect(Collectors.toMap(partitionName -> partitionName, HiveUtil::toPartitionValues));
 
         Map<List<String>, Partition> partitionValuesToPartition =
                 partitions.stream()
-                    .collect(Collectors.toMap(Partition::getValues, partition -> partition));
+                        .collect(Collectors.toMap(Partition::getValues, partition -> partition));
 
         ImmutableMap.Builder<String, Partition> resultBuilder = ImmutableMap.builder();
         for (Map.Entry<String, List<String>> entry : partitionNameToPartitionValues.entrySet()) {
@@ -263,7 +264,7 @@ public final class HiveUtil {
             serDe = "org.apache.hadoop.hive.ql.io.orc.OrcSerde";
         } else if (fileFormat.equalsIgnoreCase("parquet")) {
             inputFormat = "org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat";
-            outputFormat = "'org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat";
+            outputFormat = "org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat";
             serDe = "org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe";
         } else {
             throw new IllegalArgumentException("Creating table with an unsupported file format: " + fileFormat);
@@ -312,7 +313,7 @@ public final class HiveUtil {
 
     public static Map<String, String> updateStatisticsParameters(
             Map<String, String> parameters,
-            HiveCommonStatistics statistics) {
+            CommonStatistics statistics) {
         HashMap<String, String> result = new HashMap<>(parameters);
 
         result.put(StatsSetupConst.NUM_FILES, String.valueOf(statistics.getFileCount()));
@@ -345,8 +346,8 @@ public final class HiveUtil {
 
     public static Partition toMetastoreApiPartition(HivePartition hivePartition) {
         Partition result = new Partition();
-        result.setDbName(hivePartition.getDbName());
-        result.setTableName(hivePartition.getTblName());
+        result.setDbName(hivePartition.getTableInfo().getDbName());
+        result.setTableName(hivePartition.getTableInfo().getTbName());
         result.setValues(hivePartition.getPartitionValues());
         result.setSd(makeStorageDescriptorFromHivePartition(hivePartition));
         result.setParameters(hivePartition.getParameters());
@@ -355,7 +356,7 @@ public final class HiveUtil {
 
     public static StorageDescriptor makeStorageDescriptorFromHivePartition(HivePartition partition) {
         SerDeInfo serdeInfo = new SerDeInfo();
-        serdeInfo.setName(partition.getTblName());
+        serdeInfo.setName(partition.getTableInfo().getTbName());
         serdeInfo.setSerializationLib(partition.getSerde());
 
         StorageDescriptor sd = new StorageDescriptor();

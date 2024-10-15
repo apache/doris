@@ -80,8 +80,8 @@ public class CustomRewriteJob implements RewriteJob {
         return false;
     }
 
-    private void printTraceLog(RuleType ruleType, String traceBefore, String traceAfter) {
-        System.out.println("========== " + getClass().getSimpleName() + " " + ruleType
-                + " ==========\nbefore:\n" + traceBefore + "\n\nafter:\n" + traceAfter + "\n");
+    public RuleType getRuleType() {
+        return ruleType;
     }
+
 }

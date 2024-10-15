@@ -30,6 +30,7 @@ import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
 import lombok.Getter;
+import lombok.Setter;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -40,7 +41,8 @@ import java.util.List;
  * CREATE TABLE table_name [( column_name_list )]
  * opt_engine opt_partition opt_properties KW_AS query_stmt
  */
-public class CreateTableAsSelectStmt extends DdlStmt {
+@Deprecated
+public class CreateTableAsSelectStmt extends DdlStmt implements NotFallbackInParser {
 
     @Getter
     private final CreateTableStmt createTableStmt;
@@ -53,6 +55,13 @@ public class CreateTableAsSelectStmt extends DdlStmt {
 
     @Getter
     private final InsertStmt insertStmt;
+
+    /**
+     * If the table has already exists, set this flag to true.
+     */
+    @Setter
+    @Getter
+    private boolean tableHasExists = false;
 
     protected CreateTableAsSelectStmt(CreateTableStmt createTableStmt,
                                       List<String> columnNames, QueryStmt queryStmt) {
@@ -116,5 +125,10 @@ public class CreateTableAsSelectStmt extends DdlStmt {
     public void reset() {
         super.reset();
         queryStmt.reset();
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.CREATE;
     }
 }

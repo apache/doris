@@ -24,6 +24,7 @@
 #include <stdint.h>
 
 #include <string>
+#include <unordered_map>
 
 #include "common/status.h"
 #include "jni_md.h"
@@ -84,8 +85,11 @@ public:
     static Status get_jni_scanner_class(JNIEnv* env, const char* classname, jclass* loaded_class);
     static jobject convert_to_java_map(JNIEnv* env, const std::map<std::string, std::string>& map);
     static std::map<std::string, std::string> convert_to_cpp_map(JNIEnv* env, jobject map);
+    static size_t get_max_jni_heap_memory_size();
+    static Status clean_udf_class_load_cache(const std::string& function_signature);
 
 private:
+    static void parse_max_heap_memory_size_from_jvm(JNIEnv* env);
     static Status GetJNIEnvSlowPath(JNIEnv** env);
     static Status init_jni_scanner_loader(JNIEnv* env);
 
@@ -103,6 +107,8 @@ private:
     static jmethodID jni_scanner_loader_method_;
     // Thread-local cache of the JNIEnv for this thread.
     static __thread JNIEnv* tls_env_;
+    static jlong max_jvm_heap_memory_size_;
+    static jmethodID _clean_udf_cache_method_id;
 };
 
 /// Helper class for lifetime management of chars from JNI, releasing JNI chars when

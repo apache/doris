@@ -269,6 +269,24 @@ suite("test_decimalv2_overflow2") {
     """
 
 
+    sql """ drop TABLE if exists test_table """
+    sql """ CREATE TABLE `test_table` (
+            `day_date` datetime NULL COMMENT '',
+            `growth_money` decimalv2(18, 2) NULL COMMENT ''
+            ) ENGINE=OLAP
+            UNIQUE KEY(`day_date`)
+            COMMENT ''
+            DISTRIBUTED BY HASH(`day_date`) BUCKETS 4
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1",
+            "is_being_synced" = "false",
+            "storage_format" = "V2",
+            "disable_auto_compaction" = "false",
+            "enable_single_replica_compaction" = "false"
+            ); """
+    sql """ insert into test_table values ('2023-12-18', '95357.100000000000000000000000000000000000')"""
+    qt_sql """ select * from test_table """
+    sql """ drop TABLE if exists test_table """
     // TODO
     // decimalv2 +-*/ integer
     // integer +-*/ decimalv2

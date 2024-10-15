@@ -27,10 +27,7 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionColumnFilterConverter;
-import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.planner.HashDistributionPruner;
 import org.apache.doris.planner.PartitionColumnFilter;
@@ -49,50 +46,32 @@ import java.util.Set;
 /**
  * prune bucket
  */
-public class PruneOlapScanTablet implements RewriteRuleFactory {
+public class PruneOlapScanTablet extends OneRewriteRuleFactory {
     @Override
-    public List<Rule> buildRules() {
-        return ImmutableList.of(
-                logicalFilter(logicalOlapScan())
-                        .then(filter -> {
-                            return pruneTablets(filter.child(), filter);
-                        }).toRule(RuleType.OLAP_SCAN_TABLET_PRUNE),
-
-                logicalFilter(logicalProject(logicalOlapScan()))
-                        .when(p -> p.child().hasPushedDownToProjectionFunctions()).then(filter -> {
-                            return pruneTablets(filter.child().child(), filter);
-                        }).toRule(RuleType.OLAP_SCAN_WITH_PROJECT_TABLET_PRUNE)
-        );
-    }
-
-    private <T extends Plan> Plan pruneTablets(LogicalOlapScan olapScan, LogicalFilter<T> originalFilter) {
-        OlapTable table = olapScan.getTable();
-        Builder<Long> selectedTabletIdsBuilder = ImmutableList.builder();
-        if (olapScan.getSelectedTabletIds().isEmpty()) {
-            for (Long id : olapScan.getSelectedPartitionIds()) {
-                Partition partition = table.getPartition(id);
-                MaterializedIndex index = partition.getIndex(olapScan.getSelectedIndexId());
-                selectedTabletIdsBuilder
-                        .addAll(getSelectedTabletIds(originalFilter.getConjuncts(), index,
-                                olapScan.getSelectedIndexId() == olapScan.getTable()
-                                        .getBaseIndexId(),
-                                partition.getDistributionInfo()));
+    public Rule build() {
+        return logicalFilter(logicalOlapScan()).then(filter -> {
+            LogicalOlapScan olapScan = filter.child();
+            OlapTable table = olapScan.getTable();
+            Builder<Long> selectedTabletIdsBuilder = ImmutableList.builder();
+            if (olapScan.getSelectedTabletIds().isEmpty()) {
+                for (Long id : olapScan.getSelectedPartitionIds()) {
+                    Partition partition = table.getPartition(id);
+                    MaterializedIndex index = partition.getIndex(olapScan.getSelectedIndexId());
+                    selectedTabletIdsBuilder
+                            .addAll(getSelectedTabletIds(filter.getConjuncts(), index,
+                                    olapScan.getSelectedIndexId() == olapScan.getTable()
+                                            .getBaseIndexId(),
+                                    partition.getDistributionInfo()));
+                }
+            } else {
+                selectedTabletIdsBuilder.addAll(olapScan.getSelectedTabletIds());
             }
-        } else {
-            selectedTabletIdsBuilder.addAll(olapScan.getSelectedTabletIds());
-        }
-        List<Long> selectedTabletIds = selectedTabletIdsBuilder.build();
-        if (new HashSet(selectedTabletIds).equals(new HashSet(olapScan.getSelectedTabletIds()))) {
-            return null;
-        }
-        LogicalOlapScan rewrittenScan = olapScan.withSelectedTabletIds(selectedTabletIds);
-        if (originalFilter.child() instanceof LogicalProject) {
-            LogicalProject<LogicalOlapScan> rewrittenProject
-                    = (LogicalProject<LogicalOlapScan>) originalFilter.child()
-                            .withChildren(ImmutableList.of(rewrittenScan));
-            return new LogicalFilter<>(originalFilter.getConjuncts(), rewrittenProject);
-        }
-        return originalFilter.withChildren(rewrittenScan);
+            List<Long> selectedTabletIds = selectedTabletIdsBuilder.build();
+            if (new HashSet<>(selectedTabletIds).equals(new HashSet<>(olapScan.getSelectedTabletIds()))) {
+                return null;
+            }
+            return filter.withChildren(olapScan.withSelectedTabletIds(selectedTabletIds));
+        }).toRule(RuleType.OLAP_SCAN_TABLET_PRUNE);
     }
 
     private Collection<Long> getSelectedTabletIds(Set<Expression> expressions,

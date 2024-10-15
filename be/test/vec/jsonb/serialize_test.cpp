@@ -133,7 +133,7 @@ TEST(BlockSerializeTest, Array) {
     // serialize
     JsonbSerializeUtil::block_to_jsonb(schema, block, static_cast<ColumnString&>(*col.get()),
                                        block.columns(),
-                                       create_data_type_serdes(block.get_data_types()));
+                                       create_data_type_serdes(block.get_data_types()), {});
     // deserialize
     TupleDescriptor read_desc(PTupleDescriptor(), true);
     // slot1
@@ -175,7 +175,7 @@ TEST(BlockSerializeTest, Array) {
     std::cout << new_block.dump_data() << std::endl;
     JsonbSerializeUtil::jsonb_to_block(create_data_type_serdes(read_desc.slots()),
                                        static_cast<ColumnString&>(*col.get()), col_uid_to_idx,
-                                       new_block, default_values);
+                                       new_block, default_values, {});
     std::cout << block.dump_data() << std::endl;
     std::cout << new_block.dump_data() << std::endl;
     EXPECT_EQ(block.dump_data(), new_block.dump_data());
@@ -225,7 +225,7 @@ TEST(BlockSerializeTest, Map) {
     std::cout << "serialize to jsonb" << std::endl;
     JsonbSerializeUtil::block_to_jsonb(schema, block, static_cast<ColumnString&>(*col.get()),
                                        block.columns(),
-                                       create_data_type_serdes(block.get_data_types()));
+                                       create_data_type_serdes(block.get_data_types()), {});
     // deserialize
     TupleDescriptor read_desc(PTupleDescriptor(), true);
     // slot
@@ -257,7 +257,7 @@ TEST(BlockSerializeTest, Map) {
     std::cout << "deserialize from jsonb" << std::endl;
     JsonbSerializeUtil::jsonb_to_block(create_data_type_serdes(read_desc.slots()),
                                        static_cast<ColumnString&>(*col.get()), col_uid_to_idx,
-                                       new_block, default_values);
+                                       new_block, default_values, {});
     std::cout << block.dump_data() << std::endl;
     std::cout << new_block.dump_data() << std::endl;
     EXPECT_EQ(block.dump_data(), new_block.dump_data());
@@ -297,7 +297,7 @@ TEST(BlockSerializeTest, Struct) {
     std::cout << "serialize to jsonb" << std::endl;
     JsonbSerializeUtil::block_to_jsonb(schema, block, static_cast<ColumnString&>(*col.get()),
                                        block.columns(),
-                                       create_data_type_serdes(block.get_data_types()));
+                                       create_data_type_serdes(block.get_data_types()), {});
     // deserialize
     TupleDescriptor read_desc(PTupleDescriptor(), true);
     // slot
@@ -328,7 +328,7 @@ TEST(BlockSerializeTest, Struct) {
     std::cout << "deserialize from jsonb" << std::endl;
     JsonbSerializeUtil::jsonb_to_block(create_data_type_serdes(read_desc.slots()),
                                        static_cast<ColumnString&>(*col.get()), col_uid_to_idx,
-                                       new_block, default_values);
+                                       new_block, default_values, {});
     std::cout << block.dump_data() << std::endl;
     std::cout << new_block.dump_data() << std::endl;
     EXPECT_EQ(block.dump_data(), new_block.dump_data());
@@ -478,7 +478,7 @@ TEST(BlockSerializeTest, JsonbBlock) {
     // serialize
     JsonbSerializeUtil::block_to_jsonb(schema, block, static_cast<ColumnString&>(*col.get()),
                                        block.columns(),
-                                       create_data_type_serdes(block.get_data_types()));
+                                       create_data_type_serdes(block.get_data_types()), {});
     // deserialize
     TupleDescriptor read_desc(PTupleDescriptor(), true);
     for (auto t : cols) {
@@ -506,7 +506,7 @@ TEST(BlockSerializeTest, JsonbBlock) {
     }
     JsonbSerializeUtil::jsonb_to_block(create_data_type_serdes(block.get_data_types()),
                                        static_cast<const ColumnString&>(*col.get()), col_uid_to_idx,
-                                       new_block, default_values);
+                                       new_block, default_values, {});
     std::cout << block.dump_data() << std::endl;
     std::cout << new_block.dump_data() << std::endl;
     EXPECT_EQ(block.dump_data(), new_block.dump_data());

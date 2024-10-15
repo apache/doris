@@ -56,10 +56,11 @@ public:
     Status evaluate(BitmapIndexIterator* iterator, uint32_t num_rows,
                     roaring::Roaring* roaring) const override {
         LOG(FATAL) << "Not Implemented MatchPredicate::evaluate";
+        __builtin_unreachable();
     }
 
     //evaluate predicate on inverted
-    Status evaluate(const vectorized::NameAndTypePair& name_with_type,
+    Status evaluate(const vectorized::IndexFieldNameAndTypePair& name_with_type,
                     InvertedIndexIterator* iterator, uint32_t num_rows,
                     roaring::Roaring* bitmap) const override;
 
@@ -78,7 +79,7 @@ private:
         std::string info = "MatchPredicate";
         return info;
     }
-    bool _skip_evaluate(InvertedIndexIterator* iterator) const;
+    bool _check_evaluate(InvertedIndexIterator* iterator) const;
 
 private:
     std::string _value;

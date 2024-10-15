@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.analysis.StmtType;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.call.CallFunc;
@@ -58,4 +59,8 @@ public class CallCommand extends Command implements ForwardWithSync {
         return visitor.visitCallCommand(this, context);
     }
 
+    @Override
+    public StmtType stmtType() {
+        return StmtType.CALL;
+    }
 }

@@ -21,9 +21,11 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 
@@ -50,24 +52,44 @@ import java.util.Set;
  * 3. In old optimizer, there is `InferFilterRule` generates redundancy expressions. Its Nereid counterpart also need
  * `RemoveRedundantExpression`.
  * <p>
- * TODO: This rule just match filter, but it could be applied to inner/cross join condition.
  */
-public class ExtractSingleTableExpressionFromDisjunction extends OneRewriteRuleFactory {
+public class ExtractSingleTableExpressionFromDisjunction implements RewriteRuleFactory {
+    private static final ImmutableSet<JoinType> ALLOW_JOIN_TYPE = ImmutableSet.of(JoinType.INNER_JOIN,
+            JoinType.LEFT_OUTER_JOIN, JoinType.RIGHT_OUTER_JOIN, JoinType.LEFT_SEMI_JOIN, JoinType.RIGHT_SEMI_JOIN,
+            JoinType.LEFT_ANTI_JOIN, JoinType.RIGHT_ANTI_JOIN, JoinType.CROSS_JOIN, JoinType.FULL_OUTER_JOIN);
+
     @Override
-    public Rule build() {
-        return logicalFilter().then(filter -> {
-            List<Expression> dependentPredicates = extractDependentConjuncts(filter.getConjuncts());
-            if (dependentPredicates.isEmpty()) {
-                return null;
-            }
-            Set<Expression> newPredicates = ImmutableSet.<Expression>builder()
-                    .addAll(filter.getConjuncts())
-                    .addAll(dependentPredicates).build();
-            if (newPredicates.size() == filter.getConjuncts().size()) {
-                return null;
-            }
-            return new LogicalFilter<>(newPredicates, filter.child());
-        }).toRule(RuleType.EXTRACT_SINGLE_TABLE_EXPRESSION_FROM_DISJUNCTION);
+    public List<Rule> buildRules() {
+        return ImmutableList.of(
+                logicalFilter().then(filter -> {
+                    List<Expression> dependentPredicates = extractDependentConjuncts(filter.getConjuncts());
+                    if (dependentPredicates.isEmpty()) {
+                        return null;
+                    }
+                    Set<Expression> newPredicates = ImmutableSet.<Expression>builder()
+                            .addAll(filter.getConjuncts())
+                            .addAll(dependentPredicates).build();
+                    if (newPredicates.size() == filter.getConjuncts().size()) {
+                        return null;
+                    }
+                    return new LogicalFilter<>(newPredicates, filter.child());
+                }).toRule(RuleType.EXTRACT_SINGLE_TABLE_EXPRESSION_FROM_DISJUNCTION),
+                logicalJoin().when(join -> ALLOW_JOIN_TYPE.contains(join.getJoinType())).then(join -> {
+                    List<Expression> dependentOtherPredicates = extractDependentConjuncts(
+                            ImmutableSet.copyOf(join.getOtherJoinConjuncts()));
+                    if (dependentOtherPredicates.isEmpty()) {
+                        return null;
+                    }
+                    Set<Expression> newOtherPredicates = ImmutableSet.<Expression>builder()
+                            .addAll(join.getOtherJoinConjuncts())
+                            .addAll(dependentOtherPredicates).build();
+                    if (newOtherPredicates.size() == join.getOtherJoinConjuncts().size()) {
+                        return null;
+                    }
+                    return join.withJoinConjuncts(join.getHashJoinConjuncts(),
+                            ImmutableList.copyOf(newOtherPredicates),
+                            join.getMarkJoinConjuncts(), join.getJoinReorderContext());
+                }).toRule(RuleType.EXTRACT_SINGLE_TABLE_EXPRESSION_FROM_DISJUNCTION));
     }
 
     private List<Expression> extractDependentConjuncts(Set<Expression> conjuncts) {

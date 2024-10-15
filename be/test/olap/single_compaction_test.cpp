@@ -64,8 +64,8 @@ protected:
         rowset_meta->set_tablet_id(tablet->tablet_id());
         rowset_meta->set_tablet_uid(tablet->tablet_uid());
         rowset_meta->set_rowset_id(_engine->next_rowset_id());
-        return std::make_shared<BetaRowset>(tablet->tablet_schema(), tablet->tablet_path(),
-                                            std::move(rowset_meta));
+        return std::make_shared<BetaRowset>(tablet->tablet_schema(), std::move(rowset_meta),
+                                            tablet->tablet_path());
     }
     void TearDown() override {
         delete _engine;

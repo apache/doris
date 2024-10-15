@@ -23,6 +23,8 @@ suite("eliminate_distinct_constant") {
     sql 'DROP DATABASE IF EXISTS test_aggregate_constant'
     sql 'CREATE DATABASE IF NOT EXISTS test_aggregate_constant'
     sql 'use test_aggregate_constant'
+    sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
+
 
     // create tables
     sql """drop table if exists t1;"""

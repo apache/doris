@@ -38,6 +38,11 @@ class TTransport;
 } // namespace apache
 
 namespace doris {
+
+#define THRIFT_MOVE_VALUES(thrift, member, value) \
+    thrift.__isset.member = true;                 \
+    thrift.member = std::move(value);
+
 // Super class for templatized thrift clients.
 class ThriftClientImpl {
 public:

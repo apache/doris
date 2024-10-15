@@ -45,8 +45,7 @@ public class Hdfs extends TableValuedFunction {
             Map<String, String> arguments = getTVFProperties().getMap();
             return new HdfsTableValuedFunction(arguments);
         } catch (Throwable t) {
-            throw new AnalysisException("Can not build HdfsTableValuedFunction by "
-                + this + ": " + t.getMessage(), t);
+            throw new AnalysisException("Can not build hdfs(): " + t.getMessage(), t);
         }
     }
 

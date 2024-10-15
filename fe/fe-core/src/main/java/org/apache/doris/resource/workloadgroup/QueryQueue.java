@@ -17,14 +17,18 @@
 
 package org.apache.doris.resource.workloadgroup;
 
+import org.apache.doris.catalog.Env;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
+import org.apache.doris.resource.AdmissionControl;
 import org.apache.doris.resource.workloadgroup.QueueToken.TokenState;
 
-import com.google.common.base.Preconditions;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.LinkedList;
 import java.util.PriorityQueue;
+import java.util.Queue;
 import java.util.concurrent.locks.ReentrantLock;
 
 // note(wb) refer java BlockingQueue, but support altering capacity
@@ -38,8 +42,6 @@ public class QueryQueue {
     private int maxConcurrency;
     private int maxQueueSize;
     private int queueTimeout; // ms
-    // running property
-    private volatile int currentRunningQueryNum;
 
     public static final String RUNNING_QUERY_NUM = "running_query_num";
     public static final String WAITING_QUERY_NUM = "waiting_query_num";
@@ -48,16 +50,13 @@ public class QueryQueue {
 
     private long propVersion;
 
-    private PriorityQueue<QueueToken> priorityTokenQueue;
+    private PriorityQueue<QueueToken> waitingQueryQueue;
+    private Queue<QueueToken> runningQueryQueue;
 
-    int getCurrentRunningQueryNum() {
-        return currentRunningQueryNum;
-    }
-
-    int getCurrentWaitingQueryNum() {
+    Pair<Integer, Integer> getQueryQueueDetail() {
         try {
             queueLock.lock();
-            return priorityTokenQueue.size();
+            return Pair.of(runningQueryQueue.size(), waitingQueryQueue.size());
         } finally {
             queueLock.unlock();
         }
@@ -89,36 +88,47 @@ public class QueryQueue {
         this.maxQueueSize = maxQueueSize;
         this.queueTimeout = queueTimeout;
         this.propVersion = propVersion;
-        this.priorityTokenQueue = new PriorityQueue<QueueToken>();
+        this.waitingQueryQueue = new PriorityQueue<QueueToken>();
+        this.runningQueryQueue = new LinkedList<QueueToken>();
     }
 
     public String debugString() {
         return "wgId= " + wgId + ", version=" + this.propVersion + ",maxConcurrency=" + maxConcurrency
-                + ", maxQueueSize=" + maxQueueSize + ", queueTimeout=" + queueTimeout
-                + ", currentRunningQueryNum=" + currentRunningQueryNum
-                + ", currentWaitingQueryNum=" + priorityTokenQueue.size();
+                + ", maxQueueSize=" + maxQueueSize + ", queueTimeout=" + queueTimeout + ", currentRunningQueryNum="
+                + runningQueryQueue.size() + ", currentWaitingQueryNum=" + waitingQueryQueue.size();
     }
 
     public QueueToken getToken() throws UserException {
+        AdmissionControl admissionControl = Env.getCurrentEnv().getAdmissionControl();
         queueLock.lock();
         try {
             if (LOG.isDebugEnabled()) {
                 LOG.info(this.debugString());
             }
-            if (currentRunningQueryNum < maxConcurrency) {
-                currentRunningQueryNum++;
-                QueueToken retToken = new QueueToken(TokenState.READY_TO_RUN, queueTimeout, "offer success");
-                retToken.setQueueTimeWhenOfferSuccess();
-                return retToken;
-            }
-            if (priorityTokenQueue.size() >= maxQueueSize) {
+            QueueToken queueToken = new QueueToken(queueTimeout, this);
+
+            boolean isReachMaxCon = runningQueryQueue.size() >= maxConcurrency;
+            boolean isResourceAvailable = admissionControl.checkResourceAvailable(queueToken);
+            if (!isReachMaxCon && isResourceAvailable) {
+                runningQueryQueue.offer(queueToken);
+                queueToken.complete();
+                return queueToken;
+            } else if (waitingQueryQueue.size() >= maxQueueSize) {
                 throw new UserException("query waiting queue is full, queue length=" + maxQueueSize);
+            } else {
+                if (isReachMaxCon) {
+                    queueToken.setQueueMsg("WAIT_IN_QUEUE");
+                }
+                queueToken.setTokenState(TokenState.ENQUEUE_SUCCESS);
+                this.waitingQueryQueue.offer(queueToken);
+                // if a query is added to wg's queue but not in AdmissionControl's
+                // queue may be blocked by be memory later,
+                // then we should put query to AdmissionControl in releaseAndNotify, it's too complicated.
+                // To simplify the code logic, put all waiting query to AdmissionControl,
+                // waiting query can be notified when query finish or memory is enough.
+                admissionControl.addQueueToken(queueToken);
             }
-            QueueToken newQueryToken = new QueueToken(TokenState.ENQUEUE_SUCCESS, queueTimeout,
-                    "query wait timeout " + queueTimeout + " ms");
-            newQueryToken.setQueueTimeWhenQueueSuccess();
-            this.priorityTokenQueue.offer(newQueryToken);
-            return newQueryToken;
+            return queueToken;
         } finally {
             if (LOG.isDebugEnabled()) {
                 LOG.info(this.debugString());
@@ -127,35 +137,36 @@ public class QueryQueue {
         }
     }
 
-    // If the token is acquired and do work success, then call this method to release it.
-    public void returnToken(QueueToken token) {
+    public void notifyWaitQuery() {
+        releaseAndNotify(null);
+    }
+
+    public void releaseAndNotify(QueueToken releaseToken) {
+        AdmissionControl admissionControl = Env.getCurrentEnv().getAdmissionControl();
         queueLock.lock();
         try {
-            // If current token is not in ready to run state, then it is still in the queue
-            // it is not running, just remove it.
-            if (!token.isReadyToRun()) {
-                this.priorityTokenQueue.remove(token);
-                return;
-            }
-            currentRunningQueryNum--;
-            Preconditions.checkArgument(currentRunningQueryNum >= 0);
-            // If return token and find user changed concurrency num,  then maybe need signal
-            // more tokens.
-            while (currentRunningQueryNum < maxConcurrency) {
-                QueueToken nextToken = this.priorityTokenQueue.poll();
-                if (nextToken != null) {
-                    if (nextToken.signal()) {
-                        ++currentRunningQueryNum;
-                    }
+            runningQueryQueue.remove(releaseToken);
+            waitingQueryQueue.remove(releaseToken);
+            admissionControl.removeQueueToken(releaseToken);
+            while (runningQueryQueue.size() < maxConcurrency) {
+                QueueToken queueToken = waitingQueryQueue.peek();
+                if (queueToken == null) {
+                    break;
+                }
+                if (admissionControl.checkResourceAvailable(queueToken)) {
+                    queueToken.complete();
+                    runningQueryQueue.offer(queueToken);
+                    waitingQueryQueue.remove();
+                    admissionControl.removeQueueToken(queueToken);
                 } else {
                     break;
                 }
             }
         } finally {
+            queueLock.unlock();
             if (LOG.isDebugEnabled()) {
                 LOG.info(this.debugString());
             }
-            queueLock.unlock();
         }
     }
 

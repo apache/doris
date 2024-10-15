@@ -36,6 +36,13 @@
 #include "runtime/frontend_info.h" // TODO(zhiqiang): find a way to remove this include header
 #include "util/threadpool.h"
 
+namespace orc {
+class MemoryPool;
+}
+namespace arrow {
+class MemoryPool;
+}
+
 namespace doris {
 namespace vectorized {
 class VDataStreamMgr;
@@ -45,14 +52,12 @@ class DeltaWriterV2Pool;
 } // namespace vectorized
 namespace pipeline {
 class TaskScheduler;
-class BlockedTaskScheduler;
 struct RuntimeFilterTimerQueue;
 } // namespace pipeline
 class WorkloadGroupMgr;
 struct WriteCooldownMetaExecutors;
 namespace io {
 class FileCacheFactory;
-class FDCache;
 } // namespace io
 namespace segment_v2 {
 class InvertedIndexSearcherCache;
@@ -60,6 +65,7 @@ class InvertedIndexQueryCache;
 class TmpFileDirs;
 } // namespace segment_v2
 
+class QueryCache;
 class WorkloadSchedPolicyMgr;
 class BfdParser;
 class BrokerMgr;
@@ -72,10 +78,11 @@ class LoadPathMgr;
 class NewLoadStreamMgr;
 class MemTrackerLimiter;
 class MemTracker;
+struct TrackerLimiterGroup;
 class BaseStorageEngine;
 class ResultBufferMgr;
 class ResultQueueMgr;
-class RuntimeQueryStatiticsMgr;
+class RuntimeQueryStatisticsMgr;
 class TMasterInfo;
 class LoadChannelMgr;
 class LoadStreamMgr;
@@ -83,9 +90,7 @@ class LoadStreamMapPool;
 class StreamLoadExecutor;
 class RoutineLoadTaskExecutor;
 class SmallFileMgr;
-class BlockSpillManager;
 class BackendServiceClient;
-class ThreadContext;
 class TPaloBrokerServiceClient;
 class PBackendService_Stub;
 class PFunctionService_Stub;
@@ -104,6 +109,7 @@ class LookupConnectionCache;
 class RowCache;
 class DummyLRUCache;
 class CacheManager;
+class ProcessProfile;
 class WalManager;
 class DNSCache;
 
@@ -154,7 +160,7 @@ public:
     pipeline::TaskScheduler* pipeline_task_scheduler() { return _without_group_task_scheduler; }
     WorkloadGroupMgr* workload_group_mgr() { return _workload_group_manager; }
     WorkloadSchedPolicyMgr* workload_sched_policy_mgr() { return _workload_sched_mgr; }
-    RuntimeQueryStatiticsMgr* runtime_query_statistics_mgr() {
+    RuntimeQueryStatisticsMgr* runtime_query_statistics_mgr() {
         return _runtime_query_statistics_mgr;
     }
 
@@ -164,19 +170,30 @@ public:
         return nullptr;
     }
 
-    ThreadContext* env_thread_context() { return _env_thread_context; }
     // Save all MemTrackerLimiters in use.
     // Each group corresponds to several MemTrackerLimiters and has a lock.
     // Multiple groups are used to reduce the impact of locks.
     std::vector<TrackerLimiterGroup> mem_tracker_limiter_pool;
     void init_mem_tracker();
     std::shared_ptr<MemTrackerLimiter> orphan_mem_tracker() { return _orphan_mem_tracker; }
-    MemTrackerLimiter* orphan_mem_tracker_raw() { return _orphan_mem_tracker_raw; }
-    MemTrackerLimiter* details_mem_tracker_set() { return _details_mem_tracker_set.get(); }
     std::shared_ptr<MemTracker> page_no_cache_mem_tracker() { return _page_no_cache_mem_tracker; }
-    MemTracker* brpc_iobuf_block_memory_tracker() { return _brpc_iobuf_block_memory_tracker.get(); }
+    std::shared_ptr<MemTrackerLimiter> brpc_iobuf_block_memory_tracker() {
+        return _brpc_iobuf_block_memory_tracker;
+    }
     std::shared_ptr<MemTrackerLimiter> segcompaction_mem_tracker() {
         return _segcompaction_mem_tracker;
+    }
+    std::shared_ptr<MemTrackerLimiter> stream_load_pipe_tracker() {
+        return _stream_load_pipe_tracker;
+    }
+    std::shared_ptr<MemTrackerLimiter> point_query_executor_mem_tracker() {
+        return _point_query_executor_mem_tracker;
+    }
+    std::shared_ptr<MemTrackerLimiter> query_cache_mem_tracker() {
+        return _query_cache_mem_tracker;
+    }
+    std::shared_ptr<MemTrackerLimiter> block_compression_mem_tracker() {
+        return _block_compression_mem_tracker;
     }
     std::shared_ptr<MemTrackerLimiter> rowid_storage_reader_tracker() {
         return _rowid_storage_reader_tracker;
@@ -192,12 +209,12 @@ public:
     }
     ThreadPool* send_table_stats_thread_pool() { return _send_table_stats_thread_pool.get(); }
     ThreadPool* s3_file_upload_thread_pool() { return _s3_file_upload_thread_pool.get(); }
-    ThreadPool* send_report_thread_pool() { return _send_report_thread_pool.get(); }
-    ThreadPool* join_node_thread_pool() { return _join_node_thread_pool.get(); }
     ThreadPool* lazy_release_obj_pool() { return _lazy_release_obj_pool.get(); }
+    ThreadPool* non_block_close_thread_pool();
+    ThreadPool* s3_file_system_thread_pool() { return _s3_file_system_thread_pool.get(); }
 
     Status init_pipeline_task_scheduler();
-    void init_file_cache_factory();
+    void init_file_cache_factory(std::vector<doris::CachePath>& cache_paths);
     io::FileCacheFactory* file_cache_factory() { return _file_cache_factory; }
     UserFunctionCache* user_function_cache() { return _user_function_cache; }
     FragmentMgr* fragment_mgr() { return _fragment_mgr; }
@@ -209,13 +226,16 @@ public:
     BrpcClientCache<PBackendService_Stub>* brpc_internal_client_cache() const {
         return _internal_client_cache;
     }
+    BrpcClientCache<PBackendService_Stub>* brpc_streaming_client_cache() const {
+        return _streaming_client_cache;
+    }
     BrpcClientCache<PFunctionService_Stub>* brpc_function_client_cache() const {
         return _function_client_cache;
     }
     LoadChannelMgr* load_channel_mgr() { return _load_channel_mgr; }
+    LoadStreamMgr* load_stream_mgr() { return _load_stream_mgr.get(); }
     std::shared_ptr<NewLoadStreamMgr> new_load_stream_mgr() { return _new_load_stream_mgr; }
     SmallFileMgr* small_file_mgr() { return _small_file_mgr; }
-    BlockSpillManager* block_spill_mgr() { return _block_spill_mgr; }
     doris::vectorized::SpillStreamManager* spill_stream_mgr() { return _spill_stream_mgr; }
     GroupCommitMgr* group_commit_mgr() { return _group_commit_mgr; }
 
@@ -252,6 +272,7 @@ public:
 
     void set_storage_engine(std::unique_ptr<BaseStorageEngine>&& engine);
     void set_cache_manager(CacheManager* cm) { this->_cache_manager = cm; }
+    void set_process_profile(ProcessProfile* pp) { this->_process_profile = pp; }
     void set_tablet_schema_cache(TabletSchemaCache* c) { this->_tablet_schema_cache = c; }
     void set_storage_page_cache(StoragePageCache* c) { this->_storage_page_cache = c; }
     void set_segment_loader(SegmentLoader* sl) { this->_segment_loader = sl; }
@@ -263,7 +284,9 @@ public:
         this->_dummy_lru_cache = dummy_lru_cache;
     }
     void set_write_cooldown_meta_executors();
-
+    static void set_tracking_memory(bool tracking_memory) {
+        _s_tracking_memory.store(tracking_memory, std::memory_order_release);
+    }
 #endif
     LoadStreamMapPool* load_stream_map_pool() { return _load_stream_map_pool.get(); }
 
@@ -282,17 +305,15 @@ public:
     LookupConnectionCache* get_lookup_connection_cache() { return _lookup_connection_cache; }
     RowCache* get_row_cache() { return _row_cache; }
     CacheManager* get_cache_manager() { return _cache_manager; }
+    ProcessProfile* get_process_profile() { return _process_profile; }
     segment_v2::InvertedIndexSearcherCache* get_inverted_index_searcher_cache() {
         return _inverted_index_searcher_cache;
     }
     segment_v2::InvertedIndexQueryCache* get_inverted_index_query_cache() {
         return _inverted_index_query_cache;
     }
+    QueryCache* get_query_cache() { return _query_cache; }
     std::shared_ptr<DummyLRUCache> get_dummy_lru_cache() { return _dummy_lru_cache; }
-
-    std::shared_ptr<pipeline::BlockedTaskScheduler> get_global_block_scheduler() {
-        return _global_block_scheduler;
-    }
 
     pipeline::RuntimeFilterTimerQueue* runtime_filter_timer_queue() {
         return _runtime_filter_timer_queue;
@@ -304,6 +325,9 @@ public:
 
     segment_v2::TmpFileDirs* get_tmp_file_dirs() { return _tmp_file_dirs.get(); }
     io::FDCache* file_cache_open_fd_cache() const { return _file_cache_open_fd_cache.get(); }
+
+    orc::MemoryPool* orc_memory_pool() { return _orc_memory_pool; }
+    arrow::MemoryPool* arrow_memory_pool() { return _arrow_memory_pool; }
 
 private:
     ExecEnv();
@@ -334,20 +358,23 @@ private:
     ClientCache<FrontendServiceClient>* _frontend_client_cache = nullptr;
     ClientCache<TPaloBrokerServiceClient>* _broker_client_cache = nullptr;
 
-    ThreadContext* _env_thread_context = nullptr;
     // The default tracker consumed by mem hook. If the thread does not attach other trackers,
     // by default all consumption will be passed to the process tracker through the orphan tracker.
     // In real time, `consumption of all limiter trackers` + `orphan tracker consumption` = `process tracker consumption`.
     // Ideally, all threads are expected to attach to the specified tracker, so that "all memory has its own ownership",
     // and the consumption of the orphan mem tracker is close to 0, but greater than 0.
     std::shared_ptr<MemTrackerLimiter> _orphan_mem_tracker;
-    MemTrackerLimiter* _orphan_mem_tracker_raw = nullptr;
-    std::shared_ptr<MemTrackerLimiter> _details_mem_tracker_set;
     // page size not in cache, data page/index page/etc.
     std::shared_ptr<MemTracker> _page_no_cache_mem_tracker;
-    std::shared_ptr<MemTracker> _brpc_iobuf_block_memory_tracker;
+    std::shared_ptr<MemTrackerLimiter> _brpc_iobuf_block_memory_tracker;
     // Count the memory consumption of segment compaction tasks.
     std::shared_ptr<MemTrackerLimiter> _segcompaction_mem_tracker;
+    std::shared_ptr<MemTrackerLimiter> _stream_load_pipe_tracker;
+
+    // Tracking memory may be shared between multiple queries.
+    std::shared_ptr<MemTrackerLimiter> _point_query_executor_mem_tracker;
+    std::shared_ptr<MemTrackerLimiter> _block_compression_mem_tracker;
+    std::shared_ptr<MemTrackerLimiter> _query_cache_mem_tracker;
 
     // TODO, looking forward to more accurate tracking.
     std::shared_ptr<MemTrackerLimiter> _rowid_storage_reader_tracker;
@@ -361,12 +388,11 @@ private:
     std::unique_ptr<ThreadPool> _send_table_stats_thread_pool;
     // Threadpool used to upload local file to s3
     std::unique_ptr<ThreadPool> _s3_file_upload_thread_pool;
-    // Pool used by fragment manager to send profile or status to FE coordinator
-    std::unique_ptr<ThreadPool> _send_report_thread_pool;
     // Pool used by join node to build hash table
-    std::unique_ptr<ThreadPool> _join_node_thread_pool;
     // Pool to use a new thread to release object
     std::unique_ptr<ThreadPool> _lazy_release_obj_pool;
+    std::unique_ptr<ThreadPool> _non_block_close_thread_pool;
+    std::unique_ptr<ThreadPool> _s3_file_system_thread_pool;
 
     FragmentMgr* _fragment_mgr = nullptr;
     pipeline::TaskScheduler* _without_group_task_scheduler = nullptr;
@@ -379,9 +405,11 @@ private:
     BfdParser* _bfd_parser = nullptr;
     BrokerMgr* _broker_mgr = nullptr;
     LoadChannelMgr* _load_channel_mgr = nullptr;
+    std::unique_ptr<LoadStreamMgr> _load_stream_mgr;
     // TODO(zhiqiang): Do not use shared_ptr in exec_env, we can not control its life cycle.
     std::shared_ptr<NewLoadStreamMgr> _new_load_stream_mgr;
     BrpcClientCache<PBackendService_Stub>* _internal_client_cache = nullptr;
+    BrpcClientCache<PBackendService_Stub>* _streaming_client_cache = nullptr;
     BrpcClientCache<PFunctionService_Stub>* _function_client_cache = nullptr;
 
     std::shared_ptr<StreamLoadExecutor> _stream_load_executor;
@@ -390,7 +418,6 @@ private:
     HeartbeatFlags* _heartbeat_flags = nullptr;
     vectorized::ScannerScheduler* _scanner_scheduler = nullptr;
 
-    BlockSpillManager* _block_spill_mgr = nullptr;
     // To save meta info of external file, such as parquet footer.
     FileMetaCache* _file_meta_cache = nullptr;
     std::unique_ptr<MemTableMemoryLimiter> _memtable_memory_limiter;
@@ -417,25 +444,25 @@ private:
     LookupConnectionCache* _lookup_connection_cache = nullptr;
     RowCache* _row_cache = nullptr;
     CacheManager* _cache_manager = nullptr;
+    ProcessProfile* _process_profile = nullptr;
     segment_v2::InvertedIndexSearcherCache* _inverted_index_searcher_cache = nullptr;
     segment_v2::InvertedIndexQueryCache* _inverted_index_query_cache = nullptr;
+    QueryCache* _query_cache = nullptr;
     std::shared_ptr<DummyLRUCache> _dummy_lru_cache = nullptr;
     std::unique_ptr<io::FDCache> _file_cache_open_fd_cache;
-
-    // used for query with group cpu hard limit
-    std::shared_ptr<pipeline::BlockedTaskScheduler> _global_block_scheduler;
-    // used for query without workload group
-    std::shared_ptr<pipeline::BlockedTaskScheduler> _without_group_block_scheduler;
 
     pipeline::RuntimeFilterTimerQueue* _runtime_filter_timer_queue = nullptr;
 
     WorkloadSchedPolicyMgr* _workload_sched_mgr = nullptr;
 
-    RuntimeQueryStatiticsMgr* _runtime_query_statistics_mgr = nullptr;
+    RuntimeQueryStatisticsMgr* _runtime_query_statistics_mgr = nullptr;
 
     std::unique_ptr<pipeline::PipelineTracerContext> _pipeline_tracer_ctx;
     std::unique_ptr<segment_v2::TmpFileDirs> _tmp_file_dirs;
     doris::vectorized::SpillStreamManager* _spill_stream_mgr = nullptr;
+
+    orc::MemoryPool* _orc_memory_pool = nullptr;
+    arrow::MemoryPool* _arrow_memory_pool = nullptr;
 };
 
 template <>

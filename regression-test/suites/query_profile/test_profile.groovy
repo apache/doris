@@ -18,132 +18,67 @@
 import groovy.json.JsonOutput
 import groovy.json.JsonSlurper
 
-/**
-*   @Params url is "/xxx"
-*   @Return response body
-*/
-def http_get(url) {
+def getProfileList = {
     def dst = 'http://' + context.config.feHttpAddress
-    def conn = new URL(dst + url).openConnection()
+    def conn = new URL(dst + "/rest/v1/query_profile").openConnection()
     conn.setRequestMethod("GET")
-    //token for root
-    conn.setRequestProperty("Authorization","Basic cm9vdDo=")
+    def encoding = Base64.getEncoder().encodeToString((context.config.feHttpUser + ":" + 
+            (context.config.feHttpPassword == null ? "" : context.config.feHttpPassword)).getBytes("UTF-8"))
+    conn.setRequestProperty("Authorization", "Basic ${encoding}")
     return conn.getInputStream().getText()
 }
 
-def SUCCESS_MSG = 'success'
-def SUCCESS_CODE = 0
-def QUERY_NUM = 5
-
-random = new Random()
-
-def getRandomNumber(int num){
-    return random.nextInt(num)
-}
+def getProfile = { id ->
+        def dst = 'http://' + context.config.feHttpAddress
+        def conn = new URL(dst + "/rest/v1/query_profile/$id").openConnection()
+        conn.setRequestMethod("GET")
+        def encoding = Base64.getEncoder().encodeToString((context.config.feHttpUser + ":" + 
+                (context.config.feHttpPassword == null ? "" : context.config.feHttpPassword)).getBytes("UTF-8"))
+        conn.setRequestProperty("Authorization", "Basic ${encoding}")
+        return conn.getInputStream().getText()
+    }
 
 suite('test_profile') {
+    // TODO: more test for normal situation
 
-    // nereids not return same profile with legacy planner, fallback to legacy planner.
-    sql """set enable_nereids_planner=false"""
-
-    def table = 'test_profile_table'
-    def id_data = [1,2,3,4,5,6,7]
-    def value_data = [1,2,3,4,5,6,7]
-    def len = id_data.size
-
-    assertEquals(id_data.size, value_data.size)
-
-    sql """ DROP TABLE IF EXISTS ${table} """
+    // invalidProfileId
+    def invalidProfileString = getProfile("ABCD")
+    logger.info("invalidProfileString:{}", invalidProfileString);
+    def json = new JsonSlurper().parseText(invalidProfileString)
+    assertEquals(500, json.code)
+    
+    // notExistingProfileId
+    def notExistingProfileString = getProfile("-100")
+    logger.info("notExistingProfileString:{}", notExistingProfileString)
+    def json2 = new JsonSlurper().parseText(notExistingProfileString)
+    assertEquals("Profile -100 not found", json2.data)
 
     sql """
-        CREATE TABLE IF NOT EXISTS ${table}(
-            `id` INT,
-            `cost` INT
-        )
-        DISTRIBUTED BY HASH(id) BUCKETS 1
+        CREATE TABLE if not exists `test_profile` (
+          `id` INT,
+          `name` varchar(32)
+        )ENGINE=OLAP
+        UNIQUE KEY(`id`)
+        DISTRIBUTED BY HASH(`id`) BUCKETS 10
         PROPERTIES (
-            "replication_num" = "1"
-        )
+            "replication_allocation" = "tag.location.default: 1"
+        );
     """
-    
-    sql """ SET enable_profile = true """
 
-    //———————— test for insert stmt ——————————
-    for(int i = 0; i < len; i++){
-        sql """ INSERT INTO ${table} values (${id_data[i]}, "${value_data[i]}") """
+    sql "set enable_profile=true"
+    def simpleSql = "select count(*) from test_profile"
+    sql "${simpleSql}"
+    def isRecorded = false
+    def wholeString = getProfileList()
+    List profileData = new JsonSlurper().parseText(wholeString).data.rows
+    for (final def profileItem in profileData) {
+        if (profileItem["Sql Statement"].toString() == simpleSql) {
+            isRecorded = true
+            assertEquals("internal", profileItem["Default Catalog"].toString())
+        }
     }
+    assertTrue(isRecorded)
 
-    //———————— test for insert stmt (SQL) ——————————
-    log.info("test HTTP API interface for insert profile")
-    def url = '/rest/v1/query_profile/'
-    def query_list_result = http_get(url)
-
-    def obj = new JsonSlurper().parseText(query_list_result)
-    assertEquals(obj.msg, SUCCESS_MSG)
-    assertEquals(obj.code, SUCCESS_CODE)
-
-    for(int i = 0 ; i < len ; i++){
-        def insert_order = len - i - 1
-        def stmt_query_info = obj.data.rows[i]
-        
-        assertNotNull(stmt_query_info["Profile ID"])
-        assertNotEquals(stmt_query_info["Profile ID"], "N/A")
-        
-        assertEquals(stmt_query_info['Sql Statement'].toString(), 
-            """ INSERT INTO ${table} values (${id_data[insert_order]}, "${value_data[insert_order]}") """.toString())
-    }
-
-    //———————— test for select stmt ———————————
-    def op_data = ["<", ">", "=", "<=", ">="]
-
-    def ops = []
-    def nums = []
-    
-    for(int i = 0 ; i < QUERY_NUM ; i++){
-        ops.add(op_data[getRandomNumber(5)])
-        nums.add(getRandomNumber(len + 1))
-        sql """ SELECT * FROM ${table} WHERE cost ${ops[i]} ${nums[i]} """
-    }
-    
-    
-    /*  test for `show query profile` stmt
-        query profile header
-        JobID|QueryId|User|DefaultDb|SQL|QueryType|StartTime|EndTime|TotalTime|QueryState */
-    //———————— test for select stmt (SQL) ———————————
-    log.info("test for show query profile stmt")
-    List<List<Object>> show_query_profile_obj = sql """ show query profile "/" """
-    log.info("found ${show_query_profile_obj.size} profile data".toString())
-    assertTrue(show_query_profile_obj.size >= QUERY_NUM)
-
-    for(int i = 0 ; i < QUERY_NUM ; i++){
-        def insert_order = QUERY_NUM - i - 1
-        def current_obj = show_query_profile_obj[i]
-        def stmt_query_info = current_obj[9]
-        assertNotEquals(current_obj[1].toString(), "N/A".toString())
-        assertEquals(stmt_query_info.toString(),  """ SELECT * FROM ${table} WHERE cost ${ops[insert_order]} ${nums[insert_order]} """.toString())
-    }
-
-    //———————— test for select stmt (HTTP)————————
-    log.info("test HTTP API interface for query profile")
-    url = '/rest/v1/query_profile/'
-    query_list_result = http_get(url)
-
-    obj = new JsonSlurper().parseText(query_list_result)
-    assertEquals(obj.msg, SUCCESS_MSG)
-    assertEquals(obj.code, SUCCESS_CODE)
-
-    for(int i = 0 ; i < QUERY_NUM ; i++){
-        def insert_order = QUERY_NUM - i - 1
-        def stmt_query_info = obj.data.rows[i]
-        
-        assertNotNull(stmt_query_info["Profile ID"])
-        assertNotEquals(stmt_query_info["Profile ID"].toString(), "N/A".toString())
-        
-        assertEquals(stmt_query_info['Sql Statement'].toString(), 
-           """ SELECT * FROM ${table} WHERE cost ${ops[insert_order]} ${nums[insert_order]} """.toString())
-    }
-    
-    //———————— clean table and disable profile ————————
     sql """ SET enable_profile = false """
-    sql """ DROP TABLE IF EXISTS ${table} """
+    sql """ DROP TABLE IF EXISTS test_profile """
 }

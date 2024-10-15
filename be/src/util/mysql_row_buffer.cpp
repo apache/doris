@@ -44,6 +44,9 @@ namespace doris {
 static uint8_t NEXT_TWO_BYTE = 252;
 static uint8_t NEXT_THREE_BYTE = 253;
 static uint8_t NEXT_EIGHT_BYTE = 254;
+// the EXTRA_RESERVE_BYTE wanner to make sure _pos pointer is always in _buf memory
+// used in reserve() for allocate current buffer
+static size_t EXTRA_RESERVE_BYTE = 16;
 
 // the first byte:
 // <= 250: length
@@ -133,7 +136,7 @@ int MysqlRowBuffer<is_binary_format>::reserve(int64_t size) {
         return 0;
     }
 
-    int64_t alloc_size = std::max(need_size, _buf_size * 2);
+    int64_t alloc_size = std::max(need_size, _buf_size * 2) + EXTRA_RESERVE_BYTE;
     char* new_buf = new char[alloc_size];
 
     size_t offset = _pos - _buf;
@@ -170,12 +173,12 @@ static char* add_largeint(int128_t data, char* pos, bool dynamic_mode) {
 }
 
 template <typename T>
-char* add_float(T data, char* pos, bool dynamic_mode, bool faster_float_convert = false) {
+char* add_float(T data, char* pos, bool dynamic_mode) {
     int length = 0;
     if constexpr (std::is_same_v<T, float>) {
-        length = FastFloatToBuffer(data, pos + !dynamic_mode, faster_float_convert);
+        length = FastFloatToBuffer(data, pos + !dynamic_mode);
     } else if constexpr (std::is_same_v<T, double>) {
-        length = FastDoubleToBuffer(data, pos + !dynamic_mode, faster_float_convert);
+        length = FastDoubleToBuffer(data, pos + !dynamic_mode);
     }
     if (!dynamic_mode) {
         int1store(pos++, length);
@@ -335,7 +338,7 @@ int MysqlRowBuffer<is_binary_format>::push_float(float data) {
     // 1 for string trail, 1 for length, 1 for sign, other for digits
     reserve(3 + MAX_FLOAT_STR_LENGTH);
 
-    _pos = add_float(data, _pos, _dynamic_mode, _faster_float_convert);
+    _pos = add_float(data, _pos, _dynamic_mode);
     return 0;
 }
 
@@ -349,7 +352,7 @@ int MysqlRowBuffer<is_binary_format>::push_double(double data) {
     }
     // 1 for string trail, 1 for length, 1 for sign, other for digits
     reserve(3 + MAX_DOUBLE_STR_LENGTH);
-    _pos = add_float(data, _pos, _dynamic_mode, _faster_float_convert);
+    _pos = add_float(data, _pos, _dynamic_mode);
     return 0;
 }
 
@@ -385,19 +388,25 @@ int MysqlRowBuffer<is_binary_format>::push_timev2(double data, int scale) {
 
 template <bool is_binary_format>
 template <typename DateType>
-int MysqlRowBuffer<is_binary_format>::push_vec_datetime(DateType& data) {
+int MysqlRowBuffer<is_binary_format>::push_vec_datetime(DateType& data, int scale) {
     if (is_binary_format && !_dynamic_mode) {
-        return push_datetime(data);
+        return push_datetime(data, scale);
     }
 
     char buf[64];
-    char* pos = data.to_string(buf);
+    char* pos = nullptr;
+    if constexpr (std::is_same_v<DateType, DateV2Value<DateV2ValueType>> ||
+                  std::is_same_v<DateType, DateV2Value<DateTimeV2ValueType>>) {
+        pos = data.to_string(buf, scale);
+    } else {
+        pos = data.to_string(buf);
+    }
     return push_string(buf, pos - buf - 1);
 }
 
 template <bool is_binary_format>
 template <typename DateType>
-int MysqlRowBuffer<is_binary_format>::push_datetime(const DateType& data) {
+int MysqlRowBuffer<is_binary_format>::push_datetime(const DateType& data, int scale) {
     if (is_binary_format && !_dynamic_mode) {
         char buff[12], *pos;
         size_t length;
@@ -410,16 +419,6 @@ int MysqlRowBuffer<is_binary_format>::push_datetime(const DateType& data) {
         pos[4] = (uchar)data.hour();
         pos[5] = (uchar)data.minute();
         pos[6] = (uchar)data.second();
-        if constexpr (std::is_same_v<DateType, DateV2Value<DateV2ValueType>> ||
-                      std::is_same_v<DateType, DateV2Value<DateTimeV2ValueType>>) {
-            int4store(pos + 7, data.microsecond());
-            if (data.microsecond()) {
-                length = 11;
-            }
-        } else {
-            int4store(pos + 7, 0);
-        }
-
         if (data.hour() || data.minute() || data.second()) {
             length = 7;
         } else if (data.year() || data.month() || data.day()) {
@@ -427,6 +426,14 @@ int MysqlRowBuffer<is_binary_format>::push_datetime(const DateType& data) {
         } else {
             length = 0;
         }
+        if constexpr (std::is_same_v<DateType, DateV2Value<DateV2ValueType>> ||
+                      std::is_same_v<DateType, DateV2Value<DateTimeV2ValueType>>) {
+            if (scale > 0 || data.microsecond()) {
+                int4store(pos + 7, data.microsecond());
+                length = 11;
+            }
+        }
+
         buff[0] = (char)length; // Length is stored first
         return append(buff, length + 1);
     }
@@ -511,14 +518,16 @@ template class MysqlRowBuffer<true>;
 template class MysqlRowBuffer<false>;
 
 template int MysqlRowBuffer<true>::push_vec_datetime<DateV2Value<DateV2ValueType>>(
-        DateV2Value<DateV2ValueType>& value);
+        DateV2Value<DateV2ValueType>& value, int scale);
 template int MysqlRowBuffer<true>::push_vec_datetime<DateV2Value<DateTimeV2ValueType>>(
-        DateV2Value<DateTimeV2ValueType>& value);
-template int MysqlRowBuffer<true>::push_vec_datetime<VecDateTimeValue>(VecDateTimeValue& value);
+        DateV2Value<DateTimeV2ValueType>& value, int scale);
+template int MysqlRowBuffer<true>::push_vec_datetime<VecDateTimeValue>(VecDateTimeValue& value,
+                                                                       int scale);
 template int MysqlRowBuffer<false>::push_vec_datetime<DateV2Value<DateV2ValueType>>(
-        DateV2Value<DateV2ValueType>& value);
+        DateV2Value<DateV2ValueType>& value, int scale);
 template int MysqlRowBuffer<false>::push_vec_datetime<DateV2Value<DateTimeV2ValueType>>(
-        DateV2Value<DateTimeV2ValueType>& value);
-template int MysqlRowBuffer<false>::push_vec_datetime<VecDateTimeValue>(VecDateTimeValue& value);
+        DateV2Value<DateTimeV2ValueType>& value, int scale);
+template int MysqlRowBuffer<false>::push_vec_datetime<VecDateTimeValue>(VecDateTimeValue& value,
+                                                                        int scale);
 
 } // namespace doris

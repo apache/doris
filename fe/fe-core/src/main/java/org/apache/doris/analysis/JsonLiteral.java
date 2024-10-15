@@ -19,6 +19,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.FormatOptions;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
@@ -26,17 +27,15 @@ import org.apache.doris.thrift.TJsonLiteral;
 
 import com.google.gson.JsonParser;
 import com.google.gson.JsonSyntaxException;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
+import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Objects;
 
 public class JsonLiteral extends LiteralExpr {
-    private static final Logger LOG = LogManager.getLogger(JsonLiteral.class);
     private JsonParser parser = new JsonParser();
+    @SerializedName("v")
     private String value;
     // Means the converted session variable need to be cast to int, such as "cast 'STRICT_TRANS_TABLES' to Integer".
     private String beConverted = "";
@@ -102,7 +101,7 @@ public class JsonLiteral extends LiteralExpr {
     }
 
     @Override
-    public String getStringValueForArray() {
+    public String getStringValueForArray(FormatOptions options) {
         return null;
     }
 
@@ -135,12 +134,6 @@ public class JsonLiteral extends LiteralExpr {
     protected Expr uncheckedCastTo(Type targetType) throws AnalysisException {
         // code should not be readched, since JSONB is analyzed as StringLiteral
         throw new AnalysisException("Unknown check type: " + targetType);
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        super.write(out);
-        Text.writeString(out, value);
     }
 
     public void readFields(DataInput in) throws IOException {

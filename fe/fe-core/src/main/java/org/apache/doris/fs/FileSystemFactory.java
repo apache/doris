@@ -18,6 +18,8 @@
 package org.apache.doris.fs;
 
 import org.apache.doris.analysis.StorageBackend;
+import org.apache.doris.datasource.property.constants.AzureProperties;
+import org.apache.doris.fs.remote.AzureFileSystem;
 import org.apache.doris.fs.remote.BrokerFileSystem;
 import org.apache.doris.fs.remote.RemoteFileSystem;
 import org.apache.doris.fs.remote.S3FileSystem;
@@ -29,7 +31,6 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
 
 import java.io.IOException;
-import java.util.HashMap;
 import java.util.Map;
 
 public class FileSystemFactory {
@@ -37,6 +38,9 @@ public class FileSystemFactory {
     public static RemoteFileSystem get(String name, StorageBackend.StorageType type, Map<String, String> properties) {
         // TODO: rename StorageBackend.StorageType
         if (type == StorageBackend.StorageType.S3) {
+            if (AzureProperties.checkAzureProviderPropertyExist(properties)) {
+                return new AzureFileSystem(properties);
+            }
             return new S3FileSystem(properties);
         } else if (type == StorageBackend.StorageType.HDFS || type == StorageBackend.StorageType.GFS) {
             return new DFSFileSystem(properties);
@@ -51,12 +55,13 @@ public class FileSystemFactory {
         }
     }
 
-    public static RemoteFileSystem getRemoteFileSystem(FileSystemType type, Configuration conf,
+    public static RemoteFileSystem getRemoteFileSystem(FileSystemType type, Map<String, String> properties,
                                                        String bindBrokerName) {
-        Map<String, String> properties = new HashMap<>();
-        conf.iterator().forEachRemaining(e -> properties.put(e.getKey(), e.getValue()));
         switch (type) {
             case S3:
+                if (AzureProperties.checkAzureProviderPropertyExist(properties)) {
+                    return new AzureFileSystem(properties);
+                }
                 return new S3FileSystem(properties);
             case DFS:
                 return new DFSFileSystem(properties);
@@ -66,6 +71,8 @@ public class FileSystemFactory {
                 return new JFSFileSystem(properties);
             case BROKER:
                 return new BrokerFileSystem(bindBrokerName, properties);
+            case AZURE:
+                return new AzureFileSystem(properties);
             default:
                 throw new IllegalStateException("Not supported file system type: " + type);
         }

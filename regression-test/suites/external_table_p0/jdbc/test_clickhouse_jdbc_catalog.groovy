@@ -69,12 +69,11 @@ suite("test_clickhouse_jdbc_catalog", "p0,external,clickhouse,external_docker,ex
         order_qt_query_ctas_arr_null """ select * from internal.${internal_db_name}.ck_arr_null order by id; """
         sql  """ insert into internal.${internal_db_name}.${inDorisTable} select * from student; """
         order_qt_in_tb  """ select id, name, age from internal.${internal_db_name}.${inDorisTable} order by id; """
-        order_qt_system  """ show tables from `system`; """
+
         order_qt_filter  """ select k1,k2 from type where 1 = 1 order by 1 ; """
         order_qt_filter2  """ select k1,k2 from type where 1 = 1 and  k1 = true order by 1 ; """
         order_qt_filter3  """ select k1,k2 from type where k1 = true order by 1 ; """
         order_qt_filter4  """ select k28 from type where k28 not like '%String%' order by 1 ; """
-        order_qt_filter4_old  """ select /*+ SET_VAR(enable_nereids_planner=false) */ k28 from type where k28 not like '%String%' order by 1 ; """
         sql "set jdbc_clickhouse_query_final = true;"
         order_qt_final1 """select * from final_test"""
         sql "set jdbc_clickhouse_query_final = false;"
@@ -85,7 +84,7 @@ suite("test_clickhouse_jdbc_catalog", "p0,external,clickhouse,external_docker,ex
             contains """QUERY: SELECT "id", "ts" FROM "doris_test"."ts" WHERE ((FROM_UNIXTIME("ts", '%Y%m%d') >= '2022-01-01'))"""
         }
         explain {
-            sql("select * from ts where nvl(ts,null) >= '2022-01-01';")
+            sql("select * from ts where nvl(ts,null) >= '1';")
             contains """QUERY: SELECT "id", "ts" FROM "doris_test"."ts"""
         }
         order_qt_func_push2 """select * from ts where ts <= unix_timestamp(from_unixtime(ts,'yyyyMMdd'));"""

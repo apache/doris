@@ -31,6 +31,7 @@ class CIDR;
 
 class BackendOptions {
 public:
+    BackendOptions() = delete;
     static bool init();
     static const std::string& get_localhost();
     static std::string get_be_endpoint();
@@ -49,11 +50,9 @@ private:
     static bool is_in_prior_network(const std::string& ip);
 
     static std::string _s_localhost;
-    static TBackend _backend;
+    static int64_t _s_backend_id;
     static std::vector<CIDR> _s_priority_cidrs;
     static bool _bind_ipv6;
-
-    DISALLOW_COPY_AND_ASSIGN(BackendOptions);
 };
 
 } // namespace doris

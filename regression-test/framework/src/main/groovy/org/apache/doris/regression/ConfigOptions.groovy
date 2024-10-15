@@ -55,6 +55,8 @@ class ConfigOptions {
     static Option pluginOpt
     static Option sslCertificateOpt
     static Option imageOpt
+    static Option noKillDockerOpt
+    static Option runModeOpt
     static Option suiteOpt
     static Option excludeSuiteOpt
     static Option groupsOpt
@@ -66,11 +68,13 @@ class ConfigOptions {
     static Option forceGenOutOpt
     static Option parallelOpt
     static Option suiteParallelOpt
+    static Option dockerSuiteParallelOpt
     static Option actionParallelOpt
     static Option randomOrderOpt
     static Option stopWhenFailOpt
     static Option timesOpt
     static Option withOutLoadDataOpt
+    static Option runNonConcurrentOpt
     static Option caseNamePrefixOpt
     static Option dryRunOpt
     static Option isSmokeTestOpt
@@ -207,6 +211,20 @@ class ConfigOptions {
                 .type(String.class)
                 .longOpt("image")
                 .desc("the docker image")
+                .build()
+
+        noKillDockerOpt = Option.builder("noKillDocker")
+                .required(false)
+                .hasArg(false)
+                .desc("don't kill docker containers")
+                .build()
+
+        runModeOpt = Option.builder("runMode")
+                .required(false)
+                .hasArg(true)
+                .type(String.class)
+                .longOpt("runMode")
+                .desc("specific run mode: unknown/cloud/not_cloud. if unknow, will fetch it from fe.")
                 .build()
 
         suiteOpt = Option.builder("s")
@@ -418,6 +436,14 @@ class ConfigOptions {
                 .longOpt("suiteParallel")
                 .desc("the num of threads running for suites")
                 .build()
+        dockerSuiteParallelOpt = Option.builder("dockerSuiteParallel")
+                .argName("dockerSuiteParallel")
+                .required(false)
+                .hasArg(true)
+                .type(String.class)
+                .longOpt("dockerSuiteParallel")
+                .desc("the num of threads running for docker suites")
+                .build()
         actionParallelOpt = Option.builder("actionParallel")
                 .argName("parallel")
                 .required(false)
@@ -450,6 +476,11 @@ class ConfigOptions {
                 .hasArg(false)
                 .longOpt("withOutLoadData")
                 .desc("do not run load.groovy to reload data to Doris.")
+                .build()
+        runNonConcurrentOpt = Option.builder("runNonConcurrent")
+                .required(false)
+                .hasArg(true)
+                .desc("whether run non-concurrent tests")
                 .build()
         caseNamePrefixOpt = Option.builder("cnp")
                 .required(false)
@@ -574,6 +605,8 @@ class ConfigOptions {
                 .addOption(pluginOpt)
                 .addOption(sslCertificateOpt)
                 .addOption(imageOpt)
+                .addOption(noKillDockerOpt)
+                .addOption(runModeOpt)
                 .addOption(confOpt)
                 .addOption(suiteOpt)
                 .addOption(excludeSuiteOpt)
@@ -599,11 +632,13 @@ class ConfigOptions {
                 .addOption(forceGenOutOpt)
                 .addOption(parallelOpt)
                 .addOption(suiteParallelOpt)
+                .addOption(dockerSuiteParallelOpt)
                 .addOption(actionParallelOpt)
                 .addOption(randomOrderOpt)
                 .addOption(stopWhenFailOpt)
                 .addOption(timesOpt)
                 .addOption(withOutLoadDataOpt)
+                .addOption(runNonConcurrentOpt)
                 .addOption(caseNamePrefixOpt)
                 .addOption(dryRunOpt)
                 .addOption(isSmokeTestOpt)

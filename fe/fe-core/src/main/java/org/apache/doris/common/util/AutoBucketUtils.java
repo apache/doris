@@ -20,6 +20,8 @@ package org.apache.doris.common.util;
 import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.DiskInfo.DiskState;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 
@@ -36,7 +38,13 @@ public class AutoBucketUtils {
 
     private static int getBENum() {
         SystemInfoService infoService = Env.getCurrentSystemInfo();
-        ImmutableMap<Long, Backend> backends = infoService.getAllBackendsMap();
+        ImmutableMap<Long, Backend> backends;
+        try {
+            backends = infoService.getAllBackendsByAllCluster();
+        } catch (AnalysisException e) {
+            logger.warn("failed to get backends with current cluster", e);
+            return 0;
+        }
 
         int activeBENum = 0;
         for (Backend backend : backends.values()) {
@@ -49,7 +57,13 @@ public class AutoBucketUtils {
 
     private static int getBucketsNumByBEDisks() {
         SystemInfoService infoService = Env.getCurrentSystemInfo();
-        ImmutableMap<Long, Backend> backends = infoService.getAllBackendsMap();
+        ImmutableMap<Long, Backend> backends;
+        try {
+            backends = infoService.getAllBackendsByAllCluster();
+        } catch (AnalysisException e) {
+            logger.warn("failed to get backends with current cluster", e);
+            return 0;
+        }
 
         int buckets = 0;
         for (Backend backend : backends.values()) {
@@ -84,14 +98,15 @@ public class AutoBucketUtils {
 
     public static int getBucketsNum(long partitionSize) {
         int bucketsNumByPartitionSize = convertParitionSizeToBucketsNum(partitionSize);
-        int bucketsNumByBE = getBucketsNumByBEDisks();
-        int bucketsNum = Math.min(128, Math.min(bucketsNumByPartitionSize, bucketsNumByBE));
+        int bucketsNumByBE = Config.isCloudMode() ? Integer.MAX_VALUE : getBucketsNumByBEDisks();
+        int bucketsNum = Math.min(Config.autobucket_max_buckets, Math.min(bucketsNumByPartitionSize, bucketsNumByBE));
         int beNum = getBENum();
         logger.debug("AutoBucketsUtil: bucketsNumByPartitionSize {}, bucketsNumByBE {}, bucketsNum {}, beNum {}",
                 bucketsNumByPartitionSize, bucketsNumByBE, bucketsNum, beNum);
         if (bucketsNum < bucketsNumByPartitionSize && bucketsNum < beNum) {
             bucketsNum = beNum;
         }
+        bucketsNum = Math.min(bucketsNum, Config.autobucket_max_buckets);
         logger.debug("AutoBucketsUtil: final bucketsNum {}", bucketsNum);
         return bucketsNum;
     }

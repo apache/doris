@@ -19,13 +19,13 @@ package org.apache.doris.qe;
 
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.thrift.TExecPlanFragmentParams;
+import org.apache.doris.thrift.TPipelineFragmentParams;
 
 import lombok.Data;
 
 @Data
 public class HttpStreamParams {
-    private TExecPlanFragmentParams params;
+    private TPipelineFragmentParams params;
     private long txnId;
     private DatabaseIf db;
     private TableIf table;

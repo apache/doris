@@ -53,7 +53,9 @@ public:
 
     int64_t num_filtered_rows() const { return _num_filtered_rows; }
 
-    void init_autoinc_info(int64_t db_id, int64_t table_id, int batch_size);
+    void init_autoinc_info(int64_t db_id, int64_t table_id, int batch_size,
+                           bool is_partial_update_and_auto_inc = false,
+                           int32_t auto_increment_column_unique_id = -1);
 
     AutoIncIDAllocator& auto_inc_id_allocator() { return _auto_inc_id_allocator; }
 
@@ -67,7 +69,18 @@ private:
     Status _validate_column(RuntimeState* state, const TypeDescriptor& type, bool is_nullable,
                             vectorized::ColumnPtr column, size_t slot_index, bool* stop_processing,
                             fmt::memory_buffer& error_prefix, const uint32_t row_count,
-                            vectorized::IColumn::Permutation* rows = nullptr);
+                            vectorized::IColumn::Permutation* rows = nullptr) {
+        RETURN_IF_CATCH_EXCEPTION({
+            return _internal_validate_column(state, type, is_nullable, column, slot_index,
+                                             stop_processing, error_prefix, row_count, rows);
+        });
+    }
+
+    Status _internal_validate_column(RuntimeState* state, const TypeDescriptor& type,
+                                     bool is_nullable, vectorized::ColumnPtr column,
+                                     size_t slot_index, bool* stop_processing,
+                                     fmt::memory_buffer& error_prefix, const uint32_t row_count,
+                                     vectorized::IColumn::Permutation* rows = nullptr);
 
     // make input data valid for OLAP table
     // return number of invalid/filtered rows.
@@ -81,6 +94,8 @@ private:
     void _convert_to_dest_desc_block(vectorized::Block* block);
 
     Status _fill_auto_inc_cols(vectorized::Block* block, size_t rows);
+
+    Status _partial_update_fill_auto_inc_cols(vectorized::Block* block, size_t rows);
 
     TupleDescriptor* _output_tuple_desc = nullptr;
 
@@ -105,6 +120,7 @@ private:
     std::optional<size_t> _auto_inc_col_idx;
     std::shared_ptr<AutoIncIDBuffer> _auto_inc_id_buffer = nullptr;
     AutoIncIDAllocator _auto_inc_id_allocator;
+    bool _is_partial_update_and_auto_inc = false;
 };
 
 } // namespace doris::vectorized

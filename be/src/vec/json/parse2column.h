@@ -22,30 +22,24 @@
 
 #include "vec/columns/column.h"
 #include "vec/common/string_ref.h"
-
-namespace doris {
-namespace vectorized {
-class ColumnString;
-class SimdJSONParser;
-enum class ExtractType;
-template <typename ParserImpl, bool>
-class JSONDataParser;
-} // namespace vectorized
-} // namespace doris
+#include "vec/json/json_parser.h"
 
 namespace doris::vectorized {
-using JsonParser = JSONDataParser<SimdJSONParser, false>;
+
+class SimdJSONParser;
+enum class ExtractType;
+template <typename ParserImpl>
+class JSONDataParser;
+template <typename T>
+class ColumnStr;
+using ColumnString = ColumnStr<UInt32>;
+using JsonParser = JSONDataParser<SimdJSONParser>;
+
 // parse a batch of json strings into column object, throws doris::Execption when failed
-void parse_json_to_variant(IColumn& column, const ColumnString& raw_json_column);
+void parse_json_to_variant(IColumn& column, const ColumnString& raw_json_column,
+                           const ParseConfig& config);
 
 // parse a single json, throws doris::Execption when failed
-void parse_json_to_variant(IColumn& column, const StringRef& jsons, JsonParser* parser);
-
-// extract keys columns from json strings into columns
-bool extract_key(MutableColumns& columns, const std::vector<StringRef>& jsons,
-                 const std::vector<StringRef>& keys, const std::vector<ExtractType>& types);
-
-// extract keys columns from colunnstring(json format) into columns
-bool extract_key(MutableColumns& columns, const ColumnString& json_column,
-                 const std::vector<StringRef>& keys, const std::vector<ExtractType>& types);
+void parse_json_to_variant(IColumn& column, const StringRef& jsons, JsonParser* parser,
+                           const ParseConfig& config);
 } // namespace doris::vectorized

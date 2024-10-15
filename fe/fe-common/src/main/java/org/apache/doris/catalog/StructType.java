@@ -18,7 +18,6 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.thrift.TColumnType;
-import org.apache.doris.thrift.TStructField;
 import org.apache.doris.thrift.TTypeDesc;
 import org.apache.doris.thrift.TTypeNode;
 import org.apache.doris.thrift.TTypeNodeType;
@@ -79,13 +78,13 @@ public class StructType extends Type {
     @Override
     public String toSql(int depth) {
         if (depth >= MAX_NESTING_DEPTH) {
-            return "STRUCT<...>";
+            return "struct<...>";
         }
         ArrayList<String> fieldsSql = Lists.newArrayList();
         for (StructField f : fields) {
             fieldsSql.add(f.toSql(depth + 1));
         }
-        return String.format("STRUCT<%s>", Joiner.on(",").join(fieldsSql));
+        return String.format("struct<%s>", Joiner.on(",").join(fieldsSql));
     }
 
     @Override
@@ -320,7 +319,7 @@ public class StructType extends Type {
         Preconditions.checkNotNull(fields);
         Preconditions.checkState(!fields.isEmpty());
         node.setType(TTypeNodeType.STRUCT);
-        node.setStructFields(new ArrayList<TStructField>());
+        node.setStructFields(new ArrayList<>());
         for (StructField field : fields) {
             field.toThrift(container, node);
         }
@@ -332,7 +331,7 @@ public class StructType extends Type {
         for (StructField f : fields) {
             fieldsSql.add(f.toString());
         }
-        return String.format("STRUCT<%s>", Joiner.on(",").join(fieldsSql));
+        return String.format("struct<%s>", Joiner.on(",").join(fieldsSql));
     }
 
     @Override
@@ -340,16 +339,6 @@ public class StructType extends Type {
         TColumnType thrift = new TColumnType();
         thrift.type = PrimitiveType.STRUCT.toThrift();
         return thrift;
-    }
-
-    @Override
-    public boolean isFixedLengthType() {
-        return false;
-    }
-
-    @Override
-    public boolean supportsTablePartitioning() {
-        return false;
     }
 
     @Override

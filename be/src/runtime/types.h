@@ -38,7 +38,6 @@ extern const int HLL_COLUMN_DEFAULT_LEN;
 
 // Describes a type. Includes the enum, children types, and any type-specific metadata
 // (e.g. precision and scale for decimals).
-// TODO for 2.3: rename to TypeDescriptor
 struct TypeDescriptor {
     PrimitiveType type;
     /// Only set if type == TYPE_CHAR or type == TYPE_VARCHAR
@@ -56,6 +55,8 @@ struct TypeDescriptor {
     bool result_is_nullable = false;
 
     std::string function_name;
+
+    int be_exec_version = -1;
 
     // Only set if type == TYPE_STRUCT. The field name of each child.
     std::vector<std::string> field_names;
@@ -155,6 +156,7 @@ struct TypeDescriptor {
             result.result_is_nullable = t.result_is_nullable;
             DCHECK(t.__isset.function_name);
             result.function_name = t.function_name;
+            result.be_exec_version = t.be_exec_version;
         }
         return result;
     }

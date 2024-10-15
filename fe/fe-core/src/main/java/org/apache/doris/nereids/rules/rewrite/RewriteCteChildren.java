@@ -26,6 +26,7 @@ import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
@@ -41,7 +42,7 @@ import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
-import org.apache.commons.collections.CollectionUtils;
+import com.google.common.collect.Sets;
 
 import java.util.HashSet;
 import java.util.List;
@@ -86,14 +87,18 @@ public class RewriteCteChildren extends DefaultPlanRewriter<CascadesContext> imp
             outer = (LogicalPlan) cteAnchor.child(1).accept(this, outerCascadesCtx);
             cascadesContext.getStatementContext().getRewrittenCteConsumer().put(cteAnchor.getCteId(), outer);
         }
-        boolean reserveAnchor = outer.anyMatch(p -> {
+        Set<LogicalCTEConsumer> cteConsumers = Sets.newHashSet();
+        outer.foreach(p -> {
             if (p instanceof LogicalCTEConsumer) {
                 LogicalCTEConsumer logicalCTEConsumer = (LogicalCTEConsumer) p;
-                return logicalCTEConsumer.getCteId().equals(cteAnchor.getCteId());
+                if (logicalCTEConsumer.getCteId().equals(cteAnchor.getCteId())) {
+                    cteConsumers.add(logicalCTEConsumer);
+                }
             }
             return false;
         });
-        if (!reserveAnchor) {
+        cascadesContext.getCteIdToConsumers().put(cteAnchor.getCteId(), cteConsumers);
+        if (cteConsumers.isEmpty()) {
             return outer;
         }
         Plan producer = cteAnchor.child(0).accept(this, cascadesContext);
@@ -109,10 +114,17 @@ public class RewriteCteChildren extends DefaultPlanRewriter<CascadesContext> imp
         } else {
             child = (LogicalPlan) cteProducer.child();
             child = tryToConstructFilter(cascadesContext, cteProducer.getCteId(), child);
-            Set<NamedExpression> projects = cascadesContext.getProjectForProducer(cteProducer.getCteId());
-            if (CollectionUtils.isNotEmpty(projects)
-                    && cascadesContext.couldPruneColumnOnProducer(cteProducer.getCteId())) {
-                child = new LogicalProject<>(ImmutableList.copyOf(projects), child);
+            Set<Slot> producerOutputs = cascadesContext.getStatementContext()
+                    .getCteIdToOutputIds().get(cteProducer.getCteId());
+            if (producerOutputs.size() < child.getOutput().size()) {
+                ImmutableList.Builder<NamedExpression> projectsBuilder
+                        = ImmutableList.builderWithExpectedSize(producerOutputs.size());
+                for (Slot slot : child.getOutput()) {
+                    if (producerOutputs.contains(slot)) {
+                        projectsBuilder.add(slot);
+                    }
+                }
+                child = new LogicalProject<>(projectsBuilder.build(), child);
                 child = pushPlanUnderAnchor(child);
             }
             CascadesContext rewrittenCtx = CascadesContext.newSubtreeContext(

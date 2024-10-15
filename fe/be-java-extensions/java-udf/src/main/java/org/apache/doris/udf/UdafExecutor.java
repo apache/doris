@@ -73,6 +73,8 @@ public class UdafExecutor extends BaseExecutor {
             outputTable.close();
         }
         super.close();
+        allMethods = null;
+        stateObjMap = null;
     }
 
     private Map<Integer, ColumnValueConverter> getInputConverters(int numColumns) {
@@ -87,7 +89,7 @@ public class UdafExecutor extends BaseExecutor {
     }
 
     private ColumnValueConverter getOutputConverter() {
-        return getOutputConverter(retType.getPrimitiveType(), retClass);
+        return getOutputConverter(retType, retClass);
     }
 
     public void addBatch(boolean isSinglePlace, int rowStart, int rowEnd, long placeAddr, int offset,

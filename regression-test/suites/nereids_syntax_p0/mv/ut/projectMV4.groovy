@@ -44,6 +44,9 @@ suite ("projectMV4") {
 
     sql """insert into projectMV4 values("2020-01-01",1,"a",1,1,1);"""
 
+    sql "analyze table projectMV4 with sync;"
+    sql """set enable_stats=false;"""
+
     explain {
         sql("select * from projectMV4 order by empid;")
         contains "(projectMV4)"
@@ -52,14 +55,30 @@ suite ("projectMV4") {
 
 
     explain {
-        sql("select name from projectMV4 where deptno > 1 and salary > 1 order by name;")
+        sql("select name from projectMV4 where deptno > 1 and salary > 1 and name = 'a' order by name;")
         contains "(projectMV4_mv)"
     }
     order_qt_select_mv "select name from projectMV4 where deptno > 1 and salary > 1 order by name;"
 
     explain {
-        sql("select empid from projectMV4 where deptno > 1 and empid > 1 order by empid;")
+        sql("select empid from projectMV4 where deptno > 1 and empid > 1 and time_col = '2020-01-01' order by empid;")
         contains "(projectMV4)"
     }
     order_qt_select_base "select empid from projectMV4 where deptno > 1 and empid > 1 order by empid;"
+
+    sql """set enable_stats=true;"""
+    explain {
+        sql("select * from projectMV4 order by empid;")
+        contains "(projectMV4)"
+    }
+
+    explain {
+        sql("select name from projectMV4 where deptno > 1 and salary > 1 and name = 'a' order by name;")
+        contains "(projectMV4_mv)"
+    }
+
+    explain {
+        sql("select empid from projectMV4 where deptno > 1 and empid > 1 and time_col = '2020-01-01' order by empid;")
+        contains "(projectMV4)"
+    }
 }

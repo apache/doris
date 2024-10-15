@@ -1,0 +1,13 @@
+[
+    {
+        "id": 789,
+        "city": {
+            "name": "beijing",
+            "region": "haidian"
+        }
+    },
+    {
+        "id": 1111,
+        "city": null
+    }
+]

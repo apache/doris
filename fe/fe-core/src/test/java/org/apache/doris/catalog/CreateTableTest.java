@@ -23,6 +23,7 @@ import org.apache.doris.common.ConfigBase;
 import org.apache.doris.common.ConfigException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
 import org.apache.doris.utframe.TestWithFeService;
 
@@ -43,6 +44,7 @@ public class CreateTableTest extends TestWithFeService {
 
     @Override
     protected void runBeforeAll() throws Exception {
+        FeConstants.runningUnitTest = true;
         Config.allow_replica_on_same_host = true;
         createDatabase("test");
     }
@@ -229,6 +231,18 @@ public class CreateTableTest extends TestWithFeService {
         Assert.assertTrue(tbl13.getColumn(Column.SEQUENCE_COL).getAggregationType() == AggregateType.NONE);
         Assert.assertTrue(tbl13.getColumn(Column.SEQUENCE_COL).getType() == Type.INT);
         Assert.assertEquals(tbl13.getSequenceMapCol(), "v1");
+
+        ExceptionChecker.expectThrowsNoException(
+                () -> createTable("create table test.tbl14\n" + "(k1 int, k2 int default 10)\n" + "duplicate key(k1)\n"
+                + "distributed by hash(k2) buckets 1\n" + "properties('replication_num' = '1'); "));
+
+        ExceptionChecker.expectThrowsNoException(
+                () -> createTable("create table test.tbl15\n" + "(k1 int, k2 bigint default 11)\n" + "duplicate key(k1)\n"
+                + "distributed by hash(k2) buckets 1\n" + "properties('replication_num' = '1'); "));
+
+        ExceptionChecker.expectThrowsNoException(
+                () -> createTable("create table test.tbl17\n" + "(k1 int, k2 decimal(10,2) default 10.3)\n" + "duplicate key(k1)\n"
+                + "distributed by hash(k2) buckets 1\n" + "properties('replication_num' = '1'); "));
     }
 
     @Test
@@ -279,7 +293,9 @@ public class CreateTableTest extends TestWithFeService {
         ConfigBase.setMutableConfig("disable_storage_medium_check", "false");
         ExceptionChecker
                 .expectThrowsWithMsg(DdlException.class,
-                        "Failed to find enough backend, please check the replication num,replication tag and storage medium and avail capacity of backends.\n"
+                        "Failed to find enough backend, please check the replication num,replication tag and storage medium and avail capacity of backends "
+                                + "or maybe all be on same host."
+                                + Env.getCurrentSystemInfo().getDetailsForCreateReplica(new ReplicaAllocation((short) 1)) + "\n"
                                 + "Create failed replications:\n"
                                 + "replication tag: {\"location\" : \"default\"}, replication num: 1, storage medium: SSD",
                         () -> createTable(
@@ -288,7 +304,9 @@ public class CreateTableTest extends TestWithFeService {
 
         ExceptionChecker
                 .expectThrowsWithMsg(DdlException.class,
-                        "Failed to find enough backend, please check the replication num,replication tag and storage medium and avail capacity of backends.\n"
+                        "Failed to find enough backend, please check the replication num,replication tag and storage medium and avail capacity of backends "
+                                + "or maybe all be on same host."
+                                + Env.getCurrentSystemInfo().getDetailsForCreateReplica(new ReplicaAllocation((short) 1)) + "\n"
                                 + "Create failed replications:\n"
                                 + "replication tag: {\"location\" : \"default\"}, replication num: 1, storage medium: SSD",
                         () -> createTable("create table test.tb7_1(key1 int, key2 varchar(10))\n"
@@ -356,17 +374,16 @@ public class CreateTableTest extends TestWithFeService {
 
         // single partition column with multi keys
         ExceptionChecker
-                .expectThrowsWithMsg(IllegalArgumentException.class, "partition key desc list size[2] is not equal to partition column size[1]",
-                        () -> createTable("create table test.tbl10\n"
-                                + "(k1 int not null, k2 varchar(128), k3 int, v1 int, v2 int)\n"
-                                + "partition by list(k1)\n"
-                                + "(\n"
-                                + "partition p1 values in (\"1\", \"3\", \"5\"),\n"
-                                + "partition p2 values in (\"2\", \"4\", \"6\"),\n"
-                                + "partition p3 values in ((\"7\", \"8\"))\n"
-                                + ")\n"
-                                + "distributed by hash(k2) buckets 1\n"
-                                + "properties('replication_num' = '1');"));
+                        .expectThrowsWithMsg(AnalysisException.class,
+                                        "partition item's size out of partition columns: Index 1 out of bounds for length 1",
+                                        () -> createTable("create table test.tbl10\n"
+                                                        + "(k1 int not null, k2 varchar(128), k3 int, v1 int, v2 int)\n"
+                                                        + "partition by list(k1)\n" + "(\n"
+                                                        + "partition p1 values in (\"1\", \"3\", \"5\"),\n"
+                                                        + "partition p2 values in (\"2\", \"4\", \"6\"),\n"
+                                                        + "partition p3 values in ((\"7\", \"8\"))\n" + ")\n"
+                                                        + "distributed by hash(k2) buckets 1\n"
+                                                        + "properties('replication_num' = '1');"));
 
         // multi partition columns with single key
         ExceptionChecker
@@ -383,7 +400,7 @@ public class CreateTableTest extends TestWithFeService {
 
         // multi partition columns with multi keys
         ExceptionChecker
-                .expectThrowsWithMsg(IllegalArgumentException.class, "partition key desc list size[3] is not equal to partition column size[2]",
+                .expectThrowsWithMsg(AnalysisException.class, "partition item's size out of partition columns: Index 2 out of bounds for length 2",
                         () -> createTable("create table test.tbl12\n"
                                 + "(k1 int not null, k2 varchar(128) not null, k3 int, v1 int, v2 int)\n"
                                 + "partition by list(k1, k2)\n"
@@ -906,8 +923,8 @@ public class CreateTableTest extends TestWithFeService {
 
     @Test
     public void testCreateTableWithNerieds() throws Exception {
-        ExceptionChecker.expectThrowsWithMsg(org.apache.doris.nereids.exceptions.AnalysisException.class,
-                "Failed to check min load replica num",
+        ExceptionChecker.expectThrowsWithMsg(org.apache.doris.common.DdlException.class,
+                                "Failed to check min load replica num",
                 () -> createTable("create table test.tbl_min_load_replica_num_2_nereids\n"
                         + "(k1 int, k2 int)\n"
                         + "duplicate key(k1)\n"
@@ -948,7 +965,7 @@ public class CreateTableTest extends TestWithFeService {
                         + "distributed by hash(k1) buckets 10", true));
 
         createDatabaseWithSql("create database db2 properties('replication_num' = '4')");
-        ExceptionChecker.expectThrowsWithMsg(org.apache.doris.nereids.exceptions.AnalysisException.class,
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class,
                 "replication num should be less than the number of available backends. "
                         + "replication num is 4, available backend num is 3",
                 () -> createTable("create table db2.tbl_4_replica\n"

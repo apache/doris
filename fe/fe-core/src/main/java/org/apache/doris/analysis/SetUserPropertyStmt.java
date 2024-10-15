@@ -27,7 +27,7 @@ import com.google.common.collect.Lists;
 
 import java.util.List;
 
-public class SetUserPropertyStmt extends DdlStmt {
+public class SetUserPropertyStmt extends DdlStmt implements NotFallbackInParser {
     private String user;
     private final List<SetVar> propertyList;
 
@@ -90,5 +90,10 @@ public class SetUserPropertyStmt extends DdlStmt {
     @Override
     public String toString() {
         return toSql();
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.SET;
     }
 }

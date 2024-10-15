@@ -8,3 +8,12 @@
 3	["2023-01-02"]	["hello"]
 4	["2023-01-02", "2023-01-03"]	["sql"]
 
+-- !3 --
+["doris", "world", "hello", "sql"]
+["doris", "world", "hello", "sql"]
+["doris", "world", "hello", "sql"]
+["doris", "world", "hello", "sql"]
+["doris", "world", "hello", "sql"]
+["doris", "world", "hello", "sql"]
+["doris", "world", "hello", "sql"]
+

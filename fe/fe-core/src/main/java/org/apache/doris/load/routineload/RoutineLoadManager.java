@@ -368,8 +368,7 @@ public class RoutineLoadManager implements Writable {
             try {
                 routineLoadJob.jobStatistic.errorRowsAfterResumed = 0;
                 routineLoadJob.autoResumeCount = 0;
-                routineLoadJob.firstResumeTimestamp = 0;
-                routineLoadJob.autoResumeLock = false;
+                routineLoadJob.latestResumeTimestamp = 0;
                 routineLoadJob.updateState(RoutineLoadJob.JobState.NEED_SCHEDULE, null, false /* not replay */);
                 LOG.info(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, routineLoadJob.getId())
                         .add("current_state", routineLoadJob.getState())
@@ -489,6 +488,7 @@ public class RoutineLoadManager implements Writable {
         readLock();
         try {
             Map<Long, Integer> beIdToConcurrentTasks = getBeCurrentTasksNumMap();
+            int previousBeIdleTaskNum = 0;
 
             // 1. Find if the given BE id has more than half of available slots
             if (previousBeId != -1L && availableBeIds.contains(previousBeId)) {
@@ -496,22 +496,22 @@ public class RoutineLoadManager implements Writable {
                 Backend previousBackend = Env.getCurrentSystemInfo().getBackend(previousBeId);
                 // check previousBackend is not null && load available
                 if (previousBackend != null && previousBackend.isLoadAvailable()) {
-                    int idleTaskNum = 0;
                     if (!beIdToMaxConcurrentTasks.containsKey(previousBeId)) {
-                        idleTaskNum = 0;
+                        previousBeIdleTaskNum = 0;
                     } else if (beIdToConcurrentTasks.containsKey(previousBeId)) {
-                        idleTaskNum = beIdToMaxConcurrentTasks.get(previousBeId)
+                        previousBeIdleTaskNum = beIdToMaxConcurrentTasks.get(previousBeId)
                                 - beIdToConcurrentTasks.get(previousBeId);
                     } else {
-                        idleTaskNum = beIdToMaxConcurrentTasks.get(previousBeId);
+                        previousBeIdleTaskNum = beIdToMaxConcurrentTasks.get(previousBeId);
                     }
-                    if (idleTaskNum > (Config.max_routine_load_task_num_per_be >> 1)) {
+                    if (previousBeIdleTaskNum == Config.max_routine_load_task_num_per_be) {
                         return previousBeId;
                     }
                 }
             }
 
-            // 2. The given BE id does not have available slots, find a BE with min tasks
+            // 2. we believe that the benefits of load balance outweigh the benefits of object pool cache,
+            //    so we try to find the one with the most idle slots as much as possible
             // 3. The previous BE is not in cluster && is not load available, find a new BE with min tasks
             int idleTaskNum = 0;
             long resultBeId = -1L;
@@ -530,6 +530,11 @@ public class RoutineLoadManager implements Writable {
                     resultBeId = maxIdleSlotNum < idleTaskNum ? beId : resultBeId;
                     maxIdleSlotNum = Math.max(maxIdleSlotNum, idleTaskNum);
                 }
+            }
+            // 4. on the basis of selecting the maximum idle slot be,
+            //    try to reuse the object cache as much as possible
+            if (previousBeIdleTaskNum == maxIdleSlotNum) {
+                return previousBeId;
             }
             return resultBeId;
         } finally {
@@ -826,7 +831,7 @@ public class RoutineLoadManager implements Writable {
     public void replayChangeRoutineLoadJob(RoutineLoadOperation operation) {
         RoutineLoadJob job = getJob(operation.getId());
         try {
-            job.updateState(operation.getJobState(), null, true /* is replay */);
+            job.updateState(operation.getJobState(), operation.getErrorReason(), true /* is replay */);
         } catch (UserException e) {
             LOG.error("should not happened", e);
         } catch (NullPointerException npe) {

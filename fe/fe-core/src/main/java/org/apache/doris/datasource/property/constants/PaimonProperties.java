@@ -17,7 +17,7 @@
 
 package org.apache.doris.datasource.property.constants;
 
-import org.apache.doris.datasource.credentials.CloudCredential;
+import org.apache.doris.common.credentials.CloudCredential;
 
 import com.google.common.collect.Maps;
 
@@ -38,6 +38,7 @@ public class PaimonProperties {
     public static final String PAIMON_OSS_SECRET_KEY = org.apache.hadoop.fs.aliyun.oss.Constants.ACCESS_KEY_SECRET;
     public static final String PAIMON_HMS_CATALOG = "hive";
     public static final String PAIMON_FILESYSTEM_CATALOG = "filesystem";
+    public static final String PAIMON_METASTORE_CLIENT = "metastore.client.class";
 
 
     public static Map<String, String> convertToS3Properties(Map<String, String> properties,

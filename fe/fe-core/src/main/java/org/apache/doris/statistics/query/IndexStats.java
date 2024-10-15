@@ -20,7 +20,6 @@ package org.apache.doris.statistics.query;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.util.Util;
 
 import com.google.common.collect.ImmutableMap;
@@ -138,7 +137,7 @@ public class IndexStats {
      */
     public Map<String, Map> getStats(boolean summary) {
         List<Column> indexColumns;
-        if (table.getType() == TableType.OLAP) {
+        if (table.isManagedTable()) {
             OlapTable olapTable = (OlapTable) table;
             indexColumns = olapTable.getSchemaByIndexId(indexId);
         } else {

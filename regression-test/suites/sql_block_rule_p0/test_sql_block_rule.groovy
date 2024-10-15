@@ -216,5 +216,36 @@ suite("test_sql_block_rule", "nonConcurrent") {
         """
     }
 
+    sql """
+        CREATE SQL_BLOCK_RULE if not exists test_rule_create_view PROPERTIES ( "sql"="create view", "global" = "true",
+        "enable"="true");
+    """
+    try {
+        test {
+            sql("""create view table_test_rule_create_view as select 1 """, false)
+            exception """sql match regex sql block rule: test_rule_create_view"""
+        }
+    } finally {
+        sql """
+            drop SQL_BLOCK_RULE if exists test_rule_create_view;
+        """
+    }
+
+    sql """
+        CREATE SQL_BLOCK_RULE if not exists test_rule_alter_view PROPERTIES ( "sql"="alter view", "global" = "true",
+        "enable"="true");
+    """
+    sql """ drop view if exists table_test_rule_alter_view """
+    sql "create view table_test_rule_alter_view as select 2"
+    try {
+        test {
+            sql("""alter view table_test_rule_alter_view as select 1""", false)
+            exception """sql match regex sql block rule: test_rule_alter_view"""
+        }
+    } finally {
+        sql """
+            drop SQL_BLOCK_RULE if exists test_rule_alter_view;
+        """
+    }
 
 }

@@ -22,6 +22,7 @@ import org.apache.doris.backup.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.fs.obj.S3ObjStorage;
+import org.apache.doris.fs.remote.dfs.DFSFileSystem;
 
 import com.amazonaws.services.s3.model.AmazonS3Exception;
 import com.google.common.annotations.VisibleForTesting;
@@ -57,14 +58,29 @@ public class S3FileSystem extends ObjFileSystem {
 
     @Override
     protected FileSystem nativeFileSystem(String remotePath) throws UserException {
+        //todo Extracting a common method to achieve logic reuse
+        if (closed.get()) {
+            throw new UserException("FileSystem is closed.");
+        }
         if (dfsFileSystem == null) {
-            Configuration conf = new Configuration();
-            System.setProperty("com.amazonaws.services.s3.enableV4", "true");
-            PropertyConverter.convertToHadoopFSProperties(properties).forEach(conf::set);
-            try {
-                dfsFileSystem = FileSystem.get(new Path(remotePath).toUri(), conf);
-            } catch (Exception e) {
-                throw new UserException("Failed to get S3 FileSystem for " + e.getMessage(), e);
+            synchronized (this) {
+                if (closed.get()) {
+                    throw new UserException("FileSystem is closed.");
+                }
+                if (dfsFileSystem == null) {
+                    Configuration conf = DFSFileSystem.getHdfsConf(ifNotSetFallbackToSimpleAuth());
+                    System.setProperty("com.amazonaws.services.s3.enableV4", "true");
+                    // the entry value in properties may be null, and
+                    PropertyConverter.convertToHadoopFSProperties(properties).entrySet().stream()
+                            .filter(entry -> entry.getKey() != null && entry.getValue() != null)
+                            .forEach(entry -> conf.set(entry.getKey(), entry.getValue()));
+                    try {
+                        dfsFileSystem = FileSystem.get(new Path(remotePath).toUri(), conf);
+                    } catch (Exception e) {
+                        throw new UserException("Failed to get S3 FileSystem for " + e.getMessage(), e);
+                    }
+                    RemoteFSPhantomManager.registerPhantomReference(this);
+                }
             }
         }
         return dfsFileSystem;
@@ -72,7 +88,7 @@ public class S3FileSystem extends ObjFileSystem {
 
     // broker file pattern glob is too complex, so we use hadoop directly
     @Override
-    public Status list(String remotePath, List<RemoteFile> result, boolean fileNameOnly) {
+    public Status globList(String remotePath, List<RemoteFile> result, boolean fileNameOnly) {
         try {
             FileSystem s3AFileSystem = nativeFileSystem(remotePath);
             Path pathPattern = new Path(remotePath);
@@ -106,9 +122,5 @@ public class S3FileSystem extends ObjFileSystem {
             return new Status(Status.ErrCode.COMMON_ERROR, "errors while get file status " + e.getMessage());
         }
         return Status.OK;
-    }
-
-    public Status deleteDirectory(String absolutePath) {
-        return ((S3ObjStorage) objStorage).deleteObjects(absolutePath);
     }
 }

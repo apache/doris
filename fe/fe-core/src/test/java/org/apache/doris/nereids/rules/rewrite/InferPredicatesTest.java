@@ -74,6 +74,8 @@ class InferPredicatesTest extends TestWithFeService implements MemoPatternMatchS
                         + "properties('replication_num' = '1');");
 
         connectContext.setDatabase("test");
+        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
+        connectContext.getSessionVariable().setEnableFoldConstantByBe(true);
     }
 
     @Test
@@ -154,8 +156,8 @@ class InferPredicatesTest extends TestWithFeService implements MemoPatternMatchS
                 .analyze(sql)
                 .rewrite()
                 .matches(
-                        logicalJoin(
-                            logicalJoin(
+                        logicalProject(logicalJoin(
+                            logicalProject(logicalJoin(
                                 logicalFilter(
                                     logicalOlapScan()
                                 ).when(filter -> !ExpressionUtils.isInferred(filter.getPredicate())
@@ -164,11 +166,11 @@ class InferPredicatesTest extends TestWithFeService implements MemoPatternMatchS
                                     logicalOlapScan()
                                 ).when(filter -> ExpressionUtils.isInferred(filter.getPredicate())
                                         & filter.getPredicate().toSql().contains("sid > 1"))
-                            ),
+                            )),
                             logicalFilter(
                                 logicalOlapScan()
                             ).when(filter -> filter.getPredicate().toSql().contains("id > 1"))
-                        )
+                        ))
                 );
     }
 
@@ -180,8 +182,8 @@ class InferPredicatesTest extends TestWithFeService implements MemoPatternMatchS
                 .analyze(sql)
                 .rewrite()
                 .matches(
-                        logicalJoin(
-                            logicalJoin(
+                        logicalProject(logicalJoin(
+                            logicalProject(logicalJoin(
                                     logicalFilter(
                                             logicalOlapScan()
                                     ).when(filter -> ExpressionUtils.isInferred(filter.getPredicate())
@@ -190,11 +192,11 @@ class InferPredicatesTest extends TestWithFeService implements MemoPatternMatchS
                                             logicalOlapScan()
                                     ).when(filter -> !ExpressionUtils.isInferred(filter.getPredicate())
                                             & filter.getPredicate().toSql().contains("sid > 1"))
-                            ),
+                            )),
                             logicalFilter(
                                     logicalOlapScan()
                             ).when(filter -> filter.getPredicate().toSql().contains("id > 1"))
-                        )
+                        ))
                 );
     }
 
@@ -491,14 +493,14 @@ class InferPredicatesTest extends TestWithFeService implements MemoPatternMatchS
                 .analyze(sql)
                 .rewrite()
                 .matches(
-                        logicalJoin(
+                        logicalProject(logicalJoin(
                             logicalFilter(
                                     logicalOlapScan()
                             ).when(filter -> ExpressionUtils.isInferred(filter.getPredicate())
                                     & filter.getPredicate().toSql().contains("k1 = 3")),
                             logicalProject(
                                 logicalJoin(
-                                    logicalJoin(
+                                    logicalProject(logicalJoin(
                                        logicalProject(
                                                logicalFilter(
                                                        logicalOlapScan()
@@ -511,7 +513,7 @@ class InferPredicatesTest extends TestWithFeService implements MemoPatternMatchS
                                                ).when(filter -> !ExpressionUtils.isInferred(filter.getPredicate())
                                                        & filter.getPredicate().toSql().contains("k1 = 3"))
                                        )
-                                    ),
+                                    )),
                                     logicalAggregate(
                                         logicalProject(
                                                 logicalOlapScan()
@@ -519,7 +521,7 @@ class InferPredicatesTest extends TestWithFeService implements MemoPatternMatchS
                                     )
                                 )
                             )
-                        )
+                        ))
                 );
     }
 
@@ -531,8 +533,8 @@ class InferPredicatesTest extends TestWithFeService implements MemoPatternMatchS
                 .analyze(sql)
                 .rewrite()
                 .matches(
-                        innerLogicalJoin(
-                            innerLogicalJoin(
+                        logicalProject(innerLogicalJoin(
+                            logicalProject(innerLogicalJoin(
                                 logicalFilter(
                                     logicalOlapScan()
                                 ).when(filter -> ExpressionUtils.isInferred(filter.getPredicate())
@@ -541,11 +543,11 @@ class InferPredicatesTest extends TestWithFeService implements MemoPatternMatchS
                                     logicalOlapScan()
                                 ).when(filter -> !ExpressionUtils.isInferred(filter.getPredicate())
                                         & filter.getPredicate().toSql().contains("sid > 1"))
-                            ),
+                            )),
                             logicalFilter(
                                 logicalOlapScan()
                             ).when(filter -> filter.getPredicate().toSql().contains("id > 1"))
-                        )
+                        ))
                 );
     }
 
@@ -557,8 +559,8 @@ class InferPredicatesTest extends TestWithFeService implements MemoPatternMatchS
                 .analyze(sql)
                 .rewrite()
                 .matches(
-                        logicalJoin(
-                            logicalJoin(
+                        logicalProject(logicalJoin(
+                            logicalProject(logicalJoin(
                                 logicalFilter(
                                     logicalOlapScan()
                                 ).when(filter -> ExpressionUtils.isInferred(filter.getPredicate())
@@ -567,11 +569,11 @@ class InferPredicatesTest extends TestWithFeService implements MemoPatternMatchS
                                     logicalOlapScan()
                                 ).when(filter -> !ExpressionUtils.isInferred(filter.getPredicate())
                                         & filter.getPredicate().toSql().contains("sid > 1"))
-                            ),
+                            )),
                             logicalFilter(
                                 logicalOlapScan()
                             ).when(filter -> filter.getPredicate().toSql().contains("id > 1"))
-                        )
+                        ))
                 );
     }
 
@@ -608,12 +610,12 @@ class InferPredicatesTest extends TestWithFeService implements MemoPatternMatchS
     void innerJoinShouldNotInferUnderLeftJoinOnClausePredicates() {
         String sql = "select * from student s1"
                 + " left join (select sid as id1, sid as id2, grade from score) s2 on s1.id = s2.id1 and s1.id = 1"
-                + " join (select sid as id1, sid as id2, grade from score) s3 on s1.id = s3.id1 where s1.id = 2";
+                + " join (select sid as id1, sid as id2, grade from score) s3 on s1.id = s3.id1 where s1.id =2";
         PlanChecker.from(connectContext).analyze(sql).rewrite().printlnTree();
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .rewrite()
-                .matches(
+                .matches(logicalProject(
                         logicalJoin(
                                 logicalFilter(
                                         logicalOlapScan()
@@ -622,6 +624,154 @@ class InferPredicatesTest extends TestWithFeService implements MemoPatternMatchS
                                         && filter.getPredicate().toSql().contains("id = 2")),
                                 any()
                         ).when(join -> join.getJoinType() == JoinType.LEFT_OUTER_JOIN)
+                ));
+    }
+
+    @Test
+    void inferPredicateByConstValue() {
+        String sql = "select c1 from (select 1 c1 from student) t inner join score t2 on t.c1=t2.sid";
+        PlanChecker.from(connectContext).analyze(sql).rewrite().printlnTree();
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .matches(logicalProject(
+                         logicalJoin(any(),
+                                 logicalProject(
+                                         logicalFilter(
+                                            logicalOlapScan()
+                                         ).when(filter -> filter.getConjuncts().size() == 1
+                                         && ExpressionUtils.isInferred(filter.getPredicate())
+                                         && filter.getPredicate().toSql().contains("sid = 1"))
+                                 )
+                         ))
                 );
+    }
+
+    @Test
+    void pullUpPredicateFromIntersect() {
+        String sql = "select c1 from (select age c1,id from student where id <10 intersect select age,id from student where id >1) t inner join score t2 on t.id=t2.sid";
+        PlanChecker.from(connectContext).analyze(sql).rewrite().printlnTree();
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .matches(logicalFilter(logicalOlapScan())
+                        .when(filter -> filter.getConjuncts().size() == 2
+                            && ExpressionUtils.isInferred(filter.getPredicate())
+                            && filter.getPredicate().toSql().contains("(sid > 1)")
+                            && filter.getPredicate().toSql().contains("(sid < 10)"))
+                );
+    }
+
+    @Test
+    void pullUpPredicateFromExcept() {
+        String sql = "select c1 from (select age c1,id from student where id <10 except select age,id from student where id >1) t inner join score t2 on t.id=t2.sid";
+        PlanChecker.from(connectContext).analyze(sql).rewrite().printlnTree();
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .matches(logicalFilter(logicalOlapScan())
+                        .when(filter -> filter.getConjuncts().size() == 1
+                                && ExpressionUtils.isInferred(filter.getPredicate())
+                                && filter.getPredicate().toSql().contains("sid < 10"))
+                );
+    }
+
+    @Test
+    void pullUpPredicateFromUnion() {
+        String sql = "select c1 from (select 2 c1,id from course where id <10 union select age,id from student where id <10) t inner join score t2 on t.id=t2.sid";
+        PlanChecker.from(connectContext).analyze(sql).rewrite().printlnTree();
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .matches(logicalFilter(logicalOlapScan())
+                        .when(filter -> filter.getConjuncts().size() == 1
+                                && ExpressionUtils.isInferred(filter.getPredicate())
+                                && filter.getPredicate().toSql().contains("sid < 10"))
+                );
+
+        String sql2 = "select c1 from (select 2 c1,id from course where id <10 union all select age,id from student where id <10) t inner join score t2 on t.id=t2.sid";
+        PlanChecker.from(connectContext).analyze(sql2).rewrite().printlnTree();
+        PlanChecker.from(connectContext)
+                .analyze(sql2)
+                .rewrite()
+                .matches(logicalFilter(logicalOlapScan())
+                        .when(filter -> filter.getConjuncts().size() == 1
+                                && ExpressionUtils.isInferred(filter.getPredicate())
+                                && filter.getPredicate().toSql().contains("sid < 10"))
+                );
+    }
+
+    @Test
+    void pullUpPredicateFromUnionConst() {
+        String sql = "select c2 from (select 2 id,'abc' c2  union all select 1 id,'abbbb' c4  ) t inner join score t2 on t.id=t2.sid";
+        PlanChecker.from(connectContext).analyze(sql).rewrite().printlnTree();
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .matches(logicalFilter(logicalOlapScan())
+                        .when(filter -> filter.getConjuncts().size() == 1
+                                && ExpressionUtils.isInferred(filter.getPredicate())
+                                && filter.getPredicate().toSql().contains("sid IN (1, 2)"))
+                );
+
+        String sql2 = "select id,t2.sid from (select 2 id,'abc' b from score limit 0 offset 0  union all select 1 id,'abb' c4) t inner join score t2 on t.id=t2.sid";
+        PlanChecker.from(connectContext).analyze(sql2).rewrite().printlnTree();
+        PlanChecker.from(connectContext)
+                .analyze(sql2)
+                .rewrite()
+                .matches(logicalFilter(logicalOlapScan())
+                        .when(filter -> filter.getConjuncts().size() == 1
+                                && ExpressionUtils.isInferred(filter.getPredicate())
+                                && filter.getPredicate().toSql().contains("sid = 1"))
+                );
+    }
+
+    @Test
+    void pullUpPredicateFromUnionConstAndChild() {
+        String sql = "select c2 from (select 2 id,4 c2  union all select age,4 from student where age>0) t inner join score t2 on t.id=t2.sid and t.c2=t2.cid";
+        PlanChecker.from(connectContext).analyze(sql).rewrite().printlnTree();
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .matches(logicalFilter(logicalOlapScan())
+                        .when(filter -> filter.getConjuncts().size() == 2
+                                && ExpressionUtils.isInferred(filter.getPredicate())
+                                && filter.getPredicate().toSql().contains("sid > 0")
+                                && filter.getPredicate().toSql().contains("cid = 4"))
+                );
+
+        String sql2 = "select c2 from (select 2 id,4 c2  union all select age,id from student where age=2 and id <9) t inner join score t2 on t.id=t2.sid and t.c2=t2.cid";
+        PlanChecker.from(connectContext).analyze(sql2).rewrite().printlnTree();
+        PlanChecker.from(connectContext)
+                .analyze(sql2)
+                .rewrite()
+                .matches(logicalFilter(logicalOlapScan())
+                        .when(filter -> filter.getConjuncts().size() == 2
+                                && ExpressionUtils.isInferred(filter.getPredicate())
+                                && filter.getPredicate().toSql().contains("sid = 2")
+                                && filter.getPredicate().toSql().contains("cid < 9"))
+                );
+    }
+
+    @Test
+    void inferPredicateFromIntersect() {
+        String sql = "select age c1,id from student where id <10 intersect select age,id from student where id >1";
+        PlanChecker.from(connectContext).analyze(sql).rewrite().printlnTree();
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .matches(logicalIntersect(logicalProject(logicalFilter().when(filter -> filter.getConjuncts().size() == 2)),
+                        logicalProject(logicalFilter().when(filter -> filter.getConjuncts().size() == 2))));
+    }
+
+    @Test
+    void inferPredicateFromExcept() {
+        String sql = "select age c1,id from student where id <10 except select age,id from student where id >1";
+        PlanChecker.from(connectContext).analyze(sql).rewrite().printlnTree();
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .matches(logicalFilter(logicalOlapScan().when(scan -> scan.getTable().getName().equals("student")))
+                        .when(filter -> filter.getConjuncts().size() == 2));
     }
 }

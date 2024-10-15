@@ -94,6 +94,14 @@ struct OrImpl {
     static inline constexpr bool special_implementation_for_nulls() { return true; }
 };
 
+struct XorImpl {
+    using ResultType = UInt8;
+
+    static inline constexpr ResultType apply(UInt8 a, UInt8 b) { return a ^ b; }
+    // select null xor true , null xor false , false xor null , true xor  null ;
+    static inline constexpr bool special_implementation_for_nulls() { return false; }
+};
+
 template <typename A>
 struct NotImpl {
     using ResultType = UInt8;
@@ -151,10 +159,17 @@ struct NameNot {
     static constexpr auto name = "not";
 };
 
+struct NameXor {
+    static constexpr auto name = "xor";
+};
+
 using FunctionAnd =
         FunctionsLogicalDetail::FunctionAnyArityLogical<FunctionsLogicalDetail::AndImpl, NameAnd>;
 using FunctionOr =
         FunctionsLogicalDetail::FunctionAnyArityLogical<FunctionsLogicalDetail::OrImpl, NameOr>;
 using FunctionNot =
         FunctionsLogicalDetail::FunctionUnaryLogical<FunctionsLogicalDetail::NotImpl, NameNot>;
+
+using FunctionXor =
+        FunctionsLogicalDetail::FunctionAnyArityLogical<FunctionsLogicalDetail::XorImpl, NameXor>;
 } // namespace doris::vectorized

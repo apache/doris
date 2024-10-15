@@ -145,4 +145,5 @@ public class BuiltinFunctionBuilder extends FunctionBuilder {
                 .map(constructor -> new BuiltinFunctionBuilder(functionClass, (Constructor<BoundFunction>) constructor))
                 .collect(ImmutableList.toImmutableList());
     }
+
 }

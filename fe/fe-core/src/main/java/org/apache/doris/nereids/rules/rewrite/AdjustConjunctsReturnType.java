@@ -44,11 +44,6 @@ public class AdjustConjunctsReturnType extends DefaultPlanRewriter<Void> impleme
     }
 
     @Override
-    public Plan visit(Plan plan, Void context) {
-        return super.visit(plan, context);
-    }
-
-    @Override
     public Plan visitLogicalFilter(LogicalFilter<? extends Plan> filter, Void context) {
         filter = (LogicalFilter<? extends Plan>) super.visit(filter, context);
         Set<Expression> conjuncts = filter.getConjuncts().stream()

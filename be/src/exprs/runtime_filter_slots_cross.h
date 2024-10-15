@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <utility>
 #include <vector>
 
 #include "common/status.h"
@@ -34,14 +35,14 @@ namespace doris {
 // this class used in cross join node
 class VRuntimeFilterSlotsCross {
 public:
-    VRuntimeFilterSlotsCross(const std::vector<IRuntimeFilter*>& runtime_filters,
-                             const vectorized::VExprContextSPtrs& src_expr_ctxs)
-            : _runtime_filters(runtime_filters), filter_src_expr_ctxs(src_expr_ctxs) {}
+    VRuntimeFilterSlotsCross(const std::vector<std::shared_ptr<IRuntimeFilter>>& runtime_filters,
+                             vectorized::VExprContextSPtrs src_expr_ctxs)
+            : _runtime_filters(runtime_filters), filter_src_expr_ctxs(std::move(src_expr_ctxs)) {}
 
     ~VRuntimeFilterSlotsCross() = default;
 
     Status init(RuntimeState* state) {
-        for (auto* runtime_filter : _runtime_filters) {
+        for (auto runtime_filter : _runtime_filters) {
             if (runtime_filter == nullptr) {
                 return Status::InternalError("runtime filter is nullptr");
             }
@@ -56,7 +57,7 @@ public:
 
     Status insert(vectorized::Block* block) {
         for (int i = 0; i < _runtime_filters.size(); ++i) {
-            auto* filter = _runtime_filters[i];
+            auto filter = _runtime_filters[i];
             const auto& vexpr_ctx = filter_src_expr_ctxs[i];
 
             int result_column_id = -1;
@@ -72,7 +73,7 @@ public:
     }
 
     Status publish() {
-        for (auto& filter : _runtime_filters) {
+        for (auto filter : _runtime_filters) {
             RETURN_IF_ERROR(filter->publish());
         }
         return Status::OK();
@@ -81,7 +82,7 @@ public:
     bool empty() const { return _runtime_filters.empty(); }
 
 private:
-    const std::vector<IRuntimeFilter*>& _runtime_filters;
+    const std::vector<std::shared_ptr<IRuntimeFilter>>& _runtime_filters;
     const vectorized::VExprContextSPtrs filter_src_expr_ctxs;
 };
 

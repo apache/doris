@@ -20,7 +20,6 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisMethod;
-import org.apache.doris.statistics.AnalysisInfo.AnalysisMode;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisType;
 import org.apache.doris.statistics.AnalysisInfo.ScheduleType;
 import org.apache.doris.statistics.util.StatisticsUtil;
@@ -31,7 +30,7 @@ import org.apache.logging.log4j.core.util.CronExpression;
 
 import java.util.Map;
 
-public class AnalyzeStmt extends StatementBase {
+public class AnalyzeStmt extends StatementBase implements NotFallbackInParser {
     private static final Logger LOG = LogManager.getLogger(AnalyzeStmt.class);
 
     protected AnalyzeProperties analyzeProperties;
@@ -55,10 +54,6 @@ public class AnalyzeStmt extends StatementBase {
 
     public Map<String, String> getProperties() {
         return analyzeProperties.getProperties();
-    }
-
-    public AnalysisMode getAnalysisMode() {
-        return analyzeProperties.isIncremental() ? AnalysisMode.INCREMENTAL : AnalysisMode.FULL;
     }
 
     public AnalysisType getAnalysisType() {
@@ -116,7 +111,12 @@ public class AnalyzeStmt extends StatementBase {
         return analyzeProperties.forceFull();
     }
 
-    public boolean usingSqlForPartitionColumn() {
-        return analyzeProperties.usingSqlForPartitionColumn();
+    public boolean usingSqlForExternalTable() {
+        return analyzeProperties.usingSqlForExternalTable();
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.ANALYZE;
     }
 }

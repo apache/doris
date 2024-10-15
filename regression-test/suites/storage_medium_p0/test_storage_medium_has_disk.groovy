@@ -17,7 +17,7 @@
 
 import org.apache.doris.regression.suite.ClusterOptions
 
-suite('test_storage_medium_has_disk') {
+suite('test_storage_medium_has_disk', 'docker') {
     if (isCloudMode()) {
         return
     }

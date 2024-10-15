@@ -24,12 +24,36 @@
 #include <ostream>
 
 #include "common/config.h"
+#include "http/http_headers.h"
 #include "http/http_status.h"
 #include "util/stack_util.h"
 
 namespace doris {
 
-HttpClient::HttpClient() {}
+static const char* header_error_msg(CURLHcode code) {
+    switch (code) {
+    case CURLHE_OK:
+        return "OK";
+    case CURLHE_BADINDEX:
+        return "header exists but not with this index ";
+    case CURLHE_MISSING:
+        return "no such header exists";
+    case CURLHE_NOHEADERS:
+        return "no headers at all exist (yet)";
+    case CURLHE_NOREQUEST:
+        return "no request with this number was used";
+    case CURLHE_OUT_OF_MEMORY:
+        return "out of memory while processing";
+    case CURLHE_BAD_ARGUMENT:
+        return "a function argument was not okay";
+    case CURLHE_NOT_BUILT_IN:
+        return "curl_easy_header() was disabled in the build";
+    default:
+        return "unknown";
+    }
+}
+
+HttpClient::HttpClient() = default;
 
 HttpClient::~HttpClient() {
     if (_curl != nullptr) {
@@ -42,7 +66,7 @@ HttpClient::~HttpClient() {
     }
 }
 
-Status HttpClient::init(const std::string& url) {
+Status HttpClient::init(const std::string& url, bool set_fail_on_error) {
     if (_curl == nullptr) {
         _curl = curl_easy_init();
         if (_curl == nullptr) {
@@ -70,10 +94,14 @@ Status HttpClient::init(const std::string& url) {
         return Status::InternalError("fail to set CURLOPT_NOSIGNAL");
     }
     // set fail on error
-    code = curl_easy_setopt(_curl, CURLOPT_FAILONERROR, 1L);
-    if (code != CURLE_OK) {
-        LOG(WARNING) << "fail to set CURLOPT_FAILONERROR, msg=" << _to_errmsg(code);
-        return Status::InternalError("fail to set CURLOPT_FAILONERROR");
+    // When this option is set to `1L` (enabled), libcurl will return an error directly
+    // when encountering HTTP error codes (>= 400), without reading the body of the error response.
+    if (set_fail_on_error) {
+        code = curl_easy_setopt(_curl, CURLOPT_FAILONERROR, 1L);
+        if (code != CURLE_OK) {
+            LOG(WARNING) << "fail to set CURLOPT_FAILONERROR, msg=" << _to_errmsg(code);
+            return Status::InternalError("fail to set CURLOPT_FAILONERROR");
+        }
     }
     // set redirect
     code = curl_easy_setopt(_curl, CURLOPT_FOLLOWLOCATION, 1L);
@@ -88,7 +116,7 @@ Status HttpClient::init(const std::string& url) {
     }
 
     curl_write_callback callback = [](char* buffer, size_t size, size_t nmemb, void* param) {
-        HttpClient* client = (HttpClient*)param;
+        auto* client = (HttpClient*)param;
         return client->on_response_data(buffer, size * nmemb);
     };
 
@@ -103,8 +131,11 @@ Status HttpClient::init(const std::string& url) {
         LOG(WARNING) << "fail to set CURLOPT_WRITEDATA, msg=" << _to_errmsg(code);
         return Status::InternalError("fail to set CURLOPT_WRITEDATA");
     }
+
+    std::string escaped_url;
+    RETURN_IF_ERROR(_escape_url(url, &escaped_url));
     // set url
-    code = curl_easy_setopt(_curl, CURLOPT_URL, url.c_str());
+    code = curl_easy_setopt(_curl, CURLOPT_URL, escaped_url.c_str());
     if (code != CURLE_OK) {
         LOG(WARNING) << "failed to set CURLOPT_URL, errmsg=" << _to_errmsg(code);
         return Status::InternalError("fail to set CURLOPT_URL");
@@ -177,6 +208,24 @@ Status HttpClient::execute(const std::function<bool(const void* data, size_t len
     return Status::OK();
 }
 
+Status HttpClient::get_content_md5(std::string* md5) const {
+    struct curl_header* header_ptr;
+    auto code = curl_easy_header(_curl, HttpHeaders::CONTENT_MD5, 0, CURLH_HEADER, 0, &header_ptr);
+    if (code == CURLHE_MISSING || code == CURLHE_NOHEADERS) {
+        // no such headers exists
+        md5->clear();
+        return Status::OK();
+    } else if (code != CURLHE_OK) {
+        auto msg = fmt::format("failed to get http header {}: {} ({})", HttpHeaders::CONTENT_MD5,
+                               header_error_msg(code), code);
+        LOG(WARNING) << msg << ", trace=" << get_stack_trace();
+        return Status::HttpError(std::move(msg));
+    }
+
+    *md5 = header_ptr->value;
+    return Status::OK();
+}
+
 Status HttpClient::download(const std::string& local_path) {
     // set method to GET
     set_method(GET);
@@ -204,7 +253,13 @@ Status HttpClient::download(const std::string& local_path) {
         }
         return true;
     };
-    RETURN_IF_ERROR(execute(callback));
+
+    if (auto s = execute(callback); !s.ok()) {
+        status = s;
+    }
+    if (!status.ok()) {
+        remove(local_path.c_str());
+    }
     return status;
 }
 
@@ -242,6 +297,61 @@ Status HttpClient::execute_with_retry(int retry_times, int sleep_time,
         sleep(sleep_time);
     }
     return status;
+}
+
+// http://example.com/page?param1=value1&param2=value+with+spaces#section
+Status HttpClient::_escape_url(const std::string& url, std::string* escaped_url) {
+    size_t query_pos = url.find('?');
+    if (query_pos == std::string::npos) {
+        *escaped_url = url;
+        return Status::OK();
+    }
+    size_t fragment_pos = url.find('#');
+    std::string query;
+    std::string fragment;
+
+    if (fragment_pos == std::string::npos) {
+        query = url.substr(query_pos + 1, url.length() - query_pos - 1);
+    } else {
+        query = url.substr(query_pos + 1, fragment_pos - query_pos - 1);
+        fragment = url.substr(fragment_pos, url.length() - fragment_pos);
+    }
+
+    std::string encoded_query;
+    size_t ampersand_pos = query.find('&');
+    size_t equal_pos;
+
+    if (ampersand_pos == std::string::npos) {
+        ampersand_pos = query.length();
+    }
+
+    while (true) {
+        equal_pos = query.find('=');
+        if (equal_pos != std::string::npos) {
+            std::string key = query.substr(0, equal_pos);
+            std::string value = query.substr(equal_pos + 1, ampersand_pos - equal_pos - 1);
+
+            auto encoded_value = std::unique_ptr<char, decltype(&curl_free)>(
+                    curl_easy_escape(_curl, value.c_str(), value.length()), &curl_free);
+            if (encoded_value) {
+                encoded_query += key + "=" + std::string(encoded_value.get());
+            } else {
+                return Status::InternalError("escape url failed, url={}", url);
+            }
+        } else {
+            encoded_query += query.substr(0, ampersand_pos);
+        }
+
+        if (ampersand_pos == query.length() || ampersand_pos == std::string::npos) {
+            break;
+        }
+
+        encoded_query += "&";
+        query = query.substr(ampersand_pos + 1);
+        ampersand_pos = query.find('&');
+    }
+    *escaped_url = url.substr(0, query_pos + 1) + encoded_query + fragment;
+    return Status::OK();
 }
 
 } // namespace doris

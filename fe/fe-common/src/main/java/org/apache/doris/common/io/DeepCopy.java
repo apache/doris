@@ -39,6 +39,7 @@ public class DeepCopy {
     // deep copy orig to dest.
     // the param "c" is the implementation class of "dest".
     // And the "dest" class must has method "readFields(DataInput)"
+    @Deprecated
     public static boolean copy(Writable orig, Writable dest, Class c, int metaVersion) {
         MetaContext metaContext = new MetaContext();
         metaContext.setMetaVersion(metaVersion);

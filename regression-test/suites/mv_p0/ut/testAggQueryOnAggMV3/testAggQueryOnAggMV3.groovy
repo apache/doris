@@ -41,6 +41,8 @@ suite ("testAggQueryOnAggMV3") {
 
     createMV("create materialized view emps_mv as select deptno, commission, sum(salary) from emps group by deptno, commission;")
 
+    sql "analyze table emps with sync;"
+    sql """set enable_stats=false;"""
 
     explain {
         sql("select * from emps order by empid;")
@@ -50,14 +52,30 @@ suite ("testAggQueryOnAggMV3") {
 
 
     explain {
-        sql("select commission, sum(salary) from emps where commission * (deptno + commission) = 100 group by commission order by commission;")
+        sql("select commission, sum(salary) from emps where deptno > 0 and commission * (deptno + commission) = 100 group by commission order by commission;")
         contains "(emps_mv)"
     }
     qt_select_mv "select commission, sum(salary) from emps where commission * (deptno + commission) = 100 group by commission order by commission;"
 
     explain {
-        sql("select commission, sum(salary) from emps where commission = 100 group by commission order by commission;")
+        sql("select commission, sum(salary) from emps where deptno > 0 and  commission = 100 group by commission order by commission;")
         contains "(emps_mv)"
     }
     qt_select_mv "select commission, sum(salary) from emps where commission = 100 group by commission order by commission;"
+
+    sql """set enable_stats=true;"""
+    explain {
+        sql("select * from emps order by empid;")
+        contains "(emps)"
+    }
+
+    explain {
+        sql("select commission, sum(salary) from emps where deptno > 0 and commission * (deptno + commission) = 100 group by commission order by commission;")
+        contains "(emps_mv)"
+    }
+    
+    explain {
+        sql("select commission, sum(salary) from emps where deptno > 0 and  commission = 100 group by commission order by commission;")
+        contains "(emps_mv)"
+    }
 }

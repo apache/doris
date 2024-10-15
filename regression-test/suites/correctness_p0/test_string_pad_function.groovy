@@ -43,4 +43,39 @@ suite("test_string_pad_function") {
     qt_select_rpad """
         select CASE WHEN table_pad.a = 1 THEN CONCAT(RPAD(b, 2, 0), ':00') END result from table_pad order by result;
     """
+
+    qt_rpad1 """ SELECT rpad("", 5, ""); """
+    qt_rpad2 """ SELECT rpad("123", 5, ""); """
+    qt_rpad3 """ SELECT rpad("123", -1, ""); """
+    qt_rpad4 """ SELECT rpad(NULL, 1, ""); """
+    qt_rpad5 """ SELECT rpad("123", 0, NULL); """
+    qt_lpad1 """ SELECT lpad("", 5, ""); """
+    qt_lpad2 """ SELECT lpad("123", 5, ""); """
+    qt_lpad3 """ SELECT lpad("123", -1, ""); """
+    qt_lpad4 """ SELECT lpad(NULL, 0, ""); """
+    qt_lpad5 """ SELECT lpad("123", 2, NULL); """
+
+    sql """
+        drop table if exists test_rpad;
+    """
+    sql """
+    CREATE TABLE `test_rpad` (
+    `pk` int NOT NULL,
+    col_char_10__undef_signed_not_null_index_inverted char(10) not null
+    ) ENGINE=OLAP
+    DUPLICATE KEY(pk)
+    distributed by hash(pk) buckets 10
+    properties("replication_num" = "1");
+    """
+    sql """ insert into test_rpad values(1,"asd");"""
+    sql """ insert into test_rpad values(2,"x");"""
+    Integer count = 0;
+    Integer maxCount = 10;
+    while (count < maxCount) {
+        sql """  insert into test_rpad select * from test_rpad;"""
+        count++
+        sleep(100);
+    }
+    qt_pad """ SELECT count() from  test_rpad"""
+    qt_select_rpad2 """ select pk,col_char_10__undef_signed_not_null_index_inverted as ori_col, rpad(col_char_10__undef_signed_not_null_index_inverted, 10, 'x') as col_rpad from test_rpad order by 1; """
 }

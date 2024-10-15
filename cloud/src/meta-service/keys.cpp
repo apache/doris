@@ -23,49 +23,49 @@ namespace doris::cloud {
 
 // clang-format off
 // Prefix
-[[maybe_unused]] static const char* INSTANCE_KEY_PREFIX = "instance";
+static const char* INSTANCE_KEY_PREFIX = "instance";
 
-[[maybe_unused]] static const char* TXN_KEY_PREFIX      = "txn";
-[[maybe_unused]] static const char* VERSION_KEY_PREFIX  = "version";
-[[maybe_unused]] static const char* META_KEY_PREFIX     = "meta";
-[[maybe_unused]] static const char* RECYCLE_KEY_PREFIX  = "recycle";
-[[maybe_unused]] static const char* STATS_KEY_PREFIX    = "stats";
-[[maybe_unused]] static const char* JOB_KEY_PREFIX      = "job";
-[[maybe_unused]] static const char* COPY_KEY_PREFIX     = "copy";
+static const char* TXN_KEY_PREFIX      = "txn";
+static const char* VERSION_KEY_PREFIX  = "version";
+static const char* META_KEY_PREFIX     = "meta";
+static const char* RECYCLE_KEY_PREFIX  = "recycle";
+static const char* STATS_KEY_PREFIX    = "stats";
+static const char* JOB_KEY_PREFIX      = "job";
+static const char* COPY_KEY_PREFIX     = "copy";
+static const char* VAULT_KEY_PREFIX    = "storage_vault";
 
 // Infix
-[[maybe_unused]] static const char* TXN_KEY_INFIX_LABEL       = "txn_label";
-[[maybe_unused]] static const char* TXN_KEY_INFIX_INFO        = "txn_info";
-[[maybe_unused]] static const char* TXN_KEY_INFIX_INDEX       = "txn_index";
-[[maybe_unused]] static const char* TXN_KEY_INFIX_RUNNING     = "txn_running";
+static const char* TXN_KEY_INFIX_LABEL                  = "txn_label";
+static const char* TXN_KEY_INFIX_INFO                   = "txn_info";
+static const char* TXN_KEY_INFIX_INDEX                  = "txn_index";
+static const char* TXN_KEY_INFIX_RUNNING                = "txn_running";
 
-[[maybe_unused]] static const char* PARTITION_VERSION_KEY_INFIX      = "partition";
-[[maybe_unused]] static const char* TABLE_VERSION_KEY_INFIX   = "table";
+static const char* PARTITION_VERSION_KEY_INFIX          = "partition";
+static const char* TABLE_VERSION_KEY_INFIX              = "table";
 
-[[maybe_unused]] static const char* META_KEY_INFIX_ROWSET     = "rowset";
-[[maybe_unused]] static const char* META_KEY_INFIX_ROWSET_TMP = "rowset_tmp";
-[[maybe_unused]] static const char* META_KEY_INFIX_TABLET     = "tablet";
-[[maybe_unused]] static const char* META_KEY_INFIX_TABLET_IDX = "tablet_index";
-[[maybe_unused]] static const char* META_KEY_INFIX_SCHEMA     = "schema";
-[[maybe_unused]] static const char* META_KEY_INFIX_DELETE_BITMAP = "delete_bitmap";
-[[maybe_unused]] static const char* META_KEY_INFIX_DELETE_BITMAP_LOCK = "delete_bitmap_lock";
-[[maybe_unused]] static const char* META_KEY_INFIX_DELETE_BITMAP_PENDING = "delete_bitmap_pending";
-[[maybe_unused]] static const char* META_KEY_SCHEMA_PB_DICTIONARY = "tablet_schema_pb_dict";
+static const char* META_KEY_INFIX_ROWSET                = "rowset";
+static const char* META_KEY_INFIX_ROWSET_TMP            = "rowset_tmp";
+static const char* META_KEY_INFIX_TABLET                = "tablet";
+static const char* META_KEY_INFIX_TABLET_IDX            = "tablet_index";
+static const char* META_KEY_INFIX_SCHEMA                = "schema";
+static const char* META_KEY_INFIX_DELETE_BITMAP         = "delete_bitmap";
+static const char* META_KEY_INFIX_DELETE_BITMAP_LOCK    = "delete_bitmap_lock";
+static const char* META_KEY_INFIX_DELETE_BITMAP_PENDING = "delete_bitmap_pending";
+static const char* META_KEY_INFIX_SCHEMA_DICTIONARY     = "tablet_schema_pb_dict";
 
-[[maybe_unused]] static const char* RECYCLE_KEY_INFIX_INDEX   = "index";
-[[maybe_unused]] static const char* RECYCLE_KEY_INFIX_PART    = "partition";
-[[maybe_unused]] static const char* RECYCLE_KEY_TXN           = "txn";
+static const char* RECYCLE_KEY_INFIX_INDEX              = "index";
+static const char* RECYCLE_KEY_INFIX_PART               = "partition";
+static const char* RECYCLE_KEY_TXN                      = "txn";
 
-[[maybe_unused]] static const char* STATS_KEY_INFIX_TABLET    = "tablet";
+static const char* STATS_KEY_INFIX_TABLET               = "tablet";
 
-[[maybe_unused]] static const char* JOB_KEY_INFIX_TABLET      = "tablet";
-[[maybe_unused]] static const char* JOB_KEY_INFIX_RL_PROGRESS = "routine_load_progress";
+static const char* JOB_KEY_INFIX_TABLET                 = "tablet";
+static const char* JOB_KEY_INFIX_RL_PROGRESS            = "routine_load_progress";
 
-[[maybe_unused]] static const char* COPY_JOB_KEY_INFIX        = "job";
-[[maybe_unused]] static const char* COPY_FILE_KEY_INFIX       = "loading_file";
-[[maybe_unused]] static const char* STAGE_KEY_INFIX           = "stage";
-[[maybe_unused]] static const char* VAULT_KEY_PREFIX          = "storage_vault";
-[[maybe_unused]] static const char* VAULT_KEY_INFIX           = "vault";
+static const char* COPY_JOB_KEY_INFIX                   = "job";
+static const char* COPY_FILE_KEY_INFIX                  = "loading_file";
+static const char* STAGE_KEY_INFIX                      = "stage";
+static const char* VAULT_KEY_INFIX                      = "vault";
 
 // clang-format on
 
@@ -306,9 +306,9 @@ void meta_pending_delete_bitmap_key(const MetaPendingDeleteBitmapInfo& in, std::
 }
 
 void meta_schema_pb_dictionary_key(const MetaSchemaPBDictionaryInfo& in, std::string* out) {
-    encode_prefix(in, out);                           // 0x01 "meta" ${instance_id}
-    encode_bytes(META_KEY_SCHEMA_PB_DICTIONARY, out); // "tablet_schema_pb_dict"
-    encode_int64(std::get<1>(in), out);               // index_id
+    encode_prefix(in, out);                              // 0x01 "meta" ${instance_id}
+    encode_bytes(META_KEY_INFIX_SCHEMA_DICTIONARY, out); // "tablet_schema_pb_dict"
+    encode_int64(std::get<1>(in), out);                  // index_id
 }
 
 //==============================================================================

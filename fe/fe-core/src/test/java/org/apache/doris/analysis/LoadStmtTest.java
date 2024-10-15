@@ -30,6 +30,7 @@ import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.task.LoadTaskInfo;
 
 import com.google.common.collect.Lists;
@@ -57,9 +58,6 @@ public class LoadStmtTest {
 
     @Before
     public void setUp() {
-        analyzer = AccessTestUtil.fetchAdminAnalyzer(true);
-        dataDescriptions = Lists.newArrayList();
-        dataDescriptions.add(desc);
         new Expectations() {
             {
                 ConnectContext.get();
@@ -70,11 +68,19 @@ public class LoadStmtTest {
                 minTimes = 0;
                 result = "user";
 
+                ctx.getSessionVariable();
+                minTimes = 0;
+                result = VariableMgr.newSessionVariable();
+
                 desc.toSql();
                 minTimes = 0;
                 result = "XXX";
             }
         };
+
+        analyzer = AccessTestUtil.fetchAdminAnalyzer(true);
+        dataDescriptions = Lists.newArrayList();
+        dataDescriptions.add(desc);
     }
 
     @Test

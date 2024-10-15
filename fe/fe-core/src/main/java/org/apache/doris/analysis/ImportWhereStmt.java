@@ -17,7 +17,7 @@
 
 package org.apache.doris.analysis;
 
-public class ImportWhereStmt extends StatementBase {
+public class ImportWhereStmt extends StatementBase implements NotFallbackInParser {
     private Expr expr;
     // Only used in load processs to define a "preceding filter" expr
     private boolean isPreceding;

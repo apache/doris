@@ -73,10 +73,14 @@ public class NestedLoopJoinNode extends JoinNodeBase {
         tupleIds.addAll(inner.getOutputTupleIds());
     }
 
-    public boolean canParallelize() {
+    public static boolean canParallelize(JoinOperator joinOp) {
         return joinOp == JoinOperator.CROSS_JOIN || joinOp == JoinOperator.INNER_JOIN
                 || joinOp == JoinOperator.LEFT_OUTER_JOIN || joinOp == JoinOperator.LEFT_SEMI_JOIN
                 || joinOp == JoinOperator.LEFT_ANTI_JOIN || joinOp == JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN;
+    }
+
+    public boolean canParallelize() {
+        return canParallelize(joinOp);
     }
 
     public void setJoinConjuncts(List<Expr> joinConjuncts) {

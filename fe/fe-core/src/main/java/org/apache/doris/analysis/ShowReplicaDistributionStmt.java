@@ -32,11 +32,12 @@ import org.apache.doris.qe.ShowResultSetMetaData;
 import com.google.common.collect.ImmutableList;
 
 // show replica distribution from tbl [partition(p1, p2, ...)]
-public class ShowReplicaDistributionStmt extends ShowStmt {
+public class ShowReplicaDistributionStmt extends ShowStmt implements NotFallbackInParser {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("BackendId").add("ReplicaNum").add("ReplicaSize")
             .add("NumGraph").add("NumPercent")
             .add("SizeGraph").add("SizePercent")
+            .add("CloudClusterName").add("CloudClusterId")
             .build();
 
     private TableRef tblRef;
@@ -81,6 +82,10 @@ public class ShowReplicaDistributionStmt extends ShowStmt {
 
     @Override
     public RedirectStatus getRedirectStatus() {
-        return RedirectStatus.FORWARD_NO_SYNC;
+        if (ConnectContext.get().getSessionVariable().getForwardToMaster()) {
+            return RedirectStatus.FORWARD_NO_SYNC;
+        } else {
+            return RedirectStatus.NO_FORWARD;
+        }
     }
 }

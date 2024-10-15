@@ -32,7 +32,7 @@ import org.apache.commons.lang3.StringUtils;
 import java.util.HashMap;
 import java.util.Map;
 
-public class CreateDbStmt extends DdlStmt {
+public class CreateDbStmt extends DdlStmt implements NotFallbackInParser {
     private boolean ifNotExists;
     private String ctlName;
     private String dbName;
@@ -92,5 +92,10 @@ public class CreateDbStmt extends DdlStmt {
             stringBuilder.append("\n)");
         }
         return stringBuilder.toString();
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.CREATE;
     }
 }

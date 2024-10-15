@@ -60,6 +60,16 @@ public class RandomBytes extends ScalarFunction
     }
 
     @Override
+    public boolean isDeterministic() {
+        return false;
+    }
+
+    @Override
+    public boolean foldable() {
+        return false;
+    }
+
+    @Override
     public List<FunctionSignature> getSignatures() {
         return SIGNATURES;
     }

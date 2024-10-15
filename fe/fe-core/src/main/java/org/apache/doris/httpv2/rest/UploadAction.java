@@ -131,6 +131,7 @@ public class UploadAction extends RestBaseController {
             @PathVariable(value = TABLE_KEY) String tblName,
             HttpServletRequest request, HttpServletResponse response) {
 
+        // This is a strict restriction
         if (!Strings.isNullOrEmpty(Config.security_checker_class_name)) {
             return ResponseEntityBuilder.badRequest("Not support upload data api in security env");
         }

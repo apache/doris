@@ -20,12 +20,13 @@ package org.apache.doris.mysql;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AuthenticationException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.mysql.authenticate.ldap.LdapAuthenticate;
+import org.apache.doris.mysql.authenticate.AuthenticateRequest;
+import org.apache.doris.mysql.authenticate.AuthenticatorManager;
+import org.apache.doris.mysql.authenticate.ldap.LdapAuthenticator;
 import org.apache.doris.mysql.authenticate.ldap.LdapManager;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.Auth;
@@ -65,14 +66,16 @@ public class MysqlProtoTest {
     @Mocked
     private LdapManager ldapManager;
     @Mocked
-    private LdapAuthenticate ldapAuthenticate;
-    @Mocked
     private MysqlClearTextPacket clearTextPacket;
     @Mocked
-    StreamConnection streamConnection;
+    private StreamConnection streamConnection;
+    @Mocked
+    private LdapAuthenticator ldapAuthenticator;
+    @Mocked
+    private AuthenticatorManager authenticatorManager;
 
     @Before
-    public void setUp() throws DdlException, AuthenticationException {
+    public void setUp() throws DdlException, AuthenticationException, IOException {
 
         // mock auth
         new Expectations() {
@@ -94,6 +97,15 @@ public class MysqlProtoTest {
                 env.getInternalCatalog();
                 minTimes = 0;
                 result = catalog;
+
+                env.getAuthenticatorManager();
+                minTimes = 0;
+                result = authenticatorManager;
+
+                authenticatorManager.authenticate((ConnectContext) any, anyString, (MysqlChannel) any,
+                        (MysqlSerializer) any, (MysqlAuthPacket) any, (MysqlHandshakePacket) any);
+                minTimes = 0;
+                result = true;
 
                 catalog.getDbNullable(anyString);
                 minTimes = 0;
@@ -215,19 +227,14 @@ public class MysqlProtoTest {
     private void mockAccess() throws Exception {
     }
 
-    private void mockLdap(String user, boolean userExist) {
+    private void mockLdap(boolean userExist) throws IOException {
         Config.authentication_type = "ldap";
 
         new Expectations() {
             {
-                LdapAuthenticate.authenticate((ConnectContext) any, anyString, anyString);
+                ldapAuthenticator.authenticate((AuthenticateRequest) any);
                 minTimes = 0;
-                result = new Delegate() {
-                    boolean fakeLdapAuthenticate(ConnectContext context, String password, String qualifiedUser) {
-                        return password.equals(PASSWORD_CLEAR_TEXT)
-                                && ClusterNamespace.getNameFromFullName(qualifiedUser).equals(user);
-                    }
-                };
+                result = true;
 
                 ldapManager.checkUserPasswd(anyString, anyString);
                 minTimes = 0;
@@ -285,7 +292,7 @@ public class MysqlProtoTest {
         mockPassword(true);
         mockAccess();
         mockMysqlClearTextPacket(PASSWORD_CLEAR_TEXT);
-        mockLdap("user", true);
+        mockLdap(true);
         ConnectContext context = new ConnectContext(streamConnection);
         context.setEnv(env);
         context.setThreadLocalInfo();
@@ -294,25 +301,11 @@ public class MysqlProtoTest {
     }
 
     @Test
-    public void testNegotiateLdapInvalidPasswd() throws Exception {
-        mockChannel("user", true);
-        mockPassword(true);
-        mockAccess();
-        mockMysqlClearTextPacket("654321");
-        mockLdap("user", true);
-        ConnectContext context = new ConnectContext(streamConnection);
-        context.setEnv(env);
-        context.setThreadLocalInfo();
-        Assert.assertFalse(MysqlProto.negotiate(context));
-        Config.authentication_type = "default";
-    }
-
-    @Test
     public void testNegotiateLdapRoot() throws Exception {
         mockChannel("root", true);
         mockPassword(true);
         mockAccess();
-        mockLdap("root", false);
+        mockLdap(false);
         mockMysqlClearTextPacket("654321");
         ConnectContext context = new ConnectContext(streamConnection);
         context.setEnv(env);

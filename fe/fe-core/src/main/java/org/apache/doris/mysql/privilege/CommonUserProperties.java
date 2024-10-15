@@ -19,10 +19,12 @@ package org.apache.doris.mysql.privilege;
 
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
 
+import com.google.common.base.Strings;
 import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
@@ -36,35 +38,35 @@ import java.util.Set;
 /**
  * Used in
  */
-public class CommonUserProperties implements Writable {
+public class CommonUserProperties implements Writable, GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(CommonUserProperties.class);
 
     // The max connections allowed for a user on one FE
-    @SerializedName("maxConn")
+    @SerializedName(value = "mc", alternate = {"maxConn"})
     private long maxConn = 100;
     // The maximum total number of query instances that the user is allowed to send from this FE
-    @SerializedName("maxQueryInstances")
+    @SerializedName(value = "mqi", alternate = {"maxQueryInstances"})
     private long maxQueryInstances = -1;
-    @SerializedName("parallelFragmentExecInstanceNum")
+    @SerializedName(value = "pfei", alternate = {"parallelFragmentExecInstanceNum"})
     private int parallelFragmentExecInstanceNum = -1;
-    @SerializedName("sqlBlockRules")
+    @SerializedName(value = "sbr", alternate = {"sqlBlockRule"})
     private String sqlBlockRules = "";
-    @SerializedName("cpuResourceLimit")
+    @SerializedName(value = "crl", alternate = {"cpuResourceLimit"})
     private int cpuResourceLimit = -1;
     // The tag of the resource that the user is allowed to use
-    @SerializedName("resourceTags")
+    @SerializedName(value = "rt", alternate = {"resourceTag"})
     private Set<Tag> resourceTags = Sets.newHashSet();
     // user level exec_mem_limit, if > 0, will overwrite the exec_mem_limit in session variable
-    @SerializedName("execMemLimit")
+    @SerializedName(value = "eml", alternate = {"execMemLimit"})
     private long execMemLimit = -1;
 
-    @SerializedName("queryTimeout")
+    @SerializedName(value = "qt", alternate = {"queryTimeout"})
     private int queryTimeout = -1;
 
-    @SerializedName("insertTimeout")
+    @SerializedName(value = "it", alternate = {"insertTimeout"})
     private int insertTimeout = -1;
 
-    @SerializedName("workloadGroup")
+    @SerializedName(value = "wg", alternate = {"workloadGroup"})
     private String workloadGroup = WorkloadGroupMgr.DEFAULT_GROUP_NAME;
 
     private String[] sqlBlockRulesSplit = {};
@@ -162,11 +164,10 @@ public class CommonUserProperties implements Writable {
         this.workloadGroup = workloadGroup;
     }
 
+    @Deprecated
     public static CommonUserProperties read(DataInput in) throws IOException {
         String json = Text.readString(in);
         CommonUserProperties commonUserProperties = GsonUtils.GSON.fromJson(json, CommonUserProperties.class);
-        // trigger split
-        commonUserProperties.setSqlBlockRulesSplit(commonUserProperties.getSqlBlockRules());
         return commonUserProperties;
     }
 
@@ -174,5 +175,12 @@ public class CommonUserProperties implements Writable {
     public void write(DataOutput out) throws IOException {
         String json = GsonUtils.GSON.toJson(this);
         Text.writeString(out, json);
+    }
+
+    @Override
+    public void gsonPostProcess() throws IOException {
+        if (!Strings.isNullOrEmpty(sqlBlockRules)) {
+            setSqlBlockRulesSplit(sqlBlockRules);
+        }
     }
 }

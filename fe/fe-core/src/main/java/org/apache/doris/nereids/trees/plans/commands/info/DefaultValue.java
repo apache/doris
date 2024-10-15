@@ -24,9 +24,14 @@ import org.apache.doris.catalog.ScalarType;
  * default value of a column.
  */
 public class DefaultValue {
+
+    public static String E_NUM = "E";
+    public static String PI = "PI";
     public static String CURRENT_DATE = "CURRENT_DATE";
     public static String CURRENT_TIMESTAMP = "CURRENT_TIMESTAMP";
     public static String NOW = "now";
+    public static String HLL_EMPTY = "HLL_EMPTY";
+    public static String BITMAP_EMPTY = "BITMAP_EMPTY";
     public static DefaultValue CURRENT_DATE_DEFAULT_VALUE = new DefaultValue(CURRENT_DATE, CURRENT_DATE.toLowerCase());
     public static DefaultValue CURRENT_TIMESTAMP_DEFAULT_VALUE = new DefaultValue(CURRENT_TIMESTAMP, NOW);
     // default null
@@ -34,12 +39,15 @@ public class DefaultValue {
     public static String ZERO = new String(new byte[] {0});
     public static String ZERO_NUMBER = "0";
     // default "value", "0" means empty hll
-    public static DefaultValue HLL_EMPTY_DEFAULT_VALUE = new DefaultValue(ZERO);
+    public static DefaultValue HLL_EMPTY_DEFAULT_VALUE = new DefaultValue(ZERO, HLL_EMPTY);
     // default "value", "0" means empty bitmap
-    public static DefaultValue BITMAP_EMPTY_DEFAULT_VALUE = new DefaultValue(ZERO);
+    public static DefaultValue BITMAP_EMPTY_DEFAULT_VALUE = new DefaultValue(ZERO, BITMAP_EMPTY);
     // default "value", "[]" means empty array
     public static DefaultValue ARRAY_EMPTY_DEFAULT_VALUE = new DefaultValue("[]");
+    // Lets use the const value from math pacakge.
+    public static DefaultValue PI_DEFAULT_VALUE = new DefaultValue(Double.toString(Math.PI), PI);
 
+    public static DefaultValue E_NUM_DEFAULT_VALUE = new DefaultValue(Double.toString(Math.E), E_NUM);
     private final String value;
     // used for column which defaultValue is an expression.
     private final DefaultValueExprDef defaultValueExprDef;

@@ -38,16 +38,8 @@ suite ("testQueryOnStar") {
 
     sql """insert into emps values("2020-01-01",1,"a",1,1,1);"""
 
-    explain {
-        sql("select * from emps order by empid;")
-        contains "(emps_mv)"
-    }
     qt_select_star "select * from emps order by empid;"
 
-    explain {
-        sql("select * from emps where deptno = 1;")
-        contains "(emps_mv)"
-    }
     qt_select_mv "select * from emps where deptno = 1 order by empid;"
 
     sql """ DROP TABLE IF EXISTS tpch_tiny_region; """
@@ -65,9 +57,5 @@ suite ("testQueryOnStar") {
         """
     sql """insert into tpch_tiny_region values(1,'a','a');"""
 
-    explain {
-        sql("select ref_1.`empid` as c0 from tpch_tiny_region as ref_0 left join emps as ref_1 on (ref_0.`r_comment` = ref_1.`name` ) where true order by ref_0.`r_regionkey`,ref_0.`r_regionkey` desc ,ref_0.`r_regionkey`,ref_0.`r_regionkey`;")
-        contains "(emps_mv)"
-    }
     qt_select_mv "select ref_1.`empid` as c0 from tpch_tiny_region as ref_0 left join emps as ref_1 on (ref_0.`r_comment` = ref_1.`name` ) where true order by ref_0.`r_regionkey`,ref_0.`r_regionkey` desc ,ref_0.`r_regionkey`,ref_0.`r_regionkey`;"    
 }

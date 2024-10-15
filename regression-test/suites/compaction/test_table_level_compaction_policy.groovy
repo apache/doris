@@ -242,4 +242,29 @@ suite("test_table_level_compaction_policy") {
     }
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """sync"""
+
+    sql """
+        CREATE TABLE ${tableName} (
+                `c_custkey` int(11) NOT NULL COMMENT "",
+                `c_name` varchar(26) NOT NULL COMMENT "",
+                `c_address` varchar(41) NOT NULL COMMENT "",
+                `c_city` varchar(11) NOT NULL COMMENT ""
+        )
+        UNIQUE KEY (`c_custkey`)
+        DISTRIBUTED BY HASH(`c_custkey`) BUCKETS 1
+        PROPERTIES (
+                "replication_num" = "1"
+            );
+    """
+    sql """sync"""
+    if (!isCloudMode()) {
+        test {
+            sql """
+                alter table  ${tableName} set ("enable_single_replica_compaction" = "true")
+                """
+            exception "enable_single_replica_compaction property is not supported for merge-on-write table"
+        }
+    }
+    sql """ DROP TABLE IF EXISTS ${tableName} """
+    sql """sync"""
 }

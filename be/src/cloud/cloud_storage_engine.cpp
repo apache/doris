@@ -24,6 +24,7 @@
 #include <rapidjson/prettywriter.h>
 #include <rapidjson/stringbuffer.h>
 
+#include <algorithm>
 #include <variant>
 
 #include "cloud/cloud_base_compaction.h"
@@ -31,9 +32,14 @@
 #include "cloud/cloud_cumulative_compaction_policy.h"
 #include "cloud/cloud_full_compaction.h"
 #include "cloud/cloud_meta_mgr.h"
+#include "cloud/cloud_tablet_hotspot.h"
 #include "cloud/cloud_tablet_mgr.h"
 #include "cloud/cloud_txn_delete_bitmap_cache.h"
+#include "cloud/cloud_warm_up_manager.h"
 #include "cloud/config.h"
+#include "io/cache/block_file_cache_downloader.h"
+#include "io/cache/block_file_cache_factory.h"
+#include "io/cache/file_cache_common.h"
 #include "io/fs/file_system.h"
 #include "io/fs/hdfs_file_system.h"
 #include "io/fs/s3_file_system.h"
@@ -43,6 +49,7 @@
 #include "olap/memtable_flush_executor.h"
 #include "olap/storage_policy.h"
 #include "runtime/memory/cache_manager.h"
+#include "util/parse_util.h"
 
 namespace doris {
 
@@ -96,12 +103,13 @@ static Status vault_process_error(std::string_view id,
 }
 
 struct VaultCreateFSVisitor {
-    VaultCreateFSVisitor(const std::string& id) : id(id) {}
+    VaultCreateFSVisitor(const std::string& id, const cloud::StorageVaultPB_PathFormat& path_format)
+            : id(id), path_format(path_format) {}
     Status operator()(const S3Conf& s3_conf) const {
         LOG(INFO) << "get new s3 info: " << s3_conf.to_string() << " resource_id=" << id;
 
         auto fs = DORIS_TRY(io::S3FileSystem::create(s3_conf, id));
-        put_storage_resource(id, {std::move(fs), 0});
+        put_storage_resource(id, {std::move(fs), path_format}, 0);
         LOG_INFO("successfully create s3 vault, vault id {}", id);
         return Status::OK();
     }
@@ -109,20 +117,21 @@ struct VaultCreateFSVisitor {
     // TODO(ByteYue): Make sure enable_java_support is on
     Status operator()(const cloud::HdfsVaultInfo& vault) const {
         auto hdfs_params = io::to_hdfs_params(vault);
-        auto fs =
-                DORIS_TRY(io::HdfsFileSystem::create(hdfs_params, hdfs_params.fs_name, id, nullptr,
-                                                     vault.has_prefix() ? vault.prefix() : ""));
-        put_storage_resource(id, {std::move(fs), 0});
+        auto fs = DORIS_TRY(io::HdfsFileSystem::create(hdfs_params, hdfs_params.fs_name, id,
+                                                       nullptr, vault.prefix()));
+        put_storage_resource(id, {std::move(fs), path_format}, 0);
         LOG_INFO("successfully create hdfs vault, vault id {}", id);
         return Status::OK();
     }
 
     const std::string& id;
+    const cloud::StorageVaultPB_PathFormat& path_format;
 };
 
 struct RefreshFSVaultVisitor {
-    RefreshFSVaultVisitor(const std::string& id, io::FileSystemSPtr fs)
-            : id(id), fs(std::move(fs)) {}
+    RefreshFSVaultVisitor(const std::string& id, io::FileSystemSPtr fs,
+                          const cloud::StorageVaultPB_PathFormat& path_format)
+            : id(id), fs(std::move(fs)), path_format(path_format) {}
 
     Status operator()(const S3Conf& s3_conf) const {
         DCHECK_EQ(fs->type(), io::FileSystemType::S3) << id;
@@ -141,47 +150,52 @@ struct RefreshFSVaultVisitor {
                 DORIS_TRY(io::HdfsFileSystem::create(hdfs_params, hdfs_params.fs_name, id, nullptr,
                                                      vault.has_prefix() ? vault.prefix() : ""));
         auto hdfs = std::static_pointer_cast<io::HdfsFileSystem>(hdfs_fs);
-        put_storage_resource(id, {std::move(hdfs), 0});
+        put_storage_resource(id, {std::move(hdfs), path_format}, 0);
         return Status::OK();
     }
 
     const std::string& id;
     io::FileSystemSPtr fs;
+    const cloud::StorageVaultPB_PathFormat& path_format;
 };
 
 Status CloudStorageEngine::open() {
-    cloud::StorageVaultInfos vault_infos;
-    do {
-        auto st = _meta_mgr->get_storage_vault_info(&vault_infos);
-        if (st.ok()) {
-            break;
-        }
-
-        LOG(WARNING) << "failed to get vault info, retry after 5s, err=" << st;
-        std::this_thread::sleep_for(5s);
-    } while (vault_infos.empty());
-
-    for (auto& [id, vault_info] : vault_infos) {
-        if (auto st = std::visit(VaultCreateFSVisitor {id}, vault_info); !st.ok()) [[unlikely]] {
-            return vault_process_error(id, vault_info, std::move(st));
-        }
-    }
-    set_latest_fs(get_filesystem(std::get<0>(vault_infos.back())));
+    sync_storage_vault();
 
     // TODO(plat1ko): DeleteBitmapTxnManager
 
     _memtable_flush_executor = std::make_unique<MemTableFlushExecutor>();
-    // TODO(plat1ko): Use file cache disks number?
-    _memtable_flush_executor->init(1);
+    // Use file cache disks number
+    _memtable_flush_executor->init(io::FileCacheFactory::instance()->get_cache_instance_size());
 
     _calc_delete_bitmap_executor = std::make_unique<CalcDeleteBitmapExecutor>();
     _calc_delete_bitmap_executor->init();
 
-    _txn_delete_bitmap_cache =
-            std::make_unique<CloudTxnDeleteBitmapCache>(config::delete_bitmap_agg_cache_capacity);
+    // The default cache is set to 100MB, use memory limit to dynamic adjustment
+    bool is_percent = false;
+    int64_t delete_bitmap_agg_cache_cache_limit =
+            ParseUtil::parse_mem_spec(config::delete_bitmap_dynamic_agg_cache_limit,
+                                      MemInfo::mem_limit(), MemInfo::physical_mem(), &is_percent);
+    _txn_delete_bitmap_cache = std::make_unique<CloudTxnDeleteBitmapCache>(
+            delete_bitmap_agg_cache_cache_limit > config::delete_bitmap_agg_cache_capacity
+                    ? delete_bitmap_agg_cache_cache_limit
+                    : config::delete_bitmap_agg_cache_capacity);
     RETURN_IF_ERROR(_txn_delete_bitmap_cache->init());
 
-    return Status::OK();
+    _file_cache_block_downloader = std::make_unique<io::FileCacheBlockDownloader>(*this);
+
+    _cloud_warm_up_manager = std::make_unique<CloudWarmUpManager>(*this);
+
+    _tablet_hotspot = std::make_unique<TabletHotspot>();
+
+    RETURN_NOT_OK_STATUS_WITH_WARN(
+            init_stream_load_recorder(ExecEnv::GetInstance()->store_paths()[0].path),
+            "init StreamLoadRecorder failed");
+
+    return ThreadPoolBuilder("SyncLoadForTabletsThreadPool")
+            .set_max_threads(config::sync_load_for_tablets_thread)
+            .set_min_threads(config::sync_load_for_tablets_thread)
+            .build(&_sync_load_for_tablets_thread_pool);
 }
 
 void CloudStorageEngine::stop() {
@@ -197,6 +211,14 @@ void CloudStorageEngine::stop() {
             t->join();
         }
     }
+
+    if (_base_compaction_thread_pool) {
+        _base_compaction_thread_pool->shutdown();
+    }
+    if (_cumu_compaction_thread_pool) {
+        _cumu_compaction_thread_pool->shutdown();
+    }
+    LOG(INFO) << "Cloud storage engine is stopped.";
 }
 
 bool CloudStorageEngine::stopped() {
@@ -235,7 +257,7 @@ Status CloudStorageEngine::start_bg_threads() {
 
     // add calculate tablet delete bitmap task thread pool
     RETURN_IF_ERROR(ThreadPoolBuilder("TabletCalDeleteBitmapThreadPool")
-                            .set_min_threads(1)
+                            .set_min_threads(config::calc_tablet_delete_bitmap_task_max_thread)
                             .set_max_threads(config::calc_tablet_delete_bitmap_task_max_thread)
                             .build(&_calc_tablet_delete_bitmap_task_thread_pool));
 
@@ -262,32 +284,70 @@ Status CloudStorageEngine::start_bg_threads() {
     RETURN_IF_ERROR(Thread::create(
             "StorageEngine", "lease_compaction_thread",
             [this]() { this->_lease_compaction_thread_callback(); }, &_bg_threads.emplace_back()));
+
+    if (config::file_cache_ttl_valid_check_interval_second != 0) {
+        RETURN_IF_ERROR(Thread::create(
+                "StorageEngine", "check_file_cache_ttl_block_valid_thread",
+                [this]() { this->_check_file_cache_ttl_block_valid(); },
+                &_bg_threads.emplace_back()));
+        LOG(INFO) << "check file cache ttl block valid thread started";
+    }
+
     LOG(INFO) << "lease compaction thread started";
 
     return Status::OK();
 }
 
+void CloudStorageEngine::_check_file_cache_ttl_block_valid() {
+    int64_t interval_seconds = config::file_cache_ttl_valid_check_interval_second / 2;
+    auto check_ttl = [](const std::weak_ptr<CloudTablet>& tablet_wk) {
+        auto tablet = tablet_wk.lock();
+        if (!tablet) return;
+        if (tablet->tablet_meta()->ttl_seconds() == 0) return;
+        auto rowsets = tablet->get_snapshot_rowset();
+        for (const auto& rowset : rowsets) {
+            int64_t ttl_seconds = tablet->tablet_meta()->ttl_seconds();
+            if (rowset->newest_write_timestamp() + ttl_seconds <= UnixSeconds()) continue;
+            for (int64_t seg_id = 0; seg_id < rowset->num_segments(); seg_id++) {
+                auto hash = Segment::file_cache_key(rowset->rowset_id().to_string(), seg_id);
+                auto* file_cache = io::FileCacheFactory::instance()->get_by_path(hash);
+                file_cache->update_ttl_atime(hash);
+            }
+        }
+    };
+    while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval_seconds))) {
+        auto weak_tablets = tablet_mgr().get_weak_tablets();
+        std::for_each(weak_tablets.begin(), weak_tablets.end(), check_ttl);
+    }
+}
+
 void CloudStorageEngine::sync_storage_vault() {
     cloud::StorageVaultInfos vault_infos;
-    auto st = _meta_mgr->get_storage_vault_info(&vault_infos);
+    bool enable_storage_vault = false;
+    auto st = _meta_mgr->get_storage_vault_info(&vault_infos, &enable_storage_vault);
     if (!st.ok()) {
         LOG(WARNING) << "failed to get storage vault info. err=" << st;
         return;
     }
 
-    CHECK(!vault_infos.empty()) << "no s3 infos";
-    for (auto& [id, vault_info] : vault_infos) {
+    if (vault_infos.empty()) {
+        LOG(WARNING) << "empty storage vault info";
+        return;
+    }
+
+    for (auto& [id, vault_info, path_format] : vault_infos) {
         auto fs = get_filesystem(id);
         auto st = (fs == nullptr)
-                          ? std::visit(VaultCreateFSVisitor {id}, vault_info)
-                          : std::visit(RefreshFSVaultVisitor {id, std::move(fs)}, vault_info);
+                          ? std::visit(VaultCreateFSVisitor {id, path_format}, vault_info)
+                          : std::visit(RefreshFSVaultVisitor {id, std::move(fs), path_format},
+                                       vault_info);
         if (!st.ok()) [[unlikely]] {
             LOG(WARNING) << vault_process_error(id, vault_info, std::move(st));
         }
     }
 
     if (auto& id = std::get<0>(vault_infos.back());
-        latest_fs() == nullptr || latest_fs()->id() != id) {
+        (latest_fs() == nullptr || latest_fs()->id() != id) && !enable_storage_vault) {
         set_latest_fs(get_filesystem(id));
     }
 }
@@ -491,21 +551,21 @@ std::vector<CloudTabletSPtr> CloudStorageEngine::_generate_cloud_compaction_task
     std::function<bool(CloudTablet*)> filter_out;
     if (compaction_type == CompactionType::BASE_COMPACTION) {
         filter_out = [&submitted_base_compactions, &submitted_full_compactions](CloudTablet* t) {
-            return !!submitted_base_compactions.count(t->tablet_id()) ||
-                   !!submitted_full_compactions.count(t->tablet_id()) ||
+            return submitted_base_compactions.contains(t->tablet_id()) ||
+                   submitted_full_compactions.contains(t->tablet_id()) ||
                    t->tablet_state() != TABLET_RUNNING;
         };
     } else if (config::enable_parallel_cumu_compaction) {
         filter_out = [&tablet_preparing_cumu_compaction](CloudTablet* t) {
-            return !!tablet_preparing_cumu_compaction.count(t->tablet_id()) ||
-                   t->tablet_state() != TABLET_RUNNING;
+            return tablet_preparing_cumu_compaction.contains(t->tablet_id()) ||
+                   (t->tablet_state() != TABLET_RUNNING && t->alter_version() == -1);
         };
     } else {
         filter_out = [&tablet_preparing_cumu_compaction,
                       &submitted_cumu_compactions](CloudTablet* t) {
-            return !!tablet_preparing_cumu_compaction.count(t->tablet_id()) ||
-                   !!submitted_cumu_compactions.count(t->tablet_id()) ||
-                   t->tablet_state() != TABLET_RUNNING;
+            return tablet_preparing_cumu_compaction.contains(t->tablet_id()) ||
+                   submitted_cumu_compactions.contains(t->tablet_id()) ||
+                   (t->tablet_state() != TABLET_RUNNING && t->alter_version() == -1);
         };
     }
 

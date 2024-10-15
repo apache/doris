@@ -70,7 +70,7 @@ fi
 # shellcheck source=/dev/null
 source "$(bash "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/get-or-set-tmp-env.sh 'get')"
 # shellcheck source=/dev/null
-# install_java
+# install_java, clear_coredump
 source "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/doris-utils.sh
 
 if ${skip_pipeline:=false}; then echo "INFO: skip build pipline" && exit 0; else echo "INFO: no skip"; fi
@@ -93,6 +93,15 @@ if _get_pr_changed_files "${pr_num_from_trigger}"; then
     if ! file_changed_performance; then
         bash "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/get-or-set-tmp-env.sh 'set' "export skip_pipeline=true"
         exit 0
+    fi
+    if file_changed_meta; then
+        # if PR changed the doris meta file, the next PR deployment on the same mechine which built this PR will fail.
+        # make a copy of the meta file for the meta changed PR.
+        target_branch="$(echo "${target_branch}" | sed 's| ||g;s|\.||g;s|-||g')" # remove space、dot、hyphen from branch name
+        meta_changed_suffix="_2"
+        rsync -a --delete "/data/doris-meta-${target_branch}/" "/data/doris-meta-${target_branch}${meta_changed_suffix}"
+        rsync -a --delete "/data/doris-storage-${target_branch}/" "/data/doris-storage-${target_branch}${meta_changed_suffix}"
+        bash "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/get-or-set-tmp-env.sh 'set' "export meta_changed_suffix=${meta_changed_suffix}"
     fi
 fi
 
@@ -126,3 +135,4 @@ echo "#### 3. try to kill old doris process"
 # stop_doris
 source "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/doris-utils.sh
 if stop_doris; then echo; fi
+clear_coredump

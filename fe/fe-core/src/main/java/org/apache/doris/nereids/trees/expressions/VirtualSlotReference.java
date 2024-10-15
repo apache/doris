@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
+import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScalarFunction;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.trees.plans.algebra.Repeat.GroupingSetShapes;
@@ -120,11 +121,20 @@ public class VirtualSlotReference extends SlotReference implements SlotNotFromCh
         return false;
     }
 
-    public VirtualSlotReference withNullable(boolean newNullable) {
-        if (this.nullable == newNullable) {
+    public VirtualSlotReference withNullable(boolean nullable) {
+        if (this.nullable == nullable) {
             return this;
         }
-        return new VirtualSlotReference(exprId, name.get(), dataType, newNullable, qualifier,
+        return new VirtualSlotReference(exprId, name.get(), dataType, nullable, qualifier,
+                originExpression, computeLongValueMethod);
+    }
+
+    @Override
+    public Slot withNullableAndDataType(boolean nullable, DataType dataType) {
+        if (this.nullable == nullable && this.dataType.equals(dataType)) {
+            return this;
+        }
+        return new VirtualSlotReference(exprId, name.get(), dataType, nullable, qualifier,
                 originExpression, computeLongValueMethod);
     }
 
@@ -144,5 +154,10 @@ public class VirtualSlotReference extends SlotReference implements SlotNotFromCh
     public VirtualSlotReference withExprId(ExprId exprId) {
         return new VirtualSlotReference(exprId, name.get(), dataType, nullable, qualifier,
                 originExpression, computeLongValueMethod);
+    }
+
+    @Override
+    public Slot withIndexInSql(Pair<Integer, Integer> index) {
+        return this;
     }
 }

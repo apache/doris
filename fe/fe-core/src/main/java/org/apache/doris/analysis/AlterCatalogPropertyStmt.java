@@ -26,7 +26,7 @@ import java.util.Map;
 /**
  * Statement for alter the catalog property.
  */
-public class AlterCatalogPropertyStmt extends AlterCatalogStmt {
+public class AlterCatalogPropertyStmt extends AlterCatalogStmt implements NotFallbackInParser {
     private final Map<String, String> newProperties;
 
     public AlterCatalogPropertyStmt(String catalogName, Map<String, String> newProperties) {
@@ -53,5 +53,10 @@ public class AlterCatalogPropertyStmt extends AlterCatalogStmt {
     @Override
     public boolean needAuditEncryption() {
         return true;
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.ALTER;
     }
 }

@@ -22,7 +22,7 @@
          CREATE TABLE IF NOT EXISTS `bm` (
              `id` bigint(20) NULL,
              `hid` smallint(6) NULL,
-             `bitmap` bitmap BITMAP_UNION NULL
+             `bitmap` bitmap BITMAP_UNION 
          ) ENGINE=OLAP
          AGGREGATE KEY(`id`, `hid`)
          COMMENT "OLAP"

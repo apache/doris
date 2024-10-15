@@ -29,7 +29,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
 // SHOW TABLE ID
-public class ShowTableIdStmt extends ShowStmt {
+public class ShowTableIdStmt extends ShowStmt implements NotFallbackInParser {
     private long tableId;
 
     public ShowTableIdStmt(long tableId) {

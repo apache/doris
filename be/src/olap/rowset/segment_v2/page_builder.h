@@ -19,6 +19,7 @@
 
 #include <stdint.h>
 
+#include <memory>
 #include <vector>
 
 #include "common/status.h"
@@ -42,6 +43,9 @@ public:
 
     virtual ~PageBuilder() {}
 
+    // Init the internal state of the page builder.
+    virtual Status init() = 0;
+
     // Used by column writer to determine whether the current page is full.
     // Column writer depends on the result to decide whether to flush current page.
     virtual bool is_page_full() = 0;
@@ -59,7 +63,8 @@ public:
 
     // Finish building the current page, return the encoded data.
     // This api should be followed by reset() before reusing the builder
-    virtual OwnedSlice finish() = 0;
+    // It will return error status when memory allocated failed during finish
+    virtual Status finish(OwnedSlice* owned_slice) = 0;
 
     // Get the dictionary page for dictionary encoding mode column.
     virtual Status get_dictionary_page(OwnedSlice* dictionary_page) {
@@ -69,7 +74,7 @@ public:
     // Reset the internal state of the page builder.
     //
     // Any data previously returned by finish may be invalidated by this call.
-    virtual void reset() = 0;
+    virtual Status reset() = 0;
 
     // Return the number of entries that have been added to the page.
     virtual size_t count() const = 0;
@@ -89,6 +94,18 @@ public:
 
 private:
     DISALLOW_COPY_AND_ASSIGN(PageBuilder);
+};
+
+template <typename Derived>
+class PageBuilderHelper : public PageBuilder {
+public:
+    template <typename... Args>
+    static Status create(PageBuilder** builder, Args&&... args) {
+        std::unique_ptr<PageBuilder> builder_uniq_ptr(new Derived(std::forward<Args>(args)...));
+        RETURN_IF_ERROR(builder_uniq_ptr->init());
+        *builder = builder_uniq_ptr.release();
+        return Status::OK();
+    }
 };
 
 } // namespace segment_v2

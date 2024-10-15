@@ -75,7 +75,9 @@ suite("test_export_empty_table", "p0") {
         `float_col` float COMMENT "",
         `double_col` double COMMENT "",
         `char_col` CHAR(10) COMMENT "",
-        `decimal_col` decimal COMMENT ""
+        `decimal_col` decimal COMMENT "",
+        `ipv4_col` ipv4 COMMENT "",
+        `ipv6_col` ipv6 COMMENT ""
         )
         DISTRIBUTED BY HASH(user_id) PROPERTIES("replication_num" = "1");
     """
@@ -141,60 +143,8 @@ suite("test_export_empty_table", "p0") {
         waiting_export.call(label)
         
         // check file amounts
-        check_file_amounts.call("${outFilePath}", 1)
-
-        // check data correctness
-        sql """ DROP TABLE IF EXISTS ${table_load_name} """
-        sql """
-        CREATE TABLE IF NOT EXISTS ${table_load_name} (
-            `user_id` INT NOT NULL COMMENT "用户id",
-            `date` DATE NOT NULL COMMENT "数据灌入日期时间",
-            `datetime` DATETIME NOT NULL COMMENT "数据灌入日期时间",
-            `city` VARCHAR(20) COMMENT "用户所在城市",
-            `age` SMALLINT COMMENT "用户年龄",
-            `sex` TINYINT COMMENT "用户性别",
-            `bool_col` boolean COMMENT "",
-            `int_col` int COMMENT "",
-            `bigint_col` bigint COMMENT "",
-            `float_col` float COMMENT "",
-            `double_col` double COMMENT "",
-            `char_col` CHAR(10) COMMENT "",
-            `decimal_col` decimal COMMENT ""
-            )
-            DISTRIBUTED BY HASH(user_id) PROPERTIES("replication_num" = "1");
-        """
-
-        File[] files = new File("${outFilePath}").listFiles()
-        String file_path = files[0].getAbsolutePath()
-        streamLoad {
-            table "${table_load_name}"
-
-            set 'columns', 'user_id, date, datetime, city, age, sex, bool_col, int_col, bigint_col, float_col, double_col, char_col, decimal_col'
-            set 'strict_mode', 'true'
-            set 'format', 'csv'
-            set 'column_separator', ','
-
-            file "${file_path}"
-            time 10000 // limit inflight 10s
-
-            check { result, exception, startTime, endTime ->
-                if (exception != null) {
-                    throw exception
-                }
-                log.info("Stream load result: ${result}".toString())
-                def json = parseJson(result)
-                assertEquals("success", json.Status.toLowerCase())
-                assertEquals(0, json.NumberTotalRows)
-                assertEquals(0, json.NumberFilteredRows)
-            }
-        }
-
-        sql """ sync; """
-
-        qt_select_load1 """ SELECT * FROM ${table_load_name} t ORDER BY user_id; """
-    
+        check_file_amounts.call("${outFilePath}", 0)
     } finally {
-        try_sql("DROP TABLE IF EXISTS ${table_load_name}")
         delete_files.call("${outFilePath}")
     }
 
@@ -218,57 +168,8 @@ suite("test_export_empty_table", "p0") {
         waiting_export.call(label)
         
         // check file amounts
-        check_file_amounts.call("${outFilePath}", 1)
-
-        // check data correctness
-        sql """ DROP TABLE IF EXISTS ${table_load_name} """
-        sql """
-        CREATE TABLE IF NOT EXISTS ${table_load_name} (
-            `user_id` INT NOT NULL COMMENT "用户id",
-            `date` DATE NOT NULL COMMENT "数据灌入日期时间",
-            `datetime` DATETIME NOT NULL COMMENT "数据灌入日期时间",
-            `city` VARCHAR(20) COMMENT "用户所在城市",
-            `age` SMALLINT COMMENT "用户年龄",
-            `sex` TINYINT COMMENT "用户性别",
-            `bool_col` boolean COMMENT "",
-            `int_col` int COMMENT "",
-            `bigint_col` bigint COMMENT "",
-            `float_col` float COMMENT "",
-            `double_col` double COMMENT "",
-            `char_col` CHAR(10) COMMENT "",
-            `decimal_col` decimal COMMENT ""
-            )
-            DISTRIBUTED BY HASH(user_id) PROPERTIES("replication_num" = "1");
-        """
-
-        File[] files = new File("${outFilePath}").listFiles()
-        String file_path = files[0].getAbsolutePath()
-        streamLoad {
-            table "${table_load_name}"
-
-            set 'columns', 'user_id, date, datetime, city, age, sex, bool_col, int_col, bigint_col, float_col, double_col, char_col, decimal_col'
-            set 'strict_mode', 'true'
-            set 'format', 'parquet'
-
-            file "${file_path}"
-            time 10000 // limit inflight 10s
-
-            check { result, exception, startTime, endTime ->
-                if (exception != null) {
-                    throw exception
-                }
-                log.info("Stream load result: ${result}".toString())
-                def json = parseJson(result)
-                assertEquals("success", json.Status.toLowerCase())
-                assertEquals(0, json.NumberTotalRows)
-                assertEquals(0, json.NumberFilteredRows)
-            }
-        }
-
-        qt_select_load2 """ SELECT * FROM ${table_load_name} t ORDER BY user_id; """
-    
+        check_file_amounts.call("${outFilePath}", 0)
     } finally {
-        try_sql("DROP TABLE IF EXISTS ${table_load_name}")
         delete_files.call("${outFilePath}")
     }
 
@@ -291,57 +192,8 @@ suite("test_export_empty_table", "p0") {
         waiting_export.call(label)
         
         // check file amounts
-        check_file_amounts.call("${outFilePath}", 1)
-
-        // check data correctness
-        sql """ DROP TABLE IF EXISTS ${table_load_name} """
-        sql """
-        CREATE TABLE IF NOT EXISTS ${table_load_name} (
-            `user_id` INT NOT NULL COMMENT "用户id",
-            `date` DATE NOT NULL COMMENT "数据灌入日期时间",
-            `datetime` DATETIME NOT NULL COMMENT "数据灌入日期时间",
-            `city` VARCHAR(20) COMMENT "用户所在城市",
-            `age` SMALLINT COMMENT "用户年龄",
-            `sex` TINYINT COMMENT "用户性别",
-            `bool_col` boolean COMMENT "",
-            `int_col` int COMMENT "",
-            `bigint_col` bigint COMMENT "",
-            `float_col` float COMMENT "",
-            `double_col` double COMMENT "",
-            `char_col` CHAR(10) COMMENT "",
-            `decimal_col` decimal COMMENT ""
-            )
-            DISTRIBUTED BY HASH(user_id) PROPERTIES("replication_num" = "1");
-        """
-
-        File[] files = new File("${outFilePath}").listFiles()
-        String file_path = files[0].getAbsolutePath()
-        streamLoad {
-            table "${table_load_name}"
-
-            set 'columns', 'user_id, date, datetime, city, age, sex, bool_col, int_col, bigint_col, float_col, double_col, char_col, decimal_col'
-            set 'strict_mode', 'true'
-            set 'format', 'orc'
-
-            file "${file_path}"
-            time 10000 // limit inflight 10s
-
-            check { result, exception, startTime, endTime ->
-                if (exception != null) {
-                    throw exception
-                }
-                log.info("Stream load result: ${result}".toString())
-                def json = parseJson(result)
-                assertEquals("success", json.Status.toLowerCase())
-                assertEquals(0, json.NumberTotalRows)
-                assertEquals(0, json.NumberFilteredRows)
-            }
-        }
-
-        qt_select_load3 """ SELECT * FROM ${table_load_name} t ORDER BY user_id; """
-    
+        check_file_amounts.call("${outFilePath}", 0)
     } finally {
-        try_sql("DROP TABLE IF EXISTS ${table_load_name}")
         delete_files.call("${outFilePath}")
     }
 
@@ -365,56 +217,7 @@ suite("test_export_empty_table", "p0") {
         waiting_export.call(label)
         
         // check file amounts
-        check_file_amounts.call("${outFilePath}", 1)
-
-        // check data correctness
-        sql """ DROP TABLE IF EXISTS ${table_load_name} """
-        sql """
-        CREATE TABLE IF NOT EXISTS ${table_load_name} (
-            `user_id` INT NOT NULL COMMENT "用户id",
-            `date` DATE NOT NULL COMMENT "数据灌入日期时间",
-            `datetime` DATETIME NOT NULL COMMENT "数据灌入日期时间",
-            `city` VARCHAR(20) COMMENT "用户所在城市",
-            `age` SMALLINT COMMENT "用户年龄",
-            `sex` TINYINT COMMENT "用户性别",
-            `bool_col` boolean COMMENT "",
-            `int_col` int COMMENT "",
-            `bigint_col` bigint COMMENT "",
-            `float_col` float COMMENT "",
-            `double_col` double COMMENT "",
-            `char_col` CHAR(10) COMMENT "",
-            `decimal_col` decimal COMMENT ""
-            )
-            DISTRIBUTED BY HASH(user_id) PROPERTIES("replication_num" = "1");
-        """
-
-        File[] files = new File("${outFilePath}").listFiles()
-        String file_path = files[0].getAbsolutePath()
-        streamLoad {
-            table "${table_load_name}"
-
-            set 'columns', 'user_id, date, datetime, city, age, sex, bool_col, int_col, bigint_col, float_col, double_col, char_col, decimal_col'
-            set 'strict_mode', 'true'
-            set 'format', 'csv_with_names'
-            set 'column_separator', ','
-
-            file "${file_path}"
-            time 10000 // limit inflight 10s
-
-            check { result, exception, startTime, endTime ->
-                if (exception != null) {
-                    throw exception
-                }
-                log.info("Stream load result: ${result}".toString())
-                def json = parseJson(result)
-                assertEquals("success", json.Status.toLowerCase())
-                assertEquals(0, json.NumberTotalRows)
-                assertEquals(0, json.NumberFilteredRows)
-            }
-        }
-
-        qt_select_load4 """ SELECT * FROM ${table_load_name} t ORDER BY user_id; """
-    
+        check_file_amounts.call("${outFilePath}", 0)
     } finally {
         try_sql("DROP TABLE IF EXISTS ${table_load_name}")
         delete_files.call("${outFilePath}")
@@ -441,58 +244,8 @@ suite("test_export_empty_table", "p0") {
         waiting_export.call(label)
         
         // check file amounts
-        check_file_amounts.call("${outFilePath}", 1)
-
-        // check data correctness
-        sql """ DROP TABLE IF EXISTS ${table_load_name} """
-        sql """
-        CREATE TABLE IF NOT EXISTS ${table_load_name} (
-            `user_id` INT NOT NULL COMMENT "用户id",
-            `date` DATE NOT NULL COMMENT "数据灌入日期时间",
-            `datetime` DATETIME NOT NULL COMMENT "数据灌入日期时间",
-            `city` VARCHAR(20) COMMENT "用户所在城市",
-            `age` SMALLINT COMMENT "用户年龄",
-            `sex` TINYINT COMMENT "用户性别",
-            `bool_col` boolean COMMENT "",
-            `int_col` int COMMENT "",
-            `bigint_col` bigint COMMENT "",
-            `float_col` float COMMENT "",
-            `double_col` double COMMENT "",
-            `char_col` CHAR(10) COMMENT "",
-            `decimal_col` decimal COMMENT ""
-            )
-            DISTRIBUTED BY HASH(user_id) PROPERTIES("replication_num" = "1");
-        """
-
-        File[] files = new File("${outFilePath}").listFiles()
-        String file_path = files[0].getAbsolutePath()
-        streamLoad {
-            table "${table_load_name}"
-
-            set 'columns', 'user_id, date, datetime, city, age, sex, bool_col, int_col, bigint_col, float_col, double_col, char_col, decimal_col'
-            set 'strict_mode', 'true'
-            set 'format', 'csv_with_names_and_types'
-            set 'column_separator', ','
-
-            file "${file_path}"
-            time 10000 // limit inflight 10s
-
-            check { result, exception, startTime, endTime ->
-                if (exception != null) {
-                    throw exception
-                }
-                log.info("Stream load result: ${result}".toString())
-                def json = parseJson(result)
-                assertEquals("success", json.Status.toLowerCase())
-                assertEquals(0, json.NumberTotalRows)
-                assertEquals(0, json.NumberFilteredRows)
-            }
-        }
-
-        qt_select_load5 """ SELECT * FROM ${table_load_name} t ORDER BY user_id; """
-    
+        check_file_amounts.call("${outFilePath}", 0)
     } finally {
-        try_sql("DROP TABLE IF EXISTS ${table_load_name}")
         delete_files.call("${outFilePath}")
     }
 

@@ -46,8 +46,9 @@ public class CloudCoordinator extends Coordinator {
     }
 
     public CloudCoordinator(Long jobId, TUniqueId queryId, DescriptorTable descTable, List<PlanFragment> fragments,
-                       List<ScanNode> scanNodes, String timezone, boolean loadZeroTolerance) {
-        super(jobId, queryId, descTable, fragments, scanNodes, timezone, loadZeroTolerance);
+                       List<ScanNode> scanNodes, String timezone, boolean loadZeroTolerance,
+                    boolean enbaleProfile) {
+        super(jobId, queryId, descTable, fragments, scanNodes, timezone, loadZeroTolerance, enbaleProfile);
     }
 
     @Override
@@ -61,7 +62,7 @@ public class CloudCoordinator extends Coordinator {
                     ((CloudEnv) Env.getCurrentEnv()).checkCloudClusterPriv(cluster);
                 } catch (Exception e) {
                     LOG.warn("get cluster by session context exception", e);
-                    return;
+                    throw new UserException("get cluster by session context exception", e);
                 }
                 LOG.debug("get cluster by session context cluster: {}", cluster);
             } else {
@@ -70,12 +71,13 @@ public class CloudCoordinator extends Coordinator {
             }
         } else {
             LOG.warn("connect context is null in coordinator prepare");
+            // may cant throw exception? maybe cant get context in some scenarios
             return;
         }
 
         if (Strings.isNullOrEmpty(cluster)) {
             LOG.warn("invalid clusterName: {}", cluster);
-            return;
+            throw new UserException("empty clusterName, please check cloud cluster privilege");
         }
 
         this.idToBackend = ((CloudSystemInfoService) Env.getCurrentSystemInfo()).getCloudIdToBackend(cluster);

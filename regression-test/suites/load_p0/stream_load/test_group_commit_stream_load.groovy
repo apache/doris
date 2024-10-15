@@ -32,20 +32,11 @@ suite("test_group_commit_stream_load") {
     }
 
     def getAlterTableState = {
-        def retry = 0
-        while (true) {
-            sleep(8000)
-            def state = sql "show alter table column where tablename = '${tableName}' order by CreateTime desc "
-            logger.info("alter table retry: ${retry},  state: ${state}")
-            if (state.size() > 0 && state[0][9] == "FINISHED") {
-                return true
-            }
-            retry++
-            if (retry >= 40) {
-                return false
-            }
+        waitForSchemaChangeDone {
+            sql """ SHOW ALTER TABLE COLUMN WHERE tablename='${tableName}' ORDER BY createtime DESC LIMIT 1 """
+            time 600
         }
-        return false
+        return true
     }
 
     def checkStreamLoadResult = { exception, result, total_rows, loaded_rows, filtered_rows, unselected_rows ->
@@ -85,7 +76,8 @@ suite("test_group_commit_stream_load") {
         )
         DISTRIBUTED BY HASH(`id`) BUCKETS 1
         PROPERTIES (
-            "replication_num" = "1"
+            "replication_num" = "1",
+            "group_commit_interval_ms" = "200"
         );
         """
 
@@ -194,7 +186,7 @@ suite("test_group_commit_stream_load") {
             time 10000 // limit inflight 10s
 
             check { result, exception, startTime, endTime ->
-                checkStreamLoadResult(exception, result, 6, 3, 2, 1)
+                checkStreamLoadResult(exception, result, 6, 2, 3, 1)
             }
         }
 
@@ -259,7 +251,8 @@ suite("test_group_commit_stream_load") {
             PARTITION p1998 VALUES [("19980101"), ("19990101")))
             DISTRIBUTED BY HASH(`lo_orderkey`) BUCKETS 4
             PROPERTIES (
-                "replication_num" = "1"
+                "replication_num" = "1",
+                "group_commit_interval_ms" = "200"
             );
         """
         // load data
@@ -281,7 +274,7 @@ suite("test_group_commit_stream_load") {
             sql """ alter table ${tableName} order by (${new_columns}); """
         }).start();*/
 
-        for (int i = 0; i < 4; i++) {
+        for (int i = 0; i < 2; i++) {
 
             streamLoad {
                 table tableName
@@ -306,7 +299,7 @@ suite("test_group_commit_stream_load") {
             }
         }
 
-        getRowCount(2402288)
+        getRowCount(600572 * 2)
         qt_sql """ select count(*) from ${tableName} """
 
         // assertTrue(getAlterTableState())

@@ -96,10 +96,10 @@ public:
     Field get_default() const override;
 
     Field get_field(const TExprNode& node) const override {
-        LOG(FATAL) << "Unimplemented get_field for struct";
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "Unimplemented get_field for struct");
+        __builtin_unreachable();
     }
-
-    void insert_default_into(IColumn& column) const override;
 
     bool equals(const IDataType& rhs) const override;
 
@@ -123,7 +123,8 @@ public:
     int64_t get_uncompressed_serialized_bytes(const IColumn& column,
                                               int be_exec_version) const override;
     char* serialize(const IColumn& column, char* buf, int be_exec_version) const override;
-    const char* deserialize(const char* buf, IColumn* column, int be_exec_version) const override;
+    const char* deserialize(const char* buf, MutableColumnPtr* column,
+                            int be_exec_version) const override;
     void to_pb_column_meta(PColumnMeta* col_meta) const override;
 
     Status from_string(ReadBuffer& rb, IColumn* column) const override;

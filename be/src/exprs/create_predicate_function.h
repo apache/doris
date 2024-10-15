@@ -34,7 +34,9 @@ public:
     using BasePtr = MinMaxFuncBase*;
     template <PrimitiveType type, size_t N>
     static BasePtr get_function() {
-        return new MinMaxNumFunc<typename PrimitiveTypeTraits<type>::CppType>();
+        using CppType = typename PrimitiveTypeTraits<type>::CppType;
+        return new MinMaxNumFunc<
+                std::conditional_t<std::is_same_v<CppType, StringRef>, std::string, CppType>>();
     }
 };
 

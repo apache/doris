@@ -20,6 +20,7 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.FormatOptions;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 
@@ -27,7 +28,6 @@ import com.google.common.base.Preconditions;
 import org.apache.commons.lang3.StringUtils;
 
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -133,21 +133,21 @@ public class ArrayLiteral extends LiteralExpr {
     }
 
     @Override
-    public String getStringValueForArray() {
+    public String getStringValueForArray(FormatOptions options) {
         List<String> list = new ArrayList<>(children.size());
-        children.forEach(v -> list.add(v.getStringValueForArray()));
+        children.forEach(v -> list.add(v.getStringValueForArray(options)));
         return "[" + StringUtils.join(list, ", ") + "]";
     }
 
     @Override
-    public String getStringValueInFe() {
+    public String getStringValueInFe(FormatOptions options) {
         List<String> list = new ArrayList<>(children.size());
         children.forEach(v -> {
             String stringLiteral;
             if (v instanceof NullLiteral) {
-                stringLiteral = "null";
+                stringLiteral = options.getNullFormat();
             } else {
-                stringLiteral = getStringLiteralForComplexType(v);
+                stringLiteral = getStringLiteralForComplexType(v, options);
             }
             // we should use type to decide we output array is suitable for json format
             list.add(stringLiteral);
@@ -156,14 +156,14 @@ public class ArrayLiteral extends LiteralExpr {
     }
 
     @Override
-    public String getStringValueForStreamLoad() {
+    public String getStringValueForStreamLoad(FormatOptions options) {
         List<String> list = new ArrayList<>(children.size());
         children.forEach(v -> {
             String stringLiteral;
             if (v instanceof NullLiteral) {
                 stringLiteral = "null";
             } else {
-                stringLiteral = getStringLiteralForStreamLoad(v);
+                stringLiteral = getStringLiteralForStreamLoad(v, options);
             }
             // we should use type to decide we output array is suitable for json format
             list.add(stringLiteral);
@@ -192,15 +192,6 @@ public class ArrayLiteral extends LiteralExpr {
         }
         ArrayLiteral that = (ArrayLiteral) o;
         return Objects.equals(children, that.children);
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        super.write(out);
-        out.writeInt(children.size());
-        for (Expr e : children) {
-            Expr.writeTo(e, out);
-        }
     }
 
     @Override

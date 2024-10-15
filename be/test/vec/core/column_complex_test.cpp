@@ -48,7 +48,7 @@ TEST(ColumnComplexTest, BasicTest) {
 }
 
 // Test the compile failed
-TEST(ColumnComplexType, DataTypeBitmapTest) {
+TEST(ColumnComplexTest, DataTypeBitmapTest) {
     std::make_shared<DataTypeBitMap>();
 }
 
@@ -81,8 +81,7 @@ public:
         ASSERT_EQ(result, buf.get() + size);
 
         auto column2 = _bitmap_type.create_column();
-        _bitmap_type.deserialize(buf.get(), column2.get(),
-                                 BeExecVersionManager::get_newest_version());
+        _bitmap_type.deserialize(buf.get(), &column2, BeExecVersionManager::get_newest_version());
         check_bitmap_column(*column, *column2.get());
     }
 
@@ -116,7 +115,7 @@ public:
         ASSERT_EQ(result, buf.get() + size);
 
         auto column2 = _quantile_state_type.create_column();
-        _quantile_state_type.deserialize(buf.get(), column2.get(),
+        _quantile_state_type.deserialize(buf.get(), &column2,
                                          BeExecVersionManager::get_newest_version());
         check_bitmap_column(*column, *column2.get());
     }
@@ -149,10 +148,9 @@ TEST_F(ColumnBitmapTest, ColumnBitmapReadWrite) {
 
     Field field;
     column->get(0, field);
-    auto str = field.get<String>();
-    auto* bitmap = reinterpret_cast<const BitmapValue*>(str.c_str());
-    EXPECT_TRUE(bitmap->contains(10));
-    EXPECT_TRUE(bitmap->contains(1000000));
+    auto bitmap = field.get<BitmapValue>();
+    EXPECT_TRUE(bitmap.contains(10));
+    EXPECT_TRUE(bitmap.contains(1000000));
 }
 
 TEST_F(ColumnQuantileStateTest, ColumnQuantileStateReadWrite) {

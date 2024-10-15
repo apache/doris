@@ -18,6 +18,7 @@
 package org.apache.doris.common.util;
 
 import org.apache.doris.common.Config;
+import org.apache.doris.common.LogUtils;
 import org.apache.doris.common.Version;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -42,7 +43,7 @@ public class JdkUtils {
         int runtimeVersion = JdkUtils.getJavaVersionAsInteger(javaRuntimeVersionStr);
 
         if (runtimeVersion < compileVersion) {
-            System.out.println("The runtime java version " + javaRuntimeVersionStr + " is less than "
+            LogUtils.stdout("The runtime java version " + javaRuntimeVersionStr + " is less than "
                     + "compile version " + javaCompileVersionStr);
             return false;
         }

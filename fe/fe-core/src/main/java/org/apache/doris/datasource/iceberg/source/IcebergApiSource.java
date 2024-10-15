@@ -24,11 +24,11 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.planner.ColumnRange;
 import org.apache.doris.thrift.TFileAttributes;
 
 import org.apache.iceberg.Table;
-import org.apache.iceberg.TableProperties;
 
 import java.util.Map;
 
@@ -61,8 +61,7 @@ public class IcebergApiSource implements IcebergSource {
 
     @Override
     public String getFileFormat() {
-        return originTable.properties()
-            .getOrDefault(TableProperties.DEFAULT_FILE_FORMAT, TableProperties.DEFAULT_FILE_FORMAT_DEFAULT);
+        return IcebergUtils.getFileFormat(originTable).name();
     }
 
     @Override

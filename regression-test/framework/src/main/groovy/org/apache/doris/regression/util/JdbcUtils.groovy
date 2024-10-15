@@ -47,6 +47,36 @@ class JdbcUtils {
         return conn.prepareStatement(sql);
     }
 
+    static List<Map<String, Object>> executeToMapArray(Connection conn, String sql) {
+        def (result, meta) = JdbcUtils.executeToList(conn, sql)
+
+        // get all column names as list
+        List<String> columnNames = new ArrayList<>()
+        for (int i = 0; i < meta.getColumnCount(); i++) {
+            columnNames.add(meta.getColumnName(i + 1))
+        }
+
+        // add result to res map list, each row is a map with key is column name
+        List<Map<String, Object>> res = new ArrayList<>()
+        for (int i = 0; i < result.size(); i++) {
+            Map<String, Object> row = new HashMap<>()
+            for (int j = 0; j < columnNames.size(); j++) {
+                row.put(columnNames.get(j), result.get(i).get(j))
+            }
+            res.add(row)
+        }
+        return res;
+    }
+
+    static Tuple2<List<List<Object>>, ResultSetMetaData> executeToList(Connection conn, PreparedStatement stmt) {
+        boolean hasResultSet = stmt.execute()
+        if (!hasResultSet) {
+            return [ImmutableList.of(ImmutableList.of(stmt.getUpdateCount())), null]
+        } else {
+            return toList(stmt.resultSet)
+        } 
+    }
+
     static Tuple2<List<List<Object>>, ResultSetMetaData> executeToStringList(Connection conn, PreparedStatement stmt) {
         return toStringList(stmt.executeQuery())
     }

@@ -43,10 +43,16 @@ suite("regression_test_variant_insert_into_select", "variant_type"){
     sql """insert into ${table_name}_var values (3, '{"a" : 3, "b" : [3], "c": 3.0}')"""
     sql """insert into ${table_name}_var values (4, '{"a" : 4, "b" : [4], "c": 4.0}')"""
     sql """insert into ${table_name}_var values (5, '{"a" : 5, "b" : [5], "c": 5.0}')"""
+    sql """insert into ${table_name}_var values (6, '{"a" : 6, "b" : [6], "c": 6.0, "d" : [{"x" : 6}, {"y" : "6"}]}')"""
+    sql """insert into ${table_name}_var values (7, '{"a" : 7, "b" : [7], "c": 7.0, "e" : [{"x" : 7}, {"y" : "7"}]}')"""
+    sql """insert into ${table_name}_var values (8, '{"a" : 8, "b" : [8], "c": 8.0, "f" : [{"x" : 8}, {"y" : "8"}]}')"""
 
     sql """insert into ${table_name}_str select * from ${table_name}_var"""
     sql """insert into ${table_name}_var select * from ${table_name}_str"""
     sql """insert into ${table_name}_var select * from ${table_name}_var"""
-    qt_sql """select v["a"], v["b"], v["c"] from  ${table_name}_var order by k"""
+    qt_sql """select v["a"], v["b"], v["c"], v['d'], v['e'], v['f'] from  ${table_name}_var order by k"""
     qt_sql "select v from  ${table_name}_str order by k"
+    qt_sql """insert into ${table_name}_var select * from ${table_name}_str"""
+    qt_sql """insert into ${table_name}_var select * from ${table_name}_var"""
+    qt_sql """select v["a"], v["b"], v["c"], v['d'], v['e'], v['f'] from  insert_into_select_var order by k limit 215"""
 }

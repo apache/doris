@@ -20,16 +20,22 @@
 
 #pragma once
 
-#include <type_traits>
-
-#include "vec/core/field.h"
+#include "vec/columns/column_string.h"
 #include "vec/data_types/data_type_number_base.h"
 
 namespace doris::vectorized {
 
 template <typename T>
 class DataTypeNumber final : public DataTypeNumberBase<T> {
+public:
     bool equals(const IDataType& rhs) const override { return typeid(rhs) == typeid(*this); }
+
+    void to_string_batch(const IColumn& column, ColumnString& column_to) const final {
+        DataTypeNumberBase<T>::template to_string_batch_impl<DataTypeNumber<T>>(column, column_to);
+    }
+
+    size_t number_length() const;
+    void push_number(ColumnString::Chars& chars, const T& num) const;
 };
 
 using DataTypeUInt8 = DataTypeNumber<UInt8>;
@@ -44,6 +50,7 @@ using DataTypeInt64 = DataTypeNumber<Int64>;
 using DataTypeInt128 = DataTypeNumber<Int128>;
 using DataTypeFloat32 = DataTypeNumber<Float32>;
 using DataTypeFloat64 = DataTypeNumber<Float64>;
+using DataTypeBool = DataTypeUInt8;
 
 template <typename DataType>
 constexpr bool IsDataTypeNumber = false;

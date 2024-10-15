@@ -60,13 +60,6 @@ public:
 
     void cancel(const std::string& reason) override;
 
-    // register <instance id, pipe> pair
-    Status put_pipe(const TUniqueId& pipe_id, std::shared_ptr<io::StreamLoadPipe> pipe);
-
-    std::shared_ptr<io::StreamLoadPipe> get_pipe(const TUniqueId& pipe_id);
-
-    void remove_pipe(const TUniqueId& pipe_id);
-
 private:
     // parse table name from data
     std::string parse_dst_table(const char* data, size_t size);
@@ -82,8 +75,8 @@ private:
     void _handle_consumer_finished();
 
 private:
-    std::unordered_map<std::string /*table*/, KafkaConsumerPipePtr> _planned_pipes;
-    std::unordered_map<std::string /*table*/, KafkaConsumerPipePtr> _unplanned_pipes;
+    std::unordered_map<std::string /*table*/, std::shared_ptr<StreamLoadContext>> _planned_tables;
+    std::unordered_map<std::string /*table*/, std::shared_ptr<StreamLoadContext>> _unplanned_tables;
     std::atomic<uint64_t> _unplanned_row_cnt {0}; // trigger plan request when exceed threshold
     // inflight count, when it is zero, means consume and all plans is finished
     std::atomic<uint64_t> _inflight_cnt {1};

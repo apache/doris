@@ -93,4 +93,12 @@ public class StreamLoadRecord {
     public String getFinishTime() {
         return this.finishTime;
     }
+
+    public String getDb() {
+        return db;
+    }
+
+    public String getTable() {
+        return table;
+    }
 }

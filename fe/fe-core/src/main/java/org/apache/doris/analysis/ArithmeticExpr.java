@@ -38,9 +38,9 @@ import org.apache.doris.thrift.TExprOpcode;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
 import java.util.Objects;
@@ -212,6 +212,7 @@ public class ArithmeticExpr extends Expr {
         }
     }
 
+    @SerializedName("op")
     private final Operator op;
 
     public ArithmeticExpr(Operator op, Expr e1, Expr e2) {
@@ -282,7 +283,6 @@ public class ArithmeticExpr extends Expr {
         msg.node_type = TExprNodeType.ARITHMETIC_EXPR;
         if (!(type.isDecimalV2() || type.isDecimalV3())) {
             msg.setOpcode(op.getOpcode());
-            msg.setOutputColumn(outputColumn);
         }
     }
 
@@ -292,20 +292,6 @@ public class ArithmeticExpr extends Expr {
             return false;
         }
         return ((ArithmeticExpr) obj).opcode == opcode;
-    }
-
-    @Override
-    public void computeOutputColumn(Analyzer analyzer) {
-        super.computeOutputColumn(analyzer);
-
-        List<TupleId> tupleIds = Lists.newArrayList();
-        getIds(tupleIds, null);
-        Preconditions.checkArgument(tupleIds.size() == 1);
-
-        // for (Expr child : children) {
-        //     if (child.getOutputColumn() > analyzer.getTupleDesc(tupleIds.get(0)).getSlots().size()) {
-        //     }
-        // }
     }
 
     private Type findCommonType(Type t1, Type t2) {
@@ -650,15 +636,6 @@ public class ArithmeticExpr extends Expr {
         Type t2 = getChild(1).getType();
         if (t1.isDecimalV3() || t2.isDecimalV3()) {
             analyzeDecimalV3Op(t1, t2);
-        }
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        Text.writeString(out, op.name());
-        out.writeInt(children.size());
-        for (Expr expr : children) {
-            Expr.writeTo(expr, out);
         }
     }
 

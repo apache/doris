@@ -126,6 +126,11 @@ suite("streamLoad_action") {
         LIMIT 5;
     """
 
+    def tableName2 = "test_streamload_action2"
+    runStreamLoadExample(tableName2)
+
     sql """ DROP TABLE ${tableName} """
+    sql """ DROP TABLE ${tableName2}"""
+
     sql """ DROP TABLE B """
 }

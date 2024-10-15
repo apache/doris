@@ -20,7 +20,6 @@
 // and modified by Doris.
 
 suite("test_agg_materialize") {
-    sql "set enable_nereids_planner=false"
     qt_select """with tb1 as (select * from (select * from (select 1 k1) as t lateral view explode([1,2,3]) tmp1 as e1)t)
                     select count(*) from (select 1, count(*)
                         from tb1

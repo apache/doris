@@ -28,6 +28,7 @@ suite("nereids_test_javaudf_assertudf") {
     def tableName = "test_javaudf_assertudf"
     File path = new File("${context.file.parent}")
     def jarPath = """${context.file.parent}/../../../javaudf_p0/jars/java-udf-case-jar-with-dependencies.jar"""
+    scp_udf_file_to_all_be(jarPath)
 
     log.info("Jar path: ${jarPath}".toString())
     try {

@@ -18,6 +18,8 @@
 suite("transform_outer_join_to_anti") {
     sql "SET enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
+    sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
+
 
     sql """drop table if exists eliminate_outer_join_A;"""
     sql """drop table if exists eliminate_outer_join_B;"""

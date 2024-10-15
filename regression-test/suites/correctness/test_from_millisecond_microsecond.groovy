@@ -43,9 +43,6 @@ suite("test_from_millisecond_microsecond") {
     sql """
         insert into millimicro values(4,NULL);
     """
-    sql """
-        set enable_nereids_planner=false
-    """
 
     qt_select1 """
         select 
@@ -88,9 +85,10 @@ suite("test_from_millisecond_microsecond") {
         from_microsecond(t), 
         microsecond_timestamp(from_microsecond(t))
         from millimicro order by id;
-    """ 
+    """
+
     sql """
-        set enable_nereids_planner=true,enable_fold_constant_by_be = false,forbid_unknown_col_stats = false
+        set enable_fold_constant_by_be = false
     """
    
     qt_select7 """
@@ -130,13 +128,7 @@ suite("test_from_millisecond_microsecond") {
     """ 
     qt_select13 """select SECOND_TIMESTAMP(cast('2023-11-18 00:09:32' as datetime));""" 
     qt_select14 """select MILLISECOND_TIMESTAMP(cast('2023-11-18 00:09:32' as datetime));""" 
-    qt_select15 """select MICROSECOND_TIMESTAMP(cast('2023-11-18 00:09:32' as datetime));""" 
-    sql """
-        set enable_nereids_planner=false
-    """
-    qt_select16 """select SECOND_TIMESTAMP(cast('2023-11-18 00:09:32' as datetime));""" 
-    qt_select17 """select MILLISECOND_TIMESTAMP(cast('2023-11-18 00:09:32' as datetime));""" 
-    qt_select18 """select MICROSECOND_TIMESTAMP(cast('2023-11-18 00:09:32' as datetime));"""
+    qt_select15 """select MICROSECOND_TIMESTAMP(cast('2023-11-18 00:09:32' as datetime));"""
 
     // not null 
     sql """ DROP TABLE IF EXISTS millimicro """
@@ -166,7 +158,6 @@ suite("test_from_millisecond_microsecond") {
     sql """
         insert into millimicro values(4,NULL);
     """
-
 
     qt_select1 """
         select 
@@ -211,7 +202,7 @@ suite("test_from_millisecond_microsecond") {
         from millimicro order by id;
     """ 
     sql """
-        set enable_nereids_planner=true,enable_fold_constant_by_be = false,forbid_unknown_col_stats = false
+        set enable_fold_constant_by_be = false
     """
    
     qt_select7 """
@@ -325,4 +316,35 @@ suite("test_from_millisecond_microsecond") {
     qt_sql " select from_second(-1) "
     qt_sql " select from_microsecond(253402271999999999) "
     qt_sql " select from_microsecond(253402272000000000) "
+
+
+    qt_sql_all_constent """
+        select microseconds_add('2010-11-30 23:50:50', 2) , microseconds_sub('2010-11-30 23:50:50', 2) , milliseconds_add('2010-11-30 23:50:50', 2) , milliseconds_sub('2010-11-30 23:50:50', 2);
+    """
+
+    qt_sql_all_constent """
+        select microseconds_add(cast('2010-11-30 23:50:50' as DATETIME(3)), 2) , microseconds_sub(cast('2010-11-30 23:50:50' as DATETIME(3)), 2) , milliseconds_add(cast('2010-11-30 23:50:50' as DATETIME(3)), 2) , milliseconds_sub(cast('2010-11-30 23:50:50' as DATETIME(3)), 2);
+    """
+
+    qt_select_null_datetime """
+        select 
+        id,
+        microseconds_add(t,2),
+        microseconds_sub(t,2),
+        milliseconds_add(t,2),
+        milliseconds_sub(t,2)
+        from millimicro
+        order by id;
+    """ 
+
+    qt_select_null_datetime """
+        select 
+        id,
+        microseconds_add(cast(t as DATETIME(3)),2),
+        microseconds_sub(cast(t as DATETIME(3)),2),
+        milliseconds_add(cast(t as DATETIME(3)),2),
+        milliseconds_sub(cast(t as DATETIME(3)),2)
+        from millimicro
+        order by id;
+    """ 
 }

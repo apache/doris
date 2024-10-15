@@ -18,8 +18,8 @@
 package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.properties.FdItem;
-import org.apache.doris.nereids.properties.FunctionalDependencies.Builder;
+import org.apache.doris.nereids.properties.DataTrait;
+import org.apache.doris.nereids.properties.DataTrait.Builder;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.AssertNumRowsElement;
 import org.apache.doris.nereids.trees.expressions.AssertNumRowsElement.Assertion;
@@ -32,7 +32,6 @@ import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableSet;
 
 import java.util.List;
 import java.util.Objects;
@@ -122,27 +121,32 @@ public class LogicalAssertNumRows<CHILD_TYPE extends Plan> extends LogicalUnary<
     }
 
     @Override
-    public ImmutableSet<FdItem> computeFdItems() {
-        return ImmutableSet.of();
-    }
-
-    @Override
-    public void computeUnique(Builder fdBuilder) {
+    public void computeUnique(Builder builder) {
         if (assertNumRowsElement.getDesiredNumOfRows() == 1
                 && (assertNumRowsElement.getAssertion() == Assertion.EQ
                 || assertNumRowsElement.getAssertion() == Assertion.LT
                 || assertNumRowsElement.getAssertion() == Assertion.LE)) {
-            getOutput().forEach(fdBuilder::addUniqueSlot);
+            getOutput().forEach(builder::addUniqueSlot);
         }
     }
 
     @Override
-    public void computeUniform(Builder fdBuilder) {
+    public void computeUniform(Builder builder) {
         if (assertNumRowsElement.getDesiredNumOfRows() == 1
                 && (assertNumRowsElement.getAssertion() == Assertion.EQ
                 || assertNumRowsElement.getAssertion() == Assertion.LT
                 || assertNumRowsElement.getAssertion() == Assertion.LE)) {
-            getOutput().forEach(fdBuilder::addUniformSlot);
+            getOutput().forEach(builder::addUniformSlot);
         }
+    }
+
+    @Override
+    public void computeEqualSet(DataTrait.Builder builder) {
+        builder.addEqualSet(child().getLogicalProperties().getTrait());
+    }
+
+    @Override
+    public void computeFd(DataTrait.Builder builder) {
+        builder.addFuncDepsDG(child().getLogicalProperties().getTrait());
     }
 }

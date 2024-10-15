@@ -16,20 +16,8 @@ with_pk_col
 
 -- !shape --
 PhysicalResultSink
---PhysicalOlapScan[fkt_not_null]
-
--- !res --
-1	John	1
-2	Alice	2
-3	Bob	3
-
--- !name --
-with_pk_col
-
--- !shape --
-PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((pk = fkt_not_null2.fk)) otherCondition=()
-----PhysicalOlapScan[fkt_not_null]
+--hashJoin[INNER_JOIN] hashCondition=((pkt.pk = fkt_not_null.fk)) otherCondition=()
+----PhysicalOlapScan[pkt]
 ----PhysicalOlapScan[fkt_not_null]
 
 -- !res --
@@ -42,11 +30,30 @@ with_pk_col
 
 -- !shape --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((pk = fkt_not_null2.fk)) otherCondition=()
-----filter((fkt_not_null1.fk > 1))
+--hashJoin[INNER_JOIN] hashCondition=((pkt.pk = fkt_not_null.fk)) otherCondition=()
+----PhysicalOlapScan[pkt]
+----hashJoin[INNER_JOIN] hashCondition=((fkt_not_null1.fk = fkt_not_null2.fk)) otherCondition=()
 ------PhysicalOlapScan[fkt_not_null]
-----filter((fkt_not_null2.fk > 1))
 ------PhysicalOlapScan[fkt_not_null]
+
+-- !res --
+1	John	1
+2	Alice	2
+3	Bob	3
+
+-- !name --
+with_pk_col
+
+-- !shape --
+PhysicalResultSink
+--hashJoin[INNER_JOIN] hashCondition=((pkt.pk = fkt_not_null.fk)) otherCondition=()
+----filter((pkt.pk > 1))
+------PhysicalOlapScan[pkt]
+----hashJoin[INNER_JOIN] hashCondition=((fkt_not_null1.fk = fkt_not_null2.fk)) otherCondition=()
+------filter((fkt_not_null1.fk > 1))
+--------PhysicalOlapScan[fkt_not_null]
+------filter((fkt_not_null2.fk > 1))
+--------PhysicalOlapScan[fkt_not_null]
 
 -- !res --
 2	Alice	2
@@ -57,8 +64,10 @@ with_pk_col
 
 -- !shape --
 PhysicalResultSink
---hashAgg[LOCAL]
-----PhysicalOlapScan[fkt_not_null]
+--hashJoin[INNER_JOIN] hashCondition=((pkt.pk = fkt_not_null.fk)) otherCondition=()
+----PhysicalOlapScan[pkt]
+----hashAgg[LOCAL]
+------PhysicalOlapScan[fkt_not_null]
 
 -- !res --
 1	1
@@ -88,9 +97,11 @@ fk with window
 
 -- !shape --
 PhysicalResultSink
---PhysicalWindow
-----PhysicalQuickSort[LOCAL_SORT]
-------PhysicalOlapScan[fkt_not_null]
+--hashJoin[INNER_JOIN] hashCondition=((pkt.pk = fkt_not_null.fk)) otherCondition=()
+----PhysicalOlapScan[pkt]
+----PhysicalWindow
+------PhysicalQuickSort[LOCAL_SORT]
+--------PhysicalOlapScan[fkt_not_null]
 
 -- !res --
 1	1	1
@@ -102,9 +113,11 @@ fk with limit
 
 -- !shape --
 PhysicalResultSink
---PhysicalTopN[MERGE_SORT]
-----PhysicalTopN[LOCAL_SORT]
-------PhysicalOlapScan[fkt_not_null]
+--hashJoin[INNER_JOIN] hashCondition=((pkt.pk = fkt_not_null.fk)) otherCondition=()
+----PhysicalOlapScan[pkt]
+----PhysicalTopN[MERGE_SORT]
+------PhysicalTopN[LOCAL_SORT]
+--------PhysicalOlapScan[fkt_not_null]
 
 -- !res --
 1	1
@@ -114,8 +127,11 @@ pk with filter that same as fk
 
 -- !shape --
 PhysicalResultSink
---filter((fkt_not_null.fk = 1))
-----PhysicalOlapScan[fkt_not_null]
+--hashJoin[INNER_JOIN] hashCondition=((pkt.pk = fkt_not_null.fk)) otherCondition=()
+----filter((pkt.pk = 1))
+------PhysicalOlapScan[pkt]
+----filter((fkt_not_null.fk = 1))
+------PhysicalOlapScan[fkt_not_null]
 
 -- !res --
 1	John	1
@@ -125,8 +141,11 @@ pk with filter that included same as fk
 
 -- !shape --
 PhysicalResultSink
---filter((cast(f as DOUBLE) = 1.0) and (fkt_not_null.fk = 1))
-----PhysicalOlapScan[fkt_not_null]
+--hashJoin[INNER_JOIN] hashCondition=((pkt.pk = fkt_not_null.fk)) otherCondition=()
+----filter((pkt.pk = 1))
+------PhysicalOlapScan[pkt]
+----filter((cast(f as DOUBLE) = 1.0) and (fkt_not_null.fk = 1))
+------PhysicalOlapScan[fkt_not_null]
 
 -- !res --
 
@@ -160,7 +179,8 @@ with_pk_col
 
 -- !shape --
 PhysicalResultSink
---filter(( not fk IS NULL))
+--hashJoin[INNER_JOIN] hashCondition=((pkt.pk = fkt.fk)) otherCondition=()
+----PhysicalOlapScan[pkt]
 ----PhysicalOlapScan[fkt]
 
 -- !res --
@@ -172,10 +192,11 @@ with_pk_col
 
 -- !shape --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((pk = fkt2.fk)) otherCondition=()
-----filter(( not fk IS NULL))
+--hashJoin[INNER_JOIN] hashCondition=((pkt.pk = fkt.fk)) otherCondition=()
+----PhysicalOlapScan[pkt]
+----hashJoin[INNER_JOIN] hashCondition=((fkt1.fk = fkt2.fk)) otherCondition=()
 ------PhysicalOlapScan[fkt]
-----PhysicalOlapScan[fkt]
+------PhysicalOlapScan[fkt]
 
 -- !res --
 1	John	1
@@ -186,11 +207,14 @@ with_pk_col
 
 -- !shape --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((pk = fkt2.fk)) otherCondition=()
-----filter(( not fk IS NULL) and (fkt1.fk > 1))
-------PhysicalOlapScan[fkt]
-----filter((fkt2.fk > 1))
-------PhysicalOlapScan[fkt]
+--hashJoin[INNER_JOIN] hashCondition=((pkt.pk = fkt.fk)) otherCondition=()
+----filter((pkt.pk > 1))
+------PhysicalOlapScan[pkt]
+----hashJoin[INNER_JOIN] hashCondition=((fkt1.fk = fkt2.fk)) otherCondition=()
+------filter((fkt1.fk > 1))
+--------PhysicalOlapScan[fkt]
+------filter((fkt2.fk > 1))
+--------PhysicalOlapScan[fkt]
 
 -- !res --
 2	Alice	2
@@ -200,8 +224,9 @@ with_pk_col
 
 -- !shape --
 PhysicalResultSink
---hashAgg[LOCAL]
-----filter(( not fk IS NULL))
+--hashJoin[INNER_JOIN] hashCondition=((pkt.pk = fkt.fk)) otherCondition=()
+----PhysicalOlapScan[pkt]
+----hashAgg[LOCAL]
 ------PhysicalOlapScan[fkt]
 
 -- !res --
@@ -230,9 +255,10 @@ fk with window
 
 -- !shape --
 PhysicalResultSink
---PhysicalWindow
-----PhysicalQuickSort[LOCAL_SORT]
-------filter(( not fk IS NULL))
+--hashJoin[INNER_JOIN] hashCondition=((pkt.pk = fkt.fk)) otherCondition=()
+----PhysicalOlapScan[pkt]
+----PhysicalWindow
+------PhysicalQuickSort[LOCAL_SORT]
 --------PhysicalOlapScan[fkt]
 
 -- !res --
@@ -244,7 +270,8 @@ fk with limit
 
 -- !shape --
 PhysicalResultSink
---filter(( not fk IS NULL))
+--hashJoin[INNER_JOIN] hashCondition=((pkt.pk = fkt.fk)) otherCondition=()
+----PhysicalOlapScan[pkt]
 ----PhysicalTopN[MERGE_SORT]
 ------PhysicalTopN[LOCAL_SORT]
 --------PhysicalOlapScan[fkt]
@@ -256,8 +283,11 @@ pk with filter that same as fk
 
 -- !shape --
 PhysicalResultSink
---filter(( not fk IS NULL) and (fkt.fk = 1))
-----PhysicalOlapScan[fkt]
+--hashJoin[INNER_JOIN] hashCondition=((pkt.pk = fkt.fk)) otherCondition=()
+----filter((pkt.pk = 1))
+------PhysicalOlapScan[pkt]
+----filter((fkt.fk = 1))
+------PhysicalOlapScan[fkt]
 
 -- !res --
 1	John	1
@@ -267,8 +297,11 @@ pk with filter that included same as fk
 
 -- !shape --
 PhysicalResultSink
---filter(( not fk IS NULL) and (cast(f as DOUBLE) = 1.0) and (fkt.fk = 1))
-----PhysicalOlapScan[fkt]
+--hashJoin[INNER_JOIN] hashCondition=((pkt.pk = fkt.fk)) otherCondition=()
+----filter((pkt.pk = 1))
+------PhysicalOlapScan[pkt]
+----filter((cast(f as DOUBLE) = 1.0) and (fkt.fk = 1))
+------PhysicalOlapScan[fkt]
 
 -- !res --
 

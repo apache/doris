@@ -25,7 +25,7 @@
 #include "cloud/config.h"
 #include "common/config.h"
 #include "common/logging.h"
-#include "common/sync_point.h"
+#include "cpp/sync_point.h"
 #include "olap/olap_common.h"
 #include "olap/tablet.h"
 #include "olap/tablet_meta.h"
@@ -34,12 +34,11 @@ namespace doris {
 
 CloudSizeBasedCumulativeCompactionPolicy::CloudSizeBasedCumulativeCompactionPolicy(
         int64_t promotion_size, double promotion_ratio, int64_t promotion_min_size,
-        int64_t compaction_min_size, int64_t promotion_version_count)
+        int64_t compaction_min_size)
         : _promotion_size(promotion_size),
           _promotion_ratio(promotion_ratio),
           _promotion_min_size(promotion_min_size),
-          _compaction_min_size(compaction_min_size),
-          _promotion_version_count(promotion_version_count) {}
+          _compaction_min_size(compaction_min_size) {}
 
 int64_t CloudSizeBasedCumulativeCompactionPolicy::_level_size(const int64_t size) {
     if (size < 1024) return 0;
@@ -54,7 +53,7 @@ int32_t CloudSizeBasedCumulativeCompactionPolicy::pick_input_rowsets(
         const int64_t max_compaction_score, const int64_t min_compaction_score,
         std::vector<RowsetSharedPtr>* input_rowsets, Version* last_delete_version,
         size_t* compaction_score, bool allow_delete) {
-    //size_t promotion_size = tablet->cumulative_promotion_size();
+    size_t promotion_size = cloud_promotion_size(tablet);
     auto max_version = tablet->max_version().first;
     int transient_size = 0;
     *compaction_score = 0;
@@ -91,6 +90,10 @@ int32_t CloudSizeBasedCumulativeCompactionPolicy::pick_input_rowsets(
 
         transient_size += 1;
         input_rowsets->push_back(rowset);
+    }
+
+    if (total_size >= promotion_size) {
+        return transient_size;
     }
 
     // if there is delete version, do compaction directly
@@ -154,9 +157,8 @@ int32_t CloudSizeBasedCumulativeCompactionPolicy::pick_input_rowsets(
     *compaction_score = new_compaction_score;
 
     VLOG_CRITICAL << "cumulative compaction size_based policy, compaction_score = "
-                  << *compaction_score << ", total_size = "
-                  << total_size
-                  //<< ", calc promotion size value = " << promotion_size
+                  << *compaction_score << ", total_size = " << total_size
+                  << ", calc promotion size value = " << promotion_size
                   << ", tablet = " << tablet->tablet_id() << ", input_rowset size "
                   << input_rowsets->size();
 
@@ -202,7 +204,7 @@ int64_t CloudSizeBasedCumulativeCompactionPolicy::new_cumulative_point(
     // consider it's version count here.
     bool satisfy_promotion_version = tablet->enable_unique_key_merge_on_write() &&
                                      output_rowset->end_version() - output_rowset->start_version() >
-                                             _promotion_version_count;
+                                             config::compaction_promotion_version_count;
     // if rowsets have delete version, move to the last directly.
     // if rowsets have no delete version, check output_rowset total disk size satisfies promotion size.
     return output_rowset->start_version() == last_cumulative_point &&
@@ -222,12 +224,12 @@ int32_t CloudTimeSeriesCumulativeCompactionPolicy::pick_input_rowsets(
         return 0;
     }
 
+    input_rowsets->clear();
     int64_t compaction_goal_size_mbytes =
             tablet->tablet_meta()->time_series_compaction_goal_size_mbytes();
 
     int transient_size = 0;
     *compaction_score = 0;
-    input_rowsets->clear();
     int64_t total_size = 0;
 
     for (const auto& rowset : candidate_rowsets) {
@@ -264,6 +266,10 @@ int32_t CloudTimeSeriesCumulativeCompactionPolicy::pick_input_rowsets(
                 total_size = 0;
                 continue;
             }
+            return transient_size;
+        } else if (
+                *compaction_score >=
+                config::compaction_max_rowset_count) { // If the number of rowsets is too large: FDB_ERROR_CODE_TXN_TOO_LARGE
             return transient_size;
         }
     }
@@ -324,6 +330,16 @@ int32_t CloudTimeSeriesCumulativeCompactionPolicy::pick_input_rowsets(
     }
 
     input_rowsets->clear();
+    // Condition 5: If their are many empty rowsets, maybe should be compacted
+    tablet->calc_consecutive_empty_rowsets(
+            input_rowsets, candidate_rowsets,
+            tablet->tablet_meta()->time_series_compaction_empty_rowsets_threshold());
+    if (!input_rowsets->empty()) {
+        VLOG_NOTICE << "tablet is " << tablet->tablet_id()
+                    << ", there are too many consecutive empty rowsets, size is "
+                    << input_rowsets->size();
+        return 0;
+    }
     *compaction_score = 0;
 
     return 0;

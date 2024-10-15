@@ -145,6 +145,10 @@ public:
 
     bool is_initialized() const { return buffer_ != nullptr; }
 
+    const uint8_t* buffer() const { return buffer_; }
+
+    int max_bytes() const { return max_bytes_; }
+
 private:
     // Used by SeekToBit() and GetValue() to fetch the
     // the next word into buffer_.

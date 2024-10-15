@@ -18,15 +18,15 @@
 package org.apache.doris.common.security.authentication;
 
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.CommonConfigurationKeysPublic;
 
 public abstract class AuthenticationConfig {
     public static String HADOOP_USER_NAME = "hadoop.username";
-    public static String HADOOP_SECURITY_AUTHENTICATION = "hadoop.security.authentication";
     public static String HADOOP_KERBEROS_PRINCIPAL = "hadoop.kerberos.principal";
-    public static String HADOOP_KERBEROS_AUTHORIZATION = "hadoop.security.authorization";
     public static String HADOOP_KERBEROS_KEYTAB = "hadoop.kerberos.keytab";
     public static String HIVE_KERBEROS_PRINCIPAL = "hive.metastore.kerberos.principal";
     public static String HIVE_KERBEROS_KEYTAB = "hive.metastore.kerberos.keytab.file";
+    public static String DORIS_KRB5_DEBUG = "doris.krb5.debug";
 
     /**
      * @return true if the config is valid, otherwise false.
@@ -52,12 +52,13 @@ public abstract class AuthenticationConfig {
     public static AuthenticationConfig getKerberosConfig(Configuration conf,
                                                          String krbPrincipalKey,
                                                          String krbKeytabKey) {
-        String authentication = conf.get(HADOOP_SECURITY_AUTHENTICATION, null);
+        String authentication = conf.get(CommonConfigurationKeysPublic.HADOOP_SECURITY_AUTHENTICATION, null);
         if (AuthType.KERBEROS.getDesc().equals(authentication)) {
             KerberosAuthenticationConfig krbConfig = new KerberosAuthenticationConfig();
             krbConfig.setKerberosPrincipal(conf.get(krbPrincipalKey));
             krbConfig.setKerberosKeytab(conf.get(krbKeytabKey));
             krbConfig.setConf(conf);
+            krbConfig.setPrintDebugLog(Boolean.parseBoolean(conf.get(DORIS_KRB5_DEBUG, "false")));
             return krbConfig;
         } else {
             // AuthType.SIMPLE

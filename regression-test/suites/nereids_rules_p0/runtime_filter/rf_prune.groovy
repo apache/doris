@@ -22,6 +22,8 @@ suite("rf_prune") {
     sql "SET enable_fallback_to_original_planner=false"
     sql "set enable_runtime_filter_prune=true;"
     sql "set disable_join_reorder=true"
+    sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
+
     sql "drop table if exists A"
     sql """
         CREATE TABLE A (

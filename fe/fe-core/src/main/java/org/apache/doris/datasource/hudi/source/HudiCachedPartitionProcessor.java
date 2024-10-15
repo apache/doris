@@ -17,17 +17,19 @@
 
 package org.apache.doris.datasource.hudi.source;
 
+import org.apache.doris.common.CacheFactory;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CacheException;
+import org.apache.doris.datasource.ExternalMetaCacheMgr;
 import org.apache.doris.datasource.TablePartitionValues;
 import org.apache.doris.datasource.TablePartitionValues.TablePartitionKey;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 
+import com.github.benmanes.caffeine.cache.LoadingCache;
 import com.google.common.base.Preconditions;
-import com.google.common.cache.CacheBuilder;
-import com.google.common.cache.CacheLoader;
-import com.google.common.cache.LoadingCache;
+import com.google.common.collect.Maps;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.common.table.timeline.HoodieInstant;
 import org.apache.hudi.common.table.timeline.HoodieTimeline;
@@ -37,8 +39,10 @@ import org.slf4j.LoggerFactory;
 
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
+import java.util.OptionalLong;
 import java.util.concurrent.Executor;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.ExecutorService;
 import java.util.stream.Collectors;
 
 public class HudiCachedPartitionProcessor extends HudiPartitionProcessor {
@@ -47,22 +51,16 @@ public class HudiCachedPartitionProcessor extends HudiPartitionProcessor {
     private final Executor executor;
     private final LoadingCache<TablePartitionKey, TablePartitionValues> partitionCache;
 
-    public HudiCachedPartitionProcessor(long catalogId, Executor executor) {
+    public HudiCachedPartitionProcessor(long catalogId, ExecutorService executor) {
         this.catalogId = catalogId;
         this.executor = executor;
-        this.partitionCache = CacheBuilder.newBuilder().maximumSize(Config.max_hive_table_cache_num)
-                .expireAfterAccess(Config.external_cache_expire_time_minutes_after_access, TimeUnit.MINUTES)
-                .build(CacheLoader.asyncReloading(
-                        new CacheLoader<TablePartitionKey, TablePartitionValues>() {
-                            @Override
-                            public TablePartitionValues load(TablePartitionKey key) throws Exception {
-                                return new TablePartitionValues();
-                            }
-                        }, executor));
-    }
-
-    public Executor getExecutor() {
-        return executor;
+        CacheFactory partitionCacheFactory = new CacheFactory(
+                OptionalLong.of(28800L),
+                OptionalLong.of(Config.external_cache_expire_time_minutes_after_access * 60),
+                Config.max_external_table_cache_num,
+                true,
+                null);
+        this.partitionCache = partitionCacheFactory.buildCache(key -> new TablePartitionValues(), null, executor);
     }
 
     @Override
@@ -168,7 +166,15 @@ public class HudiCachedPartitionProcessor extends HudiPartitionProcessor {
                 partitionValues.writeLock().unlock();
             }
         } catch (Exception e) {
-            throw new CacheException("Failed to get hudi partitions", e);
+            LOG.warn("Failed to get hudi partitions", e);
+            throw new CacheException("Failed to get hudi partitions: " + Util.getRootCauseMessage(e), e);
         }
+    }
+
+    public Map<String, Map<String, String>> getCacheStats() {
+        Map<String, Map<String, String>> res = Maps.newHashMap();
+        res.put("hudi_partition_cache", ExternalMetaCacheMgr.getCacheStats(partitionCache.stats(),
+                partitionCache.estimatedSize()));
+        return res;
     }
 }

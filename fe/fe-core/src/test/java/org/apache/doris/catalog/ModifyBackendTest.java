@@ -24,6 +24,7 @@ import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.DdlExecutor;
 import org.apache.doris.resource.Tag;
@@ -31,6 +32,7 @@ import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.utframe.UtFrameUtils;
 
+import com.google.common.collect.Maps;
 import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.BeforeClass;
@@ -48,6 +50,7 @@ public class ModifyBackendTest {
 
     @BeforeClass
     public static void beforeClass() throws Exception {
+        FeConstants.runningUnitTest = true;
         UtFrameUtils.createDorisCluster(runningDir);
         // create connect context
         connectContext = UtFrameUtils.createDefaultCtx();
@@ -66,7 +69,7 @@ public class ModifyBackendTest {
     @Test
     public void testModifyBackendTag() throws Exception {
         SystemInfoService infoService = Env.getCurrentSystemInfo();
-        List<Backend> backends = infoService.getAllBackends();
+        List<Backend> backends = infoService.getAllBackendsByAllCluster().values().asList();
         Assert.assertEquals(1, backends.size());
         String beHostPort = backends.get(0).getHost() + ":" + backends.get(0).getHeartbeatPort();
 
@@ -74,7 +77,7 @@ public class ModifyBackendTest {
         String stmtStr = "alter system modify backend \"" + beHostPort + "\" set ('tag.location' = 'zone1')";
         AlterSystemStmt stmt = (AlterSystemStmt) UtFrameUtils.parseAndAnalyzeStmt(stmtStr, connectContext);
         DdlExecutor.execute(Env.getCurrentEnv(), stmt);
-        backends = infoService.getAllBackends();
+        backends = infoService.getAllBackendsByAllCluster().values().asList();
         Assert.assertEquals(1, backends.size());
 
         // create table
@@ -82,7 +85,9 @@ public class ModifyBackendTest {
                 + "buckets 3 properties(\n" + "\"replication_num\" = \"1\"\n" + ");";
         CreateTableStmt createStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createStr, connectContext);
         ExceptionChecker.expectThrowsWithMsg(DdlException.class,
-                "Failed to find enough backend, please check the replication num,replication tag and storage medium and avail capacity of backends.\n"
+                "Failed to find enough backend, please check the replication num,replication tag and storage medium and avail capacity of backends "
+                        + "or maybe all be on same host."
+                        + Env.getCurrentSystemInfo().getDetailsForCreateReplica(new ReplicaAllocation((short) 1)) + "\n"
                         + "Create failed replications:\n"
                         + "replication tag: {\"location\" : \"default\"}, replication num: 1, storage medium: HDD",
                 () -> DdlExecutor.execute(Env.getCurrentEnv(), createStmt));
@@ -151,9 +156,13 @@ public class ModifyBackendTest {
         String partName = tbl.getPartitionNames().stream().findFirst().get();
         String wrongAlterStr = "alter table test.tbl4 modify partition " + partName
                 + " set ('replication_allocation' = 'tag.location.zonex:1')";
-        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class, "errCode = 2, detailMessage = "
-                        + "errCode = 2, detailMessage = Failed to find enough backend, "
-                        + "please check the replication num,replication tag and storage medium and avail capacity of backends.\n"
+        Map<Tag, Short> allocMap = Maps.newHashMap();
+        allocMap.put(Tag.create(Tag.TYPE_LOCATION, "zonex"), (short) 1);
+        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class, "errCode = 2,"
+                        + " detailMessage = Failed to find enough backend, "
+                        + "please check the replication num,replication tag and storage medium and avail capacity of backends "
+                        + "or maybe all be on same host."
+                        + Env.getCurrentSystemInfo().getDetailsForCreateReplica(new ReplicaAllocation(allocMap)) + "\n"
                         + "Create failed replications:\n"
                         + "replication tag: {\"location\" : \"zonex\"}, replication num: 1, storage medium: null",
                 () -> UtFrameUtils.parseAndAnalyzeStmt(wrongAlterStr, connectContext));
@@ -171,13 +180,13 @@ public class ModifyBackendTest {
     @Test
     public void testModifyBackendAvailableProperty() throws Exception {
         SystemInfoService infoService = Env.getCurrentSystemInfo();
-        List<Backend> backends = infoService.getAllBackends();
+        List<Backend> backends = infoService.getAllBackendsByAllCluster().values().asList();
         String beHostPort = backends.get(0).getHost() + ":" + backends.get(0).getHeartbeatPort();
         // modify backend available property
         String stmtStr = "alter system modify backend \"" + beHostPort + "\" set ('disable_query' = 'true', 'disable_load' = 'true')";
         AlterSystemStmt stmt = (AlterSystemStmt) UtFrameUtils.parseAndAnalyzeStmt(stmtStr, connectContext);
         DdlExecutor.execute(Env.getCurrentEnv(), stmt);
-        Backend backend = infoService.getAllBackends().get(0);
+        Backend backend = infoService.getAllBackendsByAllCluster().values().asList().get(0);
         Assert.assertFalse(backend.isQueryAvailable());
         Assert.assertFalse(backend.isLoadAvailable());
 

@@ -79,6 +79,10 @@ public class CalcDeleteBitmapTask extends AgentTask  {
         }
     }
 
+    public boolean isFinishRequestStale(List<TCalcDeleteBitmapPartitionInfo> respPartitionInfos) {
+        return !respPartitionInfos.equals(partitionInfos);
+    }
+
     public void setLatch(MarkedCountDownLatch<Long, Long> latch) {
         this.latch = latch;
     }

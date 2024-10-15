@@ -16,6 +16,7 @@
 // under the License.
 
 suite("test_forbid_unknown_col_stats") {
+    sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
 
     sql "drop table if exists test_forbid_unknown_col_stats_tbl"
     sql """
@@ -46,7 +47,7 @@ suite("test_forbid_unknown_col_stats") {
 
     test{
         sql "select * from test_forbid_unknown_col_stats_tbl;"
-        exception "tables with unknown column stats: OlapScanNode{tid=0, tblName=test_forbid_unknown_col_stats_tbl, keyRanges=, preds= limit=-1}"
+        exception "tables with unknown column stats: OlapScanNode{id=0, tid=0, tblName=test_forbid_unknown_col_stats_tbl, keyRanges=, preds= limit=-1}"
     }
 
     sql "select count() from __internal_schema.column_statistics"

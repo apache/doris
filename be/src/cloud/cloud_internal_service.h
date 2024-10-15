@@ -29,15 +29,19 @@ public:
 
     ~CloudInternalServiceImpl() override;
 
-    // TODO(plat1ko): cloud internal service functions
-
     void alter_vault_sync(google::protobuf::RpcController* controller,
                           const doris::PAlterVaultSyncRequest* request,
                           PAlterVaultSyncResponse* response,
                           google::protobuf::Closure* done) override;
 
+    // Get messages (filename, offset, size) about the tablet data in cache
+    void get_file_cache_meta_by_tablet_id(google::protobuf::RpcController* controller,
+                                          const PGetFileCacheMetaRequest* request,
+                                          PGetFileCacheMetaResponse* response,
+                                          google::protobuf::Closure* done) override;
+
 private:
-    [[maybe_unused]] CloudStorageEngine& _engine;
+    CloudStorageEngine& _engine;
 };
 
 } // namespace doris

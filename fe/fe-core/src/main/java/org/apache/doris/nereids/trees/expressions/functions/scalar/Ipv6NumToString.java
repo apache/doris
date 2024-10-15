@@ -41,8 +41,7 @@ public class Ipv6NumToString extends ScalarFunction
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(VarcharType.SYSTEM_DEFAULT),
             FunctionSignature.ret(StringType.INSTANCE).args(StringType.INSTANCE),
-            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(IPv6Type.INSTANCE),
-            FunctionSignature.ret(StringType.INSTANCE).args(IPv6Type.INSTANCE));
+            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(IPv6Type.INSTANCE));
 
     public Ipv6NumToString(Expression arg0) {
         super("ipv6_num_to_string", arg0);

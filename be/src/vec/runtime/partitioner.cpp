@@ -17,7 +17,7 @@
 
 #include "partitioner.h"
 
-#include "pipeline/pipeline_x/local_exchange/local_exchange_sink_operator.h"
+#include "pipeline/local_exchange/local_exchange_sink_operator.h"
 #include "runtime/thread_context.h"
 #include "vec/columns/column_const.h"
 #include "vec/sink/vdata_stream_sender.h"
@@ -25,8 +25,8 @@
 namespace doris::vectorized {
 
 template <typename HashValueType, typename ChannelIds>
-Status Partitioner<HashValueType, ChannelIds>::do_partitioning(RuntimeState* state, Block* block,
-                                                               MemTracker* mem_tracker) const {
+Status Partitioner<HashValueType, ChannelIds>::do_partitioning(RuntimeState* state,
+                                                               Block* block) const {
     int rows = block->rows();
 
     if (rows > 0) {
@@ -38,10 +38,7 @@ Status Partitioner<HashValueType, ChannelIds>::do_partitioning(RuntimeState* sta
         _hash_vals.resize(rows);
         std::fill(_hash_vals.begin(), _hash_vals.end(), 0);
         auto* __restrict hashes = _hash_vals.data();
-        {
-            SCOPED_CONSUME_MEM_TRACKER(mem_tracker);
-            RETURN_IF_ERROR(_get_partition_column_result(block, result));
-        }
+        { RETURN_IF_ERROR(_get_partition_column_result(block, result)); }
         for (int j = 0; j < result_size; ++j) {
             _do_hash(unpack_if_const(block->get_by_position(result[j]).column).first, hashes, j);
         }
@@ -50,10 +47,7 @@ Status Partitioner<HashValueType, ChannelIds>::do_partitioning(RuntimeState* sta
             hashes[i] = ChannelIds()(hashes[i], _partition_count);
         }
 
-        {
-            SCOPED_CONSUME_MEM_TRACKER(mem_tracker);
-            Block::erase_useless_column(block, column_to_keep);
-        }
+        { Block::erase_useless_column(block, column_to_keep); }
     }
     return Status::OK();
 }
@@ -103,6 +97,6 @@ template class Partitioner<size_t, ShuffleChannelIds>;
 template class XXHashPartitioner<ShuffleChannelIds>;
 template class Partitioner<uint32_t, ShuffleChannelIds>;
 template class Crc32HashPartitioner<ShuffleChannelIds>;
-template class Crc32HashPartitioner<pipeline::LocalExchangeChannelIds>;
+template class Crc32HashPartitioner<SpillPartitionChannelIds>;
 
 } // namespace doris::vectorized

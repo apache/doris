@@ -16,7 +16,6 @@
 // under the License.
 
 suite("test_map") {
-    sql 'set enable_nereids_planner=false'
     sql "DROP TABLE IF EXISTS `test_map_table`"
     sql """
         create table `test_map_table` (

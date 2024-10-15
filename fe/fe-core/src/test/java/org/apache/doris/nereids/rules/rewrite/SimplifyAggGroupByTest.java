@@ -32,6 +32,7 @@ import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
@@ -60,12 +61,14 @@ class SimplifyAggGroupByTest implements MemoPatternMatchSupported {
         LogicalPlan agg = new LogicalPlanBuilder(scan1)
                 .agg(groupBy, output)
                 .build();
-        PlanChecker.from(MemoTestUtils.createConnectContext(), agg)
+        ConnectContext connectContext = MemoTestUtils.createConnectContext();
+        connectContext.getSessionVariable().setEnableMaterializedViewRewrite(false);
+        PlanChecker.from(connectContext, agg)
                 .applyTopDown(new SimplifyAggGroupBy())
                 .matchesFromRoot(
                         logicalAggregate().when(a -> a.getGroupByExpressions().size() == 1)
                 );
-        PlanChecker.from(MemoTestUtils.createConnectContext(), agg)
+        PlanChecker.from(connectContext, agg)
                 .analyze()
                 .matchesFromRoot(
                         logicalProject(logicalAggregate().when(a -> a.getGroupByExpressions().size() == 1))
@@ -87,12 +90,14 @@ class SimplifyAggGroupByTest implements MemoPatternMatchSupported {
         LogicalPlan agg = new LogicalPlanBuilder(scan1)
                 .agg(groupBy, output)
                 .build();
-        PlanChecker.from(MemoTestUtils.createConnectContext(), agg)
+        ConnectContext connectContext = MemoTestUtils.createConnectContext();
+        connectContext.getSessionVariable().setEnableMaterializedViewRewrite(false);
+        PlanChecker.from(connectContext, agg)
                 .applyTopDown(new SimplifyAggGroupBy())
                 .matchesFromRoot(
                         logicalAggregate().when(a -> a.equals(agg))
                 );
-        PlanChecker.from(MemoTestUtils.createConnectContext(), agg)
+        PlanChecker.from(connectContext, agg)
                 .analyze()
                 .matchesFromRoot(
                         logicalProject(logicalAggregate().when(a -> a.getGroupByExpressions().size() == 2))
@@ -114,12 +119,14 @@ class SimplifyAggGroupByTest implements MemoPatternMatchSupported {
         LogicalPlan agg = new LogicalPlanBuilder(scan1)
                 .agg(groupBy, output)
                 .build();
-        PlanChecker.from(MemoTestUtils.createConnectContext(), agg)
+        ConnectContext connectContext = MemoTestUtils.createConnectContext();
+        connectContext.getSessionVariable().setEnableMaterializedViewRewrite(false);
+        PlanChecker.from(connectContext, agg)
                 .applyTopDown(new SimplifyAggGroupBy())
                 .matchesFromRoot(
                         logicalAggregate().when(a -> a.equals(agg))
                 );
-        PlanChecker.from(MemoTestUtils.createConnectContext(), agg)
+        PlanChecker.from(connectContext, agg)
                 .analyze()
                 .matchesFromRoot(
                         logicalProject(logicalAggregate().when(a -> a.getGroupByExpressions().size() == 2))

@@ -68,5 +68,4 @@ public class ExternalObjectLog implements Writable {
         String json = Text.readString(in);
         return GsonUtils.GSON.fromJson(json, ExternalObjectLog.class);
     }
-
 }

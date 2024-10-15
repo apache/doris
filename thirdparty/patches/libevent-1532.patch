@@ -1,0 +1,188 @@
+diff --git a/evutil.c b/evutil.c
+index 9817f08..e1803de 100644
+--- a/evutil.c
++++ b/evutil.c
+@@ -2763,3 +2763,137 @@ evutil_free_globals_(void)
+ 	evutil_free_secure_rng_globals_();
+ 	evutil_free_sock_err_globals();
+ }
++
++int
++evutil_set_tcp_keepalive(evutil_socket_t fd, int on, int timeout)
++{
++	int idle;
++	int intvl;
++	int cnt;
++
++	/* Prevent compiler from complaining unused variables warnings. */
++	(void) idle;
++	(void) intvl;
++	(void) cnt;
++
++	if (timeout <= 0) 
++		return 0;
++
++	if (setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, &on, sizeof(on)))
++		return -1;
++	if (!on) 
++		return 0;
++
++	/* Unlike Unix-like OS's, TCP keep-alive mechanism on Windows is kind of a mess, 
++	 * setting TCP_KEEPIDLE, TCP_KEEPINTVL and TCP_KEEPCNT on Windows could be a bit tricky.
++	 * Check out https://learn.microsoft.com/en-us/windows/win32/winsock/sio-keepalive-vals,
++	 * https://learn.microsoft.com/en-us/windows/win32/winsock/ipproto-tcp-socket-options.
++	 * These three options are not available until Windows 10, version 1709 where we set them
++	 * by `setsockopt` (slightly different from Unix-like OS's pattern), while on older Windows, 
++	 * we have to use `WSAIoctl` instead.
++	 * Therefore, we skip setting those three options on Windows for now.
++	 * TODO(panjf2000): enable the full TCP keep-alive mechanism on Windows when we find a feasible way to do it.
++	 */
++#ifndef _WIN32
++
++	/* The implementation of TCP keep-alive on Solaris/SmartOS is a bit unusual 
++	 * compared to other Unix-like systems. 
++	 * Thus, we need to specialize it on Solaris. 
++	 */
++#ifdef __sun
++	/* There are two keep-alive mechanisms on Solaris:
++	 * - By default, the first keep-alive probe is sent out after a TCP connection is idle for two hours. 
++	 * If the peer does not respond to the probe within eight minutes, the TCP connection is aborted. 
++	 * You can alter the interval for sending out the first probe using the socket option TCP_KEEPALIVE_THRESHOLD 
++	 * in milliseconds or TCP_KEEPIDLE in seconds.
++	 * The system default is controlled by the TCP ndd parameter tcp_keepalive_interval. The minimum value is ten seconds. 
++	 * The maximum is ten days, while the default is two hours. If you receive no response to the probe, 
++	 * you can use the TCP_KEEPALIVE_ABORT_THRESHOLD socket option to change the time threshold for aborting a TCP connection.
++	 * The option value is an unsigned integer in milliseconds. The value zero indicates that TCP should never time out and 
++	 * abort the connection when probing. The system default is controlled by the TCP ndd parameter tcp_keepalive_abort_interval. 
++	 * The default is eight minutes.
++	 *
++	 * - The second implementation is activated if socket option TCP_KEEPINTVL and/or TCP_KEEPCNT are set. 
++	 * The time between each consequent probes is set by TCP_KEEPINTVL in seconds. 
++	 * The minimum value is ten seconds. The maximum is ten days, while the default is two hours. 
++	 * The TCP connection will be aborted after certain amount of probes, which is set by TCP_KEEPCNT, without receiving response.
++	 */
++
++	idle = timeout;
++	/* Kernel expects at least 10 seconds. */
++	if (idle < 10) 
++		idle = 10;
++	/* Kernel expects at most 10 days. */
++	if (idle > 10*24*60*60) 
++		idle = 10*24*60*60; 
++	
++	/* `TCP_KEEPIDLE`, `TCP_KEEPINTVL`, and `TCP_KEEPCNT` were not available on Solaris 
++	 * until version 11.4, but let's gamble here.
++	 */
++#if defined(TCP_KEEPIDLE) && defined(TCP_KEEPINTVL) && defined(TCP_KEEPCNT)
++	if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPIDLE, &idle, sizeof(idle)))
++		return -1;
++	intvl = idle/3;
++	if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPINTVL, &intvl, sizeof(intvl)))
++		return -1;
++	cnt = 3;
++	if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPCNT, &cnt, sizeof(cnt)))
++		return -1;
++	return 0;
++#endif
++
++	/* Fall back to the first implementation of tcp-alive mechanism for older Solaris, 
++	 * simulate the tcp-alive mechanism on other platforms via `TCP_KEEPALIVE_THRESHOLD` + `TCP_KEEPALIVE_ABORT_THRESHOLD`.
++	 */
++	idle *= 1000; /* kernel expects milliseconds */
++	if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPALIVE_THRESHOLD, &idle, sizeof(idle)))
++		return -1;
++
++	/* Note that the consequent probes will not be sent at equal intervals on Solaris, 
++	 * but will be sent using the exponential backoff algorithm.
++	 */
++	intvl = idle/3;
++	cnt = 3;
++	int time_to_abort = intvl * cnt;
++	if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPALIVE_ABORT_THRESHOLD, &time_to_abort, sizeof(time_to_abort)))
++		return -1;
++
++	return 0;
++#endif
++
++#ifdef TCP_KEEPIDLE
++	idle = timeout;
++	if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPIDLE, &idle, sizeof(idle)))
++		return -1;
++#elif defined(TCP_KEEPALIVE)
++	/* Darwin/macOS uses TCP_KEEPALIVE in place of TCP_KEEPIDLE. */
++	idle = timeout;
++	if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPALIVE, &idle, sizeof(idle)))
++		return -1;
++#endif
++
++#ifdef TCP_KEEPINTVL
++	/* Set the interval between individual keep-alive probes as timeout / 3 
++	 * and the maximum number of keepalive probes as 3 to make it double timeout 
++	 * before aborting a dead connection. 
++	 */
++	intvl = timeout/3;
++	if (intvl == 0) 
++		intvl = 1;
++	if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPINTVL, &intvl, sizeof(intvl)))
++		return -1;
++#endif
++
++#ifdef TCP_KEEPCNT
++	/* Set the maximum number of keepalive probes as 3 to collaborate with
++	 * TCP_KEEPINTVL, see the previous comment.
++	 */
++	cnt = 3;
++	if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPCNT, &cnt, sizeof(cnt)))
++		return -1;
++#endif
++
++#endif /* !_WIN32 */
++
++	return 0;
++}
+diff --git a/http.c b/http.c
+index 53951cb..1ad60f8 100644
+--- a/http.c
++++ b/http.c
+@@ -4417,7 +4417,7 @@ create_bind_socket_nonblock(struct evutil_addrinfo *ai, int reuse)
+ {
+ 	evutil_socket_t fd;
+ 
+-	int on = 1, r;
++	int r;
+ 	int serrno;
+ 
+ 	/* Create listen socket */
+@@ -4428,7 +4428,8 @@ create_bind_socket_nonblock(struct evutil_addrinfo *ai, int reuse)
+ 			return (-1);
+ 	}
+ 
+-	if (setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, (void *)&on, sizeof(on))<0)
++	/* TODO(panjf2000): make this TCP keep-alive value configurable */
++	if (evutil_set_tcp_keepalive(fd, 1, 300) < 0)
+ 		goto out;
+ 	if (reuse) {
+ 		if (evutil_make_listen_socket_reuseable(fd) < 0)
+diff --git a/include/event2/util.h b/include/event2/util.h
+index 02aa7ba..688b641 100644
+--- a/include/event2/util.h
++++ b/include/event2/util.h
+@@ -469,6 +469,18 @@ int evutil_closesocket(evutil_socket_t sock);
+ EVENT2_EXPORT_SYMBOL
+ int evutil_make_tcp_listen_socket_deferred(evutil_socket_t sock);
+ 
++/** Do platform-specific operations to set/unset TCP keep-alive options
++ * TCP_KEEPIDLE, TCP_KEEPINTVL and TCP_KEEPCNT on a socket.
++ *  
++ *  @param sock The socket to be set TCP keep-alive 
++ *  @param on nonzero value to enable TCP keep-alive, 0 to disable
++ *  @param timeout The timeout in seconds with no activity until 
++ * 	   the first keepalive probe is sent
++ *  @return 0 on success, -1 on failure
++*/ 
++EVENT2_EXPORT_SYMBOL
++int evutil_set_tcp_keepalive(evutil_socket_t sock, int on, int timeout);
++
+ #ifdef _WIN32
+ /** Return the most recent socket error.  Not idempotent on all platforms. */
+ #define EVUTIL_SOCKET_ERROR() WSAGetLastError()

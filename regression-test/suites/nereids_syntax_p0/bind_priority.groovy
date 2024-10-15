@@ -42,7 +42,7 @@ suite("bind_priority") {
     """
 
     qt_select """
-        select coalesce(a, 'all') as a, count(*) as cnt from (select  null as a  union all  select  'a' as a ) t group by grouping sets ((a),()) order by a;
+        select coalesce(a, 'all') as a, count(*) as cnt from (select  null as a  union all  select  'a' as a ) t group by grouping sets ((a),()) order by a, cnt;
     """
 
     qt_select """

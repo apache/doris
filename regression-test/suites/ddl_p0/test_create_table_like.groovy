@@ -47,4 +47,58 @@ suite("test_create_table_like") {
         VALUES ("test1", 1, 123456789, 1234567891, 123456789, 1234567891, 123456789)"""
 
     qt_select_table_like """select * from decimal_test_like"""
+
+    def resource_name = "test_create_table_like_use_resource"
+    def policy_name = "test_create_table_like_use_policy"
+    def table1 = "create_table_partion_use_created_policy"
+    def table2 = "create_table_partion_like_use_created_policy"
+
+    sql """
+        CREATE RESOURCE IF NOT EXISTS $resource_name
+        PROPERTIES(
+            "type"="s3",
+            "AWS_REGION" = "bj",
+            "AWS_ENDPOINT" = "bj.s3.comaaaa",
+            "AWS_ROOT_PATH" = "path/to/rootaaaa",
+            "AWS_SECRET_KEY" = "aaaa",
+            "AWS_ACCESS_KEY" = "bbba",
+            "AWS_BUCKET" = "test-bucket",
+            "s3_validity_check" = "false"
+        );
+    """
+    sql """
+        CREATE STORAGE POLICY IF NOT EXISTS $policy_name
+        PROPERTIES(
+        "storage_resource" = "$resource_name",
+        "cooldown_ttl" = "10"
+        );
+    """
+
+    sql """DROP TABLE IF EXISTS $table1"""
+    sql """DROP TABLE IF EXISTS $table2"""
+
+    sql """
+        CREATE TABLE $table1
+        (
+            k1 DATE,
+            k2 INT,
+            V1 VARCHAR(2048) REPLACE
+        ) PARTITION BY RANGE (k1) (
+            PARTITION p1 VALUES LESS THAN ("2022-01-01") ("storage_policy" = "$policy_name"),
+            PARTITION p2 VALUES LESS THAN ("2022-02-01") ("storage_policy" = "$policy_name")
+        ) 
+        DISTRIBUTED BY HASH(k2) BUCKETS 1
+        PROPERTIES (
+            "replication_num"="1"
+        );
+    """
+
+    sql """
+        CREATE TABLE $table2 LIKE $table1
+    """
+
+    sql """DROP TABLE IF EXISTS $table1"""
+    sql """DROP TABLE IF EXISTS $table2"""
+    sql """DROP STORAGE POLICY $policy_name"""
+    sql """DROP RESOURCE $resource_name"""
 }

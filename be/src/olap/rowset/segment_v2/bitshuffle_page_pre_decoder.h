@@ -39,7 +39,7 @@ struct BitShufflePagePreDecoder : public DataPagePreDecoder {
      * @return Status
      */
     Status decode(std::unique_ptr<DataPage>* page, Slice* page_slice, size_t size_of_tail,
-                  const std::shared_ptr<MemTrackerLimiter>& mem_tracker) override {
+                  bool _use_cache, segment_v2::PageTypePB page_type) override {
         size_t num_elements, compressed_size, num_element_after_padding;
         int size_of_element;
 
@@ -67,7 +67,7 @@ struct BitShufflePagePreDecoder : public DataPagePreDecoder {
         decoded_slice.size = size_of_dict_header + BITSHUFFLE_PAGE_HEADER_SIZE +
                              num_element_after_padding * size_of_element + size_of_tail;
         std::unique_ptr<DataPage> decoded_page =
-                std::make_unique<DataPage>(decoded_slice.size, mem_tracker);
+                std::make_unique<DataPage>(decoded_slice.size, _use_cache, page_type);
         decoded_slice.data = decoded_page->data();
 
         if constexpr (USED_IN_DICT_ENCODING) {

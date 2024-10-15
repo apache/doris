@@ -28,8 +28,9 @@
 #include <type_traits>
 
 #include "common/config.h"
-#include "common/sync_point.h"
+#include "cpp/sync_point.h"
 #include "meta-service/txn_kv.h"
+#include "meta-service/txn_lazy_committer.h"
 #include "rate-limiter/rate_limiter.h"
 #include "resource-manager/resource_manager.h"
 
@@ -49,6 +50,10 @@ public:
     [[nodiscard]] const std::shared_ptr<RateLimiter>& rate_limiter() const { return rate_limiter_; }
     [[nodiscard]] const std::shared_ptr<ResourceManager>& resource_mgr() const {
         return resource_mgr_;
+    }
+
+    [[nodiscard]] const std::shared_ptr<TxnLazyCommitter>& txn_lazy_committer() const {
+        return txn_lazy_committer_;
     }
 
     void begin_txn(::google::protobuf::RpcController* controller, const BeginTxnRequest* request,
@@ -76,10 +81,23 @@ public:
                                 GetCurrentMaxTxnResponse* response,
                                 ::google::protobuf::Closure* done) override;
 
+    void begin_sub_txn(::google::protobuf::RpcController* controller,
+                       const BeginSubTxnRequest* request, BeginSubTxnResponse* response,
+                       ::google::protobuf::Closure* done) override;
+
+    void abort_sub_txn(::google::protobuf::RpcController* controller,
+                       const AbortSubTxnRequest* request, AbortSubTxnResponse* response,
+                       ::google::protobuf::Closure* done) override;
+
     void check_txn_conflict(::google::protobuf::RpcController* controller,
                             const CheckTxnConflictRequest* request,
                             CheckTxnConflictResponse* response,
                             ::google::protobuf::Closure* done) override;
+
+    void abort_txn_with_coordinator(::google::protobuf::RpcController* controller,
+                                    const AbortTxnWithCoordinatorRequest* request,
+                                    AbortTxnWithCoordinatorResponse* response,
+                                    ::google::protobuf::Closure* done) override;
 
     void clean_txn_label(::google::protobuf::RpcController* controller,
                          const CleanTxnLabelRequest* request, CleanTxnLabelResponse* response,
@@ -133,6 +151,9 @@ public:
     void drop_index(::google::protobuf::RpcController* controller, const IndexRequest* request,
                     IndexResponse* response, ::google::protobuf::Closure* done) override;
 
+    void check_kv(::google::protobuf::RpcController* controller, const CheckKVRequest* request,
+                  CheckKVResponse* response, ::google::protobuf::Closure* done) override;
+
     void prepare_partition(::google::protobuf::RpcController* controller,
                            const PartitionRequest* request, PartitionResponse* response,
                            ::google::protobuf::Closure* done) override;
@@ -169,6 +190,11 @@ public:
                               const AlterObjStoreInfoRequest* request,
                               AlterObjStoreInfoResponse* response,
                               ::google::protobuf::Closure* done) override;
+
+    void alter_storage_vault(google::protobuf::RpcController* controller,
+                             const AlterObjStoreInfoRequest* request,
+                             AlterObjStoreInfoResponse* response,
+                             ::google::protobuf::Closure* done) override;
 
     void update_ak_sk(google::protobuf::RpcController* controller, const UpdateAkSkRequest* request,
                       UpdateAkSkResponse* response, ::google::protobuf::Closure* done) override;
@@ -243,6 +269,11 @@ public:
                                        GetDeleteBitmapUpdateLockResponse* response,
                                        ::google::protobuf::Closure* done) override;
 
+    void remove_delete_bitmap(google::protobuf::RpcController* controller,
+                              const RemoveDeleteBitmapRequest* request,
+                              RemoveDeleteBitmapResponse* response,
+                              ::google::protobuf::Closure* done) override;
+
     // cloud control get cluster's status by this api
     void get_cluster_status(google::protobuf::RpcController* controller,
                             const GetClusterStatusRequest* request,
@@ -253,6 +284,13 @@ public:
                                    const GetRLTaskCommitAttachRequest* request,
                                    GetRLTaskCommitAttachResponse* response,
                                    ::google::protobuf::Closure* done) override;
+
+    void reset_rl_progress(::google::protobuf::RpcController* controller,
+                           const ResetRLProgressRequest* request, ResetRLProgressResponse* response,
+                           ::google::protobuf::Closure* done) override;
+
+    void get_txn_id(::google::protobuf::RpcController* controller, const GetTxnIdRequest* request,
+                    GetTxnIdResponse* response, ::google::protobuf::Closure* done) override;
 
     // ATTN: If you add a new method, please also add the corresponding implementation in `MetaServiceProxy`.
 
@@ -268,6 +306,7 @@ private:
     std::shared_ptr<TxnKv> txn_kv_;
     std::shared_ptr<ResourceManager> resource_mgr_;
     std::shared_ptr<RateLimiter> rate_limiter_;
+    std::shared_ptr<TxnLazyCommitter> txn_lazy_committer_;
 };
 
 class MetaServiceProxy final : public MetaService {
@@ -318,11 +357,31 @@ public:
         call_impl(&cloud::MetaService::get_current_max_txn_id, controller, request, response, done);
     }
 
+    void begin_sub_txn(::google::protobuf::RpcController* controller,
+                       const BeginSubTxnRequest* request, BeginSubTxnResponse* response,
+                       ::google::protobuf::Closure* done) override {
+        call_impl(&cloud::MetaService::begin_sub_txn, controller, request, response, done);
+    }
+
+    void abort_sub_txn(::google::protobuf::RpcController* controller,
+                       const AbortSubTxnRequest* request, AbortSubTxnResponse* response,
+                       ::google::protobuf::Closure* done) override {
+        call_impl(&cloud::MetaService::abort_sub_txn, controller, request, response, done);
+    }
+
     void check_txn_conflict(::google::protobuf::RpcController* controller,
                             const CheckTxnConflictRequest* request,
                             CheckTxnConflictResponse* response,
                             ::google::protobuf::Closure* done) override {
         call_impl(&cloud::MetaService::check_txn_conflict, controller, request, response, done);
+    }
+
+    void abort_txn_with_coordinator(::google::protobuf::RpcController* controller,
+                                    const AbortTxnWithCoordinatorRequest* request,
+                                    AbortTxnWithCoordinatorResponse* response,
+                                    ::google::protobuf::Closure* done) override {
+        call_impl(&cloud::MetaService::abort_txn_with_coordinator, controller, request, response,
+                  done);
     }
 
     void clean_txn_label(::google::protobuf::RpcController* controller,
@@ -399,6 +458,11 @@ public:
         call_impl(&cloud::MetaService::drop_index, controller, request, response, done);
     }
 
+    void check_kv(::google::protobuf::RpcController* controller, const CheckKVRequest* request,
+                  CheckKVResponse* response, ::google::protobuf::Closure* done) override {
+        call_impl(&cloud::MetaService::check_kv, controller, request, response, done);
+    }
+
     void prepare_partition(::google::protobuf::RpcController* controller,
                            const PartitionRequest* request, PartitionResponse* response,
                            ::google::protobuf::Closure* done) override {
@@ -452,6 +516,13 @@ public:
                               AlterObjStoreInfoResponse* response,
                               ::google::protobuf::Closure* done) override {
         call_impl(&cloud::MetaService::alter_obj_store_info, controller, request, response, done);
+    }
+
+    void alter_storage_vault(google::protobuf::RpcController* controller,
+                             const AlterObjStoreInfoRequest* request,
+                             AlterObjStoreInfoResponse* response,
+                             ::google::protobuf::Closure* done) override {
+        call_impl(&cloud::MetaService::alter_storage_vault, controller, request, response, done);
     }
 
     void update_ak_sk(google::protobuf::RpcController* controller, const UpdateAkSkRequest* request,
@@ -569,6 +640,13 @@ public:
                   done);
     }
 
+    void remove_delete_bitmap(google::protobuf::RpcController* controller,
+                              const RemoveDeleteBitmapRequest* request,
+                              RemoveDeleteBitmapResponse* response,
+                              ::google::protobuf::Closure* done) override {
+        call_impl(&cloud::MetaService::remove_delete_bitmap, controller, request, response, done);
+    }
+
     // cloud control get cluster's status by this api
     void get_cluster_status(google::protobuf::RpcController* controller,
                             const GetClusterStatusRequest* request,
@@ -583,6 +661,17 @@ public:
                                    ::google::protobuf::Closure* done) override {
         call_impl(&cloud::MetaService::get_rl_task_commit_attach, controller, request, response,
                   done);
+    }
+
+    void reset_rl_progress(::google::protobuf::RpcController* controller,
+                           const ResetRLProgressRequest* request, ResetRLProgressResponse* response,
+                           ::google::protobuf::Closure* done) override {
+        call_impl(&cloud::MetaService::reset_rl_progress, controller, request, response, done);
+    }
+
+    void get_txn_id(::google::protobuf::RpcController* controller, const GetTxnIdRequest* request,
+                    GetTxnIdResponse* response, ::google::protobuf::Closure* done) override {
+        call_impl(&cloud::MetaService::get_txn_id, controller, request, response, done);
     }
 
 private:

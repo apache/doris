@@ -24,8 +24,11 @@ import org.apache.doris.analysis.ShowReplicaDistributionStmt;
 import org.apache.doris.analysis.ShowReplicaStatusStmt;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.Replica.ReplicaStatus;
+import org.apache.doris.cloud.catalog.CloudEnv;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 
@@ -85,7 +88,7 @@ public class MetadataViewer {
                             List<String> row = Lists.newArrayList();
 
                             ReplicaStatus status = ReplicaStatus.OK;
-                            Backend be = infoService.getBackend(replica.getBackendId());
+                            Backend be = infoService.getBackend(replica.getBackendIdWithoutException());
                             if (be == null || !be.isAlive() || replica.isBad()) {
                                 status = ReplicaStatus.DEAD;
                             } else if (replica.getVersion() < visibleVersion
@@ -104,13 +107,13 @@ public class MetadataViewer {
 
                             row.add(String.valueOf(tabletId));
                             row.add(String.valueOf(replica.getId()));
-                            row.add(String.valueOf(replica.getBackendId()));
+                            row.add(String.valueOf(replica.getBackendIdWithoutException()));
                             row.add(String.valueOf(replica.getVersion()));
                             row.add(String.valueOf(replica.getLastFailedVersion()));
                             row.add(String.valueOf(replica.getLastSuccessVersion()));
                             row.add(String.valueOf(visibleVersion));
                             row.add(String.valueOf(replica.getSchemaHash()));
-                            row.add(String.valueOf(replica.getVersionCount()));
+                            row.add(String.valueOf(replica.getTotalVersionCount()));
                             row.add(String.valueOf(replica.isBad()));
                             row.add(String.valueOf(replica.isUserDrop()));
                             row.add(replica.getState().name());
@@ -212,12 +215,13 @@ public class MetadataViewer {
                 for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
                     for (Tablet tablet : index.getTablets()) {
                         for (Replica replica : tablet.getReplicas()) {
-                            if (!countMap.containsKey(replica.getBackendId())) {
+                            if (!countMap.containsKey(replica.getBackendIdWithoutException())) {
                                 continue;
                             }
-                            countMap.put(replica.getBackendId(), countMap.get(replica.getBackendId()) + 1);
-                            sizeMap.put(replica.getBackendId(),
-                                    sizeMap.get(replica.getBackendId()) + replica.getDataSize());
+                            countMap.put(replica.getBackendIdWithoutException(),
+                                    countMap.get(replica.getBackendIdWithoutException()) + 1);
+                            sizeMap.put(replica.getBackendIdWithoutException(),
+                                    sizeMap.get(replica.getBackendIdWithoutException()) + replica.getDataSize());
                             totalReplicaNum++;
                             totalReplicaSize += replica.getDataSize();
                         }
@@ -238,6 +242,19 @@ public class MetadataViewer {
                 row.add(graph(sizeMap.get(beId), totalReplicaSize));
                 row.add(totalReplicaSize == sizeMap.get(beId) ? (totalReplicaSize == 0 ? "0.00%" : "100.00%")
                         : df.format((double) sizeMap.get(beId) / totalReplicaSize));
+                if (Config.isNotCloudMode()) {
+                    row.add("");
+                    row.add("");
+                } else {
+                    Backend be = CloudEnv.getCurrentSystemInfo().getBackend(beId);
+                    if (be != null) {
+                        row.add(be.getTagMap().get(Tag.CLOUD_CLUSTER_NAME));
+                        row.add(be.getTagMap().get(Tag.CLOUD_CLUSTER_ID));
+                    } else {
+                        row.add("not exist be");
+                        row.add("not exist be");
+                    }
+                }
                 result.add(row);
             }
 
@@ -281,7 +298,7 @@ public class MetadataViewer {
             for (Partition p : olapTable.getPartitions()) {
                 allPartionNames.put(p.getName(), false);
             }
-            for (Partition p : olapTable.getTempPartitions()) {
+            for (Partition p : olapTable.getAllTempPartitions()) {
                 allPartionNames.put(p.getName(), true);
             }
         } else {

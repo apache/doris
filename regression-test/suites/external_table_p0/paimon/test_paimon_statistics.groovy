@@ -19,7 +19,7 @@ suite("test_paimon_statistics", "p0,external,doris,external_docker,external_dock
     String enabled = context.config.otherConfigs.get("enablePaimonTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         try {
-            String hdfs_port = context.config.otherConfigs.get("hdfs_port")
+            String hdfs_port = context.config.otherConfigs.get("hive2HdfsPort")
             String catalog_name = "ctl_test_paimon_statistics"
             String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
 

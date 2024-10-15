@@ -21,7 +21,9 @@ suite("filter_push_through_aggregate") {
     sql "SET enable_fallback_to_original_planner=false"
     sql "SET ignore_shape_nodes='PhysicalDistribute,PhysicalProject'"
     sql "SET disable_join_reorder=true"
-  
+    sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
+
+
     sql """
         DROP TABLE IF EXISTS filter_push_through_aggregate
        """

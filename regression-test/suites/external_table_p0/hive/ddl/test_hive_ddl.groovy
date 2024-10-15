@@ -73,7 +73,7 @@ suite("test_hive_ddl", "p0,external,hive,external_docker,external_docker_hive") 
                         properties('location'='tt://${externalEnvIp}:${hdfs_port}/exist_check')
                     """
             } catch (Exception e) {
-                assertTrue(e.getMessage().contains("No FileSystem for scheme: tt"))
+                assertTrue(e.getMessage().contains("No FileSystem for scheme"))
             }
             try {
                 sql """ create database if not exists `test_hive_loc_no_exist`
@@ -89,6 +89,166 @@ suite("test_hive_ddl", "p0,external,hive,external_docker,external_docker_hive") 
             } catch (Exception e) {
                 assertTrue(e.getMessage().contains("Relative path in absolute URI"))
             }
+        }
+
+        def test_tbl_default_val = { String file_format, String externalEnvIp, String hms_port,
+                                     String hdfs_port, String catalog_name ->
+
+            // create and insert default value is supported on hive3, we can test default hive version 2.3
+            sql """switch ${catalog_name}"""
+            sql  """ create database if not exists `test_hive_default_val`
+                 """
+            sql """use `test_hive_default_val`"""
+            test {
+                sql """ 
+                        CREATE TABLE all_default_values_${file_format}_hive2(
+                          `col1` BOOLEAN DEFAULT 'false' COMMENT 'col1',
+                          `col2` TINYINT DEFAULT '127' COMMENT 'col2'
+                        )  ENGINE=hive
+                        PROPERTIES (
+                          'file_format'='${file_format}'
+                        )
+                    """
+                exception "failed to create table from hms client. reason: java.lang.UnsupportedOperationException: Table with default values is not supported if the hive version is less than 3.0. Can set 'hive.version' to 3.0 in properties."
+            }
+            sql """DROP DATABASE `test_hive_default_val`"""
+
+            test {
+                sql """
+                CREATE TABLE all_default_values_${file_format}_err_bool(
+                  `col1` BOOLEAN DEFAULT '-1' COMMENT 'col1'
+                )  ENGINE=hive 
+                PROPERTIES (
+                  'file_format'='${file_format}'
+                )
+                """
+                exception "Invalid BOOLEAN literal: -1"
+            }
+
+            test {
+                sql """
+                CREATE TABLE all_default_values_${file_format}_err_float(
+                  `col1` FLOAT DEFAULT '1.1234' COMMENT 'col1'
+                )  ENGINE=hive 
+                PROPERTIES (
+                  'file_format'='${file_format}'
+                )
+                """
+                exception "Default value will loose precision: 1.1234"
+            }
+
+            test {
+                sql """
+                CREATE TABLE all_default_values_${file_format}_err_double(
+                  `col1` DOUBLE DEFAULT 'abc' COMMENT 'col1'
+                )  ENGINE=hive 
+                PROPERTIES (
+                  'file_format'='${file_format}'
+                )
+                """
+                exception "Invalid floating-point literal: abc"
+            }
+
+            test {
+                sql """
+                CREATE TABLE all_default_values_${file_format}_err_int(
+                  `col1` INT DEFAULT 'abcd' COMMENT 'col1'
+                )  ENGINE=hive 
+                PROPERTIES (
+                  'file_format'='${file_format}'
+                )
+                """
+                exception "Invalid number format: abcd"
+            }
+
+            test {
+                sql """
+                CREATE TABLE all_default_values_${file_format}_err_date(
+                  `col1` DATE DEFAULT '123' COMMENT 'col1'
+                )  ENGINE=hive 
+                PROPERTIES (
+                  'file_format'='${file_format}'
+                )
+                """
+                exception "date literal [123] is invalid: null"
+            }
+
+            test {
+                sql """
+                CREATE TABLE all_default_values_${file_format}_err_datetime(
+                   `col1` DATETIME DEFAULT '1512561000000' COMMENT 'col1'
+                )  ENGINE=hive 
+                PROPERTIES (
+                  'file_format'='${file_format}'
+                )
+                """
+                exception "date literal [1512561000000] is invalid: errCode = 2, detailMessage = Invalid date value: 1512561000000"
+            }
+
+            test {
+                sql """
+                CREATE TABLE all_default_values_${file_format}_err_datetime(
+                   `col1` DATETIME DEFAULT '2020-09-20 02:60' COMMENT 'col1'
+                )  ENGINE=hive 
+                PROPERTIES (
+                  'file_format'='${file_format}'
+                )
+                """
+                exception "date literal [2020-09-20 02:60] is invalid: Text '2020-09-20 02:60' could not be parsed: Invalid value for MinuteOfHour (valid values 0 - 59): 60"
+            }
+
+            // test 'hive.version' = '3.0'
+            //            sql """drop catalog if exists ${catalog_name}_hive3"""
+            //            sql """create catalog if not exists ${catalog_name}_hive3 properties (
+            //                'type'='hms',
+            //                'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}',
+            //                'fs.defaultFS' = 'hdfs://${externalEnvIp}:${hdfs_port}',
+            //                'hive.version' = '3.0'
+            //            );"""
+            //            sql """ switch ${catalog_name}_hive3 """
+            //            sql  """ create database if not exists `test_hive_default_val_hive3`
+            //                 """
+            //            sql """use `test_hive_default_val_hive3`"""
+            //            // test create hive3 table when use 'hive.version' = '3.0'
+            //            sql """
+            //                CREATE TABLE all_default_values_${file_format}(
+            //                  `col1` BOOLEAN DEFAULT 'false' COMMENT 'col1',
+            //                  `col2` TINYINT DEFAULT '127' COMMENT 'col2',
+            //                  `col3` SMALLINT DEFAULT '32767' COMMENT 'col3',
+            //                  `col4` INT DEFAULT '2147483647' COMMENT 'col4',
+            //                  `col5` BIGINT DEFAULT '9223372036854775807' COMMENT 'col5',
+            //                  `col6` CHAR(10) DEFAULT 'default' COMMENT 'col6',
+            //                  `col7` FLOAT DEFAULT '1' COMMENT 'col7',
+            //                  `col8` DOUBLE DEFAULT '3.141592653' COMMENT 'col8',
+            //                  `col9` DECIMAL(9,4) DEFAULT '99999.9999' COMMENT 'col9',
+            //                  `col10` VARCHAR(11) DEFAULT 'default' COMMENT 'col10',
+            //                  `col11` STRING DEFAULT 'default' COMMENT 'col11',
+            //                  `col12` DATE DEFAULT '2023-05-29' COMMENT 'col12',
+            //                  `col13` DATETIME DEFAULT current_timestamp COMMENT 'col13'
+            //                )  ENGINE=hive
+            //                PROPERTIES (
+            //                  'file_format'='${file_format}'
+            //                )
+            //                """
+            //            // TODO: work on hive3
+            //            sql """ INSERT INTO all_default_values_${file_format}
+            //                    VALUES(null, null, null, null, null, null, null, null, null, null, null, null, null)
+            //                """
+            //            sql """ INSERT INTO all_default_values_${file_format} (col1, col3, col5, col7, col12)
+            //                    VALUES(false, null, 3.4, null, null)
+            //                """
+            //            sql """ INSERT INTO all_default_values_${file_format} (col2, col4, col6, col9, col11)
+            //                    VALUES(-128, null, 'A', null, '2024-07-30')
+            //                """
+            //            order_qt_default_val01 """ SELECT * FROM all_default_values_${file_format} """
+            //            test {
+            //                sql """ INSERT INTO all_default_values_${file_format} (col2, col4, col6, col9, col11)
+            //                    VALUES("123", "abcd", 'Ab', null, '2024-07-30')
+            //                """
+            //                exception "errCode = 2, detailMessage = errCode = 2, detailMessage = Invalid number format: abcd"
+            //            }
+            //
+            //            sql """DROP TABLE `all_default_values_${file_format}`"""
         }
 
         def test_loc_tbl = { String file_format, String externalEnvIp, String hdfs_port, String catalog_name ->
@@ -168,122 +328,7 @@ suite("test_hive_ddl", "p0,external,hive,external_docker,external_docker_hive") 
             logger.info("${tvfDropRes2}")
             assertTrue(tvfDropRes2.isEmpty())
 
-            // case3. check default
-            sql """
-                CREATE TABLE all_default_values_${file_format}(
-                  `col1` BOOLEAN DEFAULT 'false' COMMENT 'col1',
-                  `col2` TINYINT DEFAULT '127' COMMENT 'col2',
-                  `col3` SMALLINT DEFAULT '32767' COMMENT 'col3',
-                  `col4` INT DEFAULT '2147483647' COMMENT 'col4',
-                  `col5` BIGINT DEFAULT '9223372036854775807' COMMENT 'col5',
-                  `col6` CHAR(10) DEFAULT 'default' COMMENT 'col6',
-                  `col7` FLOAT DEFAULT '1' COMMENT 'col7',
-                  `col8` DOUBLE DEFAULT '3.141592653' COMMENT 'col8',
-                  `col9` DECIMAL(9,4) DEFAULT '99999.9999' COMMENT 'col9',
-                  `col10` VARCHAR(11) DEFAULT 'default' COMMENT 'col10',
-                  `col11` STRING DEFAULT 'default' COMMENT 'col11',
-                  `col12` DATE DEFAULT '2023-05-29' COMMENT 'col12',
-                  `col13` DATETIME DEFAULT current_timestamp COMMENT 'col13'
-                )  ENGINE=hive
-                PROPERTIES (
-                  'file_format'='${file_format}'
-                )
-                """
-            // need support default insert:
-            //            sql """ INSERT INTO all_default_values_${file_format}
-            //                    VALUES(null, null, null, null, null, null, null, null, null, null, null, null, null)
-            //                """
-            //            sql """ INSERT INTO all_default_values_${file_format} (col1, col3, col5, col7, col12)
-            //                    VALUES(null, null, null, null)
-            //                """
-            //            order_qt_default_val01 """ SELECT * FROM all_default_values_${file_format} """
-            sql """DROP TABLE `all_default_values_${file_format}`"""
-
-            test {
-                sql """
-                CREATE TABLE all_default_values_${file_format}_err_bool(
-                  `col1` BOOLEAN DEFAULT '-1' COMMENT 'col1'
-                )  ENGINE=hive 
-                PROPERTIES (
-                  'file_format'='${file_format}'
-                )
-                """
-                exception "errCode = 2, detailMessage = errCode = 2, detailMessage = Invalid BOOLEAN literal: -1"
-            }
-
-            test {
-                sql """
-                CREATE TABLE all_default_values_${file_format}_err_float(
-                  `col1` FLOAT DEFAULT '1.1234' COMMENT 'col1'
-                )  ENGINE=hive 
-                PROPERTIES (
-                  'file_format'='${file_format}'
-                )
-                """
-                exception "errCode = 2, detailMessage = errCode = 2, detailMessage = Default value will loose precision: 1.1234"
-            }
-
-            test {
-                sql """
-                CREATE TABLE all_default_values_${file_format}_err_double(
-                  `col1` DOUBLE DEFAULT 'abc' COMMENT 'col1'
-                )  ENGINE=hive 
-                PROPERTIES (
-                  'file_format'='${file_format}'
-                )
-                """
-                exception "errCode = 2, detailMessage = errCode = 2, detailMessage = Invalid floating-point literal: abc"
-            }
-
-            test {
-                sql """
-                CREATE TABLE all_default_values_${file_format}_err_int(
-                  `col1` INT DEFAULT 'abcd' COMMENT 'col1'
-                )  ENGINE=hive 
-                PROPERTIES (
-                  'file_format'='${file_format}'
-                )
-                """
-                exception "errCode = 2, detailMessage = errCode = 2, detailMessage = Invalid number format: abcd"
-            }
-
-            test {
-                sql """
-                CREATE TABLE all_default_values_${file_format}_err_date(
-                  `col1` DATE DEFAULT '123' COMMENT 'col1'
-                )  ENGINE=hive 
-                PROPERTIES (
-                  'file_format'='${file_format}'
-                )
-                """
-                exception "errCode = 2, detailMessage = errCode = 2, detailMessage = date literal [123] is invalid: null"
-            }
-
-            test {
-                sql """
-                CREATE TABLE all_default_values_${file_format}_err_datetime(
-                   `col1` DATETIME DEFAULT '1512561000000' COMMENT 'col1'
-                )  ENGINE=hive 
-                PROPERTIES (
-                  'file_format'='${file_format}'
-                )
-                """
-                exception "errCode = 2, detailMessage = errCode = 2, detailMessage = date literal [1512561000000] is invalid: errCode = 2, detailMessage = Invalid date value: 1512561000000"
-            }
-
-            test {
-                sql """
-                CREATE TABLE all_default_values_${file_format}_err_datetime(
-                   `col1` DATETIME DEFAULT '2020-09-20 02:60' COMMENT 'col1'
-                )  ENGINE=hive 
-                PROPERTIES (
-                  'file_format'='${file_format}'
-                )
-                """
-                exception "errCode = 2, detailMessage = errCode = 2, detailMessage = date literal [2020-09-20 02:60] is invalid: Text '2020-09-20 02:60' could not be parsed: Invalid value for MinuteOfHour (valid values 0 - 59): 60"
-            }
-
-            // case4. check some exceptions
+            // case3. check some exceptions
             def comment_check = sql """ CREATE TABLE ex_tbl_${file_format}(
                                           `col1` INT COMMENT 'col1',
                                           `col2` STRING COMMENT 'col2',
@@ -310,14 +355,14 @@ suite("test_hive_ddl", "p0,external,hive,external_docker,external_docker_hive") 
                             'file_format'='${file_format}'
                         )
                     """
-                exception "errCode = 2, detailMessage = hive catalog doesn't support column with 'NOT NULL'."
+                exception "hive catalog doesn't support column with 'NOT NULL'."
             }
 
             test {
                 sql """
                         CREATE TABLE schema_check ENGINE=hive ;
                     """
-                exception "AnalysisException, msg: Should contain at least one column in a table"
+                exception "Should contain at least one column in a table"
             }
             sql """ DROP DATABASE IF EXISTS `test_hive_loc` """
         }
@@ -393,7 +438,7 @@ suite("test_hive_ddl", "p0,external,hive,external_docker,external_docker_hive") 
                             'replication_num' = '1'
                         );
                     """
-                exception "errCode = 2, detailMessage = errCode = 2, detailMessage = errCode = 2, detailMessage = Create hive bucket table need set enable_create_hive_bucket_table to true"
+                exception "Create hive bucket table need set enable_create_hive_bucket_table to true"
             }
 
             sql """ SWITCH internal """
@@ -406,7 +451,7 @@ suite("test_hive_ddl", "p0,external,hive,external_docker,external_docker_hive") 
                           `col` STRING COMMENT 'col'
                         )  ENGINE=hive 
                     """
-                exception "errCode = 2, detailMessage = errCode = 2, detailMessage = Cannot create hive table in internal catalog, should switch to hive catalog."
+                exception "Cannot create hive table in internal catalog, should switch to hive catalog."
             }
 
             sql """ DROP DATABASE IF EXISTS test_olap_cross_catalog """
@@ -419,6 +464,7 @@ suite("test_hive_ddl", "p0,external,hive,external_docker,external_docker_hive") 
             sql """ create database if not exists `test_hive_db_tbl` """;
             sql """use `${catalog_name}`.`test_hive_db_tbl`"""
 
+            sql """ drop table if exists unpart_tbl_${file_format}"""
             sql """
                 CREATE TABLE unpart_tbl_${file_format}(
                   `col1` BOOLEAN COMMENT 'col1',
@@ -573,7 +619,7 @@ suite("test_hive_ddl", "p0,external,hive,external_docker,external_docker_hive") 
                       'file_format'='${file_format}'
                     ) 
                     """
-                exception "errCode = 2, detailMessage = errCode = 2, detailMessage = errCode = 2, detailMessage = Partition values expressions is not supported in hive catalog."
+                exception "Partition values expressions is not supported in hive catalog."
             }
 
             test {
@@ -588,7 +634,7 @@ suite("test_hive_ddl", "p0,external,hive,external_docker,external_docker_hive") 
                       'file_format'='${file_format}'
                     ) 
                     """
-                exception "errCode = 2, detailMessage = partition key pt000 is not exists"
+                exception "partition key pt000 is not exists"
             }
 
             test {
@@ -602,7 +648,7 @@ suite("test_hive_ddl", "p0,external,hive,external_docker,external_docker_hive") 
                       'file_format'='${file_format}'
                     )
                     """
-                exception "errCode = 2, detailMessage = errCode = 2, detailMessage = failed to create database from hms client. reason: org.apache.doris.datasource.hive.HMSClientException: Unsupported primitive type conversion of LARGEINT"
+                exception "failed to create table from hms client. reason: org.apache.doris.datasource.hive.HMSClientException: Unsupported primitive type conversion of largeint"
             }
 
             test {
@@ -616,7 +662,7 @@ suite("test_hive_ddl", "p0,external,hive,external_docker,external_docker_hive") 
                       'file_format'='${file_format}'
                     )
                     """
-                exception "errCode = 2, detailMessage = Floating point type column can not be partition column"
+                exception "Floating point type column can not be partition column"
             }
 
             test {
@@ -630,16 +676,34 @@ suite("test_hive_ddl", "p0,external,hive,external_docker,external_docker_hive") 
                       'file_format'='${file_format}'
                     )
                     """
-                exception "errCode = 2, detailMessage = Floating point type column can not be partition column"
+                exception "Floating point type column can not be partition column"
             }
 
             sql """ drop database if exists `test_hive_db_tbl` """;
         }
 
+        def test_error_create = { String catalog_name ->
+            sql """switch `${catalog_name}`"""
+            sql """ drop database if exists test_hive_db_error_tbl """
+            sql """ create database `test_hive_db_error_tbl` """;
+
+            test {
+                sql """ create table err_tb (id int) engine = iceberg """
+                exception "Hms type catalog can only use `hive` engine."
+            }
+
+            test {
+                sql """ create table err_tb (id int) engine = jdbc """
+                exception "Hms type catalog can only use `hive` engine."
+            }
+
+            sql """ drop database test_hive_db_error_tbl """
+        }
+
 
         try {
-            String hms_port = context.config.otherConfigs.get("hms_port")
-            String hdfs_port = context.config.otherConfigs.get("hdfs_port")
+            String hms_port = context.config.otherConfigs.get("hive2HmsPort")
+            String hdfs_port = context.config.otherConfigs.get("hive2HdfsPort")
             String catalog_name = "test_hive_ddl"
             String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
 
@@ -647,7 +711,8 @@ suite("test_hive_ddl", "p0,external,hive,external_docker,external_docker_hive") 
             sql """create catalog if not exists ${catalog_name} properties (
                 'type'='hms',
                 'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}',
-                'fs.defaultFS' = 'hdfs://${externalEnvIp}:${hdfs_port}'
+                'fs.defaultFS' = 'hdfs://${externalEnvIp}:${hdfs_port}',
+                'use_meta_cache' = 'true'
             );"""
             sql """switch ${catalog_name}"""
 
@@ -658,6 +723,7 @@ suite("test_hive_ddl", "p0,external,hive,external_docker,external_docker_hive") 
             for (String file_format in file_formats) {
                 logger.info("Process file format " + file_format)
                 test_loc_tbl(file_format, externalEnvIp, hdfs_port, catalog_name)
+                test_tbl_default_val(file_format, externalEnvIp, hms_port, hdfs_port, catalog_name)
                 test_db_tbl(file_format, externalEnvIp, hdfs_port, catalog_name)
 
                 for (String compression in compressions) {
@@ -669,6 +735,7 @@ suite("test_hive_ddl", "p0,external,hive,external_docker,external_docker_hive") 
                 }
                 test_create_tbl_cross_catalog(file_format, catalog_name)
             }
+            test_error_create(catalog_name)
             sql """drop catalog if exists ${catalog_name}"""
         } finally {
         }

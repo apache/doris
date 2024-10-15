@@ -40,4 +40,9 @@ public class DefaultValueExpr extends Expr {
     public Expr clone() {
         return null;
     }
+
+    @Override
+    public boolean supportSerializable() {
+        return false;
+    }
 }

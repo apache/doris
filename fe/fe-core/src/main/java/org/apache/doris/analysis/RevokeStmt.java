@@ -20,6 +20,7 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.AccessPrivilegeWithCols;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.mysql.privilege.ColPrivilegeKey;
 import org.apache.doris.mysql.privilege.PrivBitSet;
@@ -35,13 +36,14 @@ import org.apache.commons.collections.MapUtils;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 // REVOKE STMT
 // revoke privilege from some user, this is an administrator operation.
 // REVOKE privilege[(col1,col2...)] [, privilege] ON db.tbl FROM user_identity [ROLE 'role'];
 // REVOKE privilege [, privilege] ON resource 'resource' FROM user_identity [ROLE 'role'];
 // REVOKE role [, role] FROM user_identity
-public class RevokeStmt extends DdlStmt {
+public class RevokeStmt extends DdlStmt implements NotFallbackInParser {
     private UserIdentity userIdent;
     // Indicates which permissions are revoked from this role
     private String role;
@@ -159,12 +161,16 @@ public class RevokeStmt extends DdlStmt {
         if (tblPattern != null) {
             GrantStmt.checkTablePrivileges(privileges, tblPattern, colPrivileges);
         } else if (resourcePattern != null) {
-            privileges = PrivBitSet.convertResourcePrivToCloudPriv(resourcePattern, privileges);
+            PrivBitSet.convertResourcePrivToCloudPriv(resourcePattern, privileges);
             GrantStmt.checkResourcePrivileges(privileges, resourcePattern);
         } else if (workloadGroupPattern != null) {
             GrantStmt.checkWorkloadGroupPrivileges(privileges, workloadGroupPattern);
         } else if (roles != null) {
             GrantStmt.checkRolePrivileges();
+            if (roles.stream().map(String::toLowerCase).collect(Collectors.toList()).contains("admin")
+                    && userIdent.isAdminUser()) {
+                ErrorReport.reportAnalysisException("Unsupported operation");
+            }
         }
     }
 
@@ -202,5 +208,10 @@ public class RevokeStmt extends DdlStmt {
     @Override
     public String toString() {
         return toSql();
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.REVOKE;
     }
 }

@@ -83,7 +83,7 @@ public class FrontendsProcNode implements ProcNodeInterface {
     public static void getFrontendsInfo(Env env, String detailType, List<List<String>> infos) {
         if (detailType == null) {
             getFrontendsInfo(env, infos);
-        } else if (detailType.equals("disks")) {
+        } else if (detailType.equalsIgnoreCase("disks")) {
             getFrontendsDiskInfo(env, infos);
         }
     }
@@ -169,6 +169,15 @@ public class FrontendsProcNode implements ProcNodeInterface {
 
             infos.add(info);
         }
+    }
+
+    public static Frontend getCurrentFrontendVersion(Env env) {
+        for (Frontend fe : env.getFrontends(null /* all */)) {
+            if (fe.getHost().equals(env.getSelfNode().getHost())) {
+                return fe;
+            }
+        }
+        return null;
     }
 
     public static void getFrontendsDiskInfo(Env env, List<List<String>> infos) {

@@ -98,7 +98,6 @@ PROPERTIES (
 );
         """
         sql """ set group_commit = async_mode; """
-        sql """ set enable_nereids_dml = false; """
     }
 
     def do_insert_into = { exp_str, num ->
@@ -113,7 +112,6 @@ PROPERTIES (
                 Thread.sleep(5000)
                 context.reconnectFe()
                 sql """ set group_commit = async_mode; """
-                sql """ set enable_nereids_dml = false; """
             }
             i++;
             if (i >= 30) {

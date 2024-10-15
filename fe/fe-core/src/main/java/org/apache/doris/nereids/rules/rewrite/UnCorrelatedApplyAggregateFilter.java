@@ -19,8 +19,10 @@ package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalApply;
@@ -31,6 +33,7 @@ import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Maps;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -97,10 +100,19 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
         // pull up correlated filter into apply node
         List<NamedExpression> newAggOutput = new ArrayList<>(agg.getOutputExpressions());
         List<Expression> newGroupby =
-                Utils.getCorrelatedSlots(correlatedPredicate, apply.getCorrelationSlot());
+                Utils.getUnCorrelatedExprs(correlatedPredicate, apply.getCorrelationSlot());
         newGroupby.addAll(agg.getGroupByExpressions());
-        newAggOutput.addAll(newGroupby.stream().map(NamedExpression.class::cast)
-                .collect(ImmutableList.toImmutableList()));
+        Map<Expression, Slot> unCorrelatedExprToSlot = Maps.newHashMap();
+        for (Expression expression : newGroupby) {
+            if (expression instanceof Slot) {
+                newAggOutput.add((NamedExpression) expression);
+            } else {
+                Alias alias = new Alias(expression);
+                unCorrelatedExprToSlot.put(expression, alias.toSlot());
+                newAggOutput.add(alias);
+            }
+        }
+        correlatedPredicate = ExpressionUtils.replace(correlatedPredicate, unCorrelatedExprToSlot);
         LogicalAggregate newAgg = new LogicalAggregate<>(newGroupby, newAggOutput,
                 PlanUtils.filterOrSelf(ImmutableSet.copyOf(unCorrelatedPredicate), filter.child()));
         return new LogicalApply<>(apply.getCorrelationSlot(), apply.getSubqueryExpr(),

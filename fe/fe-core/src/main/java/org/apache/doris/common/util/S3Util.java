@@ -17,7 +17,7 @@
 
 package org.apache.doris.common.util;
 
-import org.apache.doris.datasource.credentials.CloudCredential;
+import org.apache.doris.common.credentials.CloudCredential;
 
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.AwsCredentials;
@@ -45,7 +45,8 @@ import java.time.Duration;
 
 public class S3Util {
 
-    public static S3Client buildS3Client(URI endpoint, String region, CloudCredential credential) {
+    public static S3Client buildS3Client(URI endpoint, String region, CloudCredential credential,
+            boolean isUsePathStyle) {
         AwsCredentialsProvider scp;
         AwsCredentials awsCredential;
         if (!credential.isTemporary()) {
@@ -89,10 +90,9 @@ public class S3Util {
                 .region(Region.of(region))
                 .overrideConfiguration(clientConf)
                 // disable chunkedEncoding because of bos not supported
-                // use virtual hosted-style access
                 .serviceConfiguration(S3Configuration.builder()
                         .chunkedEncodingEnabled(false)
-                        .pathStyleAccessEnabled(true)
+                        .pathStyleAccessEnabled(isUsePathStyle)
                         .build())
                 .build();
     }
