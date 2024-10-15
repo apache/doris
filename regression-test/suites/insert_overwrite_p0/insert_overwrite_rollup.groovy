@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import org.junit.Assert;
+
 suite("insert_overwrite_rollup","p0") {
     String suiteName = "insert_overwrite_not_fallback"
     String tableName = "${suiteName}_table"
@@ -45,7 +47,8 @@ suite("insert_overwrite_rollup","p0") {
         insert overwrite table ${tableName} values(1,1);
         """
     def res = sql "desc ${tableName} all"
-    assertEquals(res.size(), 2)
+    logger.info("res: " + res.toString())
+    assertTrue(res.toString().contains("${rollupName}"))
     sql """drop table if exists `${tableName}`"""
 }
 
