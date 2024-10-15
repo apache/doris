@@ -33,6 +33,7 @@ Status AnalyticSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
     _compute_agg_data_timer = ADD_TIMER(profile(), "ComputeAggDataTime");
     _compute_partition_by_timer = ADD_TIMER(profile(), "ComputePartitionByTime");
     _compute_order_by_timer = ADD_TIMER(profile(), "ComputeOrderByTime");
+    _blocks_memory_usage = ADD_COUNTER_WITH_LEVEL(_profile, "MemoryUsageBlocks", TUnit::BYTES, 1);
     return Status::OK();
 }
 
@@ -322,8 +323,10 @@ Status AnalyticSinkOperatorX::sink(doris::RuntimeState* state, vectorized::Block
         }
     }
 
-    COUNTER_UPDATE(local_state._memory_used_counter, input_block->allocated_bytes());
+    int64_t block_mem_usage = input_block->allocated_bytes();
+    COUNTER_UPDATE(local_state._memory_used_counter, block_mem_usage);
     COUNTER_SET(local_state._peak_memory_usage_counter, local_state._memory_used_counter->value());
+    COUNTER_UPDATE(local_state._blocks_memory_usage, block_mem_usage);
 
     //TODO: if need improvement, the is a tips to maintain a free queue,
     //so the memory could reuse, no need to new/delete again;
