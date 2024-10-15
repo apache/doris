@@ -74,7 +74,7 @@ public class FlightSqlConnectContext extends ConnectContext {
             connectScheduler.unregisterConnection(this);
         }
         // Now, cancel running query.
-        cancelQuery();
+        cancelQuery("arrow flight query killed by user");
     }
 
     @Override

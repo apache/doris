@@ -111,8 +111,8 @@ public class ResultReceiver {
                         LOG.warn("Query {} get result timeout, get result duration {} ms",
                                 DebugUtil.printId(this.queryId), (timeoutTs - currentTs) / 1000);
                         setRunStatus(Status.TIMEOUT);
-                        status.updateStatus(TStatusCode.TIMEOUT, "");
-                        updateCancelReason("fetch data timeout");
+                        status.updateStatus(TStatusCode.TIMEOUT, "Query timeout");
+                        updateCancelReason("Query timeout");
                         return null;
                     } catch (InterruptedException e) {
                         // continue to get result
@@ -183,7 +183,7 @@ public class ResultReceiver {
             }
         } catch (TimeoutException e) {
             LOG.warn("fetch result timeout, finstId={}", DebugUtil.printId(finstId), e);
-            status.updateStatus(TStatusCode.TIMEOUT, "query timeout");
+            status.updateStatus(TStatusCode.TIMEOUT, "Query timeout");
         } finally {
             synchronized (this) {
                 currentThread = null;
@@ -205,13 +205,14 @@ public class ResultReceiver {
         }
     }
 
-    public void cancel(Types.PPlanFragmentCancelReason reason) {
+    public void cancel(Types.PPlanFragmentCancelReason reason, String cancelMessage) {
         if (reason == Types.PPlanFragmentCancelReason.TIMEOUT) {
             setRunStatus(Status.TIMEOUT);
         } else {
             setRunStatus(Status.CANCELLED);
         }
-        updateCancelReason(reason.toString());
+
+        updateCancelReason(cancelMessage);
         synchronized (this) {
             if (currentThread != null) {
                 // TODO(cmy): we cannot interrupt this thread, or we may throw

@@ -600,7 +600,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         for (TUniqueId loadId : loadIds) {
             Coordinator coordinator = QeProcessorImpl.INSTANCE.getCoordinator(loadId);
             if (coordinator != null) {
-                coordinator.cancel();
+                coordinator.cancel(failMsg.getMsg());
             }
         }
 
