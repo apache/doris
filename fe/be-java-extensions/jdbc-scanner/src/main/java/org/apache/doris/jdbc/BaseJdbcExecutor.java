@@ -58,8 +58,8 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
     private static final TBinaryProtocol.Factory PROTOCOL_FACTORY = new TBinaryProtocol.Factory();
     private HikariDataSource hikariDataSource = null;
     private final byte[] hikariDataSourceLock = new byte[0];
-    private JdbcDataSourceConfig config;
     private Connection conn = null;
+    protected JdbcDataSourceConfig config;
     protected PreparedStatement preparedStatement = null;
     protected Statement stmt = null;
     protected ResultSet resultSet = null;

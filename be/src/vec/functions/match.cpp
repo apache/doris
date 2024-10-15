@@ -52,6 +52,10 @@ Status FunctionMatchBase::evaluate_inverted_index(
     std::shared_ptr<roaring::Roaring> roaring = std::make_shared<roaring::Roaring>();
     Field param_value;
     arguments[0].column->get(0, param_value);
+    if (param_value.is_null()) {
+        // if query value is null, skip evaluate inverted index
+        return Status::OK();
+    }
     auto param_type = arguments[0].type->get_type_as_type_descriptor().type;
     if (!is_string_type(param_type)) {
         return Status::Error<ErrorCode::INVERTED_INDEX_INVALID_PARAMETERS>(
@@ -103,12 +107,7 @@ Status FunctionMatchBase::execute_impl(FunctionContext* context, Block& block,
     const auto* values = check_and_get_column<ColumnString>(source_col.get());
     const ColumnArray* array_col = nullptr;
     if (source_col->is_column_array()) {
-        if (source_col->is_nullable()) {
-            auto* nullable = check_and_get_column<ColumnNullable>(source_col.get());
-            array_col = check_and_get_column<ColumnArray>(*nullable->get_nested_column_ptr());
-        } else {
-            array_col = check_and_get_column<ColumnArray>(source_col.get());
-        }
+        array_col = check_and_get_column<ColumnArray>(source_col.get());
         if (array_col && !array_col->get_data().is_column_string()) {
             return Status::NotSupported(
                     fmt::format("unsupported nested array of type {} for function {}",
@@ -128,15 +127,7 @@ Status FunctionMatchBase::execute_impl(FunctionContext* context, Block& block,
             values = check_and_get_column<ColumnString>(*(array_col->get_data_ptr()));
         }
     } else if (auto* nullable = check_and_get_column<ColumnNullable>(source_col.get())) {
-        // match null
-        if (type_ptr->is_nullable()) {
-            if (column_ptr->only_null()) {
-                block.get_by_position(result).column = nullable->get_null_map_column_ptr();
-                return Status::OK();
-            }
-        } else {
-            values = check_and_get_column<ColumnString>(*nullable->get_nested_column_ptr());
-        }
+        values = check_and_get_column<ColumnString>(*nullable->get_nested_column_ptr());
     }
 
     if (!values) {

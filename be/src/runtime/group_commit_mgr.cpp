@@ -499,7 +499,6 @@ Status GroupCommitTable::_finish_group_commit_load(int64_t db_id, int64_t table_
             LOG(INFO) << "debug promise set: " << msg;
             ExecEnv::GetInstance()->group_commit_mgr()->debug_promise.set_value(
                     Status ::InternalError(msg));
-            return status;
         });
     }
     std::shared_ptr<LoadBlockQueue> load_block_queue;

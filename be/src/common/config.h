@@ -200,7 +200,10 @@ DECLARE_mInt64(stacktrace_in_alloc_large_memory_bytes);
 // modify this parameter to crash when large memory allocation occur will help
 DECLARE_mInt64(crash_in_alloc_large_memory_bytes);
 
-// If memory tracker value is inaccurate, BE will crash. usually used in test environments, default value is false.
+// The actual meaning of this parameter is `debug_memory`.
+// 1. crash in memory tracker inaccurate, if memory tracker value is inaccurate, BE will crash.
+//    usually used in test environments, default value is false.
+// 2. print more memory logs.
 DECLARE_mBool(crash_in_memory_tracker_inaccurate);
 
 // default is true. if any memory tracking in Orphan mem tracker will report error.
@@ -1429,6 +1432,8 @@ DECLARE_mInt32(snappy_compression_block_size);
 DECLARE_mInt32(lz4_compression_block_size);
 
 DECLARE_mBool(enable_pipeline_task_leakage_detect);
+
+DECLARE_mInt32(check_score_rounds_num);
 
 // MB
 DECLARE_Int32(query_cache_size);

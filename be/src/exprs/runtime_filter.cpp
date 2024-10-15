@@ -472,10 +472,10 @@ public:
                           const TExpr& probe_expr);
 
     Status merge(const RuntimePredicateWrapper* wrapper) {
-        if (is_ignored() || wrapper->is_ignored()) {
-            _context->ignored = true;
+        if (wrapper->is_ignored()) {
             return Status::OK();
         }
+        _context->ignored = false;
 
         bool can_not_merge_in_or_bloom =
                 _filter_type == RuntimeFilterType::IN_OR_BLOOM_FILTER &&
@@ -493,7 +493,10 @@ public:
 
         switch (_filter_type) {
         case RuntimeFilterType::IN_FILTER: {
-            // try insert set
+            if (!_context->hybrid_set) {
+                _context->ignored = true;
+                return Status::OK();
+            }
             _context->hybrid_set->insert(wrapper->_context->hybrid_set.get());
             if (_max_in_num >= 0 && _context->hybrid_set->size() >= _max_in_num) {
                 _context->ignored = true;
@@ -1216,7 +1219,7 @@ Status IRuntimeFilter::get_push_expr_ctxs(std::list<vectorized::VExprContextSPtr
     // The runtime filter is pushed down, adding filtering information.
     auto* expr_filtered_rows_counter = ADD_COUNTER(_profile, "expr_filtered_rows", TUnit::UNIT);
     auto* expr_input_rows_counter = ADD_COUNTER(_profile, "expr_input_rows", TUnit::UNIT);
-    auto* always_true_counter = ADD_COUNTER(_profile, "always_true", TUnit::UNIT);
+    auto* always_true_counter = ADD_COUNTER(_profile, "always_true_pass_rows", TUnit::UNIT);
     for (auto i = origin_size; i < push_exprs.size(); i++) {
         push_exprs[i]->attach_profile_counter(expr_filtered_rows_counter, expr_input_rows_counter,
                                               always_true_counter);
@@ -1307,10 +1310,6 @@ std::string IRuntimeFilter::formatted_state() const {
             "HasLocalTarget = {}, Ignored = {}]",
             _is_push_down, _get_explain_state_string(), _has_remote_target, _has_local_target,
             _wrapper->_context->ignored);
-}
-
-BloomFilterFuncBase* IRuntimeFilter::get_bloomfilter() const {
-    return _wrapper->get_bloomfilter();
 }
 
 Status IRuntimeFilter::init_with_desc(const TRuntimeFilterDesc* desc, const TQueryOptions* options,

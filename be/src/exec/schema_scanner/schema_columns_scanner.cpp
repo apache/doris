@@ -160,6 +160,12 @@ std::string SchemaColumnsScanner::_to_mysql_data_type_string(TColumnDesc& desc) 
     case TPrimitiveType::STRUCT: {
         return "struct";
     }
+    case TPrimitiveType::IPV4:
+        return "ipv4";
+    case TPrimitiveType::IPV6:
+        return "ipv6";
+    case TPrimitiveType::VARIANT:
+        return "variant";
     default:
         return "unknown";
     }
@@ -272,7 +278,12 @@ std::string SchemaColumnsScanner::_type_to_string(TColumnDesc& desc) {
         ret += ">";
         return ret;
     }
-
+    case TPrimitiveType::IPV4:
+        return "ipv4";
+    case TPrimitiveType::IPV6:
+        return "ipv6";
+    case TPrimitiveType::VARIANT:
+        return "variant";
     default:
         return "unknown";
     }

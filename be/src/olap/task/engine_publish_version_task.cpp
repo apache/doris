@@ -82,8 +82,10 @@ EnginePublishVersionTask::EnginePublishVersionTask(
           _succ_tablets(succ_tablets),
           _discontinuous_version_tablets(discontinuous_version_tablets),
           _table_id_to_tablet_id_to_num_delta_rows(table_id_to_tablet_id_to_num_delta_rows) {
-    _mem_tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::OTHER,
-                                                    "TabletPublishTxnTask");
+    _mem_tracker = MemTrackerLimiter::create_shared(
+            MemTrackerLimiter::Type::OTHER,
+            fmt::format("EnginePublishVersionTask-transactionID_{}",
+                        std::to_string(_publish_version_req.transaction_id)));
 }
 
 void EnginePublishVersionTask::add_error_tablet_id(int64_t tablet_id) {
@@ -381,8 +383,11 @@ TabletPublishTxnTask::TabletPublishTxnTask(StorageEngine& engine,
           _transaction_id(transaction_id),
           _version(version),
           _tablet_info(tablet_info),
-          _mem_tracker(MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::OTHER,
-                                                        "TabletPublishTxnTask")) {
+          _mem_tracker(MemTrackerLimiter::create_shared(
+                  MemTrackerLimiter::Type::OTHER,
+                  fmt::format("TabletPublishTxnTask-partitionID_{}-transactionID_{}-version_{}",
+                              std::to_string(partition_id), std::to_string(transaction_id),
+                              version.to_string()))) {
     _stats.submit_time_us = MonotonicMicros();
 }
 

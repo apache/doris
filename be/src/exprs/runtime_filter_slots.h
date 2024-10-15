@@ -98,12 +98,16 @@ public:
         return Status::OK();
     }
 
+    Status ignore_all_filters() {
+        for (auto filter : _runtime_filters) {
+            filter->set_ignored();
+        }
+        return Status::OK();
+    }
+
     Status init_filters(RuntimeState* state, uint64_t local_hash_table_size) {
         // process IN_OR_BLOOM_FILTER's real type
         for (auto filter : _runtime_filters) {
-            if (filter->get_ignored()) {
-                continue;
-            }
             if (filter->type() == RuntimeFilterType::IN_OR_BLOOM_FILTER &&
                 get_real_size(filter.get(), local_hash_table_size) >
                         state->runtime_filter_max_in_num()) {
@@ -141,7 +145,7 @@ public:
     }
 
     // publish runtime filter
-    Status publish(bool publish_local = false) {
+    Status publish(bool publish_local) {
         for (auto& pair : _runtime_filters_map) {
             for (auto& filter : pair.second) {
                 RETURN_IF_ERROR(filter->publish(publish_local));

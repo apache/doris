@@ -22,6 +22,7 @@
 #include "exprs/bloom_filter_func.h"
 #include "pipeline/exec/hashjoin_probe_operator.h"
 #include "pipeline/exec/operator.h"
+#include "pipeline/pipeline_task.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/utils/template_helpers.hpp"
 
@@ -138,20 +139,25 @@ Status HashJoinBuildSinkLocalState::close(RuntimeState* state, Status exec_statu
     if (!_runtime_filter_slots || _runtime_filters.empty() || state->is_cancelled()) {
         return Base::close(state, exec_status);
     }
-    auto* block = _shared_state->build_block.get();
-    uint64_t hash_table_size = block ? block->rows() : 0;
-    {
-        SCOPED_TIMER(_runtime_filter_init_timer);
-        if (_should_build_hash_table) {
-            RETURN_IF_ERROR(_runtime_filter_slots->init_filters(state, hash_table_size));
-        }
-        RETURN_IF_ERROR(_runtime_filter_slots->ignore_filters(state));
-    }
-    if (_should_build_hash_table && hash_table_size > 1) {
-        SCOPED_TIMER(_runtime_filter_compute_timer);
-        _runtime_filter_slots->insert(block);
-    }
 
+    if (state->get_task()->wake_up_by_downstream()) {
+        RETURN_IF_ERROR(_runtime_filter_slots->send_filter_size(state, 0, _finish_dependency));
+        RETURN_IF_ERROR(_runtime_filter_slots->ignore_all_filters());
+    } else {
+        auto* block = _shared_state->build_block.get();
+        uint64_t hash_table_size = block ? block->rows() : 0;
+        {
+            SCOPED_TIMER(_runtime_filter_init_timer);
+            if (_should_build_hash_table) {
+                RETURN_IF_ERROR(_runtime_filter_slots->init_filters(state, hash_table_size));
+            }
+            RETURN_IF_ERROR(_runtime_filter_slots->ignore_filters(state));
+        }
+        if (_should_build_hash_table && hash_table_size > 1) {
+            SCOPED_TIMER(_runtime_filter_compute_timer);
+            _runtime_filter_slots->insert(block);
+        }
+    }
     SCOPED_TIMER(_publish_runtime_filter_timer);
     RETURN_IF_ERROR(_runtime_filter_slots->publish(!_should_build_hash_table));
     return Base::close(state, exec_status);
@@ -590,6 +596,7 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
                 local_state.process_build_block(state, (*local_state._shared_state->build_block)));
         if (_shared_hashtable_controller) {
             _shared_hash_table_context->status = Status::OK();
+            _shared_hash_table_context->complete_build_stage = true;
             // arena will be shared with other instances.
             _shared_hash_table_context->arena = local_state._shared_state->arena;
             _shared_hash_table_context->hash_table_variants =
@@ -601,7 +608,8 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
                     local_state._shared_state->build_indexes_null;
             local_state._runtime_filter_slots->copy_to_shared_context(_shared_hash_table_context);
         }
-    } else if (!local_state._should_build_hash_table) {
+    } else if (!local_state._should_build_hash_table &&
+               _shared_hash_table_context->complete_build_stage) {
         DCHECK(_shared_hashtable_controller != nullptr);
         DCHECK(_shared_hash_table_context != nullptr);
         // the instance which is not build hash table, it's should wait the signal of hash table build finished.
