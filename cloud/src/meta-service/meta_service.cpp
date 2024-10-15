@@ -2203,15 +2203,14 @@ void MetaServiceImpl::fix_tablet_stats(::google::protobuf::RpcController* contro
     RPC_RATE_LIMIT(fix_tablet_stats)
 
     std::unique_ptr<Transaction> txn;
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::CREATE>(err);
+        msg = fmt::format("failed to create txn");
+        return;
+    }
     for (const auto& i : request->table_id()) {
         int64_t table_id = i;
-        TxnErrorCode err = txn_kv_->create_txn(&txn);
-        if (err != TxnErrorCode::TXN_OK) {
-            code = cast_as<ErrCategory::CREATE>(err);
-            msg = fmt::format("failed to create txn, table_id={}", table_id);
-            return;
-        }
-
         std::string key, val;
         int64_t start = 0;
         int64_t end = std::numeric_limits<int64_t>::max() - 1;
@@ -2235,8 +2234,8 @@ void MetaServiceImpl::fix_tablet_stats(::google::protobuf::RpcController* contro
                 decode_key(&k1, &out);
                 // 0x01 "stats" ${instance_id} "tablet" ${table_id}
                 // ${index_id} ${partition_id} ${tablet_id} -> TabletStatsPB
-                if (out.size() == 8) {
-                    auto tablet_id = std::get<int64_t>(std::get<0>(out[7]));
+                if (out.size() == 7) {
+                    auto tablet_id = std::get<int64_t>(std::get<0>(out[6]));
                     TabletStatsPB tablet_stat;
                     tablet_stat.ParseFromArray(v.data(), v.size());
 
@@ -2269,7 +2268,7 @@ void MetaServiceImpl::fix_tablet_stats(::google::protobuf::RpcController* contro
             begin_key = it->next_begin_key();
         } while (it->more());
     }
-    TxnErrorCode err = txn->commit();
+    err = txn->commit();
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::COMMIT>(err);
         ss << "failed to update tablet meta, err=" << err;

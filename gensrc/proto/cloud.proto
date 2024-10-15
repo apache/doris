@@ -1554,6 +1554,7 @@ service MetaService {
     rpc get_cluster_status(GetClusterStatusRequest) returns(GetClusterStatusResponse);
 
     rpc get_tablet_stats(GetTabletStatsRequest) returns (GetTabletStatsResponse);
+    rpc fix_tablet_stats(FixTabletStatsRequest) returns (FixTabletStatsResponse);
 
     // stage
     rpc create_stage(CreateStageRequest) returns (CreateStageResponse);
