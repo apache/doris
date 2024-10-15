@@ -75,6 +75,7 @@ void register_percentile_approx_old_function(AggregateFunctionSimpleFactory& fac
 
 void register_aggregate_function_percentile_old(AggregateFunctionSimpleFactory& factory) {
     BeExecVersionManager::registe_restrict_function_compatibility("percentile");
+    BeExecVersionManager::registe_restrict_function_compatibility("percentile_array");
 }
 
 void register_aggregate_function_percentile_approx(AggregateFunctionSimpleFactory& factory) {
