@@ -253,7 +253,13 @@ Status HttpClient::download(const std::string& local_path) {
         }
         return true;
     };
-    RETURN_IF_ERROR(execute(callback));
+
+    if (auto s = execute(callback); !s.ok()) {
+        status = s;
+    }
+    if (!status.ok()) {
+        remove(local_path.c_str());
+    }
     return status;
 }
 
