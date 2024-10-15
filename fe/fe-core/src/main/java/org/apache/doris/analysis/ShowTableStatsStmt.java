@@ -57,6 +57,7 @@ public class ShowTableStatsStmt extends ShowStmt {
                     .add("trigger")
                     .add("new_partition")
                     .add("user_inject")
+                    .add("last_analyze_time")
                     .build();
 
     private static final ImmutableList<String> INDEX_TITLE_NAMES =
@@ -192,6 +193,7 @@ public class ShowTableStatsStmt extends ShowStmt {
             row.add("");
             row.add("");
             row.add("");
+            row.add("");
             result.add(row);
             return new ShowResultSet(getMetaData(), result);
         }
@@ -201,15 +203,18 @@ public class ShowTableStatsStmt extends ShowStmt {
         row.add(String.valueOf(tableStatistic.updatedRows));
         row.add(String.valueOf(tableStatistic.queriedTimes.get()));
         row.add(String.valueOf(tableStatistic.rowCount));
-        LocalDateTime dateTime =
+        LocalDateTime tableUpdateTime =
                 LocalDateTime.ofInstant(Instant.ofEpochMilli(tableStatistic.updatedTime),
                 java.time.ZoneId.systemDefault());
-        String formattedDateTime = dateTime.format(formatter);
-        row.add(formattedDateTime);
+        LocalDateTime lastAnalyzeTime =
+                LocalDateTime.ofInstant(Instant.ofEpochMilli(tableStatistic.lastAnalyzeTime),
+                        java.time.ZoneId.systemDefault());
+        row.add(tableUpdateTime.format(formatter));
         row.add(tableStatistic.analyzeColumns().toString());
         row.add(tableStatistic.jobType.toString());
         row.add(String.valueOf(tableStatistic.newPartitionLoaded.get()));
         row.add(String.valueOf(tableStatistic.userInjected));
+        row.add(lastAnalyzeTime.format(formatter));
         result.add(row);
         return new ShowResultSet(getMetaData(), result);
     }

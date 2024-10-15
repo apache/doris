@@ -62,6 +62,7 @@ public class ShowAnalyzeStmt extends ShowStmt {
             .add("schedule_type")
             .add("start_time")
             .add("end_time")
+            .add("priority")
             .build();
 
     private long jobId;

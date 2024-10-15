@@ -2799,6 +2799,7 @@ public class ShowExecutor {
                                 java.time.ZoneId.systemDefault());
                 row.add(startTime.format(formatter));
                 row.add(endTime.format(formatter));
+                row.add(analysisInfo.priority == null ? "N/A" : analysisInfo.priority.name());
                 resultRows.add(row);
             } catch (Exception e) {
                 LOG.warn("Failed to get analyze info for table {}.{}.{}, reason: {}",

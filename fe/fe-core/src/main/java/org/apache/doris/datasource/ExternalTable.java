@@ -350,7 +350,7 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
             return true;
         }
         return System.currentTimeMillis()
-            - tblStats.updatedTime > StatisticsUtil.getExternalTableAutoAnalyzeIntervalInMillis();
+            - tblStats.lastAnalyzeTime > StatisticsUtil.getExternalTableAutoAnalyzeIntervalInMillis();
     }
 
     @Override
