@@ -580,7 +580,7 @@ Status FragmentMgr::start_query_execution(const PExecPlanFragmentStartRequest* r
         TUniqueId query_id;
         query_id.__set_hi(request->query_id().hi());
         query_id.__set_lo(request->query_id().lo());
-        q_ctx = _get_or_erase_query_ctx(query_id)
+        q_ctx = _get_or_erase_query_ctx(query_id);
     }
     if (q_ctx) {
         q_ctx->set_ready_to_execute(Status::OK());
