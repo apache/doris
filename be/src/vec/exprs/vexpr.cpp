@@ -579,7 +579,7 @@ Status VExpr::init_function_context(RuntimeState* state, VExprContext* context,
     } else {
         if (function->is_udf_function()) {
             auto* timer = ADD_TIMER(state->get_task()->get_task_profile(),
-                                    "UDF: " + function->get_name());
+                                    "UDF[" + function->get_name() + "]");
             fn_ctx->set_udf_execute_timer(timer);
         }
     }
