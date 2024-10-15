@@ -145,7 +145,7 @@ void PipelineXFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
     LOG_INFO("PipelineXFragmentContext::cancel")
             .tag("query_id", print_id(_query_id))
             .tag("fragment_id", _fragment_id)
-            .tag("reason", reason)
+            .tag("reason", PPlanFragmentCancelReason_Name(reason))
             .tag("error message", msg);
     if (reason == PPlanFragmentCancelReason::TIMEOUT) {
         LOG(WARNING) << "PipelineXFragmentContext is cancelled due to timeout : " << debug_string();
