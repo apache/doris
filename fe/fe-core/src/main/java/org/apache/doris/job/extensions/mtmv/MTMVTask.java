@@ -258,7 +258,7 @@ public class MTMVTask extends AbstractTask {
     protected synchronized void executeCancelLogic() {
         LOG.info("mtmv task cancel, taskId: {}", super.getTaskId());
         if (executor != null) {
-            executor.cancel();
+            executor.cancel("mtmv task cancelled");
         }
         after();
     }

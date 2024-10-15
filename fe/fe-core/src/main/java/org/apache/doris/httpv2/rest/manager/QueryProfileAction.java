@@ -576,7 +576,7 @@ public class QueryProfileAction extends RestBaseController {
         }
 
         ExecuteEnv env = ExecuteEnv.getInstance();
-        env.getScheduler().cancelQuery(queryId);
+        env.getScheduler().cancelQuery(queryId, "cancel query by rest api");
         return ResponseEntityBuilder.ok();
     }
 }

@@ -1249,7 +1249,7 @@ void FragmentMgr::cancel_worker() {
     clock_gettime(CLOCK_MONOTONIC, &check_invalid_query_last_timestamp);
 
     do {
-        std::vector<TUniqueId> to_cancel;
+        std::vector<TUniqueId> queries_timeout;
         std::vector<TUniqueId> queries_to_cancel;
         std::vector<TUniqueId> queries_pipeline_task_leak;
         // Fe process uuid -> set<QueryId>
@@ -1274,7 +1274,7 @@ void FragmentMgr::cancel_worker() {
             std::lock_guard<std::mutex> lock(_lock);
             for (auto& fragment_instance_itr : _fragment_instance_map) {
                 if (fragment_instance_itr.second->is_timeout(now)) {
-                    to_cancel.push_back(fragment_instance_itr.second->fragment_instance_id());
+                    queries_timeout.push_back(fragment_instance_itr.second->fragment_instance_id());
                 }
             }
             for (auto& pipeline_itr : _pipeline_map) {
@@ -1283,7 +1283,7 @@ void FragmentMgr::cancel_worker() {
                     reinterpret_cast<pipeline::PipelineXFragmentContext*>(pipeline_itr.second.get())
                             ->instance_ids(ins_ids);
                     for (auto& ins_id : ins_ids) {
-                        to_cancel.push_back(ins_id);
+                        queries_timeout.push_back(ins_id);
                     }
                 } else {
                     pipeline_itr.second->clear_finished_tasks();
@@ -1393,9 +1393,9 @@ void FragmentMgr::cancel_worker() {
 
         // TODO(zhiqiang): It seems that timeout_canceled_fragment_count is
         // designed to count canceled fragment of non-pipeline query.
-        timeout_canceled_fragment_count->increment(to_cancel.size());
-        for (auto& id : to_cancel) {
-            cancel_instance(id, PPlanFragmentCancelReason::TIMEOUT);
+        timeout_canceled_fragment_count->increment(queries_timeout.size());
+        for (auto& id : queries_timeout) {
+            cancel_instance(id, PPlanFragmentCancelReason::TIMEOUT, "Query timeout");
             LOG(INFO) << "FragmentMgr cancel worker going to cancel timeout instance "
                       << print_id(id);
         }

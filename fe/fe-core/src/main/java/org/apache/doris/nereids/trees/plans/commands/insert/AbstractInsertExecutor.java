@@ -143,7 +143,7 @@ public abstract class AbstractInsertExecutor {
         }
         boolean notTimeout = coordinator.join(execTimeout);
         if (!coordinator.isDone()) {
-            coordinator.cancel();
+            coordinator.cancel("insert timeout");
             if (notTimeout) {
                 errMsg = coordinator.getExecStatus().getErrorMsg();
                 ErrorReport.reportDdlException("there exists unhealthy backend. "

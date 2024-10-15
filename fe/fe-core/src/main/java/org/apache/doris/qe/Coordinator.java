@@ -1164,7 +1164,7 @@ public class Coordinator implements CoordInterface {
                     errMsg = operation + " failed. " + exception.getMessage();
                 }
                 queryStatus.updateStatus(TStatusCode.INTERNAL_ERROR, errMsg);
-                cancelInternal(Types.PPlanFragmentCancelReason.INTERNAL_ERROR);
+                cancelInternal(Types.PPlanFragmentCancelReason.INTERNAL_ERROR, errMsg);
                 switch (code) {
                     case TIMEOUT:
                         MetricRepo.BE_COUNTER_QUERY_RPC_FAILED.getOrAdd(triple.getLeft().brpcAddr.hostname)
@@ -1259,7 +1259,7 @@ public class Coordinator implements CoordInterface {
                     errMsg = operation + " failed. " + exception.getMessage();
                 }
                 queryStatus.updateStatus(TStatusCode.INTERNAL_ERROR, errMsg);
-                cancelInternal(Types.PPlanFragmentCancelReason.INTERNAL_ERROR);
+                cancelInternal(Types.PPlanFragmentCancelReason.INTERNAL_ERROR, errMsg);
                 switch (code) {
                     case TIMEOUT:
                         MetricRepo.BE_COUNTER_QUERY_RPC_FAILED.getOrAdd(triple.getLeft().brpcAddr.hostname)
@@ -1385,9 +1385,9 @@ public class Coordinator implements CoordInterface {
 
             queryStatus.updateStatus(status.getErrorCode(), status.getErrorMsg());
             if (status.getErrorCode() == TStatusCode.TIMEOUT) {
-                cancelInternal(Types.PPlanFragmentCancelReason.TIMEOUT);
+                cancelInternal(Types.PPlanFragmentCancelReason.TIMEOUT, status.getErrorMsg());
             } else {
-                cancelInternal(Types.PPlanFragmentCancelReason.INTERNAL_ERROR);
+                cancelInternal(Types.PPlanFragmentCancelReason.INTERNAL_ERROR, status.getErrorMsg());
             }
         } finally {
             lock.unlock();
@@ -1426,7 +1426,7 @@ public class Coordinator implements CoordInterface {
                 throw new RpcException(null, copyStatus.getErrorMsg());
             } else {
                 String errMsg = copyStatus.getErrorMsg();
-                LOG.warn("query failed: {}", errMsg);
+                LOG.warn("Query {} failed: {}", DebugUtil.printId(queryId), errMsg);
                 throw new UserException(errMsg);
             }
         }
@@ -1441,7 +1441,7 @@ public class Coordinator implements CoordInterface {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("no block query, return num >= limit rows, need cancel");
                 }
-                cancelInternal(Types.PPlanFragmentCancelReason.LIMIT_REACH);
+                cancelInternal(Types.PPlanFragmentCancelReason.LIMIT_REACH, "query reach limit");
             }
             if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().dryRunQuery) {
                 numReceivedRows = 0;
@@ -1528,8 +1528,8 @@ public class Coordinator implements CoordInterface {
     // Cancel execution of query. This includes the execution of the local plan
     // fragment,
     // if any, as well as all plan fragments on remote nodes.
-    public void cancel() {
-        cancel(Types.PPlanFragmentCancelReason.USER_CANCEL, "user cancel");
+    public void cancel(String errorMsg) {
+        cancel(Types.PPlanFragmentCancelReason.USER_CANCEL, errorMsg);
         if (queueToken != null) {
             queueToken.cancel();
         }
@@ -1552,8 +1552,8 @@ public class Coordinator implements CoordInterface {
                 queryStatus.updateStatus(TStatusCode.CANCELLED, errorMsg);
             }
             LOG.warn("Cancel execution of query {}, this is a outside invoke, cancelReason {}",
-                    DebugUtil.printId(queryId), cancelReason.toString());
-            cancelInternal(cancelReason);
+                    DebugUtil.printId(queryId), errorMsg);
+            cancelInternal(cancelReason, errorMsg);
         } finally {
             unlock();
         }
@@ -1577,9 +1577,9 @@ public class Coordinator implements CoordInterface {
         }
     }
 
-    private void cancelInternal(Types.PPlanFragmentCancelReason cancelReason) {
+    private void cancelInternal(Types.PPlanFragmentCancelReason cancelReason, String cancelMessage) {
         if (null != receiver) {
-            receiver.cancel(cancelReason);
+            receiver.cancel(cancelReason, cancelMessage);
         }
         if (null != pointExec) {
             pointExec.cancel();
@@ -3307,10 +3307,6 @@ public class Coordinator implements CoordInterface {
                                             DebugUtil.printId(fragmentInstanceId()), status.toString());
                                 }
                             }
-                            LOG.warn("Failed to cancel query {} instance initiated={} done={} backend: {},"
-                                    + "fragment instance id={}, reason: {}",
-                                    DebugUtil.printId(queryId), initiated, done, backend.getId(),
-                                    DebugUtil.printId(fragmentInstanceId()), "without status");
                         }
 
                         public void onFailure(Throwable t) {
