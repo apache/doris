@@ -72,13 +72,9 @@ Status ResultFileSinkOperatorX::init(const TDataSink& tsink) {
     return Status::OK();
 }
 
-Status ResultFileSinkOperatorX::prepare(RuntimeState* state) {
-    RETURN_IF_ERROR(DataSinkOperatorX<ResultFileSinkLocalState>::prepare(state));
-    return vectorized::VExpr::prepare(_output_vexpr_ctxs, state, _row_desc);
-}
-
 Status ResultFileSinkOperatorX::open(RuntimeState* state) {
     RETURN_IF_ERROR(DataSinkOperatorX<ResultFileSinkLocalState>::open(state));
+    RETURN_IF_ERROR(vectorized::VExpr::prepare(_output_vexpr_ctxs, state, _row_desc));
     return vectorized::VExpr::open(_output_vexpr_ctxs, state);
 }
 
@@ -201,7 +197,7 @@ Status ResultFileSinkLocalState::close(RuntimeState* state, Status exec_status) 
                     Status status;
                     for (auto* channel : _channels) {
                         if (!channel->is_receiver_eof()) {
-                            status = channel->send_local_block(_output_block.get());
+                            status = channel->send_local_block(_output_block.get(), false);
                             HANDLE_CHANNEL_STATUS(state, channel, status);
                         }
                     }
@@ -225,7 +221,7 @@ Status ResultFileSinkLocalState::close(RuntimeState* state, Status exec_status) 
                         for (auto* channel : _channels) {
                             if (!channel->is_receiver_eof()) {
                                 if (channel->is_local()) {
-                                    status = channel->send_local_block(&cur_block);
+                                    status = channel->send_local_block(&cur_block, false);
                                 } else {
                                     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
                                     status = channel->send_broadcast_block(_block_holder, true);
