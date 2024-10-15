@@ -35,16 +35,17 @@ namespace doris::io {
 // Note: the cache_lock is scoped, so do not add do...while(0) here.
 #ifdef ENABLE_CACHE_LOCK_DEBUG
 #define SCOPED_CACHE_LOCK(MUTEX)                                                                  \
-    std::chrono::time_point<std::chrono::high_resolution_clock> start_time =                      \
-            std::chrono::high_resolution_clock::now();                                            \
+    std::chrono::time_point<std::chrono::steady_clock> start_time =                               \
+            std::chrono::steady_clock::now();                                                     \
     std::lock_guard cache_lock(MUTEX);                                                            \
-    std::chrono::time_point<std::chrono::high_resolution_clock> acq_time =                        \
-            std::chrono::high_resolution_clock::now();                                            \
+    std::chrono::time_point<std::chrono::steady_clock> acq_time =                                 \
+            std::chrono::steady_clock::now();                                                     \
     auto duration =                                                                               \
             std::chrono::duration_cast<std::chrono::milliseconds>(acq_time - start_time).count(); \
     if (duration > config::cache_lock_long_tail_threshold)                                        \
         LOG(WARNING) << "Lock wait time " << std::to_string(duration) << "ms. "                   \
-                     << get_stack_trace_by_boost() << std::endl;
+                     << get_stack_trace_by_boost() << std::endl;                                  \
+    LockScopedTimer cache_lock_timer;
 #else
 #define SCOPED_CACHE_LOCK(MUTEX) std::lock_guard cache_lock(MUTEX);
 #endif
@@ -57,10 +58,10 @@ class FSFileCacheStorage;
 
 class LockScopedTimer {
 public:
-    LockScopedTimer() : start_(std::chrono::high_resolution_clock::now()) {}
+    LockScopedTimer() : start_(std::chrono::steady_clock::now()) {}
 
     ~LockScopedTimer() {
-        auto end = std::chrono::high_resolution_clock::now();
+        auto end = std::chrono::steady_clock::now();
         auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start_).count();
         if (duration > 500) {
             LOG(WARNING) << "Lock held time " << std::to_string(duration) << "ms. "
@@ -69,7 +70,7 @@ public:
     }
 
 private:
-    std::chrono::time_point<std::chrono::high_resolution_clock> start_;
+    std::chrono::time_point<std::chrono::steady_clock> start_;
 };
 
 // The BlockFileCache is responsible for the management of the blocks
