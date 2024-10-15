@@ -34,13 +34,13 @@ suite("insert_overwrite_rollup","p0") {
           PARTITION `p3` VALUES IN ('3')
       )
       DISTRIBUTED BY HASH(k2) BUCKETS 2
+      ROLLUP (
+          ${rollupName}(k3)
+      )
       PROPERTIES (
           "replication_num" = "1"
       );
     """
-    sql """
-        alter table ${tableName} add rollup ${rollupName}(k3);
-        """
     sql """
         insert overwrite table ${tableName} values(1,1);
         """
