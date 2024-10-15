@@ -561,4 +561,6 @@ public interface TableIf {
     }
 
     boolean autoAnalyzeEnabled();
+
+    TableIndexes getTableIndexes();
 }

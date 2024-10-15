@@ -574,11 +574,15 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
 }
 
 Status FragmentMgr::start_query_execution(const PExecPlanFragmentStartRequest* request) {
-    std::lock_guard<std::mutex> lock(_lock);
-    TUniqueId query_id;
-    query_id.__set_hi(request->query_id().hi());
-    query_id.__set_lo(request->query_id().lo());
-    if (auto q_ctx = _get_or_erase_query_ctx(query_id)) {
+    std::shared_ptr<QueryContext> q_ctx = nullptr;
+    {
+        std::lock_guard<std::mutex> lock(_lock);
+        TUniqueId query_id;
+        query_id.__set_hi(request->query_id().hi());
+        query_id.__set_lo(request->query_id().lo());
+        q_ctx = _get_or_erase_query_ctx(query_id);
+    }
+    if (q_ctx) {
         q_ctx->set_ready_to_execute(Status::OK());
     } else {
         return Status::InternalError(
