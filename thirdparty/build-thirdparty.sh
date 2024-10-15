@@ -650,6 +650,20 @@ build_lzo2() {
     strip_lib liblzo2.a
 }
 
+# brotli
+build_brotli() {
+    check_if_source_exist "${BROTLI_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${BROTLI_SOURCE}"
+
+    mkdir -p "${BUILD_DIR}"
+    cd "${BUILD_DIR}"
+
+    "${CMAKE_CMD}" -DCMAKE_BUILD_TYPE=Release -G "${GENERATOR}" -DBROTLI_DISABLE_TESTS=ON \
+        -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" ..
+
+    "${BUILD_SYSTEM}" -j "${PARALLEL}" install
+}
+
 # curl
 build_curl() {
     check_if_source_exist "${CURL_SOURCE}"
