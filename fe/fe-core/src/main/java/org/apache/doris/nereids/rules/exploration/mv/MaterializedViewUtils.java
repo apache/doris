@@ -23,9 +23,11 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVCache;
+import org.apache.doris.mtmv.MTMVPartitionCheckUtil;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.NereidsPlanner;
@@ -199,32 +201,74 @@ public class MaterializedViewUtils {
                     "partition rollup expressions is not consistent, partition rollup expressions map is %s",
                     checkContext.getPartitionAndRollupExpressionChecked()));
         }
-        List<TableColumnInfo> tableColumnInfos = new ArrayList<>();
+        List<TableIf> derivedRelatedTables = new ArrayList<>();
+        TableIf originalRelatedTable = null;
+        Map<TableIf, TableColumnInfo> tableAndPartitionMap = new HashMap<>();
         Set<DataType> dataTypeSet = new HashSet<>();
         for (Map.Entry<SlotReference, Pair<Optional<Expression>, Boolean>> entry
                 : checkContext.getPartitionAndRollupExpressionChecked().entrySet()) {
             SlotReference partitionColumn = entry.getKey();
+            Column relatedColumn = extractColumn(partitionColumn);
+            if (relatedColumn == null) {
+                // Partition column is not from table
+                continue;
+            }
             dataTypeSet.add(partitionColumn.getDataType());
             if (dataTypeSet.size() > 1) {
                 return RelatedTableInfo.failWith(String.format(
                         "multi partition column data types are different, data type are %s", dataTypeSet));
             }
-            if (!partitionColumn.isColumnFromTable()) {
-                return RelatedTableInfo.failWith(String.format(
-                        "partition checked is not from table, partition rollup expressions map is %s",
-                        checkContext.getPartitionAndRollupExpressionChecked()));
+            TableIf relatedTable = partitionColumn.getTable().get();
+            tableAndPartitionMap.put(relatedTable,
+                    new TableColumnInfo(partitionColumn.getTable().map(BaseTableInfo::new).get(),
+                            relatedColumn.getName(),
+                            entry.getValue().key().orElse(null),
+                            entry.getValue().value()));
+            if (entry.getValue().value()) {
+                originalRelatedTable = relatedTable;
+            } else {
+                derivedRelatedTables.add(relatedTable);
             }
-            Column relatedColumn = extractColumn(partitionColumn);
-            tableColumnInfos.add(new TableColumnInfo(partitionColumn.getTable().map(BaseTableInfo::new).get(),
-                    relatedColumn.getName(),
-                    entry.getValue().key().orElse(null),
-                    entry.getValue().value()));
         }
-        if (!tableColumnInfos.isEmpty()) {
-            return RelatedTableInfo.successWith(tableColumnInfos);
+        if (originalRelatedTable == null) {
+            return RelatedTableInfo.failWith(String.format(
+                    "original related table is null, err info is %s, partition checked expressions map is %s",
+                    checkContext.getFailReasons(), checkContext.getPartitionAndRollupExpressionChecked()));
         }
-        return RelatedTableInfo.failWith("can't not find valid partition track column finally, "
-                + checkContext.getFailReasons());
+        // If derivedRelatedTables is not empty, check partition between original and derived table is valid or not
+        Pair<Boolean, String> checkResult = MTMVPartitionCheckUtil.checkIfAllowMultiTablePartitionRefresh(
+                (MTMVRelatedTableIf) originalRelatedTable);
+        // TODO: 2024/10/15 Support external table in the future
+        TableColumnInfo originalTableColumnInfo = tableAndPartitionMap.get(originalRelatedTable);
+        if (!checkResult.key() || !(originalRelatedTable instanceof OlapTable)) {
+            // If original related table is invalid or is external table, degrade into single input trigger refresh
+            return RelatedTableInfo.successWith(ImmutableList.of(originalTableColumnInfo));
+        }
+        // TODO: 2024/10/15 Support external table in the future
+        derivedRelatedTables = derivedRelatedTables.stream()
+                .filter(tableIf -> MTMVPartitionCheckUtil.checkIfAllowMultiTablePartitionRefresh(
+                        (MTMVRelatedTableIf) tableIf).key() && tableIf instanceof OlapTable)
+                .collect(Collectors.toList());
+        if (derivedRelatedTables.isEmpty()) {
+            // If valid derivedRelatedTables is empty, degrade into single input trigger refresh
+            return RelatedTableInfo.successWith(ImmutableList.of(originalTableColumnInfo));
+        }
+        List<TableColumnInfo> checkedTableColumnInfos = new ArrayList<>();
+        checkedTableColumnInfos.add(originalTableColumnInfo);
+        for (TableIf derivedTable : derivedRelatedTables) {
+            try {
+                // check the original related table partition is same with each derived related table
+                Pair<Boolean, String> derivedCheckResult = MTMVPartitionCheckUtil.compareOriginalTableAndRelatedTable(
+                        (OlapTable) originalRelatedTable,
+                        (OlapTable) derivedTable);
+                if (derivedCheckResult.key() && tableAndPartitionMap.get(derivedTable) != null) {
+                    checkedTableColumnInfos.add(tableAndPartitionMap.get(derivedTable));
+                }
+            } catch (AnalysisException e) {
+                // noting
+            }
+        }
+        return RelatedTableInfo.successWith(checkedTableColumnInfos);
     }
 
     private static boolean checkRollupExpression(Collection<Pair<Optional<Expression>, Boolean>> rollupExpressions) {
@@ -837,6 +881,10 @@ public class MaterializedViewUtils {
     private static Column extractColumn(SlotReference slotReference) {
         Optional<Column> slotReferenceColumn = slotReference.getColumn();
         if (!slotReferenceColumn.isPresent()) {
+            return null;
+        }
+        if (!slotReference.isColumnFromTable()) {
+            // Column is not from table
             return null;
         }
         Expr definExpr = slotReferenceColumn.get().getDefineExpr();

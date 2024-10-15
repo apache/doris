@@ -84,6 +84,49 @@ public class PartitionColumnTraceTest extends TestWithFeService {
                 + "PROPERTIES (\n"
                 + "  \"replication_num\" = \"1\"\n"
                 + ")");
+
+        createTable("CREATE TABLE IF NOT EXISTS lineitem_auto (\n"
+                + "  L_ORDERKEY    INTEGER NOT NULL,\n"
+                + "  L_PARTKEY     INTEGER NOT NULL,\n"
+                + "  L_SUPPKEY     INTEGER NOT NULL,\n"
+                + "  L_LINENUMBER  INTEGER NOT NULL,\n"
+                + "  L_QUANTITY    DECIMALV3(15,2) NOT NULL,\n"
+                + "  L_EXTENDEDPRICE  DECIMALV3(15,2) NOT NULL,\n"
+                + "  L_DISCOUNT    DECIMALV3(15,2) NOT NULL,\n"
+                + "  L_TAX         DECIMALV3(15,2) NOT NULL,\n"
+                + "  L_RETURNFLAG  CHAR(1) NOT NULL,\n"
+                + "  L_LINESTATUS  CHAR(1) NOT NULL,\n"
+                + "  L_SHIPDATE    DATE NOT NULL,\n"
+                + "  L_COMMITDATE  DATE NOT NULL,\n"
+                + "  L_RECEIPTDATE DATE NOT NULL,\n"
+                + "  L_SHIPINSTRUCT CHAR(25) NOT NULL,\n"
+                + "  L_SHIPMODE     CHAR(10) NOT NULL,\n"
+                + "  L_COMMENT      VARCHAR(44) NOT NULL\n"
+                + ")\n"
+                + "DUPLICATE KEY(L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER)\n"
+                + "auto partition by range (date_trunc(`L_SHIPDATE`, 'day')) ()\n"
+                + "DISTRIBUTED BY HASH(L_ORDERKEY) BUCKETS 3\n"
+                + "PROPERTIES (\n"
+                + "  \"replication_num\" = \"1\"\n"
+                + ")");
+
+        createTable("CREATE TABLE IF NOT EXISTS orders_auto  (\n"
+                + "  O_ORDERKEY       INTEGER NOT NULL,\n"
+                + "  O_CUSTKEY        INTEGER NOT NULL,\n"
+                + "  O_ORDERSTATUS    CHAR(1) NOT NULL,\n"
+                + "  O_TOTALPRICE     DECIMALV3(15,2) NOT NULL,\n"
+                + "  O_ORDERDATE      DATE NOT NULL,\n"
+                + "  O_ORDERPRIORITY  CHAR(15) NOT NULL,  \n"
+                + "  O_CLERK          CHAR(15) NOT NULL, \n"
+                + "  O_SHIPPRIORITY   INTEGER NOT NULL,\n"
+                + "  O_COMMENT        VARCHAR(79) NOT NULL\n"
+                + ")\n"
+                + "DUPLICATE KEY(O_ORDERKEY, O_CUSTKEY)\n"
+                + "auto partition by range (date_trunc(`O_ORDERDATE`, 'day')) ()\n"
+                + "DISTRIBUTED BY HASH(O_ORDERKEY) BUCKETS 3\n"
+                + "PROPERTIES (\n"
+                + "  \"replication_num\" = \"1\"\n"
+                + ")");
         // Should not make scan to empty relation when the table used by materialized view has no data
         connectContext.getSessionVariable().setDisableNereidsRules("OLAP_SCAN_PARTITION_PRUNE,PRUNE_EMPTY_PARTITION");
     }
@@ -198,8 +241,26 @@ public class PartitionColumnTraceTest extends TestWithFeService {
                                     MaterializedViewUtils.getRelatedTableInfos("l_shipdate", null,
                                             rewrittenPlan, nereidsPlanner.getCascadesContext());
                             successWith(relatedTableInfo,
-                                    ImmutableSet.of(Pair.of("lineitem", "l_shipdate"),
-                                            Pair.of("orders", "o_orderdate")), "");
+                                    ImmutableSet.of(Pair.of("lineitem", "l_shipdate")), "");
+                        });
+    }
+
+    @Test
+    public void test502() {
+        PlanChecker.from(connectContext)
+                .checkExplain("        select l_shipdate, o_orderdate, count(l_shipdate) \n"
+                                + "        from lineitem_auto\n"
+                                + "        inner join orders_auto\n"
+                                + "        on l_shipdate = o_orderdate\n"
+                                + "        group by l_shipdate, o_orderdate",
+                        nereidsPlanner -> {
+                            Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
+                            RelatedTableInfo relatedTableInfo =
+                                    MaterializedViewUtils.getRelatedTableInfos("l_shipdate", null,
+                                            rewrittenPlan, nereidsPlanner.getCascadesContext());
+                            successWith(relatedTableInfo,
+                                    ImmutableSet.of(Pair.of("lineitem_auto", "l_shipdate"),
+                                            Pair.of("orders_auto", "o_orderdate")), "");
                         });
     }
 
@@ -253,8 +314,26 @@ public class PartitionColumnTraceTest extends TestWithFeService {
                                     MaterializedViewUtils.getRelatedTableInfos("o_orderdate", null,
                                             rewrittenPlan, nereidsPlanner.getCascadesContext());
                             successWith(relatedTableInfo,
-                                    ImmutableSet.of(Pair.of("lineitem", "l_shipdate"),
-                                            Pair.of("orders", "o_orderdate")), "");
+                                    ImmutableSet.of(Pair.of("orders", "o_orderdate")), "");
+                        });
+    }
+
+    @Test
+    public void test601() {
+        PlanChecker.from(connectContext)
+                .checkExplain("        select l_shipdate, o_orderdate, count(l_shipdate) \n"
+                                + "        from lineitem_auto\n"
+                                + "        inner join orders_auto\n"
+                                + "        on l_shipdate = o_orderdate\n"
+                                + "        group by l_shipdate, o_orderdate",
+                        nereidsPlanner -> {
+                            Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
+                            RelatedTableInfo relatedTableInfo =
+                                    MaterializedViewUtils.getRelatedTableInfos("o_orderdate", null,
+                                            rewrittenPlan, nereidsPlanner.getCascadesContext());
+                            successWith(relatedTableInfo,
+                                    ImmutableSet.of(Pair.of("lineitem_auto", "l_shipdate"),
+                                            Pair.of("orders_auto", "o_orderdate")), "");
                         });
     }
 
