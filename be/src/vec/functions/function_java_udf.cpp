@@ -310,7 +310,6 @@ Status JavaFunctionCall::execute_impl(FunctionContext* context, Block& block,
         auto offset_address = reinterpret_cast<int64_t>(offset_column.get_raw_data().data);
         auto& null_map_data =
                 assert_cast<ColumnVector<UInt8>*>(data_column_null_map.get())->get_data();
-        auto nested_nullmap_address = reinterpret_cast<int64_t>(null_map_data.data());
         jmethodID list_size = env->GetMethodID(arraylist_class, "size", "()I");
         int element_size = 0; // get all element size in num_rows of array column
         for (int i = 0; i < num_rows; ++i) {
@@ -322,6 +321,7 @@ Status JavaFunctionCall::execute_impl(FunctionContext* context, Block& block,
             env->DeleteLocalRef(obj);
         }
         array_nested_nullable.resize(element_size);
+        auto nested_nullmap_address = reinterpret_cast<int64_t>(null_map_data.data());
         memset(null_map_data.data(), 0, element_size);
         int64_t nested_data_address = 0, nested_offset_address = 0;
         // array type need pass address: [nullmap_address], offset_address, nested_nullmap_address, nested_data_address/nested_char_address,nested_offset_address
@@ -348,14 +348,12 @@ Status JavaFunctionCall::execute_impl(FunctionContext* context, Block& block,
         auto key_data_column = map_key_column_nullable.get_nested_column_ptr();
         auto& key_null_map_data =
                 assert_cast<ColumnVector<UInt8>*>(key_data_column_null_map.get())->get_data();
-        auto key_nested_nullmap_address = reinterpret_cast<int64_t>(key_null_map_data.data());
         ColumnNullable& map_value_column_nullable =
                 assert_cast<ColumnNullable&>(map_col->get_values());
         auto value_data_column_null_map = map_value_column_nullable.get_null_map_column_ptr();
         auto value_data_column = map_value_column_nullable.get_nested_column_ptr();
         auto& value_null_map_data =
                 assert_cast<ColumnVector<UInt8>*>(value_data_column_null_map.get())->get_data();
-        auto value_nested_nullmap_address = reinterpret_cast<int64_t>(value_null_map_data.data());
         jmethodID map_size = env->GetMethodID(hashmap_class, "size", "()I");
         int element_size = 0; // get all element size in num_rows of map column
         for (int i = 0; i < num_rows; ++i) {
@@ -370,6 +368,8 @@ Status JavaFunctionCall::execute_impl(FunctionContext* context, Block& block,
         memset(key_null_map_data.data(), 0, element_size);
         map_value_column_nullable.resize(element_size);
         memset(value_null_map_data.data(), 0, element_size);
+        auto key_nested_nullmap_address = reinterpret_cast<int64_t>(key_null_map_data.data());
+        auto value_nested_nullmap_address = reinterpret_cast<int64_t>(value_null_map_data.data());
         int64_t key_nested_data_address = 0, key_nested_offset_address = 0;
         if (key_data_column->is_column_string()) {
             ColumnString* str_col = assert_cast<ColumnString*>(key_data_column.get());
