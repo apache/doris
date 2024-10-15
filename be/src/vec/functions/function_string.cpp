@@ -580,8 +580,7 @@ private:
         }
 
         for (size_t i = 0; i < offset_size; ++i) {
-            const char* str_begin = reinterpret_cast<const char*>(
-                    str_data.data() + (i == 0 ? 0 : str_offsets[i - 1]));
+            const char* str_begin = reinterpret_cast<const char*>(str_data.data() + str_offsets[i - 1]);
             const char* str_end = reinterpret_cast<const char*>(str_data.data() + str_offsets[i]);
             const char* left_trim_pos = str_begin;
             const char* right_trim_pos = str_end;
@@ -620,7 +619,7 @@ private:
         res_offsets.resize(offset_size);
         res_data.reserve(str_data.size());
 
-        std::unordered_set<std::string> char_lookup;
+        std::unordered_set<std::string_view> char_lookup;
         const char* remove_begin = remove_str.data;
         const char* remove_end = remove_str.data + remove_str.size;
 
@@ -628,13 +627,12 @@ private:
             size_t byte_len, char_len;
             std::tie(byte_len, char_len) = simd::VStringFunctions::iterate_utf8_with_limit_length(
                     remove_begin, remove_end, 1);
-            char_lookup.insert(std::string(remove_begin, byte_len));
+            char_lookup.insert(std::string_view(remove_begin, byte_len));
             remove_begin += byte_len;
         }
 
         for (size_t i = 0; i < offset_size; ++i) {
-            const char* str_begin = reinterpret_cast<const char*>(
-                    str_data.data() + (i == 0 ? 0 : str_offsets[i - 1]));
+            const char* str_begin = reinterpret_cast<const char*>(str_data.data() + str_offsets[i - 1]);
             const char* str_end = reinterpret_cast<const char*>(str_data.data() + str_offsets[i]);
             const char* left_trim_pos = str_begin;
             const char* right_trim_pos = str_end;
@@ -645,7 +643,7 @@ private:
                     std::tie(byte_len, char_len) =
                             simd::VStringFunctions::iterate_utf8_with_limit_length(left_trim_pos,
                                                                                    str_end, 1);
-                    if (char_lookup.find(std::string(left_trim_pos, byte_len)) ==
+                    if (char_lookup.find(std::string_view(left_trim_pos, byte_len)) ==
                         char_lookup.end()) {
                         break;
                     }
@@ -660,7 +658,7 @@ private:
                         --prev_char_pos;
                     } while ((*prev_char_pos & 0xC0) == 0x80);
                     size_t byte_len = right_trim_pos - prev_char_pos;
-                    if (char_lookup.find(std::string(prev_char_pos, byte_len)) ==
+                    if (char_lookup.find(std::string_view(prev_char_pos, byte_len)) ==
                         char_lookup.end()) {
                         break;
                     }
