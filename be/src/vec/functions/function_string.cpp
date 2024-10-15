@@ -580,7 +580,8 @@ private:
         }
 
         for (size_t i = 0; i < offset_size; ++i) {
-            const char* str_begin = reinterpret_cast<const char*>(str_data.data() + str_offsets[i - 1]);
+            const char* str_begin =
+                    reinterpret_cast<const char*>(str_data.data() + str_offsets[i - 1]);
             const char* str_end = reinterpret_cast<const char*>(str_data.data() + str_offsets[i]);
             const char* left_trim_pos = str_begin;
             const char* right_trim_pos = str_end;
@@ -632,7 +633,8 @@ private:
         }
 
         for (size_t i = 0; i < offset_size; ++i) {
-            const char* str_begin = reinterpret_cast<const char*>(str_data.data() + str_offsets[i - 1]);
+            const char* str_begin =
+                    reinterpret_cast<const char*>(str_data.data() + str_offsets[i - 1]);
             const char* str_end = reinterpret_cast<const char*>(str_data.data() + str_offsets[i]);
             const char* left_trim_pos = str_begin;
             const char* right_trim_pos = str_end;
