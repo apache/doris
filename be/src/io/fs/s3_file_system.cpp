@@ -520,11 +520,16 @@ Status S3FileSystem::copy(const Path& src, const Path& dst) {
             .WithBucket(_s3_conf.bucket);
     Aws::S3::Model::CopyObjectOutcome response = _client->CopyObject(request);
     if (response.IsSuccess()) {
+        LOG(INFO) << "succeed to copy from " << src.native() << " to " << dst.native();
         return Status::OK();
     } else {
         return Status::IOError("failed to copy from {} to {}: {}", src.native(), dst.native(),
                                error_msg(src_key, response));
     }
+}
+
+Status S3FileSystem::copy_path_impl(const Path& src, const Path& dst) {
+    return copy(src, dst);
 }
 
 Status S3FileSystem::copy_dir(const Path& src, const Path& dst) {

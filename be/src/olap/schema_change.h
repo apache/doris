@@ -283,7 +283,7 @@ private:
                                          const TAlterTabletReqV2& request);
 
     static Status _convert_historical_rowsets(const SchemaChangeParams& sc_params,
-                                              int64_t* real_alter_version);
+                                              int64_t* real_alter_version, bool* is_linked_sc);
 
     static Status _parse_request(const SchemaChangeParams& sc_params, BlockChanger* changer,
                                  bool* sc_sorting, bool* sc_directly);

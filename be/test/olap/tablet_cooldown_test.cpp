@@ -224,6 +224,10 @@ protected:
         return Status::OK();
     }
 
+    Status copy_path_impl(const Path& src, const Path& dest) override {
+        return Status::OK();
+    }
+
 private:
     std::shared_ptr<io::LocalFileSystem> _local_fs;
 };

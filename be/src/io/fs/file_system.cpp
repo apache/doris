@@ -85,5 +85,11 @@ Status FileSystem::rename_dir(const Path& orig_name, const Path& new_name) {
     FILESYSTEM_M(rename_dir_impl(orig_path, new_path));
 }
 
+Status FileSystem::copy_path(const Path& src, const Path& dest) {
+    auto src_path = absolute_path(src);
+    auto dest_path = absolute_path(dest);
+    FILESYSTEM_M(copy_path_impl(src_path, dest_path));
+}
+
 } // namespace io
 } // namespace doris
