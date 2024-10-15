@@ -525,7 +525,17 @@ Status SegmentWriter::probe_key_for_mow(
     // 2. the one exception is when there are sequence columns in the table, we need to read
     //    the sequence columns, otherwise it may cause the merge-on-read based compaction
     //    policy to produce incorrect results
-    if (have_delete_sign && !_tablet_schema->has_sequence_col()) {
+    // TODO(bobhan1): only read seq col rather than all columns in this situation for
+    // partial update and flexible partial update
+
+    // 3. In flexible partial update, we may delete the existing rows before if there exists
+    //    insert after delete in one load. In this case, the insert should also be treated
+    //    as newly inserted rows
+    // TODO(bobhan1): handle sequence column here
+    if ((have_delete_sign && !_tablet_schema->has_sequence_col()) ||
+        (_opts.rowset_ctx->partial_update_info->is_flexible_partial_update() &&
+         _mow_context->delete_bitmap->contains(
+                 {loc.rowset_id, loc.segment_id, DeleteBitmap::TEMP_VERSION_COMMON}, loc.row_id))) {
         has_default_or_nullable = true;
         use_default_or_null_flag.emplace_back(true);
     } else {
@@ -643,7 +653,7 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
     bool has_default_or_nullable = false;
     std::vector<bool> use_default_or_null_flag;
     use_default_or_null_flag.reserve(num_rows);
-    const auto* delete_sign_column_data =
+    const auto* delete_signs =
             BaseTablet::get_delete_sign_column_data(full_block, row_pos + num_rows);
 
     const std::vector<RowsetSharedPtr>& specified_rowsets = _mow_context->rowset_ptrs;
@@ -676,8 +686,7 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
         }
 
         // mark key with delete sign as deleted.
-        bool have_delete_sign =
-                (delete_sign_column_data != nullptr && delete_sign_column_data[block_pos] != 0);
+        bool have_delete_sign = (delete_signs != nullptr && delete_signs[block_pos] != 0);
 
         auto not_found_cb = [&]() {
             return _opts.rowset_ctx->partial_update_info->handle_non_strict_mode_not_found_error(

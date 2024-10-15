@@ -956,6 +956,8 @@ Status VerticalSegmentWriter::_merge_rows_for_sequence_column(
     VLOG_DEBUG << fmt::format(
             "VerticalSegmentWriter::_merge_rows_for_sequence_column enter: data.block:{}\n",
             data.block->dump_data());
+    // there will be at most 4 rows for a specified key in block when control flow reaches here
+    // after this function, there will be at most 2 rows for a specified key
     auto seq_col_unique_id = _tablet_schema->column(_tablet_schema->sequence_col_idx()).unique_id();
     auto delete_sign_col_unique_id =
             _tablet_schema->column(_tablet_schema->delete_sign_idx()).unique_id();
@@ -981,17 +983,9 @@ Status VerticalSegmentWriter::_merge_rows_for_sequence_column(
     bool has_same_rows {false};
     auto get_idx = [](bool with_seq_col, bool has_delete_sign) {
         if (!with_seq_col) {
-            if (has_delete_sign) {
-                return 0;
-            } else {
-                return 1;
-            }
+            return (has_delete_sign ? 0 : 1);
         } else {
-            if (has_delete_sign) {
-                return 2;
-            } else {
-                return 3;
-            }
+            return (has_delete_sign ? 2 : 3);
         }
     };
 
@@ -999,6 +993,11 @@ Status VerticalSegmentWriter::_merge_rows_for_sequence_column(
         bool has_row_with_seq_col = (batched_rows[0] != -1 || batched_rows[1] != -1);
         bool has_row_without_seq_col = (batched_rows[2] != -1 || batched_rows[3] != -1);
         if (has_row_with_seq_col && has_row_without_seq_col) {
+            // for rows with the same key in block, if some of them specify the sequence column,
+            // some of them not, we need to filter them here. After this function, there will be
+            // only one kind of them remaines
+            // If the block only has one kind of them, duplicate rows will be filtered in
+            // `_merge_rows_for_insert_after_delete`
             RowLocation loc;
             RowsetSharedPtr rowset;
             std::string previous_encoded_seq_value {};
@@ -1039,6 +1038,7 @@ Status VerticalSegmentWriter::_merge_rows_for_sequence_column(
 
             // the encoded value is order-preserving, so we can use Slice::compare() to compare them
             if (batched_rows[2] != -1 && batched_rows[3] != -1) {
+                // it's guaranteed that the sequence value of batched_rows[2]'s is strictly smaller than batched_rows[3]'s
                 if (previous_seq_slice.compare(Slice {row_with_delete_sign_encoded_seq_value}) <=
                     0) {
                     remove_rows_without_seq();
@@ -1116,10 +1116,11 @@ Status VerticalSegmentWriter::_merge_rows_for_insert_after_delete(
         vectorized::IOlapColumnDataAccessor* seq_column, const signed char* delete_signs,
         const std::vector<RowsetSharedPtr>& specified_rowsets,
         std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches) {
-    // TODO(bobhan1): handle sequence column later
     VLOG_DEBUG << fmt::format(
             "VerticalSegmentWriter::_merge_rows_for_insert_after_delete enter: data.block:{}\n",
             data.block->dump_data());
+    // there will be at most 2 rows for a specified key in block when control flow reaches here
+    // after this function, there will not be duplicate rows in block
     auto filter_column = vectorized::ColumnUInt8::create(data.num_rows, 1);
     auto* __restrict filter_map = filter_column->get_data().data();
     std::string previous_key {};

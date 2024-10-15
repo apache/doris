@@ -658,17 +658,9 @@ void MemTable::_aggregate_for_flexible_partial_update_with_seq_col(
     };
     auto get_idx = [](bool with_seq_col, bool has_delete_sign) {
         if (!with_seq_col) {
-            if (has_delete_sign) {
-                return 0;
-            } else {
-                return 1;
-            }
+            return (has_delete_sign ? 0 : 1);
         } else {
-            if (has_delete_sign) {
-                return 2;
-            } else {
-                return 3;
-            }
+            return (has_delete_sign ? 2 : 3);
         }
     };
     auto add_row = [&](RowInBlock* row, bool with_seq_col, bool has_delete_sign) {
