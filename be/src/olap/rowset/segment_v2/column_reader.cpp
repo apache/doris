@@ -353,7 +353,7 @@ Status ColumnReader::new_inverted_index_iterator(
 
 Status ColumnReader::read_page(const ColumnIteratorOptions& iter_opts, const PagePointer& pp,
                                PageHandle* handle, Slice* page_body, PageFooterPB* footer,
-                               BlockCompressionCodec* codec) const {
+                               BlockCompressionCodec* codec) {
     iter_opts.sanity_check();
     PageReadOptions opts {
             .verify_checksum = _opts.verify_checksum,
@@ -1355,8 +1355,8 @@ Status FileColumnIterator::_read_data_page(const OrdinalPageIndexIterator& iter)
     _opts.type = DATA_PAGE;
     RETURN_IF_ERROR(
             _reader->read_page(_opts, iter.page(), &handle, &page_body, &footer, _compress_codec));
-    _compaction_io_time_ns += doris::segment_v2::ColumnReader::get_compaction_io_time_ns();
-    _compaction_io_bytes += doris::segment_v2::ColumnReader::get_compaction_io_bytes();
+    _compaction_io_time_ns += _reader->get_compaction_io_time_ns();
+    _compaction_io_bytes += _reader->get_compaction_io_bytes();
     // parse data page
     RETURN_IF_ERROR(ParsedPage::create(std::move(handle), page_body, footer.data_page_footer(),
                                        _reader->encoding_info(), iter.page(), iter.page_index(),

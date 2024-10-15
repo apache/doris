@@ -206,11 +206,11 @@ public:
 
     FieldType get_meta_type() { return _meta_type; }
 
-    static int64_t get_compaction_io_time_ns() {
+    int64_t get_compaction_io_time_ns() const {
         return _compaction_io_time_ns;
     }
 
-    static size_t get_compaction_io_bytes() {
+    size_t get_compaction_io_bytes() const {
         return _compaction_io_bytes;
     }
 
@@ -262,8 +262,8 @@ private:
     bool _use_index_page_cache;
     int _be_exec_version = -1;
 
-    static int64_t _compaction_io_time_ns;
-    static size_t _compaction_io_bytes;
+    int64_t _compaction_io_time_ns;
+    size_t _compaction_io_bytes;
 
     PagePointer _meta_dict_page;
     CompressionTypePB _meta_compression;
