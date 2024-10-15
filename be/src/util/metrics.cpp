@@ -123,7 +123,7 @@ std::string Metric::to_prometheus(const std::string& display_name, const Labels&
 std::map<std::string, double> HistogramMetric::_s_output_percentiles = {
         {"0.50", 50.0}, {"0.75", 75.0}, {"0.90", 90.0}, {"0.95", 95.0}, {"0.99", 99.0}};
 void HistogramMetric::clear() {
-    std::lock_guard<SpinLock> l(_lock);
+    std::lock_guard<std::mutex> l(_lock);
     _stats.clear();
 }
 
@@ -136,12 +136,12 @@ void HistogramMetric::add(const uint64_t& value) {
 }
 
 void HistogramMetric::merge(const HistogramMetric& other) {
-    std::lock_guard<SpinLock> l(_lock);
+    std::lock_guard<std::mutex> l(_lock);
     _stats.merge(other._stats);
 }
 
 void HistogramMetric::set_histogram(const HistogramStat& stats) {
-    std::lock_guard<SpinLock> l(_lock);
+    std::lock_guard<std::mutex> l(_lock);
     _stats.clear();
     _stats.merge(stats);
 }
@@ -228,7 +228,7 @@ std::string MetricPrototype::to_prometheus(const std::string& registry_name) con
 }
 
 void MetricEntity::deregister_metric(const MetricPrototype* metric_type) {
-    std::lock_guard<SpinLock> l(_lock);
+    std::lock_guard<std::mutex> l(_lock);
     auto metric = _metrics.find(metric_type);
     if (metric != _metrics.end()) {
         delete metric->second;
@@ -238,7 +238,7 @@ void MetricEntity::deregister_metric(const MetricPrototype* metric_type) {
 
 Metric* MetricEntity::get_metric(const std::string& name, const std::string& group_name) const {
     MetricPrototype dummy(MetricType::UNTYPED, MetricUnit::NOUNIT, name, "", group_name);
-    std::lock_guard<SpinLock> l(_lock);
+    std::lock_guard<std::mutex> l(_lock);
     auto it = _metrics.find(&dummy);
     if (it == _metrics.end()) {
         return nullptr;
@@ -247,7 +247,7 @@ Metric* MetricEntity::get_metric(const std::string& name, const std::string& gro
 }
 
 void MetricEntity::register_hook(const std::string& name, const std::function<void()>& hook) {
-    std::lock_guard<SpinLock> l(_lock);
+    std::lock_guard<std::mutex> l(_lock);
 #ifndef BE_TEST
     DCHECK(_hooks.find(name) == _hooks.end()) << "hook is already exist! " << _name << ":" << name;
 #endif
@@ -255,7 +255,7 @@ void MetricEntity::register_hook(const std::string& name, const std::function<vo
 }
 
 void MetricEntity::deregister_hook(const std::string& name) {
-    std::lock_guard<SpinLock> l(_lock);
+    std::lock_guard<std::mutex> l(_lock);
     _hooks.erase(name);
 }
 
@@ -276,7 +276,7 @@ std::shared_ptr<MetricEntity> MetricRegistry::register_entity(const std::string&
                                                               const Labels& labels,
                                                               MetricEntityType type) {
     std::shared_ptr<MetricEntity> entity = std::make_shared<MetricEntity>(type, name, labels);
-    std::lock_guard<SpinLock> l(_lock);
+    std::lock_guard<std::mutex> l(_lock);
     auto inserted_entity = _entities.insert(std::make_pair(entity, 1));
     if (!inserted_entity.second) {
         // If exist, increase the registered count
@@ -286,7 +286,7 @@ std::shared_ptr<MetricEntity> MetricRegistry::register_entity(const std::string&
 }
 
 void MetricRegistry::deregister_entity(const std::shared_ptr<MetricEntity>& entity) {
-    std::lock_guard<SpinLock> l(_lock);
+    std::lock_guard<std::mutex> l(_lock);
     auto found_entity = _entities.find(entity);
     if (found_entity != _entities.end()) {
         // Decrease the registered count
@@ -303,7 +303,7 @@ std::shared_ptr<MetricEntity> MetricRegistry::get_entity(const std::string& name
                                                          MetricEntityType type) {
     std::shared_ptr<MetricEntity> dummy = std::make_shared<MetricEntity>(type, name, labels);
 
-    std::lock_guard<SpinLock> l(_lock);
+    std::lock_guard<std::mutex> l(_lock);
     auto entity = _entities.find(dummy);
     if (entity == _entities.end()) {
         return std::shared_ptr<MetricEntity>();
@@ -312,9 +312,9 @@ std::shared_ptr<MetricEntity> MetricRegistry::get_entity(const std::string& name
 }
 
 void MetricRegistry::trigger_all_hooks(bool force) const {
-    std::lock_guard<SpinLock> l(_lock);
+    std::lock_guard<std::mutex> l(_lock);
     for (const auto& entity : _entities) {
-        std::lock_guard<SpinLock> l(entity.first->_lock);
+        std::lock_guard<std::mutex> l(entity.first->_lock);
         entity.first->trigger_hook_unlocked(force);
     }
 }
@@ -322,12 +322,12 @@ void MetricRegistry::trigger_all_hooks(bool force) const {
 std::string MetricRegistry::to_prometheus(bool with_tablet_metrics) const {
     // Reorder by MetricPrototype
     EntityMetricsByType entity_metrics_by_types;
-    std::lock_guard<SpinLock> l(_lock);
+    std::lock_guard<std::mutex> l(_lock);
     for (const auto& entity : _entities) {
         if (entity.first->_type == MetricEntityType::kTablet && !with_tablet_metrics) {
             continue;
         }
-        std::lock_guard<SpinLock> l(entity.first->_lock);
+        std::lock_guard<std::mutex> l(entity.first->_lock);
         entity.first->trigger_hook_unlocked(false);
         for (const auto& metric : entity.first->_metrics) {
             std::pair<MetricEntity*, Metric*> new_elem =
@@ -365,12 +365,12 @@ std::string MetricRegistry::to_prometheus(bool with_tablet_metrics) const {
 std::string MetricRegistry::to_json(bool with_tablet_metrics) const {
     rj::Document doc {rj::kArrayType};
     rj::Document::AllocatorType& allocator = doc.GetAllocator();
-    std::lock_guard<SpinLock> l(_lock);
+    std::lock_guard<std::mutex> l(_lock);
     for (const auto& entity : _entities) {
         if (entity.first->_type == MetricEntityType::kTablet && !with_tablet_metrics) {
             continue;
         }
-        std::lock_guard<SpinLock> l(entity.first->_lock);
+        std::lock_guard<std::mutex> l(entity.first->_lock);
         entity.first->trigger_hook_unlocked(false);
         for (const auto& metric : entity.first->_metrics) {
             rj::Value metric_obj(rj::kObjectType);
@@ -406,9 +406,9 @@ std::string MetricRegistry::to_json(bool with_tablet_metrics) const {
 
 std::string MetricRegistry::to_core_string() const {
     std::stringstream ss;
-    std::lock_guard<SpinLock> l(_lock);
+    std::lock_guard<std::mutex> l(_lock);
     for (const auto& entity : _entities) {
-        std::lock_guard<SpinLock> l(entity.first->_lock);
+        std::lock_guard<std::mutex> l(entity.first->_lock);
         entity.first->trigger_hook_unlocked(false);
         for (const auto& metric : entity.first->_metrics) {
             if (metric.first->is_core_metric) {
