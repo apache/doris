@@ -143,4 +143,103 @@ TEST(ResizeTest, StructTypeTest) {
     EXPECT_EQ(b->size(), 10);
 }
 
+TEST(ResizeTest, ResizeColumnArray) {
+    ColumnArray::MutablePtr col_arr =
+            ColumnArray::create(ColumnInt64::create(), ColumnArray::ColumnOffsets::create());
+    Array array1 = {1, 2, 3};
+    Array array2 = {4};
+    col_arr->insert(array1);
+    col_arr->insert(Array());
+    col_arr->insert(array2);
+
+    // check column array result
+    // array : [[1,2,3],[],[4]]
+    col_arr->resize(2);
+    EXPECT_EQ(col_arr->size(), 2);
+    auto data_col = assert_cast<const ColumnArray&>(*col_arr).get_data_ptr();
+    EXPECT_EQ(data_col->size(), 3);
+    auto v = get<Array>(col_arr->operator[](0));
+    EXPECT_EQ(v.size(), 3);
+    EXPECT_EQ(get<int32_t>(v[0]), 1);
+    EXPECT_EQ(get<int32_t>(v[1]), 2);
+    EXPECT_EQ(get<int32_t>(v[2]), 3);
+    v = get<Array>(col_arr->operator[](1));
+    EXPECT_EQ(v.size(), 0);
+    EXPECT_EQ(get<int32_t>(data_col->operator[](0)), 1);
+    EXPECT_EQ(get<int32_t>(data_col->operator[](1)), 2);
+    EXPECT_EQ(get<int32_t>(data_col->operator[](2)), 3);
+
+    // expand will not make data expand
+    EXPECT_EQ(col_arr->size(), 2);
+    col_arr->resize(10);
+    EXPECT_EQ(col_arr->size(), 10);
+    data_col = assert_cast<const ColumnArray&>(*col_arr).get_data_ptr();
+    EXPECT_EQ(data_col->size(), 3);
+    v = get<Array>(col_arr->operator[](0));
+    EXPECT_EQ(v.size(), 3);
+    EXPECT_EQ(get<int32_t>(v[0]), 1);
+    EXPECT_EQ(get<int32_t>(v[1]), 2);
+    EXPECT_EQ(get<int32_t>(v[2]), 3);
+    v = get<Array>(col_arr->operator[](1));
+    EXPECT_EQ(v.size(), 0);
+    v = get<Array>(col_arr->operator[](2));
+    EXPECT_EQ(v.size(), 0);
+}
+
+TEST(ResizeTest, ResizeColumnMap) {
+    ColumnMap::MutablePtr col_map = ColumnMap::create(ColumnString::create(), ColumnInt64::create(),
+                                                      ColumnArray::ColumnOffsets::create());
+    Array k1 = {"a", "b", "c"};
+    Array v1 = {1, 2, 3};
+    Array k2 = {"d"};
+    Array v2 = {4};
+    Array a = Array();
+    Map map1, map2, map3;
+    map1.push_back(k1);
+    map1.push_back(v1);
+    col_map->insert(map1);
+    map3.push_back(a);
+    map3.push_back(a);
+    col_map->insert(map3);
+    map2.push_back(k2);
+    map2.push_back(v2);
+    col_map->insert(map2);
+    // check column map result
+    // map : {"a":1,"b":2,"c":3},{:},{"d":4}
+    col_map->resize(2);
+    EXPECT_EQ(col_map->size(), 2);
+    auto data_col = assert_cast<const ColumnMap&>(*col_map).get_values_ptr();
+    EXPECT_EQ(data_col->size(), 3);
+    auto v = get<Map>(col_map->operator[](0));
+    EXPECT_EQ(v.size(), 2);
+    EXPECT_EQ(get<Array>(v[0]), Array({"a", "b", "c"}));
+    EXPECT_EQ(get<Array>(v[1]), Array({1, 2, 3}));
+    v = get<Map>(col_map->operator[](1));
+    EXPECT_EQ(v.size(), 2);
+    EXPECT_EQ(get<Array>(v[0]), Array());
+    EXPECT_EQ(get<Array>(v[1]), Array());
+    EXPECT_EQ(get<int32_t>(data_col->operator[](0)), 1);
+    EXPECT_EQ(get<int32_t>(data_col->operator[](1)), 2);
+    EXPECT_EQ(get<int32_t>(data_col->operator[](2)), 3);
+
+    // expand will not make data expand
+    EXPECT_EQ(col_map->size(), 2);
+    col_map->resize(10);
+    EXPECT_EQ(col_map->size(), 10);
+    data_col = assert_cast<const ColumnMap&>(*col_map).get_values_ptr();
+    EXPECT_EQ(data_col->size(), 3);
+    v = get<Map>(col_map->operator[](0));
+    EXPECT_EQ(v.size(), 2);
+    EXPECT_EQ(get<Array>(v[0]), Array({"a", "b", "c"}));
+    EXPECT_EQ(get<Array>(v[1]), Array({1, 2, 3}));
+    v = get<Map>(col_map->operator[](1));
+    EXPECT_EQ(v.size(), 2);
+    EXPECT_EQ(get<Array>(v[0]), Array());
+    EXPECT_EQ(get<Array>(v[1]), Array());
+    v = get<Map>(col_map->operator[](2));
+    EXPECT_EQ(v.size(), 2);
+    EXPECT_EQ(get<Array>(v[0]), Array());
+    EXPECT_EQ(get<Array>(v[1]), Array());
+}
+
 } // namespace doris::vectorized
