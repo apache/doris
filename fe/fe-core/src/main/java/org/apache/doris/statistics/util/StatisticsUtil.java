@@ -998,12 +998,7 @@ public class StatisticsUtil {
         if (column == null) {
             return false;
         }
-        try {
-            if (!table.getDatabase().getCatalog().enableAutoAnalyze()) {
-                return false;
-            }
-        } catch (Throwable t) {
-            LOG.warn("Failed to get catalog property. {}", t.getMessage());
+        if (!table.autoAnalyzeEnabled()) {
             return false;
         }
         AnalysisManager manager = Env.getServingEnv().getAnalysisManager();
