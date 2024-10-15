@@ -668,6 +668,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_PHRASE_QUERY_SEQUENYIAL_OPT = "enable_phrase_query_sequential_opt";
 
+    public static final String ENABLE_COOLDOWN_REPLICA_AFFINITY =
+            "enable_cooldown_replica_affinity";
     /**
      * If set false, user couldn't submit analyze SQL and FE won't allocate any related resources.
      */
@@ -2194,6 +2196,9 @@ public class SessionVariable implements Serializable, Writable {
                     + " column requires a sequence column to be provided for each row"
     })
     public boolean requireSequenceInInsert = true;
+
+    @VariableMgr.VarAttr(name = ENABLE_COOLDOWN_REPLICA_AFFINITY, needForward = true)
+    public boolean enableCooldownReplicaAffinity = true;
 
     public void setEnableEsParallelScroll(boolean enableESParallelScroll) {
         this.enableESParallelScroll = enableESParallelScroll;
@@ -4375,5 +4380,9 @@ public class SessionVariable implements Serializable, Writable {
             default:
                 throw new IllegalArgumentException("Unknown serde dialect: " + serdeDialect);
         }
+    }
+
+    public boolean isEnableCooldownReplicaAffinity() {
+        return enableCooldownReplicaAffinity;
     }
 }
