@@ -1895,6 +1895,11 @@ Status SegmentIterator::_read_columns_by_rowids(std::vector<ColumnId>& read_colu
 
         RETURN_IF_ERROR(_column_iterators[cid]->read_by_rowids(rowids.data(), select_size,
                                                                _current_return_columns[cid]));
+        if (_is_compaction) {
+            _compaction_io_time_ns += _column_iterators[cid]->get_compaction_io_time_ns();
+            _compaction_io_bytes += _column_iterators[cid]->get_compaction_io_bytes();
+            LOG(INFO) << "compaction io time: " << _compaction_io_time_ns << " ns, compaction io bytes: " << _compaction_io_bytes << " bytes";
+        }
     }
 
     return Status::OK();

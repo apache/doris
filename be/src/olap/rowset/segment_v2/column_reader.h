@@ -206,6 +206,14 @@ public:
 
     FieldType get_meta_type() { return _meta_type; }
 
+    static int64_t get_compaction_io_time_ns() {
+        return _compaction_io_time_ns;
+    }
+
+    static size_t get_compaction_io_bytes() {
+        return _compaction_io_bytes;
+    }
+
 private:
     ColumnReader(const ColumnReaderOptions& opts, const ColumnMetaPB& meta, uint64_t num_rows,
                  io::FileReaderSPtr file_reader);
@@ -253,6 +261,9 @@ private:
     bool _meta_is_nullable;
     bool _use_index_page_cache;
     int _be_exec_version = -1;
+
+    static int64_t _compaction_io_time_ns;
+    static size_t _compaction_io_bytes;
 
     PagePointer _meta_dict_page;
     CompressionTypePB _meta_compression;
@@ -342,6 +353,9 @@ public:
 
     virtual bool is_all_dict_encoding() const { return false; }
 
+    virtual int64_t get_compaction_io_time_ns() const { return 0; }
+    virtual size_t get_compaction_io_bytes() const { return 0; }
+
 protected:
     ColumnIteratorOptions _opts;
 };
@@ -389,12 +403,16 @@ public:
 
     bool is_all_dict_encoding() const override { return _is_all_dict_encoding; }
 
+    int64_t get_compaction_io_time_ns() const override { return _compaction_io_time_ns; }
+    size_t get_compaction_io_bytes() const override { return _compaction_io_bytes; }
+
 private:
     void _seek_to_pos_in_page(ParsedPage* page, ordinal_t offset_in_page) const;
     Status _load_next_page(bool* eos);
     Status _read_data_page(const OrdinalPageIndexIterator& iter);
     Status _read_dict_data();
-
+    int64_t _compaction_io_time_ns = 0;
+    size_t _compaction_io_bytes = 0;
     ColumnReader* _reader = nullptr;
 
     // iterator owned compress codec, should NOT be shared by threads, initialized in init()

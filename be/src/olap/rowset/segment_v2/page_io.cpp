@@ -154,6 +154,7 @@ Status PageIO::read_and_decompress_page_(const PageReadOptions& opts, PageHandle
                                                   &opts.io_ctx));
         DCHECK_EQ(bytes_read, page_size);
         opts.stats->compressed_bytes_read += page_size;
+        opts.stats->bytes_read += bytes_read;
     }
 
     if (opts.verify_checksum) {

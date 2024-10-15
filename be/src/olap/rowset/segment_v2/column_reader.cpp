@@ -369,7 +369,10 @@ Status ColumnReader::read_page(const ColumnIteratorOptions& iter_opts, const Pag
     };
     // index page should not pre decode
     if (iter_opts.type == INDEX_PAGE) opts.pre_decode = false;
-    return PageIO::read_and_decompress_page(opts, handle, page_body, footer);
+    Status s = PageIO::read_and_decompress_page(opts, handle, page_body, footer);
+    _compaction_io_time_ns += opts.stats->io_ns;
+    _compaction_io_bytes += opts.stats->bytes_read;
+    return s;
 }
 
 Status ColumnReader::get_row_ranges_by_zone_map(
@@ -1352,6 +1355,8 @@ Status FileColumnIterator::_read_data_page(const OrdinalPageIndexIterator& iter)
     _opts.type = DATA_PAGE;
     RETURN_IF_ERROR(
             _reader->read_page(_opts, iter.page(), &handle, &page_body, &footer, _compress_codec));
+    _compaction_io_time_ns += doris::segment_v2::ColumnReader::get_compaction_io_time_ns();
+    _compaction_io_bytes += doris::segment_v2::ColumnReader::get_compaction_io_bytes();
     // parse data page
     RETURN_IF_ERROR(ParsedPage::create(std::move(handle), page_body, footer.data_page_footer(),
                                        _reader->encoding_info(), iter.page(), iter.page_index(),

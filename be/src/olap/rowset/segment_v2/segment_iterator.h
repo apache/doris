@@ -21,6 +21,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <cstddef>
 #include <map>
 #include <memory>
 #include <ostream>
@@ -161,9 +162,45 @@ public:
                            [](const auto& iterator) { return iterator != nullptr; });
     }
 
-private:
-    Status _next_batch_internal(vectorized::Block* block);
+    int64_t get_compaction_io_time_ns() const {
+        return _compaction_io_time_ns;
+    }
 
+    size_t get_compaction_io_bytes() const {
+        return _compaction_io_bytes;
+    }
+
+    bool get_is_compaction() const {
+        return _is_compaction;
+    }
+
+    void set_is_compaction(bool is_compaction) {
+        _is_compaction = is_compaction;
+    }
+
+    bool get_is_cache_io() const {
+        return _is_cache_io;
+    }
+
+    void set_is_cache_io(bool is_cache_io) {
+        _is_cache_io = is_cache_io;
+    }
+    
+    bool get_is_s3_io() const {
+        return _is_s3_io;
+    }
+
+    void set_is_s3_io(bool is_s3_io) {
+        _is_s3_io = is_s3_io;
+    }
+
+private:
+    bool _is_compaction = false;
+    bool _is_cache_io = false;
+    bool _is_s3_io = false;
+    int64_t _compaction_io_time_ns = 0;
+    size_t _compaction_io_bytes = 0;
+    Status _next_batch_internal(vectorized::Block* block);
     template <typename Container>
     bool _update_profile(RuntimeProfile* profile, const Container& predicates,
                          const std::string& title) {
