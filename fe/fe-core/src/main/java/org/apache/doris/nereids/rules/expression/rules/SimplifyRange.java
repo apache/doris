@@ -494,6 +494,9 @@ public class SimplifyRange implements ExpressionPatternRuleFactory {
             for (int i = 1; i < sourceValues.size(); i++) {
                 result = mergeExprOp.apply(result, sourceValues.get(i).toExpression());
             }
+            if (result.equals(expr)) {
+                return expr;
+            }
             return result;
         }
     }
