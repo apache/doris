@@ -454,7 +454,7 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " BRPC " ]]; then
         if [[ ! -f "${PATCHED_MARK}" ]]; then
             for patch_file in "${TP_PATCH_DIR}"/brpc-*; do
                 echo "patch ${patch_file}"
-                patch -p1 <"${patch_file}"
+                patch -p1 <"${patch_file}" --ignore-whitespace
             done
             touch "${PATCHED_MARK}"
         fi
