@@ -85,7 +85,7 @@ Status LocalExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
     SCOPED_TIMER(_init_timer);
     _compute_hash_value_timer = ADD_TIMER(profile(), "ComputeHashValueTime");
     _distribute_timer = ADD_TIMER(profile(), "DistributeDataTime");
-    if (_exchanger->get_type() == ExchangeType::HASH_SHUFFLE) {
+    if (_parent->cast<LocalExchangeSinkOperatorX>()._type == ExchangeType::HASH_SHUFFLE) {
         _profile->add_info_string(
                 "UseGlobalShuffle",
                 std::to_string(_parent->cast<LocalExchangeSinkOperatorX>()._use_global_shuffle));
