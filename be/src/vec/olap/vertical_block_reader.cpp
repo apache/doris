@@ -89,11 +89,6 @@ Status VerticalBlockReader::_get_segment_iterators(const ReaderParams& read_para
             auto* seg_iter = dynamic_cast<SegmentIterator*>(iter.get());
             if (seg_iter != nullptr) {
                 seg_iter->set_is_compaction(_is_compaction);
-                if (use_cache) {
-                    seg_iter->set_is_cache_io(true);
-                } else {
-                    seg_iter->set_is_s3_io(true);
-                }
             }
         }
         // if segments overlapping, all segment iterator should be inited in
