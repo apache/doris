@@ -272,6 +272,17 @@ Status StreamLoadAction::_on_header(HttpRequest* http_req, std::shared_ptr<Strea
     ctx->body_bytes = 0;
     size_t csv_max_body_bytes = config::streaming_load_max_mb * 1024 * 1024;
     size_t json_max_body_bytes = config::streaming_load_json_max_mb * 1024 * 1024;
+    if (!http_req->header(HTTP_DATA_SIZE_LIMIT).empty()) {
+        try {
+            size_t session_max_data_size = std::stoull(http_req->header(HTTP_DATA_SIZE_LIMIT));
+            csv_max_body_bytes = 
+                    std::max(session_max_data_size, session_max_data_size * 1024 * 1024);
+            json_max_body_bytes = csv_max_body_bytes;
+        } catch (const std::invalid_argument& e) {
+            return Status::InvalidArgument("Invalid data size limit format={}: {}",
+                                          http_req->header(HTTP_DATA_SIZE_LIMIT), e.what());
+        }
+    }
     bool read_json_by_line = false;
     if (!http_req->header(HTTP_READ_JSON_BY_LINE).empty()) {
         if (iequal(http_req->header(HTTP_READ_JSON_BY_LINE), "true")) {
