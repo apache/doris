@@ -110,4 +110,14 @@ public class DecimalLiteral extends FractionalLiteral {
         DecimalLiteral literal = (DecimalLiteral) o;
         return Objects.equals(dataType, literal.dataType);
     }
+
+    @Override
+    public String toSql() {
+        return value.toPlainString();
+    }
+
+    @Override
+    public String toString() {
+        return toSql();
+    }
 }
