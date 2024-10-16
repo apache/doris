@@ -101,7 +101,7 @@ Status Pipeline::set_sink(DataSinkOperatorXPtr& sink) {
 }
 
 void Pipeline::make_all_runnable() {
-    if (_sink->count_down_destination()) {
+    if (_sink_x->count_down_destination()) {
         for (auto* task : _tasks) {
             if (task) {
                 task->clear_blocking_state(true);
