@@ -66,7 +66,6 @@ PipelineXTask::PipelineXTask(
     if (shared_state) {
         _sink_shared_state = shared_state;
     }
-    pipeline->incr_created_tasks();
 }
 
 Status PipelineXTask::prepare(const TPipelineInstanceParams& local_params, const TDataSink& tsink,
@@ -248,7 +247,7 @@ Status PipelineXTask::execute(bool* eos) {
             cpu_qs->add_cpu_nanos(delta_cpu_time);
         }
     }};
-    *eos = _sink->is_finished(_state);
+    *eos = _sink->is_finished(_state) || _wake_up_by_downstream || is_final_state(_cur_state);
     if (*eos) {
         return Status::OK();
     }
@@ -256,8 +255,16 @@ Status PipelineXTask::execute(bool* eos) {
         set_state(PipelineTaskState::BLOCKED_FOR_DEPENDENCY);
         return Status::OK();
     }
+    if (_wake_up_by_downstream) {
+        *eos = true;
+        return Status::OK();
+    }
     if (_runtime_filter_blocked_dependency() != nullptr) {
         set_state(PipelineTaskState::BLOCKED_FOR_RF);
+        return Status::OK();
+    }
+    if (_wake_up_by_downstream) {
+        *eos = true;
         return Status::OK();
     }
     // The status must be runnable
@@ -270,8 +277,16 @@ Status PipelineXTask::execute(bool* eos) {
             set_state(PipelineTaskState::BLOCKED_FOR_SOURCE);
             return Status::OK();
         }
+        if (_wake_up_by_downstream) {
+            *eos = true;
+            return Status::OK();
+        }
         if (!sink_can_write()) {
             set_state(PipelineTaskState::BLOCKED_FOR_SINK);
+            return Status::OK();
+        }
+        if (_wake_up_by_downstream) {
+            *eos = true;
             return Status::OK();
         }
     }
@@ -283,9 +298,17 @@ Status PipelineXTask::execute(bool* eos) {
             set_state(PipelineTaskState::BLOCKED_FOR_SOURCE);
             break;
         }
+        if (_wake_up_by_downstream) {
+            *eos = true;
+            return Status::OK();
+        }
         if (!sink_can_write()) {
             set_state(PipelineTaskState::BLOCKED_FOR_SINK);
             break;
+        }
+        if (_wake_up_by_downstream) {
+            *eos = true;
+            return Status::OK();
         }
 
         /// When a task is cancelled,
@@ -445,12 +468,13 @@ std::string PipelineXTask::debug_string() {
     // If at the same time FE cancel this pipeline task and logging debug_string before _blocked_dep is cleared,
     // it will think _blocked_dep is not nullptr and call _blocked_dep->debug_string().
     auto* cur_blocked_dep = _blocked_dep;
-    fmt::format_to(debug_string_buffer,
-                   "PipelineTask[this = {}, state = {}, dry run = {}, elapse time "
-                   "= {}s], block dependency = {}, is running = {}\noperators: ",
-                   (void*)this, get_state_name(_cur_state), _dry_run, elapsed,
-                   cur_blocked_dep && !_finished ? cur_blocked_dep->debug_string() : "NULL",
-                   is_running());
+    fmt::format_to(
+            debug_string_buffer,
+            "PipelineTask[this = {}, state = {}, dry run = {}, elapse time "
+            "= {}s], _wake_up_by_downstream = {}, block dependency = {}, is running = "
+            "{}\noperators: ",
+            (void*)this, get_state_name(_cur_state), _dry_run, elapsed, _wake_up_by_downstream,
+            cur_blocked_dep && !_finished ? cur_blocked_dep->debug_string() : "NULL", is_running());
     for (size_t i = 0; i < _operators.size(); i++) {
         fmt::format_to(debug_string_buffer, "\n{}",
                        _opened && !_finished ? _operators[i]->debug_string(_state, i)

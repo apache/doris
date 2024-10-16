@@ -258,7 +258,6 @@ public:
 
     std::unique_ptr<RuntimeState> _runtime_state;
 
-    bool _eos = false;
     std::shared_ptr<Dependency> _finish_dependency;
 
     // temp structures during spilling

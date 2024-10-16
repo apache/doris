@@ -534,6 +534,7 @@ protected:
     // Set to true after close() has been called. subclasses should check and set this in
     // close().
     bool _closed = false;
+    std::atomic<bool> _eos = false;
     //NOTICE: now add a faker profile, because sometimes the profile record is useless
     //so we want remove some counters and timers, eg: in join node, if it's broadcast_join
     //and shared hash table, some counter/timer about build hash table is useless,
@@ -682,6 +683,8 @@ public:
     [[nodiscard]] std::string get_name() const override { return _name; }
 
     virtual bool should_dry_run(RuntimeState* state) { return false; }
+
+    [[nodiscard]] virtual bool count_down_destination() { return true; }
 
 protected:
     template <typename Writer, typename Parent>
