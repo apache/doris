@@ -174,7 +174,6 @@ public class ExchangeNode extends PlanNode {
             msg.exchange_node.setSortInfo(mergeInfo.toThrift());
         }
         msg.exchange_node.setOffset(offset);
-        msg.exchange_node.setPartitionType(partitionType);
     }
 
     @Override
