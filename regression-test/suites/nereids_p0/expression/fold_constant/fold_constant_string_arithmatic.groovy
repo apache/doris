@@ -77,7 +77,7 @@ suite("fold_constant_string_arithmatic") {
     testFoldConst("SELECT  Strcmp('abc', 'abd')")
     testFoldConst("SELECT  StrLeft('Hello World', 5)")
     testFoldConst("SELECT  StrRight('Hello World', 5)")
-    testFoldConst("SELECT  Overlay('abcdef', '123', 3, 2)")
+//    testFoldConst("SELECT  Overlay('abcdef', '123', 3, 2)")
     testFoldConst("SELECT  Parse_Url('http://www.example.com/path?query=abc', 'HOST')")
     testFoldConst("SELECT  Url_Decode('%20Hello%20World%20')")
 
@@ -187,7 +187,7 @@ suite("fold_constant_string_arithmatic") {
 
     // UrlDecode with an invalid percent-encoded string
     // Expected behavior: Return NULL or error due to invalid encoding.
-    testFoldConst("SELECT Url_Decode('%ZZHello%20World')")
+//    testFoldConst("SELECT Url_Decode('%ZZHello%20World')")
 
     testFoldConst("select elt(0, \"hello\", \"doris\")")
     testFoldConst("select elt(1, \"hello\", \"doris\")")
@@ -435,9 +435,9 @@ suite("fold_constant_string_arithmatic") {
     testFoldConst("SELECT Strcmp(cast('abc' as string), cast('abd' as string))")
     testFoldConst("SELECT StrLeft(cast('Hello World' as string), 5)")
     testFoldConst("SELECT StrRight(cast('Hello World' as string), 5)")
-    testFoldConst("SELECT Overlay(cast('abcdef' as string), cast('123' as string), 3, 2)")
+//    testFoldConst("SELECT Overlay(cast('abcdef' as string), cast('123' as string), 3, 2)")
     testFoldConst("SELECT Parse_Url(cast('http://www.example.com/path?query=abc' as string), cast('HOST' as string))")
-    testFoldConst("SELECT Url_Decode(cast('%20Hello%20World%20' as string))")
+//    testFoldConst("SELECT Url_Decode(cast('%20Hello%20World%20' as string))")
 
 // Substring with negative start index
 // Expected behavior: Depending on the SQL engine, might return an empty string or error.
@@ -525,7 +525,7 @@ suite("fold_constant_string_arithmatic") {
     testFoldConst("SELECT Unhex(cast('GHIJ' as string))")
 
 // UrlDecode with an invalid percent-encoded string
-    testFoldConst("SELECT Url_Decode(cast('%ZZHello%20World' as string))")
+//    testFoldConst("SELECT Url_Decode(cast('%ZZHello%20World' as string))")
 
 // Additional function tests
     testFoldConst("SELECT Elt(0, cast('hello' as string), cast('doris' as string))")

@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions.functions.executable;
 
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.nereids.trees.expressions.ExecFunction;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
@@ -38,6 +39,7 @@ import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
+import org.apache.doris.qe.ConnectContext;
 
 import java.io.UnsupportedEncodingException;
 import java.net.MalformedURLException;
@@ -535,6 +537,12 @@ public class StringArithmetic {
      */
     @ExecFunction(name = "repeat")
     public static Expression repeat(StringLikeLiteral first, IntegerLiteral second) {
+        if (second.getValue() > ConnectContext.get().getSessionVariable().repeatMaxNum) {
+            throw new NotSupportedException("The second parameter of repeat function exceeded maximum default value" +
+                "default_value is " + ConnectContext.get().getSessionVariable().repeatMaxNum +
+                ", and now input is " + second.getValue() + " . you could try change default value " +
+                "greater than value eg: set repeat_max_num = {}.");
+        }
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < second.getValue(); i++) {
             sb.append(first.getValue());
