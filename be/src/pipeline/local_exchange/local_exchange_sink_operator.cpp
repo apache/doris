@@ -41,7 +41,7 @@ Status LocalExchangeSinkOperatorX::init(ExchangeType type, const int num_buckets
     _name = "LOCAL_EXCHANGE_SINK_OPERATOR (" + get_exchange_type_name(type) + ")";
     _type = type;
     if (_type == ExchangeType::HASH_SHUFFLE) {
-        _use_global_shuffle = should_disable_bucket_shuffle;
+        _use_global_shuffle = use_global_hash_shuffle;
         // For shuffle join, if data distribution has been broken by previous operator, we
         // should use a HASH_SHUFFLE local exchanger to shuffle data again. To be mentioned,
         // we should use map shuffle idx to instance idx because all instances will be
