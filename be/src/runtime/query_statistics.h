@@ -88,6 +88,7 @@ public:
     int64_t get_scan_rows() { return scan_rows; }
     int64_t get_scan_bytes() { return scan_bytes; }
     int64_t get_current_used_memory_bytes() { return current_used_memory_bytes; }
+    int64_t get_cpu_time_nanos() { return cpu_nanos; }
 
 private:
     std::atomic<int64_t> scan_rows;

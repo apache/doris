@@ -69,4 +69,17 @@ bool WorkloadConditionQueryMemory::eval(std::string str_val) {
                                                         _query_memory_bytes);
 }
 
+// query cpu time
+WorkloadConditionCpuTime::WorkloadConditionCpuTime(WorkloadCompareOperator op,
+                                                   std::string str_val) {
+    _op = op;
+    _cpu_util = std::stod(str_val);
+}
+
+bool WorkloadConditionCpuTime::eval(std::string str_val) {
+    double cpu_util = std::stod(str_val);
+    LOG(INFO) << "yy debug current cpu util: " << cpu_util << ", target: " << _cpu_util;
+    return WorkloadCompareUtils::compare_double(_op, cpu_util, _cpu_util);
+}
+
 } // namespace doris

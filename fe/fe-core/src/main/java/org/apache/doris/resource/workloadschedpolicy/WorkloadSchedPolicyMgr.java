@@ -106,7 +106,8 @@ public class WorkloadSchedPolicyMgr extends MasterDaemon implements Writable, Gs
     public static final ImmutableSet<WorkloadMetricType> BE_METRIC_SET
             = new ImmutableSet.Builder<WorkloadMetricType>().add(WorkloadMetricType.BE_SCAN_ROWS)
             .add(WorkloadMetricType.BE_SCAN_BYTES).add(WorkloadMetricType.QUERY_TIME)
-            .add(WorkloadMetricType.QUERY_BE_MEMORY_BYTES).build();
+            .add(WorkloadMetricType.QUERY_BE_MEMORY_BYTES)
+            .add(WorkloadMetricType.CPU_TIME_NANO).build();
 
     // used for convert fe type to thrift type
     public static final ImmutableMap<WorkloadMetricType, TWorkloadMetricType> METRIC_MAP
