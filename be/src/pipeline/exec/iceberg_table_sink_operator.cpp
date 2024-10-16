@@ -20,7 +20,7 @@
 #include "common/status.h"
 
 namespace doris::pipeline {
-
+#include "common/compile_check_begin.h"
 Status IcebergTableSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
     SCOPED_TIMER(exec_time_counter());
