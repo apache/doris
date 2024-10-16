@@ -1601,6 +1601,6 @@ void PipelineXFragmentContext::close_a_pipeline(PipelineId pipeline_id) {
             }
         }
     }
-    PipelineXFragmentContext::close_a_pipeline(pipeline_id);
+    PipelineFragmentContext::close_a_pipeline(pipeline_id);
 }
 } // namespace doris::pipeline
