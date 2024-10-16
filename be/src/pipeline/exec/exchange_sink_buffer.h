@@ -121,11 +121,11 @@ class ExchangeSendCallback : public ::doris::DummyBrpcCallback<Response> {
 public:
     ExchangeSendCallback() = default;
 
-    void init(InstanceLoId id, bool eos) {
-        _id = id;
+    void init(InstanceLoId id, bool eos, int64_t start_rpc_time) {
         _eos = eos;
+        _id = id;
+        _start_rpc_time = start_rpc_time;
     }
-
     ~ExchangeSendCallback() override = default;
     ExchangeSendCallback(const ExchangeSendCallback& other) = delete;
     ExchangeSendCallback& operator=(const ExchangeSendCallback& other) = delete;
@@ -151,7 +151,7 @@ public:
                 _fail_fn(_id, err);
             } else {
                 _suc_fn(_id, _eos, *(::doris::DummyBrpcCallback<Response>::response_),
-                        start_rpc_time);
+                        _start_rpc_time);
             }
         } catch (const std::exception& exp) {
             LOG(FATAL) << "brpc callback error: " << exp.what();
@@ -160,18 +160,13 @@ public:
             __builtin_unreachable();
         }
     }
-    int64_t start_rpc_time;
 
 private:
     std::function<void(const InstanceLoId&, const std::string&)> _fail_fn;
     std::function<void(const InstanceLoId&, const bool&, const Response&, const int64_t&)> _suc_fn;
     InstanceLoId _id;
     bool _eos;
-};
-
-struct ExchangeRpcContext {
-    std::shared_ptr<ExchangeSendCallback<PTransmitDataResult>> _send_callback;
-    bool is_cancelled = false;
+    int64_t _start_rpc_time;
 };
 
 // Each ExchangeSinkOperator have one ExchangeSinkBuffer
@@ -228,8 +223,6 @@ private:
     std::atomic<int> _busy_channels = 0;
     phmap::flat_hash_map<InstanceLoId, bool> _instance_to_receiver_eof;
     phmap::flat_hash_map<InstanceLoId, int64_t> _instance_to_rpc_time;
-    phmap::flat_hash_map<InstanceLoId, ExchangeRpcContext> _instance_to_rpc_ctx;
-
     std::atomic<bool> _is_finishing;
     PUniqueId _query_id;
     PlanNodeId _dest_node_id;

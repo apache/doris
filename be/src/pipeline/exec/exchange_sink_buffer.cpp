@@ -135,7 +135,6 @@ void ExchangeSinkBuffer::register_sink(TUniqueId fragment_instance_id) {
     finst_id.set_hi(fragment_instance_id.hi);
     finst_id.set_lo(fragment_instance_id.lo);
     _rpc_channel_is_idle[low_id] = true;
-    _instance_to_rpc_ctx[low_id] = {};
     _instance_to_receiver_eof[low_id] = false;
     _instance_to_rpc_time[low_id] = 0;
     _construct_request(low_id, finst_id);
@@ -242,10 +241,8 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
         if (!request.exec_status.ok()) {
             request.exec_status.to_protobuf(brpc_request->mutable_exec_status());
         }
-        auto send_callback = request.channel->get_send_callback(id, request.eos);
-
-        _instance_to_rpc_ctx[id]._send_callback = send_callback;
-        _instance_to_rpc_ctx[id].is_cancelled = false;
+        auto send_callback =
+                request.channel->get_send_callback(id, request.eos, GetCurrentTimeNanos());
 
         send_callback->cntl_->set_timeout_ms(request.channel->_brpc_timeout_ms);
         if (config::exchange_sink_ignore_eovercrowded) {
@@ -262,7 +259,6 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
             SCOPED_ATTACH_TASK(_state);
             _failed(id, err);
         });
-        send_callback->start_rpc_time = GetCurrentTimeNanos();
         send_callback->addSuccessHandler([&, weak_task_ctx = weak_task_exec_ctx()](
                                                  const InstanceLoId& id, const bool& eos,
                                                  const PTransmitDataResult& result,
@@ -324,12 +320,8 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
             !request.block_holder->get_block()->column_metas().empty()) {
             brpc_request->set_allocated_block(request.block_holder->get_block());
         }
-        auto send_callback = request.channel->get_send_callback(id, request.eos);
-
-        ExchangeRpcContext rpc_ctx;
-        rpc_ctx._send_callback = send_callback;
-        rpc_ctx.is_cancelled = false;
-        _instance_to_rpc_ctx[id] = rpc_ctx;
+        auto send_callback =
+                request.channel->get_send_callback(id, request.eos, GetCurrentTimeNanos());
 
         send_callback->cntl_->set_timeout_ms(request.channel->_brpc_timeout_ms);
         if (config::exchange_sink_ignore_eovercrowded) {
@@ -346,7 +338,6 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
             SCOPED_ATTACH_TASK(_state);
             _failed(id, err);
         });
-        send_callback->start_rpc_time = GetCurrentTimeNanos();
         send_callback->addSuccessHandler([&, weak_task_ctx = weak_task_exec_ctx()](
                                                  const InstanceLoId& id, const bool& eos,
                                                  const PTransmitDataResult& result,

@@ -326,13 +326,13 @@ public:
     }
 
     std::shared_ptr<pipeline::ExchangeSendCallback<PTransmitDataResult>> get_send_callback(
-            InstanceLoId id, bool eos) {
+            InstanceLoId id, bool eos, int64_t start_rpc_time) {
         if (!_send_callback) {
             _send_callback = pipeline::ExchangeSendCallback<PTransmitDataResult>::create_shared();
         } else {
             _send_callback->cntl_->Reset();
         }
-        _send_callback->init(id, eos);
+        _send_callback->init(id, eos, start_rpc_time);
         return _send_callback;
     }
 
