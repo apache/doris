@@ -528,14 +528,8 @@ Status SegmentWriter::probe_key_for_mow(
     // TODO(bobhan1): only read seq col rather than all columns in this situation for
     // partial update and flexible partial update
 
-    // 3. In flexible partial update, we may delete the existing rows before if there exists
-    //    insert after delete in one load. In this case, the insert should also be treated
-    //    as newly inserted rows
     // TODO(bobhan1): handle sequence column here
-    if ((have_delete_sign && !_tablet_schema->has_sequence_col()) ||
-        (_opts.rowset_ctx->partial_update_info->is_flexible_partial_update() &&
-         _mow_context->delete_bitmap->contains(
-                 {loc.rowset_id, loc.segment_id, DeleteBitmap::TEMP_VERSION_COMMON}, loc.row_id))) {
+    if (have_delete_sign && !_tablet_schema->has_sequence_col()) {
         has_default_or_nullable = true;
         use_default_or_null_flag.emplace_back(true);
     } else {
