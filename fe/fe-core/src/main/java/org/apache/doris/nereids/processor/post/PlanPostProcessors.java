@@ -66,6 +66,7 @@ public class PlanPostProcessors {
         if (cascadesContext.getConnectContext().getSessionVariable().enableAggregateCse) {
             builder.add(new ProjectAggregateExpressionsForCse());
         }
+        builder.add(new CompressedMaterialization());
         builder.add(new CommonSubExpressionOpt());
         // DO NOT replace PLAN NODE from here
         if (cascadesContext.getConnectContext().getSessionVariable().pushTopnToAgg) {
