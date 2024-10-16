@@ -40,6 +40,7 @@ class FSFileCacheStorage;
 // The current strategies are lru and ttl.
 class BlockFileCache {
     friend class FSFileCacheStorage;
+    friend class MemFileCacheStorage;
     friend class FileBlock;
     friend struct FileBlocksHolder;
 
@@ -141,6 +142,8 @@ public:
                      size_t size, std::lock_guard<std::mutex>& cache_lock);
 
     void update_ttl_atime(const UInt128Wrapper& hash);
+
+    std::map<std::string, double> get_stats();
 
     class LRUQueue {
     public:
@@ -444,9 +447,6 @@ private:
     LRUQueue _ttl_queue;
 
     // metrics
-    size_t _num_read_blocks = 0;
-    size_t _num_hit_blocks = 0;
-    size_t _num_removed_blocks = 0;
     std::shared_ptr<bvar::Status<size_t>> _cur_cache_size_metrics;
     std::shared_ptr<bvar::Status<size_t>> _cur_ttl_cache_size_metrics;
     std::shared_ptr<bvar::Status<size_t>> _cur_ttl_cache_lru_queue_cache_size_metrics;
@@ -459,6 +459,19 @@ private:
     std::shared_ptr<bvar::Status<size_t>> _cur_disposable_queue_cache_size_metrics;
     std::array<std::shared_ptr<bvar::Adder<size_t>>, 4> _queue_evict_size_metrics;
     std::shared_ptr<bvar::Adder<size_t>> _total_evict_size_metrics;
+
+    std::shared_ptr<bvar::Window<bvar::Adder<size_t>>> _num_hit_blocks_5m;
+    std::shared_ptr<bvar::Window<bvar::Adder<size_t>>> _num_read_blocks_5m;
+    std::shared_ptr<bvar::Window<bvar::Adder<size_t>>> _num_hit_blocks_1h;
+    std::shared_ptr<bvar::Window<bvar::Adder<size_t>>> _num_read_blocks_1h;
+
+    std::shared_ptr<bvar::Adder<size_t>> _num_read_blocks;
+    std::shared_ptr<bvar::Adder<size_t>> _num_hit_blocks;
+    std::shared_ptr<bvar::Adder<size_t>> _num_removed_blocks;
+
+    std::shared_ptr<bvar::Status<double>> _hit_ratio;
+    std::shared_ptr<bvar::Status<double>> _hit_ratio_5m;
+    std::shared_ptr<bvar::Status<double>> _hit_ratio_1h;
 };
 
 } // namespace doris::io

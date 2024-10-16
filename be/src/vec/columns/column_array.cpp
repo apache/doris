@@ -424,6 +424,8 @@ void ColumnArray::reserve(size_t n) {
 void ColumnArray::resize(size_t n) {
     auto last_off = get_offsets().back();
     get_offsets().resize_fill(n, last_off);
+    // make new size of data column
+    get_data().resize(get_offsets().back());
 }
 
 size_t ColumnArray::byte_size() const {
@@ -838,6 +840,12 @@ void ColumnArray::insert_indices_from(const IColumn& src, const uint32_t* indice
                                       const uint32_t* indices_end) {
     for (const auto* x = indices_begin; x != indices_end; ++x) {
         ColumnArray::insert_from(src, *x);
+    }
+}
+
+void ColumnArray::insert_many_from(const IColumn& src, size_t position, size_t length) {
+    for (auto x = 0; x != length; ++x) {
+        ColumnArray::insert_from(src, position);
     }
 }
 

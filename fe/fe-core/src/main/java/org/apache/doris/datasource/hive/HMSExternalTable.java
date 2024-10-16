@@ -167,14 +167,11 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         super(id, name, catalog, dbName, TableType.HMS_EXTERNAL_TABLE);
     }
 
+    // Will throw NotSupportedException if not supported hms table.
+    // Otherwise, return true.
     public boolean isSupportedHmsTable() {
-        try {
-            makeSureInitialized();
-            return true;
-        } catch (NotSupportedException e) {
-            LOG.warn("Not supported hms table, message: {}", e.getMessage());
-            return false;
-        }
+        makeSureInitialized();
+        return true;
     }
 
     protected synchronized void makeSureInitialized() {
@@ -191,6 +188,7 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
                 } else if (supportedHiveTable()) {
                     dlaType = DLAType.HIVE;
                 } else {
+                    // Should not reach here. Because `supportedHiveTable` will throw exception if not return true.
                     throw new NotSupportedException("Unsupported dlaType for table: " + getNameWithFullQualifiers());
                 }
             }
@@ -922,6 +920,6 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     @Override
     public boolean isPartitionedTable() {
         makeSureInitialized();
-        return remoteTable.getPartitionKeysSize() > 0;
+        return !isView() && remoteTable.getPartitionKeysSize() > 0;
     }
 }

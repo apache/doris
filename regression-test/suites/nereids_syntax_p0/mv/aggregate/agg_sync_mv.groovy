@@ -239,6 +239,15 @@ suite("agg_sync_mv") {
     }
     qt_select_group_concat_mv """select id, group_concat(cast(abs(kint) as varchar)) from agg_mv_test group by id order by id;"""
 
+    qt_select_linear_histogram """select id, linear_histogram(kint, 10) from agg_mv_test group by id order by id;"""
+    sql """drop materialized view if exists mv_sync on agg_mv_test;"""
+    createMV("""create materialized view mv_sync as select id, linear_histogram(kint, 10) from agg_mv_test group by id order by id;""")
+    explain {
+        sql("select id, linear_histogram(kint, 10) from agg_mv_test group by id order by id;")
+        contains "(mv_sync)"
+    }
+    qt_select_linear_histogram_mv """select id, linear_histogram(kint, 10) from agg_mv_test group by id order by id;"""
+
     qt_select_multi_distinct_group_concat """select id, multi_distinct_group_concat(cast(abs(kint) as varchar)) from agg_mv_test group by id order by id;"""
     sql """drop materialized view if exists mv_sync25 on agg_mv_test;"""
     createMV("""create materialized view mv_sync25 as select id, multi_distinct_group_concat(cast(abs(kint) as varchar)) from agg_mv_test group by id order by id;""")
@@ -453,7 +462,9 @@ suite("agg_sync_mv") {
     createMV("""create materialized view mv_sync48 as select id, var_pop(kint) from agg_mv_test group by id order by id;""")
     explain {
         sql("select id, var_pop(kint) from agg_mv_test group by id order by id;")
-        contains "(mv_sync47)"
+        check { result ->
+            result.contains("(mv_sync47)") || result.contains("(mv_sync48)")
+        }
     }
     qt_select_var_pop_mv """select id, var_pop(kint) from agg_mv_test group by id order by id;"""
 

@@ -18,3 +18,9 @@
 -- !sql2 --
 
 
+-- !select_aes --
+17777208882
+
+-- !show_aes --
+test_view_aes	CREATE VIEW `test_view_aes` AS SELECT aes_decrypt(from_base64("EXp7k7M9Zv1mIwPpno28Hg=="), '17IMZrGdwWf2Piy8', 'II2HLtihr5TQpQgR', 'AES_128_CBC');	utf8mb4	utf8mb4_0900_bin
+

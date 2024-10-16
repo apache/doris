@@ -24,13 +24,13 @@
 #include "vec/exprs/vectorized_agg_fn.h"
 
 namespace doris::pipeline {
+#include "common/compile_check_begin.h"
 
 Status AnalyticSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(PipelineXSinkLocalState<AnalyticSharedState>::init(state, info));
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_init_timer);
-    _blocks_memory_usage =
-            _profile->AddHighWaterMarkCounter("Blocks", TUnit::BYTES, "MemoryUsage", 1);
+    _blocks_memory_usage = ADD_COUNTER_WITH_LEVEL(_profile, "MemoryUsageBlocks", TUnit::BYTES, 1);
     _evaluation_timer = ADD_TIMER(profile(), "EvaluationTime");
     return Status::OK();
 }
@@ -91,7 +91,7 @@ bool AnalyticSinkLocalState::_whether_need_next_partition(BlockRowPos& found_par
 }
 
 //_partition_by_columns,_order_by_columns save in blocks, so if need to calculate the boundary, may find in which blocks firstly
-BlockRowPos AnalyticSinkLocalState::_compare_row_to_find_end(int idx, BlockRowPos start,
+BlockRowPos AnalyticSinkLocalState::_compare_row_to_find_end(int64_t idx, BlockRowPos start,
                                                              BlockRowPos end,
                                                              bool need_check_first) {
     auto& shared_state = *_shared_state;
@@ -311,8 +311,10 @@ Status AnalyticSinkOperatorX::sink(doris::RuntimeState* state, vectorized::Block
         local_state._shared_state->ordey_by_column_idxs[i] = result_col_id;
     }
 
-    local_state.mem_tracker()->consume(input_block->allocated_bytes());
-    local_state._blocks_memory_usage->add(input_block->allocated_bytes());
+    int64_t block_mem_usage = input_block->allocated_bytes();
+    COUNTER_UPDATE(local_state._memory_used_counter, block_mem_usage);
+    COUNTER_SET(local_state._peak_memory_usage_counter, local_state._memory_used_counter->value());
+    COUNTER_UPDATE(local_state._blocks_memory_usage, block_mem_usage);
 
     //TODO: if need improvement, the is a tips to maintain a free queue,
     //so the memory could reuse, no need to new/delete again;

@@ -56,7 +56,7 @@ add_executable(util_test util_test.cpp)
 
 add_executable(network_util_test network_util_test.cpp)
 
-add_executable(txn_lazy_commit_test txn_lazy_commit_test.cpp)
+add_executable(txn_lazy_commit_test txn_lazy_commit_test.cpp mock_accessor.cpp)
 
 message("Meta-service test dependencies: ${TEST_LINK_LIBS}")
 #target_link_libraries(sync_point_test ${TEST_LINK_LIBS})

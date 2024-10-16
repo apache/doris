@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.collect.Sets;
@@ -72,6 +73,7 @@ public class ColumnStatistic {
     public final double minValue;
     @SerializedName("maxValue")
     public final double maxValue;
+    @SerializedName("isUnKnown")
     public final boolean isUnKnown;
 
     /*
@@ -79,9 +81,12 @@ public class ColumnStatistic {
     but originalNdv is not. It is used to trace the change of a column's ndv through serials
     of sql operators.
      */
+    @SerializedName("original")
     public final ColumnStatistic original;
 
+    @SerializedName("minExpr")
     public final LiteralExpr minExpr;
+    @SerializedName("maxExpr")
     public final LiteralExpr maxExpr;
 
     @SerializedName("updatedTime")
@@ -277,8 +282,10 @@ public class ColumnStatistic {
         statistic.put("AvgSizeByte", avgSizeByte);
         statistic.put("NumNulls", numNulls);
         statistic.put("DataSize", dataSize);
-        statistic.put("MinExpr", minExpr);
-        statistic.put("MaxExpr", maxExpr);
+        statistic.put("MinExprValue", minExpr.getStringValue());
+        statistic.put("MinExprType", minExpr.getType());
+        statistic.put("MaxExprValue", maxExpr.getStringValue());
+        statistic.put("MaxExprType", maxExpr.getType());
         statistic.put("IsUnKnown", isUnKnown);
         statistic.put("Original", original);
         statistic.put("LastUpdatedTime", updatedTime);
@@ -287,7 +294,7 @@ public class ColumnStatistic {
 
     // MinExpr and MaxExpr serialize and deserialize is not complete
     // Histogram is got by other place
-    public static ColumnStatistic fromJson(String statJson) {
+    public static ColumnStatistic fromJson(String statJson) throws AnalysisException {
         JSONObject stat = new JSONObject(statJson);
         Double minValue;
         switch (stat.getString("MinValueType")) {
@@ -317,6 +324,15 @@ public class ColumnStatistic {
             default:
                 throw new RuntimeException(String.format("Min value does not get anytype"));
         }
+        String lastUpdatedTime = "";
+        try {
+            lastUpdatedTime = stat.getString("LastUpdatedTime");
+        } catch (Exception e) {
+            LOG.warn("lastUpdateTimeIsEmpty", e.getMessage());
+            if (LOG.isDebugEnabled()) {
+                LOG.debug(e);
+            }
+        }
         return new ColumnStatistic(
             stat.getDouble("Count"),
             stat.getDouble("Ndv"),
@@ -326,14 +342,16 @@ public class ColumnStatistic {
             stat.getDouble("DataSize"),
             minValue,
             maxValue,
-            null,
-            null,
+            LiteralExpr.create(stat.getString("MinExprValue"),
+                    GsonUtils.GSON.fromJson(stat.getString("MinExprType"), Type.class)),
+            LiteralExpr.create(stat.getString("MaxExprValue"),
+                    GsonUtils.GSON.fromJson(stat.getString("MaxExprType"), Type.class)),
             stat.getBoolean("IsUnKnown"),
-            stat.getString("LastUpdatedTime")
+            lastUpdatedTime
         );
     }
 
-    public boolean minOrMaxIsInf() {
+    public boolean isMinMaxInvalid() {
         return Double.isInfinite(maxValue) || Double.isInfinite(minValue);
     }
 

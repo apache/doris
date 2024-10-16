@@ -1803,6 +1803,12 @@ void ColumnObject::create_root(const DataTypePtr& type, MutableColumnPtr&& colum
     add_sub_column({}, std::move(column), type);
 }
 
+DataTypePtr ColumnObject::get_most_common_type() const {
+    auto type = is_nullable ? make_nullable(std::make_shared<MostCommonType>())
+                            : std::make_shared<MostCommonType>();
+    return type;
+}
+
 bool ColumnObject::is_null_root() const {
     auto* root = subcolumns.get_root();
     if (root == nullptr) {

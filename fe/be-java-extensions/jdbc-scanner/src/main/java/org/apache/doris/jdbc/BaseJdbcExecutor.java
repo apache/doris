@@ -58,8 +58,8 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
     private static final TBinaryProtocol.Factory PROTOCOL_FACTORY = new TBinaryProtocol.Factory();
     private HikariDataSource hikariDataSource = null;
     private final byte[] hikariDataSourceLock = new byte[0];
-    private JdbcDataSourceConfig config;
     private Connection conn = null;
+    protected JdbcDataSourceConfig config;
     protected PreparedStatement preparedStatement = null;
     protected Statement stmt = null;
     protected ResultSet resultSet = null;
@@ -100,6 +100,9 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
     }
 
     public void close() throws Exception {
+        if (outputTable != null) {
+            outputTable.close();
+        }
         try {
             if (stmt != null && !stmt.isClosed()) {
                 try {
@@ -112,8 +115,8 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
             if (conn != null && resultSet != null) {
                 abortReadConnection(conn, resultSet);
             }
-            closeResources(resultSet, stmt, conn);
         } finally {
+            closeResources(resultSet, stmt, conn);
             if (config.getConnectionPoolMinSize() == 0 && hikariDataSource != null) {
                 hikariDataSource.close();
                 JdbcDataSource.getDataSource().getSourcesMap().remove(config.createCacheKey());

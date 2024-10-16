@@ -78,6 +78,7 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
     protected long id;
     @SerializedName(value = "name")
     protected volatile String name;
+    @SerializedName(value = "qualifiedDbName")
     protected volatile String qualifiedDbName;
     @SerializedName(value = "type")
     protected TableType type;
@@ -638,5 +639,10 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
     @Override
     public boolean autoAnalyzeEnabled() {
         return true;
+    }
+
+    @Override
+    public TableIndexes getTableIndexes() {
+        return new TableIndexes();
     }
 }

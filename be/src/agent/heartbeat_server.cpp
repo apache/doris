@@ -240,20 +240,12 @@ Status HeartbeatServer::_heartbeat(const TMasterInfo& master_info) {
                 master_info.network_address.hostname, master_info.network_address.port);
     }
 
-    if (need_report) {
-        LOG(INFO) << "Master FE is changed or restarted. report tablet and disk info immediately";
-        _engine.notify_listeners();
-    }
-
     if (master_info.__isset.meta_service_endpoint != config::is_cloud_mode()) {
         LOG(WARNING) << "Detected mismatch in cloud mode configuration between FE and BE. "
                      << "FE cloud mode: "
                      << (master_info.__isset.meta_service_endpoint ? "true" : "false")
-                     << ", BE cloud mode: " << (config::is_cloud_mode() ? "true" : "false");
-        return Status::InvalidArgument<false>(
-                "fe and be do not work in same mode, fe cloud mode: {},"
-                " be cloud mode: {}",
-                master_info.__isset.meta_service_endpoint, config::is_cloud_mode());
+                     << ", BE cloud mode: " << (config::is_cloud_mode() ? "true" : "false")
+                     << ". If fe is earlier than version 3.0.2, the message can be ignored.";
     }
 
     if (master_info.__isset.meta_service_endpoint) {
@@ -281,6 +273,11 @@ Status HeartbeatServer::_heartbeat(const TMasterInfo& master_info) {
         config::enable_use_cloud_unique_id_from_fe) {
         auto st = config::set_config("cloud_unique_id", master_info.cloud_unique_id, true);
         LOG(INFO) << "set config cloud_unique_id " << master_info.cloud_unique_id << " " << st;
+    }
+
+    if (need_report) {
+        LOG(INFO) << "Master FE is changed or restarted. report tablet and disk info immediately";
+        _engine.notify_listeners();
     }
 
     return Status::OK();

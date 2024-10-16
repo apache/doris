@@ -228,7 +228,7 @@ public class BinlogManager {
         AlterJobRecord alterJobRecord = new AlterJobRecord(alterJob);
         String data = alterJobRecord.toJson();
 
-        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false, alterJob);
+        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false, alterJobRecord);
     }
 
     public void addModifyTableAddOrDropColumns(TableAddOrDropColumnsInfo info, long commitSeq) {
@@ -319,7 +319,7 @@ public class BinlogManager {
         TruncateTableRecord record = new TruncateTableRecord(info);
         String data = record.toJson();
 
-        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false, info);
+        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false, record);
     }
 
     public void addTableRename(TableInfo info, long commitSeq) {
@@ -413,6 +413,20 @@ public class BinlogManager {
                 return Lists.newArrayList();
             }
             return dbBinlog.getDroppedTables();
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    // get the dropped indexes of the db.
+    public List<Long> getDroppedIndexes(long dbId) {
+        lock.readLock().lock();
+        try {
+            DBBinlog dbBinlog = dbBinlogMap.get(dbId);
+            if (dbBinlog == null) {
+                return Lists.newArrayList();
+            }
+            return dbBinlog.getDroppedIndexes();
         } finally {
             lock.readLock().unlock();
         }
