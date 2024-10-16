@@ -53,6 +53,7 @@ import org.apache.doris.datasource.metacache.MetaCache;
 import org.apache.doris.datasource.operations.ExternalMetadataOps;
 import org.apache.doris.datasource.paimon.PaimonExternalDatabase;
 import org.apache.doris.datasource.property.PropertyConverter;
+import org.apache.doris.datasource.test.TestExternalCatalog;
 import org.apache.doris.datasource.test.TestExternalDatabase;
 import org.apache.doris.datasource.trinoconnector.TrinoConnectorExternalDatabase;
 import org.apache.doris.fs.remote.dfs.DFSFileSystem;
@@ -678,11 +679,11 @@ public abstract class ExternalCatalog
             InitCatalogLog.Type logType, boolean checkExists) {
         // When running ut, disable this check to make ut pass.
         // Because in ut, the database is not created in remote system.
-        if (checkExists && !FeConstants.runningUnitTest) {
+        if (checkExists && (!FeConstants.runningUnitTest || this instanceof TestExternalCatalog)) {
             try {
                 List<String> dbNames = getDbNames();
                 if (!dbNames.contains(dbName)) {
-                    dbNames = listDatabaseNames();
+                    dbNames = getFilteredDatabaseNames();
                     if (!dbNames.contains(dbName)) {
                         return null;
                     }

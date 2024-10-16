@@ -26,6 +26,8 @@ import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.test.TestExternalCatalog;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.QueryState.MysqlStateType;
+import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Lists;
@@ -141,7 +143,7 @@ public class ExternalCatalogTest extends TestWithFeService {
 
     @Test
     public void testExternalCatalogFilteredDatabase() throws Exception {
-        // use_meta_cache=true
+        // 1. use_meta_cache=true
         TestExternalCatalog ctl = (TestExternalCatalog) mgr.getCatalog("test1");
         List<String> dbNames = ctl.getDbNames();
         System.out.println(dbNames);
@@ -149,6 +151,12 @@ public class ExternalCatalogTest extends TestWithFeService {
         Assertions.assertTrue(!dbNames.contains("db2"));
 
         ctl = (TestExternalCatalog) mgr.getCatalog("test2");
+        // before get dbnames
+        String useDb = "use test2.db3";
+        StmtExecutor stmtExecutor = new StmtExecutor(rootCtx, useDb);
+        stmtExecutor.execute();
+        Assertions.assertTrue(rootCtx.getState().getErrorMessage().contains("Unknown database 'db3'"));
+
         dbNames = ctl.getDbNames();
         System.out.println(dbNames);
         Assertions.assertEquals(3, dbNames.size());
@@ -161,7 +169,19 @@ public class ExternalCatalogTest extends TestWithFeService {
         Assertions.assertTrue(!dbNames.contains("db1"));
         Assertions.assertTrue(!dbNames.contains("db2"));
 
-        // use_meta_cache=false
+        // use non exist db
+        useDb = "use test2.db3";
+        stmtExecutor = new StmtExecutor(rootCtx, useDb);
+        stmtExecutor.execute();
+        Assertions.assertTrue(rootCtx.getState().getErrorMessage().contains("Unknown database 'db3'"));
+
+        // use exist db
+        useDb = "use test2.db2";
+        stmtExecutor = new StmtExecutor(rootCtx, useDb);
+        stmtExecutor.execute();
+        Assertions.assertEquals(MysqlStateType.OK, rootCtx.getState().getStateType());
+
+        // 2. use_meta_cache=false
         ctl = (TestExternalCatalog) mgr.getCatalog("test4");
         dbNames = ctl.getDbNames();
         System.out.println(dbNames);
@@ -180,6 +200,18 @@ public class ExternalCatalogTest extends TestWithFeService {
         Assertions.assertEquals(2, dbNames.size());
         Assertions.assertTrue(!dbNames.contains("db1"));
         Assertions.assertTrue(!dbNames.contains("db2"));
+
+        // use non exist db
+        useDb = "use test5.db3";
+        stmtExecutor = new StmtExecutor(rootCtx, useDb);
+        stmtExecutor.execute();
+        Assertions.assertTrue(rootCtx.getState().getErrorMessage().contains("Unknown database 'db3'"));
+
+        // use exist db
+        useDb = "use test5.db2";
+        stmtExecutor = new StmtExecutor(rootCtx, useDb);
+        stmtExecutor.execute();
+        Assertions.assertEquals(MysqlStateType.OK, rootCtx.getState().getStateType());
     }
 
     public static class RefreshCatalogProvider implements TestExternalCatalog.TestCatalogProvider {
