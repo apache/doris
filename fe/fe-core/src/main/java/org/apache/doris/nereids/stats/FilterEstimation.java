@@ -478,6 +478,7 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
         return context.statistics;
     }
 
+    // where not array_contains([xx, xx], xx)
     @Override
     public Statistics visitNot(Not not, EstimationContext context) {
         if (context.statistics.isInputSlotsUnknown(not.getInputSlots())) {
@@ -506,7 +507,8 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
                                 || child instanceof InPredicate
                                 || child instanceof IsNull
                                 || child instanceof Like
-                                || child instanceof Match,
+                                || child instanceof Match
+                                || child instanceof Function,
                         "Not-predicate meet unexpected child: %s", child.toSql());
                 if (child instanceof Like) {
                     rowCount = context.statistics.getRowCount() - childStats.getRowCount();
