@@ -21,6 +21,7 @@
 #include <boost/iterator/iterator_facade.hpp>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <memory>
 #include <type_traits>
 #include <utility>
@@ -165,6 +166,8 @@ public:
                                 col_to->get_data(), null_map->get_data());
                     } else {
                         // time_round(datetime,const(period))
+                        LOG(INFO) << "asd time_round(datetime,const(period)) " << input_rows_count
+                                  << " " << delta_const_column->get_field().get<Int32>();
                         Impl::template vector_constant_delta<NativeType, DeltaValueType>(
                                 sources->get_data(), delta_const_column->get_field().get<Int32>(),
                                 col_to->get_data(), null_map->get_data());
@@ -293,7 +296,7 @@ struct FloorCeilImpl {
                                       PaddedPODArray<NativeType>& res, NullMap& null_map) {
         // time_round(datetime,const(period))
         if (period < 1) {
-            null_map.resize_fill(dates.size(), true);
+            memset(null_map.data(), 1, sizeof(UInt8) * dates.size());
             return;
         }
         for (int i = 0; i < dates.size(); ++i) {
@@ -337,7 +340,7 @@ struct FloorCeilImpl {
                                    NativeType origin_date, PaddedPODArray<NativeType>& res,
                                    NullMap& null_map) {
         if (period < 1) {
-            null_map.resize_fill(dates.size(), true);
+            memset(null_map.data(), 1, sizeof(UInt8) * dates.size());
             return;
         }
         switch (period) {
@@ -424,7 +427,7 @@ struct FloorCeilImpl {
                                     const PaddedPODArray<NativeType>& origin_dates,
                                     PaddedPODArray<NativeType>& res, NullMap& null_map) {
         if (period < 1) {
-            null_map.resize_fill(dates.size(), true);
+            memset(null_map.data(), 1, sizeof(UInt8) * dates.size());
             return;
         }
         for (int i = 0; i < dates.size(); ++i) {
