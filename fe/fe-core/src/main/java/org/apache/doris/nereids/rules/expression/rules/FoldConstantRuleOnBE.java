@@ -72,6 +72,9 @@ public class FoldConstantRuleOnBE extends AbstractExpressionRewriteRule {
 
     @Override
     public Expression rewrite(Expression expr, ExpressionRewriteContext ctx) {
+        if (ctx.cascadesContext.getConnectContext().getSessionVariable().isDebugSkipFoldConstant()) {
+            return null;
+        }
         Expression expression = FoldConstantRuleOnFE.INSTANCE.rewrite(expr, ctx);
         return foldByBE(expression, ctx);
     }

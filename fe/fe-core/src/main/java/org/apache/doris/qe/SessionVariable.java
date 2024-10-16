@@ -121,6 +121,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String PREFER_JOIN_METHOD = "prefer_join_method";
 
     public static final String ENABLE_FOLD_CONSTANT_BY_BE = "enable_fold_constant_by_be";
+    public static final String DEBUG_SKIP_FOLD_CONSTANT = "debug_skip_fold_constant";
+
     public static final String ENABLE_ODBC_TRANSCATION = "enable_odbc_transcation";
     public static final String ENABLE_SQL_CACHE = "enable_sql_cache";
     public static final String ENABLE_PARTITION_CACHE = "enable_partition_cache";
@@ -808,6 +810,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_FOLD_CONSTANT_BY_BE, fuzzy = true)
     private boolean enableFoldConstantByBe = false;
+
+    @VariableMgr.VarAttr(name = DEBUG_SKIP_FOLD_CONSTANT)
+    public boolean debugSkipFoldConstant = false;
 
     @VariableMgr.VarAttr(name = RUNTIME_FILTER_MODE, needForward = true)
     private String runtimeFilterMode = "GLOBAL";
@@ -1942,12 +1947,20 @@ public class SessionVariable implements Serializable, Writable {
         return enableFoldConstantByBe;
     }
 
+    public boolean isDebugSkipFoldConstant() {
+        return debugSkipFoldConstant;
+    }
+
     public boolean isEnableNereidsDML() {
         return enableNereidsDML;
     }
 
     public void setEnableFoldConstantByBe(boolean foldConstantByBe) {
         this.enableFoldConstantByBe = foldConstantByBe;
+    }
+
+    public void setDebugSkipFoldConstant(boolean debugSkipFoldConstant) {
+        this.debugSkipFoldConstant = debugSkipFoldConstant;
     }
 
     public int getParallelExecInstanceNum() {
