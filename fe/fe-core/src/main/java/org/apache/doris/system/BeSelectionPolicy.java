@@ -18,6 +18,8 @@
 package org.apache.doris.system;
 
 import org.apache.doris.common.Config;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.SimpleScheduler;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.thrift.TStorageMedium;
@@ -60,6 +62,8 @@ public class BeSelectionPolicy {
     public int nextRoundRobinIndex = -1;
 
     public List<String> preferredLocations = new ArrayList<>();
+
+    private boolean isForQuery = false;
 
     private BeSelectionPolicy() {
 
@@ -129,6 +133,11 @@ public class BeSelectionPolicy {
 
         public Builder setNextRoundRobinIndex(int nextRoundRobinIndex) {
             policy.nextRoundRobinIndex = nextRoundRobinIndex;
+            return this;
+        }
+
+        public Builder setForQuery(boolean isForQuery) {
+            policy.isForQuery = isForQuery;
             return this;
         }
 
@@ -216,6 +225,17 @@ public class BeSelectionPolicy {
             candidates = candidates.stream().filter(b -> SimpleScheduler.isAvailable(b)).collect(Collectors.toList());
         }
         Collections.shuffle(candidates);
+
+        // For external query, we can limit the number of backends.
+        // if external_query_max_backend_num is set, we will limit the number of backends by randomly selecting
+        // from the candidate list.
+        if (isForQuery && ConnectContext.get() != null) {
+            SessionVariable sv = ConnectContext.get().getSessionVariable();
+            if (sv.externalQueryMaxBackendNum > 0 && candidates.size() > sv.externalQueryMaxBackendNum) {
+                candidates = candidates.subList(0, sv.externalQueryMaxBackendNum);
+            }
+        }
+
         return candidates;
     }
 

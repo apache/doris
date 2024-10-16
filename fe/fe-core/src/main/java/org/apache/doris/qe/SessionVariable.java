@@ -670,6 +670,9 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_COOLDOWN_REPLICA_AFFINITY =
             "enable_cooldown_replica_affinity";
+
+    public static final String EXTERNAL_QUERY_MAX_BACKEND_NUM = "external_query_max_backend_num";
+
     /**
      * If set false, user couldn't submit analyze SQL and FE won't allocate any related resources.
      */
@@ -2199,6 +2202,11 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_COOLDOWN_REPLICA_AFFINITY, needForward = true)
     public boolean enableCooldownReplicaAffinity = true;
+
+    @VariableMgr.VarAttr(name = EXTERNAL_QUERY_MAX_BACKEND_NUM, needForward = true,
+        description = {"外表查询最大支持的backend个数，默认-1表示不限制",
+            "The maximum supported backend count for external table queries, defaults to -1 indicating unlimited"})
+    public int externalQueryMaxBackendNum = -1;
 
     public void setEnableEsParallelScroll(boolean enableESParallelScroll) {
         this.enableESParallelScroll = enableESParallelScroll;
