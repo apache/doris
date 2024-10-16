@@ -140,13 +140,14 @@ public abstract class BaseExecutor {
     protected abstract void init(TJavaUdfExecutorCtorParams request, String jarPath,
             Type funcRetType, Type... parameterTypes) throws UdfRuntimeException;
 
-    protected abstract ClassCacheBase getClassCache(String className, String jarPath, String signature, long expirationTime,
-            Type funcRetType, Type... parameterTypes)
+    protected abstract ClassCacheBase getClassCache(String className, String jarPath, String signature,
+            long expirationTime, Type funcRetType, Type... parameterTypes)
             throws MalformedURLException, FileNotFoundException, ClassNotFoundException, InternalException,
             UdfRuntimeException;
 
-    protected abstract void checkAndCacheUdfClass(String className, ClassCacheBase cache, Type funcRetType, Type... parameterTypes)
-            throws InternalException, UdfRuntimeException, FileNotFoundException;
+    protected abstract void checkAndCacheUdfClass(String className, ClassCacheBase cache, Type funcRetType,
+            Type... parameterTypes) throws InternalException, UdfRuntimeException, FileNotFoundException;
+
     /**
      * Close the class loader we may have created.
      */

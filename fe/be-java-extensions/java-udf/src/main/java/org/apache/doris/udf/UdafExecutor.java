@@ -319,12 +319,10 @@ public class UdafExecutor extends BaseExecutor {
     }
 
     @Override
-    protected void checkAndCacheUdfClass(String className, ClassCacheBase cacheBase, Type funcRetType, Type... parameterTypes)
-            throws UdfRuntimeException, InternalException, FileNotFoundException {
+    protected void checkAndCacheUdfClass(String className, ClassCacheBase cacheBase, Type funcRetType,
+            Type... parameterTypes) throws UdfRuntimeException, InternalException, FileNotFoundException {
         ArrayList<String> signatures = Lists.newArrayList();
-        // if (cacheBase instanceof UdafClassCache) {
-            UdafClassCache cache = (UdafClassCache) cacheBase;
-        // }
+        UdafClassCache cache = (UdafClassCache) cacheBase;
         Class<?> c = cache.udfClass;
         Method[] methods = c.getMethods();
         int idx = 0;
@@ -366,7 +364,7 @@ public class UdafExecutor extends BaseExecutor {
                     }
                     if (!(parameterTypes.length == 0)) {
                         Pair<Boolean, JavaUdfDataType[]> inputType = UdfUtils.setArgTypes(parameterTypes,
-                            cache.argClass, true);
+                                cache.argClass, true);
                         if (!inputType.first) {
                             if (LOG.isDebugEnabled()) {
                                 LOG.debug("add function set arg parameterTypes has error");
@@ -419,22 +417,6 @@ public class UdafExecutor extends BaseExecutor {
             allMethods = cache.allMethods;
             addIndex = cache.addIndex;
             retClass = cache.retClass;
-            // ClassLoader loader;
-            // if (jarPath != null) {
-            //     ClassLoader parent = getClass().getClassLoader();
-            //     classLoader = UdfUtils.getClassLoader(jarPath, parent);
-            //     loader = classLoader;
-            // } else {
-            //     // for test
-            //     loader = ClassLoader.getSystemClassLoader();
-            // }
-            // Class<?> c = Class.forName(className, true, loader);
-            // methodAccess = MethodAccess.get(c);
-            // Constructor<?> ctor = c.getConstructor();
-            // udf = ctor.newInstance();
-            // Method[] methods = c.getDeclaredMethods();
-
-
         } catch (MalformedURLException e) {
             throw new UdfRuntimeException("Unable to load jar.", e);
         } catch (SecurityException e) {
