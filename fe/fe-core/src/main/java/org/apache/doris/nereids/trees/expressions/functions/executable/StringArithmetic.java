@@ -793,7 +793,7 @@ public class StringArithmetic {
     /**
      * Executable arithmetic functions urlencode
      */
-    @ExecFunction(name = "url_encode", argTypes = {"VARCHAR"}, returnType = "VARCHAR")
+    @ExecFunction(name = "url_encode")
     public static Expression urlEncode(StringLikeLiteral first) {
         try {
             return castStringLikeLiteral(first, URLEncoder.encode(first.getValue(), StandardCharsets.UTF_8.name()));
