@@ -103,7 +103,7 @@ void memory_info_handler(std::stringstream* output) {
               << "<a "
                  "href=https://doris.apache.org/zh-CN/docs/dev/admin-manual/memory-management/"
                  "memory-issue-faq>Memory Issue FAQ</a>\n"
-              << "\n---\n";
+              << "\n---\n\n";
 
     (*output) << "<h4 id=\"memoryPropertiesTitle\">Memory Properties</h4>\n"
               << "System Physical Mem: "
@@ -122,7 +122,7 @@ void memory_info_handler(std::stringstream* output) {
               << "Cgroup Mem Usage: "
               << PrettyPrinter::print(MemInfo::cgroup_mem_usage(), TUnit::BYTES) << std::endl
               << "Cgroup Mem Refresh State: " << MemInfo::cgroup_mem_refresh_state() << std::endl
-              << "\n---\n";
+              << "\n---\n\n";
 
     (*output) << "<h4 id=\"memoryOptionSettingsTitle\">Memory Option Settings</h4>\n";
     {
@@ -135,7 +135,7 @@ void memory_info_handler(std::stringstream* output) {
             }
         }
     }
-    (*output) << "\n---\n";
+    (*output) << "\n---\n\n";
 
     (*output) << "<h4 id=\"jemallocProfilesTitle\">Jemalloc Profiles</h4>\n";
 #if defined(ADDRESS_SANITIZER) || defined(LEAK_SANITIZER) || defined(THREAD_SANITIZER)
@@ -162,11 +162,45 @@ void memory_info_handler(std::stringstream* output) {
 
 // Registered to handle "/profile".
 void process_profile_handler(const WebPageHandler::ArgumentMap& args, std::stringstream* output) {
-    (*output) << "<h2 id=\"processProfileTitle\">Process Profile</h2>\n";
+    (*output) << "<h4>Copy Process Profile To Clipboard (拷贝 Process Profile 到剪切板) </h4>";
+    (*output) << "<button id=\"copyToClipboard\">Copy Page Text</button>" << std::endl;
+    (*output) << "<script>" << std::endl;
+    (*output) << "$('#copyToClipboard').click(function () {" << std::endl;
+    // create a hidden textarea element
+    (*output) << "     var textarea = document.createElement('textarea');" << std::endl;
+    (*output) << "     textarea.style.position = 'absolute';" << std::endl;
+    (*output) << "     textarea.style.left = '-9999px';" << std::endl;
+    // get the content to copy
+    (*output) << "     var contentToCopy = document.getElementById('allPageText').innerHTML;"
+              << std::endl;
+    (*output) << "     textarea.value = contentToCopy;"
+              << std::endl; // set the content to the textarea
+    (*output) << "     document.body.appendChild(textarea);" << std::endl;
+    (*output) << "     textarea.select();" << std::endl;
+    (*output) << "     textarea.setSelectionRange(0, 99999);"
+              << std::endl; // compatible with mobile devices
+    (*output) << "try {" << std::endl;
+    (*output) << "          document.execCommand('copy');"
+              << std::endl; //copy the selected text to the clipboard
+    (*output) << "          alert('Process profile copied to clipboard!');" << std::endl;
+    (*output) << "      } catch (err) {" << std::endl;
+    (*output) << "          alert('Failed to copy process profile! ' + err);" << std::endl;
+    (*output) << "      }" << std::endl;
+    (*output) << "});" << std::endl;
+    (*output) << "</script>" << std::endl;
+
     doris::ProcessProfile::instance()->refresh_profile();
+
+    (*output) << "<div id=\"allPageText\">" << std::endl;
+    (*output) << "<h2 id=\"processProfileTitle\">Process Profile</h2>" << std::endl;
     (*output) << "<pre id=\"processProfile\">"
-              << doris::ProcessProfile::instance()->print_process_profile_no_root() << "</pre>";
+              << doris::ProcessProfile::instance()->print_process_profile_no_root() << "</pre>"
+              << "\n\n---\n\n";
     memory_info_handler(output);
+
+    // TODO, expect more information about process status, CPU, IO, etc.
+
+    (*output) << "</div>" << std::endl;
 }
 
 void display_tablets_callback(const WebPageHandler::ArgumentMap& args, EasyJson* ej) {
