@@ -1170,7 +1170,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             if (labelDbName != null) {
                 nameParts.add(labelDbName);
             }
-            nameParts.add(ddc.tableName.getText());
+            nameParts.add(ddc.targetTableName.getText());
             List<String> tableName = RelationUtil.getQualifierName(ConnectContext.get(), nameParts);
             List<String> colNames = (ddc.columns == null ? ImmutableList.of() : visitIdentifierList(ddc.columns));
             List<String> columnsFromPath = (ddc.columnsFromPath == null ? ImmutableList.of()
