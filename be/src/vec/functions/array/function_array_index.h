@@ -157,9 +157,9 @@ public:
         std::unique_ptr<InvertedIndexQueryParamFactory> query_param = nullptr;
         RETURN_IF_ERROR(InvertedIndexQueryParamFactory::create_query_value(param_type, &param_value,
                                                                            query_param));
-        RETURN_IF_ERROR(iter->read_from_inverted_index(data_type_with_name.first,
-                                                       query_param->get_value(),
-                                                       segment_v2::InvertedIndexQueryType::EQUAL_QUERY, num_rows, roaring));
+        RETURN_IF_ERROR(iter->read_from_inverted_index(
+                data_type_with_name.first, query_param->get_value(),
+                segment_v2::InvertedIndexQueryType::EQUAL_QUERY, num_rows, roaring));
         // here debug for check array_contains function really filter rows by inverted index correctly
         DBUG_EXECUTE_IF("array_func.array_contains", {
             auto result_bitmap = DebugPoints::instance()->get_debug_param_or_default<int32_t>(
