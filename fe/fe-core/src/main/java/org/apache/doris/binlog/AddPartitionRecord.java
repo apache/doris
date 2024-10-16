@@ -79,7 +79,7 @@ public class AddPartitionRecord {
         sb.append("` ");
 
         // See fe/fe-core/src/main/java/org/apache/doris/datasource/InternalCatalog.java:addPartition for details.
-        if (!this.range.equals(RangePartitionItem.DUMMY_ITEM)) {
+        if (!this.range.equals(RangePartitionItem.DUMMY_RANGE)) {
             // range
             sb.append("VALUES [");
             sb.append(range.lowerEndpoint().toSql());
