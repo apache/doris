@@ -22,7 +22,7 @@ import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.AuthorizationInfo;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.authorizer.ranger.doris.RangerCacheDorisAccessController;
+import org.apache.doris.catalog.authorizer.ranger.doris.RangerDorisAccessController;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.CatalogIf;
@@ -58,7 +58,7 @@ public class AccessControllerManager {
     public AccessControllerManager(Auth auth) {
         this.auth = auth;
         if (Config.access_controller_type.equalsIgnoreCase("ranger-doris")) {
-            defaultAccessController = new RangerCacheDorisAccessController("doris");
+            defaultAccessController = new RangerDorisAccessController("doris");
         } else {
             defaultAccessController = new InternalAccessController(auth);
         }
@@ -187,9 +187,13 @@ public class AccessControllerManager {
             PrivPredicate wanted) throws UserException {
         boolean hasGlobal = checkGlobalPriv(currentUser, wanted);
         CatalogAccessController accessController = getAccessControllerOrDefault(ctl);
+        long start = System.currentTimeMillis();
         accessController.checkColsPriv(hasGlobal, currentUser, ctl, qualifiedDb,
                 tbl, cols, wanted);
-
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("checkColumnsPriv use {} mills, user: {}, ctl: {}, db: {}, table: {}, cols: {}",
+                    System.currentTimeMillis() - start, currentUser, ctl, qualifiedDb, tbl, cols);
+        }
     }
 
     // ==== Resource ====
