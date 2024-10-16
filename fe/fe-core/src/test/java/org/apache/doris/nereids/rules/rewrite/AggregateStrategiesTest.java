@@ -138,7 +138,7 @@ public class AggregateStrategiesTest implements MemoPatternMatchSupported {
         Plan root = new LogicalAggregate<>(groupExpressionList, outputExpressionList,
                 true, Optional.empty(), rStudent);
 
-        Sum localOutput0 = new Sum(rStudent.getOutput().get(0).toSlot());
+        Sum localOutput0 = new Sum(false, true, rStudent.getOutput().get(0).toSlot());
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), root)
                 .applyImplementation(twoPhaseAggregateWithoutDistinct())
