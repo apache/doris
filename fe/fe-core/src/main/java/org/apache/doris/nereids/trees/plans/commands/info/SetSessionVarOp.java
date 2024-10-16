@@ -63,6 +63,9 @@ public class SetSessionVarOp extends SetVarOp {
     @Override
     public void validate(ConnectContext ctx) throws UserException {
         value = ExpressionUtils.analyzeAndFoldToLiteral(ctx, expression);
+        if (value.isNullLiteral()) {
+            return;
+        }
 
         if (getType() == SetType.GLOBAL) {
             if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
@@ -135,6 +138,6 @@ public class SetSessionVarOp extends SetVarOp {
         CascadesContext cascadesContext = CascadesContext.initContext(ctx.getStatementContext(), plan,
                 PhysicalProperties.ANY);
         Expr expr = ExpressionTranslator.translate(value, new PlanTranslatorContext(cascadesContext));
-        return new SetVar(getType(), name, expr);
+        return new SetVar(getType(), name, expr.isNullLiteral() ? null : expr);
     }
 }
