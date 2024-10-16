@@ -472,6 +472,8 @@ void ExchangeSinkBuffer::_turn_off_channel(InstanceLoId id, bool cleanup) {
                 _parent->set_reach_limit();
             }
         }
+    } else {
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "RPC channel {} must not be idle.", id);
     }
 }
 
