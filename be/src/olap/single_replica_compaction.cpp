@@ -149,11 +149,15 @@ Status SingleReplicaCompaction::_do_single_replica_compaction_impl() {
     LOG(INFO) << "succeed to do single replica compaction"
               << ". tablet=" << _tablet->tablet_id() << ", output_version=" << _output_version
               << ", current_max_version=" << current_max_version
-              << ", input_rowset_size=" << _input_rowsets_size
+              << ", input_rowsets_data_size=" << _input_rowsets_data_size
+              << ", input_rowsets_index_size=" << _input_rowsets_index_size
+              << ", input_rowsets_total_size=" << _input_rowsets_total_size
               << ", input_row_num=" << _input_row_num
               << ", input_segments_num=" << _input_num_segments
-              << ", _input_index_size=" << _input_index_size
+              << ", _input_index_size=" << _input_rowsets_index_size
               << ", output_rowset_data_size=" << _output_rowset->data_disk_size()
+              << ", output_rowset_index_size=" << _output_rowset->index_disk_size()
+              << ", output_rowset_total_size=" << _output_rowset->total_disk_size()
               << ", output_row_num=" << _output_rowset->num_rows()
               << ", output_segments_num=" << _output_rowset->num_segments();
     return Status::OK();
@@ -264,10 +268,11 @@ bool SingleReplicaCompaction::_find_rowset_to_fetch(const std::vector<Version>& 
             return false;
         }
         for (auto& rowset : _input_rowsets) {
-            _input_rowsets_size += rowset->data_disk_size();
+            _input_rowsets_data_size += rowset->data_disk_size();
             _input_row_num += rowset->num_rows();
             _input_num_segments += rowset->num_segments();
-            _input_index_size += rowset->index_disk_size();
+            _input_rowsets_index_size += rowset->index_disk_size();
+            _input_rowsets_total_size += rowset->data_disk_size() + rowset->index_disk_size();
         }
         _output_version = *proper_version;
     }
