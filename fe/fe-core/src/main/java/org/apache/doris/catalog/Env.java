@@ -1372,9 +1372,9 @@ public class Env {
      * write cloud/local to MODE_FILE.
      */
     protected void checkDeployMode() throws IOException {
-        File modeFile = new File(this.imageDir, Storage.MODE_FILE);
+        File modeFile = new File(this.imageDir, Storage.DEPLOY_MODE_FILE);
         Storage storage = new Storage(this.imageDir);
-        String expectedMode = Config.isCloudMode() ? Storage.CLOUD_MODE : Storage.LOCAL_MODE;
+        String expectedMode = getDeployMode();
         if (modeFile.exists()) {
             String actualMode = storage.getDeployMode();
             Preconditions.checkArgument(expectedMode.equals(actualMode),
@@ -4227,6 +4227,10 @@ public class Env {
 
     public int getClusterId() {
         return this.clusterId;
+    }
+
+    public String getDeployMode() {
+        return Config.isCloudMode() ? Storage.CLOUD_MODE : Storage.LOCAL_MODE;
     }
 
     public String getToken() {

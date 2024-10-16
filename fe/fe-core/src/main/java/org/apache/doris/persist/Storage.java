@@ -55,8 +55,8 @@ public class Storage {
     public static final String IMAGE_NEW = "image.ckpt";
     public static final String VERSION_FILE = "VERSION";
     public static final String ROLE_FILE = "ROLE";
-    public static final String MODE_FILE = "DEPLOY_MODE";
-    public static final String DEPLOY_MODE = "mode";
+    public static final String DEPLOY_MODE_FILE = "DEPLOY_MODE";
+    public static final String DEPLOY_MODE = "deploy_mode";
     public static final String CLOUD_MODE = "cloud";
     public static final String LOCAL_MODE = "local";
 
@@ -248,7 +248,7 @@ public class Storage {
     public void writeClusterMode() throws IOException {
         Properties properties = new Properties();
         properties.setProperty(DEPLOY_MODE, deployMode);
-        writePropertiesToFile(properties, MODE_FILE);
+        writePropertiesToFile(properties, DEPLOY_MODE_FILE);
     }
 
     private void writePropertiesToFile(Properties properties, String fileName) throws IOException {
@@ -315,7 +315,7 @@ public class Storage {
     }
 
     public final File getModeFile() {
-        return new File(metaDir, MODE_FILE);
+        return new File(metaDir, DEPLOY_MODE_FILE);
     }
 
     public File getCurrentEditsFile() {

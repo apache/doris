@@ -210,6 +210,29 @@ public class MetaService extends RestBaseController {
         }
     }
 
+    @RequestMapping(path = "/deploy_mode", method = RequestMethod.GET)
+    public Object deploy_mode(HttpServletRequest request, HttpServletResponse response) throws DdlException {
+        checkFromValidFe(request);
+        // For upgrade compatibility, the host parameter name remains the same
+        // and the new hostname parameter is added.
+        // host = ip
+        String host = request.getParameter(HOST);
+        String portString = request.getParameter(PORT);
+        if (!Strings.isNullOrEmpty(host) && !Strings.isNullOrEmpty(portString)) {
+            int port = Integer.parseInt(portString);
+            Frontend fe = Env.getCurrentEnv().checkFeExist(host, port);
+            if (fe == null) {
+                response.setHeader("deploy_mode", FrontendNodeType.UNKNOWN.name());
+            } else {
+                response.setHeader("name", fe.getNodeName());
+                response.setHeader("deploy_mode", FrontendNodeType.UNKNOWN.name());
+            }
+            return ResponseEntityBuilder.ok();
+        } else {
+            return ResponseEntityBuilder.badRequest("Miss parameter");
+        }
+    }
+
     /*
      * This action is used to get the electable_nodes config and the cluster id of
      * the fe with the given ip and port. When one frontend start, it should check
