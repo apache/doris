@@ -74,5 +74,5 @@ suite("test_be_metrics") {
             hasValue = true
         }
     }
-    Assert.assertTrue(hasValue)
+    assertTrue(hasValue)
 }

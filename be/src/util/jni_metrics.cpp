@@ -95,8 +95,10 @@ void JniMetrics::update_jdbc_connection_metrics() {
         int percent = std::stoi(item.second);
         auto iter = _jdbc_connection_metrics.find(catalog_id);
         if (iter == _jdbc_connection_metrics.end()) {
-            auto entity = _registry->register_entity_unlocked(catalog_id, {{"catalog", catalog_id}});
-            _jdbc_connection_metrics.emplace(catalog_id, std::make_shared<JdbcConnectionMetrics>(entity));
+            auto entity =
+                    _registry->register_entity_unlocked(catalog_id, {{"catalog", catalog_id}});
+            _jdbc_connection_metrics.emplace(catalog_id,
+                                             std::make_shared<JdbcConnectionMetrics>(entity));
         }
         _jdbc_connection_metrics[catalog_id]->upate(percent);
     }

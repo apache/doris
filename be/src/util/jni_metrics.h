@@ -43,7 +43,8 @@ private:
 
     jclass _jdbc_data_source_clz;
     jmethodID _get_connection_percent_id;
-    std::unordered_map<std::string, std::shared_ptr<JdbcConnectionMetrics>> _jdbc_connection_metrics;
+    std::unordered_map<std::string, std::shared_ptr<JdbcConnectionMetrics>>
+            _jdbc_connection_metrics;
 };
 
 } // namespace doris
