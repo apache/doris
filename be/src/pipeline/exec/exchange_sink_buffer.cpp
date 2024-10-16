@@ -86,14 +86,13 @@ void BroadcastPBlockHolderMemLimiter::release(const BroadcastPBlockHolder& holde
 } // namespace vectorized
 
 namespace pipeline {
-
 ExchangeSinkBuffer::ExchangeSinkBuffer(PUniqueId query_id, PlanNodeId dest_node_id, int send_id,
                                        int be_number, RuntimeState* state,
                                        ExchangeSinkLocalState* parent)
         : HasTaskExecutionCtx(state),
           _queue_capacity(0),
           _is_finishing(false),
-          _query_id(query_id),
+          _query_id(std::move(query_id)),
           _dest_node_id(dest_node_id),
           _sender_id(send_id),
           _be_number(be_number),
@@ -108,12 +107,6 @@ void ExchangeSinkBuffer::close() {
     //_instance_to_broadcast_package_queue.clear();
     //_instance_to_package_queue.clear();
     //_instance_to_request.clear();
-}
-
-void ExchangeSinkBuffer::_set_ready_to_finish(bool all_done) {
-    if (_finish_dependency && _should_stop && all_done) {
-        _finish_dependency->set_ready();
-    }
 }
 
 void ExchangeSinkBuffer::register_sink(TUniqueId fragment_instance_id) {
@@ -135,7 +128,6 @@ void ExchangeSinkBuffer::register_sink(TUniqueId fragment_instance_id) {
     finst_id.set_hi(fragment_instance_id.hi);
     finst_id.set_lo(fragment_instance_id.lo);
     _rpc_channel_is_idle[low_id] = true;
-    _instance_to_rpc_ctx[low_id] = {};
     _instance_to_receiver_eof[low_id] = false;
     _instance_to_rpc_time[low_id] = 0;
     _construct_request(low_id, finst_id);
@@ -160,7 +152,6 @@ Status ExchangeSinkBuffer::add_block(TransmitInfo&& request) {
         if (_rpc_channel_is_idle[ins_id]) {
             send_now = true;
             _rpc_channel_is_idle[ins_id] = false;
-            _busy_channels++;
         }
         if (request.block) {
             RETURN_IF_ERROR(
@@ -201,7 +192,6 @@ Status ExchangeSinkBuffer::add_block(BroadcastTransmitInfo&& request) {
         if (_rpc_channel_is_idle[ins_id]) {
             send_now = true;
             _rpc_channel_is_idle[ins_id] = false;
-            _busy_channels++;
         }
         if (request.block_holder->get_block()) {
             RETURN_IF_ERROR(BeExecVersionManager::check_be_exec_version(
@@ -226,7 +216,7 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
             _instance_to_broadcast_package_queue[id];
 
     if (_is_finishing) {
-        _turn_off_channel(id);
+        _turn_off_channel(id, lock);
         return Status::OK();
     }
 
@@ -243,9 +233,6 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
             request.exec_status.to_protobuf(brpc_request->mutable_exec_status());
         }
         auto send_callback = request.channel->get_send_callback(id, request.eos);
-
-        _instance_to_rpc_ctx[id]._send_callback = send_callback;
-        _instance_to_rpc_ctx[id].is_cancelled = false;
 
         send_callback->cntl_->set_timeout_ms(request.channel->_brpc_timeout_ms);
         if (config::exchange_sink_ignore_eovercrowded) {
@@ -325,12 +312,6 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
             brpc_request->set_allocated_block(request.block_holder->get_block());
         }
         auto send_callback = request.channel->get_send_callback(id, request.eos);
-
-        ExchangeRpcContext rpc_ctx;
-        rpc_ctx._send_callback = send_callback;
-        rpc_ctx.is_cancelled = false;
-        _instance_to_rpc_ctx[id] = rpc_ctx;
-
         send_callback->cntl_->set_timeout_ms(request.channel->_brpc_timeout_ms);
         if (config::exchange_sink_ignore_eovercrowded) {
             send_callback->cntl_->ignore_eovercrowded();
@@ -394,7 +375,7 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
         }
         broadcast_q.pop();
     } else {
-        _turn_off_channel(id);
+        _rpc_channel_is_idle[id] = true;
     }
 
     return Status::OK();
@@ -424,21 +405,19 @@ void ExchangeSinkBuffer::_ended(InstanceLoId id) {
         __builtin_unreachable();
     } else {
         std::unique_lock<std::mutex> lock(*_instance_to_package_queue_mutex[id]);
-        _turn_off_channel(id);
+        _turn_off_channel(id, lock);
     }
 }
 
 void ExchangeSinkBuffer::_failed(InstanceLoId id, const std::string& err) {
     _is_finishing = true;
     _context->cancel(Status::Cancelled(err));
-    std::unique_lock<std::mutex> lock(*_instance_to_package_queue_mutex[id]);
-    _turn_off_channel(id, true);
 }
 
 void ExchangeSinkBuffer::_set_receiver_eof(InstanceLoId id) {
     std::unique_lock<std::mutex> lock(*_instance_to_package_queue_mutex[id]);
     _instance_to_receiver_eof[id] = true;
-    _turn_off_channel(id, true);
+    _turn_off_channel(id, lock);
     std::queue<BroadcastTransmitInfo, std::list<BroadcastTransmitInfo>>& broadcast_q =
             _instance_to_broadcast_package_queue[id];
     for (; !broadcast_q.empty(); broadcast_q.pop()) {
@@ -470,17 +449,17 @@ bool ExchangeSinkBuffer::_is_receiver_eof(InstanceLoId id) {
     return _instance_to_receiver_eof[id];
 }
 
-void ExchangeSinkBuffer::_turn_off_channel(InstanceLoId id, bool cleanup) {
+// The unused parameter `with_lock` is to ensure that the function is called when the lock is held.
+void ExchangeSinkBuffer::_turn_off_channel(InstanceLoId id,
+                                           std::unique_lock<std::mutex>& /*with_lock*/) {
     if (!_rpc_channel_is_idle[id]) {
         _rpc_channel_is_idle[id] = true;
-        auto all_done = _busy_channels.fetch_sub(1) == 1;
-        _set_ready_to_finish(all_done);
-        if (cleanup && all_done) {
-            auto weak_task_ctx = weak_task_exec_ctx();
-            if (auto pip_ctx = weak_task_ctx.lock()) {
-                _parent->set_reach_limit();
-            }
-        }
+    }
+    _instance_to_receiver_eof[id] = true;
+
+    auto weak_task_ctx = weak_task_exec_ctx();
+    if (auto pip_ctx = weak_task_ctx.lock()) {
+        _parent->on_channel_finished(id);
     }
 }
 
