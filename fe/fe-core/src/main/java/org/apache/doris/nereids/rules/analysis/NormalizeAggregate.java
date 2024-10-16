@@ -35,6 +35,7 @@ import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AnyValue;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinction;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.EncodeAsBigInt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.EncodeAsInt;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -48,6 +49,7 @@ import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.PlanUtils.CollectNonWindowedAggFuncs;
 import org.apache.doris.nereids.util.Utils;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.ImmutableSet;
@@ -135,38 +137,74 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
         return false;
     }
 
-    private LogicalAggregate<Plan> encode(LogicalAggregate<Plan> aggregate, Optional<LogicalHaving<?>> having) {
-        List<Expression> newGroupByExpressions = Lists.newArrayList();
-        List<Expression> encodedExpressions = Lists.newArrayList();
-        Map<Expression, Alias> encodeMap = Maps.newHashMap();
-        for (Expression gp : aggregate.getGroupByExpressions()) {
-            if (gp instanceof SlotReference && canCompress(gp)) {
-                Alias alias = new Alias(new EncodeAsInt(gp), ((SlotReference) gp).getName());
-                newGroupByExpressions.add(alias);
-                encodedExpressions.add(gp);
-                encodeMap.put(gp, alias);
-            } else {
-                newGroupByExpressions.add(gp);
+    /*
+    example:
+    [support] select sum(v) from t group by substring(k, 1,2)
+    [not support] select substring(k, 1,2), sum(v) from t group by substring(k, 1,2)
+    [support] select k, sum(v) from t group by k
+    [not support] select substring(k, 1,2), sum(v) from t group by k
+    [support]  select A as B from T group by A
+    */
+    private Set<Expression> getEncodableGroupByExpressions(LogicalAggregate<Plan> aggregate) {
+        Set<Expression> encodableGroupbyExpressions = Sets.newHashSet();
+        Set<Slot> slotShouldNotEncode = Sets.newHashSet();
+        for (NamedExpression ne : aggregate.getOutputExpressions()) {
+            if (ne instanceof Alias) {
+                Expression child = ((Alias) ne).child();
+                //support: select A as B from T group by A
+                if (!(child instanceof SlotReference)) {
+                    slotShouldNotEncode.addAll(child.getInputSlots());
+                }
             }
         }
-        if (!encodedExpressions.isEmpty()) {
-            // aggregate = aggregate.withGroupByExpressions(newGroupByExpressions);
-            // boolean hasNewOutput = false;
+        for (Expression gb : aggregate.getGroupByExpressions()) {
+            if (canCompress(gb)) {
+                boolean encodable = true;
+                for (Slot gbs : gb.getInputSlots()) {
+                    if (slotShouldNotEncode.contains(gbs)) {
+                        encodable = false;
+                        break;
+                    }
+                }
+                if (encodable) {
+                    encodableGroupbyExpressions.add(gb);
+                }
+            }
+        }
+        return encodableGroupbyExpressions;
+    }
+
+    private LogicalAggregate<Plan> encode(LogicalAggregate<Plan> aggregate, Optional<LogicalHaving<?>> having) {
+        List<Alias> encodedExpressions = Lists.newArrayList();
+        Set<Expression> encodableGroupByExpressions = getEncodableGroupByExpressions(aggregate);
+        if (!encodableGroupByExpressions.isEmpty()) {
+            List<Expression> newGroupByExpressions = Lists.newArrayList();
+            List<Alias> encodedGroupByExpressions = Lists.newArrayList();
+            for (Expression gp : aggregate.getGroupByExpressions()) {
+                if (encodableGroupByExpressions.contains(gp)) {
+                    Alias alias = new Alias(new EncodeAsBigInt(gp));
+                    newGroupByExpressions.add(alias);
+                    encodedExpressions.add(alias);
+                } else {
+                    newGroupByExpressions.add(gp);
+                }
+            }
             List<NamedExpression> newOutput = Lists.newArrayList();
-            List<NamedExpression> output = aggregate.getOutputExpressions();
-            for (NamedExpression ne : output) {
-                if (ne instanceof SlotReference && encodedExpressions.contains(ne)) {
+            for (NamedExpression ne : aggregate.getOutputExpressions()) {
+                if (ne instanceof SlotReference && encodableGroupByExpressions.contains(ne)) {
                     newOutput.add(new Alias(ne.getExprId(), new AnyValue(ne), ne.getName()));
-                    newOutput.add(encodeMap.get(ne));
-                    // hasNewOutput = true;
+                } else if (ne instanceof Alias && encodableGroupByExpressions.contains(((Alias) ne).child())) {
+                    Expression child = ((Alias) ne).child();
+                    Preconditions.checkArgument(child instanceof SlotReference,
+                            "encode %s failed, not a slot", child);
+                    newOutput.add(new Alias(((SlotReference) child).getExprId(), new AnyValue(child),
+                            "any_value(" + child + ")"));
                 } else {
                     newOutput.add(ne);
                 }
             }
+            newOutput.addAll(encodedExpressions);
             aggregate = aggregate.withGroupByAndOutput(newGroupByExpressions, newOutput);
-            // if (hasNewOutput) {
-            //     aggregate = aggregate.withAggOutput(newOutput);
-            // }
         }
         return aggregate;
     }
