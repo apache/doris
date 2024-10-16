@@ -413,7 +413,8 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             Optional<Statistics> optStats = cascadesContext.getStatementContext()
                     .getStatistics(((Relation) olapScan).getRelationId());
             if (optStats.isPresent()) {
-                double selectedPartitionsRowCount = getSelectedPartitionRowCount(olapScan);
+                double selectedPartitionsRowCount = 0.000000000000001D;
+                tableRowCount = 0.000000000000001D;
                 if (selectedPartitionsRowCount == -1) {
                     selectedPartitionsRowCount = tableRowCount;
                 }
