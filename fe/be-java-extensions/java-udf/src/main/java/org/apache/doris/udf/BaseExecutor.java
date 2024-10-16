@@ -21,6 +21,7 @@ import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.exception.InternalException;
 import org.apache.doris.common.exception.UdfRuntimeException;
+import org.apache.doris.common.jni.utils.ClassCacheBase;
 import org.apache.doris.common.jni.utils.JavaUdfDataType;
 import org.apache.doris.common.jni.vec.ColumnValueConverter;
 import org.apache.doris.thrift.TFunction;
@@ -33,7 +34,9 @@ import org.apache.thrift.TDeserializer;
 import org.apache.thrift.TException;
 import org.apache.thrift.protocol.TBinaryProtocol;
 
+import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.net.MalformedURLException;
 import java.net.URLClassLoader;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -70,6 +73,7 @@ public abstract class BaseExecutor {
     protected Class[] argClass;
     protected MethodAccess methodAccess;
     protected TFunction fn;
+    protected boolean isStaticLoad = false;
 
     /**
      * Create a UdfExecutor, using parameters from a serialized thrift object. Used
@@ -136,6 +140,13 @@ public abstract class BaseExecutor {
     protected abstract void init(TJavaUdfExecutorCtorParams request, String jarPath,
             Type funcRetType, Type... parameterTypes) throws UdfRuntimeException;
 
+    protected abstract ClassCacheBase getClassCache(String className, String jarPath, String signature, long expirationTime,
+            Type funcRetType, Type... parameterTypes)
+            throws MalformedURLException, FileNotFoundException, ClassNotFoundException, InternalException,
+            UdfRuntimeException;
+
+    protected abstract void checkAndCacheUdfClass(String className, ClassCacheBase cache, Type funcRetType, Type... parameterTypes)
+            throws InternalException, UdfRuntimeException, FileNotFoundException;
     /**
      * Close the class loader we may have created.
      */

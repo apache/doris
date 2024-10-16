@@ -22,6 +22,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.classloader.ScannerLoader;
 import org.apache.doris.common.exception.InternalException;
 import org.apache.doris.common.exception.UdfRuntimeException;
+import org.apache.doris.common.jni.utils.ClassCacheBase;
 import org.apache.doris.common.jni.utils.JavaUdfDataType;
 import org.apache.doris.common.jni.utils.UdfClassCache;
 import org.apache.doris.common.jni.utils.UdfUtils;
@@ -54,8 +55,6 @@ public class UdfExecutor extends BaseExecutor {
     private int evaluateIndex;
 
     private VectorTable outputTable = null;
-
-    private boolean isStaticLoad = false;
 
     /**
      * Create a UdfExecutor, using parameters from a serialized thrift object. Used by
@@ -143,13 +142,14 @@ public class UdfExecutor extends BaseExecutor {
         return null; // Method not found
     }
 
-    public UdfClassCache getClassCache(String className, String jarPath, String signature, long expirationTime,
+    @Override
+    protected UdfClassCache getClassCache(String className, String jarPath, String signature, long expirationTime,
             Type funcRetType, Type... parameterTypes)
             throws MalformedURLException, FileNotFoundException, ClassNotFoundException, InternalException,
             UdfRuntimeException {
         UdfClassCache cache = null;
         if (isStaticLoad) {
-            cache = ScannerLoader.getUdfClassLoader(signature);
+            cache = (UdfClassCache) ScannerLoader.getUdfClassLoader(signature);
         }
         if (cache == null) {
             ClassLoader loader;
@@ -174,8 +174,10 @@ public class UdfExecutor extends BaseExecutor {
         return cache;
     }
 
-    private void checkAndCacheUdfClass(String className, UdfClassCache cache, Type funcRetType, Type... parameterTypes)
+    @Override
+    protected void checkAndCacheUdfClass(String className, ClassCacheBase cacheBase, Type funcRetType, Type... parameterTypes)
             throws InternalException, UdfRuntimeException {
+        UdfClassCache cache = (UdfClassCache) cacheBase;
         ArrayList<String> signatures = Lists.newArrayList();
         Class<?> c = cache.udfClass;
         Method[] methods = c.getMethods();

@@ -17,15 +17,18 @@
 
 package org.apache.doris.common.jni.utils;
 
-import java.lang.reflect.Method;
+import com.esotericsoftware.reflectasm.MethodAccess;
 
 /**
- * This class is used for caching the class of UDF.
+ * This class is used for caching the class of UDF/UDAF.
  */
-public class UdfClassCache extends ClassCacheBase {
-    public int evaluateIndex;
-    // the method of evaluate() in udf
-    public Method method;
-    // the method of prepare() in udf
-    public Method prepareMethod;
+public class ClassCacheBase {
+    public Class<?> udfClass;
+    // the index of evaluate() method in the class
+    public MethodAccess methodAccess;
+    // the argument and return's JavaUdfDataType of evaluate() method.
+    public JavaUdfDataType[] argTypes;
+    public JavaUdfDataType retType;
+    // the class type of the arguments in evaluate() method
+    public Class[] argClass;
 }

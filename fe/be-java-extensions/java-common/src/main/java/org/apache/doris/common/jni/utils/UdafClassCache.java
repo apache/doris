@@ -18,14 +18,13 @@
 package org.apache.doris.common.jni.utils;
 
 import java.lang.reflect.Method;
+import java.util.HashMap;
 
 /**
- * This class is used for caching the class of UDF.
+ * This class is used for caching the class of UDAF.
  */
-public class UdfClassCache extends ClassCacheBase {
-    public int evaluateIndex;
-    // the method of evaluate() in udf
-    public Method method;
-    // the method of prepare() in udf
-    public Method prepareMethod;
+public class UdafClassCache extends ClassCacheBase {
+    public HashMap<String, Method> allMethods;
+    public int addIndex;
+    public Class retClass;
 }
