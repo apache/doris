@@ -239,6 +239,7 @@ private:
     int _num_instances = 1;
 
     int _timeout = -1;
+    bool _use_serial_source = false;
 
     OperatorPtr _root_op = nullptr;
     // this is a [n * m] matrix. n is parallelism of pipeline engine and m is the number of pipelines.

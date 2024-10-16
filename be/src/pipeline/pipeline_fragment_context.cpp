@@ -235,6 +235,8 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
     if (request.__isset.query_options && request.query_options.__isset.execution_timeout) {
         _timeout = request.query_options.execution_timeout;
     }
+    _use_serial_source =
+            request.fragment.__isset.use_serial_source && request.fragment.use_serial_source;
 
     _fragment_level_profile = std::make_unique<RuntimeProfile>("PipelineContext");
     _prepare_timer = ADD_TIMER(_fragment_level_profile, "PrepareTime");
@@ -754,13 +756,12 @@ Status PipelineFragmentContext::_add_local_exchange_impl(
     const bool followed_by_shuffled_operator =
             operators.size() > idx ? operators[idx]->followed_by_shuffled_operator()
                                    : cur_pipe->sink()->followed_by_shuffled_operator();
-    const bool should_disable_bucket_shuffle =
+    const bool use_global_hash_shuffle =
             bucket_seq_to_instance_idx.empty() &&
             shuffle_idx_to_instance_idx.find(-1) == shuffle_idx_to_instance_idx.end() &&
-            followed_by_shuffled_operator;
+            followed_by_shuffled_operator && !_use_serial_source;
     sink.reset(new LocalExchangeSinkOperatorX(
-            sink_id, local_exchange_id,
-            should_disable_bucket_shuffle ? _total_instances : _num_instances,
+            sink_id, local_exchange_id, use_global_hash_shuffle ? _total_instances : _num_instances,
             data_distribution.partition_exprs, bucket_seq_to_instance_idx));
     if (bucket_seq_to_instance_idx.empty() &&
         data_distribution.distribution_type == ExchangeType::BUCKET_HASH_SHUFFLE) {
@@ -768,8 +769,7 @@ Status PipelineFragmentContext::_add_local_exchange_impl(
     }
     RETURN_IF_ERROR(new_pip->set_sink(sink));
     RETURN_IF_ERROR(new_pip->sink()->init(data_distribution.distribution_type, num_buckets,
-                                          should_disable_bucket_shuffle,
-                                          shuffle_idx_to_instance_idx));
+                                          use_global_hash_shuffle, shuffle_idx_to_instance_idx));
 
     // 2. Create and initialize LocalExchangeSharedState.
     std::shared_ptr<LocalExchangeSharedState> shared_state =
@@ -780,7 +780,7 @@ Status PipelineFragmentContext::_add_local_exchange_impl(
     case ExchangeType::HASH_SHUFFLE:
         shared_state->exchanger = ShuffleExchanger::create_unique(
                 std::max(cur_pipe->num_tasks(), _num_instances),
-                should_disable_bucket_shuffle ? _total_instances : _num_instances,
+                use_global_hash_shuffle ? _total_instances : _num_instances,
                 _runtime_state->query_options().__isset.local_exchange_free_blocks_limit
                         ? _runtime_state->query_options().local_exchange_free_blocks_limit
                         : 0);

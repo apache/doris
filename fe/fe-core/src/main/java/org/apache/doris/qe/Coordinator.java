@@ -1785,7 +1785,7 @@ public class Coordinator implements CoordInterface {
                         && context.getSessionVariable().isForceToLocalShuffle()
                         && !fragment.hasNullAwareLeftAntiJoin() && useNereids;
                 boolean ignoreStorageDataDistribution = (forceToLocalShuffle
-                        || (fragment.ignoreStorageDataDistribution(context) && useNereids))
+                        || (fragment.useSerialSource(context) && useNereids))
                         && fragment.queryCacheParam == null;
                 if (ignoreStorageDataDistribution) {
                     for (int j = 1; j < expectedInstanceNum; j++) {
@@ -1828,7 +1828,7 @@ public class Coordinator implements CoordInterface {
                         && context.getSessionVariable().isForceToLocalShuffle()
                         && !fragment.hasNullAwareLeftAntiJoin() && useNereids;
                 boolean ignoreStorageDataDistribution = (forceToLocalShuffle
-                        || (fragment.ignoreStorageDataDistribution(context) && useNereids))
+                        || (fragment.useSerialSource(context) && useNereids))
                         && fragment.queryCacheParam == null;
                 if (exchangeInstances > 0 && fragmentExecParamsMap.get(inputFragmentId)
                         .instanceExecParams.size() > exchangeInstances) {
