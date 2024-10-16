@@ -2405,7 +2405,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         TStatus status = new TStatus(TStatusCode.OK);
         result.setStatus(status);
         try {
-            String token = Env.getCurrentEnv().getLoadManager().getTokenManager().acquireToken();
+            String token = Env.getCurrentEnv().getTokenManager().acquireToken();
             result.setToken(token);
         } catch (Throwable e) {
             LOG.warn("catch unknown result.", e);
@@ -2424,7 +2424,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             LOG.debug("receive check token request from client: {}", clientAddr);
         }
         try {
-            return Env.getCurrentEnv().getLoadManager().getTokenManager().checkAuthToken(token);
+            return Env.getCurrentEnv().getTokenManager().checkAuthToken(token);
         } catch (Throwable e) {
             LOG.warn("catch unknown result.", e);
             return false;

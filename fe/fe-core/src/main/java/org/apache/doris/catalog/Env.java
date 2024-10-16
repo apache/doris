@@ -571,6 +571,8 @@ public class Env {
 
     private final List<String> forceSkipJournalIds = Arrays.asList(Config.force_skip_journal_ids);
 
+    private TokenManager tokenManager;
+
     // if a config is relative to a daemon thread. record the relation here. we will proactively change interval of it.
     private final Map<String, Supplier<MasterDaemon>> configtoThreads = ImmutableMap
             .of("dynamic_partition_check_interval_seconds", this::getDynamicPartitionScheduler);
@@ -817,6 +819,7 @@ public class Env {
         this.sqlCacheManager = new NereidsSqlCacheManager();
         this.splitSourceManager = new SplitSourceManager();
         this.globalExternalTransactionInfoMgr = new GlobalExternalTransactionInfoMgr();
+        this.tokenManager = new TokenManager();
     }
 
     public static void destroyCheckpoint() {
@@ -1852,6 +1855,7 @@ public class Env {
     // start threads that should run on all FE
     protected void startNonMasterDaemonThreads() {
         // start load manager thread
+        tokenManager.start();
         loadManager.start();
         tabletStatMgr.start();
 
@@ -4379,6 +4383,10 @@ public class Env {
 
     public LoadManager getLoadManager() {
         return loadManager;
+    }
+
+    public TokenManager getTokenManager() {
+        return tokenManager;
     }
 
     public ProgressManager getProgressManager() {

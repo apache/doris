@@ -250,6 +250,7 @@ public class HeartbeatMgr extends MasterDaemon {
                 copiedMasterInfo.setHeartbeatFlags(flags);
                 copiedMasterInfo.setBackendId(backendId);
                 copiedMasterInfo.setFrontendInfos(feInfos);
+                copiedMasterInfo.setCurrAuthToken(Env.getCurrentEnv().getTokenManager().acquireToken());
                 if (Config.isCloudMode()) {
                     String cloudUniqueId = backend.getTagMap().get(Tag.CLOUD_UNIQUE_ID);
                     copiedMasterInfo.setCloudUniqueId(cloudUniqueId);

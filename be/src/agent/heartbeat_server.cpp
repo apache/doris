@@ -281,6 +281,17 @@ Status HeartbeatServer::_heartbeat(const TMasterInfo& master_info) {
                 master_info.tablet_report_inactive_duration_ms;
     }
 
+    if (master_info.__isset.curr_auth_token) {
+        if (!_master_info->__isset.curr_auth_token) {
+            _master_info->__set_curr_auth_token(master_info.auth_token);
+            LOG(INFO) << "set new auth token: " << _current_auth_token;
+        } else if (_master_info->curr_auth_token != master_info.auth_token)
+            _master_info->__set_last_auth_token(_master_info->curr_auth_token);
+            _master_info->__set_curr_auth_token(master_info.auth_token);
+            LOG(INFO) << "last auth token: " << _last_auth_token << "set new auth token: " << _current_auth_token;
+        }
+    }
+
     if (need_report) {
         LOG(INFO) << "Master FE is changed or restarted. report tablet and disk info immediately";
         _engine.notify_listeners();
