@@ -209,7 +209,7 @@ Status JniLocalFrame::push(JNIEnv* env, int max_local_ref) {
     return Status::OK();
 }
 
-void JniUtil::parse_max_heap_memory_size_from_jvm(JNIEnv* env) {
+void JniUtil::parse_max_heap_memory_size_from_jvm() {
     // The start_be.sh would set JAVA_OPTS inside LIBHDFS_OPTS
     std::string java_opts = getenv("LIBHDFS_OPTS") ? getenv("LIBHDFS_OPTS") : "";
     std::istringstream iss(java_opts);
@@ -251,8 +251,7 @@ size_t JniUtil::get_max_jni_heap_memory_size() {
     return std::numeric_limits<size_t>::max();
 #else
     static std::once_flag parse_max_heap_memory_size_from_jvm_flag;
-    std::call_once(parse_max_heap_memory_size_from_jvm_flag, parse_max_heap_memory_size_from_jvm,
-                   tls_env_);
+    std::call_once(parse_max_heap_memory_size_from_jvm_flag, parse_max_heap_memory_size_from_jvm);
     return max_jvm_heap_memory_size_;
 #endif
 }
