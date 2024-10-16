@@ -23,9 +23,11 @@ import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.properties.RequireProperties;
 import org.apache.doris.nereids.properties.RequirePropertiesSupplier;
+import org.apache.doris.nereids.trees.expressions.AggregateExpression;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
 import org.apache.doris.nereids.trees.expressions.functions.agg.NullableAggregateFunction;
 import org.apache.doris.nereids.trees.plans.AggMode;
@@ -337,12 +339,22 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
 
     private List<NamedExpression> adjustNullableForOutputs(List<NamedExpression> outputs, boolean alwaysNullable) {
         return ExpressionUtils.rewriteDownShortCircuit(outputs, output -> {
-            if (output instanceof NullableAggregateFunction
-                    && ((NullableAggregateFunction) output).isAlwaysNullable() != alwaysNullable) {
-                return ((NullableAggregateFunction) output).withAlwaysNullable(alwaysNullable);
-            } else {
-                return output;
+            if (output instanceof AggregateExpression) {
+                AggregateFunction function = ((AggregateExpression) output).getFunction();
+                if (function instanceof NullableAggregateFunction
+                        && ((NullableAggregateFunction) function).isAlwaysNullable() != alwaysNullable) {
+                    AggregateParam param = ((AggregateExpression) output).getAggregateParam();
+                    Expression child = ((AggregateExpression) output).child();
+                    AggregateFunction newFunction = ((NullableAggregateFunction) function)
+                            .withAlwaysNullable(alwaysNullable);
+                    if (function == child) {
+                        // function is also child
+                        child = newFunction;
+                    }
+                    return new AggregateExpression(newFunction, param, child);
+                }
             }
+            return output;
         });
     }
 }
