@@ -194,7 +194,7 @@ public:
 
     int64_t dst_id() const { return _dst_id; }
 
-    bool is_inited() const { return _is_init.load(); }
+    bool is_open() const { return _is_open.load(); }
 
     bool is_incremental() const { return _is_incremental; }
 
@@ -230,6 +230,7 @@ private:
 
 protected:
     std::atomic<bool> _is_init;
+    std::atomic<bool> _is_open;
     std::atomic<bool> _is_closing;
     std::atomic<bool> _is_closed;
     std::atomic<bool> _is_cancelled;
@@ -239,8 +240,7 @@ protected:
     brpc::StreamId _stream_id;
     int64_t _src_id = -1; // source backend_id
     int64_t _dst_id = -1; // destination backend_id
-    Status _init_st = Status::InternalError<false>("Stream is not open");
-    Status _close_st;
+    Status _status = Status::InternalError<false>("Stream is not open");
     Status _cancel_st;
 
     bthread::Mutex _open_mutex;
