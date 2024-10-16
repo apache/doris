@@ -114,8 +114,6 @@
 
 namespace doris::pipeline {
 #include "common/compile_check_begin.h"
-bvar::Adder<int64_t> g_pipeline_tasks_count("doris_pipeline_tasks_count");
-
 PipelineFragmentContext::PipelineFragmentContext(
         const TUniqueId& query_id, const int fragment_id, std::shared_ptr<QueryContext> query_ctx,
         ExecEnv* exec_env, const std::function<void(RuntimeState*, Status*)>& call_back,
