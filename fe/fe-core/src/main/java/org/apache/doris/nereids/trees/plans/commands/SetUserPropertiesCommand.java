@@ -37,7 +37,7 @@ public class SetUserPropertiesCommand extends Command implements ForwardWithSync
 
     public SetUserPropertiesCommand(String user, List<SetUserPropertyVarOp> setUserPropertyVarOpList) {
         super(PlanType.SET_OPTIONS_COMMAND);
-        this.user = user;
+        this.user = user != null ? user : ConnectContext.get().getQualifiedUser();
         this.setUserPropertyVarOpList = setUserPropertyVarOpList;
     }
 

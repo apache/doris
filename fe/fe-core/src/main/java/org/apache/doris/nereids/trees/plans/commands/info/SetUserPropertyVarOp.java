@@ -44,7 +44,7 @@ public class SetUserPropertyVarOp {
     public SetUserPropertyVarOp(String user, String key, String value) {
         this.key = key;
         this.value = value;
-        this.user = user;
+        this.user = user != null ? user : ConnectContext.get().getQualifiedUser();
     }
 
     public String getPropertyKey() {
