@@ -254,6 +254,7 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
     _reader_context.delete_bitmap = read_params.delete_bitmap;
     _reader_context.enable_unique_key_merge_on_write = tablet()->enable_unique_key_merge_on_write();
     _reader_context.record_rowids = read_params.record_rowids;
+    _reader_context.rowid_conversion = read_params.rowid_conversion;
     _reader_context.is_key_column_group = read_params.is_key_column_group;
     _reader_context.remaining_conjunct_roots = read_params.remaining_conjunct_roots;
     _reader_context.common_expr_ctxs_push_down = read_params.common_expr_ctxs_push_down;
