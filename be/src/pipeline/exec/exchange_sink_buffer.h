@@ -226,6 +226,7 @@ private:
     phmap::flat_hash_map<InstanceLoId, bool> _rpc_channel_is_idle;
     // Number of busy channels;
     std::atomic<int> _busy_channels = 0;
+    std::atomic_int _closed_channels_count = 0;
     phmap::flat_hash_map<InstanceLoId, bool> _instance_to_receiver_eof;
     phmap::flat_hash_map<InstanceLoId, int64_t> _instance_to_rpc_time;
     phmap::flat_hash_map<InstanceLoId, ExchangeRpcContext> _instance_to_rpc_ctx;
