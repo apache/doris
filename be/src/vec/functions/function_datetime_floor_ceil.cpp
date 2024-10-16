@@ -166,8 +166,6 @@ public:
                                 col_to->get_data(), null_map->get_data());
                     } else {
                         // time_round(datetime,const(period))
-                        LOG(INFO) << "asd time_round(datetime,const(period)) " << input_rows_count
-                                  << " " << delta_const_column->get_field().get<Int32>();
                         Impl::template vector_constant_delta<NativeType, DeltaValueType>(
                                 sources->get_data(), delta_const_column->get_field().get<Int32>(),
                                 col_to->get_data(), null_map->get_data());
