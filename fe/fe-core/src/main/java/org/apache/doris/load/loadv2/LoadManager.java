@@ -103,16 +103,13 @@ public class LoadManager implements Writable {
 
     private ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
     private MysqlLoadManager mysqlLoadManager;
-    private TokenManager tokenManager;
 
     public LoadManager(LoadJobScheduler loadJobScheduler) {
         this.loadJobScheduler = loadJobScheduler;
-        this.tokenManager = new TokenManager();
-        this.mysqlLoadManager = new MysqlLoadManager(tokenManager);
+        this.mysqlLoadManager = new MysqlLoadManager();
     }
 
     public void start() {
-        tokenManager.start();
         mysqlLoadManager.start();
     }
 
@@ -184,10 +181,6 @@ public class LoadManager implements Writable {
 
     public MysqlLoadManager getMysqlLoadManager() {
         return mysqlLoadManager;
-    }
-
-    public TokenManager getTokenManager() {
-        return tokenManager;
     }
 
     public void replayCreateLoadJob(LoadJob loadJob) {
