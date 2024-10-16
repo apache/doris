@@ -538,10 +538,10 @@ public class StringArithmetic {
     @ExecFunction(name = "repeat")
     public static Expression repeat(StringLikeLiteral first, IntegerLiteral second) {
         if (second.getValue() > ConnectContext.get().getSessionVariable().repeatMaxNum) {
-            throw new NotSupportedException("The second parameter of repeat function exceeded maximum default value" +
-                "default_value is " + ConnectContext.get().getSessionVariable().repeatMaxNum +
-                ", and now input is " + second.getValue() + " . you could try change default value " +
-                "greater than value eg: set repeat_max_num = {}.");
+            throw new NotSupportedException("The second parameter of repeat function exceeded maximum default value"
+                + "default_value is " + ConnectContext.get().getSessionVariable().repeatMaxNum
+                + ", and now input is " + second.getValue() + " . you could try change default value "
+                + "greater than value eg: set repeat_max_num = {}.");
         }
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < second.getValue(); i++) {
