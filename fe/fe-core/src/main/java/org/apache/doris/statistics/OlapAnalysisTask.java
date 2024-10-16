@@ -284,7 +284,8 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
                 int seekTid = (int) ((i + seek) % ids.size());
                 long tabletId = ids.get(seekTid);
                 sampleTabletIds.add(tabletId);
-                actualSampledRowCount += materializedIndex.getTablet(tabletId).getRowCount(true);
+                actualSampledRowCount += materializedIndex.getTablet(tabletId)
+                        .getMinReplicaRowCount(p.getVisibleVersion());
                 if (actualSampledRowCount >= sampleRows && !forPartitionColumn) {
                     enough = true;
                     break;
