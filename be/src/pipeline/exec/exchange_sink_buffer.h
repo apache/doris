@@ -230,7 +230,7 @@ private:
     int _sender_id;
     int _be_number;
     std::atomic<int64_t> _rpc_count = 0;
-    RuntimeState* _state = nullptr;
+    RuntimeState* _fragment_state = nullptr;
     QueryContext* _context = nullptr;
 
     Status _send_rpc(InstanceLoId);
