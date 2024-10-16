@@ -653,15 +653,8 @@ build_lzo2() {
 # brotli
 build_brotli() {
     check_if_source_exist "${BROTLI_SOURCE}"
-    cd "${TP_SOURCE_DIR}/${BROTLI_SOURCE}"
-
-    mkdir -p "${BUILD_DIR}"
-    cd "${BUILD_DIR}"
-
-    "${CMAKE_CMD}" -DCMAKE_BUILD_TYPE=Release -G "${GENERATOR}" -DBROTLI_DISABLE_TESTS=ON \
-        -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" ..
-
-    "${BUILD_SYSTEM}" -j "${PARALLEL}" install
+    # brotli has been builded in build_arrow, so just copy headers
+    cp -r "${TP_SOURCE_DIR}/${BROTLI_SOURCE}/c/include/brotli" "${TP_INCLUDE_DIR}/"
 }
 
 # curl
