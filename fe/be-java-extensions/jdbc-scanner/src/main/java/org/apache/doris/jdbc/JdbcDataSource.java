@@ -97,6 +97,11 @@ public class JdbcDataSource {
         }
     }
 
+    /**
+     * used for jni metrics
+     * get jdbc scan connection percent
+     * percent = activeConnections * 100 / maximumPoolSize
+     */
     public static Map<String, String> getConnectionPercent() {
         Map<String, String> result = new HashMap<>();
         for (Map.Entry<Long, String> entry : getDataSource().catalogId2CacheKey.entrySet()) {
