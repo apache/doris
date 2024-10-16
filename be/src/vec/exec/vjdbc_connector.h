@@ -61,6 +61,7 @@ struct JdbcConnectorParam {
     int32_t connection_pool_max_wait_time = -1;
     int32_t connection_pool_max_life_time = -1;
     bool connection_pool_keep_alive = false;
+    bool enable_connection_pool;
 
     const TupleDescriptor* tuple_desc = nullptr;
 };
