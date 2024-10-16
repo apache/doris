@@ -93,6 +93,9 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
         } else {
             channel_shared_ptrs.emplace_back(
                     channel_shared_ptrs[fragment_id_to_channel_index[fragment_instance_id.lo]]);
+            if (_part_type == TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED) {
+                channels.push_back(channel_shared_ptrs.back().get());
+            }
         }
     }
 
@@ -133,12 +136,11 @@ Status ExchangeSinkLocalState::open(RuntimeState* state) {
     id.set_lo(_state->query_id().lo);
 
     if (!only_local_exchange) {
-        _sink_buffer = std::make_unique<ExchangeSinkBuffer>(id, p._dest_node_id, _sender_id,
-                                                            _state->be_number(), state, this);
+        _sink_buffer = std::make_unique<ExchangeSinkBuffer>(id, p._dest_node_id,
+                                                            _state->be_number(), state);
         register_channels(_sink_buffer.get());
         _queue_dependency = Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
                                                       "ExchangeSinkQueueDependency", true);
-        _sink_buffer->set_dependency(_queue_dependency, _finish_dependency);
         _finish_dependency->block();
     }
 
@@ -146,7 +148,6 @@ Status ExchangeSinkLocalState::open(RuntimeState* state) {
         !only_local_exchange) {
         _broadcast_dependency = Dependency::create_shared(
                 _parent->operator_id(), _parent->node_id(), "BroadcastDependency", true);
-        _sink_buffer->set_broadcast_dependency(_broadcast_dependency);
         _broadcast_pb_mem_limiter =
                 vectorized::BroadcastPBlockHolderMemLimiter::create_shared(_broadcast_dependency);
     } else if (local_size > 0) {
@@ -173,9 +174,9 @@ Status ExchangeSinkLocalState::open(RuntimeState* state) {
         _profile->add_info_string("Partitioner",
                                   fmt::format("Crc32HashPartitioner({})", _partition_count));
     } else if (_part_type == TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED) {
-        _partition_count = channel_shared_ptrs.size();
+        _partition_count = channels.size();
         _partitioner.reset(new vectorized::Crc32HashPartitioner<vectorized::ShuffleChannelIds>(
-                channel_shared_ptrs.size()));
+                channels.size()));
         RETURN_IF_ERROR(_partitioner->init(p._texprs));
         RETURN_IF_ERROR(_partitioner->prepare(state, p._row_desc));
         _profile->add_info_string("Partitioner",
@@ -486,7 +487,7 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
                     local_state._partitioner->get_channel_ids().get<uint32_t>(), rows, block, eos));
         } else {
             RETURN_IF_ERROR(channel_add_rows(
-                    state, local_state.channel_shared_ptrs, local_state._partition_count,
+                    state, local_state.channels, local_state._partition_count,
                     local_state._partitioner->get_channel_ids().get<uint32_t>(), rows, block, eos));
         }
         int64_t new_channel_mem_usage = 0;
@@ -611,8 +612,9 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
                 final_st = st;
             }
         }
+        local_state._should_stop = true;
         if (local_state._sink_buffer) {
-            local_state._sink_buffer->set_should_stop();
+            local_state._sink_buffer->set_should_stop(&local_state);
         }
     }
     return final_st;
@@ -642,8 +644,9 @@ void ExchangeSinkLocalState::register_channels(pipeline::ExchangeSinkBuffer* buf
     }
 }
 
-template <typename Channels, typename HashValueType>
-Status ExchangeSinkOperatorX::channel_add_rows(RuntimeState* state, Channels& channels,
+template <typename HashValueType>
+Status ExchangeSinkOperatorX::channel_add_rows(RuntimeState* state,
+                                               std::vector<vectorized::PipChannel*>& channels,
                                                int num_channels,
                                                const HashValueType* __restrict channel_ids,
                                                int rows, vectorized::Block* block, bool eos) {
@@ -658,9 +661,8 @@ Status ExchangeSinkOperatorX::channel_add_rows(RuntimeState* state, Channels& ch
     return Status::OK();
 }
 
-template <typename Channels>
 Status ExchangeSinkOperatorX::channel_add_rows_with_idx(
-        RuntimeState* state, Channels& channels, int num_channels,
+        RuntimeState* state, std::vector<vectorized::PipChannel*>& channels, int num_channels,
         std::vector<std::vector<uint32_t>>& channel2rows, vectorized::Block* block, bool eos) {
     Status status = Status::OK();
     for (int i = 0; i < num_channels; ++i) {
@@ -681,6 +683,21 @@ Status ExchangeSinkOperatorX::channel_add_rows_with_idx(
     return Status::OK();
 }
 
+// std::unique_ptr<ExchangeSinkBuffer>  ExchangeSinkOperatorX::create_sink_buffer() {
+    
+//        PUniqueId id;
+//     id.set_hi(_state->query_id().hi);
+//     id.set_lo(_state->query_id().lo);
+//     auto sink_buffer = std::make_unique<ExchangeSinkBuffer>(id, _dest_node_id,
+//                                                             _state->be_number(), _state);
+//     std::map<int64_t, int64_t> fragment_id_to_channel_index;
+//     for (const auto & _dest : _dests) {
+//         const auto& fragment_instance_id =_dest.fragment_instance_id;
+        
+//     }
+// };
+
+
 std::string ExchangeSinkLocalState::debug_string(int indentation_level) const {
     fmt::memory_buffer debug_string_buffer;
     fmt::format_to(debug_string_buffer, "{}", Base::debug_string(indentation_level));
@@ -689,7 +706,7 @@ std::string ExchangeSinkLocalState::debug_string(int indentation_level) const {
                 debug_string_buffer,
                 ", Sink Buffer: (_should_stop = {}, _busy_channels = {}, _is_finishing = {}), "
                 "_reach_limit: {}",
-                _sink_buffer->_should_stop.load(), _sink_buffer->_busy_channels.load(),
+                _should_stop.load(), _sink_buffer->_busy_channels.load(),
                 _sink_buffer->_is_finishing.load(), _reach_limit.load());
     }
     return fmt::to_string(debug_string_buffer);
