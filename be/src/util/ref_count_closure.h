@@ -23,6 +23,7 @@
 
 #include "runtime/thread_context.h"
 #include "service/brpc.h"
+#include "util/ref_count_closure.h"
 
 namespace doris {
 
@@ -116,7 +117,10 @@ protected:
     }
 
     virtual void _process_if_meet_error_status(const Status& status) {
-        LOG(WARNING) << "RPC meet error status: " << status;
+        // no need to log END_OF_FILE, reduce the unlessful log
+        if (!status.is<ErrorCode::END_OF_FILE>()) {
+            LOG(WARNING) << "RPC meet error status: " << status;
+        }
     }
 
 private:
@@ -125,7 +129,7 @@ private:
 
     template <HasStatus Response>
     void _process_status(Response* response) {
-        if (auto status = Status::create(response->status()); !status) {
+        if (Status status = Status::create(response->status()); !status.ok()) {
             _process_if_meet_error_status(status);
         }
     }

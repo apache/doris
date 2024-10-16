@@ -47,10 +47,12 @@ import org.apache.doris.common.info.SimpleTableInfo;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.hive.HiveMetaStoreClientHelper;
+import org.apache.doris.datasource.property.constants.HMSProperties;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.thrift.TExprOpcode;
 
 import com.google.common.collect.Lists;
+import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
@@ -63,6 +65,7 @@ import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.expressions.Not;
 import org.apache.iceberg.expressions.Or;
 import org.apache.iceberg.expressions.Unbound;
+import org.apache.iceberg.hive.HiveCatalog;
 import org.apache.iceberg.types.Type.TypeID;
 import org.apache.iceberg.types.Types;
 import org.apache.iceberg.util.LocationUtil;
@@ -553,7 +556,7 @@ public class IcebergUtils {
         return Env.getCurrentEnv()
                 .getExtMetaCacheMgr()
                 .getIcebergMetadataCache()
-                .getRemoteTable(catalog, tableInfo.getDbName(), tableInfo.getTbName());
+                .getIcebergTable(catalog, tableInfo.getDbName(), tableInfo.getTbName());
     }
 
     private static org.apache.iceberg.Table getIcebergTableInternal(ExternalCatalog catalog, String dbName,
@@ -664,5 +667,17 @@ public class IcebergUtils {
             }
         }
         return dataLocation;
+    }
+
+    public static HiveCatalog createIcebergHiveCatalog(ExternalCatalog externalCatalog, String name) {
+        HiveCatalog hiveCatalog = new org.apache.iceberg.hive.HiveCatalog();
+        hiveCatalog.setConf(externalCatalog.getConfiguration());
+
+        Map<String, String> catalogProperties = externalCatalog.getProperties();
+        String metastoreUris = catalogProperties.getOrDefault(HMSProperties.HIVE_METASTORE_URIS, "");
+        catalogProperties.put(CatalogProperties.URI, metastoreUris);
+
+        hiveCatalog.initialize(name, catalogProperties);
+        return hiveCatalog;
     }
 }

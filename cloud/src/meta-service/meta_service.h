@@ -52,6 +52,10 @@ public:
         return resource_mgr_;
     }
 
+    [[nodiscard]] const std::shared_ptr<TxnLazyCommitter>& txn_lazy_committer() const {
+        return txn_lazy_committer_;
+    }
+
     void begin_txn(::google::protobuf::RpcController* controller, const BeginTxnRequest* request,
                    BeginTxnResponse* response, ::google::protobuf::Closure* done) override;
 
@@ -264,6 +268,11 @@ public:
                                        const GetDeleteBitmapUpdateLockRequest* request,
                                        GetDeleteBitmapUpdateLockResponse* response,
                                        ::google::protobuf::Closure* done) override;
+
+    void remove_delete_bitmap(google::protobuf::RpcController* controller,
+                              const RemoveDeleteBitmapRequest* request,
+                              RemoveDeleteBitmapResponse* response,
+                              ::google::protobuf::Closure* done) override;
 
     // cloud control get cluster's status by this api
     void get_cluster_status(google::protobuf::RpcController* controller,
@@ -629,6 +638,13 @@ public:
                                        ::google::protobuf::Closure* done) override {
         call_impl(&cloud::MetaService::get_delete_bitmap_update_lock, controller, request, response,
                   done);
+    }
+
+    void remove_delete_bitmap(google::protobuf::RpcController* controller,
+                              const RemoveDeleteBitmapRequest* request,
+                              RemoveDeleteBitmapResponse* response,
+                              ::google::protobuf::Closure* done) override {
+        call_impl(&cloud::MetaService::remove_delete_bitmap, controller, request, response, done);
     }
 
     // cloud control get cluster's status by this api

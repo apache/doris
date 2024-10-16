@@ -113,6 +113,11 @@ public class MTMV extends OlapTable {
         mvRwLock = new ReentrantReadWriteLock(true);
     }
 
+    @Override
+    public boolean needReadLockWhenPlan() {
+        return true;
+    }
+
     public MTMVRefreshInfo getRefreshInfo() {
         readMvLock();
         try {
@@ -205,6 +210,8 @@ public class MTMV extends OlapTable {
             }
             this.jobInfo.addHistoryTask(task);
             this.refreshSnapshot.updateSnapshots(partitionSnapshots, getPartitionNames());
+            Env.getCurrentEnv().getMtmvService()
+                    .refreshComplete(this, relation, task);
         } finally {
             writeMvUnlock();
         }

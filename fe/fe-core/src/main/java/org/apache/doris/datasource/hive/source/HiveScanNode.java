@@ -464,21 +464,24 @@ public class HiveScanNode extends FileQueryScanNode {
         if (serdeParams.containsKey(PROP_QUOTE_CHAR)) {
             textParams.setEnclose(serdeParams.get(PROP_QUOTE_CHAR).getBytes()[0]);
         }
-
-        // TODO: support escape char and null format in csv_reader
-        Optional<String> escapeChar = HiveMetaStoreClientHelper.getSerdeProperty(hmsTable.getRemoteTable(),
+        // 6. set escape delimiter
+        Optional<String> escapeDelim = HiveMetaStoreClientHelper.getSerdeProperty(hmsTable.getRemoteTable(),
                 PROP_ESCAPE_DELIMITER);
-        if (escapeChar.isPresent() && !escapeChar.get().equals(DEFAULT_ESCAPE_DELIMIER)) {
-            throw new UserException(
-                    "not support serde prop " + PROP_ESCAPE_DELIMITER + " in hive text reading");
+        if (escapeDelim.isPresent()) {
+            String escape = HiveMetaStoreClientHelper.getByte(
+                    escapeDelim.get());
+            if (escape != null) {
+                textParams
+                        .setEscape(escape.getBytes()[0]);
+            } else {
+                textParams.setEscape(DEFAULT_ESCAPE_DELIMIER.getBytes()[0]);
+            }
         }
-
+        // 7. set null format
         Optional<String> nullFormat = HiveMetaStoreClientHelper.getSerdeProperty(hmsTable.getRemoteTable(),
                 PROP_NULL_FORMAT);
-        if (nullFormat.isPresent() && !nullFormat.get().equals(DEFAULT_NULL_FORMAT)) {
-            throw new UserException(
-                    "not support serde prop " + PROP_NULL_FORMAT + " in hive text reading");
-        }
+        textParams.setNullFormat(HiveMetaStoreClientHelper.firstPresentOrDefault(
+                DEFAULT_NULL_FORMAT, nullFormat));
 
         TFileAttributes fileAttributes = new TFileAttributes();
         fileAttributes.setTextParams(textParams);

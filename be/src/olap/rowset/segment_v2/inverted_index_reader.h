@@ -171,7 +171,8 @@ public:
     bool is_empty() const { return (_data_bitmap == nullptr && _null_bitmap == nullptr); }
 };
 
-class InvertedIndexReader : public std::enable_shared_from_this<InvertedIndexReader> {
+class InvertedIndexReader : public std::enable_shared_from_this<InvertedIndexReader>,
+                            public MetadataAdder<InvertedIndexReader> {
 public:
     explicit InvertedIndexReader(
             const TabletIndex* index_meta,
@@ -407,6 +408,10 @@ public:
             M(PrimitiveType::TYPE_CHAR)
             M(PrimitiveType::TYPE_VARCHAR)
             M(PrimitiveType::TYPE_STRING)
+            M(PrimitiveType::TYPE_DATEV2)
+            M(PrimitiveType::TYPE_DATETIMEV2)
+            M(PrimitiveType::TYPE_IPV4)
+            M(PrimitiveType::TYPE_IPV6)
 #undef M
         default:
             return Status::NotSupported("Unsupported primitive type {} for inverted index reader",

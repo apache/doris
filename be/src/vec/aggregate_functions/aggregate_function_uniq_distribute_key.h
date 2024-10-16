@@ -68,6 +68,11 @@ struct AggregateFunctionUniqDistributeKeyData {
 
     Set set;
     UInt64 count = 0;
+
+    void reset() {
+        set.clear();
+        count = 0;
+    }
 };
 
 template <typename T, typename Data>
@@ -82,6 +87,8 @@ public:
     String get_name() const override { return "multi_distinct_distribute_key"; }
 
     DataTypePtr get_return_type() const override { return std::make_shared<DataTypeInt64>(); }
+
+    void reset(AggregateDataPtr __restrict place) const override { this->data(place).reset(); }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena*) const override {

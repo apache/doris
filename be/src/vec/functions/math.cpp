@@ -413,7 +413,12 @@ public:
 
     static bool check_argument(double sd) { return sd > 0; }
     static double calculate_cell(double mean, double sd, double v) {
+#ifdef __APPLE__
+        const double sqrt2 = std::sqrt(2);
+#else
         constexpr double sqrt2 = std::numbers::sqrt2;
+#endif
+
         return 0.5 * (std::erf((v - mean) / (sd * sqrt2)) + 1);
     }
 };

@@ -81,8 +81,7 @@ public:
         ASSERT_EQ(result, buf.get() + size);
 
         auto column2 = _bitmap_type.create_column();
-        _bitmap_type.deserialize(buf.get(), column2.get(),
-                                 BeExecVersionManager::get_newest_version());
+        _bitmap_type.deserialize(buf.get(), &column2, BeExecVersionManager::get_newest_version());
         check_bitmap_column(*column, *column2.get());
     }
 
@@ -116,7 +115,7 @@ public:
         ASSERT_EQ(result, buf.get() + size);
 
         auto column2 = _quantile_state_type.create_column();
-        _quantile_state_type.deserialize(buf.get(), column2.get(),
+        _quantile_state_type.deserialize(buf.get(), &column2,
                                          BeExecVersionManager::get_newest_version());
         check_bitmap_column(*column, *column2.get());
     }

@@ -1268,13 +1268,28 @@ public class EditLog {
         journal.rollJournal();
     }
 
-    private synchronized <T extends Writable> void logEdit(short op, List<T> entries) throws IOException {
-        JournalBatch batch = new JournalBatch(35);
+    // NOTICE: No guarantee atomicity of entries
+    private <T extends Writable> void logEdit(short op, List<T> entries) throws IOException {
+        int itemNum = Math.max(1, Math.min(Config.batch_edit_log_max_item_num, entries.size()));
+        JournalBatch batch = new JournalBatch(itemNum);
+        long batchCount = 0;
         for (T entry : entries) {
-            // the number of batch entities to less than 32 and the batch data size to less than 640KB
-            if (batch.getJournalEntities().size() >= 32 || batch.getSize() >= 640 * 1024) {
+            if (batch.getJournalEntities().size() >= Config.batch_edit_log_max_item_num
+                    || batch.getSize() >= Config.batch_edit_log_max_byte_size) {
                 journal.write(batch);
-                batch = new JournalBatch(35);
+                batch = new JournalBatch(itemNum);
+
+                // take a rest
+                batchCount++;
+                if (batchCount >= Config.batch_edit_log_continuous_count_for_rest
+                        && Config.batch_edit_log_rest_time_ms > 0) {
+                    batchCount = 0;
+                    try {
+                        Thread.sleep(Config.batch_edit_log_rest_time_ms);
+                    } catch (InterruptedException e) {
+                        LOG.warn("sleep failed", e);
+                    }
+                }
             }
             batch.addJournal(op, entry);
         }

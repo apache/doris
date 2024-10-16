@@ -31,7 +31,7 @@ public class BaseAnalysisTaskTest {
         OlapAnalysisTask olapAnalysisTask = new OlapAnalysisTask();
         Column column = new Column("string_column", PrimitiveType.STRING);
         String dataSizeFunction = olapAnalysisTask.getDataSizeFunction(column, true);
-        Assertions.assertEquals("SUM(LENGTH(`column_key`) * count)", dataSizeFunction);
+        Assertions.assertEquals("SUM(`column_length`)", dataSizeFunction);
         dataSizeFunction = olapAnalysisTask.getDataSizeFunction(column, false);
         Assertions.assertEquals("SUM(LENGTH(`${colName}`))", dataSizeFunction);
 

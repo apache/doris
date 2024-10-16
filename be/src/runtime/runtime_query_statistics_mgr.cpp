@@ -117,7 +117,7 @@ TReportExecStatusParams RuntimeQueryStatisticsMgr::create_report_exec_status_par
         int32_t fragment_id = entry.first;
         const std::vector<std::shared_ptr<TRuntimeProfileTree>>& fragment_profile = entry.second;
         std::vector<TDetailedReportParams> detailed_params;
-
+        bool is_first = true;
         for (auto pipeline_profile : fragment_profile) {
             if (pipeline_profile == nullptr) {
                 auto msg = fmt::format("Register fragment profile {} {} failed, profile is null",
@@ -129,6 +129,9 @@ TReportExecStatusParams RuntimeQueryStatisticsMgr::create_report_exec_status_par
 
             TDetailedReportParams tmp;
             THRIFT_MOVE_VALUES(tmp, profile, *pipeline_profile);
+            // First profile is fragment level
+            tmp.__set_is_fragment_level(is_first);
+            is_first = false;
             // tmp.fragment_instance_id is not needed for pipeline x
             detailed_params.push_back(std::move(tmp));
         }

@@ -4469,6 +4469,10 @@ show_param ::=
     {:
         RESULT = new ShowExportStmt(db, parser.where, orderByClause, limitClause);
     :}
+    | KW_EXPORT from_or_in ident:ctl DOT ident:db opt_wild_where order_by_clause:orderByClause limit_clause:limitClause
+    {:
+        RESULT = new ShowExportStmt(ctl, db, parser.where, orderByClause, limitClause);
+    :}
     /* Show delete statement */
     | KW_DELETE opt_db:db
     {:

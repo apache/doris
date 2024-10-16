@@ -36,6 +36,8 @@ import org.apache.doris.common.util.ListUtil;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.ExternalScanNode;
 import org.apache.doris.datasource.FileQueryScanNode;
+import org.apache.doris.datasource.hive.HMSTransaction;
+import org.apache.doris.datasource.iceberg.IcebergTransaction;
 import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.MysqlCommand;
@@ -94,8 +96,6 @@ import org.apache.doris.thrift.TExternalScanRange;
 import org.apache.doris.thrift.TFileScanRange;
 import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TFragmentInstanceReport;
-import org.apache.doris.thrift.THivePartitionUpdate;
-import org.apache.doris.thrift.TIcebergCommitData;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPaloScanRange;
 import org.apache.doris.thrift.TPipelineFragmentParams;
@@ -250,12 +250,6 @@ public class Coordinator implements CoordInterface {
 
     private final List<TTabletCommitInfo> commitInfos = Lists.newArrayList();
     private final List<TErrorTabletInfo> errorTabletInfos = Lists.newArrayList();
-
-    // Collect all hivePartitionUpdates obtained from be
-    Consumer<List<THivePartitionUpdate>> hivePartitionUpdateFunc;
-
-    // Collect all icebergCommitData obtained from be
-    Consumer<List<TIcebergCommitData>> icebergCommitDataFunc;
 
     // Input parameter
     private long jobId = -1; // job which this task belongs to
@@ -482,6 +476,10 @@ public class Coordinator implements CoordInterface {
 
     public long getTxnId() {
         return txnId;
+    }
+
+    public void setTxnId(long txnId) {
+        this.txnId = txnId;
     }
 
     public String getLabel() {
@@ -728,8 +726,13 @@ public class Coordinator implements CoordInterface {
         DataSink topDataSink = topParams.fragment.getSink();
         this.timeoutDeadline = System.currentTimeMillis() + queryOptions.getExecutionTimeout() * 1000L;
         if (topDataSink instanceof ResultSink || topDataSink instanceof ResultFileSink) {
-            Boolean enableParallelResultSink = queryOptions.isEnableParallelResultSink()
-                    && topDataSink instanceof ResultSink;
+            Boolean enableParallelResultSink = false;
+            if (topDataSink instanceof ResultSink) {
+                enableParallelResultSink = queryOptions.isEnableParallelResultSink();
+            } else {
+                enableParallelResultSink = queryOptions.isEnableParallelOutfile();
+            }
+
             TNetworkAddress execBeAddr = topParams.instanceExecParams.get(0).host;
             Set<TNetworkAddress> addrs = new HashSet<>();
             for (FInstanceExecParam param : topParams.instanceExecParams) {
@@ -1187,16 +1190,7 @@ public class Coordinator implements CoordInterface {
                 throw new RpcException(null, copyStatus.getErrorMsg());
             } else {
                 String errMsg = copyStatus.getErrorMsg();
-                LOG.warn("query failed: {}", errMsg);
-
-                // hide host info exclude localhost
-                if (errMsg.contains("localhost")) {
-                    throw new UserException(errMsg);
-                }
-                int hostIndex = errMsg.indexOf("host");
-                if (hostIndex != -1) {
-                    errMsg = errMsg.substring(0, hostIndex);
-                }
+                LOG.warn("Query {} failed: {}", DebugUtil.printId(queryId), errMsg);
                 throw new UserException(errMsg);
             }
         }
@@ -1280,18 +1274,11 @@ public class Coordinator implements CoordInterface {
         }
     }
 
-    // Cancel execution of query. This includes the execution of the local plan
-    // fragment,
-    // if any, as well as all plan fragments on remote nodes.
-    public void cancel() {
-        cancel(new Status(TStatusCode.CANCELLED, "query is cancelled by user"));
+    @Override
+    public void cancel(Status cancelReason) {
         if (queueToken != null) {
             queueToken.cancel();
         }
-    }
-
-    @Override
-    public void cancel(Status cancelReason) {
         for (ScanNode scanNode : scanNodes) {
             scanNode.stop();
         }
@@ -1302,16 +1289,19 @@ public class Coordinator implements CoordInterface {
         lock();
         try {
             if (!queryStatus.ok()) {
-                // Print an error stack here to know why send cancel again.
-                LOG.warn("Query {} already in abnormal status {}, but received cancel again,"
-                        + "so that send cancel to BE again",
-                        DebugUtil.printId(queryId), queryStatus.toString(),
-                        new Exception("cancel failed"));
+                if (LOG.isDebugEnabled()) {
+                    // Print an error stack here to know why send cancel again.
+                    LOG.debug("Query {} already in abnormal status {}, but received cancel again,"
+                            + "so that send cancel to BE again",
+                            DebugUtil.printId(queryId), queryStatus.toString(),
+                            new Exception("cancel failed"));
+                }
             } else {
                 queryStatus.updateStatus(cancelReason.getErrorCode(), cancelReason.getErrorMsg());
+                LOG.warn("Cancel execution of query {}, this is a outside invoke, cancelReason {}",
+                        DebugUtil.printId(queryId), cancelReason.toString());
             }
-            LOG.warn("Cancel execution of query {}, this is a outside invoke, cancelReason {}",
-                    DebugUtil.printId(queryId), cancelReason.toString());
+
             cancelInternal(cancelReason);
         } finally {
             unlock();
@@ -2381,14 +2371,6 @@ public class Coordinator implements CoordInterface {
         // TODO: more ranges?
     }
 
-    public void setHivePartitionUpdateFunc(Consumer<List<THivePartitionUpdate>> hivePartitionUpdateFunc) {
-        this.hivePartitionUpdateFunc = hivePartitionUpdateFunc;
-    }
-
-    public void setIcebergCommitDataFunc(Consumer<List<TIcebergCommitData>> icebergCommitDataFunc) {
-        this.icebergCommitDataFunc = icebergCommitDataFunc;
-    }
-
     // update job progress from BE
     public void updateFragmentExecStatus(TReportExecStatusParams params) {
         PipelineExecContext ctx = pipelineExecContexts.get(Pair.of(params.getFragmentId(), params.getBackendId()));
@@ -2441,11 +2423,13 @@ public class Coordinator implements CoordInterface {
         if (params.isSetErrorTabletInfos()) {
             updateErrorTabletInfos(params.getErrorTabletInfos());
         }
-        if (params.isSetHivePartitionUpdates() && hivePartitionUpdateFunc != null) {
-            hivePartitionUpdateFunc.accept(params.getHivePartitionUpdates());
+        if (params.isSetHivePartitionUpdates()) {
+            ((HMSTransaction) Env.getCurrentEnv().getGlobalExternalTransactionInfoMgr().getTxnById(txnId))
+                .updateHivePartitionUpdates(params.getHivePartitionUpdates());
         }
-        if (params.isSetIcebergCommitDatas() && icebergCommitDataFunc != null) {
-            icebergCommitDataFunc.accept(params.getIcebergCommitDatas());
+        if (params.isSetIcebergCommitDatas()) {
+            ((IcebergTransaction) Env.getCurrentEnv().getGlobalExternalTransactionInfoMgr().getTxnById(txnId))
+                .updateIcebergCommitData(params.getIcebergCommitDatas());
         }
 
         if (ctx.done) {
@@ -2461,7 +2445,7 @@ public class Coordinator implements CoordInterface {
                 for (TFragmentInstanceReport report : params.getFragmentInstanceReports()) {
                     Env.getCurrentEnv().getLoadManager().updateJobProgress(
                             jobId, params.getBackendId(), params.getQueryId(), report.getFragmentInstanceId(),
-                            params.getLoadedRows(), params.getLoadedBytes(), params.isDone());
+                            report.getLoadedRows(), report.getLoadedBytes(), params.isDone());
                     Env.getCurrentEnv().getProgressManager().updateProgress(String.valueOf(jobId),
                             params.getQueryId(), report.getFragmentInstanceId(), report.getNumFinishedRange());
                 }
@@ -3036,10 +3020,9 @@ public class Coordinator implements CoordInterface {
             }
 
             if (this.hasCancelled || this.cancelInProcess) {
-                LOG.info("Frangment has already been cancelled. Query {} backend: {}",
-                        DebugUtil.printId(queryId), idToBackend.get(beId));
                 return;
             }
+
             try {
                 try {
                     ListenableFuture<InternalService.PCancelPlanFragmentResult> cancelResult =
@@ -3057,8 +3040,6 @@ public class Coordinator implements CoordInterface {
                                             DebugUtil.printId(queryId), idToBackend.get(beId), status.toString());
                                 }
                             }
-                            LOG.warn("Failed to cancel query {} backend: {} reason: {}",
-                                    DebugUtil.printId(queryId), idToBackend.get(beId), "without status");
                         }
 
                         public void onFailure(Throwable t) {

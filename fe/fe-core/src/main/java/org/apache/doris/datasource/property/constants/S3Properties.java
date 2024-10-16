@@ -297,10 +297,10 @@ public class S3Properties extends BaseProperties {
         s3Info.setMaxConn(Integer.parseInt(maxConnections == null
                 ? S3Properties.Env.DEFAULT_MAX_CONNECTIONS : maxConnections));
         String requestTimeoutMs = properties.get(S3Properties.REQUEST_TIMEOUT_MS);
-        s3Info.setMaxConn(Integer.parseInt(requestTimeoutMs == null
+        s3Info.setRequestTimeoutMs(Integer.parseInt(requestTimeoutMs == null
                 ? S3Properties.Env.DEFAULT_REQUEST_TIMEOUT_MS : requestTimeoutMs));
         String connTimeoutMs = properties.get(S3Properties.CONNECTION_TIMEOUT_MS);
-        s3Info.setMaxConn(Integer.parseInt(connTimeoutMs == null
+        s3Info.setConnTimeoutMs(Integer.parseInt(connTimeoutMs == null
                 ? S3Properties.Env.DEFAULT_CONNECTION_TIMEOUT_MS : connTimeoutMs));
         String usePathStyle = properties.getOrDefault(PropertyConverter.USE_PATH_STYLE, "false");
         s3Info.setUsePathStyle(Boolean.parseBoolean(usePathStyle));

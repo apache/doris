@@ -145,17 +145,13 @@ public class StatsCalculatorTest {
         GroupExpression groupExpression = new GroupExpression(logicalFilter, ImmutableList.of(childGroup));
         Group ownerGroup = new Group(null, groupExpression, null);
         StatsCalculator.estimate(groupExpression, null);
-        // consider the nonNullSelectivity
-        // TODO: current normalization of numNulls by ratio will be refined in the future
-        Assertions.assertEquals(49.90005, ownerGroup.getStatistics().getRowCount(), 0.001);
+        Assertions.assertEquals(49.45, ownerGroup.getStatistics().getRowCount(), 0.001);
 
         LogicalFilter<GroupPlan> logicalFilterOr = new LogicalFilter<>(or, groupPlan);
         GroupExpression groupExpressionOr = new GroupExpression(logicalFilterOr, ImmutableList.of(childGroup));
         Group ownerGroupOr = new Group(null, groupExpressionOr, null);
         StatsCalculator.estimate(groupExpressionOr, null);
-        // consider the nonNullSelectivity
-        // TODO: current normalization of numNulls by ratio will be refined in the future
-        Assertions.assertEquals(1448.59995,
+        Assertions.assertEquals(1449.05,
                 ownerGroupOr.getStatistics().getRowCount(), 0.001);
     }
 

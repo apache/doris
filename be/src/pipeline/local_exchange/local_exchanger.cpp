@@ -118,8 +118,7 @@ Status ShuffleExchanger::sink(RuntimeState* state, vectorized::Block* in_block, 
     }
     {
         SCOPED_TIMER(local_state._compute_hash_value_timer);
-        RETURN_IF_ERROR(local_state._partitioner->do_partitioning(state, in_block,
-                                                                  local_state.mem_tracker()));
+        RETURN_IF_ERROR(local_state._partitioner->do_partitioning(state, in_block));
     }
     {
         SCOPED_TIMER(local_state._distribute_timer);

@@ -248,20 +248,26 @@ public class HiveMetadataOps implements ExternalMetadataOps {
     @Override
     public void dropTable(DropTableStmt stmt) throws DdlException {
         String dbName = stmt.getDbName();
+        String tblName = stmt.getTableName();
         ExternalDatabase<?> db = catalog.getDbNullable(stmt.getDbName());
         if (db == null) {
-            throw new DdlException("Failed to get database: '" + dbName + "' in catalog: " + catalog.getName());
+            if (stmt.isSetIfExists()) {
+                LOG.info("database [{}] does not exist when drop table[{}]", dbName, tblName);
+                return;
+            } else {
+                ErrorReport.reportDdlException(ErrorCode.ERR_BAD_DB_ERROR, dbName);
+            }
         }
-        if (!tableExist(dbName, stmt.getTableName())) {
+        if (!tableExist(dbName, tblName)) {
             if (stmt.isSetIfExists()) {
                 LOG.info("drop table[{}] which does not exist", dbName);
                 return;
             } else {
-                ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_TABLE, stmt.getTableName(), dbName);
+                ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_TABLE, tblName, dbName);
             }
         }
         try {
-            client.dropTable(dbName, stmt.getTableName());
+            client.dropTable(dbName, tblName);
             db.setUnInitialized(true);
         } catch (Exception e) {
             throw new DdlException(e.getMessage(), e);
