@@ -54,4 +54,8 @@ public abstract class PhysicalSink<CHILD_TYPE extends Plan> extends PhysicalUnar
                 .map(NamedExpression::toSlot)
                 .collect(ImmutableList.toImmutableList());
     }
+
+    public List<NamedExpression> getOutputExprs() {
+        return outputExprs;
+    }
 }

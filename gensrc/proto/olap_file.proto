@@ -240,6 +240,12 @@ enum SortType {
     ZORDER  = 1;
 }
 
+enum UniqueKeyUpdateModePB {
+    UPSERT = 0;
+    UPDATE_FIXED_COLUMNS = 1;
+    UPDATE_FLEXIBLE_COLUMNS = 2;
+}
+
 message TabletSchemaPB {
     optional KeysType keys_type = 1;    // OLAPHeaderMessage.keys_type
     repeated ColumnPB column = 2;   // OLAPHeaderMessage.column
@@ -269,6 +275,8 @@ message TabletSchemaPB {
     // column unique ids for row store columns
     repeated int32 row_store_column_unique_ids = 26;
     optional int64 row_store_page_size = 27 [default=16384];
+    optional bool variant_enable_flatten_nested = 28 [default=false];
+    optional int32 skip_bitmap_col_idx = 29 [default = -1];
 }
 
 enum TabletStatePB {
@@ -393,7 +401,7 @@ message RowsetBinlogMetasPB {
 }
 
 message PartialUpdateInfoPB {
-    optional bool is_partial_update = 1 [default = false];
+    optional bool is_partial_update = 1 [default = false]; // deprecated
     repeated string partial_update_input_columns = 2;
     repeated uint32 missing_cids = 3;
     repeated uint32 update_cids = 4;
@@ -406,4 +414,5 @@ message PartialUpdateInfoPB {
     repeated string default_values = 11;
     optional int64 max_version_in_flush_phase = 12 [default = -1];
     optional int32 nano_seconds = 13 [default = 0];
+    optional UniqueKeyUpdateModePB partial_update_mode = 14 [default = UPSERT];
 }

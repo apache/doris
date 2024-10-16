@@ -30,6 +30,8 @@ import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.TreeNode;
+import org.apache.doris.nereids.trees.expressions.ExprId;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.Explainable;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -51,6 +53,7 @@ import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -138,7 +141,7 @@ public class BatchInsertIntoTableCommand extends Command implements NoForward, E
                     }
                 }
             } else {
-                targetSchema = fullSchema;
+                targetSchema = removeSkipBitmapCol(fullSchema);
             }
             // check auth
             if (!Env.getCurrentEnv().getAccessManager()
@@ -154,14 +157,17 @@ public class BatchInsertIntoTableCommand extends Command implements NoForward, E
                     .<PhysicalUnion>collect(PhysicalUnion.class::isInstance).stream().findAny();
             if (union.isPresent()) {
                 InsertUtils.executeBatchInsertTransaction(ctx, targetTable.getQualifiedDbName(),
-                        targetTable.getName(), targetSchema, union.get().getConstantExprsList());
+                        targetTable.getName(), targetSchema, removeSkipBitmapExprsUnionData(sink.getOutputExprs(),
+                                union.get().getOutputs(), union.get().getConstantExprsList()));
                 return;
             }
             Optional<PhysicalOneRowRelation> oneRowRelation = planner.getPhysicalPlan()
                     .<PhysicalOneRowRelation>collect(PhysicalOneRowRelation.class::isInstance).stream().findAny();
             if (oneRowRelation.isPresent()) {
                 InsertUtils.executeBatchInsertTransaction(ctx, targetTable.getQualifiedDbName(),
-                        targetTable.getName(), targetSchema, ImmutableList.of(oneRowRelation.get().getProjects()));
+                        targetTable.getName(), targetSchema,
+                                ImmutableList.of(removeSkipBitmapExprsOneRowData(sink.getOutputExprs(),
+                                        oneRowRelation.get().getProjects())));
                 return;
             }
             // TODO: update error msg
@@ -169,5 +175,37 @@ public class BatchInsertIntoTableCommand extends Command implements NoForward, E
         } finally {
             targetTableIf.readUnlock();
         }
+    }
+
+    private List<Column> removeSkipBitmapCol(List<Column> columns) {
+        return columns.stream().filter(col -> !Column.SKIP_BITMAP_COL.equals(col.getName()))
+                .collect(Collectors.toList());
+    }
+
+    private List<NamedExpression> removeSkipBitmapExprsOneRowData(List<NamedExpression> sinkExprs,
+            List<NamedExpression> oneRowExprs) {
+        Optional<NamedExpression> skipBitmapColExpr = sinkExprs.stream()
+                .filter(expr -> Column.SKIP_BITMAP_COL.equals(expr.getName())).findFirst();
+        if (!skipBitmapColExpr.isPresent()) {
+            return oneRowExprs;
+        }
+        ExprId excludeExprId = skipBitmapColExpr.get().getExprId();
+        return oneRowExprs.stream().filter(expr -> expr.getExprId() != excludeExprId).collect(Collectors.toList());
+    }
+
+    private List<List<NamedExpression>> removeSkipBitmapExprsUnionData(List<NamedExpression> sinkExprs,
+            List<NamedExpression> unionOutputs, List<List<NamedExpression>> unionExprs) {
+        Optional<NamedExpression> skipBitmapColExpr = sinkExprs.stream()
+                .filter(expr -> Column.SKIP_BITMAP_COL.equals(expr.getName())).findFirst();
+        if (!skipBitmapColExpr.isPresent()) {
+            return unionExprs;
+        }
+        ExprId excludeExprId = skipBitmapColExpr.get().getExprId();
+        List<List<NamedExpression>> result = new ArrayList<>();
+        for (List<NamedExpression> exprList : unionExprs) {
+            exprList = exprList.stream().filter(expr -> expr.getExprId() != excludeExprId).collect(Collectors.toList());
+            result.add(exprList);
+        }
+        return result;
     }
 }
