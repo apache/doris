@@ -1129,7 +1129,8 @@ void BlockFileCache::reset_range(const UInt128Wrapper& hash, size_t offset, size
            _files.find(hash)->second.find(offset) != _files.find(hash)->second.end());
     FileBlockCell* cell = get_cell(hash, offset, cache_lock);
     DCHECK(cell != nullptr);
-    if (cell->file_block->cache_type() != FileCacheType::TTL) {
+    if (cell->file_block->cache_type() != FileCacheType::TTL ||
+        config::enable_ttl_cache_evict_using_lru) {
         auto& queue = get_queue(cell->file_block->cache_type());
         DCHECK(queue.contains(hash, offset, cache_lock));
         auto iter = queue.get(hash, offset, cache_lock);
