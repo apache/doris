@@ -194,10 +194,14 @@ DECLARE_mBool(enable_stacktrace);
 // if alloc failed using Doris Allocator, will print stacktrace in error log.
 // if is -1, disable print stacktrace when alloc large memory.
 DECLARE_mInt64(stacktrace_in_alloc_large_memory_bytes);
+
 // when alloc memory larger than crash_in_alloc_large_memory_bytes will crash, default -1 means disabled.
 // if you need a core dump to analyze large memory allocation,
 // modify this parameter to crash when large memory allocation occur will help
 DECLARE_mInt64(crash_in_alloc_large_memory_bytes);
+
+// If memory tracker value is inaccurate, BE will crash. usually used in test environments, default value is false.
+DECLARE_mBool(crash_in_memory_tracker_inaccurate);
 
 // default is true. if any memory tracking in Orphan mem tracker will report error.
 // !! not modify the default value of this conf!! otherwise memory errors cannot be detected in time.
