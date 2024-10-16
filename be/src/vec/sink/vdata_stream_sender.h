@@ -114,10 +114,10 @@ public:
     // how much tuple data is getting accumulated before being sent; it only applies
     // when data is added via add_row() and not sent directly via send_batch().
     Channel(Parent* parent, const RowDescriptor& row_desc, TNetworkAddress brpc_dest,
-            TUniqueId fragment_instance_id, PlanNodeId dest_node_id)
+            TUniqueId dest_fragment_instance_id, PlanNodeId dest_node_id)
             : _parent(parent),
               _row_desc(row_desc),
-              _fragment_instance_id(std::move(fragment_instance_id)),
+              _dest_fragment_instance_id(std::move(dest_fragment_instance_id)),
               _dest_node_id(dest_node_id),
               _need_close(false),
               _closed(false),
@@ -171,7 +171,7 @@ public:
     PBlock* ch_cur_pb_block() { return _ch_cur_pb_block; }
 
     std::string get_fragment_instance_id_str() {
-        UniqueId uid(_fragment_instance_id);
+        UniqueId uid(_dest_fragment_instance_id);
         return uid.to_string();
     }
 
@@ -219,7 +219,7 @@ protected:
     Parent* _parent = nullptr;
 
     const RowDescriptor& _row_desc;
-    const TUniqueId _fragment_instance_id;
+    const TUniqueId _dest_fragment_instance_id;
     PlanNodeId _dest_node_id;
 
     // the number of RowBatch.data bytes sent successfully
@@ -267,14 +267,16 @@ protected:
 class PipChannel final : public Channel<pipeline::ExchangeSinkLocalState> {
 public:
     PipChannel(pipeline::ExchangeSinkLocalState* parent, const RowDescriptor& row_desc,
-               const TNetworkAddress& brpc_dest, const TUniqueId& fragment_instance_id,
+               const TNetworkAddress& brpc_dest, const TUniqueId& dest_fragment_instance_id,
                PlanNodeId dest_node_id)
             : Channel<pipeline::ExchangeSinkLocalState>(parent, row_desc, brpc_dest,
-                                                        fragment_instance_id, dest_node_id) {
+                                                        dest_fragment_instance_id, dest_node_id) {
         ch_roll_pb_block();
     }
 
     ~PipChannel() override { delete Channel<pipeline::ExchangeSinkLocalState>::_ch_cur_pb_block; }
+
+    pipeline::ExchangeSinkLocalState* local_state() { return _parent; }
 
     int64_t mem_usage() const;
 
@@ -299,7 +301,7 @@ public:
                                 bool eos = false) override;
 
     Status add_rows(Block* block, const std::vector<uint32_t>& rows, bool eos) override {
-        if (Channel<pipeline::ExchangeSinkLocalState>::_fragment_instance_id.lo == -1) {
+        if (Channel<pipeline::ExchangeSinkLocalState>::_dest_fragment_instance_id.lo == -1) {
             return Status::OK();
         }
 
@@ -319,10 +321,7 @@ public:
     // send _mutable_block
     Status send_current_block(bool eos, Status exec_status) override;
 
-    void register_exchange_buffer(pipeline::ExchangeSinkBuffer* buffer) {
-        _buffer = buffer;
-        _buffer->register_sink(Channel<pipeline::ExchangeSinkLocalState>::_fragment_instance_id);
-    }
+    void register_exchange_buffer(pipeline::ExchangeSinkBuffer* buffer);
 
     std::shared_ptr<pipeline::ExchangeSendCallback<PTransmitDataResult>> get_send_callback(
             InstanceLoId id, bool eos) {

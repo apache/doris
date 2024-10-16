@@ -150,6 +150,21 @@ Status VDataStreamMgr::transmit_block(const PTransmitDataParams* request,
                 request->has_exec_status() ? Status::create(request->exec_status()) : Status::OK();
         recvr->remove_sender(request->sender_id(), request->be_number(), exec_status);
     }
+
+    for (int i = 0; i < request->multi_sender_size(); ++i) {
+        const auto& single_sender = request->multi_sender(i);
+        if (single_sender.has_block()) {
+            RETURN_IF_ERROR(recvr->add_block(single_sender.block(), single_sender.sender_id(),
+                                             request->be_number(), single_sender.packet_seq(),
+                                             eos ? nullptr : done, wait_for_worker,
+                                             cpu_time_stop_watch.elapsed_time()));
+        }
+        if (single_sender.eos()) {
+            Status exec_status = request->has_exec_status() ? Status::create(request->exec_status())
+                                                            : Status::OK();
+            recvr->remove_sender(single_sender.sender_id(), request->be_number(), exec_status);
+        }
+    }
     return Status::OK();
 }
 
