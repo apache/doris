@@ -194,7 +194,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         params.put("index", getIndex());
         StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
         String sql = stringSubstitutor.replace(BASIC_STATS_TEMPLATE);
-        ResultRow resultRow = null;
+        ResultRow resultRow;
         try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext(false)) {
             stmtExecutor = new StmtExecutor(r.connectContext, sql);
             resultRow = stmtExecutor.executeInternalQuery().get(0);
@@ -287,7 +287,8 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
                 int seekTid = (int) ((i + seek) % ids.size());
                 long tabletId = ids.get(seekTid);
                 sampleTabletIds.add(tabletId);
-                actualSampledRowCount += materializedIndex.getTablet(tabletId).getRowCount(true);
+                actualSampledRowCount += materializedIndex.getTablet(tabletId)
+                        .getMinReplicaRowCount(p.getVisibleVersion());
                 if (actualSampledRowCount >= sampleRows && !forPartitionColumn) {
                     enough = true;
                     break;
