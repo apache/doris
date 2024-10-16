@@ -31,6 +31,7 @@
 #include "common/config.h"
 #include "common/exception.h"
 #include "common/status.h"
+#include "pipeline/pipeline_task.h"
 #include "runtime/define_primitive_type.h"
 #include "vec/columns/column_vector.h"
 #include "vec/columns/columns_number.h"
@@ -562,7 +563,7 @@ void VExpr::register_function_context(RuntimeState* state, VExprContext* context
     _fn_context_index = context->register_function_context(state, _type, arg_types);
 }
 
-Status VExpr::init_function_context(VExprContext* context,
+Status VExpr::init_function_context(RuntimeState* state, VExprContext* context,
                                     FunctionContext::FunctionStateScope scope,
                                     const FunctionBasePtr& function) const {
     FunctionContext* fn_ctx = context->fn_context(_fn_context_index);
@@ -574,6 +575,12 @@ Status VExpr::init_function_context(VExprContext* context,
             constant_cols.push_back(const_col);
         }
         fn_ctx->set_constant_cols(constant_cols);
+    } else {
+        if (function->is_udf_function()) {
+            auto* timer = ADD_TIMER(state->get_task()->get_task_profile(),
+                                    "UDF[" + function->get_name() + "]");
+            fn_ctx->set_udf_execute_timer(timer);
+        }
     }
 
     if (scope == FunctionContext::FRAGMENT_LOCAL) {
