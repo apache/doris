@@ -33,13 +33,17 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AnyValue;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinction;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.EncodeAsInt;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.PlanUtils.CollectNonWindowedAggFuncs;
 import org.apache.doris.nereids.util.Utils;
@@ -47,6 +51,8 @@ import org.apache.doris.nereids.util.Utils;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
 import java.util.ArrayList;
@@ -118,7 +124,59 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
                         .toRule(RuleType.NORMALIZE_AGGREGATE));
     }
 
+    private boolean canCompress(Expression expression) {
+        DataType type = expression.getDataType();
+        if (type instanceof CharacterType) {
+            CharacterType ct = (CharacterType) type;
+            if (ct.getLen() < 7) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private LogicalAggregate<Plan> encode(LogicalAggregate<Plan> aggregate, Optional<LogicalHaving<?>> having) {
+        List<Expression> newGroupByExpressions = Lists.newArrayList();
+        List<Expression> encodedExpressions = Lists.newArrayList();
+        Map<Expression, Alias> encodeMap = Maps.newHashMap();
+        for (Expression gp : aggregate.getGroupByExpressions()) {
+            if (gp instanceof SlotReference && canCompress(gp)) {
+                Alias alias = new Alias(new EncodeAsInt(gp), ((SlotReference) gp).getName());
+                newGroupByExpressions.add(alias);
+                encodedExpressions.add(gp);
+                encodeMap.put(gp, alias);
+            } else {
+                newGroupByExpressions.add(gp);
+            }
+        }
+        if (!encodedExpressions.isEmpty()) {
+            // aggregate = aggregate.withGroupByExpressions(newGroupByExpressions);
+            // boolean hasNewOutput = false;
+            List<NamedExpression> newOutput = Lists.newArrayList();
+            List<NamedExpression> output = aggregate.getOutputExpressions();
+            for (NamedExpression ne : output) {
+                if (ne instanceof SlotReference && encodedExpressions.contains(ne)) {
+                    newOutput.add(new Alias(ne.getExprId(), new AnyValue(ne), ne.getName()));
+                    newOutput.add(encodeMap.get(ne));
+                    // hasNewOutput = true;
+                } else {
+                    newOutput.add(ne);
+                }
+            }
+            aggregate = aggregate.withGroupByAndOutput(newGroupByExpressions, newOutput);
+            // if (hasNewOutput) {
+            //     aggregate = aggregate.withAggOutput(newOutput);
+            // }
+        }
+        return aggregate;
+    }
+
     private LogicalPlan normalizeAgg(LogicalAggregate<Plan> aggregate, Optional<LogicalHaving<?>> having) {
+        aggregate = encode(aggregate, having);
+        return normalizeAggInner(aggregate, having);
+    }
+
+    private LogicalPlan normalizeAggInner(LogicalAggregate<Plan> aggregate, Optional<LogicalHaving<?>> having) {
         // The LogicalAggregate node may contain window agg functions and usual agg functions
         // we call window agg functions as window-agg and usual agg functions as trivial-agg for short
         // This rule simplify LogicalAggregate node by:
@@ -145,6 +203,7 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
 
         // Push down exprs:
         // collect group by exprs
+
         Set<Expression> groupingByExprs = Utils.fastToImmutableSet(aggregate.getGroupByExpressions());
 
         // collect all trivial-agg

@@ -16,8 +16,16 @@ import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
 
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 
 import java.util.List;
+import java.util.Map;
+
+/**
+ * select A, sum(B) from T group by A
+ * =>
+ * select any_value(A) from T group by encode_as_int(A)
+  */
 
 public class CompressedMaterialization extends PlanPostProcessor{
     @Override
@@ -25,10 +33,13 @@ public class CompressedMaterialization extends PlanPostProcessor{
             CascadesContext context) {
         List<Expression> newGroupByExpressions = Lists.newArrayList();
         List<Expression> encodedExpressions = Lists.newArrayList();
+        Map<Expression, Alias> encodeMap = Maps.newHashMap();
         for (Expression gp : aggregate.getGroupByExpressions()) {
             if (gp instanceof SlotReference && canCompress(gp)) {
-                newGroupByExpressions.add(new Alias(new EncodeAsInt(gp), ((SlotReference) gp).getName()));
+                Alias alias = new Alias(new EncodeAsInt(gp), ((SlotReference) gp).getName());
+                newGroupByExpressions.add(alias);
                 encodedExpressions.add(gp);
+                encodeMap.put(gp, alias);
             } else {
                 newGroupByExpressions.add(gp);
             }
@@ -41,6 +52,7 @@ public class CompressedMaterialization extends PlanPostProcessor{
             for (NamedExpression ne : output) {
                 if (ne instanceof SlotReference && encodedExpressions.contains(ne)) {
                         newOutput.add(new Alias(ne.getExprId(), new AnyValue(ne), ne.getName()));
+                        newOutput.add(encodeMap.get(ne));
                         hasNewOutput = true;
                 } else {
                     newOutput.add(ne);
