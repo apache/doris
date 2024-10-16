@@ -1855,7 +1855,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
 
         if (physicalLimit.getPhase().isLocal()) {
             child.setLimit(MergeLimits.mergeLimit(physicalLimit.getLimit(), physicalLimit.getOffset(),
-                child.getLimit()));
+                    child.getLimit()));
         } else if (physicalLimit.getPhase().isGlobal()) {
             if (!(child instanceof ExchangeNode)) {
                 ExchangeNode exchangeNode = new ExchangeNode(context.nextPlanNodeId(), child);
@@ -1865,7 +1865,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 exchangeNode.setNumInstances(1);
 
                 PlanFragment fragment = new PlanFragment(context.nextFragmentId(), exchangeNode,
-                    DataPartition.UNPARTITIONED);
+                        DataPartition.UNPARTITIONED);
                 inputFragment.setDestination(exchangeNode);
                 inputFragment.setOutputPartition(DataPartition.UNPARTITIONED);
 
@@ -1878,7 +1878,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             } else {
                 ExchangeNode exchangeNode = (ExchangeNode) child;
                 exchangeNode.setLimit(MergeLimits.mergeLimit(physicalLimit.getLimit(), physicalLimit.getOffset(),
-                    exchangeNode.getLimit()));
+                        exchangeNode.getLimit()));
                 exchangeNode.setOffset(MergeLimits.mergeOffset(physicalLimit.getOffset(), exchangeNode.getOffset()));
             }
         }
