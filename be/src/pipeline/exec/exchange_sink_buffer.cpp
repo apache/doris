@@ -145,10 +145,10 @@ Status ExchangeSinkBuffer::add_block(TransmitInfo&& request) {
     if (_is_finishing) {
         return Status::OK();
     }
-    auto ins_id = request.channel->_fragment_instance_id.lo;
+    auto ins_id = request.channel->_dest_fragment_instance_id.lo;
     if (!_instance_to_package_queue_mutex.contains(ins_id)) {
         return Status::InternalError("fragment_instance_id {} not do register_sink",
-                                     print_id(request.channel->_fragment_instance_id));
+                                     print_id(request.channel->_dest_fragment_instance_id));
     }
     if (_is_receiver_eof(ins_id)) {
         return Status::EndOfFile("receiver eof");
@@ -186,10 +186,10 @@ Status ExchangeSinkBuffer::add_block(BroadcastTransmitInfo&& request) {
     if (_is_finishing) {
         return Status::OK();
     }
-    auto ins_id = request.channel->_fragment_instance_id.lo;
+    auto ins_id = request.channel->_dest_fragment_instance_id.lo;
     if (!_instance_to_package_queue_mutex.contains(ins_id)) {
         return Status::InternalError("fragment_instance_id {} not do register_sink",
-                                     print_id(request.channel->_fragment_instance_id));
+                                     print_id(request.channel->_dest_fragment_instance_id));
     }
     if (_is_receiver_eof(ins_id)) {
         return Status::EndOfFile("receiver eof");
