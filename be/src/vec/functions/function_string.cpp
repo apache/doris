@@ -545,7 +545,7 @@ struct TrimUtil {
         return Status::OK();
     }
 };
-template <bool is_ltrim_in, bool is_rtrim_in, bool trim_single>
+template <bool is_ltrim, bool is_rtrim, bool trim_single>
 struct TrimInUtil {
     static Status vector(const ColumnString::Chars& str_data,
                          const ColumnString::Offsets& str_offsets, const StringRef& remove_str,
@@ -586,7 +586,7 @@ private:
             const char* left_trim_pos = str_begin;
             const char* right_trim_pos = str_end;
 
-            if constexpr (is_ltrim_in) {
+            if constexpr (is_ltrim) {
                 while (left_trim_pos < str_end) {
                     if (!char_lookup.test(static_cast<unsigned char>(*left_trim_pos))) {
                         break;
@@ -595,7 +595,7 @@ private:
                 }
             }
 
-            if constexpr (is_rtrim_in) {
+            if constexpr (is_rtrim) {
                 while (right_trim_pos > left_trim_pos) {
                     --right_trim_pos;
                     if (!char_lookup.test(static_cast<unsigned char>(*right_trim_pos))) {
@@ -639,7 +639,7 @@ private:
             const char* left_trim_pos = str_begin;
             const char* right_trim_pos = str_end;
 
-            if constexpr (is_ltrim_in) {
+            if constexpr (is_ltrim) {
                 while (left_trim_pos < str_end) {
                     size_t byte_len, char_len;
                     std::tie(byte_len, char_len) =
@@ -653,7 +653,7 @@ private:
                 }
             }
 
-            if constexpr (is_rtrim_in) {
+            if constexpr (is_rtrim) {
                 while (right_trim_pos > left_trim_pos) {
                     const char* prev_char_pos = right_trim_pos;
                     do {
@@ -761,38 +761,6 @@ class FunctionTrim : public IFunction {
 public:
     static constexpr auto name = impl::name;
     static FunctionPtr create() { return std::make_shared<FunctionTrim<impl>>(); }
-    String get_name() const override { return impl::name; }
-
-    size_t get_number_of_arguments() const override {
-        return get_variadic_argument_types_impl().size();
-    }
-
-    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        if (!is_string_or_fixed_string(arguments[0])) {
-            throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
-                                   "Illegal type {} of argument of function {}",
-                                   arguments[0]->get_name(), get_name());
-        }
-        return arguments[0];
-    }
-    // The second parameter of "trim" is a constant.
-    ColumnNumbers get_arguments_that_are_always_constant() const override { return {1}; }
-
-    DataTypes get_variadic_argument_types_impl() const override {
-        return impl::get_variadic_argument_types();
-    }
-
-    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
-        return impl::execute(context, block, arguments, result, input_rows_count);
-    }
-};
-
-template <typename impl>
-class FunctionTrimIn : public IFunction {
-public:
-    static constexpr auto name = impl::name;
-    static FunctionPtr create() { return std::make_shared<FunctionTrimIn<impl>>(); }
     String get_name() const override { return impl::name; }
 
     size_t get_number_of_arguments() const override {
@@ -1203,12 +1171,12 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionTrim<Trim2Impl<true, true, NameTrim>>>();
     factory.register_function<FunctionTrim<Trim2Impl<true, false, NameLTrim>>>();
     factory.register_function<FunctionTrim<Trim2Impl<false, true, NameRTrim>>>();
-    factory.register_function<FunctionTrimIn<Trim1Impl<true, true, NameTrimIn>>>();
-    factory.register_function<FunctionTrimIn<Trim1Impl<true, false, NameLTrimIn>>>();
-    factory.register_function<FunctionTrimIn<Trim1Impl<false, true, NameRTrimIn>>>();
-    factory.register_function<FunctionTrimIn<Trim2Impl<true, true, NameTrimIn>>>();
-    factory.register_function<FunctionTrimIn<Trim2Impl<true, false, NameLTrimIn>>>();
-    factory.register_function<FunctionTrimIn<Trim2Impl<false, true, NameRTrimIn>>>();
+    factory.register_function<FunctionTrim<Trim1Impl<true, true, NameTrimIn>>>();
+    factory.register_function<FunctionTrim<Trim1Impl<true, false, NameLTrimIn>>>();
+    factory.register_function<FunctionTrim<Trim1Impl<false, true, NameRTrimIn>>>();
+    factory.register_function<FunctionTrim<Trim2Impl<true, true, NameTrimIn>>>();
+    factory.register_function<FunctionTrim<Trim2Impl<true, false, NameLTrimIn>>>();
+    factory.register_function<FunctionTrim<Trim2Impl<false, true, NameRTrimIn>>>();
     factory.register_function<FunctionConvertTo>();
     factory.register_function<FunctionSubstring<Substr3Impl>>();
     factory.register_function<FunctionSubstring<Substr2Impl>>();
