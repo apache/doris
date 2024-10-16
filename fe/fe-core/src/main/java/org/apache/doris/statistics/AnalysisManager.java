@@ -39,6 +39,7 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.View;
 import org.apache.doris.common.AnalysisException;
@@ -203,6 +204,9 @@ public class AnalysisManager implements Writable {
             List<AnalyzeTblStmt> analyzeStmts = new ArrayList<>();
             for (TableIf table : tbls) {
                 if (table instanceof View) {
+                    continue;
+                }
+                if (table.getType() == TableType.TEMP) {
                     continue;
                 }
                 TableName tableName = new TableName(db.getCatalog().getName(), db.getFullName(), table.getName());

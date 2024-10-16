@@ -3128,7 +3128,7 @@ public class StmtExecutor {
         TableName targetTableName = new TableName(null, iotStmt.getDb(), iotStmt.getTbl());
         try {
             // create a tmp table with uuid
-            parsedStmt = new CreateTableLikeStmt(false, tmpTableName, targetTableName, null, false);
+            parsedStmt = new CreateTableLikeStmt(false, false, tmpTableName, targetTableName, null, false);
             parsedStmt.setUserInfo(context.getCurrentUserIdentity());
             execute();
             // if create tmp table err, return

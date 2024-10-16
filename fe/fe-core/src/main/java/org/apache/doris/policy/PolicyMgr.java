@@ -29,12 +29,14 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ShowResultSet;
@@ -183,12 +185,16 @@ public class PolicyMgr implements Writable {
                 for (Table table : tables) {
                     if (table instanceof OlapTable) {
                         OlapTable olapTable = (OlapTable) table;
+                        String tableName = table.getName();
+                        if (table.getType() == TableType.TEMP) {
+                            tableName = Util.getTempTableOuterName(tableName);
+                        }
                         PartitionInfo partitionInfo = olapTable.getPartitionInfo();
                         for (Long partitionId : olapTable.getPartitionIds()) {
                             String policyName = partitionInfo.getDataProperty(partitionId).getStoragePolicy();
                             if (policyName.equals(dropPolicyLog.getPolicyName())) {
                                 throw new DdlException("the policy " + policyName + " is used by table: "
-                                    + table.getName());
+                                    + tableName);
                             }
                         }
                     }

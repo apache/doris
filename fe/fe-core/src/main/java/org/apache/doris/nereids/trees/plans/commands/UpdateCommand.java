@@ -232,7 +232,7 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
             throw new AnalysisException("target table in update command should be an olapTable");
         }
         targetTable = ((OlapTable) table);
-        if (targetTable.getType() != Table.TableType.OLAP
+        if ((targetTable.getType() != Table.TableType.OLAP && targetTable.getType() != Table.TableType.TEMP)
                 || targetTable.getKeysType() != KeysType.UNIQUE_KEYS) {
             throw new AnalysisException("Only unique table could be updated.");
         }

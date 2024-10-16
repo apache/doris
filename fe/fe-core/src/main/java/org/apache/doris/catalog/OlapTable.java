@@ -219,12 +219,12 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
 
     public OlapTable(long id, String tableName, List<Column> baseSchema, KeysType keysType,
             PartitionInfo partitionInfo, DistributionInfo defaultDistributionInfo) {
-        this(id, tableName, baseSchema, keysType, partitionInfo, defaultDistributionInfo, null);
+        this(id, tableName, TableType.OLAP, baseSchema, keysType, partitionInfo, defaultDistributionInfo, null);
     }
 
-    public OlapTable(long id, String tableName, List<Column> baseSchema, KeysType keysType,
+    public OlapTable(long id, String tableName, TableType tableType, List<Column> baseSchema, KeysType keysType,
             PartitionInfo partitionInfo, DistributionInfo defaultDistributionInfo, TableIndexes indexes) {
-        super(id, tableName, TableType.OLAP, baseSchema);
+        super(id, tableName, tableType, baseSchema);
 
         this.state = OlapTableState.NORMAL;
 
