@@ -473,12 +473,14 @@ bool ExchangeSinkBuffer::_is_receiver_eof(InstanceLoId id) {
 void ExchangeSinkBuffer::_turn_off_channel(InstanceLoId id, bool cleanup) {
     if (!_rpc_channel_is_idle[id]) {
         _rpc_channel_is_idle[id] = true;
-        auto all_done = _busy_channels.fetch_sub(1) == 1;
-        _set_ready_to_finish(all_done);
-        if (cleanup && all_done) {
-            auto weak_task_ctx = weak_task_exec_ctx();
-            if (auto pip_ctx = weak_task_ctx.lock()) {
-                _parent->set_reach_limit();
+        if (cleanup) {
+            const auto closed_count = _closed_channels_count.fetch_add(1) + 1;
+            if (closed_count == _rpc_channel_is_idle.size()) {
+                _set_ready_to_finish(true);
+                auto weak_task_ctx = weak_task_exec_ctx();
+                if (auto pip_ctx = weak_task_ctx.lock()) {
+                    _parent->set_reach_limit();
+                }
             }
         }
     }
