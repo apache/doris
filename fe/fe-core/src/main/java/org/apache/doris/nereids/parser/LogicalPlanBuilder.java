@@ -3879,8 +3879,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         } else if (ctx.LOCAL() != null || ctx.SESSION() != null) {
             type = SetType.SESSION;
         }
-        String name = ctx.identifier().getText();
-        Expression expression = ctx.expression() != null ? typedVisit(ctx.expression()) : new StringLiteral("default");
+        String name = stripQuotes(ctx.identifier().getText());
+        Expression expression = ctx.expression() != null ? typedVisit(ctx.expression()) : NullLiteral.INSTANCE;
         return new SetSessionVarOp(type, name, expression);
     }
 
@@ -3892,8 +3892,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         } else if (ctx.LOCAL() != null || ctx.SESSION() != null) {
             type = SetType.SESSION;
         }
-        String name = ctx.identifier().getText();
-        Expression expression = ctx.expression() != null ? typedVisit(ctx.expression()) : new StringLiteral("default");
+        String name = stripQuotes(ctx.identifier().getText());
+        Expression expression = ctx.expression() != null ? typedVisit(ctx.expression()) : NullLiteral.INSTANCE;
         return new SetSessionVarOp(type, name, expression);
     }
 
@@ -3906,12 +3906,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         boolean isPlain;
         UserIdentity userIdentity = null;
         if (ctx.userIdentify() != null) {
-            user = ctx.userIdentify().user.getText();
-            host = ctx.userIdentify().host != null ? ctx.userIdentify().host.getText() : "%";
+            user = stripQuotes(ctx.userIdentify().user.getText());
+            host = ctx.userIdentify().host != null ? stripQuotes(ctx.userIdentify().host.getText()) : "%";
             isDomain = ctx.userIdentify().LEFT_PAREN() != null;
             userIdentity = new UserIdentity(user, host, isDomain);
         }
-        passwordText = ctx.STRING_LITERAL().getText();
+        passwordText = stripQuotes(ctx.STRING_LITERAL().getText());
         isPlain = ctx.LEFT_PAREN() != null;
         return new SetPassVarOp(userIdentity, new PassVar(passwordText, isPlain));
     }
@@ -3923,26 +3923,28 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public SetCharsetAndCollateVarOp visitSetCharset(SetCharsetContext ctx) {
-        return new SetCharsetAndCollateVarOp(ctx.charsetName.getText());
+        String charset = ctx.charsetName != null ? stripQuotes(ctx.charsetName.getText()) : null;
+        return new SetCharsetAndCollateVarOp(charset);
     }
 
     @Override
     public SetCharsetAndCollateVarOp visitSetCollate(SetCollateContext ctx) {
-        String collate = ctx.collateName != null ? ctx.collateName.getText() : null;
-        return new SetCharsetAndCollateVarOp(ctx.charsetName.getText(), collate);
+        String charset = ctx.charsetName != null ? stripQuotes(ctx.charsetName.getText()) : null;
+        String collate = ctx.collateName != null ? stripQuotes(ctx.collateName.getText()) : null;
+        return new SetCharsetAndCollateVarOp(charset, collate);
     }
 
     @Override
     public SetLdapPassVarOp visitSetLdapAdminPassword(SetLdapAdminPasswordContext ctx) {
-        String passwordText = ctx.STRING_LITERAL().getText();
+        String passwordText = stripQuotes(ctx.STRING_LITERAL().getText());
         boolean isPlain = ctx.LEFT_PAREN() != null;
         return new SetLdapPassVarOp(new PassVar(passwordText, isPlain));
     }
 
     @Override
     public SetUserDefinedVarOp visitSetUserVariable(SetUserVariableContext ctx) {
-        String name = ctx.identifier().getText();
-        Expression expression = ctx.expression() != null ? typedVisit(ctx.expression()) : new StringLiteral("default");
+        String name = stripQuotes(ctx.identifier().getText());
+        Expression expression = typedVisit(ctx.expression());
         return new SetUserDefinedVarOp(name, expression);
     }
 
@@ -3953,7 +3955,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public SetUserPropertiesCommand visitSetUserProperties(SetUserPropertiesContext ctx) {
-        String user = ctx.user != null ? ctx.user.getText() : "";
+        String user = ctx.user != null ? stripQuotes(ctx.user.getText()) : null;
         Map<String, String> userPropertiesMap = visitPropertyItemList(ctx.propertyItemList());
         List<SetUserPropertyVarOp> setUserPropertyVarOpList = new ArrayList<>(userPropertiesMap.size());
         for (Map.Entry<String, String> entry : userPropertiesMap.entrySet()) {
@@ -3964,6 +3966,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public SetDefaultStorageVaultCommand visitSetDefaultStorageVault(SetDefaultStorageVaultContext ctx) {
-        return new SetDefaultStorageVaultCommand(ctx.identifier().getText());
+        return new SetDefaultStorageVaultCommand(stripQuotes(ctx.identifier().getText()));
     }
 }
