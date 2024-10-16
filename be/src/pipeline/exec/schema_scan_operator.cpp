@@ -137,20 +137,6 @@ Status SchemaScanOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
 Status SchemaScanOperatorX::open(RuntimeState* state) {
     RETURN_IF_ERROR(Base::open(state));
 
-    if (_common_scanner_param->user) {
-        TSetSessionParams param;
-        param.__set_user(*_common_scanner_param->user);
-        //TStatus t_status;
-        //RETURN_IF_ERROR(SchemaJniHelper::set_session(param, &t_status));
-        //RETURN_IF_ERROR(Status(t_status));
-    }
-
-    return Status::OK();
-}
-
-Status SchemaScanOperatorX::prepare(RuntimeState* state) {
-    RETURN_IF_ERROR(Base::prepare(state));
-
     // get dest tuple desc
     _dest_tuple_desc = state->desc_tbl().get_tuple_descriptor(_tuple_id);
 
@@ -204,6 +190,14 @@ Status SchemaScanOperatorX::prepare(RuntimeState* state) {
     }
 
     _tuple_idx = 0;
+
+    if (_common_scanner_param->user) {
+        TSetSessionParams param;
+        param.__set_user(*_common_scanner_param->user);
+        //TStatus t_status;
+        //RETURN_IF_ERROR(SchemaJniHelper::set_session(param, &t_status));
+        //RETURN_IF_ERROR(Status(t_status));
+    }
 
     return Status::OK();
 }
@@ -272,6 +266,9 @@ Status SchemaScanOperatorX::get_block(RuntimeState* state, vectorized::Block* bl
     } while (block->rows() == 0 && !*eos);
 
     local_state.reached_limit(block, eos);
+    if (*eos) {
+        local_state._finish_dependency->set_always_ready();
+    }
     return Status::OK();
 }
 

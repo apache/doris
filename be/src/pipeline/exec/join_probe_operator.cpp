@@ -262,6 +262,7 @@ Status JoinProbeOperatorX<LocalStateType>::init(const TPlanNode& tnode, RuntimeS
 template <typename LocalStateType>
 Status JoinProbeOperatorX<LocalStateType>::open(doris::RuntimeState* state) {
     RETURN_IF_ERROR(Base::open(state));
+    RETURN_IF_ERROR(vectorized::VExpr::prepare(_output_expr_ctxs, state, *_intermediate_row_desc));
     return vectorized::VExpr::open(_output_expr_ctxs, state);
 }
 
