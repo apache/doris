@@ -62,7 +62,6 @@ public class PlanPostProcessors {
         builder.add(new ColumnPruningPostProcessor());
         builder.add(new MergeProjectPostProcessor());
         builder.add(new RecomputeLogicalPropertiesProcessor());
-        builder.add(new AddOffsetIntoDistribute());
         if (cascadesContext.getConnectContext().getSessionVariable().enableCommonSubExpression) {
             builder.add(new CommonSubExpressionOpt());
         }
