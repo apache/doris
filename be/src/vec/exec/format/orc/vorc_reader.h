@@ -642,12 +642,15 @@ public:
               _statistics(statistics),
               _io_ctx(io_ctx),
               _profile(profile) {}
+    ORCFileInputStream(const ORCFileInputStream& orcFileInputStream)
+            : _file_name(orcFileInputStream._file_name),
+              _inner_reader(orcFileInputStream._inner_reader),
+              _file_reader(orcFileInputStream._inner_reader),
+              _statistics(orcFileInputStream._statistics),
+              _io_ctx(orcFileInputStream._io_ctx),
+              _profile(orcFileInputStream._profile) {}
 
-    ~ORCFileInputStream() override {
-        if (_file_reader != nullptr) {
-            _file_reader->collect_profile_before_close();
-        }
-    }
+    ~ORCFileInputStream() override = default;
 
     uint64_t getLength() const override { return _file_reader->size(); }
 
@@ -655,22 +658,12 @@ public:
 
     void read(void* buf, uint64_t length, uint64_t offset) override;
 
+    void read_impl(char*, uint64_t length, uint64_t offset);
+
     const std::string& getName() const override { return _file_name; }
 
     void beforeReadStripe(std::unique_ptr<orc::StripeInformation> current_strip_information,
                           std::vector<bool> selected_columns) override;
-
-    void setPreFetchRanges(std::vector<io::PrefetchRange> prefetch_ranges, size_t total_io_size) {
-        // !prefetch_ranges.empty() To prevent the entire orc file  be filtered.
-        if (!prefetch_ranges.empty() &&
-            total_io_size / prefetch_ranges.size() < io::MergeRangeFileReader::SMALL_IO) {
-            // The underlying page reader will prefetch data in column.
-            _file_reader.reset(
-                    new io::MergeRangeFileReader(_profile, _inner_reader, prefetch_ranges));
-        } else {
-            _file_reader = _inner_reader;
-        }
-    }
 
 protected:
     void _collect_profile_at_runtime() override {};
@@ -684,6 +677,97 @@ public:
     OrcReader::Statistics* _statistics = nullptr;
     const io::IOContext* _io_ctx = nullptr;
     RuntimeProfile* _profile = nullptr;
-    //    std::vector<io::PrefetchRange> _prefetch_ranges;
 };
+
+class ORCCacheFileInputStream : public ORCFileInputStream {
+    struct ORCCacheStatistics {
+        int64_t request_io = 0;
+        int64_t request_bytes = 0;
+        int64_t request_time = 0;
+        int64_t miss_cache_io = 0;
+        int64_t miss_cache_bytes = 0;
+        int64_t read_miss_cache_time = 0;
+        int64_t read_to_cache_time = 0;
+        int64_t cache_refresh_count = 0;
+        int64_t read_to_cache_bytes = 0;
+    };
+
+public:
+    ORCCacheFileInputStream(ORCFileInputStream orcFileInputStream,
+                            std::vector<io::PrefetchRange> prefetch_ranges,
+                            std::unique_ptr<char[]>&& buf)
+            : ORCFileInputStream(orcFileInputStream),
+              _prefetch_ranges(prefetch_ranges),
+              _buf(std::move(buf)) {
+        if (_profile != nullptr) {
+            const char* random_profile = "OrcMergedStripeIO";
+            ADD_TIMER_WITH_LEVEL(_profile, random_profile, 1);
+            _request_io = ADD_CHILD_COUNTER_WITH_LEVEL(_profile, "RequestIO", TUnit::UNIT,
+                                                       random_profile, 1);
+            _request_bytes = ADD_CHILD_COUNTER_WITH_LEVEL(_profile, "RequestBytes", TUnit::BYTES,
+                                                          random_profile, 1);
+            _request_time = ADD_CHILD_TIMER_WITH_LEVEL(_profile, "RequestTime", random_profile, 1);
+            _miss_cache_io = ADD_CHILD_COUNTER_WITH_LEVEL(_profile, "MissCacheIO", TUnit::UNIT,
+                                                          random_profile, 1);
+            _miss_cache_bytes = ADD_CHILD_COUNTER_WITH_LEVEL(_profile, "MissCacheBytes",
+                                                             TUnit::BYTES, random_profile, 1);
+            _read_miss_cache_time =
+                    ADD_CHILD_TIMER_WITH_LEVEL(_profile, "ReadMissCacheTime", random_profile, 1);
+
+            _read_to_cache_time =
+                    ADD_CHILD_TIMER_WITH_LEVEL(_profile, "ReadToCacheTime", random_profile, 1);
+            _cache_refresh_count = ADD_CHILD_COUNTER_WITH_LEVEL(_profile, "CacheRefreshCount",
+                                                                TUnit::UNIT, random_profile, 1);
+            _read_to_cache_bytes = ADD_CHILD_COUNTER_WITH_LEVEL(_profile, "ReadToCacheBytes",
+                                                                TUnit::BYTES, random_profile, 1);
+        }
+    }
+
+    void read(void* buf, uint64_t length, uint64_t offset) override;
+
+    void read_range_to_cache() {
+        _current_ranges++;
+        uint64_t offset = _prefetch_ranges[_current_ranges].start_offset;
+        uint64_t length = _prefetch_ranges[_current_ranges].end_offset -
+                          _prefetch_ranges[_current_ranges].start_offset;
+        _orc_cache_statistics.cache_refresh_count++;
+        _orc_cache_statistics.read_to_cache_bytes += length;
+        SCOPED_RAW_TIMER(&_orc_cache_statistics.read_to_cache_time);
+        read_impl(_buf.get(), length, offset);
+    }
+
+    void beforeReadStripe(std::unique_ptr<orc::StripeInformation> current_strip_information,
+                          std::vector<bool> selected_columns) override;
+
+    ~ORCCacheFileInputStream() override {
+        if (_profile != nullptr) {
+            COUNTER_UPDATE(_request_io, _orc_cache_statistics.request_io);
+            COUNTER_UPDATE(_request_bytes, _orc_cache_statistics.request_bytes);
+            COUNTER_UPDATE(_request_time, _orc_cache_statistics.request_time);
+            COUNTER_UPDATE(_miss_cache_io, _orc_cache_statistics.miss_cache_io);
+            COUNTER_UPDATE(_miss_cache_bytes, _orc_cache_statistics.miss_cache_bytes);
+            COUNTER_UPDATE(_read_miss_cache_time, _orc_cache_statistics.read_miss_cache_time);
+            COUNTER_UPDATE(_read_to_cache_time, _orc_cache_statistics.read_to_cache_time);
+            COUNTER_UPDATE(_cache_refresh_count, _orc_cache_statistics.cache_refresh_count);
+            COUNTER_UPDATE(_read_to_cache_bytes, _orc_cache_statistics.read_to_cache_bytes);
+        }
+    }
+
+private:
+    RuntimeProfile::Counter* _request_io = nullptr;
+    RuntimeProfile::Counter* _request_bytes = nullptr;
+    RuntimeProfile::Counter* _request_time = nullptr;
+    RuntimeProfile::Counter* _miss_cache_io = nullptr;
+    RuntimeProfile::Counter* _miss_cache_bytes = nullptr;
+    RuntimeProfile::Counter* _read_miss_cache_time = nullptr;
+    RuntimeProfile::Counter* _read_to_cache_time = nullptr;
+    RuntimeProfile::Counter* _cache_refresh_count = nullptr;
+    RuntimeProfile::Counter* _read_to_cache_bytes = nullptr;
+    ORCCacheStatistics _orc_cache_statistics;
+
+    std::vector<io::PrefetchRange> _prefetch_ranges;
+    int64_t _current_ranges = -1;
+    std::unique_ptr<char[]> _buf;
+};
+
 } // namespace doris::vectorized
