@@ -44,24 +44,43 @@ suite("compress_materialize") {
     ); 
 
     insert into cmt2 values ("aaaa", 1), ("b", 3);
-insert into cmt2 values("123456", 123456);
+    insert into cmt2 values("123456", 123456);
     """
 
 //  expected explain contains partial_any_value(k)
-//     3:VAGGREGATE (merge finalize)(167)
-//   |  output: any_value(partial_any_value(k)[#5])[#7]
-//   |  group by: k[#4]
-//   |  sortByGroupKey:false
-//   |  cardinality=1
-//   |  final projections: k[#7]
-//   |  final project output tuple id: 4
-//   |  distribute expr lists: k[#4]
+// |   1:VAGGREGATE (update serialize)(162)                     |
+// |   |  STREAMING                                             |
+// |   |  output: partial_any_value(k[#3])[#5]                  |
+// |   |  group by: encode_as_bigint(k)[#2]                     |
+// |   |  sortByGroupKey:false                                  |
+// |   |  cardinality=1                                         |
+// |   |  distribute expr lists: k[#3]  
     explain{
         sql ("""
             select k from compress group by k;
             """)
         contains("any_value(partial_any_value(k)")
+        contains("encode_as_bigint")
     }
+
+    // 'substring(k, 1)' is in select list, not supported
+    explain{
+        sql ("""
+            select k, substring(k, 1) from compress group by k;
+            """)
+        notContains("any_value")
+        notContains("encode_as_bigint")
+    }
+
+    explain{
+        sql ("""
+            select k, substring(k, 1) from compress group by k;
+            """)
+        notContains("any_value")
+        notContains("encode_as_bigint")
+
+    }
+
     order_qt_agg_exec "select k from compress group by k;"
     order_qt_not_support """ select substring(k,1,3) from compress group by substring(k,1,3);"""
     order_qt_not_support """ select substring(k,1,3) from compress group by k;"""
