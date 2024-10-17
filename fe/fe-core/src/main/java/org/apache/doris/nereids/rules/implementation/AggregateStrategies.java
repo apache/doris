@@ -549,7 +549,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
 
         List<Expression> argumentsOfAggregateFunction = normalizeArguments(agg.getAggregateFunctions(), project);
 
-        if (!onlyContainsSlotOrNumericCastSlot(argumentsOfAggregateFunction)) {
+        if (!onlyContainsSlot(argumentsOfAggregateFunction)) {
             return agg;
         }
 
@@ -581,15 +581,10 @@ public class AggregateStrategies implements ImplementationRuleFactory {
         return arguments;
     }
 
-    private boolean onlyContainsSlotOrNumericCastSlot(List<Expression> arguments) {
+    private boolean onlyContainsSlot(List<Expression> arguments) {
         return arguments.stream().allMatch(argument -> {
             if (argument instanceof SlotReference) {
                 return true;
-            }
-            if (argument instanceof Cast) {
-                return argument.child(0) instanceof SlotReference
-                        && argument.getDataType().isNumericType()
-                        && argument.child(0).getDataType().isNumericType();
             }
             return false;
         });
