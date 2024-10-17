@@ -59,8 +59,14 @@ Status SegmentLoader::load_segments(const BetaRowsetSharedPtr& rowset,
     for (int64_t i = 0; i < rowset->num_segments(); i++) {
         SegmentCache::CacheKey cache_key(rowset->rowset_id(), i);
         if (_segment_cache->lookup(cache_key, cache_handle)) {
-            continue;
+            // Has to check the segment status here, because the segment in cache may has something wrong during
+            // load index or create column reader.
+            // Not merge this if logic with previous to make the logic more clear.
+            if (cache_handle->pop_unhealthy_segment() == nullptr) {
+                continue;
+            }
         }
+        // If the segment is not healthy, then will create a new segment and will replace the unhealthy one in SegmentCache.
         segment_v2::SegmentSharedPtr segment;
         RETURN_IF_ERROR(rowset->load_segment(i, &segment));
         if (need_load_pk_index_and_bf) {
