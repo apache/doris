@@ -426,6 +426,24 @@ class Suite implements GroovyInterceptable {
         return res;
     }
 
+    String getMasterIp(Connection conn) {
+        def result = sql_return_maparray_impl("select Host, QueryPort, IsMaster from frontends();", conn)
+        logger.info("get master fe: ${result}")
+
+        def masterHost = ""
+        for (def row : result) {
+            if (row.IsMaster == "true") {
+                masterHost = row.Host
+                break
+            }
+        }
+
+        if (masterHost == "") {
+            throw new Exception("can not find master fe")
+        }
+        return masterHost;
+    }
+
     def jdbc_sql_return_maparray(String sqlStr) {
         return sql_return_maparray_impl(sqlStr, context.getConnection())
     }
@@ -1139,7 +1157,7 @@ class Suite implements GroovyInterceptable {
 
     String getServerPrepareJdbcUrl(String jdbcUrl, String database) {
         String urlWithoutSchema = jdbcUrl.substring(jdbcUrl.indexOf("://") + 3)
-        def sql_ip = urlWithoutSchema.substring(0, urlWithoutSchema.indexOf(":"))
+        def sql_ip = getMasterIp()
         def sql_port
         if (urlWithoutSchema.indexOf("/") >= 0) {
             // e.g: jdbc:mysql://locahost:8080/?a=b
