@@ -87,7 +87,7 @@ public class MasterOpExecutor {
 
     public void execute() throws Exception {
         result = forward(buildStmtForwardParams());
-        if (result.getStatusCode() == 0 && ctx.isTxnModel()) {
+        if (ctx.isTxnModel()) {
             if (result.isSetTxnLoadInfo()) {
                 ctx.getTxnEntry().setTxnLoadInfoInObserver(result.getTxnLoadInfo());
             } else {
