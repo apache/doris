@@ -418,7 +418,9 @@ public class BindRelation extends OneAnalysisRuleFactory {
                         return hudiScan;
                     } else {
                         return new LogicalFileScan(unboundRelation.getRelationId(), (HMSExternalTable) table,
-                                qualifierWithoutTableName, unboundRelation.getTableSample(),
+                                qualifierWithoutTableName,
+                                ((HMSExternalTable) table).getAllPartitions(),
+                                unboundRelation.getTableSample(),
                                 unboundRelation.getTableSnapshot());
                     }
                 case ICEBERG_EXTERNAL_TABLE:
