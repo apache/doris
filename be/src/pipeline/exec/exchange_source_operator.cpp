@@ -62,8 +62,8 @@ Status ExchangeLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     SCOPED_TIMER(_init_timer);
     auto& p = _parent->cast<ExchangeSourceOperatorX>();
     stream_recvr = state->exec_env()->vstream_mgr()->create_recvr(
-            state, p.input_row_desc(), state->fragment_instance_id(), p.node_id(), p.num_senders(),
-            profile(), p.is_merging());
+            state, this, p.input_row_desc(), state->fragment_instance_id(), p.node_id(),
+            p.num_senders(), profile(), p.is_merging());
     const auto& queues = stream_recvr->sender_queues();
     deps.resize(queues.size());
     metrics.resize(queues.size());
@@ -171,8 +171,6 @@ Status ExchangeSourceOperatorX::get_block(RuntimeState* state, vectorized::Block
             block->set_num_rows(limit);
             local_state.set_num_rows_returned(_limit);
         }
-        COUNTER_SET(local_state.rows_returned_counter(), local_state.num_rows_returned());
-        COUNTER_UPDATE(local_state.blocks_returned_counter(), 1);
     }
     return status;
 }

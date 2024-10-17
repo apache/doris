@@ -276,6 +276,8 @@ public:
 
     ~PipChannel() override { delete Channel<pipeline::ExchangeSinkLocalState>::_ch_cur_pb_block; }
 
+    int64_t mem_usage() const;
+
     void ch_roll_pb_block() override {
         // We have two choices here.
         // 1. Use a PBlock pool and fetch an available PBlock if we need one. In this way, we can
