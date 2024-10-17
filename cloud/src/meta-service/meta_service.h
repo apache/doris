@@ -298,9 +298,8 @@ public:
                                                               const std::string& cloud_unique_id,
                                                               InstanceInfoPB* instance);
 
-    void fix_tablet_stats(::google::protobuf::RpcController* controller,
-                          const FixTabletStatsRequest* request, FixTabletStatsResponse* response,
-                          ::google::protobuf::Closure* done) override;
+    MetaServiceResponseStatus fix_tablet_stats(std::string cloud_unique_id_str,
+                                               std::string table_id_str);
 
 private:
     std::pair<MetaServiceCode, std::string> alter_instance(
