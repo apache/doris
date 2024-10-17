@@ -243,7 +243,7 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
                 .setMaxValue(literalVal)
                 .setMinValue(literalVal)
                 .setNdv(1)
-                .setNumNulls(1)
+                .setNumNulls(literal.isNullLiteral() ? 1 : 0)
                 .setAvgSizeByte(1)
                 .setMinExpr(literal.toLegacyLiteral())
                 .setMaxExpr(literal.toLegacyLiteral())
