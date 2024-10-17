@@ -34,6 +34,7 @@
 #include "common/status.h"
 #include "exec/olap_common.h"
 #include "io/file_factory.h"
+#include "io/fs/buffered_reader.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_reader_writer_fwd.h"
 #include "olap/olap_common.h"
@@ -642,7 +643,11 @@ public:
               _io_ctx(io_ctx),
               _profile(profile) {}
 
-    ~ORCFileInputStream() override = default;
+    ~ORCFileInputStream() override {
+        if (_file_reader != nullptr) {
+            _file_reader->collect_profile_before_close();
+        }
+    }
 
     uint64_t getLength() const override { return _file_reader->size(); }
 
@@ -655,11 +660,23 @@ public:
     void beforeReadStripe(std::unique_ptr<orc::StripeInformation> current_strip_information,
                           std::vector<bool> selected_columns) override;
 
+    void setPreFetchRanges(std::vector<io::PrefetchRange> prefetch_ranges, size_t total_io_size) {
+        // !prefetch_ranges.empty() To prevent the entire orc file  be filtered.
+        if (!prefetch_ranges.empty() &&
+            total_io_size / prefetch_ranges.size() < io::MergeRangeFileReader::SMALL_IO) {
+            // The underlying page reader will prefetch data in column.
+            _file_reader.reset(
+                    new io::MergeRangeFileReader(_profile, _inner_reader, prefetch_ranges));
+        } else {
+            _file_reader = _inner_reader;
+        }
+    }
+
 protected:
     void _collect_profile_at_runtime() override {};
     void _collect_profile_before_close() override;
 
-private:
+public:
     const std::string& _file_name;
     io::FileReaderSPtr _inner_reader;
     io::FileReaderSPtr _file_reader;
@@ -667,6 +684,6 @@ private:
     OrcReader::Statistics* _statistics = nullptr;
     const io::IOContext* _io_ctx = nullptr;
     RuntimeProfile* _profile = nullptr;
+    //    std::vector<io::PrefetchRange> _prefetch_ranges;
 };
-
 } // namespace doris::vectorized

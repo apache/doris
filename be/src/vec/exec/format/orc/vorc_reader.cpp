@@ -891,6 +891,72 @@ Status OrcReader::set_fill_columns(
 
         _remaining_rows = _row_reader->getNumberOfRows();
 
+        //    if xxx
+
+        vector<bool> select_column = _row_reader->getSelectedColumns();
+        //    for(auto col : select_column) {//include nested inner column
+        //        std::cout << col <<" ";
+        //    }
+        //    std::cout <<"\n";
+
+        //    std::cout <<" _reader->getNumberOfStripes() = " << _reader->getNumberOfStripes() <<"\n";
+        uint64_t number_of_stripes = _reader->getNumberOfStripes();
+        auto allStripesNeeded = _row_reader->getAllStripesNeeded();
+
+        //    for(auto stn : allStripesNeeded) {
+        //        std::cout <<"stn = " << stn<<" ";
+        //    }
+        //    std::cout <<"\n";
+
+        std::vector<io::PrefetchRange> prefetch_ranges;
+        size_t total_io_size = 0;
+
+        //_range_start_offset   _range_size
+        //    int64_t range_end_offset = _range_start_offset  + _range_size;
+        for (uint64_t i = 0; i < number_of_stripes; i++) {
+            std::unique_ptr<orc::StripeInformation> strip_info = _reader->getStripe(i);
+            uint64_t strip_start_offset = strip_info->getOffset();
+            uint64_t strip_end_offset = strip_start_offset + strip_info->getLength();
+
+            if (strip_end_offset < _range_start_offset || !allStripesNeeded[i]) {
+                continue;
+            }
+            if (strip_info->getLength() < 4096) {
+                prefetch_ranges.emplace_back(strip_start_offset, strip_end_offset - 1);
+                continue;
+            }
+            for (uint64_t stream_id = 0; stream_id < strip_info->getNumberOfStreams();
+                 ++stream_id) {
+                std::unique_ptr<orc::StreamInformation> stream =
+                        strip_info->getStreamInformation(stream_id);
+
+                uint32_t column_id = stream->getColumnId();
+                uint64_t stream_offset = stream->getOffset();
+                uint64_t stream_length = stream->getLength();
+                if (select_column[column_id]) {
+                    total_io_size += stream_length;
+                    //                doris::io::PrefetchRange prefetch_range = {stream_offset, stream_offset + stream_length};
+                    //                prefetch_ranges.emplace_back(prefetch_range)
+                    prefetch_ranges.emplace_back(stream_offset, stream_offset + stream_length - 1);
+                }
+            }
+        }
+        //    for (auto range : prefetch_ranges) {
+        //        std::cout << range.start_offset <<" , " << range.end_offset <<"\n";
+        //    }
+
+        orc::InputStream* inputStreamPtr = _reader->getStream();
+        auto* orcInputStreamPtr = static_cast<ORCFileInputStream*>(inputStreamPtr);
+
+        if (prefetch_ranges.size() != 0 &&
+            total_io_size / prefetch_ranges.size() < io::MergeRangeFileReader::SMALL_IO) {
+            orcInputStreamPtr->_file_reader->collect_profile_before_close();
+
+            orcInputStreamPtr->_file_reader.reset(new io::MergeRangeFileReader(
+                    orcInputStreamPtr->_profile, orcInputStreamPtr->_inner_reader,
+                    prefetch_ranges));
+        }
+
     } catch (std::exception& e) {
         std::string _err_msg = e.what();
         // ignore stop exception
@@ -2415,34 +2481,17 @@ MutableColumnPtr OrcReader::_convert_dict_column_to_string_column(
 void ORCFileInputStream::beforeReadStripe(
         std::unique_ptr<orc::StripeInformation> current_strip_information,
         std::vector<bool> selected_columns) {
-    if (_file_reader != nullptr) {
-        _file_reader->collect_profile_before_close();
-    }
-    // Generate prefetch ranges, build stripe file reader.
-    uint64_t offset = current_strip_information->getOffset();
-    std::vector<io::PrefetchRange> prefetch_ranges;
-    size_t total_io_size = 0;
-    for (uint64_t stream_id = 0; stream_id < current_strip_information->getNumberOfStreams();
-         ++stream_id) {
-        std::unique_ptr<orc::StreamInformation> stream =
-                current_strip_information->getStreamInformation(stream_id);
-        uint32_t columnId = stream->getColumnId();
-        uint64_t length = stream->getLength();
-        if (selected_columns[columnId]) {
-            total_io_size += length;
-            doris::io::PrefetchRange prefetch_range = {offset, offset + length};
-            prefetch_ranges.emplace_back(std::move(prefetch_range));
-        }
-        offset += length;
-    }
-    size_t num_columns = std::count_if(selected_columns.begin(), selected_columns.end(),
-                                       [](bool selected) { return selected; });
-    if (total_io_size / num_columns < io::MergeRangeFileReader::SMALL_IO) {
-        // The underlying page reader will prefetch data in column.
-        _file_reader.reset(new io::MergeRangeFileReader(_profile, _inner_reader, prefetch_ranges));
-    } else {
-        _file_reader = _inner_reader;
-    }
+    //    auto x = assert_cast<io::MergeRangeFileReader*>(_file_reader.get());
+    //    std::cout <<" x->range_cached_data().size() = " << x->range_cached_data().size() <<"\n";
+    //    if (_file_reader != nullptr) {
+    //        _file_reader->collect_profile_before_close();
+    //    }
+    //    if (total_io_size / num_columns < io::MergeRangeFileReader::SMALL_IO) {
+    //        // The underlying page reader will prefetch data in column.
+    //        _file_reader.reset(new io::MergeRangeFileReader(_profile, _inner_reader, prefetch_ranges));
+    //    } else {
+    //        _file_reader = _inner_reader;
+    //    }
 }
 
 void ORCFileInputStream::_collect_profile_before_close() {
