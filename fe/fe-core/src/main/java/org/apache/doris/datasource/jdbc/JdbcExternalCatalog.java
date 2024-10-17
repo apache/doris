@@ -93,6 +93,8 @@ public class JdbcExternalCatalog extends ExternalCatalog {
         JdbcResource.checkBooleanProperty(JdbcResource.CONNECTION_POOL_KEEP_ALIVE,
                 String.valueOf(isConnectionPoolKeepAlive()));
         JdbcResource.checkBooleanProperty(JdbcResource.TEST_CONNECTION, String.valueOf(isTestConnection()));
+        JdbcResource.checkBooleanProperty(JdbcResource.ENABLE_CONNECTION_POOL,
+                String.valueOf(isEnableConnectionPool()));
         JdbcResource.checkDatabaseListProperties(getOnlySpecifiedDatabase(), getIncludeDatabaseMap(),
                 getExcludeDatabaseMap());
         JdbcResource.checkConnectionPoolProperties(getConnectionPoolMinSize(), getConnectionPoolMaxSize(),
@@ -122,10 +124,10 @@ public class JdbcExternalCatalog extends ExternalCatalog {
         }
     }
 
-    @Override
-    public void onRefreshCache(boolean invalidCache) {
-        onRefresh(invalidCache);
-    }
+    // @Override
+    // public void onRefreshCache(boolean invalidCache) {
+    //     // onRefresh(invalidCache);
+    // }
 
     @Override
     public void onClose() {
@@ -222,6 +224,11 @@ public class JdbcExternalCatalog extends ExternalCatalog {
                 .getDefaultPropertyValue(JdbcResource.TEST_CONNECTION)));
     }
 
+    public boolean isEnableConnectionPool() {
+        return Boolean.parseBoolean(catalogProperty.getOrDefault(JdbcResource.ENABLE_CONNECTION_POOL, JdbcResource
+                .getDefaultPropertyValue(JdbcResource.ENABLE_CONNECTION_POOL)));
+    }
+
     @Override
     protected void initLocalObjectsImpl() {
         JdbcClientConfig jdbcClientConfig = new JdbcClientConfig()
@@ -240,7 +247,8 @@ public class JdbcExternalCatalog extends ExternalCatalog {
                 .setConnectionPoolMaxSize(getConnectionPoolMaxSize())
                 .setConnectionPoolMaxLifeTime(getConnectionPoolMaxLifeTime())
                 .setConnectionPoolMaxWaitTime(getConnectionPoolMaxWaitTime())
-                .setConnectionPoolKeepAlive(isConnectionPoolKeepAlive());
+                .setConnectionPoolKeepAlive(isConnectionPoolKeepAlive())
+                .setEnableConnectionPool(isEnableConnectionPool());
 
         jdbcClient = JdbcClient.createJdbcClient(jdbcClientConfig);
     }
@@ -320,6 +328,7 @@ public class JdbcExternalCatalog extends ExternalCatalog {
         jdbcTable.setConnectionPoolMaxLifeTime(this.getConnectionPoolMaxLifeTime());
         jdbcTable.setConnectionPoolMaxWaitTime(this.getConnectionPoolMaxWaitTime());
         jdbcTable.setConnectionPoolKeepAlive(this.isConnectionPoolKeepAlive());
+        jdbcTable.setEnableConnectionPool(this.isEnableConnectionPool());
     }
 
     private void testJdbcConnection() throws DdlException {
