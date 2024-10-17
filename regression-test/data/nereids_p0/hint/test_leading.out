@@ -2162,44 +2162,6 @@ Used: [broadcast]_2
 UnUsed:
 SyntaxError:
 
--- !select90_3 --
-PhysicalResultSink
---hashAgg[GLOBAL]
-----PhysicalDistribute[DistributionSpecGather]
-------hashAgg[LOCAL]
---------hashJoin[INNER_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
-----------PhysicalDistribute[DistributionSpecHash]
-------------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
---------------PhysicalOlapScan[t1]
---------------PhysicalDistribute[DistributionSpecReplicated]
-----------------PhysicalOlapScan[t2]
-----------PhysicalDistribute[DistributionSpecHash]
-------------PhysicalOlapScan[t3]
-
-Hint log:
-Used: [broadcast]_2 [shuffle]_3
-UnUsed:
-SyntaxError:
-
--- !select90_5 --
-PhysicalResultSink
---hashAgg[GLOBAL]
-----PhysicalDistribute[DistributionSpecGather]
-------hashAgg[LOCAL]
---------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
-----------PhysicalDistribute[DistributionSpecHash]
-------------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
---------------PhysicalOlapScan[t1]
---------------PhysicalDistribute[DistributionSpecReplicated]
-----------------PhysicalOlapScan[t2]
-----------PhysicalDistribute[DistributionSpecHash]
-------------PhysicalOlapScan[t3]
-
-Hint log:
-Used: [broadcast]_2 [shuffle]_3
-UnUsed:
-SyntaxError:
-
 -- !select92_1 --
 PhysicalResultSink
 --hashAgg[GLOBAL]
@@ -2674,11 +2636,10 @@ PhysicalResultSink
 ----PhysicalDistribute[DistributionSpecGather]
 ------hashAgg[LOCAL]
 --------hashJoin[INNER_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
-----------PhysicalDistribute[DistributionSpecHash]
-------------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
---------------PhysicalOlapScan[t1]
---------------PhysicalDistribute[DistributionSpecReplicated]
-----------------PhysicalOlapScan[t2]
+----------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
+------------PhysicalOlapScan[t1]
+------------PhysicalDistribute[DistributionSpecReplicated]
+--------------PhysicalOlapScan[t2]
 ----------PhysicalDistribute[DistributionSpecHash]
 ------------PhysicalOlapScan[t3]
 

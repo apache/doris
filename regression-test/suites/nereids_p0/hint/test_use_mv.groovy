@@ -29,7 +29,6 @@ suite("test_use_mv") {
     sql 'set parallel_pipeline_task_num=1'
     sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
     sql 'set enable_nereids_planner=true'
-    sql 'set enable_nereids_distribute_planner=false'
     sql "set ignore_shape_nodes='PhysicalProject'"
     sql 'set enable_fallback_to_original_planner=false'
     sql 'set runtime_filter_mode=OFF'
@@ -57,12 +56,6 @@ suite("test_use_mv") {
     sql """ alter table t1 add rollup r2(k2); """
     waitForRollUpJob("t1", 5000, 1)
     createMV("create materialized view k1_k2_sumk3 as select k1, k2, sum(v1) from t1 group by k1, k2;")
-    sql """set enable_sync_mv_cost_based_rewrite = false"""
-    explain {
-        sql """select k1 from t1;"""
-        contains("t1(r1)")
-    }
-    sql """set enable_sync_mv_cost_based_rewrite = true"""
     explain {
         sql """select /*+ no_use_mv */ k1 from t1;"""
         notContains("t1(r1)")

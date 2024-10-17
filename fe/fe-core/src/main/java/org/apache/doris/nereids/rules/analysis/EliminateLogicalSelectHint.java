@@ -176,9 +176,6 @@ public class EliminateLogicalSelectHint extends OneRewriteRuleFactory {
                 useMvHint.setErrorMessage("only one " + selectHint.getHintName() + " hint is allowed");
             }
         }
-        if (!useMvHint.isSyntaxError()) {
-            ConnectContext.get().getSessionVariable().setEnableSyncMvCostBasedRewrite(false);
-        }
         statementContext.addHint(useMvHint);
     }
 
