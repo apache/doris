@@ -42,7 +42,6 @@
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "util/debug_points.h"
-#include "util/defer_op.h"
 #include "util/doris_metrics.h"
 #include "util/runtime_profile.h"
 #include "util/uid_util.h"
@@ -520,7 +519,7 @@ void VTabletWriterV2::_cancel(Status status) {
     }
     if (_load_stream_map) {
         _load_stream_map->for_each([status](int64_t dst_id, const Streams& streams) {
-            for (auto& stream : streams) {
+            for (const auto& stream : streams) {
                 stream->cancel(status);
             }
         });
@@ -628,7 +627,7 @@ Status VTabletWriterV2::close(Status exec_status) {
                 int64_t tablet_id = -1;
                 for (auto& stream : *streams) {
                     const auto& tablets = stream->success_tablets();
-                    if (tablets.size() > 0) {
+                    if (!tablets.empty()) {
                         tablet_id = tablets[0];
                         break;
                     }
@@ -676,7 +675,7 @@ void VTabletWriterV2::_close_wait(bool incremental) {
     auto st = _load_stream_map->for_each_st(
             [this, incremental](int64_t dst_id, const Streams& streams) -> Status {
                 Status status = Status::OK();
-                for (auto& stream : streams) {
+                for (const auto& stream : streams) {
                     if (stream->is_incremental() != incremental) {
                         continue;
                     }
