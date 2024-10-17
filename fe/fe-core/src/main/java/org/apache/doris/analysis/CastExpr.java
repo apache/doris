@@ -81,6 +81,8 @@ public class CastExpr extends Expr {
                     TYPE_NULLABLE_MODE.put(Pair.of(fromType, toType), Function.NullableMode.ALWAYS_NULLABLE);
                 } else if (!fromType.isDateType() && toType.isDateType()) {
                     TYPE_NULLABLE_MODE.put(Pair.of(fromType, toType), Function.NullableMode.ALWAYS_NULLABLE);
+                } else if (!fromType.isTimeLikeType() && toType.isTimeLikeType()) {
+                    TYPE_NULLABLE_MODE.put(Pair.of(fromType, toType), Function.NullableMode.ALWAYS_NULLABLE);
                 } else {
                     TYPE_NULLABLE_MODE.put(Pair.of(fromType, toType), Function.NullableMode.DEPEND_ON_ARGUMENT);
                 }
@@ -571,7 +573,8 @@ public class CastExpr extends Expr {
     public boolean isNullable() {
         return children.get(0).isNullable()
                 || (children.get(0).getType().isStringType() && !getType().isStringType())
-                || (!children.get(0).getType().isDateType() && getType().isDateType());
+                || (!children.get(0).getType().isDateType() && getType().isDateType())
+                || (!children.get(0).getType().isTimeLikeType() && getType().isTimeLikeType());
     }
 
     @Override
