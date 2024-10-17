@@ -39,6 +39,7 @@
 #include "vec/common/string_ref.h"
 #include "vec/common/uint128.h"
 #include "vec/core/types.h"
+#include "vec/core/wide_integer.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/io/io_helper.h"
 #include "vec/io/var_int.h"
@@ -62,7 +63,9 @@ namespace doris::vectorized {
 template <typename T>
 struct AggregateFunctionUniqExactData {
     static constexpr bool is_string_key = std::is_same_v<T, String>;
-    using Key = std::conditional_t<is_string_key, UInt128, T>;
+    using Key =
+            std::conditional_t<is_string_key, UInt128,
+                               std::conditional_t<std::is_same_v<T, Decimal256>, wide::Int256, T>>;
     using Hash = HashCRC32<Key>;
 
     using Set = flat_hash_set<Key, Hash>;
@@ -92,9 +95,16 @@ struct OneAdder {
             StringRef value = column.get_data_at(row_num);
             data.set.insert(Data::get_key(value));
         } else if constexpr (IsDecimalNumber<T>) {
-            data.set.insert(
-                    assert_cast<const ColumnDecimal<T>&, TypeCheckOnRelease::DISABLE>(column)
-                            .get_data()[row_num]);
+            if constexpr (IsDecimal256<T>) {
+                data.set.insert(
+                        assert_cast<const ColumnDecimal256&, TypeCheckOnRelease::DISABLE>(column)
+                                .get_data()[row_num]
+                                .value);
+            } else {
+                data.set.insert(
+                        assert_cast<const ColumnDecimal<T>&, TypeCheckOnRelease::DISABLE>(column)
+                                .get_data()[row_num]);
+            }
         } else {
             data.set.insert(assert_cast<const ColumnVector<T>&, TypeCheckOnRelease::DISABLE>(column)
                                     .get_data()[row_num]);
@@ -157,7 +167,11 @@ public:
                         keys[i + HASH_MAP_PREFETCH_DIST]);
             }
 
-            array_of_data_set[i]->insert(keys[i]);
+            if constexpr (std::is_same_v<T, Decimal256>) {
+                array_of_data_set[i]->insert(keys[i].value);
+            } else {
+                array_of_data_set[i]->insert(keys[i]);
+            }
         }
     }
 
@@ -184,7 +198,11 @@ public:
             if (i + HASH_MAP_PREFETCH_DIST < batch_size) {
                 set.prefetch(keys[i + HASH_MAP_PREFETCH_DIST]);
             }
-            set.insert(keys[i]);
+            if constexpr (std::is_same_v<T, Decimal256>) {
+                set.insert(keys[i].value);
+            } else {
+                set.insert(keys[i]);
+            }
         }
     }
 
@@ -207,7 +225,11 @@ public:
         for (size_t i = 0; i < size; ++i) {
             KeyType ref;
             read_pod_binary(ref, buf);
-            set.insert(ref);
+            if constexpr (std::is_same_v<T, Decimal256>) {
+                set.insert(ref.value);
+            } else {
+                set.insert(ref);
+            }
         }
     }
 
@@ -222,7 +244,12 @@ public:
         for (size_t i = 0; i < size; ++i) {
             KeyType ref;
             read_pod_binary(ref, buf);
-            set.insert(ref);
+            if constexpr (std::is_same_v<T, Decimal256>) {
+                set.insert(ref.value);
+                ;
+            } else {
+                set.insert(ref);
+            }
         }
     }
 

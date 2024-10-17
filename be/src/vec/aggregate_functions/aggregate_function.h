@@ -34,9 +34,15 @@
 
 namespace doris::vectorized {
 
+const static std::string DECIMAL256_FUNCTION_SUFFIX {"_decimal256"};
+
 class Arena;
 class IColumn;
 class IDataType;
+
+struct AggregateFunctionAttr {
+    bool enable_decimal256 {};
+};
 
 template <bool nullable, typename ColVecType>
 class AggregateFunctionBitmapCount;

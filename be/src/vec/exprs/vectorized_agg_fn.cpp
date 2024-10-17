@@ -198,11 +198,11 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc,
             _function = AggregateFunctionSimpleFactory::instance().get(
                     _fn.name.function_name, argument_types,
                     AggregateFunctionSimpleFactory::result_nullable_by_foreach(_data_type),
-                    state->be_exec_version(), state->enable_decimal256());
+                    state->be_exec_version(), {.enable_decimal256 = state->enable_decimal256()});
         } else {
             _function = AggregateFunctionSimpleFactory::instance().get(
                     _fn.name.function_name, argument_types, _data_type->is_nullable(),
-                    state->be_exec_version(), state->enable_decimal256());
+                    state->be_exec_version(), {.enable_decimal256 = state->enable_decimal256()});
         }
     }
     if (_function == nullptr) {

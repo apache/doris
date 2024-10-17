@@ -47,7 +47,8 @@ AggregateFunctionPtr create_agg_function_histogram(const DataTypes& argument_typ
 
 AggregateFunctionPtr create_aggregate_function_histogram(const std::string& name,
                                                          const DataTypes& argument_types,
-                                                         const bool result_is_nullable) {
+                                                         const bool result_is_nullable,
+                                                         const AggregateFunctionAttr& attr) {
     WhichDataType type(remove_nullable(argument_types[0]));
 
 #define DISPATCH(TYPE)               \

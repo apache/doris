@@ -153,12 +153,19 @@ public:
     }
 
     FunctionBasePtr get_function(const std::string& name, const ColumnsWithTypeAndName& arguments,
-                                 const DataTypePtr& return_type,
+                                 const DataTypePtr& return_type, bool enable_decimal256 = false,
                                  int be_version = BeExecVersionManager::get_newest_version()) {
         std::string key_str = name;
 
         if (function_alias.contains(name)) {
             key_str = function_alias[name];
+        }
+
+        if (enable_decimal256) {
+            if (key_str == "array_sum" || key_str == "array_avg" || key_str == "array_product" ||
+                key_str == "array_cum_sum") {
+                key_str += DECIMAL256_FUNCTION_SUFFIX;
+            }
         }
 
         temporary_function_update(be_version, key_str);
