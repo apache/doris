@@ -1147,8 +1147,6 @@ DEFINE_mInt32(publish_version_gap_logging_threshold, "200");
 // The secure path with user files, used in the `local` table function.
 DEFINE_mString(user_files_secure_path, "${DORIS_HOME}");
 
-DEFINE_Int32(partition_topn_partition_threshold, "1024");
-
 DEFINE_Int32(fe_expire_duration_seconds, "60");
 
 DEFINE_Int32(grace_shutdown_wait_seconds, "120");
