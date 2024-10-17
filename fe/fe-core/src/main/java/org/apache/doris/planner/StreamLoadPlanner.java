@@ -290,7 +290,7 @@ public class StreamLoadPlanner {
         if (taskInfo instanceof RoutineLoadJob) {
             // For routine load, make the timeout fo plan fragment larger than MaxIntervalS config.
             // So that the execution won't be killed before consuming finished.
-            timeout *= 2;
+            timeout *= Config.routine_load_task_timeout_multiplier;
         }
 
         final boolean enableMemtableOnSinkNode =
