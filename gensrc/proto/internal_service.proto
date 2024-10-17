@@ -613,6 +613,7 @@ message PPublishFilterRequestV2 {
     optional int64 merge_time = 9;
     optional bool contain_null = 10;
     optional bool ignored = 11;
+    repeated int32 fragment_ids = 12;
 };
 
 message PPublishFilterResponse {
