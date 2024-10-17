@@ -36,6 +36,7 @@
 #include "common/status.h"
 #include "olap/rowset/segment_v2/inverted_index/analyzer/analyzer.h"
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
+#include "runtime/runtime_state.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
 #include "vec/core/column_with_type_and_name.h"
@@ -81,8 +82,9 @@ Status VMatchPredicate::prepare(RuntimeState* state, const RowDescriptor& desc,
         child_expr_name.emplace_back(child->expr_name());
     }
 
-    _function = SimpleFunctionFactory::instance().get_function(_fn.name.function_name,
-                                                               argument_template, _data_type);
+    _function = SimpleFunctionFactory::instance().get_function(
+            _fn.name.function_name, argument_template, _data_type,
+            {.enable_decimal256 = state->enable_decimal256()});
     if (_function == nullptr) {
         std::string type_str;
         for (auto arg : argument_template) {

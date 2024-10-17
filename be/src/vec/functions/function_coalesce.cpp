@@ -26,6 +26,7 @@
 #include <vector>
 
 #include "common/status.h"
+#include "runtime/runtime_state.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_complex.h"
@@ -55,6 +56,7 @@ class FunctionCoalesce : public IFunction {
 public:
     static constexpr auto name = "coalesce";
 
+    mutable DataTypePtr result_type;
     mutable FunctionBasePtr func_is_not_null;
 
     static FunctionPtr create() { return std::make_shared<FunctionCoalesce>(); }
@@ -68,25 +70,26 @@ public:
     size_t get_number_of_arguments() const override { return 0; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        DataTypePtr res;
         for (const auto& arg : arguments) {
             if (!arg->is_nullable()) {
-                res = arg;
+                result_type = arg;
                 break;
             }
         }
 
-        res = res ? res : arguments[0];
-
-        const ColumnsWithTypeAndName is_not_null_col {{nullptr, make_nullable(res), ""}};
-        func_is_not_null = SimpleFunctionFactory::instance().get_function(
-                "is_not_null_pred", is_not_null_col, std::make_shared<DataTypeUInt8>());
-
-        return res;
+        result_type = result_type ? result_type : arguments[0];
+        return result_type;
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
+        if (!func_is_not_null) [[unlikely]] {
+            const ColumnsWithTypeAndName is_not_null_col {
+                    {nullptr, make_nullable(result_type), ""}};
+            func_is_not_null = SimpleFunctionFactory::instance().get_function(
+                    "is_not_null_pred", is_not_null_col, std::make_shared<DataTypeUInt8>(),
+                    {.enable_decimal256 = context->state()->enable_decimal256()});
+        }
         DCHECK_GE(arguments.size(), 1);
         DataTypePtr result_type = block.get_by_position(result).type;
         ColumnNumbers filtered_args;
