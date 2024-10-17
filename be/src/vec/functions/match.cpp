@@ -457,10 +457,11 @@ Status FunctionMatchRegexp::execute_match(FunctionContext* context, const std::s
 
     if (hs_compile(pattern.data(), HS_FLAG_DOTALL | HS_FLAG_ALLOWEMPTY | HS_FLAG_UTF8,
                    HS_MODE_BLOCK, nullptr, &database, &compile_err) != HS_SUCCESS) {
-        LOG(ERROR) << "hyperscan compilation failed: " << compile_err->message;
+        std::string err_message = "hyperscan compilation failed: ";
+        err_message.append(compile_err->message);
+        LOG(ERROR) << err_message;
         hs_free_compile_error(compile_err);
-        return Status::Error<ErrorCode::INVERTED_INDEX_INVALID_PARAMETERS>(
-                std::string("hyperscan compilation failed:") + compile_err->message);
+        return Status::Error<ErrorCode::INVERTED_INDEX_INVALID_PARAMETERS>(err_message);
     }
 
     if (hs_alloc_scratch(database, &scratch) != HS_SUCCESS) {
