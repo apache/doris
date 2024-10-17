@@ -3148,7 +3148,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                         }
                         hints.put(hintName, new SelectHintUseCboRule(hintName, noUseRuleParameters, true));
                         break;
-		    default:
+                    default:
                         break;
                 }
             }
