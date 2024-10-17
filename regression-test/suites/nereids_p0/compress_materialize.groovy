@@ -87,8 +87,14 @@ suite("compress_materialize") {
 
     explain {
         sql("select sum(v) from compress group by substring(k, 1, 3);")
-        contains("group by: encode_as_bigint(substring(k, 1, 3))")
+        contains("group by: encode_as_int(substring(k, 1, 3))")
     }
+
+    explain {
+        sql("select sum(v) from compress group by substring(k, 1, 4);")
+        contains("group by: encode_as_bigint(substring(k, 1, 4))")
+    }
+
     order_qt_encodeexpr "select sum(v) from compress group by substring(k, 1, 3);"
 
 
@@ -107,5 +113,66 @@ suite("compress_materialize") {
         select k from compress group by k
     ) T join cmt2 on T.k = cmt2.k2;
     """
+
+    sql """
+    drop table if exists compressInt;
+    CREATE TABLE `compressInt` (
+    `k` varchar(3) NOT NULL,
+    `v` int NOT NULL
+    ) ENGINE=OLAP
+    duplicate KEY(`k`)
+    DISTRIBUTED BY HASH(`k`) BUCKETS AUTO
+    PROPERTIES (
+    "replication_num" = "1"
+    ); 
+
+
+    insert into compressInt values ("a", 1), ("aa", 2), ("bb", 3), ("b", 4), ("b", 5);
+    """
+    explain{
+        sql "select k from compressInt group by k"
+        contains("encode_as_int")
+    }
+
+    sql """
+    drop table if exists compressLargeInt;
+    CREATE TABLE `compressLargeInt` (
+    `k` varchar(10) NOT NULL,
+    `v` int NOT NULL
+    ) ENGINE=OLAP
+    duplicate KEY(`k`)
+    DISTRIBUTED BY HASH(`k`) BUCKETS AUTO
+    PROPERTIES (
+    "replication_num" = "1"
+    ); 
+
+
+    insert into compressLargeInt values ("a", 1), ("aa", 2), ("bb", 3), ("b", 4), ("b", 5);
+    """
+    explain{
+        sql "select k from compressLargeInt group by k"
+        contains("group by: encode_as_largeint(k)")
+    }
+
+
+    sql """
+    drop table if exists notcompress;
+    CREATE TABLE `notcompress` (
+    `k` varchar(16) NOT NULL,
+    `v` int NOT NULL
+    ) ENGINE=OLAP
+    duplicate KEY(`k`)
+    DISTRIBUTED BY HASH(`k`) BUCKETS AUTO
+    PROPERTIES (
+    "replication_num" = "1"
+    ); 
+
+
+    insert into notcompress values ("a", 1), ("aa", 2), ("bb", 3), ("b", 4), ("b", 5);
+    """
+    explain{
+        sql "select k from notcompress group by k"
+        notContains("any_value")
+    }
 }
 
