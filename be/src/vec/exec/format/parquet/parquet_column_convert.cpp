@@ -19,7 +19,6 @@
 
 #include <cctz/time_zone.h>
 
-#include "runtime/define_primitive_type.h"
 #include "vec/columns/column_nullable.h"
 namespace doris::vectorized::parquet {
 const cctz::time_zone ConvertParams::utc0 = cctz::utc_time_zone();
@@ -28,8 +27,7 @@ const cctz::time_zone ConvertParams::utc0 = cctz::utc_time_zone();
     M(TYPE_DECIMALV2)                \
     M(TYPE_DECIMAL32)                \
     M(TYPE_DECIMAL64)                \
-    M(TYPE_DECIMAL128I)              \
-    M(TYPE_DECIMAL256)
+    M(TYPE_DECIMAL128I)
 
 bool PhysicalToLogicalConverter::is_parquet_native_type(PrimitiveType type) {
     switch (type) {
@@ -52,7 +50,6 @@ bool PhysicalToLogicalConverter::is_decimal_type(doris::PrimitiveType type) {
     case TYPE_DECIMAL32:
     case TYPE_DECIMAL64:
     case TYPE_DECIMAL128I:
-    case TYPE_DECIMAL256:
     case TYPE_DECIMALV2:
         return true;
     default:
