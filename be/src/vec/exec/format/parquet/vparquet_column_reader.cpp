@@ -179,9 +179,10 @@ void ParquetColumnReader::_generate_read_ranges(int64_t start_index, int64_t end
 Status ScalarColumnReader::init(io::FileReaderSPtr file, FieldSchema* field, size_t max_buf_size) {
     _field_schema = field;
     auto& chunk_meta = _chunk_meta.meta_data;
-    int64_t chunk_start = chunk_meta.__isset.dictionary_page_offset
-                                  ? chunk_meta.dictionary_page_offset
-                                  : chunk_meta.data_page_offset;
+    int64_t chunk_start =
+            chunk_meta.__isset.dictionary_page_offset && chunk_meta.dictionary_page_offset > 0
+                    ? chunk_meta.dictionary_page_offset
+                    : chunk_meta.data_page_offset;
     size_t chunk_len = chunk_meta.total_compressed_size;
     size_t prefetch_buffer_size = std::min(chunk_len, max_buf_size);
     if (typeid_cast<io::MergeRangeFileReader*>(file.get())) {

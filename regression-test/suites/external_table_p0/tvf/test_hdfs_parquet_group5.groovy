@@ -183,14 +183,6 @@ suite("test_hdfs_parquet_group5","external,hive,tvf,external_docker") {
                         "format" = "parquet") limit 10; """
 
 
-            // uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_parquet/group5/nation.dict-malformed.parquet"
-            // order_qt_test_22 """ select * from HDFS(
-            //             "uri" = "${uri}",
-            //             "hadoop.username" = "${hdfsUserName}",
-            //             "format" = "parquet") limit 10; """
-            // [E-3113]string column length is too large: total_length=7909446880690438330, element_number=25, you can set batch_size a number smaller than 25 to avoid this error
-
-
             uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_parquet/group5/v0.7.1.column-metadata-handling.parquet"
             order_qt_test_23 """ select * from HDFS(
                         "uri" = "${uri}",
@@ -217,17 +209,6 @@ suite("test_hdfs_parquet_group5","external,hive,tvf,external_docker") {
                         "uri" = "${uri}",
                         "hadoop.username" = "${hdfsUserName}",
                         "format" = "parquet") limit 10; """
-
-
-            uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_parquet/group5/dict-page-offset-zero.parquet"
-            test {
-                sql """ select * from HDFS(
-                        "uri" = "${uri}",
-                        "hadoop.username" = "${hdfsUserName}",
-                        "format" = "parquet") limit 10; """
-                exception "Failed to deserialize parquet page header. offset: 0, header size: 40, end offset: 40, real header size: 40"
-            }
-
 
             uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_parquet/group5/native_parquet_reader.parquet"
             order_qt_test_28 """ select * from HDFS(
