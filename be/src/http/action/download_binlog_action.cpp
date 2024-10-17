@@ -48,6 +48,7 @@ const std::string kBinlogVersionParameter = "binlog_version";
 const std::string kRowsetIdParameter = "rowset_id";
 const std::string kSegmentIndexParameter = "segment_index";
 const std::string kSegmentIndexIdParameter = "segment_index_id";
+const std::string kSegmentIndexSuffixIdParameter = "segment_index_suffix";
 const std::string kAcquireMD5Parameter = "acquire_md5";
 
 // get http param, if no value throw exception
@@ -147,8 +148,9 @@ void handle_get_segment_index_file(StorageEngine& engine, HttpRequest* req,
         const auto& rowset_id = get_http_param(req, kRowsetIdParameter);
         const auto& segment_index = get_http_param(req, kSegmentIndexParameter);
         const auto& segment_index_id = req->param(kSegmentIndexIdParameter);
-        segment_index_file_path =
-                tablet->get_segment_index_filepath(rowset_id, segment_index, segment_index_id);
+        const auto& segment_index_suffix = req->param(kSegmentIndexSuffixIdParameter);
+        segment_index_file_path = tablet->get_segment_index_filepath(
+                rowset_id, segment_index, segment_index_id, segment_index_suffix);
         is_acquire_md5 = !req->param(kAcquireMD5Parameter).empty();
     } catch (const std::exception& e) {
         HttpChannel::send_reply(req, HttpStatus::INTERNAL_SERVER_ERROR, e.what());

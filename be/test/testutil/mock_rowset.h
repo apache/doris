@@ -67,6 +67,8 @@ class MockRowset : public Rowset {
         return Status::OK();
     }
 
+    Result<std::vector<io::FileInfo>> list_inverted_index_files() override { return {}; }
+
 protected:
     MockRowset(TabletSchemaSPtr schema, RowsetMetaSharedPtr rowset_meta)
             : Rowset(schema, rowset_meta, "") {}

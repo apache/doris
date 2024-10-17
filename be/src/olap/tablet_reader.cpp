@@ -536,7 +536,7 @@ Status TabletReader::_init_conditions_param(const ReaderParams& read_params) {
         auto* pred = predicates.back();
 
         const auto& col = _tablet_schema->column(pred->column_id());
-        const auto* tablet_index = _tablet_schema->get_ngram_bf_index(col.unique_id());
+        const auto* tablet_index = _tablet_schema->ngram_bf_index(col);
         if (is_like_predicate(pred) && tablet_index && config::enable_query_like_bloom_filter) {
             std::unique_ptr<segment_v2::BloomFilter> ng_bf;
             std::string pattern = pred->get_search_str();

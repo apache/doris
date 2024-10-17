@@ -304,8 +304,8 @@ public:
     static std::string deterministic_string_serialize(const TabletSchemaPB& schema_pb);
     void to_schema_pb(TabletSchemaPB* tablet_meta_pb) const;
     void append_column(TabletColumn column, ColumnType col_type = ColumnType::NORMAL);
-    void append_index(TabletIndex index);
-    void update_index(const TabletColumn& column, TabletIndex index);
+    void append_index(TabletIndex&& index);
+    void update_index(const TabletColumn& column, const IndexType& index_type, TabletIndex&& index);
     void remove_index(int64_t index_id);
     void clear_index();
     // Must make sure the row column is always the last column
@@ -385,19 +385,21 @@ public:
         }
         return false;
     }
-    std::vector<const TabletIndex*> get_indexes_for_column(const TabletColumn& col) const;
+    bool has_inverted_index(int64_t index_id) const;
     bool has_inverted_index(const TabletColumn& col) const;
-    bool has_inverted_index_with_index_id(int64_t index_id, const std::string& suffix_path) const;
-    const TabletIndex* get_inverted_index_with_index_id(int64_t index_id,
-                                                        const std::string& suffix_name) const;
-    // check_valid: check if this column supports inverted index
-    // Some columns (Float, Double, JSONB ...) from the variant do not support index, but they are listed in TabletIndex.
-    // If returned, the index file will not be found.
-    const TabletIndex* get_inverted_index(const TabletColumn& col, bool check_valid = true) const;
-    const TabletIndex* get_inverted_index(int32_t col_unique_id,
-                                          const std::string& suffix_path) const;
-    bool has_ngram_bf_index(int32_t col_unique_id) const;
-    const TabletIndex* get_ngram_bf_index(int32_t col_unique_id) const;
+    // Check whether the column supports inverted index.
+    const TabletIndex* inverted_index(const TabletColumn& col) const;
+    // Regardless of whether this column supports inverted index
+    // TabletIndex information will be returned as long as it exists.
+    const TabletIndex* inverted_index(int32_t col_unique_id,
+                                      const std::string& suffix_path = "") const;
+
+    // Check whether the column supports ngram bf index.
+    const TabletIndex* ngram_bf_index(const TabletColumn& col) const;
+    // Regardless of whether this column supports ngram bf
+    // TabletIndex information will be returned as long as it exists.
+    const TabletIndex* ngram_bf_index(int32_t col_unique_id,
+                                      const std::string& suffix_path = "") const;
     void update_indexes_from_thrift(const std::vector<doris::TOlapTableIndex>& indexes);
     // If schema version is not set, it should be -1
     int32_t schema_version() const { return _schema_version; }

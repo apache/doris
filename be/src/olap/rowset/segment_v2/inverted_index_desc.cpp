@@ -19,6 +19,7 @@
 
 #include <fmt/format.h>
 
+#include "common/status.h"
 #include "gutil/strings/strip.h"
 #include "olap/olap_common.h"
 
@@ -68,6 +69,40 @@ std::string InvertedIndexDescriptor::get_index_file_cache_key(std::string_view i
     std::string suffix =
             index_path_suffix.empty() ? "" : std::string {"@"} + index_path_suffix.data();
     return fmt::format("{}_{}{}", index_path_prefix, index_id, suffix);
+}
+
+IndexFileNameFragment InvertedIndexDescriptor::decompose_local_index_file_name(
+        const std::string& index_file_name) {
+    DCHECK(index_file_name.ends_with(index_suffix));
+    IndexFileNameFragment file_name_fragment;
+    try {
+        size_t underscore_pos = index_file_name.find('_');
+        if (underscore_pos == std::string::npos) {
+            return {};
+        }
+
+        // {rowset_id}_{seg_id}{index_suffix}
+        file_name_fragment.rowset_id = std::string_view(index_file_name.data(), underscore_pos);
+        file_name_fragment.seg_id = std::stoi(index_file_name.substr(underscore_pos + 1));
+
+        size_t suffix_start_pos = index_file_name.find('_', underscore_pos + 1);
+        if (suffix_start_pos == std::string::npos) {
+            file_name_fragment.index_suffix = index_suffix;
+        } else {
+            file_name_fragment.index_suffix = std::string_view(
+                    index_file_name.data() + suffix_start_pos); // "such as _30293@path.idx"
+        }
+
+        return file_name_fragment;
+    } catch (...) {
+        return {};
+    }
+}
+
+std::string InvertedIndexDescriptor::snapshot_index_file_name(const std::string& index_file_name) {
+    DCHECK(index_file_name.ends_with(index_suffix));
+    return fmt::format("{}{}", index_file_name.substr(0, index_file_name.size() - 4),
+                       ".binlog-index");
 }
 
 } // namespace doris::segment_v2
