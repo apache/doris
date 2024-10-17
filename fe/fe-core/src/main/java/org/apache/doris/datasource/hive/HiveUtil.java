@@ -25,6 +25,7 @@ import org.apache.doris.datasource.statistics.CommonStatistics;
 import org.apache.doris.fs.remote.BrokerFileSystem;
 import org.apache.doris.fs.remote.RemoteFileSystem;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -69,6 +70,8 @@ public final class HiveUtil {
     public static final String COMPRESSION_KEY = "compression";
     public static final Set<String> SUPPORTED_ORC_COMPRESSIONS = ImmutableSet.of("plain", "zlib", "snappy", "zstd");
     public static final Set<String> SUPPORTED_PARQUET_COMPRESSIONS = ImmutableSet.of("plain", "snappy", "zstd");
+    public static final Set<String> SUPPORTED_TEXT_COMPRESSIONS =
+            ImmutableSet.of("plain", "gzip", "zstd", "bzip2", "lz4", "snappy");
 
     private HiveUtil() {
     }
@@ -191,7 +194,6 @@ public final class HiveUtil {
         Table table = new Table();
         table.setDbName(hiveTable.getDbName());
         table.setTableName(hiveTable.getTableName());
-        // table.setOwner("");
         int createTime = (int) System.currentTimeMillis() * 1000;
         table.setCreateTime(createTime);
         table.setLastAccessTime(createTime);
@@ -211,10 +213,10 @@ public final class HiveUtil {
         setCompressType(hiveTable, props);
         // set hive table comment by table properties
         props.put("comment", hiveTable.getComment());
-        table.setParameters(props);
         if (props.containsKey("owner")) {
             table.setOwner(props.get("owner"));
         }
+        HiveProperties.setTableProperties(table, props);
         return table;
     }
 
@@ -232,6 +234,12 @@ public final class HiveUtil {
                 throw new AnalysisException("Unsupported orc compression type " + compression);
             }
             props.putIfAbsent("orc.compress", StringUtils.isEmpty(compression) ? "zlib" : compression);
+        } else if (fileFormat.equalsIgnoreCase("text")) {
+            if (StringUtils.isNotEmpty(compression) && !SUPPORTED_TEXT_COMPRESSIONS.contains(compression)) {
+                throw new AnalysisException("Unsupported text compression type " + compression);
+            }
+            props.putIfAbsent("text.compression", StringUtils.isEmpty(compression)
+                    ? ConnectContext.get().getSessionVariable().hiveTextCompression() : compression);
         } else {
             throw new IllegalArgumentException("Compression is not supported on " + fileFormat);
         }
@@ -249,7 +257,7 @@ public final class HiveUtil {
         sd.setBucketCols(bucketCols);
         sd.setNumBuckets(numBuckets);
         Map<String, String> parameters = new HashMap<>();
-        parameters.put("tag", "doris external hive talbe");
+        parameters.put("tag", "doris external hive table");
         sd.setParameters(parameters);
         return sd;
     }
@@ -266,6 +274,10 @@ public final class HiveUtil {
             inputFormat = "org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat";
             outputFormat = "org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat";
             serDe = "org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe";
+        } else if (fileFormat.equalsIgnoreCase("text")) {
+            inputFormat = "org.apache.hadoop.mapred.TextInputFormat";
+            outputFormat = "org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat";
+            serDe = "org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe";
         } else {
             throw new IllegalArgumentException("Creating table with an unsupported file format: " + fileFormat);
         }
