@@ -40,6 +40,8 @@ import org.apache.doris.qe.ConnectContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.Map;
+
 /**
  * eliminate logical select hint and set them to cascade context
  */
