@@ -299,7 +299,9 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> impl
     @Override
     public void cancelAllTasks() throws JobException {
         try {
-            checkAuth("CANCEL LOAD");
+            if (getJobConfig().getExecuteType().equals(JobExecuteType.INSTANT)) {
+                checkAuth("CANCEL LOAD");
+            }
             super.cancelAllTasks();
             this.failMsg = new FailMsg(FailMsg.CancelType.USER_CANCEL, "user cancel");
         } catch (DdlException e) {
