@@ -19,6 +19,8 @@
 
 #include <stdint.h>
 
+#include <memory>
+
 #include "common/status.h"
 #include "data_type_serde.h"
 #include "util/jsonb_writer.h"
@@ -30,6 +32,7 @@ class JsonbValue;
 namespace vectorized {
 class IColumn;
 class Arena;
+class IDataType;
 
 class DataTypeNullableSerDe : public DataTypeSerDe {
 public:
@@ -96,7 +99,8 @@ public:
 
     Status write_one_cell_to_json(const IColumn& column, rapidjson::Value& result,
                                   rapidjson::Document::AllocatorType& allocator, Arena& mem_pool,
-                                  int row_num) const override;
+                                  int row_num,
+                                  const std::shared_ptr<const IDataType>& type) const override;
     Status read_one_cell_from_json(IColumn& column, const rapidjson::Value& result) const override;
 
 private:

@@ -32,8 +32,10 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <cstring>
 #include <memory>
 #include <ostream>
+#include <set>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -45,6 +47,7 @@
 #include "olap/tablet_schema.h"
 #include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
+#include "runtime/runtime_state.h"
 #include "udf/udf.h"
 #include "util/defer_op.h"
 #include "vec/columns/column.h"
@@ -156,7 +159,8 @@ Status cast_column(const ColumnWithTypeAndName& arg, const DataTypePtr& type, Co
     }
     Block tmp_block {arguments};
     size_t result_column = tmp_block.columns();
-    auto ctx = FunctionContext::create_context(nullptr, {}, {});
+    RuntimeState state;
+    auto ctx = FunctionContext::create_context(&state, {}, {});
 
     // To prevent from null info lost, we should not call function since the function framework will wrap
     // nullable to Variant instead of the root of Variant
@@ -230,9 +234,15 @@ void get_column_by_type(const vectorized::DataTypePtr& data_type, const std::str
         column.set_length(data_type->get_size_of_value_in_memory());
         return;
     }
-    // TODO handle more types like struct/date/datetime/decimal...
-    LOG(FATAL) << "__builtin_unreachable";
-    __builtin_unreachable();
+    if (WhichDataType(*data_type).is_decimal()) {
+        column.set_precision_frac(data_type->get_precision(), data_type->get_scale());
+        column.set_is_decimal(true);
+        return;
+    }
+    if (WhichDataType(*data_type).is_date_time_v2()) {
+        column.set_precision_frac(-1, data_type->get_scale());
+        return;
+    }
 }
 
 TabletColumn get_column_by_type(const vectorized::DataTypePtr& data_type, const std::string& name,
@@ -308,7 +318,7 @@ void update_least_common_schema(const std::vector<TabletSchemaSPtr>& schemas,
             // Get subcolumns of this variant
             if (col->has_path_info() && col->parent_unique_id() > 0 &&
                 col->parent_unique_id() == variant_col_unique_id) {
-                subcolumns_types[*col->path_info_ptr()].push_back(
+                subcolumns_types[*col->path_info_ptr()].emplace_back(
                         DataTypeFactory::instance().create_data_type(*col, col->is_nullable()));
             }
         }
@@ -325,7 +335,7 @@ void update_least_common_schema(const std::vector<TabletSchemaSPtr>& schemas,
                 col->parent_unique_id() == variant_col_unique_id &&
                 // this column have been found in origin columns
                 subcolumns_types.find(*col->path_info_ptr()) != subcolumns_types.end()) {
-                subcolumns_types[*col->path_info_ptr()].push_back(
+                subcolumns_types[*col->path_info_ptr()].emplace_back(
                         DataTypeFactory::instance().create_data_type(*col, col->is_nullable()));
             }
         }
@@ -350,7 +360,7 @@ void update_least_sparse_column(const std::vector<TabletSchemaSPtr>& schemas,
             if (col->has_path_info() && col->parent_unique_id() > 0 &&
                 col->parent_unique_id() == variant_col_unique_id &&
                 path_set.find(*col->path_info_ptr()) == path_set.end()) {
-                subcolumns_types[*col->path_info_ptr()].push_back(
+                subcolumns_types[*col->path_info_ptr()].emplace_back(
                         DataTypeFactory::instance().create_data_type(*col, col->is_nullable()));
             }
         }

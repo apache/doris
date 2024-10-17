@@ -93,6 +93,7 @@
 #include "vec/functions/function.h"
 #include "vec/functions/function_convert_tz.h"
 #include "vec/functions/function_helpers.h"
+#include "vec/io/io_helper.h"
 #include "vec/io/reader_buffer.h"
 #include "vec/runtime/vdatetime_value.h"
 #include "vec/utils/util.hpp"
@@ -836,7 +837,7 @@ struct ConvertNothingToJsonb {
     }
 };
 
-template <TypeIndex type_index, typename ColumnType>
+template <TypeIndex type_index, typename ColumnType, typename ToDataType>
 struct ConvertImplFromJsonb {
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                           const size_t result, size_t input_rows_count) {
@@ -850,16 +851,12 @@ struct ConvertImplFromJsonb {
             auto& null_map = null_map_col->get_data();
             auto col_to = ColumnType::create();
 
-            //IColumn & col_to = *res;
-            // size_t size = col_from.size();
             col_to->reserve(input_rows_count);
             auto& res = col_to->get_data();
             res.resize(input_rows_count);
 
             for (size_t i = 0; i < input_rows_count; ++i) {
                 const auto& val = column_string->get_data_at(i);
-                // ReadBuffer read_buffer((char*)(val.data), val.size);
-                // RETURN_IF_ERROR(data_type_to->from_string(read_buffer, col_to));
 
                 if (val.size == 0) {
                     null_map[i] = 1;
@@ -880,6 +877,15 @@ struct ConvertImplFromJsonb {
                 if (UNLIKELY(!value)) {
                     null_map[i] = 1;
                     res[i] = 0;
+                    continue;
+                }
+                if (value->isString()) {
+                    // convert by parse
+                    const auto& data = static_cast<const JsonbBlobVal*>(value)->getBlob();
+                    size_t len = static_cast<const JsonbBlobVal*>(value)->getBlobLen();
+                    ReadBuffer rb((char*)(data), len);
+                    bool parsed = try_parse_impl<ToDataType>(res[i], rb, context);
+                    null_map[i] = !parsed;
                     continue;
                 }
                 if constexpr (type_index == TypeIndex::UInt8) {
@@ -1976,19 +1982,20 @@ private:
                                      bool jsonb_string_as_string) const {
         switch (to_type->get_type_id()) {
         case TypeIndex::UInt8:
-            return &ConvertImplFromJsonb<TypeIndex::UInt8, ColumnUInt8>::execute;
+            return &ConvertImplFromJsonb<TypeIndex::UInt8, ColumnUInt8, DataTypeUInt8>::execute;
         case TypeIndex::Int8:
-            return &ConvertImplFromJsonb<TypeIndex::Int8, ColumnInt8>::execute;
+            return &ConvertImplFromJsonb<TypeIndex::Int8, ColumnInt8, DataTypeInt8>::execute;
         case TypeIndex::Int16:
-            return &ConvertImplFromJsonb<TypeIndex::Int16, ColumnInt16>::execute;
+            return &ConvertImplFromJsonb<TypeIndex::Int16, ColumnInt16, DataTypeInt16>::execute;
         case TypeIndex::Int32:
-            return &ConvertImplFromJsonb<TypeIndex::Int32, ColumnInt32>::execute;
+            return &ConvertImplFromJsonb<TypeIndex::Int32, ColumnInt32, DataTypeInt32>::execute;
         case TypeIndex::Int64:
-            return &ConvertImplFromJsonb<TypeIndex::Int64, ColumnInt64>::execute;
+            return &ConvertImplFromJsonb<TypeIndex::Int64, ColumnInt64, DataTypeInt64>::execute;
         case TypeIndex::Int128:
-            return &ConvertImplFromJsonb<TypeIndex::Int128, ColumnInt128>::execute;
+            return &ConvertImplFromJsonb<TypeIndex::Int128, ColumnInt128, DataTypeInt128>::execute;
         case TypeIndex::Float64:
-            return &ConvertImplFromJsonb<TypeIndex::Float64, ColumnFloat64>::execute;
+            return &ConvertImplFromJsonb<TypeIndex::Float64, ColumnFloat64,
+                                         DataTypeFloat64>::execute;
         case TypeIndex::String:
             if (!jsonb_string_as_string) {
                 // Conversion from String through parsing.

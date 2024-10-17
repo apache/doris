@@ -442,24 +442,19 @@ suite("regression_test_variant", "p0"){
         qt_sql "select * from var_as_key order by k"
 
         test {
-            sql """select * from ghdata where cast(v['actor']['url'] as ipv4) = '127.0.0.1'""" 
-            exception("Invalid type for variant column: 36")
-        }
-
-         test {
-            sql """
-            create table var(
-                `key` int,
-                `content` variant
-            )
-            DUPLICATE KEY(`key`)
-            distributed by hash(`key`) buckets 8
-            properties(
-              "replication_allocation" = "tag.location.default: 1",
-              "light_schema_change" = "false"
-            );
-            """
-            exception("errCode = 2, detailMessage = Variant type rely on light schema change")
+           sql """
+           create table var(
+               `key` int,
+               `content` variant
+           )
+           DUPLICATE KEY(`key`)
+           distributed by hash(`key`) buckets 8
+           properties(
+             "replication_allocation" = "tag.location.default: 1",
+             "light_schema_change" = "false"
+           );
+           """
+           exception("errCode = 2, detailMessage = Variant type rely on light schema change")
         }
 
     } finally {

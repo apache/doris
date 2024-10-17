@@ -41,6 +41,7 @@ public class InvertedIndexUtil {
     public static String INVERTED_INDEX_PARSER_COARSE_GRANULARITY = "coarse_grained";
 
     public static String INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE = "char_filter_type";
+    public static String INVERTED_INDEX_SUB_COLUMN_PATH = "sub_column_path";
     public static String INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN = "char_filter_pattern";
     public static String INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT = "char_filter_replacement";
 
@@ -157,7 +158,8 @@ public class InvertedIndexUtil {
                 INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT,
                 INVERTED_INDEX_PARSER_IGNORE_ABOVE_KEY,
                 INVERTED_INDEX_PARSER_LOWERCASE_KEY,
-                INVERTED_INDEX_PARSER_STOPWORDS_KEY
+                INVERTED_INDEX_PARSER_STOPWORDS_KEY,
+                INVERTED_INDEX_SUB_COLUMN_PATH
         ));
 
         for (String key : properties.keySet()) {
