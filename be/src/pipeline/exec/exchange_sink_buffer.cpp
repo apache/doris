@@ -88,15 +88,14 @@ void BroadcastPBlockHolderMemLimiter::release(const BroadcastPBlockHolder& holde
 namespace pipeline {
 
 ExchangeSinkBuffer::ExchangeSinkBuffer(PUniqueId query_id, PlanNodeId dest_node_id,
-                                       RuntimeState* state, ExchangeSinkLocalState* parent)
+                                       RuntimeState* state)
         : HasTaskExecutionCtx(state),
           _queue_capacity(0),
           _is_finishing(false),
           _query_id(query_id),
           _dest_node_id(dest_node_id),
           _fragment_state(state),
-          _context(state->get_query_ctx()),
-          _parent(parent) {}
+          _context(state->get_query_ctx()) {}
 
 void ExchangeSinkBuffer::close() {
     // Could not clear the queue here, because there maybe a running rpc want to
@@ -107,13 +106,16 @@ void ExchangeSinkBuffer::close() {
     //_instance_to_request.clear();
 }
 
+// If all_done is true, it means there are no channels currently sending data.
 void ExchangeSinkBuffer::_set_ready_to_finish(bool all_done) {
-    if (_finish_dependency && _should_stop && all_done) {
-        _finish_dependency->set_ready();
+    if (_is_all_eos && all_done) {
+        for (auto dep : _finish_dependencies) {
+            dep->set_always_ready();
+        }
     }
 }
 
-void ExchangeSinkBuffer::register_sink(TUniqueId fragment_instance_id) {
+void ExchangeSinkBuffer::construct_request(TUniqueId fragment_instance_id) {
     if (_is_finishing) {
         return;
     }
@@ -165,14 +167,13 @@ Status ExchangeSinkBuffer::add_block(TransmitInfo&& request) {
         if (request.block) {
             RETURN_IF_ERROR(
                     BeExecVersionManager::check_be_exec_version(request.block->be_exec_version()));
-            COUNTER_UPDATE(_parent->memory_used_counter(), request.block->ByteSizeLong());
-            COUNTER_SET(_parent->peak_memory_usage_counter(),
-                        _parent->memory_used_counter()->value());
         }
         _instance_to_package_queue[ins_id].emplace(std::move(request));
         _total_queue_size++;
-        if (_queue_dependency && _total_queue_size > _queue_capacity) {
-            _queue_dependency->block();
+        if (_total_queue_size > _queue_capacity) {
+            for (auto dep : _queue_dependencies) {
+                dep->block();
+            }
         }
     }
     if (send_now) {
@@ -291,13 +292,14 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
             }
         }
         if (request.block) {
-            COUNTER_UPDATE(_parent->memory_used_counter(), -request.block->ByteSizeLong());
             static_cast<void>(brpc_request->release_block());
         }
         q.pop();
         _total_queue_size--;
-        if (_queue_dependency && _total_queue_size <= _queue_capacity) {
-            _queue_dependency->set_ready();
+        if (_total_queue_size <= _queue_capacity) {
+            for (auto dep : _queue_dependencies) {
+                dep->set_ready();
+            }
         }
     } else if (!broadcast_q.empty()) {
         // If we have data to shuffle which is broadcasted
@@ -382,10 +384,6 @@ void ExchangeSinkBuffer::_set_receiver_eof(InstanceLoId id) {
     std::queue<BroadcastTransmitInfo, std::list<BroadcastTransmitInfo>>& broadcast_q =
             _instance_to_broadcast_package_queue[id];
     for (; !broadcast_q.empty(); broadcast_q.pop()) {
-        if (broadcast_q.front().block_holder->get_block()) {
-            COUNTER_UPDATE(_parent->memory_used_counter(),
-                           -broadcast_q.front().block_holder->get_block()->ByteSizeLong());
-        }
     }
     {
         std::queue<BroadcastTransmitInfo, std::list<BroadcastTransmitInfo>> empty;
@@ -394,9 +392,6 @@ void ExchangeSinkBuffer::_set_receiver_eof(InstanceLoId id) {
 
     std::queue<TransmitInfo, std::list<TransmitInfo>>& q = _instance_to_package_queue[id];
     for (; !q.empty(); q.pop()) {
-        if (q.front().block) {
-            COUNTER_UPDATE(_parent->memory_used_counter(), -q.front().block->ByteSizeLong());
-        }
     }
 
     {
@@ -417,8 +412,8 @@ void ExchangeSinkBuffer::_turn_off_channel(InstanceLoId id, bool cleanup) {
         _set_ready_to_finish(all_done);
         if (cleanup && all_done) {
             auto weak_task_ctx = weak_task_exec_ctx();
-            if (auto pip_ctx = weak_task_ctx.lock()) {
-                _parent->set_reach_limit();
+            for (auto* local_state : _local_states) {
+                local_state->set_reach_limit();
             }
         }
     } else {

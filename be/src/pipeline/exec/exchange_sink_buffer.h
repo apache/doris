@@ -172,10 +172,9 @@ private:
 // Each ExchangeSinkOperator have one ExchangeSinkBuffer
 class ExchangeSinkBuffer final : public HasTaskExecutionCtx {
 public:
-    ExchangeSinkBuffer(PUniqueId query_id, PlanNodeId dest_node_id, RuntimeState* state,
-                       ExchangeSinkLocalState* parent);
+    ExchangeSinkBuffer(PUniqueId query_id, PlanNodeId dest_node_id, RuntimeState* state);
     ~ExchangeSinkBuffer() override = default;
-    void register_sink(TUniqueId);
+    void construct_request(TUniqueId);
 
     Status add_block(TransmitInfo&& request);
     Status add_block(BroadcastTransmitInfo&& request);
@@ -185,17 +184,23 @@ public:
 
     void set_dependency(std::shared_ptr<Dependency> queue_dependency,
                         std::shared_ptr<Dependency> finish_dependency) {
-        _queue_dependency = queue_dependency;
-        _finish_dependency = finish_dependency;
+        std::lock_guard lc(_dep_lock);
+        CHECK(queue_dependency);
+        CHECK(finish_dependency);
+        _queue_dependencies.push_back(queue_dependency);
+        _finish_dependencies.push_back(finish_dependency);
     }
 
-    void set_broadcast_dependency(std::shared_ptr<Dependency> broadcast_dependency) {
-        _broadcast_dependency = broadcast_dependency;
+    void inc_running_sink(ExchangeSinkLocalState* local_state) {
+        std::lock_guard lc(_dep_lock);
+        _running_sink++;
+        _local_states.push_back(local_state);
     }
-
-    void set_should_stop() {
-        _should_stop = true;
-        _set_ready_to_finish(_busy_channels == 0);
+    void sub_running_sink() {
+        if ((--_running_sink) == 0) {
+            _is_all_eos = true;
+        }
+        // _set_ready_to_finish(_busy_channels == 0);
     }
 
 private:
@@ -223,6 +228,7 @@ private:
     std::atomic<int> _busy_channels = 0;
     phmap::flat_hash_map<InstanceLoId, bool> _instance_to_receiver_eof;
     phmap::flat_hash_map<InstanceLoId, int64_t> _instance_to_rpc_time;
+    // Once _is_finishing is set to true, no more send RPCs will be generated.
     std::atomic<bool> _is_finishing;
     PUniqueId _query_id;
     PlanNodeId _dest_node_id;
@@ -239,11 +245,15 @@ private:
     int64_t get_sum_rpc_time();
 
     std::atomic<int> _total_queue_size = 0;
-    std::shared_ptr<Dependency> _queue_dependency = nullptr;
-    std::shared_ptr<Dependency> _finish_dependency = nullptr;
-    std::shared_ptr<Dependency> _broadcast_dependency = nullptr;
-    std::atomic<bool> _should_stop = false;
-    ExchangeSinkLocalState* _parent = nullptr;
+    std::atomic_int64_t _running_sink;
+    std::atomic_bool _is_all_eos = false;
+
+    std::mutex _dep_lock;
+    std::vector<std::shared_ptr<Dependency>> _queue_dependencies;
+    std::vector<std::shared_ptr<Dependency>> _finish_dependencies;
+
+    // only use to set_reach_limit
+    std::vector<ExchangeSinkLocalState*> _local_states;
 };
 
 } // namespace pipeline
