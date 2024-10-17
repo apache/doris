@@ -79,21 +79,40 @@ private:
 
 class SpillRunnable : public Runnable {
 public:
-    SpillRunnable(RuntimeState* state, RuntimeProfile* profile, bool is_write,
-                  const std::shared_ptr<BasicSharedState>& shared_state, std::function<void()> func)
-            : _state(state),
+    SpillRunnable(RuntimeState* state, std::shared_ptr<SpillContext> spill_context,
+                  std::atomic_int& spilling_task_count, RuntimeProfile* profile,
+                  MonotonicStopWatch submit_timer,
+                  const std::shared_ptr<BasicSpillSharedState>& shared_state,
+                  std::shared_ptr<Dependency> spill_dependency, bool is_sink, bool is_write,
+                  std::function<Status()> spill_exec_func,
+                  std::function<Status()> spill_fin_cb = {})
+            : _is_sink(is_sink),
               _is_write(is_write),
+              _state(state),
+              _spill_context(std::move(spill_context)),
+              _spilling_task_count(spilling_task_count),
+              _spill_dependency(std::move(spill_dependency)),
+              _submit_timer(submit_timer),
               _task_context_holder(state->get_task_execution_context()),
               _shared_state_holder(shared_state),
-              _func(std::move(func)) {
-        write_wait_in_queue_task_count = profile->get_counter("SpillWriteTaskWaitInQueueCount");
-        writing_task_count = profile->get_counter("SpillWriteTaskCount");
-        read_wait_in_queue_task_count = profile->get_counter("SpillReadTaskWaitInQueueCount");
-        reading_task_count = profile->get_counter("SpillReadTaskCount");
+              _spill_exec_func(std::move(spill_exec_func)),
+              _spill_fin_cb(std::move(spill_fin_cb)) {
+        _exec_timer = profile->get_counter("ExecTime");
+        _spill_total_timer = profile->get_counter("SpillTotalTime");
+
+        _spill_write_timer = profile->get_counter("SpillWriteTime");
+        _spill_write_wait_in_queue_timer = profile->get_counter("SpillWriteTaskWaitInQueueTime");
+        _write_wait_in_queue_task_count = profile->get_counter("SpillWriteTaskWaitInQueueCount");
+        _writing_task_count = profile->get_counter("SpillWriteTaskCount");
+
+        _spill_revover_timer = profile->get_counter("SpillRecoverTime");
+        _spill_read_wait_in_queue_timer = profile->get_counter("SpillReadTaskWaitInQueueTime");
+        _read_wait_in_queue_task_count = profile->get_counter("SpillReadTaskWaitInQueueCount");
+        _reading_task_count = profile->get_counter("SpillReadTaskCount");
         if (is_write) {
-            COUNTER_UPDATE(write_wait_in_queue_task_count, 1);
+            COUNTER_UPDATE(_write_wait_in_queue_task_count, 1);
         } else {
-            COUNTER_UPDATE(read_wait_in_queue_task_count, 1);
+            COUNTER_UPDATE(_read_wait_in_queue_task_count, 1);
         }
     }
 
@@ -106,22 +125,46 @@ public:
         if (!task_context_holder) {
             return;
         }
+
+        auto submit_elapsed_time = _submit_timer.elapsed_time();
         if (_is_write) {
-            COUNTER_UPDATE(write_wait_in_queue_task_count, -1);
-            COUNTER_UPDATE(writing_task_count, 1);
+            _spill_write_wait_in_queue_timer->update(submit_elapsed_time);
         } else {
-            COUNTER_UPDATE(read_wait_in_queue_task_count, -1);
-            COUNTER_UPDATE(reading_task_count, 1);
+            _spill_read_wait_in_queue_timer->update(submit_elapsed_time);
+        }
+        _exec_timer->update(submit_elapsed_time);
+        _spill_total_timer->update(submit_elapsed_time);
+
+        SCOPED_TIMER(_exec_timer);
+        SCOPED_TIMER(_spill_total_timer);
+
+        std::shared_ptr<ScopedTimer<MonotonicStopWatch>> write_or_read_timer;
+        if (_is_write) {
+            write_or_read_timer =
+                    std::make_shared<ScopedTimer<MonotonicStopWatch>>(_spill_write_timer);
+            COUNTER_UPDATE(_write_wait_in_queue_task_count, -1);
+            COUNTER_UPDATE(_writing_task_count, 1);
+        } else {
+            write_or_read_timer =
+                    std::make_shared<ScopedTimer<MonotonicStopWatch>>(_spill_revover_timer);
+            COUNTER_UPDATE(_read_wait_in_queue_task_count, -1);
+            COUNTER_UPDATE(_reading_task_count, 1);
         }
         SCOPED_ATTACH_TASK(_state);
         Defer defer([&] {
             if (_is_write) {
-                COUNTER_UPDATE(writing_task_count, -1);
+                COUNTER_UPDATE(_writing_task_count, -1);
             } else {
-                COUNTER_UPDATE(reading_task_count, -1);
+                COUNTER_UPDATE(_reading_task_count, -1);
             }
-            std::function<void()> tmp;
-            std::swap(tmp, _func);
+            {
+                std::function<Status()> tmp;
+                std::swap(tmp, _spill_exec_func);
+            }
+            {
+                std::function<Status()> tmp;
+                std::swap(tmp, _spill_fin_cb);
+            }
         });
 
         auto shared_state_holder = _shared_state_holder.lock();
@@ -132,19 +175,53 @@ public:
         if (_state->is_cancelled()) {
             return;
         }
-        _func();
+        shared_state_holder->_spill_status.update(_spill_exec_func());
+
+        auto num = _spilling_task_count.fetch_sub(1);
+        DCHECK_GE(_spilling_task_count, 0);
+
+        if (num == 1) {
+            if (_spill_fin_cb) {
+                shared_state_holder->_spill_status.update(_spill_fin_cb());
+            }
+            if (_spill_context) {
+                if (_is_sink) {
+                    _spill_context->on_task_finished();
+                } else {
+                    _spill_context->on_non_sink_task_finished();
+                }
+            }
+            _spill_dependency->set_ready();
+        }
     }
 
 private:
-    RuntimeState* _state;
+    bool _is_sink;
     bool _is_write;
-    RuntimeProfile::Counter* write_wait_in_queue_task_count = nullptr;
-    RuntimeProfile::Counter* writing_task_count = nullptr;
-    RuntimeProfile::Counter* read_wait_in_queue_task_count = nullptr;
-    RuntimeProfile::Counter* reading_task_count = nullptr;
+    RuntimeState* _state;
+    std::shared_ptr<SpillContext> _spill_context;
+    std::atomic_int& _spilling_task_count;
+    std::shared_ptr<Dependency> _spill_dependency;
+
+    MonotonicStopWatch _submit_timer;
+
+    RuntimeProfile::Counter* _exec_timer = nullptr;
+    RuntimeProfile::Counter* _spill_total_timer;
+
+    RuntimeProfile::Counter* _spill_write_timer;
+    RuntimeProfile::Counter* _spill_write_wait_in_queue_timer = nullptr;
+    RuntimeProfile::Counter* _write_wait_in_queue_task_count = nullptr;
+    RuntimeProfile::Counter* _writing_task_count = nullptr;
+
+    RuntimeProfile::Counter* _spill_revover_timer;
+    RuntimeProfile::Counter* _spill_read_wait_in_queue_timer = nullptr;
+    RuntimeProfile::Counter* _read_wait_in_queue_task_count = nullptr;
+    RuntimeProfile::Counter* _reading_task_count = nullptr;
+
     std::weak_ptr<TaskExecutionContext> _task_context_holder;
-    std::weak_ptr<BasicSharedState> _shared_state_holder;
-    std::function<void()> _func;
+    std::weak_ptr<BasicSpillSharedState> _shared_state_holder;
+    std::function<Status()> _spill_exec_func;
+    std::function<Status()> _spill_fin_cb;
 };
 
 } // namespace doris::pipeline
