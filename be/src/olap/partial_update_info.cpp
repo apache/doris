@@ -196,7 +196,7 @@ Status PartialUpdateInfo::handle_not_found_error_for_flexible_partial_update(
     for (auto cid : missing_cids) {
         const TabletColumn& col = tablet_schema.column(cid);
         if (skip_bitmap->contains(col.unique_id()) && !col.has_default_value() &&
-            !col.is_nullable() && col.is_auto_increment()) {
+            !col.is_nullable() && !col.is_auto_increment()) {
             error_column = col.name();
             can_insert_new_rows_in_partial_update = false;
             break;
@@ -505,6 +505,8 @@ Status FlexibleReadPlan::fill_non_primary_key_columns(
                 segment_start_pos, block_start_pos, block, skip_bitmaps));
     }
     full_block.set_columns(std::move(mutable_full_columns));
+    VLOG_DEBUG << fmt::format("fill_non_primary_key_columns: full_block:\n{}",
+                              full_block.dump_data());
     return Status::OK();
 }
 

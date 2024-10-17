@@ -373,7 +373,17 @@ Status VerticalSegmentWriter::_probe_key_for_mow(
     // 2. the one exception is when there are sequence columns in the table, we need to read
     //    the sequence columns, otherwise it may cause the merge-on-read based compaction
     //    policy to produce incorrect results
-    if (have_delete_sign && !_tablet_schema->has_sequence_col()) {
+    // TODO(bobhan1): only read seq col rather than all columns in this situation for
+    // partial update and flexible partial update
+
+    // 3. In flexible partial update, we may delete the existing rows before if there exists
+    //    insert after delete in one load. In this case, the insert should also be treated
+    //    as newly inserted rows
+    // TODO(bobhan1): handle sequence column here
+    if ((have_delete_sign && !_tablet_schema->has_sequence_col()) ||
+        (_opts.rowset_ctx->partial_update_info->is_flexible_partial_update() &&
+         _mow_context->delete_bitmap->contains(
+                 {loc.rowset_id, loc.segment_id, DeleteBitmap::TEMP_VERSION_COMMON}, loc.row_id))) {
         has_default_or_nullable = true;
         use_default_or_null_flag.emplace_back(true);
     } else {
@@ -449,7 +459,7 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
     bool has_default_or_nullable = false;
     std::vector<bool> use_default_or_null_flag;
     use_default_or_null_flag.reserve(data.num_rows);
-    const auto* delete_sign_column_data =
+    const auto* delete_signs =
             BaseTablet::get_delete_sign_column_data(full_block, data.row_pos + data.num_rows);
 
     DBUG_EXECUTE_IF("VerticalSegmentWriter._append_block_with_partial_content.sleep",
@@ -484,8 +494,7 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
         }
 
         // mark key with delete sign as deleted.
-        bool have_delete_sign =
-                (delete_sign_column_data != nullptr && delete_sign_column_data[block_pos] != 0);
+        bool have_delete_sign = (delete_signs != nullptr && delete_signs[block_pos] != 0);
 
         auto not_found_cb = [&]() {
             return _opts.rowset_ctx->partial_update_info->handle_non_strict_mode_not_found_error(
@@ -558,6 +567,32 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
     return Status::OK();
 }
 
+Status VerticalSegmentWriter::_filter_block_for_flexible_partial_update(
+        RowsInBlock& data, vectorized::MutableColumnPtr filter_column, int duplicate_rows,
+        std::string col_name) {
+    auto num_cols = data.block->columns();
+    auto* block = const_cast<vectorized::Block*>(data.block);
+    block->insert(
+            {std::move(filter_column), std::make_shared<vectorized::DataTypeUInt8>(), col_name});
+    RETURN_IF_ERROR(vectorized::Block::filter_block(block, num_cols, num_cols));
+    DCHECK_EQ(num_cols, data.block->columns());
+    int merged_rows = data.num_rows - block->rows();
+    VLOG_DEBUG << fmt::format(
+            "filter_block_for_flexible_partial_update[{}] after filter: "
+            "data.block:{}\n",
+            col_name, data.block->dump_data());
+    if (duplicate_rows != merged_rows) {
+        auto msg = fmt::format(
+                "filter_block_for_flexible_partial_update {}: duplicate_rows != merged_rows, "
+                "duplicate_keys={}, merged_rows={}, num_rows={}, mutable_block->rows()={}",
+                col_name, duplicate_rows, merged_rows, data.num_rows, block->rows());
+        DCHECK(false) << msg;
+        return Status::InternalError<false>(msg);
+    }
+    data.num_rows = block->rows();
+    return Status::OK();
+}
+
 Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(
         RowsInBlock& data, vectorized::Block& full_block) {
     DCHECK(_is_mow());
@@ -582,6 +617,10 @@ Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(
                          ->get_data());
     };
     std::vector<BitmapValue>* skip_bitmaps = get_skip_bitmaps(data.block);
+
+    const auto* delete_signs =
+            BaseTablet::get_delete_sign_column_data(*data.block, data.row_pos + data.num_rows);
+    DCHECK(delete_signs != nullptr);
 
     bool has_default_or_nullable = false;
     std::vector<bool> use_default_or_null_flag;
@@ -644,27 +683,42 @@ Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(
     // a valid sequence column to encode the key with seq col.
     RETURN_IF_ERROR(encode_seq_column(seq_column));
 
+    std::size_t origin_rows = data.num_rows;
+
     // 3. merge duplicate rows when table has sequence column
     // When there are multiple rows with the same keys in memtable, some of them specify specify the sequence column,
     // some of them don't. We can't do the de-duplication in memtable. We must de-duplicate them here.
     if (schema_has_sequence_col) {
-        std::size_t origin_rows = data.num_rows;
         RETURN_IF_ERROR(_merge_rows_for_sequence_column(data, skip_bitmaps, key_columns, seq_column,
-                                                        specified_rowsets, segment_caches));
+                                                        delete_signs, specified_rowsets,
+                                                        segment_caches));
         if (origin_rows != data.num_rows) {
             // data in block has changed, should re-encode key columns, sequence column and re-get skip_bitmaps
             _olap_data_convertor->clear_source_content();
             RETURN_IF_ERROR(encode_key_columns(key_columns));
             RETURN_IF_ERROR(encode_seq_column(seq_column));
             skip_bitmaps = get_skip_bitmaps(data.block);
+            delete_signs = BaseTablet::get_delete_sign_column_data(*data.block,
+                                                                   data.row_pos + data.num_rows);
         }
     }
 
-    const auto* delete_sign_column_data =
-            BaseTablet::get_delete_sign_column_data(*data.block, data.row_pos + data.num_rows);
-    DCHECK(delete_sign_column_data != nullptr);
+    // 4. merge duplicate rows and mark delete for insert after delete
+    origin_rows = data.num_rows;
+    RETURN_IF_ERROR(_merge_rows_for_insert_after_delete(data, skip_bitmaps, key_columns, seq_column,
+                                                        delete_signs, specified_rowsets,
+                                                        segment_caches));
+    if (data.num_rows != origin_rows) {
+        // data in block has changed, should re-encode key columns, sequence column and re-get skip_bitmaps, delete signs
+        _olap_data_convertor->clear_source_content();
+        RETURN_IF_ERROR(encode_key_columns(key_columns));
+        RETURN_IF_ERROR(encode_seq_column(seq_column));
+        skip_bitmaps = get_skip_bitmaps(data.block);
+        delete_signs =
+                BaseTablet::get_delete_sign_column_data(*data.block, data.row_pos + data.num_rows);
+    }
 
-    // 4. write key columns data
+    // 5. write key columns data
     for (std::size_t cid {0}; cid < _num_sort_key_columns; cid++) {
         const auto& column = key_columns[cid];
         DCHECK(_column_writers[cid]->get_next_rowid() == _num_rows_written);
@@ -673,13 +727,13 @@ Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(
         DCHECK(_column_writers[cid]->get_next_rowid() == _num_rows_written + data.num_rows);
     }
 
-    // 5. genreate read plan
+    // 6. genreate read plan
     FlexibleReadPlan read_plan {_tablet_schema->has_row_store_for_all_columns()};
     PartialUpdateStats stats;
     RETURN_IF_ERROR(_generate_flexible_read_plan(
             read_plan, data, segment_start_pos, schema_has_sequence_col, seq_map_col_unique_id,
-            skip_bitmaps, key_columns, seq_column, delete_sign_column_data, specified_rowsets,
-            segment_caches, has_default_or_nullable, use_default_or_null_flag, stats));
+            skip_bitmaps, key_columns, seq_column, delete_signs, specified_rowsets, segment_caches,
+            has_default_or_nullable, use_default_or_null_flag, stats));
     CHECK_EQ(use_default_or_null_flag.size(), data.num_rows);
 
     if (config::enable_merge_on_write_correctness_check) {
@@ -687,7 +741,7 @@ Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(
                                                     _mow_context->rowset_ids);
     }
 
-    // 6. read according plan to fill full_block
+    // 7. read according plan to fill full_block
     RETURN_IF_ERROR(read_plan.fill_non_primary_key_columns(
             _opts.rowset_ctx, _rsid_to_rowset, *_tablet_schema, full_block,
             use_default_or_null_flag, has_default_or_nullable, segment_start_pos, data.row_pos,
@@ -696,10 +750,10 @@ Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(
     // TODO(bobhan1): should we replace the skip bitmap column with empty bitmaps to reduce storage occupation?
     // this column is not needed in read path for merge-on-write table
 
-    // 7. fill row store column
+    // 8. fill row store column
     _serialize_block_to_row_column(full_block);
 
-    // 8. encode and write all non-primary key columns(including sequence column if exists)
+    // 9. encode and write all non-primary key columns(including sequence column if exists)
     for (auto cid = _num_sort_key_columns; cid < _tablet_schema->num_columns(); cid++) {
         RETURN_IF_ERROR(_olap_data_convertor->set_source_content_with_specifid_column(
                 full_block.get_by_position(cid), data.row_pos, data.num_rows, cid));
@@ -730,7 +784,7 @@ Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(
                 _num_rows_written, data.row_pos, _primary_key_index_builder->num_rows());
     }
 
-    // 9. build primary key index
+    // 10. build primary key index
     RETURN_IF_ERROR(_generate_primary_key_index(_key_coders, key_columns, seq_column, data.num_rows,
                                                 false));
 
@@ -776,7 +830,7 @@ Status VerticalSegmentWriter::_generate_flexible_read_plan(
         bool schema_has_sequence_col, int32_t seq_map_col_unique_id,
         std::vector<BitmapValue>* skip_bitmaps,
         const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns,
-        vectorized::IOlapColumnDataAccessor* seq_column, const signed char* delete_sign_column_data,
+        vectorized::IOlapColumnDataAccessor* seq_column, const signed char* delete_signs,
         const std::vector<RowsetSharedPtr>& specified_rowsets,
         std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
         bool& has_default_or_nullable, std::vector<bool>& use_default_or_null_flag,
@@ -809,8 +863,8 @@ Status VerticalSegmentWriter::_generate_flexible_read_plan(
         }
 
         // mark key with delete sign as deleted.
-        bool have_delete_sign = (!skip_bitmap.contains(delete_sign_col_unique_id) &&
-                                 delete_sign_column_data[block_pos] != 0);
+        bool have_delete_sign =
+                (!skip_bitmap.contains(delete_sign_col_unique_id) && delete_signs[block_pos] != 0);
 
         auto not_found_cb = [&]() {
             return _opts.rowset_ctx->partial_update_info->handle_non_strict_mode_not_found_error(
@@ -831,98 +885,250 @@ Status VerticalSegmentWriter::_generate_flexible_read_plan(
 Status VerticalSegmentWriter::_merge_rows_for_sequence_column(
         RowsInBlock& data, std::vector<BitmapValue>* skip_bitmaps,
         const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns,
-        vectorized::IOlapColumnDataAccessor* seq_column,
+        vectorized::IOlapColumnDataAccessor* seq_column, const signed char* delete_signs,
         const std::vector<RowsetSharedPtr>& specified_rowsets,
         std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches) {
     VLOG_DEBUG << fmt::format(
             "VerticalSegmentWriter::_merge_rows_for_sequence_column enter: data.block:{}\n",
             data.block->dump_data());
+    // the process logic here is the same as MemTable::_aggregate_for_flexible_partial_update_without_seq_col()
+    // after this function, there will be at most 2 rows for a specified key
+    auto* block = const_cast<vectorized::Block*>(data.block);
     auto seq_col_unique_id = _tablet_schema->column(_tablet_schema->sequence_col_idx()).unique_id();
-    std::string previous_key {};
-    bool previous_has_seq_col {false};
-    int duplicate_keys {0};
+    auto delete_sign_col_unique_id =
+            _tablet_schema->column(_tablet_schema->delete_sign_idx()).unique_id();
 
+    auto filtered_block = _tablet_schema->create_block();
+    vectorized::MutableBlock output_block =
+            vectorized::MutableBlock::build_mutable_block(&filtered_block);
+    int cur_rows {0};
+    bool have_rows_with_delete_sign {false};
+
+    auto append_row = [&](int64_t rid, BitmapValue& skip_bitmap, bool have_delete_sign) {
+        if (have_delete_sign) {
+            // remove all the preious batched rows
+            for (size_t cid {0}; cid < _tablet_schema->num_columns(); cid++) {
+                DCHECK(output_block.mutable_columns()[cid]->size() >= cur_rows);
+                output_block.mutable_columns()[cid]->pop_back(cur_rows);
+            }
+            output_block.add_row(block, rid);
+            cur_rows = 1;
+            have_rows_with_delete_sign = true;
+            VLOG_DEBUG << fmt::format(
+                    "append a row with delete sign, after append, cur_rows={}, "
+                    "output_block.rows()={}",
+                    cur_rows, output_block.rows());
+        } else {
+            if ((cur_rows == 1 && !have_rows_with_delete_sign) || cur_rows == 2) {
+                for (size_t cid {0}; cid < _tablet_schema->num_columns(); cid++) {
+                    if (cid == _tablet_schema->skip_bitmap_col_idx()) {
+                        auto& cur_skip_bitmap = assert_cast<vectorized::ColumnBitmap*>(
+                                                        output_block.mutable_columns()[cid].get())
+                                                        ->get_data()
+                                                        .back();
+                        const auto& new_row_skip_bitmap =
+                                assert_cast<vectorized::ColumnBitmap*>(
+                                        block->get_by_position(cid).column->assume_mutable().get())
+                                        ->get_data()[rid];
+                        cur_skip_bitmap &= new_row_skip_bitmap;
+                        continue;
+                    }
+                    if (!skip_bitmap.contains(_tablet_schema->column(cid).unique_id())) {
+                        output_block.mutable_columns()[cid]->pop_back(1);
+                        output_block.mutable_columns()[cid]->insert_from(
+                                *block->get_by_position(cid).column, rid);
+                    }
+                }
+                VLOG_DEBUG << fmt::format(
+                        "merge a row, after merge, cur_rows={}, output_block.rows()={}", cur_rows,
+                        output_block.rows());
+            } else {
+                output_block.add_row(block, rid);
+                cur_rows++;
+                VLOG_DEBUG << fmt::format(
+                        "append a new row, after append, cur_rows={}, output_block.rows()={}",
+                        cur_rows, output_block.rows());
+            }
+        }
+    };
+
+    // aggregate rows with same keys in block range [start, end)
+    auto aggregate_rows = [&](std::string key, int64_t start, int64_t end) -> Status {
+        VLOG_DEBUG << fmt::format("merge rows in range=({}-{})", start, end);
+        if (end - start == 1) {
+            output_block.add_row(block, start);
+            VLOG_DEBUG << fmt::format("append a row directly, rid={}", start);
+            return Status::OK();
+        }
+        cur_rows = 0;
+        have_rows_with_delete_sign = false;
+
+        RowLocation loc;
+        RowsetSharedPtr rowset;
+        std::string previous_encoded_seq_value {};
+        Status st = _tablet->lookup_row_key(key, _tablet_schema.get(), false, specified_rowsets,
+                                            &loc, _mow_context->max_version, segment_caches,
+                                            &rowset, true, &previous_encoded_seq_value);
+        int64_t pos = start;
+        DCHECK(st.is<KEY_NOT_FOUND>() || st.ok());
+
+        std::string cur_seq_val;
+        if (st.ok()) {
+            for (int64_t i {start}; i < end; i++) {
+                auto& skip_bitmap = skip_bitmaps->at(i);
+                bool row_has_sequence_col = (!skip_bitmap.contains(seq_col_unique_id));
+                // Find the first row that has larger sequence value than the existing row's
+                // or the first row that doesn't specify the sequence column.
+                // Discard all the rows before and begin to do aggregation from that row
+                if (!row_has_sequence_col) {
+                    output_block.add_row(block, i);
+                    cur_seq_val = std::move(previous_encoded_seq_value);
+                    pos = i;
+                    break;
+                } else {
+                    std::string seq_val {};
+                    _encode_seq_column(seq_column, i, &seq_val);
+                    if (Slice {seq_val}.compare(Slice {previous_encoded_seq_value}) >= 0) {
+                        output_block.add_row(block, i);
+                        cur_seq_val = std::move(seq_val);
+                        pos = i;
+                        break;
+                    }
+                }
+            }
+        } else {
+            pos = start;
+            auto& skip_bitmap = skip_bitmaps->at(pos);
+            bool row_has_sequence_col = (!skip_bitmap.contains(seq_col_unique_id));
+            output_block.add_row(block, pos);
+            if (row_has_sequence_col) {
+                std::string seq_val {};
+                // for rows that don't specify seqeunce col, seq_val will be encoded to minial value
+                _encode_seq_column(seq_column, pos, &seq_val);
+                cur_seq_val = std::move(seq_val);
+            } else {
+                cur_seq_val.clear();
+                RETURN_IF_ERROR(_generate_encoded_default_seq_value(
+                        *_tablet_schema, *_opts.rowset_ctx->partial_update_info, &cur_seq_val));
+            }
+        }
+        cur_rows = 1;
+        VLOG_DEBUG << fmt::format("start pos={}, output_block.rows()={}", pos, output_block.rows());
+
+        for (int64_t rid {pos + 1}; rid < end; rid++) {
+            auto& skip_bitmap = skip_bitmaps->at(rid);
+            bool row_has_sequence_col = (!skip_bitmap.contains(seq_col_unique_id));
+            bool have_delete_sign =
+                    (!skip_bitmap.contains(delete_sign_col_unique_id) && delete_signs[rid] != 0);
+            if (!row_has_sequence_col) {
+                append_row(rid, skip_bitmap, have_delete_sign);
+            } else {
+                std::string seq_val {};
+                _encode_seq_column(seq_column, rid, &seq_val);
+                if (Slice {seq_val}.compare(Slice {cur_seq_val}) >= 0) {
+                    append_row(rid, skip_bitmap, have_delete_sign);
+                    cur_seq_val = std::move(seq_val);
+                } else {
+                    VLOG_DEBUG << fmt::format(
+                            "skip rid={} becasue its seq value is lower than the previous", rid);
+                }
+            }
+        }
+        return Status::OK();
+    };
+
+    int same_key_rows {0};
+    std::string previous_key {};
+    for (size_t block_pos {0}; block_pos < data.num_rows; block_pos++) {
+        std::string key = _full_encode_keys(key_columns, block_pos);
+        if (block_pos > 0 && previous_key == key) {
+            same_key_rows++;
+        } else {
+            if (same_key_rows > 0) {
+                RETURN_IF_ERROR(aggregate_rows(std::move(previous_key), block_pos - same_key_rows,
+                                               block_pos));
+            }
+            same_key_rows = 1;
+        }
+        previous_key = std::move(key);
+    }
+    if (same_key_rows > 0) {
+        RETURN_IF_ERROR(aggregate_rows(std::move(previous_key), data.num_rows - same_key_rows,
+                                       data.num_rows));
+    }
+
+    block->swap(output_block.to_block());
+    data.num_rows = block->rows();
+    VLOG_DEBUG << fmt::format(
+            "VerticalSegmentWriter::_merge_rows_for_sequence_column after: data.block:{}\n",
+            data.block->dump_data());
+    return Status::OK();
+}
+
+Status VerticalSegmentWriter::_merge_rows_for_insert_after_delete(
+        RowsInBlock& data, std::vector<BitmapValue>* skip_bitmaps,
+        const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns,
+        vectorized::IOlapColumnDataAccessor* seq_column, const signed char* delete_signs,
+        const std::vector<RowsetSharedPtr>& specified_rowsets,
+        std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches) {
+    VLOG_DEBUG << fmt::format(
+            "VerticalSegmentWriter::_merge_rows_for_insert_after_delete enter: data.block:{}\n",
+            data.block->dump_data());
+    // there will be at most 2 rows for a specified key in block when control flow reaches here
+    // after this function, there will not be duplicate rows in block
     auto filter_column = vectorized::ColumnUInt8::create(data.num_rows, 1);
     auto* __restrict filter_map = filter_column->get_data().data();
-
-    std::string encoded_default_seq_value {};
-    RETURN_IF_ERROR(_generate_encoded_default_seq_value(
-            *_tablet_schema, *_opts.rowset_ctx->partial_update_info, &encoded_default_seq_value));
-
+    std::string previous_key {};
+    bool previous_has_delete_sign {false};
+    int duplicate_rows {0};
+    int32_t delete_sign_col_unique_id =
+            _tablet_schema->column(_tablet_schema->delete_sign_idx()).unique_id();
     for (size_t block_pos = data.row_pos; block_pos < data.row_pos + data.num_rows; block_pos++) {
         size_t delta_pos = block_pos - data.row_pos;
         auto& skip_bitmap = skip_bitmaps->at(block_pos);
         std::string key = _full_encode_keys(key_columns, delta_pos);
-        bool row_has_sequence_col = (!skip_bitmap.contains(seq_col_unique_id));
-        Status st;
+        bool have_delete_sign =
+                (!skip_bitmap.contains(delete_sign_col_unique_id) && delete_signs[block_pos] != 0);
         if (delta_pos > 0 && previous_key == key) {
-            DCHECK(previous_has_seq_col == !row_has_sequence_col);
-            ++duplicate_keys;
+            // !!ATTENTION!!: We can only remove the row with delete sign if there is a insert with the same key after this row.
+            // If there is only a row with delete sign, we should keep it and can't remove it from block, because
+            // compaction will not use the delete bitmap when reading data. So there may still be rows with delete sign
+            // in later process
+            DCHECK(previous_has_delete_sign);
+            DCHECK(!have_delete_sign);
+            ++duplicate_rows;
             RowLocation loc;
             RowsetSharedPtr rowset;
-            size_t rid_missing_seq {};
-            size_t rid_with_seq {};
-            if (row_has_sequence_col) {
-                rid_missing_seq = block_pos - 1;
-                rid_with_seq = block_pos;
-            } else {
-                rid_missing_seq = block_pos;
-                rid_with_seq = block_pos - 1;
-            }
-            std::string previous_encoded_seq_value {};
-            st = _tablet->lookup_row_key(key, _tablet_schema.get(), false, specified_rowsets, &loc,
-                                         _mow_context->max_version, segment_caches, &rowset, true,
-                                         &previous_encoded_seq_value);
+            Status st = _tablet->lookup_row_key(key, _tablet_schema.get(), false, specified_rowsets,
+                                                &loc, _mow_context->max_version, segment_caches,
+                                                &rowset, true);
             DCHECK(st.is<KEY_NOT_FOUND>() || st.ok());
 
             Slice previous_seq_slice {};
-            if (st.is<KEY_NOT_FOUND>()) {
-                previous_seq_slice = Slice {encoded_default_seq_value};
-            } else {
-                // TODO(bobhan1): we can mark these rows in delete bitmap and eliminate reading them in later phase
-                _rsid_to_rowset.emplace(rowset->rowset_id(), rowset);
-                previous_seq_slice = Slice {previous_encoded_seq_value};
+            if (st.ok()) {
+                // delete the existing row
+                _mow_context->delete_bitmap->add(
+                        {loc.rowset_id, loc.segment_id, DeleteBitmap::TEMP_VERSION_COMMON},
+                        loc.row_id);
+                VLOG_DEBUG << fmt::format(
+                        "_merge_rows_for_insert_after_delete: delete existing row, rowset_id={}, "
+                        "segment_id={}, row_id={}",
+                        loc.rowset_id.to_string(), loc.segment_id, loc.row_id);
             }
-            std::string cur_encoded_seq_value {};
-            _encode_seq_column(seq_column, rid_with_seq, &cur_encoded_seq_value);
-            // the encoded value is order-preserving, so we can use Slice::compare() to compare them
-            int res = previous_seq_slice.compare(Slice {cur_encoded_seq_value});
-            VLOG_DEBUG << fmt::format(
-                    "VerticalSegmentWriter::_merge_rows_for_sequence_column: rid_with_seq={}, "
-                    "rid_missing_seq={}, res={}",
-                    rid_with_seq, rid_missing_seq, res);
-            if (res > 0) {
-                filter_map[rid_with_seq] = 0;
-            } else if (res < 0) {
-                filter_map[rid_missing_seq] = 0;
-            } else {
-                filter_map[std::min(rid_with_seq, rid_missing_seq)] = 0;
-            }
+            // and remove the row with delete sign from the current block
+            filter_map[block_pos - 1] = 0;
         }
+        previous_has_delete_sign = have_delete_sign;
         previous_key = std::move(key);
-        previous_has_seq_col = row_has_sequence_col;
     }
-    if (duplicate_keys > 0) {
-        auto num_cols = data.block->columns();
-        auto* block = const_cast<vectorized::Block*>(data.block);
-        block->insert({std::move(filter_column), std::make_shared<vectorized::DataTypeUInt8>(),
-                       "__dup_key_filter_col__"});
-        RETURN_IF_ERROR(vectorized::Block::filter_block(block, num_cols, num_cols));
-        int merged_rows = data.num_rows - block->rows();
-        VLOG_DEBUG << fmt::format(
-                "VerticalSegmentWriter::_merge_rows_for_sequence_column after filter: "
-                "data.block:{}\n",
-                data.block->dump_data());
-        if (duplicate_keys != merged_rows) {
-            auto msg = fmt::format(
-                    "duplicate_keys != merged_rows, duplicate_keys={}, merged_rows={}, "
-                    "num_rows={}, mutable_block->rows()={}",
-                    duplicate_keys, merged_rows, data.num_rows, block->rows());
-            DCHECK(false) << msg;
-            return Status::InternalError<false>(msg);
-        }
-        data.num_rows = block->rows();
+    if (duplicate_rows > 0) {
+        RETURN_IF_ERROR(_filter_block_for_flexible_partial_update(
+                data, std::move(filter_column), duplicate_rows,
+                "__filter_delete_after_insert_col__"));
     }
+    VLOG_DEBUG << fmt::format(
+            "VerticalSegmentWriter::_merge_rows_for_insert_after_delete after: data.block:{}\n",
+            data.block->dump_data());
     return Status::OK();
 }
 
