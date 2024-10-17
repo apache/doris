@@ -77,10 +77,11 @@ struct StorageResource {
                                     int64_t seg_id) const;
     std::string remote_segment_path(const RowsetMeta& rowset, int64_t seg_id) const;
     std::string remote_tablet_path(int64_t tablet_id) const;
+    std::string remote_rowset_path(int64_t tablet_id, std::string_view rowset_id) const;
 
-    std::string remote_idx_v1_path(const RowsetMeta& rowset, int64_t seg_id, int64_t index_id,
-                                   std::string_view index_suffix) const;
-    std::string remote_idx_v2_path(const RowsetMeta& rowset, int64_t seg_id) const;
+    std::string remote_inverted_index_path(int64_t tablet_id, const std::string_view& rowset_id,
+                                           int64_t seg_id,
+                                           const std::string_view& index_suffix) const;
 
     std::string cooldown_tablet_meta_path(int64_t tablet_id, int64_t replica_id,
                                           int64_t cooldown_term) const;

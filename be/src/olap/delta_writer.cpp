@@ -249,17 +249,8 @@ void DeltaWriter::_request_slave_tablet_pull_rowset(const PNodeInfo& node_info) 
         _unfinished_slave_node.insert(node_info.id());
     }
 
-    std::vector<std::pair<int64_t, std::string>> indices_ids;
     auto cur_rowset = _rowset_builder->rowset();
     auto tablet_schema = cur_rowset->rowset_meta()->tablet_schema();
-    if (!tablet_schema->skip_write_index_on_load()) {
-        for (auto& column : tablet_schema->columns()) {
-            const TabletIndex* index_meta = tablet_schema->get_inverted_index(*column);
-            if (index_meta) {
-                indices_ids.emplace_back(index_meta->index_id(), index_meta->get_index_suffix());
-            }
-        }
-    }
 
     auto request = std::make_shared<PTabletWriteSlaveRequest>();
     auto* request_mutable_rs_meta = request->mutable_rowset_meta();
@@ -278,47 +269,28 @@ void DeltaWriter::_request_slave_tablet_pull_rowset(const PNodeInfo& node_info) 
     request->set_token(ExecEnv::GetInstance()->token());
     request->set_brpc_port(config::brpc_port);
     request->set_node_id(node_info.id());
+
+    // Segment Files
     for (int segment_id = 0; segment_id < cur_rowset->rowset_meta()->num_segments(); segment_id++) {
         auto seg_path =
                 local_segment_path(tablet_path, cur_rowset->rowset_id().to_string(), segment_id);
         int64_t segment_size = std::filesystem::file_size(seg_path);
         request->mutable_segments_size()->insert({segment_id, segment_size});
-        auto index_path_prefix = InvertedIndexDescriptor::get_index_file_path_prefix(seg_path);
-        if (!indices_ids.empty()) {
-            if (tablet_schema->get_inverted_index_storage_format() ==
-                InvertedIndexStorageFormatPB::V1) {
-                for (auto index_meta : indices_ids) {
-                    std::string inverted_index_file =
-                            InvertedIndexDescriptor::get_index_file_path_v1(
-                                    index_path_prefix, index_meta.first, index_meta.second);
-                    int64_t size = std::filesystem::file_size(inverted_index_file);
-                    PTabletWriteSlaveRequest::IndexSize index_size;
-                    index_size.set_indexid(index_meta.first);
-                    index_size.set_size(size);
-                    index_size.set_suffix_path(index_meta.second);
-                    // Fetch the map value for the current segment_id.
-                    // If it doesn't exist, this will insert a new default-constructed IndexSizeMapValue
-                    auto& index_size_map_value =
-                            (*(request->mutable_inverted_indices_size()))[segment_id];
-                    // Add the new index size to the map value.
-                    *index_size_map_value.mutable_index_sizes()->Add() = std::move(index_size);
-                }
-            } else {
-                std::string inverted_index_file =
-                        InvertedIndexDescriptor::get_index_file_path_v2(index_path_prefix);
-                int64_t size = std::filesystem::file_size(inverted_index_file);
-                PTabletWriteSlaveRequest::IndexSize index_size;
-                // special id for non-V1 format
-                index_size.set_indexid(0);
-                index_size.set_size(size);
-                index_size.set_suffix_path("");
-                // Fetch the map value for the current segment_id.
-                // If it doesn't exist, this will insert a new default-constructed IndexSizeMapValue
-                auto& index_size_map_value =
-                        (*(request->mutable_inverted_indices_size()))[segment_id];
-                // Add the new index size to the map value.
-                *index_size_map_value.mutable_index_sizes()->Add() = std::move(index_size);
-            }
+    }
+
+    // Inverted Index Files
+    if (!tablet_schema->skip_write_index_on_load() && tablet_schema->has_inverted_index()) {
+        const auto& inverted_index_files = cur_rowset->list_inverted_index_files();
+        if (!inverted_index_files.has_value()) {
+            return;
+        }
+        for (const auto& inverted_index_file : inverted_index_files.value()) {
+            PTabletWriteSlaveRequest::IndexSize index_size;
+            index_size.set_indexid(-1);
+            index_size.set_size(inverted_index_file.file_size);
+            index_size.set_index_file_name(inverted_index_file.file_name);
+            auto* new_index_size = request->add_indeices_size();
+            *new_index_size = index_size;
         }
     }
 

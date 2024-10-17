@@ -351,19 +351,24 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
     std::vector<std::string> segment_index_file_urls;
     std::vector<uint64_t> segment_index_file_sizes;
     std::vector<std::string> segment_index_file_names;
-    auto tablet_schema = rowset_meta->tablet_schema();
+    // This is downstream of CCR and relies on the upstream BE to obtain the size of the index file.
+    // Here, the index file can only be accessed by constructing the file name.
+    // When an index suffix is present, the file might not exist because it is a sub-column of a variant,
+    // and an index may not be available.
+    const auto& tablet_schema = rowset_meta->tablet_schema();
     if (tablet_schema->get_inverted_index_storage_format() == InvertedIndexStorageFormatPB::V1) {
         for (const auto& index : tablet_schema->indexes()) {
             if (index.index_type() != IndexType::INVERTED) {
                 continue;
             }
             auto index_id = index.index_id();
+            const auto& index_suffix = index.get_index_suffix();
             for (int64_t segment_index = 0; segment_index < num_segments; ++segment_index) {
                 auto get_segment_index_file_size_url = fmt::format(
                         "{}?method={}&tablet_id={}&rowset_id={}&segment_index={}&segment_index_id={"
-                        "}",
+                        "}&segment_index_suffix={}",
                         binlog_api_url, "get_segment_index_file", request.remote_tablet_id,
-                        remote_rowset_id, segment_index, index_id);
+                        remote_rowset_id, segment_index, index_id, index_suffix);
                 uint64_t segment_index_file_size;
                 auto get_segment_index_file_size_cb =
                         [&get_segment_index_file_size_url,
@@ -379,18 +384,22 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
                                            rowset_meta->rowset_id().to_string(), segment_index);
                 segment_index_file_names.push_back(InvertedIndexDescriptor::get_index_file_path_v1(
                         InvertedIndexDescriptor::get_index_file_path_prefix(segment_path), index_id,
-                        index.get_index_suffix()));
+                        index_suffix));
 
                 status = HttpClient::execute_with_retry(max_retry, 1,
                                                         get_segment_index_file_size_cb);
+
                 if (!status.ok()) {
-                    LOG(WARNING) << "failed to get segment file size from "
+                    LOG(WARNING) << "failed to get inverted index file size from "
                                  << get_segment_index_file_size_url
                                  << ", status=" << status.to_string();
+                    // The file might not exist because it is a sub-column of a variant
+                    if (!index_suffix.empty()) {
+                        continue;
+                    }
                     status.to_thrift(&tstatus);
                     return;
                 }
-
                 segment_index_file_sizes.push_back(segment_index_file_size);
                 segment_index_file_urls.push_back(std::move(get_segment_index_file_size_url));
             }
@@ -400,9 +409,9 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
             if (tablet_schema->has_inverted_index()) {
                 auto get_segment_index_file_size_url = fmt::format(
                         "{}?method={}&tablet_id={}&rowset_id={}&segment_index={}&segment_index_id={"
-                        "}",
+                        "}&segment_index_suffix={}",
                         binlog_api_url, "get_segment_index_file", request.remote_tablet_id,
-                        remote_rowset_id, segment_index, -1);
+                        remote_rowset_id, segment_index, -1, "");
                 uint64_t segment_index_file_size;
                 auto get_segment_index_file_size_cb =
                         [&get_segment_index_file_size_url,
@@ -421,13 +430,16 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
                 status = HttpClient::execute_with_retry(max_retry, 1,
                                                         get_segment_index_file_size_cb);
                 if (!status.ok()) {
-                    LOG(WARNING) << "failed to get segment file size from "
+                    LOG(WARNING) << "failed to get inverted index file size from "
                                  << get_segment_index_file_size_url
                                  << ", status=" << status.to_string();
+                    // The file might not exist because it have variant inverted index
+                    if (tablet_schema->num_variant_columns() > 0) {
+                        continue;
+                    }
                     status.to_thrift(&tstatus);
                     return;
                 }
-
                 segment_index_file_sizes.push_back(segment_index_file_size);
                 segment_index_file_urls.push_back(std::move(get_segment_index_file_size_url));
             }

@@ -1272,7 +1272,7 @@ std::vector<RowsetSharedPtr> Tablet::pick_candidate_rowsets_to_build_inverted_in
         std::shared_lock rlock(_meta_lock);
         auto has_alter_inverted_index = [&](RowsetSharedPtr rowset) -> bool {
             for (const auto& index_id : alter_index_uids) {
-                if (rowset->tablet_schema()->has_inverted_index_with_index_id(index_id, "")) {
+                if (rowset->tablet_schema()->has_inverted_index(index_id)) {
                     return true;
                 }
             }
@@ -2570,22 +2570,26 @@ std::string Tablet::get_segment_filepath(std::string_view rowset_id, int64_t seg
 
 std::string Tablet::get_segment_index_filepath(std::string_view rowset_id,
                                                std::string_view segment_index,
-                                               std::string_view index_id) const {
-    auto format = _tablet_meta->tablet_schema()->get_inverted_index_storage_format();
+                                               std::string_view index_id,
+                                               const std::string_view& index_suffix) const {
+    const auto& format = _tablet_meta->tablet_schema()->get_inverted_index_storage_format();
+    std::string suffix = index_suffix.empty() ? "" : "@" + std::string(index_suffix);
     if (format == doris::InvertedIndexStorageFormatPB::V1) {
-        return fmt::format("{}/_binlog/{}_{}_{}.idx", _tablet_path, rowset_id, segment_index,
-                           index_id);
+        return fmt::format("{}/_binlog/{}_{}_{}{}.idx", _tablet_path, rowset_id, segment_index,
+                           index_id, suffix);
     } else {
         return fmt::format("{}/_binlog/{}_{}.idx", _tablet_path, rowset_id, segment_index);
     }
 }
 
 std::string Tablet::get_segment_index_filepath(std::string_view rowset_id, int64_t segment_index,
-                                               int64_t index_id) const {
-    auto format = _tablet_meta->tablet_schema()->get_inverted_index_storage_format();
+                                               int64_t index_id,
+                                               const std::string_view& index_suffix) const {
+    const auto& format = _tablet_meta->tablet_schema()->get_inverted_index_storage_format();
+    std::string suffix = index_suffix.empty() ? "" : "@" + std::string(index_suffix);
     if (format == doris::InvertedIndexStorageFormatPB::V1) {
-        return fmt::format("{}/_binlog/{}_{}_{}.idx", _tablet_path, rowset_id, segment_index,
-                           index_id);
+        return fmt::format("{}/_binlog/{}_{}_{}{}.idx", _tablet_path, rowset_id, segment_index,
+                           index_id, suffix);
     } else {
         DCHECK(index_id == -1);
         return fmt::format("{}/_binlog/{}_{}.idx", _tablet_path, rowset_id, segment_index);
@@ -2641,8 +2645,9 @@ void Tablet::gc_binlogs(int64_t version) {
                 if (index.index_type() != IndexType::INVERTED) {
                     continue;
                 }
-                wait_for_deleted_binlog_files.emplace_back(
-                        get_segment_index_filepath(rowset_id, i, index.index_id()));
+                // if subcolumn's idx file is not exist, it will continue to delete other files
+                wait_for_deleted_binlog_files.emplace_back(get_segment_index_filepath(
+                        rowset_id, i, index.index_id(), index.get_index_suffix()));
             }
         }
     };

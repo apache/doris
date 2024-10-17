@@ -26,6 +26,7 @@
 #include <vector>
 
 #include "common/status.h"
+#include "io/fs/file_system.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_meta.h"
 #include "olap/rowset/rowset_reader.h"
@@ -38,6 +39,7 @@ class BetaRowset;
 
 namespace io {
 class RemoteFileSystem;
+struct FileInfo;
 } // namespace io
 struct RowsetId;
 
@@ -88,6 +90,8 @@ public:
 
     Status show_nested_index_file(rapidjson::Value* rowset_value,
                                   rapidjson::Document::AllocatorType& allocator);
+
+    Result<std::vector<io::FileInfo>> list_inverted_index_files() override;
 
 protected:
     BetaRowset(const TabletSchemaSPtr& schema, const RowsetMetaSharedPtr& rowset_meta,

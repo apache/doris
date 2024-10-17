@@ -1721,8 +1721,7 @@ void PInternalServiceImpl::request_slave_tablet_pull_rowset(
     const RowsetMetaPB& rowset_meta_pb = request->rowset_meta();
     const std::string& rowset_path = request->rowset_path();
     google::protobuf::Map<int64, int64> segments_size = request->segments_size();
-    google::protobuf::Map<int64, PTabletWriteSlaveRequest_IndexSizeMap> indices_size =
-            request->inverted_indices_size();
+    const auto& indices_size = request->indeices_size();
     std::string host = request->host();
     int64_t http_port = request->http_port();
     int64_t brpc_port = request->brpc_port();
@@ -1776,7 +1775,7 @@ void PInternalServiceImpl::request_slave_tablet_pull_rowset(
                       << rowset_meta->rowset_id() << ", tablet_id=" << rowset_meta->tablet_id()
                       << ", txn_id=" << rowset_meta->txn_id();
 
-        auto tablet_scheme = rowset_meta->tablet_schema();
+        // Segment Files
         for (const auto& segment : segments_size) {
             uint64_t file_size = segment.second;
             uint64_t estimate_timeout = file_size / config::download_low_speed_limit_kbps / 1024;
@@ -1806,64 +1805,49 @@ void PInternalServiceImpl::request_slave_tablet_pull_rowset(
             VLOG_CRITICAL << "succeed to download file for slave replica. url=" << remote_file_url
                           << ", local_path=" << local_file_path
                           << ", txn_id=" << rowset_meta->txn_id();
-            if (indices_size.find(segment.first) != indices_size.end()) {
-                PTabletWriteSlaveRequest_IndexSizeMap segment_indices_size =
-                        indices_size.at(segment.first);
+        }
 
-                for (auto index_size : segment_indices_size.index_sizes()) {
-                    auto index_id = index_size.indexid();
-                    auto size = index_size.size();
-                    auto suffix_path = index_size.suffix_path();
-                    std::string remote_inverted_index_file;
-                    std::string local_inverted_index_file;
-                    std::string remote_inverted_index_file_url;
-                    if (tablet_scheme->get_inverted_index_storage_format() ==
-                        InvertedIndexStorageFormatPB::V1) {
-                        remote_inverted_index_file =
-                                InvertedIndexDescriptor::get_index_file_path_v1(
-                                        InvertedIndexDescriptor::get_index_file_path_prefix(
-                                                remote_file_path),
-                                        index_id, suffix_path);
-                        remote_inverted_index_file_url = construct_url(
-                                get_host_port(host, http_port), token, remote_inverted_index_file);
-
-                        local_inverted_index_file = InvertedIndexDescriptor::get_index_file_path_v1(
-                                InvertedIndexDescriptor::get_index_file_path_prefix(
-                                        local_file_path),
-                                index_id, suffix_path);
-                    } else {
-                        remote_inverted_index_file =
-                                InvertedIndexDescriptor::get_index_file_path_v2(
-                                        InvertedIndexDescriptor::get_index_file_path_prefix(
-                                                remote_file_path));
-                        remote_inverted_index_file_url = construct_url(
-                                get_host_port(host, http_port), token, remote_inverted_index_file);
-
-                        local_inverted_index_file = InvertedIndexDescriptor::get_index_file_path_v2(
-                                InvertedIndexDescriptor::get_index_file_path_prefix(
-                                        local_file_path));
-                    }
-                    st = download_file_action(remote_inverted_index_file_url,
-                                              local_inverted_index_file, estimate_timeout, size);
-                    if (!st.ok()) {
-                        LOG(WARNING) << "failed to pull rowset for slave replica. failed to "
-                                        "download "
-                                        "file. url="
-                                     << remote_inverted_index_file_url
-                                     << ", local_path=" << local_inverted_index_file
-                                     << ", txn_id=" << rowset_meta->txn_id();
-                        _response_pull_slave_rowset(host, brpc_port, rowset_meta->txn_id(),
-                                                    rowset_meta->tablet_id(), node_id, false);
-                        return;
-                    }
-
-                    VLOG_CRITICAL
-                            << "succeed to download inverted index file for slave replica. url="
-                            << remote_inverted_index_file_url
-                            << ", local_path=" << local_inverted_index_file
-                            << ", txn_id=" << rowset_meta->txn_id();
-                }
+        // Inverted Index Files
+        for (const auto& index_file : indices_size) {
+            uint64_t file_size = index_file.size();
+            uint64_t estimate_timeout = file_size / config::download_low_speed_limit_kbps / 1024;
+            if (estimate_timeout < config::download_low_speed_time) {
+                estimate_timeout = config::download_low_speed_time;
             }
+            std::string remote_file_path =
+                    fmt::format("{}/{}", rowset_path, index_file.index_file_name());
+            std::string remote_file_url =
+                    construct_url(get_host_port(host, http_port), token, remote_file_path);
+
+            const auto& file_name_fragment =
+                    InvertedIndexDescriptor::decompose_local_index_file_name(
+                            index_file.index_file_name());
+            if (file_name_fragment.seg_id == -1) {
+                LOG(WARNING)
+                        << "failed to pull rowset for slave replica, inverted index file is valid "
+                        << index_file.index_file_name() << ", url=" << remote_file_url;
+                _response_pull_slave_rowset(host, brpc_port, rowset_meta->txn_id(),
+                                            rowset_meta->tablet_id(), node_id, false);
+                return;
+            }
+            std::string local_file_path = fmt::format(
+                    "{}/{}_{}{}", tablet->tablet_path(), rowset_meta->rowset_id().to_string(),
+                    file_name_fragment.seg_id, file_name_fragment.index_suffix);
+
+            auto st = download_file_action(remote_file_url, local_file_path, estimate_timeout,
+                                           file_size);
+            if (!st.ok()) {
+                LOG(WARNING) << "failed to pull rowset for slave replica. failed to download "
+                                "file. url="
+                             << remote_file_url << ", local_path=" << local_file_path
+                             << ", txn_id=" << rowset_meta->txn_id();
+                _response_pull_slave_rowset(host, brpc_port, rowset_meta->txn_id(),
+                                            rowset_meta->tablet_id(), node_id, false);
+                return;
+            }
+            VLOG_CRITICAL << "succeed to download file for slave replica. url=" << remote_file_url
+                          << ", local_path=" << local_file_path
+                          << ", txn_id=" << rowset_meta->txn_id();
         }
 
         RowsetSharedPtr rowset;

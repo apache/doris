@@ -640,7 +640,7 @@ Status Compaction::do_inverted_index_compaction() {
     Status status = Status::OK();
     for (auto&& column_uniq_id : ctx.columns_to_do_index_compaction) {
         auto col = _cur_tablet_schema->column_by_uid(column_uniq_id);
-        const auto* index_meta = _cur_tablet_schema->get_inverted_index(col);
+        const auto* index_meta = _cur_tablet_schema->inverted_index(col);
 
         std::vector<lucene::store::Directory*> dest_index_dirs(dest_segment_num);
         try {
@@ -737,7 +737,7 @@ void Compaction::construct_index_compaction_columns(RowsetWriterContext& ctx) {
                 return false;
             }
 
-            const auto* index_meta = rowset->tablet_schema()->get_inverted_index(col_unique_id, "");
+            const auto* index_meta = rowset->tablet_schema()->inverted_index(col_unique_id);
             if (index_meta == nullptr) {
                 LOG(WARNING) << "tablet[" << _tablet->tablet_id() << "] column_unique_id["
                              << col_unique_id << "] index meta is null, will skip index compaction";

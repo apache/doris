@@ -74,41 +74,11 @@ Status BetaRowset::do_load(bool /*use_cache*/) {
 }
 
 Status BetaRowset::get_inverted_index_size(size_t* index_size) {
-    const auto& fs = _rowset_meta->fs();
-    if (!fs) {
-        return Status::Error<INIT_FAILED>("get fs failed, resource_id={}",
-                                          _rowset_meta->resource_id());
-    }
+    const auto& inverted_index_files = DORIS_TRY(list_inverted_index_files());
 
-    if (_schema->get_inverted_index_storage_format() == InvertedIndexStorageFormatPB::V1) {
-        auto indices = _schema->indexes();
-        for (auto& index : indices) {
-            // only get file_size for inverted index
-            if (index.index_type() != IndexType::INVERTED) {
-                continue;
-            }
-            for (int seg_id = 0; seg_id < num_segments(); ++seg_id) {
-                auto seg_path = DORIS_TRY(segment_path(seg_id));
-                int64_t file_size = 0;
-
-                std::string inverted_index_file_path =
-                        InvertedIndexDescriptor::get_index_file_path_v1(
-                                InvertedIndexDescriptor::get_index_file_path_prefix(seg_path),
-                                index.index_id(), index.get_index_suffix());
-                RETURN_IF_ERROR(fs->file_size(inverted_index_file_path, &file_size));
-                *index_size += file_size;
-            }
-        }
-    } else {
-        for (int seg_id = 0; seg_id < num_segments(); ++seg_id) {
-            auto seg_path = DORIS_TRY(segment_path(seg_id));
-            int64_t file_size = 0;
-
-            std::string inverted_index_file_path = InvertedIndexDescriptor::get_index_file_path_v2(
-                    InvertedIndexDescriptor::get_index_file_path_prefix(seg_path));
-            RETURN_IF_ERROR(fs->file_size(inverted_index_file_path, &file_size));
-            *index_size += file_size;
-        }
+    *index_size = 0;
+    for (const auto& file : inverted_index_files) {
+        *index_size += file.file_size;
     }
     return Status::OK();
 }
@@ -121,13 +91,11 @@ void BetaRowset::clear_inverted_index_cache() {
         }
 
         auto index_path_prefix = InvertedIndexDescriptor::get_index_file_path_prefix(*seg_path);
-        for (const auto& column : tablet_schema()->columns()) {
-            const TabletIndex* index_meta = tablet_schema()->get_inverted_index(*column);
-            if (index_meta) {
+        for (const auto& index : tablet_schema()->indexes()) {
+            if (index.index_type() == IndexType::INVERTED) {
                 auto inverted_index_file_cache_key =
                         InvertedIndexDescriptor::get_index_file_cache_key(
-                                index_path_prefix, index_meta->index_id(),
-                                index_meta->get_index_suffix());
+                                index_path_prefix, index.index_id(), index.get_index_suffix());
                 (void)segment_v2::InvertedIndexSearcherCache::instance()->erase(
                         inverted_index_file_cache_key);
             }
@@ -215,6 +183,8 @@ Status BetaRowset::remove() {
     bool success = true;
     Status st;
     const auto& fs = io::global_local_filesystem();
+
+    // Segment Files
     for (int i = 0; i < num_segments(); ++i) {
         auto seg_path = local_segment_path(_tablet_path, rowset_id().to_string(), i);
         LOG(INFO) << "deleting " << seg_path;
@@ -223,27 +193,24 @@ Status BetaRowset::remove() {
             LOG(WARNING) << st.to_string();
             success = false;
         }
+    }
 
-        if (_schema->get_inverted_index_storage_format() == InvertedIndexStorageFormatPB::V1) {
-            for (auto& column : _schema->columns()) {
-                const TabletIndex* index_meta = _schema->get_inverted_index(*column);
-                if (index_meta) {
-                    std::string inverted_index_file =
-                            InvertedIndexDescriptor::get_index_file_path_v1(
-                                    InvertedIndexDescriptor::get_index_file_path_prefix(seg_path),
-                                    index_meta->index_id(), index_meta->get_index_suffix());
-                    st = fs->delete_file(inverted_index_file);
-                    if (!st.ok()) {
-                        LOG(WARNING) << st.to_string();
-                        success = false;
-                    }
-                }
-            }
+    // Inverted Index Files
+    const auto& inverted_index_files = list_inverted_index_files();
+    if (!inverted_index_files.has_value()) {
+        LOG(WARNING) << "list inverted index files error:"
+                     << inverted_index_files.error().to_string();
+        success = false;
+    } else {
+        const auto& rs_dir = rowset_dir();
+        if (!rs_dir.has_value()) {
+            LOG(WARNING) << "rowset dir is error in BetaRowset::remove()"
+                         << inverted_index_files.error().to_string();
+            success = false;
         } else {
-            if (_schema->has_inverted_index()) {
-                std::string inverted_index_file = InvertedIndexDescriptor::get_index_file_path_v2(
-                        InvertedIndexDescriptor::get_index_file_path_prefix(seg_path));
-                st = fs->delete_file(inverted_index_file);
+            for (const auto& file : inverted_index_files.value()) {
+                LOG(INFO) << "deleting " << file.file_name;
+                st = fs->delete_file(fmt::format("{}/{}", rs_dir.value(), file.file_name));
                 if (!st.ok()) {
                     LOG(WARNING) << st.to_string();
                     success = false;
@@ -251,6 +218,7 @@ Status BetaRowset::remove() {
             }
         }
     }
+
     if (!success) {
         return Status::Error<ROWSET_DELETE_FILE_FAILED>("failed to remove files in rowset {}",
                                                         rowset_id().to_string());
@@ -274,6 +242,8 @@ Status BetaRowset::link_files_to(const std::string& dir, RowsetId new_rowset_id,
     const auto& local_fs = io::global_local_filesystem();
     Status status;
     std::vector<string> linked_success_files;
+    bool dst_path_exist = false;
+
     Defer remove_linked_files {[&]() { // clear linked files if errors happen
         if (!status.ok()) {
             LOG(WARNING) << "will delete linked success files due to error " << status;
@@ -287,15 +257,16 @@ Status BetaRowset::link_files_to(const std::string& dir, RowsetId new_rowset_id,
         }
     }};
 
+    // Segment Files
     for (int i = 0; i < num_segments(); ++i) {
         auto dst_path =
                 local_segment_path(dir, new_rowset_id.to_string(), i + new_rowset_start_seg_id);
-        bool dst_path_exist = false;
         if (!local_fs->exists(dst_path, &dst_path_exist).ok() || dst_path_exist) {
             status = Status::Error<FILE_ALREADY_EXIST>(
                     "failed to create hard link, file already exist: {}", dst_path);
             return status;
         }
+
         auto src_path = local_segment_path(_tablet_path, rowset_id().to_string(), i);
         // TODO(lingbin): how external storage support link?
         //     use copy? or keep refcount to avoid being delete?
@@ -305,83 +276,56 @@ Status BetaRowset::link_files_to(const std::string& dir, RowsetId new_rowset_id,
             return status;
         }
         linked_success_files.push_back(dst_path);
-        DBUG_EXECUTE_IF("fault_inject::BetaRowset::link_files_to::_link_inverted_index_file", {
-            status = Status::Error<OS_ERROR>("fault_inject link_file error");
-            return status;
-        });
-        if (_schema->get_inverted_index_storage_format() == InvertedIndexStorageFormatPB::V1) {
-            for (const auto& index : _schema->indexes()) {
-                if (index.index_type() != IndexType::INVERTED) {
-                    continue;
-                }
-                auto index_id = index.index_id();
-                if (without_index_uids != nullptr && without_index_uids->count(index_id)) {
-                    continue;
-                }
-                std::string inverted_index_src_file_path =
-                        InvertedIndexDescriptor::get_index_file_path_v1(
-                                InvertedIndexDescriptor::get_index_file_path_prefix(src_path),
-                                index_id, index.get_index_suffix());
-                std::string inverted_index_dst_file_path =
-                        InvertedIndexDescriptor::get_index_file_path_v1(
-                                InvertedIndexDescriptor::get_index_file_path_prefix(dst_path),
-                                index_id, index.get_index_suffix());
-                bool index_file_exists = true;
-                RETURN_IF_ERROR(local_fs->exists(inverted_index_src_file_path, &index_file_exists));
-                if (index_file_exists) {
-                    DBUG_EXECUTE_IF(
-                            "fault_inject::BetaRowset::link_files_to::_link_inverted_index_file", {
-                                status = Status::Error<OS_ERROR>(
-                                        "fault_inject link_file error from={}, to={}",
-                                        inverted_index_src_file_path, inverted_index_dst_file_path);
-                                return status;
-                            });
-                    if (!local_fs->link_file(inverted_index_src_file_path,
-                                             inverted_index_dst_file_path)
-                                 .ok()) {
-                        status = Status::Error<OS_ERROR>(
-                                "fail to create hard link. from={}, to={}, errno={}",
-                                inverted_index_src_file_path, inverted_index_dst_file_path,
-                                Errno::no());
-                        return status;
-                    }
-                    linked_success_files.push_back(inverted_index_dst_file_path);
-                    LOG(INFO) << "success to create hard link. from="
-                              << inverted_index_src_file_path << ", "
-                              << "to=" << inverted_index_dst_file_path;
-                } else {
-                    LOG(WARNING) << "skip create hard link to not existed index file="
-                                 << inverted_index_src_file_path;
-                }
-            }
-        } else {
-            if (_schema->has_inverted_index() &&
-                (without_index_uids == nullptr || without_index_uids->empty())) {
-                std::string inverted_index_file_src =
-                        InvertedIndexDescriptor::get_index_file_path_v2(
-                                InvertedIndexDescriptor::get_index_file_path_prefix(src_path));
-                std::string inverted_index_file_dst =
-                        InvertedIndexDescriptor::get_index_file_path_v2(
-                                InvertedIndexDescriptor::get_index_file_path_prefix(dst_path));
-                bool index_dst_path_exist = false;
+    }
 
-                if (!local_fs->exists(inverted_index_file_dst, &index_dst_path_exist).ok() ||
-                    index_dst_path_exist) {
-                    status = Status::Error<FILE_ALREADY_EXIST>(
-                            "failed to create hard link, file already exist: {}",
-                            inverted_index_file_dst);
-                    return status;
-                }
-                if (!local_fs->link_file(inverted_index_file_src, inverted_index_file_dst).ok()) {
-                    status = Status::Error<OS_ERROR>(
-                            "fail to create hard link. from={}, to={}, errno={}",
-                            inverted_index_file_src, inverted_index_file_dst, Errno::no());
-                    return status;
-                }
-                linked_success_files.push_back(inverted_index_file_dst);
+    DBUG_EXECUTE_IF("fault_inject::BetaRowset::link_files_to::_link_inverted_index_file", {
+        status = Status::Error<OS_ERROR>("fault_inject link_file error");
+        return status;
+    });
+
+    const auto& rs_dir = rowset_dir();
+    if (!rs_dir.has_value()) {
+        status = rs_dir.error();
+        return status;
+    }
+
+    // Inverted Index Files
+    const auto& inverted_index_files = list_inverted_index_files();
+    if (!inverted_index_files.has_value()) {
+        LOG(WARNING) << "list inverted index files error:"
+                     << inverted_index_files.error().to_string();
+        status = Status::Error<OS_ERROR>(
+                "list inverted index file error in BetaRowset::link_files_to()");
+        return status;
+    } else {
+        for (const auto& file : inverted_index_files.value()) {
+            const auto& file_name_fragment =
+                    InvertedIndexDescriptor::decompose_local_index_file_name(file.file_name);
+            if (file_name_fragment.seg_id == -1) {
+                status = Status::InvalidArgument("invalid inverted index file name: {}",
+                                                 file.file_name);
+                return status;
             }
+            const auto& dst_path = fmt::format("{}/{}_{}{}", dir, new_rowset_id.to_string(),
+                                               file_name_fragment.seg_id + new_rowset_start_seg_id,
+                                               file_name_fragment.index_suffix);
+            if (!local_fs->exists(dst_path, &dst_path_exist).ok() || dst_path_exist) {
+                status = Status::Error<FILE_ALREADY_EXIST>(
+                        "failed to create hard link, file already exist: {}", dst_path);
+                return status;
+            }
+
+            const auto& src_path = fmt::format("{}/{}", rs_dir.value(), file.file_name);
+            if (!local_fs->link_file(src_path, dst_path).ok()) {
+                status = Status::Error<OS_ERROR>(
+                        "fail to create hard link. from={}, to={}, errno={}", src_path, dst_path,
+                        Errno::no());
+                return status;
+            }
+            linked_success_files.push_back(dst_path);
         }
     }
+
     return Status::OK();
 }
 
@@ -392,49 +336,39 @@ Status BetaRowset::copy_files_to(const std::string& dir, const RowsetId& new_row
                                      _rowset_meta->tablet_id(), rowset_id().to_string());
     }
 
+    const auto& local_fs = io::global_local_filesystem();
     bool exists = false;
+    const auto& rs_dir = DORIS_TRY(rowset_dir());
+
+    // Segment Files
     for (int i = 0; i < num_segments(); ++i) {
         auto dst_path = local_segment_path(dir, new_rowset_id.to_string(), i);
-        RETURN_IF_ERROR(io::global_local_filesystem()->exists(dst_path, &exists));
+        RETURN_IF_ERROR(local_fs->exists(dst_path, &exists));
         if (exists) {
             return Status::Error<FILE_ALREADY_EXIST>("file already exist: {}", dst_path);
         }
-        auto src_path = local_segment_path(_tablet_path, rowset_id().to_string(), i);
-        RETURN_IF_ERROR(io::global_local_filesystem()->copy_path(src_path, dst_path));
-        if (_schema->get_inverted_index_storage_format() == InvertedIndexStorageFormatPB::V1) {
-            for (auto& column : _schema->columns()) {
-                // if (column.has_inverted_index()) {
-                const TabletIndex* index_meta = _schema->get_inverted_index(*column);
-                if (index_meta) {
-                    std::string inverted_index_src_file_path =
-                            InvertedIndexDescriptor::get_index_file_path_v1(
-                                    InvertedIndexDescriptor::get_index_file_path_prefix(src_path),
-                                    index_meta->index_id(), index_meta->get_index_suffix());
-                    std::string inverted_index_dst_file_path =
-                            InvertedIndexDescriptor::get_index_file_path_v1(
-                                    InvertedIndexDescriptor::get_index_file_path_prefix(dst_path),
-                                    index_meta->index_id(), index_meta->get_index_suffix());
-                    RETURN_IF_ERROR(io::global_local_filesystem()->copy_path(
-                            inverted_index_src_file_path, inverted_index_dst_file_path));
-                    LOG(INFO) << "success to copy file. from=" << inverted_index_src_file_path
-                              << ", "
-                              << "to=" << inverted_index_dst_file_path;
-                }
-            }
-        } else {
-            if (_schema->has_inverted_index()) {
-                std::string inverted_index_src_file =
-                        InvertedIndexDescriptor::get_index_file_path_v2(
-                                InvertedIndexDescriptor::get_index_file_path_prefix(src_path));
-                std::string inverted_index_dst_file =
-                        InvertedIndexDescriptor::get_index_file_path_v2(
-                                InvertedIndexDescriptor::get_index_file_path_prefix(dst_path));
-                RETURN_IF_ERROR(io::global_local_filesystem()->copy_path(inverted_index_src_file,
-                                                                         inverted_index_dst_file));
-                LOG(INFO) << "success to copy file. from=" << inverted_index_src_file << ", "
-                          << "to=" << inverted_index_dst_file;
-            }
+        auto src_path = local_segment_path(rs_dir, rowset_id().to_string(), i);
+        RETURN_IF_ERROR(local_fs->copy_path(src_path, dst_path));
+    }
+
+    // Inverted Index Files
+    const auto& inverted_index_files = DORIS_TRY(list_inverted_index_files());
+    for (const auto& file : inverted_index_files) {
+        const auto& file_name_fragment =
+                InvertedIndexDescriptor::decompose_local_index_file_name(file.file_name);
+        if (file_name_fragment.seg_id == -1) {
+            return Status::InvalidArgument("invalid inverted index file name: {}", file.file_name);
         }
+        const auto& dst_path =
+                fmt::format("{}/{}_{}{}", dir, new_rowset_id.to_string(), file_name_fragment.seg_id,
+                            file_name_fragment.index_suffix);
+        RETURN_IF_ERROR(local_fs->exists(dst_path, &exists));
+        if (exists) {
+            return Status::Error<FILE_ALREADY_EXIST>("file already exist: {}", dst_path);
+        }
+
+        const auto& src_path = fmt::format("{}/{}", rs_dir, file.file_name);
+        RETURN_IF_ERROR(local_fs->copy_path(src_path, dst_path));
     }
     return Status::OK();
 }
@@ -453,6 +387,8 @@ Status BetaRowset::upload_to(const StorageResource& dest_fs, const RowsetId& new
     local_paths.reserve(num_segments());
     std::vector<io::Path> dest_paths;
     dest_paths.reserve(num_segments());
+
+    // Segment Files
     for (int i = 0; i < num_segments(); ++i) {
         // Note: Here we use relative path for remote.
         auto remote_seg_path = dest_fs.remote_segment_path(_rowset_meta->tablet_id(),
@@ -460,40 +396,31 @@ Status BetaRowset::upload_to(const StorageResource& dest_fs, const RowsetId& new
         auto local_seg_path = local_segment_path(_tablet_path, rowset_id().to_string(), i);
         dest_paths.emplace_back(remote_seg_path);
         local_paths.emplace_back(local_seg_path);
-        if (_schema->get_inverted_index_storage_format() == InvertedIndexStorageFormatPB::V1) {
-            for (auto& column : _schema->columns()) {
-                // if (column.has_inverted_index()) {
-                const TabletIndex* index_meta = _schema->get_inverted_index(*column);
-                if (index_meta) {
-                    std::string remote_inverted_index_file =
-                            InvertedIndexDescriptor::get_index_file_path_v1(
-                                    InvertedIndexDescriptor::get_index_file_path_prefix(
-                                            remote_seg_path),
-                                    index_meta->index_id(), index_meta->get_index_suffix());
-                    std::string local_inverted_index_file =
-                            InvertedIndexDescriptor::get_index_file_path_v1(
-                                    InvertedIndexDescriptor::get_index_file_path_prefix(
-                                            local_seg_path),
-                                    index_meta->index_id(), index_meta->get_index_suffix());
-                    dest_paths.emplace_back(remote_inverted_index_file);
-                    local_paths.emplace_back(local_inverted_index_file);
-                }
-            }
-        } else {
-            if (_schema->has_inverted_index()) {
-                std::string remote_inverted_index_file =
-                        InvertedIndexDescriptor::get_index_file_path_v2(
-                                InvertedIndexDescriptor::get_index_file_path_prefix(
-                                        remote_seg_path));
-                std::string local_inverted_index_file =
-                        InvertedIndexDescriptor::get_index_file_path_v2(
-                                InvertedIndexDescriptor::get_index_file_path_prefix(
-                                        local_seg_path));
-                dest_paths.emplace_back(remote_inverted_index_file);
-                local_paths.emplace_back(local_inverted_index_file);
-            }
-        }
     }
+
+    // Inverted Index Files
+    const auto& rs_dir = DORIS_TRY(rowset_dir());
+    const auto& inverted_index_files = DORIS_TRY(list_inverted_index_files());
+    local_paths.reserve(local_paths.size() + inverted_index_files.size());
+    dest_paths.reserve(dest_paths.size() + inverted_index_files.size());
+    for (const auto& file : inverted_index_files) {
+        const auto& local_idx_path = fmt::format("{}/{}", rs_dir, file.file_name);
+        local_paths.emplace_back(local_idx_path);
+
+        const auto& file_name_fragment =
+                InvertedIndexDescriptor::decompose_local_index_file_name(file.file_name);
+        if (file_name_fragment.seg_id == -1) {
+            DorisMetrics::instance()->upload_fail_count->increment(1);
+            return Status::InvalidArgument(
+                    "invalid inverted index file name:{} in BetaRowset::upload_to()",
+                    file.file_name);
+        }
+        const auto& dst_path = dest_fs.remote_inverted_index_path(
+                _rowset_meta->tablet_id(), new_rowset_id.to_string(), file_name_fragment.seg_id,
+                file_name_fragment.index_suffix);
+        dest_paths.emplace_back(dst_path);
+    }
+
     auto st = dest_fs.fs->batch_upload(local_paths, dest_paths);
     if (st.ok()) {
         DorisMetrics::instance()->upload_rowset_count->increment(1);
@@ -571,6 +498,9 @@ Status BetaRowset::add_to_binlog() {
     auto segments_num = num_segments();
     VLOG_DEBUG << fmt::format("add rowset to binlog. rowset_id={}, segments_num={}",
                               rowset_id().to_string(), segments_num);
+    if (segments_num == 0) {
+        return Status::OK();
+    }
 
     Status status;
     std::vector<string> linked_success_files;
@@ -587,6 +517,7 @@ Status BetaRowset::add_to_binlog() {
         }
     }};
 
+    // Segment Files
     for (int i = 0; i < segments_num; ++i) {
         auto seg_file = local_segment_path(_tablet_path, rowset_id().to_string(), i);
 
@@ -610,34 +541,36 @@ Status BetaRowset::add_to_binlog() {
             return status;
         }
         linked_success_files.push_back(binlog_file);
+    }
 
-        if (_schema->get_inverted_index_storage_format() == InvertedIndexStorageFormatPB::V1) {
-            for (const auto& index : _schema->indexes()) {
-                if (index.index_type() != IndexType::INVERTED) {
-                    continue;
-                }
-                auto index_id = index.index_id();
-                auto index_file = InvertedIndexDescriptor::get_index_file_path_v1(
-                        InvertedIndexDescriptor::get_index_file_path_prefix(seg_file), index_id,
-                        index.get_index_suffix());
-                auto binlog_index_file = (std::filesystem::path(binlog_dir) /
-                                          std::filesystem::path(index_file).filename())
-                                                 .string();
-                VLOG_DEBUG << "link " << index_file << " to " << binlog_index_file;
-                RETURN_IF_ERROR(fs->link_file(index_file, binlog_index_file));
-                linked_success_files.push_back(binlog_index_file);
+    // Inverted Index Files
+    const auto& inverted_index_files = list_inverted_index_files();
+    if (!inverted_index_files.has_value()) {
+        LOG(WARNING) << "list inverted index files error:"
+                     << inverted_index_files.error().to_string();
+        status = Status::Error<OS_ERROR>(
+                "list inverted index file error in BetaRowset::add_to_binlog()");
+        return status;
+    } else {
+        const auto& rs_dir = rowset_dir();
+        if (!rs_dir.has_value()) {
+            LOG(WARNING) << "rowset dir error in BetaRowset::add_to_binlog():"
+                         << rs_dir.error().to_string();
+            status = Status::Error<OS_ERROR>("rowset dir error in BetaRowset::add_to_binlog()");
+            return status;
+        }
+        for (const auto& file : inverted_index_files.value()) {
+            const auto& idx_file = fmt::format("{}/{}", rs_dir.value(), file.file_name);
+            const auto& binlog_file =
+                    (std::filesystem::path(binlog_dir) / std::string(file.file_name)).string();
+            VLOG_DEBUG << "link " << idx_file << " to " << binlog_file;
+            if (!fs->link_file(idx_file, binlog_file).ok()) {
+                status = Status::Error<OS_ERROR>(
+                        "fail to create hard link. from={}, to={}, errno={}", idx_file, binlog_file,
+                        Errno::no());
+                return status;
             }
-        } else {
-            if (_schema->has_inverted_index()) {
-                auto index_file = InvertedIndexDescriptor::get_index_file_path_v2(
-                        InvertedIndexDescriptor::get_index_file_path_prefix(seg_file));
-                auto binlog_index_file = (std::filesystem::path(binlog_dir) /
-                                          std::filesystem::path(index_file).filename())
-                                                 .string();
-                VLOG_DEBUG << "link " << index_file << " to " << binlog_index_file;
-                RETURN_IF_ERROR(fs->link_file(index_file, binlog_index_file));
-                linked_success_files.push_back(binlog_index_file);
-            }
+            linked_success_files.push_back(binlog_file);
         }
     }
 
@@ -655,27 +588,15 @@ Status BetaRowset::calc_file_crc(uint32_t* crc_value, int64_t* file_count) {
 
     // 1. pick up all the files including dat file and idx file
     std::vector<io::Path> file_paths;
-    for (int seg_id = 0; seg_id < num_segments(); ++seg_id) {
-        auto seg_path = DORIS_TRY(segment_path(seg_id));
-        file_paths.emplace_back(seg_path);
-        if (_schema->get_inverted_index_storage_format() == InvertedIndexStorageFormatPB::V1) {
-            for (auto& column : _schema->columns()) {
-                const TabletIndex* index_meta = _schema->get_inverted_index(*column);
-                if (index_meta) {
-                    std::string inverted_index_file =
-                            InvertedIndexDescriptor::get_index_file_path_v1(
-                                    InvertedIndexDescriptor::get_index_file_path_prefix(seg_path),
-                                    index_meta->index_id(), index_meta->get_index_suffix());
-                    file_paths.emplace_back(std::move(inverted_index_file));
-                }
-            }
-        } else {
-            if (_schema->has_inverted_index()) {
-                std::string inverted_index_file = InvertedIndexDescriptor::get_index_file_path_v2(
-                        InvertedIndexDescriptor::get_index_file_path_prefix(seg_path));
-                file_paths.emplace_back(std::move(inverted_index_file));
-            }
-        }
+    for (int i = 0; i < num_segments(); ++i) {
+        auto seg_path = local_segment_path(_tablet_path, rowset_id().to_string(), i);
+        file_paths.emplace_back(std::move(seg_path));
+    }
+    const auto& inverted_index_files = DORIS_TRY(list_inverted_index_files());
+    const auto& rs_dir = DORIS_TRY(rowset_dir());
+    for (const auto& file : inverted_index_files) {
+        const auto& idx_path = fmt::format("{}/{}", rs_dir, file.file_name);
+        file_paths.emplace_back(std::move(idx_path));
     }
     *crc_value = 0;
     *file_count = file_paths.size();
@@ -804,7 +725,7 @@ Status BetaRowset::show_nested_index_file(rapidjson::Value* rowset_value,
         } else {
             rapidjson::Value indices(rapidjson::kArrayType);
             for (auto column : _rowset_meta->tablet_schema()->columns()) {
-                const auto* index_meta = _rowset_meta->tablet_schema()->get_inverted_index(*column);
+                const auto* index_meta = _rowset_meta->tablet_schema()->inverted_index(*column);
                 if (index_meta == nullptr) {
                     continue;
                 }
@@ -832,6 +753,49 @@ Status BetaRowset::show_nested_index_file(rapidjson::Value* rowset_value,
     }
     rowset_value->AddMember("segments", segments, allocator);
     return Status::OK();
+}
+
+Result<std::vector<io::FileInfo>> BetaRowset::list_inverted_index_files() {
+    std::vector<io::FileInfo> files;
+    if (!_rowset_meta->tablet_schema()->has_inverted_index() || num_segments() == 0) {
+        return files;
+    }
+    const auto& fs = _rowset_meta->fs();
+    if (!fs) {
+        return ResultError(Status::NotFound<false>("could not find file system"));
+    }
+    const auto& rs_dir = rowset_dir();
+    if (!rs_dir.has_value()) {
+        return ResultError(rs_dir.error());
+    }
+    bool exists {false};
+    if (auto st = fs->list(rs_dir.value(), true, &files, &exists); !st.ok()) {
+        return ResultError(st);
+    }
+    DCHECK(exists);
+
+    std::vector<io::FileInfo> filtered_files;
+    const auto& storage_resource = rowset_meta()->remote_storage_resource();
+    if (!is_local() && !storage_resource.has_value()) {
+        return ResultError(storage_resource.error());
+    }
+
+    if (storage_resource.has_value() && storage_resource.value()->path_version > 0) {
+        std::copy_if(files.begin(), files.end(), std::back_inserter(filtered_files),
+                     [&](const io::FileInfo& file_info) {
+                         // {tablet_id}/{rowset_id}/{seg_id}{index_suffix}
+                         return file_info.file_name.ends_with(".idx");
+                     });
+    } else {
+        const auto& rs_id = rowset_id().to_string();
+        std::copy_if(files.begin(), files.end(), std::back_inserter(filtered_files),
+                     [&](const io::FileInfo& file_info) {
+                         // {tablet_id}/{rowset_id}_{seg_id}{index_suffix}
+                         return file_info.file_name.starts_with(rs_id) &&
+                                file_info.file_name.ends_with(".idx");
+                     });
+    }
+    return filtered_files;
 }
 
 } // namespace doris
