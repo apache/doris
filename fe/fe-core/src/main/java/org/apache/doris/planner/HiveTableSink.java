@@ -42,6 +42,7 @@ import org.apache.doris.thrift.THivePartition;
 import org.apache.doris.thrift.THiveSerDeProperties;
 import org.apache.doris.thrift.THiveTableSink;
 
+import com.google.common.base.Strings;
 import org.apache.hadoop.hive.metastore.api.StorageDescriptor;
 import org.apache.hadoop.hive.metastore.api.Table;
 
@@ -172,7 +173,7 @@ public class HiveTableSink extends BaseExternalTableDataSink {
                 break;
             case FORMAT_CSV_PLAIN:
                 compressType = targetTable.getRemoteTable().getParameters().get("text.compression");
-                if (compressType == null) {
+                if (Strings.isNullOrEmpty(compressType)) {
                     compressType = ConnectContext.get().getSessionVariable().hiveTextCompression();
                 }
                 break;

@@ -216,7 +216,7 @@ public final class HiveUtil {
         if (props.containsKey("owner")) {
             table.setOwner(props.get("owner"));
         }
-        HiveProperties.updateProperties(table, props);
+        HiveProperties.setTableProperties(table, props);
         return table;
     }
 

@@ -127,8 +127,8 @@ public class HiveProperties {
         return HiveMetaStoreClientHelper.firstPresentOrDefault(DEFAULT_NULL_FORMAT, nullFormat);
     }
 
-    public static void updateProperties(Table table, Map<String, String> properties) {
-
+    // Set properties to table
+    public static void setTableProperties(Table table, Map<String, String> properties) {
         HashMap<String, String> serdeProps = new HashMap<>();
         HashMap<String, String> tblProps = new HashMap<>();
 
