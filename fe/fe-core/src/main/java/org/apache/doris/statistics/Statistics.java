@@ -20,6 +20,7 @@ package org.apache.doris.statistics;
 import org.apache.doris.nereids.stats.StatsMathUtil;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.types.coercion.CharacterType;
 
 import java.text.DecimalFormat;
 import java.util.HashMap;
@@ -143,7 +144,9 @@ public class Statistics {
         if (tupleSize <= 0) {
             double tempSize = 0.0;
             for (ColumnStatistic s : expressionToColumnStats.values()) {
-                tempSize += s.avgSizeByte;
+                if (s != null) {
+                    tempSize += Math.max(1, Math.min(CharacterType.DEFAULT_WIDTH, s.avgSizeByte));
+                }
             }
             tupleSize = Math.max(1, tempSize);
         }

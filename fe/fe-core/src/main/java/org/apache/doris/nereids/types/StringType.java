@@ -37,11 +37,6 @@ public class StringType extends CharacterType {
     }
 
     @Override
-    public int width() {
-        return len;
-    }
-
-    @Override
     public String simpleString() {
         return "text";
     }
