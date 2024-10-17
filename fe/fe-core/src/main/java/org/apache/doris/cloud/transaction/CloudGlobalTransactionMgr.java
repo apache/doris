@@ -644,25 +644,8 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             throw new UserException("The partition info is empty, table may be dropped, txnid=" + transactionId);
         }
 
-        Map<Long, List<Long>> partitionToSubTxnIds = null;
-        if (subTransactionStates != null) {
-            partitionToSubTxnIds = Maps.newHashMap();
-            for (SubTransactionState subTransactionState : subTransactionStates) {
-                if (!tableToTabletList.containsKey(subTransactionState.getTable().getId())) {
-                    // skip non mow table
-                    continue;
-                }
-                for (TTabletCommitInfo ci : subTransactionState.getTabletCommitInfos()) {
-                    TabletMeta tabletMeta = tabletToTabletMeta.get(ci.getTabletId());
-                    long partitionId = tabletMeta.getPartitionId();
-                    List<Long> subTxnIds = partitionToSubTxnIds.computeIfAbsent(partitionId, k -> Lists.newArrayList());
-                    if (!subTxnIds.contains(subTransactionState.getSubTransactionId())) {
-                        subTxnIds.add(subTransactionState.getSubTransactionId());
-                    }
-                }
-            }
-        }
-
+        Map<Long, List<Long>> partitionToSubTxnIds = getPartitionSubTxnIds(subTransactionStates, tableToTabletList,
+                tabletToTabletMeta);
         Map<Long, Long> baseCompactionCnts = Maps.newHashMap();
         Map<Long, Long> cumulativeCompactionCnts = Maps.newHashMap();
         Map<Long, Long> cumulativePoints = Maps.newHashMap();
@@ -676,6 +659,29 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         sendCalcDeleteBitmaptask(dbId, transactionId, backendToPartitionInfos,
                 subTransactionStates == null ? Config.calculate_delete_bitmap_task_timeout_seconds
                         : Config.calculate_delete_bitmap_task_timeout_seconds_for_transaction_load);
+    }
+
+    private Map<Long, List<Long>> getPartitionSubTxnIds(List<SubTransactionState> subTransactionStates,
+            Map<Long, List<Long>> tableToTabletList, Map<Long, TabletMeta> tabletToTabletMeta) {
+        if (subTransactionStates == null) {
+            return null;
+        }
+        Map<Long, List<Long>> partitionToSubTxnIds = Maps.newHashMap();
+        for (SubTransactionState subTransactionState : subTransactionStates) {
+            if (!tableToTabletList.containsKey(subTransactionState.getTable().getId())) {
+                // skip non mow table
+                continue;
+            }
+            for (TTabletCommitInfo ci : subTransactionState.getTabletCommitInfos()) {
+                TabletMeta tabletMeta = tabletToTabletMeta.get(ci.getTabletId());
+                long partitionId = tabletMeta.getPartitionId();
+                List<Long> subTxnIds = partitionToSubTxnIds.computeIfAbsent(partitionId, k -> Lists.newArrayList());
+                if (!subTxnIds.contains(subTransactionState.getSubTransactionId())) {
+                    subTxnIds.add(subTransactionState.getSubTransactionId());
+                }
+            }
+        }
+        return partitionToSubTxnIds;
     }
 
     private void getPartitionInfo(List<OlapTable> tableList,
@@ -695,21 +701,22 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         TabletInvertedIndex tabletInvertedIndex = Env.getCurrentEnv().getTabletInvertedIndex();
         List<TabletMeta> tabletMetaList = tabletInvertedIndex.getTabletMetaList(tabletIds);
         for (int i = 0; i < tabletMetaList.size(); i++) {
-            TabletMeta tabletMeta = tabletMetaList.get(i);
-            if (tabletToTabletMeta.containsKey(tabletIds.get(i))) {
+            long tabletId = tabletIds.get(i);
+            if (tabletToTabletMeta.containsKey(tabletId)) {
                 continue;
             }
+            TabletMeta tabletMeta = tabletMetaList.get(i);
             long tableId = tabletMeta.getTableId();
             if (!tableMap.containsKey(tableId)) {
                 continue;
             }
 
-            tabletToTabletMeta.put(tabletIds.get(i), tabletMeta);
+            tabletToTabletMeta.put(tabletId, tabletMeta);
 
-            if (!tableToTabletList.containsKey(tableId)) {
-                tableToTabletList.put(tableId, Lists.newArrayList());
+            List<Long> tableTabletIds = tableToTabletList.computeIfAbsent(tableId, k -> Lists.newArrayList());
+            if (!tableTabletIds.contains(tabletId)) {
+                tableTabletIds.add(tabletId);
             }
-            tableToTabletList.get(tableId).add(tabletIds.get(i));
 
             long partitionId = tabletMeta.getPartitionId();
             long backendId = tabletCommitInfos.get(i).getBackendId();
@@ -726,7 +733,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             if (!partitionToTablets.containsKey(partitionId)) {
                 partitionToTablets.put(partitionId, Sets.newHashSet());
             }
-            partitionToTablets.get(partitionId).add(tabletIds.get(i));
+            partitionToTablets.get(partitionId).add(tabletId);
             partitions.putIfAbsent(partitionId, tableMap.get(tableId).getPartition(partitionId));
         }
     }
