@@ -207,6 +207,7 @@ Status LoadStreamStub::open(BrpcClientCache<PBackendService_Stub>* client_cache,
     LOG(INFO) << "open load stream to host=" << node_info.host << ", port=" << node_info.brpc_port
               << ", " << *this;
     _is_open.store(true);
+    _status = Status::OK();
     return Status::OK();
 }
 
