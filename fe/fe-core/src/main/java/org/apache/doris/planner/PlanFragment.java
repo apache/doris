@@ -510,7 +510,7 @@ public class PlanFragment extends TreeNode<PlanFragment> {
                 && !hasNullAwareLeftAntiJoin()
                 // If input data partition is UNPARTITIONED and sink is DataStreamSink and root node is not a serial
                 // operator, we use local exchange to improve parallelism
-                && getDataPartition() == DataPartition.UNPARTITIONED
+                && getDataPartition() == DataPartition.UNPARTITIONED && !children.isEmpty()
                 && sink instanceof DataStreamSink && !planRoot.isSerialOperator();
     }
 }
