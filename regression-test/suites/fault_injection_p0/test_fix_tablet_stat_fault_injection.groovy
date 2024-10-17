@@ -21,7 +21,7 @@ import org.apache.doris.regression.util.Http
 suite("test_fix_tablet_stat_fault_injection", "nonConcurrent") {
     if(isCloudMode()){
         def tableName = "test_fix_tablet_stat_fault_injection"
-        def bucketSize = 1
+        def bucketSize = 100000
         def create_table_sql = """
                     CREATE TABLE IF NOT EXISTS ${tableName}
                         (
