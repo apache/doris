@@ -21,6 +21,9 @@
 
 #include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
+#include <cstddef>
+#include <cstdint>
+#include <cstring>
 #include <memory>
 #include <type_traits>
 #include <utility>
@@ -284,7 +287,7 @@ struct FloorCeilImpl {
                                       PaddedPODArray<NativeType>& res, NullMap& null_map) {
         // time_round(datetime,const(period))
         if (period < 1) {
-            null_map.resize_fill(dates.size(), true);
+            memset(null_map.data(), 1, sizeof(UInt8) * dates.size());
             return;
         }
         for (int i = 0; i < dates.size(); ++i) {
@@ -325,7 +328,7 @@ struct FloorCeilImpl {
                                    NativeType origin_date, PaddedPODArray<NativeType>& res,
                                    NullMap& null_map) {
         if (period < 1) {
-            null_map.resize_fill(dates.size(), true);
+            memset(null_map.data(), 1, sizeof(UInt8) * dates.size());
             return;
         }
         switch (period) {
@@ -410,7 +413,7 @@ struct FloorCeilImpl {
                                     const PaddedPODArray<NativeType>& origin_dates,
                                     PaddedPODArray<NativeType>& res, NullMap& null_map) {
         if (period < 1) {
-            null_map.resize_fill(dates.size(), true);
+            memset(null_map.data(), 1, sizeof(UInt8) * dates.size());
             return;
         }
         for (int i = 0; i < dates.size(); ++i) {
