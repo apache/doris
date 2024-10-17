@@ -390,7 +390,7 @@ Status VTabletWriterV2::_select_streams(int64_t tablet_id, int64_t partition_id,
         VLOG_DEBUG << fmt::format("_select_streams P{} I{} T{}", partition_id, index_id, tablet_id);
         _tablets_for_node[node_id].emplace(tablet_id, tablet);
         auto stream = _load_stream_map->at(node_id)->at(_stream_index);
-        for (int i = 1; i < _stream_per_node && !stream->is_inited(); i++) {
+        for (int i = 1; i < _stream_per_node && !stream->is_open(); i++) {
             stream = _load_stream_map->at(node_id)->at((_stream_index + i) % _stream_per_node);
         }
         streams.emplace_back(std::move(stream));
