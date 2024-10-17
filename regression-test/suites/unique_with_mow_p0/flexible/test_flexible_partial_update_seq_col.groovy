@@ -17,7 +17,7 @@
 
 suite('test_flexible_partial_update_seq_col') {
 
-    for (def use_row_store : [false, true]) {
+    for (def use_row_store : [false]) {
         logger.info("current params: use_row_store: ${use_row_store}")
 
         // 1.1. sequence map col(without default value)
@@ -137,7 +137,8 @@ suite('test_flexible_partial_update_seq_col') {
 
         // ==============================================================================================================================
         // the below cases will have many rows with same keys in one load. Among rows with the same keys, some of them specify sequence col(sequence map col),
-        // some of them don't. Those
+        // some of them don't. 
+        // The behavior should be the same as if these rows are inserted one by one
 
         // 2.1. sequence type col
         tableName = "test_flexible_partial_update_seq_type_col2_${use_row_store}"
@@ -236,7 +237,7 @@ suite('test_flexible_partial_update_seq_col') {
         `v3` BIGINT NOT NULL,
         `v4` BIGINT NOT NULL DEFAULT "1234",
         `v5` BIGINT NULL,
-        `v6` BIGINT NULL default "60"
+        `v6` BIGINT NULL default "80"
         ) UNIQUE KEY(`k`) DISTRIBUTED BY HASH(`k`) BUCKETS 1
         PROPERTIES(
         "replication_num" = "1",

@@ -956,6 +956,7 @@ Status VerticalSegmentWriter::_merge_rows_for_sequence_column(
     VLOG_DEBUG << fmt::format(
             "VerticalSegmentWriter::_merge_rows_for_sequence_column enter: data.block:{}\n",
             data.block->dump_data());
+    // the process logic here is the same as MemTable::_aggregate_for_flexible_partial_update_without_seq_col()
     // after this function, there will be at most 2 rows for a specified key
     auto* block = const_cast<vectorized::Block*>(data.block);
     auto seq_col_unique_id = _tablet_schema->column(_tablet_schema->sequence_col_idx()).unique_id();
@@ -1064,8 +1065,8 @@ Status VerticalSegmentWriter::_merge_rows_for_sequence_column(
             pos = start;
             auto& skip_bitmap = skip_bitmaps->at(pos);
             bool row_has_sequence_col = (!skip_bitmap.contains(seq_col_unique_id));
+            output_block.add_row(block, pos);
             if (row_has_sequence_col) {
-                output_block.add_row(block, pos);
                 std::string seq_val {};
                 // for rows that don't specify seqeunce col, seq_val will be encoded to minial value
                 _encode_seq_column(seq_column, pos, &seq_val);
