@@ -83,7 +83,7 @@ suite("test_hms_event_notification_multi_catalog", "p0,external,hive,external_do
             logger.info("result = " + dbs);
             
             int flag_db_count = 0 ; 
-            dbs.forEach {
+            dbs.forEach { it ->
                 if (it[0] == db1) {
                     flag_db_count ++;
                 }else if (it[0] == db2) {
@@ -96,7 +96,7 @@ suite("test_hms_event_notification_multi_catalog", "p0,external,hive,external_do
             dbs = sql """ show databases """ 
             logger.info("result = " + dbs);
             flag_db_count = 0 ; 
-            dbs.forEach {
+            dbs.forEach { it ->
                 if (it[0] == db1) {
                     flag_db_count ++;
                 }else if (it[0] == db2) {
@@ -155,7 +155,7 @@ suite("test_hms_event_notification_multi_catalog", "p0,external,hive,external_do
             dbs = sql """ show databases """ 
             logger.info("result = " + dbs);
             flag_db_count = 0 ; 
-            dbs.forEach {
+            dbs.forEach { it ->
                 if (it[0].toString() == db1) {
                     flag_db_count ++;
                 } else if (it[0].toString() == db2) {
@@ -169,7 +169,7 @@ suite("test_hms_event_notification_multi_catalog", "p0,external,hive,external_do
             dbs = sql """ show databases """ 
             logger.info("result = " + dbs);
             flag_db_count = 0 ; 
-            dbs.forEach {
+            dbs.forEach { it ->
                 if (it[0].toString() == db1) {
                     flag_db_count ++;
                 } else if (it[0].toString() == db2) {
@@ -194,7 +194,7 @@ suite("test_hms_event_notification_multi_catalog", "p0,external,hive,external_do
             tbs = sql """ show tables; """ 
             logger.info(" tbs = ${tbs}")
             int flag_tb_count = 0 ; 
-            tbs.forEach {
+            tbs.forEach { it ->
                 logger.info("it[0] = " + it[0])
                 if (it[0].toString() == "${tb1}") {
                     flag_tb_count ++;
@@ -212,7 +212,7 @@ suite("test_hms_event_notification_multi_catalog", "p0,external,hive,external_do
             tbs = sql """ show tables; """ 
             logger.info(" tbs = ${tbs}")
             flag_tb_count = 0 ; 
-            tbs.forEach {
+            tbs.forEach { it ->
                 logger.info("it[0] = " + it[0])
                 if (it[0].toString() == "${tb1}") {
                     flag_tb_count ++;
@@ -381,7 +381,7 @@ suite("test_hms_event_notification_multi_catalog", "p0,external,hive,external_do
             logger.info(""" tbs = ${tbs}""")
 
             flag_tb_count = 0 ; 
-            tbs.forEach {
+            tbs.forEach { it ->
                 if (it[0] == tb1) {
                     flag_tb_count ++;
                 } else if (it[0] == tb2) {
@@ -397,7 +397,7 @@ suite("test_hms_event_notification_multi_catalog", "p0,external,hive,external_do
             tbs = sql """ show tables; """
             logger.info(""" tbs = ${tbs}""")
             flag_tb_count = 0 ; 
-            tbs.forEach {
+            tbs.forEach { it ->
                 if (it[0] == tb1) {
                     flag_tb_count ++;
                 } else if (it[0] == tb2) {
@@ -419,7 +419,7 @@ suite("test_hms_event_notification_multi_catalog", "p0,external,hive,external_do
 
             logger.info(""" tbs = ${tbs}""")
 
-            tbs.forEach {
+            tbs.forEach { it ->
                 if (it[0] == tb1) {
                     logger.info("exists ${tb1}")
                     assertTrue(false);
@@ -434,7 +434,7 @@ suite("test_hms_event_notification_multi_catalog", "p0,external,hive,external_do
             sql """ use ${db1} """
             tbs = sql """ show tables; """
             logger.info(""" tbs = ${tbs}""")
-            tbs.forEach {
+            tbs.forEach { it ->
                 if (it[0] == tb1) {
                     logger.info("exists ${tb1}")
                     assertTrue(false);
@@ -501,7 +501,7 @@ suite("test_hms_event_notification_multi_catalog", "p0,external,hive,external_do
             logger.info("pars = ${pars}")
             assertTrue(pars.size() == 2)
             int flag_partition_count = 0 ; 
-            pars.forEach {
+            pars.forEach { it ->
                 if (it[0] == "country=India") {
                     flag_partition_count ++;
                 } else if (it[0] == "country=USA") {
@@ -516,7 +516,7 @@ suite("test_hms_event_notification_multi_catalog", "p0,external,hive,external_do
             logger.info("pars = ${pars}")
             assertTrue(pars.size() == 2)
             flag_partition_count = 0 ; 
-            pars.forEach {
+            pars.forEach { it ->
                 if (it[0] == "country=India") {
                     flag_partition_count ++;
                 } else if (it[0] == "country=USA") {
@@ -539,7 +539,7 @@ suite("test_hms_event_notification_multi_catalog", "p0,external,hive,external_do
             logger.info("pars = ${pars}")
             assertTrue(pars.size() == 3)
             flag_partition_count = 0 ; 
-            pars.forEach {
+            pars.forEach { it ->
                 if (it[0].toString() == "country=India") {
                     flag_partition_count ++;
                 } else if (it[0].toString() == "country=USA") {
@@ -557,7 +557,7 @@ suite("test_hms_event_notification_multi_catalog", "p0,external,hive,external_do
             logger.info("pars = ${pars}")
             assertTrue(pars.size() == 3)
             flag_partition_count = 0 ; 
-            pars.forEach {
+            pars.forEach { it ->
                 if (it[0].toString() == "country=India") {
                     flag_partition_count ++;
                 } else if (it[0].toString() == "country=USA") {
@@ -584,7 +584,7 @@ suite("test_hms_event_notification_multi_catalog", "p0,external,hive,external_do
             logger.info("pars = ${pars}")
             assertTrue(pars.size() == 3)
             flag_partition_count = 0 ; 
-            pars.forEach {
+            pars.forEach { it ->
                 if (it[0].toString() == "country=India") {
                     flag_partition_count ++;
                 } else if (it[0].toString() == "country=US") {
@@ -602,7 +602,7 @@ suite("test_hms_event_notification_multi_catalog", "p0,external,hive,external_do
             logger.info("pars = ${pars}")
             assertTrue(pars.size() == 3)
             flag_partition_count = 0 ; 
-            pars.forEach {
+            pars.forEach { it ->
                 if (it[0].toString() == "country=India") {
                     flag_partition_count ++;
                 } else if (it[0].toString() == "country=US") {
@@ -628,7 +628,7 @@ suite("test_hms_event_notification_multi_catalog", "p0,external,hive,external_do
             logger.info("pars = ${pars}")
             assertTrue(pars.size() == 2)
             flag_partition_count = 0 
-            pars.forEach {
+            pars.forEach { it ->
                 if (it[0].toString() == "country=India") {
                     flag_partition_count ++;
                 } else if (it[0].toString() == "country=US") {
@@ -647,7 +647,7 @@ suite("test_hms_event_notification_multi_catalog", "p0,external,hive,external_do
             logger.info("pars = ${pars}")
             assertTrue(pars.size() == 2)
             flag_partition_count = 0 
-            pars.forEach {
+            pars.forEach { it ->
                 if (it[0].toString() == "country=India") {
                     flag_partition_count ++;
                 } else if (it[0].toString() == "country=US") {
