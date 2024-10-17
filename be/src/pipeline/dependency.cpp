@@ -343,7 +343,6 @@ Status AggSpillPartition::get_spill_stream(RuntimeState* state, int node_id,
             std::numeric_limits<int32_t>::max(), std::numeric_limits<size_t>::max(), profile));
     spill_streams_.emplace_back(spilling_stream_);
     spill_stream = spilling_stream_;
-    spill_stream->set_write_counters(profile);
     return Status::OK();
 }
 void AggSpillPartition::close() {

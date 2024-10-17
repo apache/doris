@@ -319,7 +319,7 @@ public:
                 ADD_COUNTER_WITH_LEVEL(Base::profile(), "SpillWriteBlockCount", TUnit::UNIT, 1);
         _spill_write_block_data_size =
                 ADD_COUNTER_WITH_LEVEL(Base::profile(), "SpillWriteBlockDataSize", TUnit::BYTES, 1);
-        _spill_write_file_data_size =
+        _spill_write_file_total_size =
                 ADD_COUNTER_WITH_LEVEL(Base::profile(), "SpillWriteFileTotalSize", TUnit::BYTES, 1);
         _spill_write_rows_count =
                 ADD_COUNTER_WITH_LEVEL(Base::profile(), "SpillWriteRows", TUnit::UNIT, 1);
@@ -366,13 +366,15 @@ public:
         if (_copy_shared_spill_profile) {
             _copy_shared_spill_profile = false;
             const auto* spill_shared_state = (const BasicSpillSharedState*)Base::_shared_state;
-            COUNTER_SET(_spill_file_current_size,
-                        spill_shared_state->_spill_write_file_data_size->value());
-            COUNTER_SET(_spill_file_current_count,
-                        spill_shared_state->_spill_file_total_count->value());
+            COUNTER_UPDATE(_spill_file_current_size,
+                           spill_shared_state->_spill_write_file_total_size->value());
+            COUNTER_UPDATE(_spill_file_current_count,
+                           spill_shared_state->_spill_file_total_count->value());
             Base::_shared_state->update_spill_stream_profiles(Base::profile());
         }
     }
+
+    std::atomic_int _spilling_task_count {0};
 
     // Total time of spill, including spill task scheduling time,
     // serialize block time, write disk file time,
@@ -397,7 +399,7 @@ public:
     // Total bytes of spill data in Block format(in memory format)
     RuntimeProfile::Counter* _spill_write_block_data_size = nullptr;
     // Total bytes of spill data written to disk file(after serialized)
-    RuntimeProfile::Counter* _spill_write_file_data_size = nullptr;
+    RuntimeProfile::Counter* _spill_write_file_total_size = nullptr;
     RuntimeProfile::Counter* _spill_write_rows_count = nullptr;
     RuntimeProfile::Counter* _spill_file_total_count = nullptr;
     RuntimeProfile::Counter* _spill_file_current_count = nullptr;
@@ -754,6 +756,8 @@ public:
         COUNTER_SET(_spill_max_rows_of_partition, max_rows);
         COUNTER_SET(_spill_min_rows_of_partition, min_rows);
     }
+
+    std::atomic_int _spilling_task_count {0};
 
     std::vector<int64_t> _rows_in_partitions;
 

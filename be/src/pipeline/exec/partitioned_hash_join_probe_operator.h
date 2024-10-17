@@ -74,12 +74,6 @@ private:
     std::unique_ptr<vectorized::Block> _child_block;
     bool _child_eos {false};
 
-    std::mutex _spill_lock;
-    Status _spill_status;
-
-    std::atomic<int> _spilling_task_count {0};
-    std::atomic<bool> _spill_status_ok {true};
-
     std::vector<std::unique_ptr<vectorized::MutableBlock>> _partitioned_blocks;
     std::unique_ptr<vectorized::MutableBlock> _recovered_build_block;
     std::map<uint32_t, std::vector<vectorized::Block>> _probe_blocks;

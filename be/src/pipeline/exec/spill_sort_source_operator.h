@@ -54,7 +54,6 @@ protected:
     std::unique_ptr<RuntimeState> _runtime_state;
 
     bool _opened = false;
-    Status _status;
 
     int64_t _external_sort_bytes_threshold = 134217728; // 128M
     std::vector<vectorized::SpillStreamSPtr> _current_merging_streams;

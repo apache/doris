@@ -51,8 +51,10 @@ Status SpillWriter::close() {
     }
 
     total_written_bytes_ += meta_.size();
-    COUNTER_UPDATE(_write_file_data_bytes_counter, meta_.size());
-
+    COUNTER_UPDATE(_write_file_total_size, meta_.size());
+    if (_write_file_current_size) {
+        COUNTER_UPDATE(_write_file_current_size, meta_.size());
+    }
     data_dir_->update_spill_data_usage(meta_.size());
 
     RETURN_IF_ERROR(file_writer_->close());
@@ -146,7 +148,10 @@ Status SpillWriter::_write_internal(const Block& block, size_t& written_bytes) {
                     max_sub_block_size_ = std::max(max_sub_block_size_, (size_t)buff_size);
 
                     meta_.append((const char*)&total_written_bytes_, sizeof(size_t));
-                    COUNTER_UPDATE(_write_file_data_bytes_counter, buff_size);
+                    COUNTER_UPDATE(_write_file_total_size, buff_size);
+                    if (_write_file_current_size) {
+                        COUNTER_UPDATE(_write_file_current_size, buff_size);
+                    }
                     COUNTER_UPDATE(_write_block_counter, 1);
                     total_written_bytes_ += buff_size;
                     ++written_blocks_;

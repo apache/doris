@@ -426,16 +426,18 @@ private:
 struct BasicSpillSharedState {
     virtual ~BasicSpillSharedState() = default;
 
+    AtomicStatus _spill_status;
+
     // These two counters are shared to spill source operators as the initial value
     // of 'SpillWriteFileCurrentSize' and 'SpillWriteFileCurrentCount'.
     // Total bytes of spill data written to disk file(after serialized)
-    RuntimeProfile::Counter* _spill_write_file_data_size = nullptr;
+    RuntimeProfile::Counter* _spill_write_file_total_size = nullptr;
     RuntimeProfile::Counter* _spill_file_total_count = nullptr;
 
     void setup_shared_profile(RuntimeProfile* sink_profile) {
         _spill_file_total_count =
                 ADD_COUNTER_WITH_LEVEL(sink_profile, "SpillWriteFileTotalCount", TUnit::UNIT, 1);
-        _spill_write_file_data_size =
+        _spill_write_file_total_size =
                 ADD_COUNTER_WITH_LEVEL(sink_profile, "SpillWriteFileTotalSize", TUnit::BYTES, 1);
     }
 
@@ -463,7 +465,6 @@ struct PartitionedAggSharedState : public BasicSharedState,
     size_t partition_count_bits;
     size_t partition_count;
     size_t max_partition_index;
-    Status sink_status;
     bool is_spilled = false;
     std::atomic_bool is_closed = false;
     std::deque<std::shared_ptr<AggSpillPartition>> spill_partitions;
@@ -544,7 +545,6 @@ struct SpillSortSharedState : public BasicSharedState,
     bool enable_spill = false;
     bool is_spilled = false;
     std::atomic_bool is_closed = false;
-    Status sink_status;
     std::shared_ptr<BasicSharedState> in_mem_shared_state_sptr;
 
     std::deque<vectorized::SpillStreamSPtr> sorted_streams;

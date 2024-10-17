@@ -61,7 +61,8 @@ public:
         _serialize_timer = profile->get_counter("SpillWriteSerializeBlockTime");
         _write_block_counter = profile->get_counter("SpillWriteBlockCount");
         _write_block_bytes_counter = profile->get_counter("SpillWriteBlockDataSize");
-        _write_file_data_bytes_counter = profile->get_counter("SpillWriteFileTotalSize");
+        _write_file_total_size = profile->get_counter("SpillWriteFileTotalSize");
+        _write_file_current_size = profile->get_counter("SpillWriteFileCurrentSize");
         _write_rows_counter = profile->get_counter("SpillWriteRows");
     }
 
@@ -86,7 +87,8 @@ private:
     RuntimeProfile::Counter* _serialize_timer = nullptr;
     RuntimeProfile::Counter* _write_block_counter = nullptr;
     RuntimeProfile::Counter* _write_block_bytes_counter = nullptr;
-    RuntimeProfile::Counter* _write_file_data_bytes_counter = nullptr;
+    RuntimeProfile::Counter* _write_file_total_size = nullptr;
+    RuntimeProfile::Counter* _write_file_current_size = nullptr;
     RuntimeProfile::Counter* _write_rows_counter = nullptr;
     RuntimeProfile::Counter* _memory_used_counter = nullptr;
     RuntimeProfile::HighWaterMarkCounter* _peak_memory_usage_counter = nullptr;

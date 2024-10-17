@@ -142,21 +142,24 @@ Status PartitionedAggSourceOperatorX::get_block(RuntimeState* state, vectorized:
                                                 bool* eos) {
     auto& local_state = get_local_state(state);
     local_state.copy_shared_spill_profile();
+    Status status;
     Defer defer {[&]() {
-        if (!local_state._status.ok() || *eos) {
+        if (!status.ok() || *eos) {
             local_state._shared_state->close();
         }
     }};
 
     local_state.inc_running_big_mem_op_num(state);
     SCOPED_TIMER(local_state.exec_time_counter());
-    RETURN_IF_ERROR(local_state._status);
+    status = local_state._shared_state->_spill_status.status();
+    RETURN_IF_ERROR(status);
 
     if (local_state._shared_state->is_spilled &&
         local_state._need_to_merge_data_for_current_partition) {
         if (local_state._blocks.empty() && !local_state._current_partition_eos) {
             bool has_recovering_data = false;
-            RETURN_IF_ERROR(local_state.recover_blocks_from_disk(state, has_recovering_data));
+            status = local_state.recover_blocks_from_disk(state, has_recovering_data);
+            RETURN_IF_ERROR(status);
             *eos = !has_recovering_data;
             return Status::OK();
         } else if (!local_state._blocks.empty()) {
@@ -165,8 +168,9 @@ Status PartitionedAggSourceOperatorX::get_block(RuntimeState* state, vectorized:
                 auto block = std::move(local_state._blocks.front());
                 merged_rows += block.rows();
                 local_state._blocks.erase(local_state._blocks.begin());
-                RETURN_IF_ERROR(_agg_source_operator->merge_with_serialized_key_helper<false>(
-                        local_state._runtime_state.get(), &block));
+                status = _agg_source_operator->merge_with_serialized_key_helper<false>(
+                        local_state._runtime_state.get(), &block);
+                RETURN_IF_ERROR(status);
             }
             local_state._estimate_memory_usage +=
                     _agg_source_operator->get_estimated_memory_size_for_merging(
@@ -183,8 +187,8 @@ Status PartitionedAggSourceOperatorX::get_block(RuntimeState* state, vectorized:
     // not spilled in sink or current partition still has data
     auto* runtime_state = local_state._runtime_state.get();
     local_state._shared_state->in_mem_shared_state->aggregate_data_container->init_once();
-    local_state._status = _agg_source_operator->get_block(runtime_state, block, eos);
-    RETURN_IF_ERROR(local_state._status);
+    status = _agg_source_operator->get_block(runtime_state, block, eos);
+    RETURN_IF_ERROR(status);
     if (local_state._runtime_state) {
         auto* source_local_state =
                 local_state._runtime_state->get_local_state(_agg_source_operator->operator_id());
@@ -195,7 +199,8 @@ Status PartitionedAggSourceOperatorX::get_block(RuntimeState* state, vectorized:
             !local_state._shared_state->spill_partitions.empty()) {
             local_state._current_partition_eos = false;
             local_state._need_to_merge_data_for_current_partition = true;
-            RETURN_IF_ERROR(local_state._shared_state->in_mem_shared_state->reset_hash_table());
+            status = local_state._shared_state->in_mem_shared_state->reset_hash_table();
+            RETURN_IF_ERROR(status);
             *eos = false;
         }
     }
@@ -240,15 +245,15 @@ Status PartitionedAggLocalState::recover_blocks_from_disk(RuntimeState* state, b
 
     has_data = true;
     auto spill_func = [this, state, query_id] {
+        Status status;
         Defer defer {[&]() {
-            if (!_status.ok() || state->is_cancelled()) {
-                if (!_status.ok()) {
+            if (!status.ok() || state->is_cancelled()) {
+                if (!status.ok()) {
                     LOG(WARNING) << "query " << print_id(query_id) << " agg node "
-                                 << _parent->node_id() << " recover agg data error: " << _status;
+                                 << _parent->node_id() << " recover agg data error: " << status;
                 }
                 _shared_state->close();
             }
-            _spill_dependency->Dependency::set_ready();
         }};
         bool has_agg_data = false;
         size_t accumulated_blocks_size = 0;
@@ -262,15 +267,15 @@ Status PartitionedAggLocalState::recover_blocks_from_disk(RuntimeState* state, b
                     {
                         DBUG_EXECUTE_IF("fault_inject::partitioned_agg_source::recover_spill_data",
                                         {
-                                            _status = Status::Error<INTERNAL_ERROR>(
+                                            status = Status::Error<INTERNAL_ERROR>(
                                                     "fault_inject partitioned_agg_source "
                                                     "recover_spill_data failed");
                                         });
-                        if (_status.ok()) {
-                            _status = stream->read_next_block_sync(&block, &eos);
+                        if (status.ok()) {
+                            status = stream->read_next_block_sync(&block, &eos);
                         }
                     }
-                    RETURN_IF_ERROR(_status);
+                    RETURN_IF_ERROR(status);
 
                     if (!block.empty()) {
                         has_agg_data = true;
@@ -292,34 +297,20 @@ Status PartitionedAggLocalState::recover_blocks_from_disk(RuntimeState* state, b
                 }
             }
         }
-        return _status;
+        return status;
     };
 
-    MonotonicStopWatch submit_timer;
-    submit_timer.start();
-    auto exception_catch_func = [spill_func, query_id, submit_timer, this]() {
-        auto submit_elapsed_time = submit_timer.elapsed_time();
-        _spill_read_wait_in_queue_timer->update(submit_elapsed_time);
-        exec_time_counter()->update(submit_elapsed_time);
-        _spill_total_timer->update(submit_elapsed_time);
-
-        SCOPED_TIMER(exec_time_counter());
-        SCOPED_TIMER(_spill_total_timer);
-        SCOPED_TIMER(_spill_recover_time);
-
+    auto exception_catch_func = [spill_func, query_id]() {
         DBUG_EXECUTE_IF("fault_inject::partitioned_agg_source::merge_spill_data_cancel", {
             auto st = Status::InternalError(
                     "fault_inject partitioned_agg_source "
                     "merge spill data canceled");
             ExecEnv::GetInstance()->fragment_mgr()->cancel_query(query_id, st);
-            return;
+            return st;
         });
 
         auto status = [&]() { RETURN_IF_CATCH_EXCEPTION({ return spill_func(); }); }();
-
-        if (!status.ok()) {
-            _status = status;
-        }
+        return status;
     };
 
     DBUG_EXECUTE_IF("fault_inject::partitioned_agg_source::submit_func", {
@@ -327,9 +318,14 @@ Status PartitionedAggLocalState::recover_blocks_from_disk(RuntimeState* state, b
                 "fault_inject partitioned_agg_source submit_func failed");
     });
     _spill_dependency->block();
+
+    MonotonicStopWatch submit_timer;
+    submit_timer.start();
+    _spilling_task_count = 1;
     return ExecEnv::GetInstance()->spill_stream_mgr()->get_spill_io_thread_pool()->submit(
-            std::make_shared<SpillRunnable>(state, _runtime_profile.get(), false,
-                                            _shared_state->shared_from_this(),
-                                            exception_catch_func));
+            std::make_shared<SpillRunnable>(state, nullptr, _spilling_task_count,
+                                            _runtime_profile.get(), submit_timer,
+                                            _shared_state->shared_from_this(), _spill_dependency,
+                                            false, false, exception_catch_func));
 }
 } // namespace doris::pipeline

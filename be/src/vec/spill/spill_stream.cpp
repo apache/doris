@@ -97,6 +97,7 @@ void SpillStream::gc() {
 Status SpillStream::prepare() {
     writer_ =
             std::make_unique<SpillWriter>(profile_, stream_id_, batch_rows_, data_dir_, spill_dir_);
+    _set_write_counters(profile_);
 
     reader_ = std::make_unique<SpillReader>(stream_id_, writer_->get_file_path());
 

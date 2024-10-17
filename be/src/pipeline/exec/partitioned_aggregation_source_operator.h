@@ -53,7 +53,6 @@ protected:
     std::unique_ptr<RuntimeState> _runtime_state;
 
     bool _opened = false;
-    Status _status;
     std::unique_ptr<std::promise<Status>> _spill_merge_promise;
     std::future<Status> _spill_merge_future;
     bool _current_partition_eos = true;
