@@ -419,6 +419,8 @@ public class OperationType {
     public static final short OP_MODIFY_TTL_SECONDS = 1001;
     public static final short OP_MODIFY_CLOUD_WARM_UP_JOB = 1002;
 
+    public static final short OP_DELETE_DECOMMISSION_TABLET = 1003;
+
     /**
      * Get opcode name by op code.
      **/

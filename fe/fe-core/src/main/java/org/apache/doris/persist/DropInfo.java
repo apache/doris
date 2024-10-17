@@ -42,17 +42,21 @@ public class DropInfo implements Writable {
     private boolean forceDrop = false;
     @SerializedName(value = "recycleTime")
     private long recycleTime = 0;
+    @SerializedName(value = "deleteTabletWatermarkTxnId")
+    private long deleteTabletWatermarkTxnId = -1;
 
     public DropInfo() {
     }
 
-    public DropInfo(long dbId, long tableId, String tableName, long indexId, boolean forceDrop, long recycleTime) {
+    public DropInfo(long dbId, long tableId, String tableName, long indexId, boolean forceDrop, long recycleTime,
+            long deleteTabletWatermarkTxnId) {
         this.dbId = dbId;
         this.tableId = tableId;
         this.tableName = tableName;
         this.indexId = indexId;
         this.forceDrop = forceDrop;
         this.recycleTime = recycleTime;
+        this.deleteTabletWatermarkTxnId = deleteTabletWatermarkTxnId;
     }
 
     public long getDbId() {
@@ -77,6 +81,10 @@ public class DropInfo implements Writable {
 
     public Long getRecycleTime() {
         return recycleTime;
+    }
+
+    public long getDeleteTabletWatermarkTxnId() {
+        return deleteTabletWatermarkTxnId;
     }
 
     @Override
@@ -119,7 +127,8 @@ public class DropInfo implements Writable {
         DropInfo info = (DropInfo) obj;
 
         return (dbId == info.dbId) && (tableId == info.tableId) && (indexId == info.indexId)
-                && (forceDrop == info.forceDrop) && (recycleTime == info.recycleTime);
+                && (forceDrop == info.forceDrop) && (recycleTime == info.recycleTime)
+                && (deleteTabletWatermarkTxnId == info.deleteTabletWatermarkTxnId);
     }
 
     public String toJson() {
