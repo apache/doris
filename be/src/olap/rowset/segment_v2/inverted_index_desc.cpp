@@ -19,6 +19,7 @@
 
 #include <fmt/format.h>
 
+#include "common/status.h"
 #include "gutil/strings/strip.h"
 #include "olap/olap_common.h"
 
@@ -68,6 +69,44 @@ std::string InvertedIndexDescriptor::get_index_file_cache_key(std::string_view i
     std::string suffix =
             index_path_suffix.empty() ? "" : std::string {"@"} + index_path_suffix.data();
     return fmt::format("{}_{}{}", index_path_prefix, index_id, suffix);
+}
+
+IndexFileNameFragment InvertedIndexDescriptor::decompose_index_file_name(
+        const std::string& index_file_name) {
+    DCHECK(index_file_name.ends_with(index_suffix));
+    IndexFileNameFragment file_name_fragment;
+    try {
+        size_t underscore_pos = index_file_name.find_first_of('_');
+        // {seg_id}{index_suffix}
+        if (underscore_pos == std::string::npos) {
+            file_name_fragment.rowset_id = "";
+            file_name_fragment.seg_id = std::stoi(index_file_name);
+            file_name_fragment.index_suffix = index_suffix;
+            return file_name_fragment;
+        }
+
+        // {rowset_id}_{seg_id}{index_suffix}
+        file_name_fragment.rowset_id = index_file_name.substr(0, underscore_pos);
+        file_name_fragment.seg_id = std::stoi(index_file_name.substr(underscore_pos + 1));
+
+        size_t pos2 = index_file_name.find_first_of('_', underscore_pos + 1);
+        if (pos2 == std::string::npos) {
+            file_name_fragment.index_suffix = index_suffix;
+        } else {
+            file_name_fragment.index_suffix =
+                    index_file_name.substr(pos2); // "such as _30293@path.idx"
+        }
+
+        return file_name_fragment;
+    } catch (...) {
+        return {};
+    }
+}
+
+std::string InvertedIndexDescriptor::snapshot_index_file_name(const std::string& index_file_name) {
+    DCHECK(index_file_name.ends_with(index_suffix));
+    return fmt::format("{}{}", index_file_name.substr(0, index_file_name.size() - 4),
+                       ".binglog-index");
 }
 
 } // namespace doris::segment_v2

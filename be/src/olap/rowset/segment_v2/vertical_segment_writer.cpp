@@ -191,18 +191,19 @@ Status VerticalSegmentWriter::_create_column_writer(uint32_t cid, const TabletCo
     // except for columns whose type don't support zone map.
     opts.need_zone_map = column.is_key() || tablet_schema->keys_type() != KeysType::AGG_KEYS;
     opts.need_bloom_filter = column.is_bf_column();
-    auto* tablet_index = tablet_schema->get_ngram_bf_index(column.unique_id());
-    if (tablet_index) {
+    auto* ngram_bf_index = tablet_schema->ngram_bf_index(column);
+    if (ngram_bf_index) {
         opts.need_bloom_filter = true;
         opts.is_ngram_bf_index = true;
-        opts.gram_size = tablet_index->get_gram_size();
-        opts.gram_bf_size = tablet_index->get_gram_bf_size();
+        opts.gram_size = ngram_bf_index->get_gram_size();
+        opts.gram_bf_size = ngram_bf_index->get_gram_bf_size();
     }
 
     opts.need_bitmap_index = column.has_bitmap_index();
     bool skip_inverted_index = false;
     if (_opts.rowset_ctx != nullptr) {
         // skip write inverted index for index compaction column
+        // index compaction will skip variant column and its subcolumn
         skip_inverted_index =
                 _opts.rowset_ctx->columns_to_do_index_compaction.contains(column.unique_id());
     }
@@ -211,22 +212,12 @@ Status VerticalSegmentWriter::_create_column_writer(uint32_t cid, const TabletCo
         tablet_schema->skip_write_index_on_load()) {
         skip_inverted_index = true;
     }
-    // indexes for this column
-    opts.indexes = tablet_schema->get_indexes_for_column(column);
-    if (!InvertedIndexColumnWriter::check_support_inverted_index(column)) {
-        opts.need_zone_map = false;
-        opts.need_bloom_filter = false;
-        opts.need_bitmap_index = false;
+    if (!skip_inverted_index) {
+        const auto& inverted_index = tablet_schema->inverted_index(column);
+        opts.inverted_index = inverted_index;
+        opts.need_inverted_index = true;
+        opts.inverted_index_file_writer = _inverted_index_file_writer.get();
     }
-    for (const auto* index : opts.indexes) {
-        if (!skip_inverted_index && index->index_type() == IndexType::INVERTED) {
-            opts.inverted_index = index;
-            opts.need_inverted_index = true;
-            // TODO support multiple inverted index
-            break;
-        }
-    }
-    opts.inverted_index_file_writer = _inverted_index_file_writer.get();
 
 #define CHECK_FIELD_TYPE(TYPE, type_name)                                                      \
     if (column.type() == FieldType::OLAP_FIELD_TYPE_##TYPE) {                                  \
