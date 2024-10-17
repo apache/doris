@@ -105,7 +105,6 @@ import org.apache.doris.nereids.rules.rewrite.PruneOlapScanPartition;
 import org.apache.doris.nereids.rules.rewrite.PruneOlapScanTablet;
 import org.apache.doris.nereids.rules.rewrite.PullUpCteAnchor;
 import org.apache.doris.nereids.rules.rewrite.PullUpJoinFromUnion;
-import org.apache.doris.nereids.rules.rewrite.PullUpJoinFromUnionAll;
 import org.apache.doris.nereids.rules.rewrite.PullUpProjectUnderApply;
 import org.apache.doris.nereids.rules.rewrite.PullUpProjectUnderLimit;
 import org.apache.doris.nereids.rules.rewrite.PullUpProjectUnderTopN;
@@ -356,23 +355,6 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     bottomUp(new EliminateJoinByFK()),
                     topDown(new EliminateJoinByUnique())
                 ),
-
-                // this rule should be after topic "Column pruning and infer predicate"
-                topic("Join pull up",
-                        topDown(
-                            new EliminateFilter(),
-                            new PushDownFilterThroughProject(),
-                            new MergeProjects()
-                        ),
-                        topDown(
-                            new PullUpJoinFromUnionAll()
-                        ),
-                        custom(RuleType.COLUMN_PRUNING, ColumnPruning::new),
-                        bottomUp(RuleSet.PUSH_DOWN_FILTERS),
-                        custom(RuleType.ELIMINATE_UNNECESSARY_PROJECT, EliminateUnnecessaryProject::new)
-                ),
-
-                // this rule should be invoked after topic "Join pull up"
                 topic("eliminate Aggregate according to fd items",
                         topDown(new EliminateGroupByKey()),
                         topDown(new PushDownAggThroughJoinOnPkFk()),
