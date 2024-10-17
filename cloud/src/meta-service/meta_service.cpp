@@ -2188,93 +2188,141 @@ std::pair<MetaServiceCode, std::string> MetaServiceImpl::get_instance_info(
     return {code, std::move(msg)};
 }
 
-void MetaServiceImpl::fix_tablet_stats(::google::protobuf::RpcController* controller,
-                                       const FixTabletStatsRequest* request,
-                                       FixTabletStatsResponse* response,
-                                       ::google::protobuf::Closure* done) {
-    RPC_PREPROCESS(fix_tablet_stats);
-    instance_id = get_instance_id(resource_mgr_, request->cloud_unique_id());
+MetaServiceResponseStatus MetaServiceImpl::fix_tablet_stats(std::string cloud_unique_id_str,
+                                                            std::string table_id_str) {
+    MetaServiceCode code;
+    std::string msg;
+    MetaServiceResponseStatus st;
+
+    int64_t table_id;
+    // parse params
+    try {
+        table_id = std::stoll(table_id_str);
+    } catch (...) {
+        st.set_code(MetaServiceCode::INVALID_ARGUMENT);
+        st.set_msg("Invalid table_id, table_id: " + table_id_str);
+        return st;
+    }
+
+    std::string instance_id = get_instance_id(resource_mgr_, cloud_unique_id_str);
     if (instance_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "empty instance_id";
-        LOG(INFO) << msg << ", cloud_unique_id=" << request->cloud_unique_id();
-        return;
+        LOG(INFO) << msg << ", cloud_unique_id=" << cloud_unique_id_str;
+        st.set_code(code);
+        st.set_msg(msg);
+        return st;
     }
-    RPC_RATE_LIMIT(fix_tablet_stats)
 
     std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::CREATE>(err);
         msg = fmt::format("failed to create txn");
-        return;
+        st.set_code(code);
+        st.set_msg(msg);
+        return st;
     }
-    for (const auto& i : request->table_id()) {
-        int64_t table_id = i;
-        std::string key, val;
-        int64_t start = 0;
-        int64_t end = std::numeric_limits<int64_t>::max() - 1;
-        auto begin_key = stats_tablet_key({instance_id, table_id, start, start, start});
-        auto end_key = stats_tablet_key({instance_id, table_id, end, end, end});
-        std::vector<std::pair<std::string, std::string>> stats_kvs;
 
-        std::unique_ptr<RangeGetIterator> it;
-        do {
-            TxnErrorCode err = txn->get(begin_key, end_key, &it, true);
-            if (err != TxnErrorCode::TXN_OK) {
-                code = cast_as<ErrCategory::READ>(err);
-                msg = fmt::format("failed to get tablet stats, err={} table_id={}", err, table_id);
-                return;
-            }
-            while (it->has_next()) {
-                auto [k, v] = it->next();
-                auto k1 = k;
-                k1.remove_prefix(1);
-                std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> out;
-                decode_key(&k1, &out);
-                // 0x01 "stats" ${instance_id} "tablet" ${table_id}
-                // ${index_id} ${partition_id} ${tablet_id} -> TabletStatsPB
-                if (out.size() == 7) {
-                    auto tablet_id = std::get<int64_t>(std::get<0>(out[6]));
-                    TabletStatsPB tablet_stat;
-                    tablet_stat.ParseFromArray(v.data(), v.size());
+    // fix tablet stats code
+    std::string key, val;
+    int64_t start = 0;
+    int64_t end = std::numeric_limits<int64_t>::max() - 1;
+    auto begin_key = stats_tablet_key({instance_id, table_id, start, start, start});
+    auto end_key = stats_tablet_key({instance_id, table_id, end, end, end});
+    std::vector<std::pair<std::string, std::string>> stats_kvs;
 
-                    GetRowsetResponse resp;
-                    internal_get_rowset(txn.get(), start, end, instance_id, tablet_id, code, msg,
-                                        &resp);
-                    if (code != MetaServiceCode::OK) {
-                        return;
-                    }
-                    int64_t total_disk_size = 0;
-                    for (const auto& rs_meta : resp.rowset_meta()) {
-                        total_disk_size += rs_meta.total_disk_size();
-                    }
-                    tablet_stat.set_data_size(total_disk_size);
+    std::unique_ptr<RangeGetIterator> it;
+    do {
+        TxnErrorCode err = txn->get(begin_key, end_key, &it, true);
+        if (err != TxnErrorCode::TXN_OK) {
+            st.set_code(cast_as<ErrCategory::READ>(err));
+            st.set_msg(fmt::format("failed to get tablet stats, err={} instance_id={} table_id={} ",
+                                   err, instance_id, table_id));
+            return st;
+        }
+        while (it->has_next()) {
+            auto [k, v] = it->next();
+            auto k1 = k;
+            k1.remove_prefix(1);
+            std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> out;
+            decode_key(&k1, &out);
+            // 0x01 "stats" ${instance_id} "tablet" ${table_id}
+            // ${index_id} ${partition_id} ${tablet_id} -> TabletStatsPB
+            if (out.size() == 7) {
+                auto tablet_id = std::get<int64_t>(std::get<0>(out[6]));
+                TabletStatsPB tablet_stat;
+                tablet_stat.ParseFromArray(v.data(), v.size());
 
-                    std::string key;
-                    std::string val;
-                    key = stats_tablet_key({instance_id, table_id, tablet_stat.idx().index_id(),
-                                            tablet_stat.idx().partition_id(),
-                                            tablet_stat.idx().tablet_id()});
-                    if (!tablet_stat.SerializeToString(&val)) {
-                        code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
-                        msg = "failed to serialize tablet stat";
-                        return;
-                    }
-                    txn->put(key, val);
-                    LOG(INFO) << "xxx put tablet_key=" << hex(key);
+                GetRowsetResponse resp;
+                internal_get_rowset(txn.get(), start, end, instance_id, tablet_id, code, msg,
+                                    &resp);
+                if (code != MetaServiceCode::OK) {
+                    st.set_code(code);
+                    st.set_msg(msg);
+                    return st;
                 }
+                int64_t total_disk_size = 0;
+                for (const auto& rs_meta : resp.rowset_meta()) {
+                    rs_meta.rowset_id();
+                    LOG(INFO) << fmt::format(
+                            "fix tablet stats, table id: {}, tablet id: {}, rowset id: {}, "
+                            "rowset disk size: {}",
+                            table_id, tablet_id, rs_meta.rowset_id(), rs_meta.total_disk_size());
+                    total_disk_size += rs_meta.total_disk_size();
+                }
+                LOG(INFO) << fmt::format(
+                        "fix tablet stats set tablet data size, table id: {}, tablet id: {}, "
+                        "total disk size: {}",
+                        table_id, tablet_id, total_disk_size);
+                tablet_stat.set_data_size(total_disk_size);
+
+                std::string key;
+                std::string val;
+                key = stats_tablet_key({instance_id, table_id, tablet_stat.idx().index_id(),
+                                        tablet_stat.idx().partition_id(),
+                                        tablet_stat.idx().tablet_id()});
+                if (!tablet_stat.SerializeToString(&val)) {
+                    st.set_code(MetaServiceCode::PROTOBUF_SERIALIZE_ERR);
+                    st.set_msg("failed to serialize tablet stat");
+                    return st;
+                }
+                txn->put(key, val);
+                std::string data_size_key;
+                LOG(INFO) << fmt::format(
+                        "fix tablet stats put tablet_key: {}, instance_id: {}, table_id: {}, "
+                        "index_id: {}, partition_id: {}, ",
+                        hex(key), instance_id, table_id, tablet_stat.idx().index_id(),
+                        tablet_stat.idx().partition_id());
+                stats_tablet_data_size_key(
+                        {instance_id, table_id, tablet_stat.idx().index_id(),
+                         tablet_stat.idx().partition_id(), tablet_stat.idx().tablet_id()},
+                        &data_size_key);
+                int64_t value = 0;
+                std::string v(sizeof(value), '\0');
+                memcpy(v.data(), &value, sizeof(value));
+                txn->put(data_size_key, v);
+
+                key = stats_tablet_key({instance_id, table_id, tablet_stat.idx().index_id(),
+                                        tablet_stat.idx().partition_id(),
+                                        tablet_stat.idx().tablet_id()});
+
+                err = txn->get(key, &v, true);
+                tablet_stat.ParseFromArray(v.data(), v.size());
+                LOG(INFO) << fmt::format("get tabletPB {}", tablet_stat.DebugString());
             }
-            begin_key = it->next_begin_key();
-        } while (it->more());
-    }
+        }
+        begin_key = it->next_begin_key();
+    } while (it->more());
     err = txn->commit();
     if (err != TxnErrorCode::TXN_OK) {
-        code = cast_as<ErrCategory::COMMIT>(err);
-        ss << "failed to update tablet meta, err=" << err;
-        msg = ss.str();
-        return;
+        st.set_code(cast_as<ErrCategory::COMMIT>(err));
+        st.set_msg("failed to update tablet meta");
+        return st;
     }
+    st.set_code(MetaServiceCode::OK);
+    st.set_msg("");
+    return st;
 }
 
 } // namespace doris::cloud

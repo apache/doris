@@ -1122,15 +1122,6 @@ message GetTabletStatsResponse {
     repeated TabletStatsPB tablet_stats = 2;
 }
 
-message FixTabletStatsRequest {
-    optional string cloud_unique_id = 1;
-    repeated int64 table_id = 2;
-}
-
-message FixTabletStatsResponse {
-    optional MetaServiceResponseStatus status = 1;
-}
-
 message CreateStageRequest {
     optional string cloud_unique_id = 1;
     optional StagePB stage = 2;
@@ -1554,7 +1545,6 @@ service MetaService {
     rpc get_cluster_status(GetClusterStatusRequest) returns(GetClusterStatusResponse);
 
     rpc get_tablet_stats(GetTabletStatsRequest) returns (GetTabletStatsResponse);
-    rpc fix_tablet_stats(FixTabletStatsRequest) returns (FixTabletStatsResponse);
 
     // stage
     rpc create_stage(CreateStageRequest) returns (CreateStageResponse);

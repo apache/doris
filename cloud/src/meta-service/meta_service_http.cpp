@@ -471,16 +471,13 @@ static HttpResponse process_get_tablet_stats(MetaServiceImpl* service, brpc::Con
 }
 
 static HttpResponse process_fix_tablet_stats(MetaServiceImpl* service, brpc::Controller* ctrl) {
-    FixTabletStatsRequest req;
-    PARSE_MESSAGE_OR_RETURN(ctrl, req);
-    FixTabletStatsResponse resp;
-    service->fix_tablet_stats(ctrl, &req, &resp, nullptr);
+    auto& uri = ctrl->http_request().uri();
+    std::string_view cloud_unique_id = http_query(uri, "cloud_unique_id");
+    std::string_view table_id = http_query(uri, "table_id");
 
-    std::string body;
-    if (resp.status().code() == MetaServiceCode::OK) {
-        body = resp.DebugString();
-    }
-    return http_text_reply(resp.status(), body);
+    MetaServiceResponseStatus st =
+            service->fix_tablet_stats(std::string(cloud_unique_id), std::string(table_id));
+    return http_text_reply(st, st.DebugString());
 }
 
 static HttpResponse process_get_stage(MetaServiceImpl* service, brpc::Controller* ctrl) {
