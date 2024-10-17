@@ -934,7 +934,8 @@ Status OrcReader::set_fill_columns(
                 uint64_t strip_end_offset = strip_start_offset + strip_info->getLength();
 
                 if (strip_start_offset >= range_end_offset ||
-                    strip_end_offset < _range_start_offset || !allStripesNeeded[i]) {
+                    strip_end_offset < _range_start_offset) {
+                    //|| !allStripesNeeded[i]
                     continue;
                 }
                 if (ranges.empty()) {
