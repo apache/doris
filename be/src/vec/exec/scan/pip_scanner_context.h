@@ -44,12 +44,10 @@ public:
                        const TupleDescriptor* output_tuple_desc,
                        const RowDescriptor* output_row_descriptor,
                        const std::list<std::shared_ptr<vectorized::ScannerDelegate>>& scanners,
-                       int64_t limit_,
-                       std::shared_ptr<pipeline::Dependency> dependency,
+                       int64_t limit_, std::shared_ptr<pipeline::Dependency> dependency,
                        bool ignore_data_distribution)
             : vectorized::ScannerContext(state, output_tuple_desc, output_row_descriptor, scanners,
-                                         limit_, ignore_data_distribution,
-                                         local_state) {
+                                         limit_, ignore_data_distribution, local_state) {
         _dependency = dependency;
     }
 
