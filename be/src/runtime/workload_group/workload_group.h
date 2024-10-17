@@ -198,6 +198,8 @@ public:
     }
     int64_t get_remote_scan_bytes_per_second();
 
+    CgroupCpuCtl* get_cgroup_cpu_ctl_ptr() { return _cgroup_cpu_ctl.get(); }
+
 private:
     mutable std::shared_mutex _mutex; // lock _name, _version, _cpu_share, _memory_limit
     const uint64_t _id;
