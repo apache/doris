@@ -38,12 +38,13 @@ suite("test_unique_table_like") {
             DISTRIBUTED BY HASH(k) BUCKETS 5 properties("replication_num" = "1",
                 "function_column.sequence_type" = "int");
         """
-    qt_desc_uniq_table "desc ${tbNameA}"    
+    def res1 = sql "desc ${tbNameA}"    
     sql """
             CREATE TABLE IF NOT EXISTS ${tbNameB} LIKE ${tbNameA};
         """
     
-    qt_desc_uniq_table "desc ${tbNameB}"
+    def res2 = sql "desc ${tbNameB}"
+    assertEquals(res1, res2)
     sql "DROP TABLE ${tbNameA}"
     sql "DROP TABLE ${tbNameB}"
 }

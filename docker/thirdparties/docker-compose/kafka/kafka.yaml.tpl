@@ -22,7 +22,7 @@ networks:
     ipam:
       driver: default
       config:
-        - subnet: 192.168.0.0/24
+        - subnet: 168.51.0.0/24
 services:
     doris--zookeeper:
         image: bitnami/zookeeper

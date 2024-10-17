@@ -85,27 +85,47 @@ public:
         OTHER = 5,
     };
 
-    struct Snapshot {
-        std::string type;
-        std::string label;
-        int64_t limit = 0;
-        int64_t cur_consumption = 0;
-        int64_t peak_consumption = 0;
+    static std::string type_string(Type type) {
+        switch (type) {
+        case Type::GLOBAL:
+            return "global";
+        case Type::QUERY:
+            return "query";
+        case Type::LOAD:
+            return "load";
+        case Type::COMPACTION:
+            return "compaction";
+        case Type::SCHEMA_CHANGE:
+            return "schema_change";
+        case Type::OTHER:
+            return "other";
+        default:
+            LOG(FATAL) << "not match type of mem tracker limiter :" << static_cast<int>(type);
+        }
+        LOG(FATAL) << "__builtin_unreachable";
+        __builtin_unreachable();
+    }
 
-        bool operator<(const Snapshot& rhs) const { return cur_consumption < rhs.cur_consumption; }
-    };
-
-    // Corresponding to MemTrackerLimiter::Type.
-    // MemCounter contains atomic variables, which are not allowed to be copied or moved.
-    inline static std::unordered_map<Type, MemCounter> TypeMemSum;
+    static std::string gc_type_string(GCType type) {
+        switch (type) {
+        case GCType::PROCESS:
+            return "process";
+        case GCType::WORK_LOAD_GROUP:
+            return "work load group";
+        default:
+            LOG(FATAL) << "not match gc type:" << static_cast<int>(type);
+        }
+        LOG(FATAL) << "__builtin_unreachable";
+        __builtin_unreachable();
+    }
 
     /*
     * Part 2, Constructors and property methods
     */
 
-    static std::shared_ptr<MemTrackerLimiter> create_shared(
-            MemTrackerLimiter::Type type, const std::string& label = std::string(),
-            int64_t byte_limit = -1);
+    static std::shared_ptr<MemTrackerLimiter> create_shared(MemTrackerLimiter::Type type,
+                                                            const std::string& label,
+                                                            int64_t byte_limit = -1);
     // byte_limit equal to -1 means no consumption limit, only participate in process memory statistics.
     MemTrackerLimiter(Type type, const std::string& label, int64_t byte_limit);
 
@@ -119,12 +139,13 @@ public:
     int64_t limit() const { return _limit; }
     bool limit_exceeded() const { return _limit >= 0 && _limit < consumption(); }
     Status check_limit(int64_t bytes = 0);
+    // Log the memory usage when memory limit is exceeded.
+    std::string tracker_limit_exceeded_str();
     bool is_overcommit_tracker() const { return type() == Type::QUERY || type() == Type::LOAD; }
     bool is_query_cancelled() { return _is_query_cancelled; }
     void set_is_query_cancelled(bool is_cancelled) { _is_query_cancelled.store(is_cancelled); }
 
-    // Iterator into mem_tracker_limiter_pool for this object. Stored to have O(1) remove.
-    std::list<std::weak_ptr<MemTrackerLimiter>>::iterator wg_tracker_limiter_group_it;
+    static void clean_tracker_limiter_group();
 
     /*
     * Part 3, Memory tracking method (use carefully!)
@@ -200,36 +221,18 @@ public:
         DCHECK(reserved_consumption() >= 0);
     }
 
-    Snapshot make_reserved_trackers_snapshot() const;
-    static void make_all_reserved_trackers_snapshots(std::vector<Snapshot>* snapshots);
-
     /*
-    * Part 4, Memory snapshot and log method
+    * Part 4, Memory profile and log method
     */
+    RuntimeProfile* make_profile(RuntimeProfile* profile) const;
+    std::string make_profile_str() const;
+    static void make_type_trackers_profile(RuntimeProfile* profile, MemTrackerLimiter::Type type);
+    static std::string make_type_trackers_profile_str(MemTrackerLimiter::Type type);
+    static void make_top_consumption_tasks_tracker_profile(RuntimeProfile* profile, int top_num);
+    static void make_all_tasks_tracker_profile(RuntimeProfile* profile);
 
-    static void refresh_global_counter();
-    static void clean_tracker_limiter_group();
-
-    Snapshot make_snapshot() const;
-    // Returns a list of all the valid tracker snapshots.
-    static void make_process_snapshots(std::vector<Snapshot>* snapshots);
-    static void make_type_snapshots(std::vector<Snapshot>* snapshots, Type type);
-    static void make_all_trackers_snapshots(std::vector<Snapshot>* snapshots);
-    static void make_all_memory_state_snapshots(std::vector<Snapshot>* snapshots);
-    static void make_top_consumption_snapshots(std::vector<Snapshot>* snapshots, int top_num);
-
-    static std::string log_usage(Snapshot snapshot);
-    std::string log_usage() const { return log_usage(make_snapshot()); }
-    static std::string type_log_usage(Snapshot snapshot);
-    static std::string type_detail_usage(const std::string& msg, Type type);
     void print_log_usage(const std::string& msg);
     void enable_print_log_usage() { _enable_print_log_usage = true; }
-    // process memory changes more than 256M, or the GC ends
-    static void enable_print_log_process_usage() { _enable_print_log_process_usage = true; }
-    static std::string log_process_usage_str();
-    static void print_log_process_usage();
-    // Log the memory usage when memory limit is exceeded.
-    std::string tracker_limit_exceeded_str();
 
     /*
     * Part 5, Memory GC method
@@ -273,44 +276,6 @@ public:
     bool is_group_commit_load {false};
 
 private:
-    /*
-    * Part 7, Private method
-    */
-
-    static std::string type_string(Type type) {
-        switch (type) {
-        case Type::GLOBAL:
-            return "global";
-        case Type::QUERY:
-            return "query";
-        case Type::LOAD:
-            return "load";
-        case Type::COMPACTION:
-            return "compaction";
-        case Type::SCHEMA_CHANGE:
-            return "schema_change";
-        case Type::OTHER:
-            return "other";
-        default:
-            LOG(FATAL) << "not match type of mem tracker limiter :" << static_cast<int>(type);
-        }
-        LOG(FATAL) << "__builtin_unreachable";
-        __builtin_unreachable();
-    }
-
-    static std::string gc_type_string(GCType type) {
-        switch (type) {
-        case GCType::PROCESS:
-            return "process";
-        case GCType::WORK_LOAD_GROUP:
-            return "work load group";
-        default:
-            LOG(FATAL) << "not match gc type:" << static_cast<int>(type);
-        }
-        LOG(FATAL) << "__builtin_unreachable";
-        __builtin_unreachable();
-    }
-
     // only for Type::QUERY or Type::LOAD.
     static TUniqueId label_to_queryid(const std::string& label) {
         if (label.find("#Id=") == std::string::npos) {
@@ -335,6 +300,8 @@ private:
 
     // label used in the make snapshot, not guaranteed unique.
     std::string _label;
+    // For generate runtime profile, profile name must be unique.
+    UniqueId _uid;
 
     MemCounter _mem_counter;
     MemCounter _reserved_counter;
@@ -354,7 +321,6 @@ private:
 
     // Avoid frequent printing.
     bool _enable_print_log_usage = false;
-    static std::atomic<bool> _enable_print_log_process_usage;
 
     std::shared_ptr<QueryStatistics> _query_statistics = nullptr;
 

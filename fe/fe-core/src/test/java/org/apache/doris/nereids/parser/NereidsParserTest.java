@@ -33,6 +33,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
+import org.apache.doris.nereids.trees.plans.commands.ReplayCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
@@ -179,6 +180,20 @@ public class NereidsParserTest extends ParserTestBase {
         ExplainCommand explainCommand = (ExplainCommand) logicalPlan;
         ExplainLevel explainLevel = explainCommand.getLevel();
         Assertions.assertEquals(ExplainLevel.GRAPH, explainLevel);
+    }
+
+    @Test
+    public void testPlanReplayer() {
+        String sql = "plan replayer dump select `AD``D` from t1 where a = 1";
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = nereidsParser.parseSingle(sql);
+        ReplayCommand replayCommand = (ReplayCommand) logicalPlan;
+        Assertions.assertEquals(ReplayCommand.ReplayType.DUMP, replayCommand.getReplayType());
+        sql = "plan replayer play 'path'";
+        logicalPlan = nereidsParser.parseSingle(sql);
+        replayCommand = (ReplayCommand) logicalPlan;
+        Assertions.assertEquals(ReplayCommand.ReplayType.PLAY, replayCommand.getReplayType());
+        Assertions.assertEquals("path", replayCommand.getDumpFileFullPath());
     }
 
     @Test

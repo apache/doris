@@ -10,6 +10,5 @@ CREATE TABLE IF NOT EXISTS supplier (
 DUPLICATE KEY(S_SUPPKEY, S_NAME)
 DISTRIBUTED BY HASH(S_SUPPKEY) BUCKETS 3
 PROPERTIES (
-  "enable_mow_light_delete" = "true",
   "replication_num" = "1"
 )

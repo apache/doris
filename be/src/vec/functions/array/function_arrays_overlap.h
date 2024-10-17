@@ -184,22 +184,18 @@ public:
         }
         std::unique_ptr<InvertedIndexQueryParamFactory> query_param = nullptr;
         const Array& query_val = param_value.get<Array>();
-        for (size_t i = 0; i < query_val.size(); ++i) {
-            Field nested_query_val = query_val[i];
+        for (auto nested_query_val : query_val) {
+            // any element inside array is NULL, return NULL
+            // by current arrays_overlap execute logic.
+            if (nested_query_val.is_null()) {
+                return Status::OK();
+            }
             std::shared_ptr<roaring::Roaring> single_res = std::make_shared<roaring::Roaring>();
             RETURN_IF_ERROR(InvertedIndexQueryParamFactory::create_query_value(
                     nested_param_type, &nested_query_val, query_param));
-            Status st = iter->read_from_inverted_index(
+            RETURN_IF_ERROR(iter->read_from_inverted_index(
                     data_type_with_name.first, query_param->get_value(),
-                    segment_v2::InvertedIndexQueryType::EQUAL_QUERY, num_rows, single_res);
-            if (st.code() == ErrorCode::INVERTED_INDEX_NO_TERMS) {
-                // if analyzed param with no term, we do not filter any rows
-                // return all rows with OK status
-                roaring->addRange(0, num_rows);
-                break;
-            } else if (st != Status::OK()) {
-                return st;
-            }
+                    segment_v2::InvertedIndexQueryType::EQUAL_QUERY, num_rows, single_res));
             *roaring |= *single_res;
         }
 

@@ -21,6 +21,7 @@
 #include "io/cache/block_file_cache.h"
 
 #include "common/status.h"
+#include "cpp/sync_point.h"
 
 #if defined(__APPLE__)
 #include <sys/mount.h>
@@ -82,6 +83,30 @@ BlockFileCache::BlockFileCache(const std::string& cache_base_path,
             _cache_base_path.c_str(), "file_cache_ttl_cache_evict_size");
     _total_evict_size_metrics = std::make_shared<bvar::Adder<size_t>>(
             _cache_base_path.c_str(), "file_cache_total_evict_size");
+
+    _num_read_blocks = std::make_shared<bvar::Adder<size_t>>(_cache_base_path.c_str(),
+                                                             "file_cache_num_read_blocks");
+    _num_hit_blocks = std::make_shared<bvar::Adder<size_t>>(_cache_base_path.c_str(),
+                                                            "file_cache_num_hit_blocks");
+    _num_removed_blocks = std::make_shared<bvar::Adder<size_t>>(_cache_base_path.c_str(),
+                                                                "file_cache_num_removed_blocks");
+
+    _num_hit_blocks_5m = std::make_shared<bvar::Window<bvar::Adder<size_t>>>(
+            _cache_base_path.c_str(), "file_cache_num_hit_blocks_5m", _num_hit_blocks.get(), 300);
+    _num_read_blocks_5m = std::make_shared<bvar::Window<bvar::Adder<size_t>>>(
+            _cache_base_path.c_str(), "file_cache_num_read_blocks_5m", _num_read_blocks.get(), 300);
+    _num_hit_blocks_1h = std::make_shared<bvar::Window<bvar::Adder<size_t>>>(
+            _cache_base_path.c_str(), "file_cache_num_hit_blocks_1h", _num_hit_blocks.get(), 3600);
+    _num_read_blocks_1h = std::make_shared<bvar::Window<bvar::Adder<size_t>>>(
+            _cache_base_path.c_str(), "file_cache_num_read_blocks_1h", _num_read_blocks.get(),
+            3600);
+
+    _hit_ratio = std::make_shared<bvar::Status<double>>(_cache_base_path.c_str(),
+                                                        "file_cache_hit_ratio", 0.0);
+    _hit_ratio_5m = std::make_shared<bvar::Status<double>>(_cache_base_path.c_str(),
+                                                           "file_cache_hit_ratio_5m", 0.0);
+    _hit_ratio_1h = std::make_shared<bvar::Status<double>>(_cache_base_path.c_str(),
+                                                           "file_cache_hit_ratio_1h", 0.0);
 
     _disposable_queue = LRUQueue(cache_settings.disposable_queue_size,
                                  cache_settings.disposable_queue_elements, 60 * 60);
@@ -667,10 +692,10 @@ FileBlocksHolder BlockFileCache::get_or_set(const UInt128Wrapper& hash, size_t o
         fill_holes_with_empty_file_blocks(file_blocks, hash, context, range, cache_lock);
     }
     DCHECK(!file_blocks.empty());
-    _num_read_blocks += file_blocks.size();
+    *_num_read_blocks << file_blocks.size();
     for (auto& block : file_blocks) {
         if (block->state() == FileBlock::State::DOWNLOADED) {
-            _num_hit_blocks++;
+            *_num_hit_blocks << 1;
         }
     }
     return FileBlocksHolder(std::move(file_blocks));
@@ -848,6 +873,9 @@ bool BlockFileCache::try_reserve_for_ttl_without_lru(size_t size,
     size_t removed_size = 0;
     size_t cur_cache_size = _cur_cache_size;
     auto limit = config::max_ttl_cache_ratio * _capacity;
+
+    TEST_INJECTION_POINT_CALLBACK("BlockFileCache::change_limit1", &limit);
+
     if ((_cur_ttl_size + size) * 100 > limit) {
         return false;
     }
@@ -1271,7 +1299,7 @@ void BlockFileCache::remove(FileBlockSPtr file_block, T& cache_lock, U& block_lo
     if (offsets.empty()) {
         _files.erase(hash);
     }
-    _num_removed_blocks++;
+    *_num_removed_blocks << 1;
 }
 
 size_t BlockFileCache::get_used_cache_size(FileCacheType cache_type) const {
@@ -1600,6 +1628,19 @@ void BlockFileCache::run_background_operation() {
                 _disposable_queue.get_capacity(cache_lock));
         _cur_disposable_queue_element_count_metrics->set_value(
                 _disposable_queue.get_elements_num(cache_lock));
+
+        if (_num_read_blocks->get_value() > 0) {
+            _hit_ratio->set_value((double)_num_hit_blocks->get_value() /
+                                  _num_read_blocks->get_value());
+        }
+        if (_num_read_blocks_5m->get_value() > 0) {
+            _hit_ratio_5m->set_value((double)_num_hit_blocks_5m->get_value() /
+                                     _num_read_blocks_5m->get_value());
+        }
+        if (_num_read_blocks_1h->get_value() > 0) {
+            _hit_ratio_1h->set_value((double)_num_hit_blocks_1h->get_value() /
+                                     _num_read_blocks_1h->get_value());
+        }
     }
 }
 
@@ -1800,6 +1841,34 @@ void BlockFileCache::update_ttl_atime(const UInt128Wrapper& hash) {
             cell.update_atime();
         }
     };
+}
+
+std::map<std::string, double> BlockFileCache::get_stats() {
+    std::map<std::string, double> stats;
+    stats["hits_ratio"] = (double)_hit_ratio->get_value();
+    stats["hits_ratio_5m"] = (double)_hit_ratio_5m->get_value();
+    stats["hits_ratio_1h"] = (double)_hit_ratio_1h->get_value();
+
+    stats["index_queue_max_size"] = (double)_index_queue.get_max_size();
+    stats["index_queue_curr_size"] = (double)_cur_index_queue_element_count_metrics->get_value();
+    stats["index_queue_max_elements"] = (double)_index_queue.get_max_element_size();
+    stats["index_queue_curr_elements"] =
+            (double)_cur_index_queue_element_count_metrics->get_value();
+
+    stats["normal_queue_max_size"] = (double)_normal_queue.get_max_size();
+    stats["normal_queue_curr_size"] = (double)_cur_normal_queue_element_count_metrics->get_value();
+    stats["normal_queue_max_elements"] = (double)_normal_queue.get_max_element_size();
+    stats["normal_queue_curr_elements"] =
+            (double)_cur_normal_queue_element_count_metrics->get_value();
+
+    stats["disposable_queue_max_size"] = (double)_disposable_queue.get_max_size();
+    stats["disposable_queue_curr_size"] =
+            (double)_cur_disposable_queue_element_count_metrics->get_value();
+    stats["disposable_queue_max_elements"] = (double)_disposable_queue.get_max_element_size();
+    stats["disposable_queue_curr_elements"] =
+            (double)_cur_disposable_queue_element_count_metrics->get_value();
+
+    return stats;
 }
 
 template void BlockFileCache::remove(FileBlockSPtr file_block,

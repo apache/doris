@@ -16,7 +16,7 @@
 // under the License.
 
 suite("agg_sync_mv") {
-	sql """ use regression_test_nereids_syntax_p0_mv """
+	sql """ use regression_test_nereids_syntax_p1_mv """
     sql """ SET enable_nereids_planner=true """
     sql """ SET enable_fallback_to_original_planner=false """
     sql """ analyze table agg_mv_test with sync"""
@@ -516,7 +516,7 @@ suite("agg_sync_mv") {
 
     streamLoad {
         table "agg_mv_test"
-        db "regression_test_nereids_syntax_p0_mv"
+        db "regression_test_nereids_syntax_p1_mv"
         set 'column_separator', ';'
         set 'columns', '''
             id, kbool, ktint, ksint, kint, kbint, klint, kfloat, kdbl, kdcmls1, kdcmls2, kdcmls3,

@@ -27,7 +27,7 @@ CREATE TABLE IF NOT EXISTS customer_demographics (
     cd_dep_college_count integer
 )
 DUPLICATE KEY(cd_demo_sk)
-DISTRIBUTED BY HASH(cd_demo_sk) BUCKETS 12
+DISTRIBUTED BY HASH(cd_demo_sk) BUCKETS 9
 PROPERTIES (
   "replication_num" = "1"
 );
@@ -74,7 +74,7 @@ CREATE TABLE IF NOT EXISTS date_dim (
     d_current_year char(1)
 )
 DUPLICATE KEY(d_date_sk)
-DISTRIBUTED BY HASH(d_date_sk) BUCKETS 12
+DISTRIBUTED BY HASH(d_date_sk) BUCKETS 9
 PROPERTIES (
   "replication_num" = "1"
 );
@@ -213,10 +213,9 @@ PARTITION `p70` VALUES LESS THAN ("2452945"),
 PARTITION `p71` VALUES LESS THAN ("2452975"),
 PARTITION `p72` VALUES LESS THAN (MAXVALUE)
 )
-DISTRIBUTED BY HASH(cs_item_sk, cs_order_number) BUCKETS 32
+DISTRIBUTED BY HASH(cs_item_sk, cs_order_number) BUCKETS 3
 PROPERTIES (
-  "replication_num" = "1",
-  "colocate_with" = "catalog"
+  "replication_num" = "1"
 );
 drop table if exists call_center;
 CREATE TABLE IF NOT EXISTS call_center (
@@ -340,7 +339,7 @@ PARTITION `p70` VALUES LESS THAN ("2452945"),
 PARTITION `p71` VALUES LESS THAN ("2452975"),
 PARTITION `p72` VALUES LESS THAN (MAXVALUE)
 )
-DISTRIBUTED BY HASH(inv_item_sk, inv_warehouse_sk) BUCKETS 32
+DISTRIBUTED BY HASH(inv_item_sk, inv_warehouse_sk) BUCKETS 1
 PROPERTIES (
   "replication_num" = "1"
 );
@@ -450,10 +449,9 @@ PARTITION `p70` VALUES LESS THAN ("2452945"),
 PARTITION `p71` VALUES LESS THAN ("2452975"),
 PARTITION `p72` VALUES LESS THAN (MAXVALUE)
 )
-DISTRIBUTED BY HASH(cr_item_sk, cr_order_number) BUCKETS 32
+DISTRIBUTED BY HASH(cr_item_sk, cr_order_number) BUCKETS 1
 PROPERTIES (
-  "replication_num" = "1",
-  "colocate_with" = "catalog"
+  "replication_num" = "1"
 );
 drop table if exists household_demographics;
 CREATE TABLE IF NOT EXISTS household_demographics (
@@ -464,7 +462,7 @@ CREATE TABLE IF NOT EXISTS household_demographics (
     hd_vehicle_count integer
 )
 DUPLICATE KEY(hd_demo_sk)
-DISTRIBUTED BY HASH(hd_demo_sk) BUCKETS 3
+DISTRIBUTED BY HASH(hd_demo_sk) BUCKETS 1
 PROPERTIES (
   "replication_num" = "1"
 );
@@ -485,7 +483,7 @@ CREATE TABLE IF NOT EXISTS customer_address (
     ca_location_type char(20)
 )
 DUPLICATE KEY(ca_address_sk)
-DISTRIBUTED BY HASH(ca_address_sk) BUCKETS 32
+DISTRIBUTED BY HASH(ca_address_sk) BUCKETS 18
 PROPERTIES (
   "replication_num" = "1"
 );
@@ -543,7 +541,7 @@ CREATE TABLE IF NOT EXISTS item (
     i_product_name char(50)
 )
 DUPLICATE KEY(i_item_sk)
-DISTRIBUTED BY HASH(i_item_sk) BUCKETS 32
+DISTRIBUTED BY HASH(i_item_sk) BUCKETS 9
 PROPERTIES (
   "replication_num" = "1"
 );
@@ -650,10 +648,9 @@ PARTITION `p70` VALUES LESS THAN ("2452945"),
 PARTITION `p71` VALUES LESS THAN ("2452975"),
 PARTITION `p72` VALUES LESS THAN (MAXVALUE)
 )
-DISTRIBUTED BY HASH(wr_item_sk, wr_order_number) BUCKETS 32
+DISTRIBUTED BY HASH(wr_item_sk, wr_order_number) BUCKETS 1
 PROPERTIES (
-  "replication_num" = "1",
-  "colocate_with" = "web"
+  "replication_num" = "1"
 );
 drop table if exists web_site;
 CREATE TABLE IF NOT EXISTS web_site (
@@ -829,10 +826,9 @@ PARTITION `p70` VALUES LESS THAN ("2452945"),
 PARTITION `p71` VALUES LESS THAN ("2452975"),
 PARTITION `p72` VALUES LESS THAN (MAXVALUE)
 )
-DISTRIBUTED BY HASH(ws_item_sk, ws_order_number) BUCKETS 32
+DISTRIBUTED BY HASH(ws_item_sk, ws_order_number) BUCKETS 3
 PROPERTIES (
-  "replication_num" = "1",
-  "colocate_with" = "web"
+  "replication_num" = "1"
 );
 drop table if exists store;
 CREATE TABLE IF NOT EXISTS store (
@@ -885,7 +881,7 @@ CREATE TABLE IF NOT EXISTS time_dim (
     t_meal_time char(20)
 )
 DUPLICATE KEY(t_time_sk)
-DISTRIBUTED BY HASH(t_time_sk) BUCKETS 12
+DISTRIBUTED BY HASH(t_time_sk) BUCKETS 9
 PROPERTIES (
   "replication_num" = "1"
 );
@@ -1010,10 +1006,9 @@ PARTITION `p70` VALUES LESS THAN ("2452945"),
 PARTITION `p71` VALUES LESS THAN ("2452975"),
 PARTITION `p72` VALUES LESS THAN (MAXVALUE)
 )
-DISTRIBUTED BY HASH(sr_item_sk, sr_ticket_number) BUCKETS 32
+DISTRIBUTED BY HASH(sr_item_sk, sr_ticket_number) BUCKETS 1
 PROPERTIES (
-  "replication_num" = "1",
-  "colocate_with" = "store"
+  "replication_num" = "1"
 );
 drop table if exists store_sales;
 CREATE TABLE IF NOT EXISTS store_sales (
@@ -1117,10 +1112,9 @@ PARTITION `p70` VALUES LESS THAN ("2452945"),
 PARTITION `p71` VALUES LESS THAN ("2452975"),
 PARTITION `p72` VALUES LESS THAN (MAXVALUE)
 )
-DISTRIBUTED BY HASH(ss_item_sk, ss_ticket_number) BUCKETS 32
+DISTRIBUTED BY HASH(ss_item_sk, ss_ticket_number) BUCKETS 3
 PROPERTIES (
-  "replication_num" = "1",
-  "colocate_with" = "store"
+  "replication_num" = "1"
 );
 drop table if exists ship_mode;
 CREATE TABLE IF NOT EXISTS ship_mode (
@@ -1158,7 +1152,7 @@ CREATE TABLE IF NOT EXISTS customer (
     c_last_review_date_sk integer
 )
 DUPLICATE KEY(c_customer_sk)
-DISTRIBUTED BY HASH(c_customer_id) BUCKETS 24
+DISTRIBUTED BY HASH(c_customer_id) BUCKETS 18
 PROPERTIES (
   "replication_num" = "1"
 );

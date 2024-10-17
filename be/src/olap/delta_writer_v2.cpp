@@ -237,7 +237,7 @@ void DeltaWriterV2::_build_current_tablet_schema(int64_t index_id,
     }
     // set partial update columns info
     _partial_update_info = std::make_shared<PartialUpdateInfo>();
-    _partial_update_info->init(*_tablet_schema, table_schema_param->is_partial_update(),
+    _partial_update_info->init(*_tablet_schema, table_schema_param->unique_key_update_mode(),
                                table_schema_param->partial_update_input_columns(),
                                table_schema_param->is_strict_mode(),
                                table_schema_param->timestamp_ms(),
