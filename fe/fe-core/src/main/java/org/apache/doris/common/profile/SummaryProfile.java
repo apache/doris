@@ -749,6 +749,6 @@ public class SummaryProfile {
     }
 
     public void setExecutedByFrontend(boolean executedByFrontend) {
-        summaryProfile.addInfoString(EXECUTED_BY_FRONTEND, String.valueOf(executedByFrontend));
+        executionSummaryProfile.addInfoString(EXECUTED_BY_FRONTEND, String.valueOf(executedByFrontend));
     }
 }
