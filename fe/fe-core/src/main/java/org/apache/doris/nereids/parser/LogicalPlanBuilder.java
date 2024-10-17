@@ -3142,7 +3142,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                         }
                         SelectHintSetVar setVar = new SelectHintSetVar(hintName, parameters);
                         setVar.setVarOnceInSql(ConnectContext.get().getStatementContext());
-                        hints.put(hintName, setVar);
+                        hints.add(setVar);
                         break;
                     case "leading":
                         List<String> leadingParameters = new ArrayList<String>();
