@@ -66,7 +66,7 @@ private:
     // Expressions and parameters used for build _sort_description
     vectorized::VSortExecExprs _vsort_exec_exprs;
     vectorized::VExprContextSPtrs _partition_expr_ctxs;
-    int64_t child_input_rows = 0;
+    int64_t _sorted_partition_input_rows = 0;
     std::vector<vectorized::PartitionDataPtr> _value_places;
     int _num_partition = 0;
     std::vector<const vectorized::IColumn*> _partition_columns;
