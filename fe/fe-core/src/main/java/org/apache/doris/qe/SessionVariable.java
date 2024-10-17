@@ -1107,7 +1107,7 @@ public class SessionVariable implements Serializable, Writable {
     private boolean enableSyncRuntimeFilterSize = true;
 
     @VariableMgr.VarAttr(name = HIVE_TEXT_COMPRESSION, needForward = true)
-    private String hiveTextCompression = "uncompressed";
+    private String hiveTextCompression = "plain";
 
     @VariableMgr.VarAttr(name = READ_CSV_EMPTY_LINE_AS_NULL, needForward = true,
             description = {"在读取csv文件时是否读取csv的空行为null",
@@ -3981,6 +3981,10 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public String hiveTextCompression() {
+        if (hiveTextCompression.equals("uncompressed")) {
+            // This is for compatibility.
+            return "plain";
+        }
         return hiveTextCompression;
     }
 
