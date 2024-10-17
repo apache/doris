@@ -152,7 +152,10 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
 
     private TxnStateCallbackFactory callbackFactory;
     private final Map<Long, Long> subTxnIdToTxnId = new ConcurrentHashMap<>();
-    private Map<Long, AtomicInteger> waitToCommitTxnCountMap = new ConcurrentHashMap<>();
+    // table_id-->count
+    private Map<Long, AtomicInteger> tableCommittingTxnCountMap = new ConcurrentHashMap<>();
+    // txn_id-->try_committing_time
+    private Map<Long, Long> committingTxnMap = new ConcurrentHashMap<>();
 
     public CloudGlobalTransactionMgr() {
         this.callbackFactory = new TxnStateCallbackFactory();
@@ -342,7 +345,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     public void commitTransaction(long dbId, List<Table> tableList, long transactionId,
             List<TabletCommitInfo> tabletCommitInfos, TxnCommitAttachment txnCommitAttachment)
             throws UserException {
-        commitTransaction(dbId, tableList, transactionId, tabletCommitInfos, txnCommitAttachment, false);
+        commitTransaction(dbId, tableList, transactionId, tabletCommitInfos, txnCommitAttachment, false, -1, false);
     }
 
     /**
@@ -461,7 +464,8 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     }
 
     private void commitTransaction(long dbId, List<Table> tableList, long transactionId,
-            List<TabletCommitInfo> tabletCommitInfos, TxnCommitAttachment txnCommitAttachment, boolean is2PC)
+            List<TabletCommitInfo> tabletCommitInfos, TxnCommitAttachment txnCommitAttachment, boolean is2PC,
+            long commitTimeoutMs, boolean commitOnBe)
             throws UserException {
 
         LOG.info("try to commit transaction, transactionId: {}", transactionId);
@@ -472,7 +476,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
 
         List<OlapTable> mowTableList = getMowTableList(tableList);
         if (tabletCommitInfos != null && !tabletCommitInfos.isEmpty() && !mowTableList.isEmpty()) {
-            calcDeleteBitmapForMow(dbId, mowTableList, transactionId, tabletCommitInfos);
+            calcDeleteBitmapForMow(dbId, mowTableList, transactionId, tabletCommitInfos, commitTimeoutMs, commitOnBe);
         }
 
         CommitTxnRequest.Builder builder = CommitTxnRequest.newBuilder();
@@ -615,7 +619,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     }
 
     private void calcDeleteBitmapForMow(long dbId, List<OlapTable> tableList, long transactionId,
-            List<TabletCommitInfo> tabletCommitInfos)
+            List<TabletCommitInfo> tabletCommitInfos, long commitTimeoutMs, boolean commitOnBe)
             throws UserException {
         Map<Long, Map<Long, List<Long>>> backendToPartitionTablets = Maps.newHashMap();
         Map<Long, Partition> partitions = Maps.newHashMap();
@@ -631,14 +635,20 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         Map<Long, Long> baseCompactionCnts = Maps.newHashMap();
         Map<Long, Long> cumulativeCompactionCnts = Maps.newHashMap();
         Map<Long, Long> cumulativePoints = Maps.newHashMap();
+        StopWatch stopWatch = new StopWatch();
+        stopWatch.start();
         getDeleteBitmapUpdateLock(tableToPartitions, transactionId, tableToTabletList, tabletToTabletMeta,
-                baseCompactionCnts, cumulativeCompactionCnts, cumulativePoints);
+                baseCompactionCnts, cumulativeCompactionCnts, cumulativePoints, commitTimeoutMs, commitOnBe);
+        stopWatch.stop();
+        // remainingTimeMs should be less than actual remaining time
+        // to avoid commit rpc send twice because of rpc timeout
+        long remainingTimeMs = commitTimeoutMs - stopWatch.getTime() - 1000;
         Map<Long, Long> partitionVersions = getPartitionVersions(partitions);
 
         Map<Long, List<TCalcDeleteBitmapPartitionInfo>> backendToPartitionInfos = getCalcDeleteBitmapInfo(
                 backendToPartitionTablets, partitionVersions, baseCompactionCnts, cumulativeCompactionCnts,
                         cumulativePoints);
-        sendCalcDeleteBitmaptask(dbId, transactionId, backendToPartitionInfos);
+        sendCalcDeleteBitmaptask(dbId, transactionId, backendToPartitionInfos, remainingTimeMs, commitOnBe);
     }
 
     private void getPartitionInfo(List<OlapTable> tableList,
@@ -737,8 +747,8 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
 
     private void getDeleteBitmapUpdateLock(Map<Long, Set<Long>> tableToParttions, long transactionId,
             Map<Long, List<Long>> tableToTabletList, Map<Long, TabletMeta> tabletToTabletMeta,
-                    Map<Long, Long> baseCompactionCnts, Map<Long, Long> cumulativeCompactionCnts,
-                            Map<Long, Long> cumulativePoints) throws UserException {
+            Map<Long, Long> baseCompactionCnts, Map<Long, Long> cumulativeCompactionCnts,
+            Map<Long, Long> cumulativePoints, long commitTimeoutMs, boolean commitOnBe) throws UserException {
         if (DebugPointUtil.isEnable("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.sleep")) {
             DebugPoint debugPoint = DebugPointUtil.getDebugPoint(
                     "CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.sleep");
@@ -772,6 +782,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         StopWatch stopWatch = new StopWatch();
         stopWatch.start();
         int totalRetryTime = 0;
+        long remainingTime = 0;
         for (Map.Entry<Long, Set<Long>> entry : tableToParttions.entrySet()) {
             GetDeleteBitmapUpdateLockRequest.Builder builder = GetDeleteBitmapUpdateLockRequest.newBuilder();
             builder.setTableId(entry.getKey())
@@ -810,7 +821,14 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                             transactionId, retryTime, e);
                 }
                 // sleep random millis [20, 300] ms, avoid txn conflict
-                int randomMillis = 20 + (int) (Math.random() * (300 - 20));
+                long randomMillis = 20 + (int) (Math.random() * (300 - 20));
+                if (commitOnBe) {
+                    remainingTime = commitTimeoutMs - stopWatch.getTime();
+                    if (remainingTime <= 0) {
+                        break;
+                    }
+                    randomMillis = Math.min(randomMillis, remainingTime);
+                }
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("randomMillis:{}", randomMillis);
                 }
@@ -860,13 +878,20 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     }
 
     private void sendCalcDeleteBitmaptask(long dbId, long transactionId,
-            Map<Long, List<TCalcDeleteBitmapPartitionInfo>> backendToPartitionInfos)
+            Map<Long, List<TCalcDeleteBitmapPartitionInfo>> backendToPartitionInfos, long remainingTimeMs,
+            boolean commitOnBe)
             throws UserException {
         if (backendToPartitionInfos.isEmpty()) {
             return;
         }
         StopWatch stopWatch = new StopWatch();
         stopWatch.start();
+        remainingTimeMs = commitOnBe ? remainingTimeMs : Config.calculate_delete_bitmap_task_timeout_seconds;
+        if (remainingTimeMs <= 0) {
+            throw new UserException(InternalErrorCode.DELETE_BITMAP_LOCK_ERR,
+                    "txn=" + transactionId + " has no more time to do calculate delete bitmap remainingTimeMs="
+                            + remainingTimeMs);
+        }
         int totalTaskNum = backendToPartitionInfos.size();
         MarkedCountDownLatch<Long, Long> countDownLatch = new MarkedCountDownLatch<Long, Long>(
                 totalTaskNum);
@@ -882,13 +907,15 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             // not check return value, because the add will success
             AgentTaskQueue.addTask(task);
             batchTask.addTask(task);
-            LOG.info("send calculate delete bitmap task to be {}, txn_id {}", entry.getKey(), transactionId);
+            LOG.info("send calculate delete bitmap task to be {}, txn_id {}, remainingTimeMs {}", entry.getKey(),
+                    transactionId, remainingTimeMs);
         }
         AgentTaskExecutor.submit(batchTask);
 
         boolean ok;
         try {
-            ok = countDownLatch.await(Config.calculate_delete_bitmap_task_timeout_seconds, TimeUnit.SECONDS);
+            // ok = countDownLatch.await(Config.calculate_delete_bitmap_task_timeout_seconds, TimeUnit.SECONDS);
+            ok = countDownLatch.await(remainingTimeMs, TimeUnit.MILLISECONDS);
         } catch (InterruptedException e) {
             LOG.warn("InterruptedException: ", e);
             ok = false;
@@ -949,7 +976,8 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         boolean res = false;
         while (true) {
             try {
-                res = commitAndPublishTransaction(db, tableList, transactionId, tabletCommitInfos, timeoutMillis, null);
+                res = commitAndPublishTransaction(db, tableList, transactionId, tabletCommitInfos, timeoutMillis, null,
+                        false);
                 break;
             } catch (UserException e) {
                 LOG.warn("failed to commit txn, txnId={},retryTimes={},exception={}",
@@ -1021,30 +1049,39 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
 
     @Override
     public boolean commitAndPublishTransaction(DatabaseIf db, List<Table> tableList, long transactionId,
-                                               List<TabletCommitInfo> tabletCommitInfos, long timeoutMillis,
-                                               TxnCommitAttachment txnCommitAttachment) throws UserException {
+            List<TabletCommitInfo> tabletCommitInfos, long timeoutMillis,
+            TxnCommitAttachment txnCommitAttachment, boolean commitOnBe) throws UserException {
+        if (committingTxnMap.containsKey(transactionId)) {
+            throw new UserException(InternalErrorCode.DELETE_BITMAP_LOCK_ERR,
+                    "txn=" + transactionId + " is committing now,retry later");
+        }
         for (int i = 0; i < tableList.size(); i++) {
             long tableId = tableList.get(i).getId();
             LOG.info("start commit txn=" + transactionId + ",table=" + tableId);
         }
-        for (Map.Entry<Long, AtomicInteger> entry : waitToCommitTxnCountMap.entrySet()) {
+        for (Map.Entry<Long, AtomicInteger> entry : tableCommittingTxnCountMap.entrySet()) {
             if (entry.getValue().get() > 5) {
                 LOG.info("now table {} commitAndPublishTransaction queue is {}", entry.getKey(),
                         entry.getValue().get());
             }
         }
-        increaseWaitingLockCount(tableList);
-        if (!MetaLockUtils.tryCommitLockTables(tableList, timeoutMillis, TimeUnit.MILLISECONDS)) {
-            decreaseWaitingLockCount(tableList);
+        increaseWaitingCount(tableList, transactionId);
+        StopWatch stopWatch = new StopWatch();
+        stopWatch.start();
+        long lockTimeoutMillis = timeoutMillis / 2;
+        if (!MetaLockUtils.tryCommitLockTables(tableList, lockTimeoutMillis, TimeUnit.MILLISECONDS)) {
+            decreaseWaitingCount(tableList, transactionId);
             // DELETE_BITMAP_LOCK_ERR will be retried on be
             throw new UserException(InternalErrorCode.DELETE_BITMAP_LOCK_ERR,
-                    "get table cloud commit lock timeout, tableList=("
-                            + StringUtils.join(tableList, ",") + ")");
+                    "get table cloud commit lock timeout, tableList=(" + StringUtils.join(tableList, ",") + ")");
         }
         try {
-            commitTransaction(db.getId(), tableList, transactionId, tabletCommitInfos, txnCommitAttachment);
+            stopWatch.stop();
+            long commitTimeoutMs = timeoutMillis - stopWatch.getTime();
+            commitTransaction(db.getId(), tableList, transactionId, tabletCommitInfos, txnCommitAttachment, false,
+                    commitTimeoutMs, commitOnBe);
         } finally {
-            decreaseWaitingLockCount(tableList);
+            decreaseWaitingCount(tableList, transactionId);
             MetaLockUtils.commitUnlockTables(tableList);
         }
         return true;
@@ -1053,7 +1090,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     @Override
     public void commitTransaction2PC(Database db, List<Table> tableList, long transactionId, long timeoutMillis)
             throws UserException {
-        commitTransaction(db.getId(), tableList, transactionId, null, null, true);
+        commitTransaction(db.getId(), tableList, transactionId, null, null, true, timeoutMillis, true);
     }
 
     @Override
@@ -1852,22 +1889,24 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         return TxnUtil.transactionStateFromPb(response.getTxnInfo());
     }
 
-    private void increaseWaitingLockCount(List<Table> tableList) {
+    private void increaseWaitingCount(List<Table> tableList, long transactionId) {
         for (int i = 0; i < tableList.size(); i++) {
             long tableId = tableList.get(i).getId();
-            if (waitToCommitTxnCountMap.containsKey(tableId)) {
-                waitToCommitTxnCountMap.get(tableId).addAndGet(1);
+            if (tableCommittingTxnCountMap.containsKey(tableId)) {
+                tableCommittingTxnCountMap.get(tableId).addAndGet(1);
             } else {
-                waitToCommitTxnCountMap.put(tableId, new AtomicInteger());
-                waitToCommitTxnCountMap.get(tableId).addAndGet(1);
+                tableCommittingTxnCountMap.put(tableId, new AtomicInteger());
+                tableCommittingTxnCountMap.get(tableId).addAndGet(1);
             }
         }
+        committingTxnMap.put(transactionId, System.currentTimeMillis());
     }
 
-    private void decreaseWaitingLockCount(List<Table> tableList) {
+    private void decreaseWaitingCount(List<Table> tableList, long transactionId) {
         for (int i = 0; i < tableList.size(); i++) {
             long tableId = tableList.get(i).getId();
-            waitToCommitTxnCountMap.get(tableId).decrementAndGet();
+            tableCommittingTxnCountMap.get(tableId).decrementAndGet();
         }
+        committingTxnMap.remove(transactionId);
     }
 }

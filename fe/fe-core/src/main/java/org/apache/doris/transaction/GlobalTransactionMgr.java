@@ -277,12 +277,12 @@ public class GlobalTransactionMgr implements GlobalTransactionMgrIface {
     public boolean commitAndPublishTransaction(DatabaseIf db, List<Table> tableList, long transactionId,
             List<TabletCommitInfo> tabletCommitInfos, long timeoutMillis)
             throws UserException {
-        return commitAndPublishTransaction(db, tableList, transactionId, tabletCommitInfos, timeoutMillis, null);
+        return commitAndPublishTransaction(db, tableList, transactionId, tabletCommitInfos, timeoutMillis, null, false);
     }
 
     public boolean commitAndPublishTransaction(DatabaseIf db, List<Table> tableList, long transactionId,
             List<TabletCommitInfo> tabletCommitInfos, long timeoutMillis,
-            TxnCommitAttachment txnCommitAttachment)
+            TxnCommitAttachment txnCommitAttachment, boolean commitOnBe)
             throws UserException {
         StopWatch stopWatch = new StopWatch();
         stopWatch.start();

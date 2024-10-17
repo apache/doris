@@ -3107,6 +3107,9 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, description = {"存算分离模式下commit阶段等锁超时时间，默认5s"})
     public static int try_commit_lock_timeout_seconds = 5;
 
+    @ConfField(mutable = true, description = {"存算分离模式下未配置commit rpc超时的情况下默认的超时时间，默认10s"})
+    public static int commit_timeout_default_seconds = 10;
+
     @ConfField(mutable = true, description = {"存算分离模式下是否开启大事务提交，默认false"})
     public static boolean enable_cloud_txn_lazy_commit = false;
 

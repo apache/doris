@@ -95,7 +95,7 @@ public interface GlobalTransactionMgrIface extends Writable {
 
     public boolean commitAndPublishTransaction(DatabaseIf db, List<Table> tableList, long transactionId,
             List<TabletCommitInfo> tabletCommitInfos, long timeoutMillis,
-            TxnCommitAttachment txnCommitAttachment)
+            TxnCommitAttachment txnCommitAttachment, boolean commitOnBe)
             throws UserException;
 
     public void commitTransaction2PC(Database db, List<Table> tableList, long transactionId, long timeoutMillis)
