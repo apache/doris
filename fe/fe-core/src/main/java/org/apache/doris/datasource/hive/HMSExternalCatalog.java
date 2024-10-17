@@ -34,6 +34,7 @@ import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.SessionContext;
+import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.datasource.jdbc.client.JdbcClientConfig;
 import org.apache.doris.datasource.operations.ExternalMetadataOperations;
 import org.apache.doris.datasource.property.PropertyConverter;
@@ -53,6 +54,7 @@ import com.google.common.collect.Maps;
 import lombok.Getter;
 import org.apache.commons.lang3.math.NumberUtils;
 import org.apache.hadoop.hive.conf.HiveConf;
+import org.apache.iceberg.hive.HiveCatalog;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -85,6 +87,8 @@ public class HMSExternalCatalog extends ExternalCatalog {
     private int hmsEventsBatchSizePerRpc = -1;
     private boolean enableHmsEventsIncrementalSync = false;
 
+    //for "type" = "hms" , but is iceberg table.
+    private HiveCatalog icebergHiveCatalog;
 
     @VisibleForTesting
     public HMSExternalCatalog() {
@@ -195,6 +199,8 @@ public class HMSExternalCatalog extends ExternalCatalog {
         transactionManager = TransactionManagerFactory.createHiveTransactionManager(hiveOps, fileSystemProvider,
                 fileSystemExecutor);
         metadataOps = hiveOps;
+
+        icebergHiveCatalog = IcebergUtils.createIcebergHiveCatalog(this, getName());
     }
 
     @Override
@@ -329,6 +335,10 @@ public class HMSExternalCatalog extends ExternalCatalog {
 
     public boolean isEnableHmsEventsIncrementalSync() {
         return enableHmsEventsIncrementalSync;
+    }
+
+    public HiveCatalog getIcebergHiveCatalog() {
+        return icebergHiveCatalog;
     }
 
     /**
