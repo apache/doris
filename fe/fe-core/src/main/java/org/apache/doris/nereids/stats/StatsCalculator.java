@@ -851,11 +851,12 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         if (hasUnknownCol && ConnectContext.get() != null && ConnectContext.get().getStatementContext() != null) {
             ConnectContext.get().getStatementContext().setHasUnknownColStats(true);
         }
-        return normalizeCatalogRelationColumnStatsRowCount(rowCount, columnStatisticBuilderMap);
+        return normalizeCatalogRelationColumnStatsRowCount(rowCount, columnStatisticBuilderMap, deltaRowCount);
     }
 
     private Statistics normalizeCatalogRelationColumnStatsRowCount(double rowCount,
-            Map<Expression, ColumnStatisticBuilder> columnStatisticBuilderMap) {
+            Map<Expression, ColumnStatisticBuilder> columnStatisticBuilderMap,
+            long deltaRowCount) {
         Map<Expression, ColumnStatistic> columnStatisticMap = new HashMap<>();
         for (Expression slot : columnStatisticBuilderMap.keySet()) {
             columnStatisticMap.put(slot,
