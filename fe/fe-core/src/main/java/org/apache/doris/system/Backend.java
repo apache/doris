@@ -300,6 +300,71 @@ public class Backend implements Writable {
         return this.backendStatus.currentFragmentNum;
     }
 
+    public String getDetailsForCreateReplica() {
+        int hddBad = 0;
+        int hddExceedLimit = 0;
+        int hddOk = 0;
+        int ssdBad = 0;
+        int ssdExceedLimit = 0;
+        int ssdOk = 0;
+        for (DiskInfo disk : disksRef.values()) {
+            TStorageMedium storageMedium = disk.getStorageMedium();
+            if (storageMedium == TStorageMedium.HDD) {
+                if (!disk.isAlive()) {
+                    hddBad++;
+                } else if (disk.exceedLimit(true)) {
+                    hddExceedLimit++;
+                } else {
+                    hddOk++;
+                }
+            } else if (storageMedium == TStorageMedium.SSD) {
+                if (!disk.isAlive()) {
+                    ssdBad++;
+                } else if (disk.exceedLimit(true)) {
+                    ssdExceedLimit++;
+                } else {
+                    ssdOk++;
+                }
+            }
+        }
+
+        StringBuilder sb = new StringBuilder("[");
+        sb.append("backendId=").append(id);
+        sb.append(", host=").append(host);
+        if (!isAlive()) {
+            sb.append(", isAlive=false, exclude it");
+        } else if (isDecommissioned()) {
+            sb.append(", isDecommissioned=true, exclude it");
+        } else if (isComputeNode()) {
+            sb.append(", isComputeNode=true, exclude it");
+        } else {
+            sb.append(", hdd disks count={");
+            if (hddOk > 0) {
+                sb.append("ok=").append(hddOk).append(",");
+            }
+            if (hddBad > 0) {
+                sb.append("bad=").append(hddBad).append(",");
+            }
+            if (hddExceedLimit > 0) {
+                sb.append("capExceedLimit=").append(hddExceedLimit).append(",");
+            }
+            sb.append("}, ssd disk count={");
+            if (ssdOk > 0) {
+                sb.append("ok=").append(ssdOk).append(",");
+            }
+            if (ssdBad > 0) {
+                sb.append("bad=").append(ssdBad).append(",");
+            }
+            if (ssdExceedLimit > 0) {
+                sb.append("capExceedLimit=").append(ssdExceedLimit).append(",");
+            }
+            sb.append("}");
+        }
+        sb.append("]");
+
+        return sb.toString();
+    }
+
     // for test only
     public void updateOnce(int bePort, int httpPort, int beRpcPort) {
         if (this.bePort != bePort) {

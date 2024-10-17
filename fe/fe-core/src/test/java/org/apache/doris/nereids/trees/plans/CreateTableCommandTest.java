@@ -27,6 +27,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.catalog.Type;
@@ -285,7 +286,9 @@ public class CreateTableCommandTest extends TestWithFeService {
 
         ConfigBase.setMutableConfig("disable_storage_medium_check", "false");
         checkThrow(org.apache.doris.common.DdlException.class,
-                "Failed to find enough backend, please check the replication num,replication tag and storage medium.\n"
+                "Failed to find enough backend, please check the replication num,replication tag and storage medium and avail capacity of backends "
+                        + "or maybe all be on same host."
+                        + Env.getCurrentSystemInfo().getDetailsForCreateReplica(new ReplicaAllocation((short) 1)) + "\n"
                         + "Create failed replications:\n"
                         + "replication tag: {\"location\" : \"default\"}, replication num: 1, storage medium: SSD",
                 () -> createTable("create table test.tb7(key1 int, key2 varchar(10)) distributed by hash(key1) \n"
