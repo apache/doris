@@ -17,16 +17,31 @@
 
 package org.apache.doris.event;
 
+import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.datasource.CatalogIf;
+
 public abstract class TableEvent extends Event {
     protected final long ctlId;
+    protected final String ctlName;
     protected final long dbId;
+    protected final String dbName;
     protected final long tableId;
+    protected final String tableName;
 
-    public TableEvent(EventType eventType, long ctlId, long dbId, long tableId) {
+    public TableEvent(EventType eventType, long ctlId, long dbId, long tableId) throws AnalysisException {
         super(eventType);
         this.ctlId = ctlId;
         this.dbId = dbId;
         this.tableId = tableId;
+        CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalogOrAnalysisException(ctlId);
+        DatabaseIf db = catalog.getDbOrAnalysisException(dbId);
+        TableIf table = db.getTableOrAnalysisException(tableId);
+        this.ctlName = catalog.getName();
+        this.dbName = db.getFullName();
+        this.tableName = table.getName();
     }
 
     public long getCtlId() {
@@ -41,12 +56,27 @@ public abstract class TableEvent extends Event {
         return tableId;
     }
 
+    public String getCtlName() {
+        return ctlName;
+    }
+
+    public String getDbName() {
+        return dbName;
+    }
+
+    public String getTableName() {
+        return tableName;
+    }
+
     @Override
     public String toString() {
         return "TableEvent{"
                 + "ctlId=" + ctlId
+                + ", ctlName='" + ctlName + '\''
                 + ", dbId=" + dbId
+                + ", dbName='" + dbName + '\''
                 + ", tableId=" + tableId
+                + ", tableName='" + tableName + '\''
                 + "} " + super.toString();
     }
 }

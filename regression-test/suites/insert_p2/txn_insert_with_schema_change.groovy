@@ -96,10 +96,21 @@ suite("txn_insert_with_schema_change") {
     def getAlterTableState = { tName, job_state ->
         def retry = 0
         sql "use ${dbName};"
-        waitForSchemaChangeDone {
-            sql """ SHOW ALTER TABLE COLUMN WHERE tablename='${tName}' ORDER BY createtime DESC LIMIT 1 """
-            time 600
+        def last_state = ""
+        while (true) {
+            sleep(4000)
+            def state = sql """ show alter table column where tablename = "${tName}" order by CreateTime desc limit 1"""
+            logger.info("alter table state: ${state}")
+            last_state = state[0][9]
+            if (state.size() > 0 && last_state == job_state) {
+                return
+            }
+            retry++
+            if (retry >= 60 || last_state == "FINISHED" || last_state == "CANCELLED") {
+                break
+            }
         }
+        assertTrue(false, "alter table job state is ${last_state}, not ${job_state} after retry ${retry} times")
     }
 
     // sqls size is 2

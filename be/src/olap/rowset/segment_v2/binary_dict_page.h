@@ -68,7 +68,7 @@ public:
 
     Status add(const uint8_t* vals, size_t* count) override;
 
-    OwnedSlice finish() override;
+    Status finish(OwnedSlice* slice) override;
 
     Status reset() override;
 

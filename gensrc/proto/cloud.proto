@@ -140,8 +140,10 @@ message ClusterPB {
 message NodeInfoPB {
     enum NodeType {
         UNKNOWN = 0;
+         // lagacy logic for one-master-multi-observer mode
         FE_MASTER = 1;
         FE_OBSERVER = 2;
+        FE_FOLLOWER = 3;
     }
     optional string cloud_unique_id = 1;
     optional string name = 2;
@@ -210,6 +212,8 @@ message StorageVaultPB {
     }
 
     optional PathFormat path_format = 5;
+    // Set this filed when the user tries to alter name to alter_name
+    optional string alter_name = 6;
 }
 
 message HdfsBuildConf {
@@ -404,6 +408,8 @@ message TxnRunningPB {
 message VersionPB {
     optional int64 version = 1;
     optional int64 update_time_ms = 2;
+    // now only allow one element
+    repeated int64 pending_txn_ids = 3;
 }
 
 message RecycleTxnPB {
@@ -536,6 +542,7 @@ message TabletCompactionJobPB {
     optional int64 lease = 23; // prepare
     optional int64 delete_bitmap_lock_initiator = 24;
     optional int64 full_compaction_cnt = 25;  // prepare
+    optional bool check_input_versions_range = 26;
 }
 
 message TabletSchemaChangeJobPB {
@@ -664,6 +671,7 @@ message CommitTxnRequest {
     // for transaction load
     optional bool is_txn_load = 9;
     repeated SubTxnInfo sub_txn_infos = 10;
+    optional bool enable_txn_lazy_commit = 11;
 }
 
 message SubTxnInfo {
@@ -853,6 +861,7 @@ message AlterObjStoreInfoRequest {
         ADD_S3_VAULT = 103;
         DROP_S3_VAULT = 104;
         ALTER_S3_VAULT = 105;
+        ALTER_HDFS_VAULT = 106;
 
         SET_DEFAULT_VAULT = 200;
         UNSET_DEFAULT_VAULT = 201;
@@ -886,12 +895,14 @@ message GetObjStoreInfoResponse {
     repeated StorageVaultPB storage_vault = 3;
     optional string default_storage_vault_id = 4;
     optional string default_storage_vault_name = 5;
+    optional bool enable_storage_vault = 6;
 };
 
 message CreateTabletsRequest {
     optional string cloud_unique_id = 1; // For auth
     repeated doris.TabletMetaCloudPB tablet_metas = 2;
     optional string storage_vault_name = 3;
+    optional int64 db_id = 4;
 }
 
 message CreateTabletsResponse {
@@ -1182,6 +1193,7 @@ message StartTabletJobRequest {
 message StartTabletJobResponse {
     optional MetaServiceResponseStatus status = 1;
     repeated int64 version_in_compaction = 2;
+    optional int64 alter_version = 3;
 }
 
 message FinishTabletJobRequest {
@@ -1199,6 +1211,7 @@ message FinishTabletJobRequest {
 message FinishTabletJobResponse {
     optional MetaServiceResponseStatus status = 1;
     optional TabletStatsPB stats = 2;
+    optional int64 alter_version = 3;
 }
 
 message BeginCopyRequest {
@@ -1337,6 +1350,7 @@ enum MetaServiceCode {
     JOB_ALREADY_SUCCESS = 5002;
     ROUTINE_LOAD_DATA_INCONSISTENT = 5003;
     ROUTINE_LOAD_PROGRESS_NOT_FOUND = 5004;
+    JOB_CHECK_ALTER_VERSION = 5005;
 
     // Rate limit
     MAX_QPS_LIMIT = 6001;
@@ -1370,6 +1384,7 @@ message UpdateDeleteBitmapRequest {
     repeated int64 versions = 9;
     // Serialized roaring bitmaps indexed with {rowset_id, segment_id, version}
     repeated bytes segment_delete_bitmaps = 10;
+    optional bool unlock = 11;
 }
 
 message UpdateDeleteBitmapResponse {
@@ -1395,6 +1410,18 @@ message GetDeleteBitmapResponse {
     repeated int64 versions = 4;
     // Serialized roaring bitmaps indexed with {rowset_id, segment_id, version}
     repeated bytes segment_delete_bitmaps = 5;
+}
+
+message RemoveDeleteBitmapRequest {
+    optional string cloud_unique_id = 1; // For auth
+    optional int64 tablet_id = 2;
+    repeated string rowset_ids = 3;
+    repeated int64 begin_versions = 4;
+    repeated int64 end_versions = 5;
+}
+
+message RemoveDeleteBitmapResponse {
+    optional MetaServiceResponseStatus status = 1;
 }
 
 message PendingDeleteBitmapPB {
@@ -1440,6 +1467,7 @@ message ResetRLProgressRequest {
     optional string cloud_unique_id = 1; // For auth
     optional int64 db_id = 2;
     optional int64 job_id = 3;
+    map<int32, int64> partition_to_offset = 4;
 }
 
 message ResetRLProgressResponse {
@@ -1535,6 +1563,7 @@ service MetaService {
     rpc update_delete_bitmap(UpdateDeleteBitmapRequest) returns(UpdateDeleteBitmapResponse);
     rpc get_delete_bitmap(GetDeleteBitmapRequest) returns(GetDeleteBitmapResponse);
     rpc get_delete_bitmap_update_lock(GetDeleteBitmapUpdateLockRequest) returns(GetDeleteBitmapUpdateLockResponse);
+    rpc remove_delete_bitmap(RemoveDeleteBitmapRequest) returns(RemoveDeleteBitmapResponse);
 
     // routine load progress
     rpc get_rl_task_commit_attach(GetRLTaskCommitAttachRequest) returns (GetRLTaskCommitAttachResponse);

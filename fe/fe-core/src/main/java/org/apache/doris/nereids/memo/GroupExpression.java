@@ -276,7 +276,27 @@ public class GroupExpression {
         this.getLowestCostTable()
                 .forEach((properties, pair) -> target.updateLowestCostTable(properties, pair.second, pair.first));
         // requestPropertiesMap
-        target.requestPropertiesMap.putAll(this.requestPropertiesMap);
+        // ATTN: when do merge, we should update target requestPropertiesMap
+        //   ONLY IF the cost of source's request property lower than target one.
+        //   Otherwise, the requestPropertiesMap will not sync with lowestCostTable.
+        //   Then, we will get wrong output property when get the final plan.
+        for (Map.Entry<PhysicalProperties, PhysicalProperties> entry : requestPropertiesMap.entrySet()) {
+            PhysicalProperties request = entry.getKey();
+            if (!target.requestPropertiesMap.containsKey(request)) {
+                target.requestPropertiesMap.put(entry.getKey(), entry.getValue());
+            } else {
+                PhysicalProperties sourceOutput = entry.getValue();
+                PhysicalProperties targetOutput = target.getRequestPropertiesMap().get(request);
+                if (this.getLowestCostTable().containsKey(sourceOutput)
+                        && target.getLowestCostTable().containsKey(targetOutput)) {
+                    Cost sourceCost = this.getLowestCostTable().get(sourceOutput).first;
+                    Cost targetCost = target.getLowestCostTable().get(targetOutput).first;
+                    if (sourceCost.getValue() < targetCost.getValue()) {
+                        target.requestPropertiesMap.put(entry.getKey(), entry.getValue());
+                    }
+                }
+            }
+        }
         // ruleMasks
         target.ruleMasks.or(this.ruleMasks);
 
@@ -334,7 +354,7 @@ public class GroupExpression {
             builder.append("#").append(ownerGroup.getGroupId().asInt());
         }
         if (cost != null) {
-            builder.append(" cost=").append(format.format((long) cost.getValue()) + " " + cost);
+            builder.append(" cost=").append(cost.getValue() + " " + cost);
         } else {
             builder.append(" cost=null");
         }

@@ -173,12 +173,6 @@ private:
     };
     std::unique_ptr<ExecutorBase> _executor = nullptr;
 
-    struct MemoryRecord {
-        MemoryRecord() : used_in_arena(0), used_in_state(0) {}
-        int64_t used_in_arena;
-        int64_t used_in_state;
-    };
-    MemoryRecord _mem_usage_record;
     std::unique_ptr<vectorized::Block> _child_block = nullptr;
     bool _child_eos = false;
     std::unique_ptr<vectorized::Block> _pre_aggregated_block = nullptr;
@@ -215,7 +209,6 @@ public:
                           const DescriptorTbl& descs);
     ~StreamingAggOperatorX() override = default;
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
-    Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
     Status pull(RuntimeState* state, vectorized::Block* block, bool* eos) const override;
     Status push(RuntimeState* state, vectorized::Block* input_block, bool eos) const override;

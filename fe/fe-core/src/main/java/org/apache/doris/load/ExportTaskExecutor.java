@@ -18,7 +18,6 @@
 package org.apache.doris.load;
 
 import org.apache.doris.analysis.OutFileClause;
-import org.apache.doris.analysis.SelectStmt;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -26,6 +25,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Status;
 import org.apache.doris.load.ExportFailMsg.CancelType;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
@@ -36,6 +36,7 @@ import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.scheduler.exception.JobException;
 import org.apache.doris.scheduler.executor.TransientTaskExecutor;
+import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.Lists;
@@ -95,15 +96,10 @@ public class ExportTaskExecutor implements TransientTaskExecutor {
                     table.readLock();
                     try {
                         List<Long> tabletIds;
-                        if (exportJob.getSessionVariables().isEnableNereidsPlanner()) {
-                            LogicalPlanAdapter logicalPlanAdapter = (LogicalPlanAdapter) selectStmtLists.get(idx);
-                            Optional<UnboundRelation> unboundRelation = findUnboundRelation(
-                                    logicalPlanAdapter.getLogicalPlan());
-                            tabletIds = unboundRelation.get().getTabletIds();
-                        } else {
-                            SelectStmt selectStmt = (SelectStmt) selectStmtLists.get(idx);
-                            tabletIds = selectStmt.getTableRefs().get(0).getSampleTabletIds();
-                        }
+                        LogicalPlanAdapter logicalPlanAdapter = (LogicalPlanAdapter) selectStmtLists.get(idx);
+                        Optional<UnboundRelation> unboundRelation = findUnboundRelation(
+                                logicalPlanAdapter.getLogicalPlan());
+                        tabletIds = unboundRelation.get().getTabletIds();
 
                         for (Long tabletId : tabletIds) {
                             TabletMeta tabletMeta = Env.getCurrentEnv().getTabletInvertedIndex().getTabletMeta(
@@ -162,7 +158,7 @@ public class ExportTaskExecutor implements TransientTaskExecutor {
         }
         isCanceled.getAndSet(true);
         if (stmtExecutor != null) {
-            stmtExecutor.cancel();
+            stmtExecutor.cancel(new Status(TStatusCode.CANCELLED, "export task cancelled"));
         }
     }
 
@@ -172,7 +168,6 @@ public class ExportTaskExecutor implements TransientTaskExecutor {
         connectContext.setSessionVariable(exportJob.getSessionVariables());
         // The rollback to the old optimizer is prohibited
         // Since originStmt is empty, reverting to the old optimizer when the new optimizer is enabled is meaningless.
-        connectContext.getSessionVariable().enableFallbackToOriginalPlanner = false;
         connectContext.setEnv(Env.getCurrentEnv());
         connectContext.setDatabase(exportJob.getTableName().getDb());
         connectContext.setQualifiedUser(exportJob.getQualifiedUser());

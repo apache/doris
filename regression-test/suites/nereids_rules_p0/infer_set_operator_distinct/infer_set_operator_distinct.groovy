@@ -22,7 +22,6 @@ suite("infer_set_operator_distinct") {
     sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
     sql "set enable_parallel_result_sink=false;"
 
-
     sql """
         DROP TABLE IF EXISTS t1;
     """
@@ -110,7 +109,7 @@ suite("infer_set_operator_distinct") {
     """
 
     qt_mixed_set_operators """
-        explain shape plan select * from t1 union select * from t2 except select * from t3 intersect select * from t4;
+        explain shape plan (select * from t1 union select * from t2 except select * from t3) intersect select * from t4;
     """
 
     qt_join_with_union """
@@ -202,7 +201,7 @@ suite("infer_set_operator_distinct") {
     """
 
     qt_with_hint_mixed_set_operators """
-        explain shape plan select /*+ USE_CBO_RULE(INFER_SET_OPERATOR_DISTINCT) */ * from t1 union select * from t2 except select * from t3 intersect select * from t4;
+        explain shape plan (select /*+ USE_CBO_RULE(INFER_SET_OPERATOR_DISTINCT) */ * from t1 union select * from t2 except select * from t3) intersect select * from t4;
     """
 
     qt_with_hint_join_with_union """
@@ -294,7 +293,7 @@ suite("infer_set_operator_distinct") {
     """
 
     qt_with_hint_no_mixed_set_operators """
-        explain shape plan select /*+ USE_CBO_RULE(NO_INFER_SET_OPERATOR_DISTINCT) */ * from t1 union select * from t2 except select * from t3 intersect select * from t4;
+        explain shape plan (select /*+ USE_CBO_RULE(NO_INFER_SET_OPERATOR_DISTINCT) */ * from t1 union select * from t2 except select * from t3) intersect select * from t4;
     """
 
     qt_with_hint_no_join_with_union """

@@ -34,9 +34,11 @@
 
 #include "common/config.h"
 #include "common/logging.h"
+#include "common/stopwatch.h"
 #include "cpp/s3_rate_limiter.h"
 #include "cpp/sync_point.h"
 #include "recycler/s3_accessor.h"
+#include "recycler/util.h"
 
 using namespace Azure::Storage::Blobs;
 

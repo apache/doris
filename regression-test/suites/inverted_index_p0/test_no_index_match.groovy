@@ -84,6 +84,7 @@ suite("test_no_index_match", "p0") {
       sql """ INSERT INTO ${testTable} VALUES (1, '1', '', 1, 1); """
 
       sql 'sync'
+      sql """ set enable_common_expr_pushdown = true """
 
       try {
           qt_sql """ select count() from ${testTable} where (request match_any 'hm bg');  """
@@ -94,6 +95,8 @@ suite("test_no_index_match", "p0") {
 
           qt_sql """ select count() from ${testTable} where (request match_phrase '欧冶工业品');  """
           qt_sql """ select count() from ${testTable} where (request match_phrase_prefix '欧冶工业品');  """
+
+          qt_sql """ select count() from ${testTable} where (request match_regexp '');  """
       } finally {
       }
 
@@ -109,6 +112,13 @@ suite("test_no_index_match", "p0") {
       } catch (Exception e) {
         log.info(e.getMessage());
         assertTrue(e.getMessage().contains("match_phrase_prefix not support execute_match"))
+      }
+
+      try {
+          sql """ select count() from ${testTable} where (request match_regexp '?');  """
+      } catch (Exception e) {
+        log.info(e.getMessage());
+        assertTrue(e.getMessage().contains("hyperscan compilation failed: Invalid repeat at index 0."))
       }
     } finally {
     }

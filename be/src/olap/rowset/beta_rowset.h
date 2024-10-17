@@ -71,15 +71,12 @@ public:
 
     Status check_file_exist() override;
 
-    Status load_segments(std::vector<segment_v2::SegmentSharedPtr>* segments,
-                         bool disable_file_cache = false);
+    Status load_segments(std::vector<segment_v2::SegmentSharedPtr>* segments);
 
     Status load_segments(int64_t seg_id_begin, int64_t seg_id_end,
-                         std::vector<segment_v2::SegmentSharedPtr>* segments,
-                         bool disable_file_cache = false);
+                         std::vector<segment_v2::SegmentSharedPtr>* segments);
 
-    Status load_segment(int64_t seg_id, segment_v2::SegmentSharedPtr* segment,
-                        bool disable_file_cache = false);
+    Status load_segment(int64_t seg_id, segment_v2::SegmentSharedPtr* segment);
 
     Status get_segments_size(std::vector<size_t>* segments_size);
 

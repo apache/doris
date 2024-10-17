@@ -26,13 +26,13 @@ import java.util.Map;
 import java.util.UUID;
 import java.time.format.DateTimeFormatter;
 
-suite("test_pk_uk_case_cluster_key") {
+suite("test_pk_uk_case") {
     def tableNamePk = "primary_key_pk_uk"
     def tableNameUk = "unique_key_pk_uk"
 
     onFinish {
-        try_sql("DROP TABLE IF EXISTS ${tableNamePk}")
-        try_sql("DROP TABLE IF EXISTS ${tableNameUk}")
+        // try_sql("DROP TABLE IF EXISTS ${tableNamePk}")
+        // try_sql("DROP TABLE IF EXISTS ${tableNameUk}")
     }
 
     sql """ DROP TABLE IF EXISTS ${tableNamePk} """
@@ -61,7 +61,8 @@ suite("test_pk_uk_case_cluster_key") {
         PROPERTIES (
         "replication_num" = "1",
         "disable_auto_compaction" = "true",
-        "enable_unique_key_merge_on_write" = "true"
+        "enable_unique_key_merge_on_write" = "true",
+        "enable_mow_light_delete" = "true"
         )
     """
 

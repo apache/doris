@@ -37,13 +37,12 @@ suite("test_new_schema_change") {
             DISTRIBUTED BY HASH(siteid) BUCKETS 5
             PROPERTIES("replication_num" = "1", "light_schema_change" = "true"); 
          """
-     try{
           sql "begin"
           sql """ insert into ${tbName} values('2021-11-01',1,1,'用户A',1),('2021-11-01',1,1,'用户B',1),('2021-11-01',1,1,'用户A',3),('2021-11-02',1,1,'用户A',1),('2021-11-02',1,1,'用户B',1),('2021-11-02',101,112332121,'用户B',112312),('2021-11-02',103,112332211,'用户B',112312); """
-          sql """ alter  table ${tbName} add column vv int after pv"""
+          test {
+               sql """ alter  table ${tbName} add column vv int after pv"""
+               exception "This is in a transaction, only insert, update, delete, commit, rollback is acceptable."
+          }
           sql "commit"
           sql """ DROP TABLE  ${tbName} """
-     }catch (Exception e){
-          assertTrue(e.getMessage().contains("This is in a transaction, only insert, commit, rollback is acceptable."))
-     }
 }

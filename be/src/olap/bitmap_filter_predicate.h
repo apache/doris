@@ -75,6 +75,8 @@ public:
     }
 
 private:
+    bool _can_ignore() const override { return false; }
+
     uint16_t _evaluate_inner(const vectorized::IColumn& column, uint16_t* sel,
                              uint16_t size) const override;
 

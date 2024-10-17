@@ -103,7 +103,6 @@ class ExplainAction implements SuiteAction {
                 if (!explainString.contains(string)) {
                     String msg = ("Explain and check failed, expect contains '${string}',"
                             + " but actual explain string is:\n${explainString}").toString()
-                    log.info(msg)
                     def t = new IllegalStateException(msg)
                     throw t
                 }
@@ -112,7 +111,6 @@ class ExplainAction implements SuiteAction {
                 if (explainString.contains(string)) {
                     String msg = ("Explain and check failed, expect not contains '${string}',"
                             + " but actual explain string is:\n${explainString}").toString()
-                    log.info(msg)
                     def t = new IllegalStateException(msg)
                     throw t
                 }
@@ -122,7 +120,6 @@ class ExplainAction implements SuiteAction {
                 if (count != entry.value) {
                     String msg = ("Explain and check failed, expect multiContains '${string}' , '${entry.value}' times, actural '${count}' times."
                             + "Actual explain string is:\n${explainString}").toString()
-                    log.info(msg)
                     def t = new IllegalStateException(msg)
                     throw t
                 }

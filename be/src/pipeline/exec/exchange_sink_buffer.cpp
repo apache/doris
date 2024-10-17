@@ -22,6 +22,7 @@
 #include <butil/iobuf_inl.h>
 #include <fmt/format.h>
 #include <gen_cpp/Types_types.h>
+#include <gen_cpp/types.pb.h>
 #include <glog/logging.h>
 #include <google/protobuf/stubs/callback.h>
 #include <stddef.h>
@@ -145,6 +146,10 @@ Status ExchangeSinkBuffer::add_block(TransmitInfo&& request) {
         return Status::OK();
     }
     auto ins_id = request.channel->_fragment_instance_id.lo;
+    if (!_instance_to_package_queue_mutex.contains(ins_id)) {
+        return Status::InternalError("fragment_instance_id {} not do register_sink",
+                                     print_id(request.channel->_fragment_instance_id));
+    }
     if (_is_receiver_eof(ins_id)) {
         return Status::EndOfFile("receiver eof");
     }
@@ -160,6 +165,9 @@ Status ExchangeSinkBuffer::add_block(TransmitInfo&& request) {
         if (request.block) {
             RETURN_IF_ERROR(
                     BeExecVersionManager::check_be_exec_version(request.block->be_exec_version()));
+            COUNTER_UPDATE(_parent->memory_used_counter(), request.block->ByteSizeLong());
+            COUNTER_SET(_parent->peak_memory_usage_counter(),
+                        _parent->memory_used_counter()->value());
         }
         _instance_to_package_queue[ins_id].emplace(std::move(request));
         _total_queue_size++;
@@ -179,6 +187,10 @@ Status ExchangeSinkBuffer::add_block(BroadcastTransmitInfo&& request) {
         return Status::OK();
     }
     auto ins_id = request.channel->_fragment_instance_id.lo;
+    if (!_instance_to_package_queue_mutex.contains(ins_id)) {
+        return Status::InternalError("fragment_instance_id {} not do register_sink",
+                                     print_id(request.channel->_fragment_instance_id));
+    }
     if (_is_receiver_eof(ins_id)) {
         return Status::EndOfFile("receiver eof");
     }
@@ -272,7 +284,11 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
             } else if (eos) {
                 _ended(id);
             } else {
-                static_cast<void>(_send_rpc(id));
+                s = _send_rpc(id);
+                if (!s) {
+                    _failed(id, fmt::format("exchange req success but status isn't ok: {}",
+                                            s.to_string()));
+                }
             }
         });
         {
@@ -290,6 +306,7 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
             }
         }
         if (request.block) {
+            COUNTER_UPDATE(_parent->memory_used_counter(), -request.block->ByteSizeLong());
             static_cast<void>(brpc_request->release_block());
         }
         q.pop();
@@ -351,7 +368,11 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
             } else if (eos) {
                 _ended(id);
             } else {
-                static_cast<void>(_send_rpc(id));
+                s = _send_rpc(id);
+                if (!s) {
+                    _failed(id, fmt::format("exchange req success but status isn't ok: {}",
+                                            s.to_string()));
+                }
             }
         });
         {
@@ -418,8 +439,30 @@ void ExchangeSinkBuffer::_set_receiver_eof(InstanceLoId id) {
     std::unique_lock<std::mutex> lock(*_instance_to_package_queue_mutex[id]);
     _instance_to_receiver_eof[id] = true;
     _turn_off_channel(id, true);
-    std::queue<BroadcastTransmitInfo, std::list<BroadcastTransmitInfo>> empty;
-    swap(empty, _instance_to_broadcast_package_queue[id]);
+    std::queue<BroadcastTransmitInfo, std::list<BroadcastTransmitInfo>>& broadcast_q =
+            _instance_to_broadcast_package_queue[id];
+    for (; !broadcast_q.empty(); broadcast_q.pop()) {
+        if (broadcast_q.front().block_holder->get_block()) {
+            COUNTER_UPDATE(_parent->memory_used_counter(),
+                           -broadcast_q.front().block_holder->get_block()->ByteSizeLong());
+        }
+    }
+    {
+        std::queue<BroadcastTransmitInfo, std::list<BroadcastTransmitInfo>> empty;
+        swap(empty, broadcast_q);
+    }
+
+    std::queue<TransmitInfo, std::list<TransmitInfo>>& q = _instance_to_package_queue[id];
+    for (; !q.empty(); q.pop()) {
+        if (q.front().block) {
+            COUNTER_UPDATE(_parent->memory_used_counter(), -q.front().block->ByteSizeLong());
+        }
+    }
+
+    {
+        std::queue<TransmitInfo, std::list<TransmitInfo>> empty;
+        swap(empty, q);
+    }
 }
 
 bool ExchangeSinkBuffer::_is_receiver_eof(InstanceLoId id) {

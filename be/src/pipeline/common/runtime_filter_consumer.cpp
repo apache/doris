@@ -76,7 +76,6 @@ void RuntimeFilterConsumer::init_runtime_filter_dependency(
         auto runtime_filter = _runtime_filter_ctxs[i].runtime_filter;
         runtime_filter_dependencies[i] = std::make_shared<pipeline::RuntimeFilterDependency>(
                 id, node_id, name, runtime_filter.get());
-        _runtime_filter_ctxs[i].runtime_filter_dependency = runtime_filter_dependencies[i].get();
         runtime_filter_timers[i] = std::make_shared<pipeline::RuntimeFilterTimer>(
                 runtime_filter->registration_time(), runtime_filter->wait_time_ms(),
                 runtime_filter_dependencies[i]);

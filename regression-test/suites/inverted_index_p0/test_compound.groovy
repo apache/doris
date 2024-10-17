@@ -57,6 +57,7 @@ suite("test_compound", "p0"){
         (9, '9', '9', '9'),
         (10, '10', '10', '10');
     """ 
+    sql """ set enable_common_expr_pushdown = true """
 
     qt_sql "SELECT count() FROM $indexTblName WHERE (id >= 2 AND id < 9) and (a match '2' or b match '5' and c match '5');"
     qt_sql "SELECT count() FROM $indexTblName WHERE (id >= 2 AND id < 9) and (a match '2' or b match '5' or c match '6');"

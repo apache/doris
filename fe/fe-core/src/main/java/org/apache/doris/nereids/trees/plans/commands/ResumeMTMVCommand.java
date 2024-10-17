@@ -30,7 +30,7 @@ import java.util.Objects;
 /**
  * resume mtmv
  */
-public class ResumeMTMVCommand extends Command implements ForwardWithSync, NotAllowFallback {
+public class ResumeMTMVCommand extends Command implements ForwardWithSync {
     private final ResumeMTMVInfo resumeMTMVInfo;
 
     public ResumeMTMVCommand(ResumeMTMVInfo resumeMTMVInfo) {

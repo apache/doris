@@ -16,6 +16,7 @@
 // under the License.
 
 #pragma once
+#include <gen_cpp/FrontendService_types.h>
 
 #include <vector>
 
@@ -41,9 +42,11 @@ public:
     static std::vector<SchemaScanner::ColumnDesc> _s_tbls_columns;
 
 private:
-    Status get_block_from_fe();
-
+    Status get_onedb_info_from_fe(int64_t dbId);
+    bool check_and_mark_eos(bool* eos) const;
     int _block_rows_limit = 4096;
+    int _db_index = 0;
+    TGetDbsResult _db_result;
     int _row_idx = 0;
     int _total_rows = 0;
     std::unique_ptr<vectorized::Block> _tableoptions_block = nullptr;

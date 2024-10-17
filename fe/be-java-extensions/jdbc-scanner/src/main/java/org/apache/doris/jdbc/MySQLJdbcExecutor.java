@@ -22,6 +22,7 @@ import org.apache.doris.common.jni.vec.ColumnType.Type;
 import org.apache.doris.common.jni.vec.ColumnValueConverter;
 import org.apache.doris.common.jni.vec.VectorTable;
 import org.apache.doris.thrift.TJdbcOperation;
+import org.apache.doris.thrift.TOdbcTableType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.util.concurrent.MoreExecutors;
@@ -34,6 +35,7 @@ import java.math.BigInteger;
 import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Types;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatterBuilder;
@@ -52,15 +54,13 @@ public class MySQLJdbcExecutor extends BaseJdbcExecutor {
     }
 
     @Override
-    protected boolean abortReadConnection(Connection connection, ResultSet resultSet)
+    protected void abortReadConnection(Connection connection, ResultSet resultSet)
             throws SQLException {
         if (!resultSet.isAfterLast()) {
             // Abort connection before closing. Without this, the MySQL driver
             // attempts to drain the connection by reading all the results.
             connection.abort(MoreExecutors.directExecutor());
-            return true;
         }
-        return false;
     }
 
     @Override
@@ -135,8 +135,18 @@ public class MySQLJdbcExecutor extends BaseJdbcExecutor {
                 case VARCHAR:
                 case ARRAY:
                     return resultSet.getObject(columnIndex + 1, String.class);
-                case STRING:
-                    return resultSet.getObject(columnIndex + 1);
+                case STRING: {
+                    int jdbcType = resultSetMetaData.getColumnType(columnIndex + 1);
+                    // If it is a time type in mysql, or use mysql driver connect mariadb
+                    // We need to obtain the string directly to ensure that we can obtain a time other than 24 hours.
+                    // If it is another database, such as oceanbase, this processing will lose precision information,
+                    // so the original processing method will be maintained for the time being.
+                    if (jdbcType == Types.TIME && config.getTableType() == TOdbcTableType.MYSQL) {
+                        return resultSet.getString(columnIndex + 1);
+                    } else {
+                        return resultSet.getObject(columnIndex + 1);
+                    }
+                }
                 default:
                     throw new IllegalArgumentException("Unsupported column type: " + type.getType());
             }
@@ -194,6 +204,9 @@ public class MySQLJdbcExecutor extends BaseJdbcExecutor {
     }
 
     private Object convertArray(Object input, ColumnType columnType) {
+        if (input == null) {
+            return null;
+        }
         java.lang.reflect.Type listType = getListTypeForArray(columnType);
         if (columnType.getType() == Type.BOOLEAN) {
             List<?> list = gson.fromJson((String) input, List.class);
@@ -230,10 +243,25 @@ public class MySQLJdbcExecutor extends BaseJdbcExecutor {
                     throw new IllegalArgumentException("Cannot convert " + item + " to LocalDateTime.");
                 }
             }).collect(Collectors.toList());
+        } else if (columnType.getType() == Type.LARGEINT) {
+            List<?> list = gson.fromJson((String) input, List.class);
+            return list.stream().map(item -> {
+                if (item instanceof Number) {
+                    return new BigDecimal(item.toString()).toBigInteger();
+                } else if (item instanceof String) {
+                    return new BigDecimal((String) item).toBigInteger();
+                } else {
+                    throw new IllegalArgumentException("Cannot convert " + item + " to BigInteger.");
+                }
+            }).collect(Collectors.toList());
         } else if (columnType.getType() == Type.ARRAY) {
-            List<?> list = gson.fromJson((String) input, listType);
-            return list.stream()
-                    .map(item -> convertArray(gson.toJson(item), columnType.getChildTypes().get(0)))
+            ColumnType childType = columnType.getChildTypes().get(0);
+            List<?> rawList = gson.fromJson((String) input, List.class);
+            return rawList.stream()
+                    .map(element -> {
+                        String elementJson = gson.toJson(element);
+                        return convertArray(elementJson, childType);
+                    })
                     .collect(Collectors.toList());
         } else {
             return gson.fromJson((String) input, listType);

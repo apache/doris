@@ -85,8 +85,8 @@ public:
     // close buffer block, set _status to exec_status and set _is_close to true;
     // called because data has been read or error happened.
     Status close(const TUniqueId& id, Status exec_status);
-    // this is called by RPC, called from coordinator
-    void cancel();
+
+    void cancel(const Status& reason);
 
     [[nodiscard]] const TUniqueId& fragment_id() const { return _fragment_id; }
 
@@ -113,7 +113,6 @@ protected:
     bool _is_close;
     std::atomic_bool _is_cancelled;
     Status _status;
-    std::atomic_int _buffer_rows;
     const int _buffer_limit;
     int64_t _packet_num;
 

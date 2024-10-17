@@ -17,7 +17,7 @@
 
 suite("test_backup_cancelled", "backup_cancelled") {
     String suiteName = "test_backup_cancelled"
-    String repoName = "${suiteName}_repo"
+    String repoName = "repo_" + UUID.randomUUID().toString().replace("-", "")
     String dbName = "${suiteName}_db"
     String tableName = "${suiteName}_table"
     String snapshotName = "${suiteName}_snapshot"
@@ -125,7 +125,7 @@ suite("test_backup_cooldown_cancelled", "backup_cooldown_cancelled") {
     String dbName = "${suiteName}_db"
     String tableName = "${suiteName}_table"
     String snapshotName = "${suiteName}_snapshot"
-    String repoName = "${suiteName}_repo"
+    String repoName = "repo_" + UUID.randomUUID().toString().replace("-", "")
 
     def syncer = getSyncer()
     syncer.createS3Repository(repoName)

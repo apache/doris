@@ -20,6 +20,7 @@ package org.apache.doris.common.util;
 import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
+import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.property.constants.CosProperties;
 import org.apache.doris.datasource.property.constants.ObsProperties;
 import org.apache.doris.datasource.property.constants.OssProperties;
@@ -27,7 +28,9 @@ import org.apache.doris.datasource.property.constants.S3Properties;
 import org.apache.doris.fs.FileSystemType;
 import org.apache.doris.thrift.TFileType;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Strings;
+import com.google.common.collect.Maps;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.fs.Path;
 import org.apache.logging.log4j.LogManager;
@@ -49,10 +52,11 @@ public class LocationPath {
     private static final Logger LOG = LogManager.getLogger(LocationPath.class);
     private static final String SCHEME_DELIM = "://";
     private static final String NONSTANDARD_SCHEME_DELIM = ":/";
-    private final LocationType locationType;
+    private final Scheme scheme;
     private final String location;
+    private final boolean isBindBroker;
 
-    public enum LocationType {
+    public enum Scheme {
         HDFS,
         LOCAL, // Local File
         BOS, // Baidu
@@ -74,122 +78,230 @@ public class LocationPath {
         NOSCHEME // no scheme info
     }
 
-    private LocationPath(String location) {
-        this(location, Collections.emptyMap(), true);
+    @VisibleForTesting
+    public LocationPath(String location) {
+        this(location, Maps.newHashMap(), true);
     }
 
     public LocationPath(String location, Map<String, String> props) {
         this(location, props, true);
     }
 
-    public LocationPath(String location, Map<String, String> props, boolean convertPath) {
-        String scheme = parseScheme(location).toLowerCase();
-        if (scheme.isEmpty()) {
-            locationType = LocationType.NOSCHEME;
-            this.location = location;
-        } else {
-            switch (scheme) {
-                case FeConstants.FS_PREFIX_HDFS:
-                    locationType = LocationType.HDFS;
-                    // Need add hdfs host to location
-                    String host = props.get(HdfsResource.DSF_NAMESERVICES);
-                    this.location = convertPath ? normalizedHdfsPath(location, host) : location;
-                    break;
-                case FeConstants.FS_PREFIX_S3:
-                    locationType = LocationType.S3;
-                    this.location = location;
-                    break;
-                case FeConstants.FS_PREFIX_S3A:
-                    locationType = LocationType.S3A;
-                    this.location = convertPath ? convertToS3(location) : location;
-                    break;
-                case FeConstants.FS_PREFIX_S3N:
-                    // include the check for multi locations and in a table, such as both s3 and hdfs are in a table.
-                    locationType = LocationType.S3N;
-                    this.location = convertPath ? convertToS3(location) : location;
-                    break;
-                case FeConstants.FS_PREFIX_BOS:
-                    locationType = LocationType.BOS;
-                    // use s3 client to access
-                    this.location = convertPath ? convertToS3(location) : location;
-                    break;
-                case FeConstants.FS_PREFIX_GCS:
-                    locationType = LocationType.GCS;
-                    // use s3 client to access
-                    this.location = convertPath ? convertToS3(location) : location;
-                    break;
-                case FeConstants.FS_PREFIX_OSS:
-                    if (isHdfsOnOssEndpoint(location)) {
-                        locationType = LocationType.OSS_HDFS;
-                        this.location = location;
-                    } else {
-                        if (useS3EndPoint(props)) {
-                            this.location = convertPath ? convertToS3(location) : location;
-                        } else {
-                            this.location = location;
-                        }
-                        locationType = LocationType.OSS;
-                    }
-                    break;
-                case FeConstants.FS_PREFIX_COS:
+    private LocationPath(String originLocation, Map<String, String> props, boolean convertPath) {
+        isBindBroker = props.containsKey(HMSExternalCatalog.BIND_BROKER_NAME);
+        String tmpLocation = originLocation;
+        if (!originLocation.contains(SCHEME_DELIM)) {
+            // Sometimes the file path does not contain scheme, need to add default fs
+            // eg, /path/to/file.parquet -> hdfs://nn/path/to/file.parquet
+            // the default fs is from the catalog properties
+            String defaultFS = props.getOrDefault(HdfsResource.HADOOP_FS_NAME, "");
+            tmpLocation = defaultFS + originLocation;
+        }
+        String scheme = parseScheme(tmpLocation).toLowerCase();
+        switch (scheme) {
+            case "":
+                this.scheme = Scheme.NOSCHEME;
+                break;
+            case FeConstants.FS_PREFIX_HDFS:
+                this.scheme = Scheme.HDFS;
+                // Need add hdfs host to location
+                String host = props.get(HdfsResource.DSF_NAMESERVICES);
+                tmpLocation = convertPath ? normalizedHdfsPath(tmpLocation, host) : tmpLocation;
+                break;
+            case FeConstants.FS_PREFIX_S3:
+                this.scheme = Scheme.S3;
+                break;
+            case FeConstants.FS_PREFIX_S3A:
+                this.scheme = Scheme.S3A;
+                tmpLocation = convertPath ? convertToS3(tmpLocation) : tmpLocation;
+                break;
+            case FeConstants.FS_PREFIX_S3N:
+                // include the check for multi locations and in a table, such as both s3 and hdfs are in a table.
+                this.scheme = Scheme.S3N;
+                tmpLocation = convertPath ? convertToS3(tmpLocation) : tmpLocation;
+                break;
+            case FeConstants.FS_PREFIX_BOS:
+                this.scheme = Scheme.BOS;
+                // use s3 client to access
+                tmpLocation = convertPath ? convertToS3(tmpLocation) : tmpLocation;
+                break;
+            case FeConstants.FS_PREFIX_GCS:
+                this.scheme = Scheme.GCS;
+                // use s3 client to access
+                tmpLocation = convertPath ? convertToS3(tmpLocation) : tmpLocation;
+                break;
+            case FeConstants.FS_PREFIX_OSS:
+                if (isHdfsOnOssEndpoint(tmpLocation)) {
+                    this.scheme = Scheme.OSS_HDFS;
+                } else {
                     if (useS3EndPoint(props)) {
-                        this.location = convertPath ? convertToS3(location) : location;
-                    } else {
-                        this.location = location;
+                        tmpLocation = convertPath ? convertToS3(tmpLocation) : tmpLocation;
                     }
-                    locationType = LocationType.COS;
-                    break;
-                case FeConstants.FS_PREFIX_OBS:
-                    if (useS3EndPoint(props)) {
-                        this.location = convertPath ? convertToS3(location) : location;
-                    } else {
-                        this.location = location;
-                    }
-                    locationType = LocationType.OBS;
-                    break;
-                case FeConstants.FS_PREFIX_OFS:
-                    locationType = LocationType.OFS;
-                    this.location = location;
-                    break;
-                case FeConstants.FS_PREFIX_JFS:
-                    locationType = LocationType.JFS;
-                    this.location = location;
-                    break;
-                case FeConstants.FS_PREFIX_GFS:
-                    locationType = LocationType.GFS;
-                    this.location = location;
-                    break;
-                case FeConstants.FS_PREFIX_COSN:
-                    // if treat cosn(tencent hadoop-cos) as a s3 file system, may bring incompatible issues
-                    locationType = LocationType.COSN;
-                    this.location = location;
-                    break;
-                case FeConstants.FS_PREFIX_LAKEFS:
-                    locationType = LocationType.COSN;
-                    this.location = normalizedLakefsPath(location);
-                    break;
-                case FeConstants.FS_PREFIX_VIEWFS:
-                    locationType = LocationType.VIEWFS;
-                    this.location = location;
-                    break;
-                case FeConstants.FS_PREFIX_FILE:
-                    locationType = LocationType.LOCAL;
-                    this.location = location;
-                    break;
-                default:
-                    locationType = LocationType.UNKNOWN;
-                    this.location = location;
-            }
+                    this.scheme = Scheme.OSS;
+                }
+                break;
+            case FeConstants.FS_PREFIX_COS:
+                if (useS3EndPoint(props)) {
+                    tmpLocation = convertPath ? convertToS3(tmpLocation) : tmpLocation;
+                }
+                this.scheme = Scheme.COS;
+                break;
+            case FeConstants.FS_PREFIX_OBS:
+                if (useS3EndPoint(props)) {
+                    tmpLocation = convertPath ? convertToS3(tmpLocation) : tmpLocation;
+                }
+                this.scheme = Scheme.OBS;
+                break;
+            case FeConstants.FS_PREFIX_OFS:
+                this.scheme = Scheme.OFS;
+                break;
+            case FeConstants.FS_PREFIX_JFS:
+                this.scheme = Scheme.JFS;
+                break;
+            case FeConstants.FS_PREFIX_GFS:
+                this.scheme = Scheme.GFS;
+                break;
+            case FeConstants.FS_PREFIX_COSN:
+                // if treat cosn(tencent hadoop-cos) as a s3 file system, may bring incompatible issues
+                this.scheme = Scheme.COSN;
+                break;
+            case FeConstants.FS_PREFIX_LAKEFS:
+                this.scheme = Scheme.COSN;
+                tmpLocation = normalizedLakefsPath(tmpLocation);
+                break;
+            case FeConstants.FS_PREFIX_VIEWFS:
+                this.scheme = Scheme.VIEWFS;
+                break;
+            case FeConstants.FS_PREFIX_FILE:
+                this.scheme = Scheme.LOCAL;
+                break;
+            default:
+                this.scheme = Scheme.UNKNOWN;
+                break;
+        }
+        this.location = tmpLocation;
+    }
+
+    // Return true if this location is with oss-hdfs
+    public static boolean isHdfsOnOssEndpoint(String location) {
+        // example: cn-shanghai.oss-dls.aliyuncs.com contains the "oss-dls.aliyuncs".
+        // https://www.alibabacloud.com/help/en/e-mapreduce/latest/oss-kusisurumen
+        return location.contains("oss-dls.aliyuncs");
+    }
+
+    // Return the file system type and the file system identity.
+    // The file system identity is the scheme and authority of the URI, eg. "hdfs://host:port" or "s3://bucket".
+    public static Pair<FileSystemType, String> getFSIdentity(String location, String bindBrokerName) {
+        LocationPath locationPath = new LocationPath(location, Collections.emptyMap(), true);
+        FileSystemType fsType = (bindBrokerName != null) ? FileSystemType.BROKER : locationPath.getFileSystemType();
+        URI uri = locationPath.getPath().toUri();
+        String fsIdent = Strings.nullToEmpty(uri.getScheme()) + "://" + Strings.nullToEmpty(uri.getAuthority());
+        return Pair.of(fsType, fsIdent);
+    }
+
+    /**
+     * provide file type for BE.
+     *
+     * @param location the location is from fs.listFile
+     * @return on BE, we will use TFileType to get the suitable client to access storage.
+     */
+    public static TFileType getTFileTypeForBE(String location) {
+        if (location == null || location.isEmpty()) {
+            return null;
+        }
+        LocationPath locationPath = new LocationPath(location, Collections.emptyMap(), false);
+        return locationPath.getTFileTypeForBE();
+    }
+
+    public static String getTempWritePath(String loc, String prefix) {
+        Path tempRoot = new Path(loc, prefix);
+        Path tempPath = new Path(tempRoot, UUID.randomUUID().toString().replace("-", ""));
+        return tempPath.toString();
+    }
+
+    public TFileType getTFileTypeForBE() {
+        switch (scheme) {
+            case S3:
+            case S3A:
+            case S3N:
+            case COS:
+            case OSS:
+            case OBS:
+            case BOS:
+            case GCS:
+                // ATTN, for COSN, on FE side, use HadoopFS to access, but on BE, use S3 client to access.
+            case COSN:
+            case LAKEFS:
+                // now we only support S3 client for object storage on BE
+                return TFileType.FILE_S3;
+            case HDFS:
+            case OSS_HDFS: // if hdfs service is enabled on oss, use hdfs lib to access oss.
+            case VIEWFS:
+                return TFileType.FILE_HDFS;
+            case GFS:
+            case JFS:
+            case OFS:
+                return TFileType.FILE_BROKER;
+            case LOCAL:
+                return TFileType.FILE_LOCAL;
+            default:
+                return null;
         }
     }
 
-    private static String parseScheme(String location) {
+    /**
+     * The converted path is used for BE
+     *
+     * @return BE scan range path
+     */
+    public Path toStorageLocation() {
+        switch (scheme) {
+            case S3:
+            case S3A:
+            case S3N:
+            case COS:
+            case OSS:
+            case OBS:
+            case BOS:
+            case GCS:
+            case COSN:
+                // All storage will use s3 client to access on BE, so need convert to s3
+                return new Path(convertToS3(location));
+            case HDFS:
+            case OSS_HDFS:
+            case VIEWFS:
+            case GFS:
+            case JFS:
+            case OFS:
+            case LOCAL:
+            default:
+                return getPath();
+        }
+    }
+
+    public Scheme getScheme() {
+        return scheme;
+    }
+
+    public String get() {
+        return location;
+    }
+
+    public Path getPath() {
+        return new Path(location);
+    }
+
+    public boolean isBindBroker() {
+        return isBindBroker;
+    }
+
+    private static String parseScheme(String finalLocation) {
         String scheme = "";
-        String[] schemeSplit = location.split(SCHEME_DELIM);
+        String[] schemeSplit = finalLocation.split(SCHEME_DELIM);
         if (schemeSplit.length > 1) {
             scheme = schemeSplit[0];
         } else {
-            schemeSplit = location.split(NONSTANDARD_SCHEME_DELIM);
+            schemeSplit = finalLocation.split(NONSTANDARD_SCHEME_DELIM);
             if (schemeSplit.length > 1) {
                 scheme = schemeSplit[0];
             }
@@ -198,9 +310,9 @@ public class LocationPath {
         // if not get scheme, need consider /path/to/local to no scheme
         if (scheme.isEmpty()) {
             try {
-                Paths.get(location);
+                Paths.get(finalLocation);
             } catch (InvalidPathException exception) {
-                throw new IllegalArgumentException("Fail to parse scheme, invalid location: " + location);
+                throw new IllegalArgumentException("Fail to parse scheme, invalid location: " + finalLocation);
             }
         }
 
@@ -217,14 +329,9 @@ public class LocationPath {
         return (props.containsKey(S3Properties.ENDPOINT) || props.containsKey(S3Properties.Env.ENDPOINT));
     }
 
-    public static boolean isHdfsOnOssEndpoint(String location) {
-        // example: cn-shanghai.oss-dls.aliyuncs.com contains the "oss-dls.aliyuncs".
-        // https://www.alibabacloud.com/help/en/e-mapreduce/latest/oss-kusisurumen
-        return location.contains("oss-dls.aliyuncs");
-    }
-
     /**
-     * The converted path is used for FE to get metadata
+     * The converted path is used for FE to get metadata.
+     * Change http://xxxx to s3://xxxx
      *
      * @param location origin location
      * @return metadata location path. just convert when storage is compatible with s3 client.
@@ -291,17 +398,9 @@ public class LocationPath {
         }
     }
 
-    public static Pair<FileSystemType, String> getFSIdentity(String location, String bindBrokerName) {
-        LocationPath locationPath = new LocationPath(location);
-        FileSystemType fsType = (bindBrokerName != null) ? FileSystemType.BROKER : locationPath.getFileSystemType();
-        URI uri = locationPath.getPath().toUri();
-        String fsIdent = Strings.nullToEmpty(uri.getScheme()) + "://" + Strings.nullToEmpty(uri.getAuthority());
-        return Pair.of(fsType, fsIdent);
-    }
-
     private FileSystemType getFileSystemType() {
         FileSystemType fsType;
-        switch (locationType) {
+        switch (scheme) {
             case S3:
             case S3A:
             case S3N:
@@ -337,98 +436,6 @@ public class LocationPath {
                 throw new UnsupportedOperationException("Unknown file system for location: " + location);
         }
         return fsType;
-    }
-
-    /**
-     * provide file type for BE.
-     *
-     * @param location the location is from fs.listFile
-     * @return on BE, we will use TFileType to get the suitable client to access storage.
-     */
-    public static TFileType getTFileTypeForBE(String location) {
-        if (location == null || location.isEmpty()) {
-            return null;
-        }
-        LocationPath locationPath = new LocationPath(location, Collections.emptyMap(), false);
-        return locationPath.getTFileTypeForBE();
-    }
-
-    public TFileType getTFileTypeForBE() {
-        switch (this.getLocationType()) {
-            case S3:
-            case S3A:
-            case S3N:
-            case COS:
-            case OSS:
-            case OBS:
-            case BOS:
-            case GCS:
-                // ATTN, for COSN, on FE side, use HadoopFS to access, but on BE, use S3 client to access.
-            case COSN:
-            case LAKEFS:
-                // now we only support S3 client for object storage on BE
-                return TFileType.FILE_S3;
-            case HDFS:
-            case OSS_HDFS: // if hdfs service is enabled on oss, use hdfs lib to access oss.
-            case VIEWFS:
-                return TFileType.FILE_HDFS;
-            case GFS:
-            case JFS:
-            case OFS:
-                return TFileType.FILE_BROKER;
-            case LOCAL:
-                return TFileType.FILE_LOCAL;
-            default:
-                return null;
-        }
-    }
-
-    /**
-     * The converted path is used for BE
-     *
-     * @return BE scan range path
-     */
-    public Path toStorageLocation() {
-        switch (locationType) {
-            case S3:
-            case S3A:
-            case S3N:
-            case COS:
-            case OSS:
-            case OBS:
-            case BOS:
-            case GCS:
-            case COSN:
-                // All storage will use s3 client to access on BE, so need convert to s3
-                return new Path(convertToS3(location));
-            case HDFS:
-            case OSS_HDFS:
-            case VIEWFS:
-            case GFS:
-            case JFS:
-            case OFS:
-            case LOCAL:
-            default:
-                return getPath();
-        }
-    }
-
-    public LocationType getLocationType() {
-        return locationType;
-    }
-
-    public String get() {
-        return location;
-    }
-
-    public Path getPath() {
-        return new Path(location);
-    }
-
-    public static String getTempWritePath(String loc, String prefix) {
-        Path tempRoot = new Path(loc, prefix);
-        Path tempPath = new Path(tempRoot, UUID.randomUUID().toString().replace("-", ""));
-        return tempPath.toString();
     }
 
     @Override

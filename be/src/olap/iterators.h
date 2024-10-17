@@ -42,7 +42,7 @@ struct IteratorRowRef;
 };
 
 namespace segment_v2 {
-struct StreamReader;
+struct SubstreamIterator;
 }
 
 class StorageReadOptions {
@@ -87,7 +87,6 @@ public:
     // reader's column predicate, nullptr if not existed
     // used to fiter rows in row block
     std::vector<ColumnPredicate*> column_predicates;
-    std::vector<ColumnPredicate*> column_predicates_except_leafnode_of_andnode;
     std::unordered_map<int32_t, std::shared_ptr<AndBlockColumnPredicate>> col_id_to_predicates;
     std::unordered_map<int32_t, std::vector<const ColumnPredicate*>> del_predicates_for_zone_map;
     TPushAggOp::type push_down_agg_type_opt = TPushAggOp::NONE;
@@ -117,7 +116,7 @@ public:
     Version version;
     int64_t tablet_id = 0;
     // slots that cast may be eliminated in storage layer
-    std::map<std::string, PrimitiveType> target_cast_type_for_variants;
+    std::map<std::string, TypeDescriptor> target_cast_type_for_variants;
     RowRanges row_ranges;
     size_t topn_limit = 0;
 };

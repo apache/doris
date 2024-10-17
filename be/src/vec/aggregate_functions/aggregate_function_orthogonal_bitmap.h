@@ -52,9 +52,16 @@ struct AggOrthBitmapBaseData {
 public:
     using ColVecData = std::conditional_t<IsNumber<T>, ColumnVector<T>, ColumnString>;
 
+    void reset() {
+        bitmap = {};
+        first_init = true;
+    }
+
     void add(const IColumn** columns, size_t row_num) {
-        const auto& bitmap_col = assert_cast<const ColumnBitmap&>(*columns[0]);
-        const auto& data_col = assert_cast<const ColVecData&>(*columns[1]);
+        const auto& bitmap_col =
+                assert_cast<const ColumnBitmap&, TypeCheckOnRelease::DISABLE>(*columns[0]);
+        const auto& data_col =
+                assert_cast<const ColVecData&, TypeCheckOnRelease::DISABLE>(*columns[1]);
         const auto& bitmap_value = bitmap_col.get_element(row_num);
 
         if constexpr (IsNumber<T>) {
@@ -71,7 +78,8 @@ public:
         if (first_init) {
             DCHECK(argument_size > 1);
             for (int idx = 2; idx < argument_size; ++idx) {
-                const auto& col = assert_cast<const ColVecData&>(*columns[idx]);
+                const auto& col =
+                        assert_cast<const ColVecData&, TypeCheckOnRelease::DISABLE>(*columns[idx]);
                 if constexpr (IsNumber<T>) {
                     bitmap.add_key(col.get_element(row_num));
                 }
@@ -96,6 +104,11 @@ public:
 
     static DataTypePtr get_return_type() { return std::make_shared<DataTypeBitMap>(); }
 
+    void reset() {
+        AggOrthBitmapBaseData<T>::reset();
+        result.reset();
+    }
+
     void merge(const AggOrthBitMapIntersect& rhs) {
         if (rhs.first_init) {
             return;
@@ -117,7 +130,8 @@ public:
 
     void get(IColumn& to) const {
         auto& column = assert_cast<ColumnBitmap&>(to);
-        column.get_data().emplace_back(result);
+        column.get_data().emplace_back(result.empty() ? AggOrthBitmapBaseData<T>::bitmap.intersect()
+                                                      : result);
     }
 
 private:
@@ -167,6 +181,11 @@ public:
 
     static DataTypePtr get_return_type() { return std::make_shared<DataTypeInt64>(); }
 
+    void reset() {
+        AggOrthBitmapBaseData<T>::reset();
+        result = 0;
+    }
+
     void merge(const AggOrthBitMapIntersectCount& rhs) {
         if (rhs.first_init) {
             return;
@@ -202,8 +221,10 @@ public:
     using ColVecData = std::conditional_t<IsNumber<T>, ColumnVector<T>, ColumnString>;
 
     void add(const IColumn** columns, size_t row_num) {
-        const auto& bitmap_col = assert_cast<const ColumnBitmap&>(*columns[0]);
-        const auto& data_col = assert_cast<const ColVecData&>(*columns[1]);
+        const auto& bitmap_col =
+                assert_cast<const ColumnBitmap&, TypeCheckOnRelease::DISABLE>(*columns[0]);
+        const auto& data_col =
+                assert_cast<const ColVecData&, TypeCheckOnRelease::DISABLE>(*columns[1]);
         const auto& bitmap_value = bitmap_col.get_element(row_num);
         std::string update_key = data_col.get_data_at(row_num).to_string();
         bitmap_expr_cal.update(update_key, bitmap_value);
@@ -212,11 +233,17 @@ public:
     void init_add_key(const IColumn** columns, size_t row_num, int argument_size) {
         if (first_init) {
             DCHECK(argument_size > 1);
-            const auto& col = assert_cast<const ColVecData&>(*columns[2]);
+            const auto& col =
+                    assert_cast<const ColVecData&, TypeCheckOnRelease::DISABLE>(*columns[2]);
             std::string expr = col.get_data_at(row_num).to_string();
             bitmap_expr_cal.bitmap_calculation_init(expr);
             first_init = false;
         }
+    }
+
+    void reset() {
+        bitmap_expr_cal = {};
+        first_init = true;
     }
 
 protected:
@@ -257,6 +284,11 @@ public:
                                                          ->bitmap_expr_cal.bitmap_calculate());
     }
 
+    void reset() {
+        AggOrthBitmapExprCalBaseData<T>::reset();
+        result.reset();
+    }
+
 private:
     BitmapValue result;
 };
@@ -293,6 +325,11 @@ public:
                                                         ->bitmap_expr_cal.bitmap_calculate_count());
     }
 
+    void reset() {
+        AggOrthBitmapExprCalBaseData<T>::reset();
+        result = 0;
+    }
+
 private:
     int64_t result = 0;
 };
@@ -306,7 +343,8 @@ struct OrthBitmapUnionCountData {
     void init_add_key(const IColumn** columns, size_t row_num, int argument_size) {}
 
     void add(const IColumn** columns, size_t row_num) {
-        const auto& column = assert_cast<const ColumnBitmap&>(*columns[0]);
+        const auto& column =
+                assert_cast<const ColumnBitmap&, TypeCheckOnRelease::DISABLE>(*columns[0]);
         value |= column.get_data()[row_num];
     }
     void merge(const OrthBitmapUnionCountData& rhs) { result += rhs.result; }
@@ -321,6 +359,11 @@ struct OrthBitmapUnionCountData {
     void get(IColumn& to) const {
         auto& column = assert_cast<ColumnVector<Int64>&>(to);
         column.get_data().emplace_back(result ? result : value.cardinality());
+    }
+
+    void reset() {
+        value.reset();
+        result = 0;
     }
 
 private:
@@ -339,6 +382,8 @@ public:
               _argument_size(argument_types_.size()) {}
 
     DataTypePtr get_return_type() const override { return Impl::get_return_type(); }
+
+    void reset(AggregateDataPtr __restrict place) const override { this->data(place).reset(); }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena*) const override {

@@ -90,6 +90,15 @@ public:
 
     bool is_variable_length() const override { return true; }
 
+    bool is_exclusive() const override {
+        for (const auto& col : columns) {
+            if (!col->is_exclusive()) {
+                return false;
+            }
+        }
+        return IColumn::is_exclusive();
+    }
+
     Field operator[](size_t n) const override;
     void get(size_t n, Field& res) const override;
 
@@ -125,6 +134,8 @@ public:
 
     void insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
                              const uint32_t* indices_end) override;
+
+    void insert_many_from(const IColumn& src, size_t position, size_t length) override;
 
     void append_data_by_selector(MutableColumnPtr& res, const Selector& selector) const override {
         return append_data_by_selector_impl<ColumnStruct>(res, selector);

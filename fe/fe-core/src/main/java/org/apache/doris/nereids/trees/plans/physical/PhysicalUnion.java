@@ -89,11 +89,11 @@ public class PhysicalUnion extends PhysicalSetOperation implements Union {
     @Override
     public String toString() {
         return Utils.toSqlString("PhysicalUnion" + "[" + id.asInt() + "]" + getGroupIdWithPrefix(),
+                "stats", statistics,
                 "qualifier", qualifier,
                 "outputs", outputs,
                 "regularChildrenOutputs", regularChildrenOutputs,
-                "constantExprsList", constantExprsList,
-                "stats", statistics);
+                "constantExprsList", constantExprsList);
     }
 
     @Override

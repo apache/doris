@@ -47,12 +47,24 @@ public class JdbcFieldSchema {
     protected int charOctetLength;
     protected boolean isAllowNull;
 
+    public JdbcFieldSchema(JdbcFieldSchema other) {
+        this.columnName = other.columnName;
+        this.dataType = other.dataType;
+        this.dataTypeName = other.dataTypeName;
+        this.columnSize = other.columnSize;
+        this.decimalDigits = other.decimalDigits;
+        this.numPrecRadix = other.numPrecRadix;
+        this.remarks = other.remarks;
+        this.charOctetLength = other.charOctetLength;
+        this.isAllowNull = other.isAllowNull;
+    }
+
     public JdbcFieldSchema(ResultSet rs) throws SQLException {
         this.columnName = rs.getString("COLUMN_NAME");
         this.dataType = getInteger(rs, "DATA_TYPE").orElseThrow(() -> new IllegalStateException("DATA_TYPE is null"));
         this.dataTypeName = Optional.ofNullable(rs.getString("TYPE_NAME"));
         this.columnSize = getInteger(rs, "COLUMN_SIZE");
-        this.decimalDigits =  getInteger(rs, "DECIMAL_DIGITS");
+        this.decimalDigits = getInteger(rs, "DECIMAL_DIGITS");
         this.numPrecRadix = rs.getInt("NUM_PREC_RADIX");
         this.isAllowNull = rs.getInt("NULLABLE") != DatabaseMetaData.columnNoNulls;
         this.remarks = rs.getString("REMARKS");
@@ -64,7 +76,7 @@ public class JdbcFieldSchema {
         this.dataType = getInteger(rs, "DATA_TYPE").orElseThrow(() -> new IllegalStateException("DATA_TYPE is null"));
         this.dataTypeName = Optional.ofNullable(dataTypeOverrides.getOrDefault(columnName, rs.getString("TYPE_NAME")));
         this.columnSize = getInteger(rs, "COLUMN_SIZE");
-        this.decimalDigits =  getInteger(rs, "DECIMAL_DIGITS");
+        this.decimalDigits = getInteger(rs, "DECIMAL_DIGITS");
         this.numPrecRadix = rs.getInt("NUM_PREC_RADIX");
         this.isAllowNull = rs.getInt("NULLABLE") != 0;
         this.remarks = rs.getString("REMARKS");
@@ -79,6 +91,14 @@ public class JdbcFieldSchema {
         this.decimalDigits = Optional.of(metaData.getScale(columnIndex));
     }
 
+    public int requiredColumnSize() {
+        return columnSize.orElseThrow(() -> new IllegalStateException("column size not present"));
+    }
+
+    public int requiredDecimalDigits() {
+        return decimalDigits.orElseThrow(() -> new IllegalStateException("decimal digits not present"));
+    }
+
     protected static Optional<Integer> getInteger(ResultSet resultSet, String columnLabel)
             throws SQLException {
         int value = resultSet.getInt(columnLabel);
@@ -88,4 +108,3 @@ public class JdbcFieldSchema {
         return Optional.of(value);
     }
 }
-

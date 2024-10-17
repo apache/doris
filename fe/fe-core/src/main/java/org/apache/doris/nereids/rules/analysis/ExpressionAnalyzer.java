@@ -65,16 +65,12 @@ import org.apache.doris.nereids.trees.expressions.Variable;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
-import org.apache.doris.nereids.trees.expressions.functions.Nondeterministic;
-import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.Nvl;
 import org.apache.doris.nereids.trees.expressions.functions.udf.AliasUdfBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdaf;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdf;
 import org.apache.doris.nereids.trees.expressions.functions.udf.UdfBuilder;
-import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
@@ -177,11 +173,11 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
                 @Override
                 public Expression visitBoundFunction(BoundFunction boundFunction, ExpressionRewriteContext context) {
                     Expression fold = super.visitBoundFunction(boundFunction, context);
-                    boolean unfold = fold instanceof Nondeterministic;
+                    boolean unfold = !fold.isDeterministic();
                     if (unfold) {
                         sqlCacheContext.setCannotProcessExpression(true);
                     }
-                    if (boundFunction instanceof Nondeterministic && !unfold) {
+                    if (!boundFunction.isDeterministic() && !unfold) {
                         sqlCacheContext.addFoldNondeterministicPair(boundFunction, fold);
                     }
                     return fold;
@@ -407,7 +403,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         Optional<SqlCacheContext> sqlCacheContext = Optional.empty();
         if (wantToParseSqlFromSqlCache) {
             StatementContext statementContext = context.cascadesContext.getStatementContext();
-            if (buildResult.second instanceof Nondeterministic) {
+            if (!buildResult.second.isDeterministic()) {
                 hasNondeterministic = true;
             }
             sqlCacheContext = statementContext.getSqlCacheContext();
@@ -426,18 +422,6 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
             return buildResult.first;
         } else {
             Expression castFunction = TypeCoercionUtils.processBoundFunction((BoundFunction) buildResult.first);
-            if (castFunction instanceof Count
-                    && context != null
-                    && context.cascadesContext.getOuterScope().isPresent()
-                    && !context.cascadesContext.getOuterScope().get().getCorrelatedSlots().isEmpty()) {
-                // consider sql: SELECT * FROM t1 WHERE t1.a <= (SELECT COUNT(t2.a) FROM t2 WHERE (t1.b = t2.b));
-                // when unnest correlated subquery, we create a left join node.
-                // outer query is left table and subquery is right one
-                // if there is no match, the row from right table is filled with nulls
-                // but COUNT function is always not nullable.
-                // so wrap COUNT with Nvl to ensure it's result is 0 instead of null to get the correct result
-                castFunction = new Nvl(castFunction, new BigIntLiteral(0));
-            }
             return castFunction;
         }
     }
@@ -674,10 +658,10 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
                         case 1: // bound slot is `table`.`column`
                             return false;
                         case 2:// bound slot is `db`.`table`.`column`
-                            return compareDbName(qualifierStar.get(0), boundSlotQualifier.get(0))
+                            return compareDbNameIgnoreClusterName(qualifierStar.get(0), boundSlotQualifier.get(0))
                                     && qualifierStar.get(1).equalsIgnoreCase(boundSlotQualifier.get(1));
                         case 3:// bound slot is `catalog`.`db`.`table`.`column`
-                            return compareDbName(qualifierStar.get(0), boundSlotQualifier.get(1))
+                            return compareDbNameIgnoreClusterName(qualifierStar.get(0), boundSlotQualifier.get(1))
                                     && qualifierStar.get(1).equalsIgnoreCase(boundSlotQualifier.get(2));
                         default:
                             throw new AnalysisException("Not supported qualifier: "
@@ -693,7 +677,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
                             return false;
                         case 3:// bound slot is `catalog`.`db`.`table`.`column`
                             return qualifierStar.get(0).equalsIgnoreCase(boundSlotQualifier.get(0))
-                                    && compareDbName(qualifierStar.get(1), boundSlotQualifier.get(1))
+                                    && compareDbNameIgnoreClusterName(qualifierStar.get(1), boundSlotQualifier.get(1))
                                     && qualifierStar.get(2).equalsIgnoreCase(boundSlotQualifier.get(2));
                         default:
                             throw new AnalysisException("Not supported qualifier: "
@@ -811,9 +795,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         Lambda lambdaClosure = lambda.withLambdaFunctionArguments(lambdaFunction, arrayItemReferences);
 
         // We don't add the ArrayExpression in high order function at all
-        return unboundFunction.withChildren(ImmutableList.<Expression>builder()
-                .add(lambdaClosure)
-                .build());
+        return unboundFunction.withChildren(ImmutableList.of(lambdaClosure));
     }
 
     private boolean shouldBindSlotBy(int namePartSize, Slot boundSlot) {
@@ -861,7 +843,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
             List<String> boundSlotQualifier = boundSlot.getQualifier();
             String boundSlotDb = boundSlotQualifier.get(boundSlotQualifier.size() - 2);
             String boundSlotTable = boundSlotQualifier.get(boundSlotQualifier.size() - 1);
-            if (!compareDbName(boundSlotDb, db) || !sameTableName(boundSlotTable, table)) {
+            if (!compareDbNameIgnoreClusterName(boundSlotDb, db) || !sameTableName(boundSlotTable, table)) {
                 continue;
             }
             // set sql case as alias
@@ -882,7 +864,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
             String boundSlotDb = boundSlotQualifier.get(boundSlotQualifier.size() - 2);
             String boundSlotTable = boundSlotQualifier.get(boundSlotQualifier.size() - 1);
             if (!boundSlotCatalog.equalsIgnoreCase(catalog)
-                    || !compareDbName(boundSlotDb, db)
+                    || !compareDbNameIgnoreClusterName(boundSlotDb, db)
                     || !sameTableName(boundSlotTable, table)) {
                 continue;
             }
@@ -890,5 +872,23 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
             usedSlots.add(boundSlot.withName(name));
         }
         return usedSlots.build();
+    }
+
+    /**compareDbNameIgnoreClusterName.*/
+    public static boolean compareDbNameIgnoreClusterName(String name1, String name2) {
+        if (name1.equalsIgnoreCase(name2)) {
+            return true;
+        }
+        String ignoreClusterName1 = name1;
+        int idx1 = name1.indexOf(":");
+        if (idx1 > -1) {
+            ignoreClusterName1 = name1.substring(idx1 + 1);
+        }
+        String ignoreClusterName2 = name2;
+        int idx2 = name2.indexOf(":");
+        if (idx2 > -1) {
+            ignoreClusterName2 = name2.substring(idx2 + 1);
+        }
+        return ignoreClusterName1.equalsIgnoreCase(ignoreClusterName2);
     }
 }

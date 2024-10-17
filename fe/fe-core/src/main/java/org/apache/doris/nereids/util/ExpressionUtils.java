@@ -22,6 +22,7 @@ import org.apache.doris.common.MaterializedViewException;
 import org.apache.doris.common.NereidsException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.rules.expression.rules.FoldConstantRule;
 import org.apache.doris.nereids.trees.TreeNode;
@@ -52,9 +53,11 @@ import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.visitor.ExpressionLineageReplacer;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.coercion.NumericType;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
@@ -461,6 +464,18 @@ public class ExpressionUtils {
     public static boolean isAllLiteral(List<Expression> children) {
         for (Expression child : children) {
             if (!(child instanceof Literal)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * return true if all children are literal but not null literal.
+     */
+    public static boolean isAllNonNullLiteral(List<Expression> children) {
+        for (Expression child : children) {
+            if ((!(child instanceof Literal)) || (child instanceof NullLiteral)) {
                 return false;
             }
         }
@@ -920,5 +935,31 @@ public class ExpressionUtils {
             }
         }
         return result.build();
+    }
+
+    /** test whether unionConstExprs satisfy conjuncts */
+    public static boolean unionConstExprsSatisfyConjuncts(LogicalUnion union, Set<Expression> conjuncts) {
+        CascadesContext tempCascadeContext = CascadesContext.initContext(
+                ConnectContext.get().getStatementContext(), union, PhysicalProperties.ANY);
+        ExpressionRewriteContext rewriteContext = new ExpressionRewriteContext(tempCascadeContext);
+        for (List<NamedExpression> constOutput : union.getConstantExprsList()) {
+            Map<Expression, Expression> replaceMap = new HashMap<>();
+            for (int i = 0; i < constOutput.size(); i++) {
+                Expression output = constOutput.get(i);
+                if (output instanceof Alias) {
+                    replaceMap.put(union.getOutput().get(i), ((Alias) output).child());
+                } else {
+                    replaceMap.put(union.getOutput().get(i), output);
+                }
+            }
+            for (Expression conjunct : conjuncts) {
+                Expression res = FoldConstantRule.evaluate(ExpressionUtils.replace(conjunct, replaceMap),
+                        rewriteContext);
+                if (!res.equals(BooleanLiteral.TRUE)) {
+                    return false;
+                }
+            }
+        }
+        return true;
     }
 }

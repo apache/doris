@@ -17,12 +17,11 @@
 
 package org.apache.doris.nereids.trees.plans.physical;
 
-import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DistributionSpec;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
-import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.RelationId;
@@ -30,12 +29,8 @@ import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.statistics.Statistics;
 
-import com.google.common.collect.ImmutableSet;
-
 import java.util.List;
-import java.util.Objects;
 import java.util.Optional;
-import java.util.Set;
 
 /**
  * Physical es scan for external catalog.
@@ -43,30 +38,26 @@ import java.util.Set;
 public class PhysicalEsScan extends PhysicalCatalogRelation {
 
     private final DistributionSpec distributionSpec;
-    private final Set<Expression> conjuncts;
 
     /**
      * Constructor for PhysicalEsScan.
      */
-    public PhysicalEsScan(RelationId id, ExternalTable table, List<String> qualifier,
+    public PhysicalEsScan(RelationId id, TableIf table, List<String> qualifier,
             DistributionSpec distributionSpec, Optional<GroupExpression> groupExpression,
-            LogicalProperties logicalProperties, Set<Expression> conjuncts) {
+            LogicalProperties logicalProperties) {
         super(id, PlanType.PHYSICAL_ES_SCAN, table, qualifier, groupExpression, logicalProperties);
         this.distributionSpec = distributionSpec;
-        this.conjuncts = ImmutableSet.copyOf(Objects.requireNonNull(conjuncts, "conjuncts should not be null"));
     }
 
     /**
      * Constructor for PhysicalEsScan.
      */
-    public PhysicalEsScan(RelationId id, ExternalTable table, List<String> qualifier,
+    public PhysicalEsScan(RelationId id, TableIf table, List<String> qualifier,
             DistributionSpec distributionSpec, Optional<GroupExpression> groupExpression,
-            LogicalProperties logicalProperties, PhysicalProperties physicalProperties, Statistics statistics,
-            Set<Expression> conjuncts) {
+            LogicalProperties logicalProperties, PhysicalProperties physicalProperties, Statistics statistics) {
         super(id, PlanType.PHYSICAL_ES_SCAN, table, qualifier, groupExpression, logicalProperties,
                 physicalProperties, statistics);
         this.distributionSpec = distributionSpec;
-        this.conjuncts = ImmutableSet.copyOf(Objects.requireNonNull(conjuncts, "conjuncts should not be null"));
     }
 
     @Override
@@ -86,29 +77,20 @@ public class PhysicalEsScan extends PhysicalCatalogRelation {
     @Override
     public PhysicalEsScan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new PhysicalEsScan(relationId, getTable(), qualifier, distributionSpec,
-                groupExpression, getLogicalProperties(), conjuncts);
+                groupExpression, getLogicalProperties());
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new PhysicalEsScan(relationId, getTable(), qualifier, distributionSpec,
-                groupExpression, logicalProperties.get(), conjuncts);
-    }
-
-    @Override
-    public ExternalTable getTable() {
-        return (ExternalTable) table;
+                groupExpression, logicalProperties.get());
     }
 
     @Override
     public PhysicalEsScan withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties,
                                                            Statistics statsDeriveResult) {
         return new PhysicalEsScan(relationId, getTable(), qualifier, distributionSpec,
-                groupExpression, getLogicalProperties(), physicalProperties, statsDeriveResult, conjuncts);
-    }
-
-    public Set<Expression> getConjuncts() {
-        return this.conjuncts;
+                groupExpression, getLogicalProperties(), physicalProperties, statsDeriveResult);
     }
 }

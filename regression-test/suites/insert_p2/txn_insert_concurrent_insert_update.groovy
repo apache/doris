@@ -23,6 +23,11 @@ import java.util.concurrent.CompletableFuture
 
 // test partial columns update
 suite("txn_insert_concurrent_insert_update") {
+    if (isCloudMode()) {
+        logger.info("cloud txn load does not support mow")
+        return
+    }
+
     def tableName = "txn_insert_concurrent_insert_update"
     List<String> errors = new ArrayList<>()
 
@@ -52,6 +57,7 @@ suite("txn_insert_concurrent_insert_update") {
             UNIQUE KEY(L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER)
             DISTRIBUTED BY HASH(L_ORDERKEY) BUCKETS 3
             PROPERTIES (
+                "enable_mow_light_delete" = "true",
                 "replication_num" = "1"
             )
         """

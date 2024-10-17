@@ -190,7 +190,11 @@ fi
 
 MAX_FILE_COUNT="$(ulimit -n)"
 if [[ "${MAX_FILE_COUNT}" -lt 60000 ]]; then
-    echo "Set max number of open file descriptors to a value greater than 60000, example: 'ulimit -n 60000'"
+    echo "Set max number of open file descriptors to a value greater than 60000."
+    echo "Ask your system manager to modify /etc/security/limits.conf and append content like"
+    echo "  * soft nofile 655350"
+    echo "  * hard nofile 655350"
+    echo "and then run 'ulimit -n 655350' to take effect on current session."
     exit 1
 fi
 
@@ -278,7 +282,7 @@ fi
 
 for var in http_proxy HTTP_PROXY https_proxy HTTPS_PROXY; do
     if [[ -n ${!var} ]]; then
-        log "env '${var}' = '${!var}', need unset it using 'unset ${var}'"
+        echo "env '${var}' = '${!var}', need unset it using 'unset ${var}'"
         exit 1
     fi
 done
@@ -350,7 +354,7 @@ set_tcmalloc_heap_limit() {
     fi
 
     if [[ "${mem_limit_mb}" -gt "${total_mem_mb}" ]]; then
-        log "mem_limit is larger than the total memory of the server. ${mem_limit_mb} > ${total_mem_mb}"
+        echo "mem_limit is larger than the total memory of the server. ${mem_limit_mb} > ${total_mem_mb}"
         return 1
     fi
     export TCMALLOC_HEAP_LIMIT_MB=${mem_limit_mb}
@@ -403,7 +407,7 @@ export LIBHDFS_OPTS="${final_java_opt}"
 # log "LIBHDFS_OPTS: ${LIBHDFS_OPTS}"
 
 if [[ -z ${JEMALLOC_CONF} ]]; then
-    JEMALLOC_CONF="percpu_arena:percpu,background_thread:true,metadata_thp:auto,muzzy_decay_ms:15000,dirty_decay_ms:15000,oversize_threshold:0,prof:false,lg_prof_interval:32,lg_prof_sample:19,prof_gdump:false,prof_accum:false,prof_leak:false,prof_final:false"
+    JEMALLOC_CONF="percpu_arena:percpu,background_thread:true,metadata_thp:auto,muzzy_decay_ms:5000,dirty_decay_ms:5000,oversize_threshold:0,prof:false,lg_prof_interval:-1"
 fi
 
 if [[ -z ${JEMALLOC_PROF_PRFIX} ]]; then

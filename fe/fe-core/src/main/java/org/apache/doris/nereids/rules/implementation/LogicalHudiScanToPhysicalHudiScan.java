@@ -38,7 +38,6 @@ public class LogicalHudiScanToPhysicalHudiScan extends OneImplementationRuleFact
                         DistributionSpecAny.INSTANCE,
                         Optional.empty(),
                         fileScan.getLogicalProperties(),
-                        fileScan.getConjuncts(),
                         fileScan.getSelectedPartitions(),
                         fileScan.getTableSample(),
                         fileScan.getTableSnapshot(),

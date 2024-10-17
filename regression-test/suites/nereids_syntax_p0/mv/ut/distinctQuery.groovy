@@ -45,27 +45,9 @@ suite ("distinctQuery") {
     sql """insert into distinctQuery values("2020-01-01",2,"a",1,1,1);"""
 
     sql "analyze table distinctQuery with sync;"
-    sql """set enable_stats=false;"""
+    
+    mv_rewrite_success("select distinct deptno from distinctQuery;", "distinctQuery_mv")
 
-    explain {
-        sql("select distinct deptno from distinctQuery;")
-        contains "(distinctQuery_mv)"
-    }
-
-    explain {
-        sql("select deptno, count(distinct empid) from distinctQuery group by deptno;")
-        contains "(distinctQuery_mv2)"
-    }
-
-    sql """set enable_stats=true;"""
-
-    explain {
-        sql("select distinct deptno from distinctQuery;")
-        contains "(distinctQuery_mv)"
-    }
-
-    explain {
-        sql("select deptno, count(distinct empid) from distinctQuery group by deptno;")
-        contains "(distinctQuery_mv2)"
-    }
+    mv_rewrite_success("select deptno, count(distinct empid) from distinctQuery group by deptno;", "distinctQuery_mv2")
+    
 }

@@ -47,6 +47,7 @@ public class ArrayCumSum extends ScalarFunction
         implements ExplicitlyCastableSignature, ComputePrecisionForArrayItemAgg, UnaryExpression, PropagateNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
+            FunctionSignature.ret(ArrayType.of(DoubleType.INSTANCE)).args(ArrayType.of(DoubleType.INSTANCE)),
             FunctionSignature.ret(ArrayType.of(BigIntType.INSTANCE)).args(ArrayType.of(TinyIntType.INSTANCE)),
             FunctionSignature.ret(ArrayType.of(BigIntType.INSTANCE)).args(ArrayType.of(SmallIntType.INSTANCE)),
             FunctionSignature.ret(ArrayType.of(BigIntType.INSTANCE)).args(ArrayType.of(IntegerType.INSTANCE)),
@@ -55,8 +56,7 @@ public class ArrayCumSum extends ScalarFunction
             FunctionSignature.ret(ArrayType.of(DecimalV3Type.WILDCARD)).args(ArrayType.of(DecimalV3Type.WILDCARD)),
             FunctionSignature.ret(ArrayType.of(DecimalV2Type.SYSTEM_DEFAULT))
                     .args(ArrayType.of(DecimalV2Type.SYSTEM_DEFAULT)),
-            FunctionSignature.ret(ArrayType.of(DoubleType.INSTANCE)).args(ArrayType.of(FloatType.INSTANCE)),
-            FunctionSignature.ret(ArrayType.of(DoubleType.INSTANCE)).args(ArrayType.of(DoubleType.INSTANCE))
+            FunctionSignature.ret(ArrayType.of(DoubleType.INSTANCE)).args(ArrayType.of(FloatType.INSTANCE))
     );
 
     /**

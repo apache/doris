@@ -35,6 +35,7 @@
 #include "common/consts.h"
 #include "common/status.h"
 #include "gutil/stringprintf.h"
+#include "olap/metadata_adder.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/options.h"
 #include "runtime/define_primitive_type.h"
@@ -60,7 +61,7 @@ class TabletColumn;
 
 using TabletColumnPtr = std::shared_ptr<TabletColumn>;
 
-class TabletColumn {
+class TabletColumn : public MetadataAdder<TabletColumn> {
 public:
     TabletColumn();
     TabletColumn(const ColumnPB& column);
@@ -90,6 +91,7 @@ public:
     bool is_bf_column() const { return _is_bf_column; }
     bool has_bitmap_index() const { return _has_bitmap_index; }
     bool is_array_type() const { return _type == FieldType::OLAP_FIELD_TYPE_ARRAY; }
+    bool is_agg_state_type() const { return _type == FieldType::OLAP_FIELD_TYPE_AGG_STATE; }
     bool is_jsonb_type() const { return _type == FieldType::OLAP_FIELD_TYPE_JSONB; }
     bool is_length_variable_type() const {
         return _type == FieldType::OLAP_FIELD_TYPE_CHAR ||
@@ -122,8 +124,9 @@ public:
     void set_path_info(const vectorized::PathInData& path);
     FieldAggregationMethod aggregation() const { return _aggregation; }
     vectorized::AggregateFunctionPtr get_aggregate_function_union(
-            vectorized::DataTypePtr type) const;
-    vectorized::AggregateFunctionPtr get_aggregate_function(std::string suffix) const;
+            vectorized::DataTypePtr type, int current_be_exec_version) const;
+    vectorized::AggregateFunctionPtr get_aggregate_function(std::string suffix,
+                                                            int current_be_exec_version) const;
     int precision() const { return _precision; }
     int frac() const { return _frac; }
     inline bool visible() const { return _visible; }
@@ -161,6 +164,9 @@ public:
     bool is_extracted_column() const {
         return _column_path != nullptr && !_column_path->empty() && _parent_col_unique_id > 0;
     };
+    bool is_nested_subcolumn() const {
+        return _column_path != nullptr && _column_path->has_nested_part();
+    }
     int32_t parent_unique_id() const { return _parent_col_unique_id; }
     void set_parent_unique_id(int32_t col_unique_id) { _parent_col_unique_id = col_unique_id; }
     void set_is_bf_column(bool is_bf_column) { _is_bf_column = is_bf_column; }
@@ -241,7 +247,7 @@ bool operator!=(const TabletColumn& a, const TabletColumn& b);
 
 class TabletSchema;
 
-class TabletIndex {
+class TabletIndex : public MetadataAdder<TabletIndex> {
 public:
     TabletIndex() = default;
     void init_from_thrift(const TOlapTableIndex& index, const TabletSchema& tablet_schema);
@@ -283,7 +289,7 @@ private:
     std::map<string, string> _properties;
 };
 
-class TabletSchema {
+class TabletSchema : public MetadataAdder<TabletSchema> {
 public:
     enum ColumnType { NORMAL = 0, DROPPED = 1, VARIANT = 2 };
     // TODO(yingchun): better to make constructor as private to avoid
@@ -344,6 +350,10 @@ public:
         _disable_auto_compaction = disable_auto_compaction;
     }
     bool disable_auto_compaction() const { return _disable_auto_compaction; }
+    void set_variant_enable_flatten_nested(bool flatten_nested) {
+        _variant_enable_flatten_nested = flatten_nested;
+    }
+    bool variant_flatten_nested() const { return _variant_enable_flatten_nested; }
     void set_enable_single_replica_compaction(bool enable_single_replica_compaction) {
         _enable_single_replica_compaction = enable_single_replica_compaction;
     }
@@ -360,6 +370,8 @@ public:
     int32_t sequence_col_idx() const { return _sequence_col_idx; }
     void set_version_col_idx(int32_t version_col_idx) { _version_col_idx = version_col_idx; }
     int32_t version_col_idx() const { return _version_col_idx; }
+    bool has_skip_bitmap_col() const { return _skip_bitmap_col_idx != -1; }
+    int32_t skip_bitmap_col_idx() const { return _skip_bitmap_col_idx; }
     segment_v2::CompressionTypePB compression_type() const { return _compression_type; }
     void set_row_store_page_size(long page_size) { _row_store_page_size = page_size; }
     long row_store_page_size() const { return _row_store_page_size; }
@@ -477,7 +489,7 @@ public:
         return str;
     }
 
-    vectorized::Block create_block_by_cids(const std::vector<uint32_t>& cids);
+    vectorized::Block create_block_by_cids(const std::vector<uint32_t>& cids) const;
 
     std::shared_ptr<TabletSchema> copy_without_variant_extracted_columns();
     InvertedIndexStorageFormatPB get_inverted_index_storage_format() const {
@@ -488,6 +500,8 @@ public:
                                const std::vector<TColumn>& t_columns);
 
     const std::vector<int32_t>& row_columns_uids() const { return _row_store_column_unique_ids; }
+
+    int64_t get_metadata_size() const override;
 
 private:
     friend bool operator==(const TabletSchema& a, const TabletSchema& b);
@@ -522,6 +536,7 @@ private:
     int32_t _delete_sign_idx = -1;
     int32_t _sequence_col_idx = -1;
     int32_t _version_col_idx = -1;
+    int32_t _skip_bitmap_col_idx = -1;
     int32_t _schema_version = -1;
     int64_t _table_id = -1;
     int64_t _db_id = -1;
@@ -535,6 +550,8 @@ private:
     // Contains column ids of which columns should be encoded into row store.
     // ATTN: For compability reason empty cids means all columns of tablet schema are encoded to row column
     std::vector<int32_t> _row_store_column_unique_ids;
+    bool _variant_enable_flatten_nested = false;
+    int64_t _vl_field_mem_size {0}; // variable length field
 };
 
 bool operator==(const TabletSchema& a, const TabletSchema& b);

@@ -114,14 +114,16 @@ public:
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena*) const override {
         if constexpr (arg_is_nullable) {
-            auto& nullable_column = assert_cast<const ColumnNullable&>(*columns[0]);
+            auto& nullable_column =
+                    assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(*columns[0]);
             if (!nullable_column.is_null_at(row_num)) {
-                const auto& column =
-                        assert_cast<const ColVecType&>(nullable_column.get_nested_column());
+                const auto& column = assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(
+                        nullable_column.get_nested_column());
                 this->data(place).add(column.get_data()[row_num]);
             }
         } else {
-            const auto& column = assert_cast<const ColVecType&>(*columns[0]);
+            const auto& column =
+                    assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(*columns[0]);
             this->data(place).add(column.get_data()[row_num]);
         }
     }

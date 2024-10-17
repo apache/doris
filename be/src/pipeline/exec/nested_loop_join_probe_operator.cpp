@@ -390,6 +390,7 @@ void NestedLoopJoinProbeLocalState::_process_left_child_block(
                     .get_data()
                     .resize_fill(origin_sz + max_added_rows, 0);
         } else {
+            // TODO: for cross join, maybe could insert one row, and wrap for a const column
             dst_columns[i]->insert_many_from(*src_column.column, _left_block_pos, max_added_rows);
         }
     }
@@ -445,19 +446,13 @@ Status NestedLoopJoinProbeOperatorX::init(const TPlanNode& tnode, RuntimeState* 
     return Status::OK();
 }
 
-Status NestedLoopJoinProbeOperatorX::prepare(RuntimeState* state) {
-    RETURN_IF_ERROR(JoinProbeOperatorX<NestedLoopJoinProbeLocalState>::prepare(state));
+Status NestedLoopJoinProbeOperatorX::open(RuntimeState* state) {
+    RETURN_IF_ERROR(JoinProbeOperatorX<NestedLoopJoinProbeLocalState>::open(state));
     for (auto& conjunct : _join_conjuncts) {
         RETURN_IF_ERROR(conjunct->prepare(state, *_intermediate_row_desc));
     }
-    RETURN_IF_ERROR(vectorized::VExpr::prepare(_output_expr_ctxs, state, *_intermediate_row_desc));
-    _num_probe_side_columns = _child_x->row_desc().num_materialized_slots();
+    _num_probe_side_columns = _child->row_desc().num_materialized_slots();
     _num_build_side_columns = _build_side_child->row_desc().num_materialized_slots();
-    return Status::OK();
-}
-
-Status NestedLoopJoinProbeOperatorX::open(RuntimeState* state) {
-    RETURN_IF_ERROR(JoinProbeOperatorX<NestedLoopJoinProbeLocalState>::open(state));
     return vectorized::VExpr::open(_join_conjuncts, state);
 }
 

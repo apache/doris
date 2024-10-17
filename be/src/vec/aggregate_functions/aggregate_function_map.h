@@ -18,7 +18,6 @@
 #pragma once
 
 #include <parallel_hashmap/phmap.h>
-#include <string.h>
 
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
@@ -92,7 +91,7 @@ struct AggregateFunctionMapAggData {
             }
 
             if (UNLIKELY(_map.find(key) != _map.end())) {
-                return;
+                continue;
             }
 
             key.data = _arena.insert(key.data, key.size);
@@ -146,7 +145,9 @@ struct AggregateFunctionMapAggData {
         const size_t size = _key_column->size();
         write_binary(size, buf);
         for (size_t i = 0; i < size; i++) {
-            write_binary(assert_cast<KeyColumnType&>(*_key_column).get_data_at(i), buf);
+            write_binary(assert_cast<KeyColumnType&, TypeCheckOnRelease::DISABLE>(*_key_column)
+                                 .get_data_at(i),
+                         buf);
         }
         for (size_t i = 0; i < size; i++) {
             write_binary(_value_column->get_data_at(i), buf);
@@ -159,11 +160,10 @@ struct AggregateFunctionMapAggData {
         StringRef key;
         for (size_t i = 0; i < size; i++) {
             read_binary(key, buf);
-            if (_map.find(key) != _map.cend()) {
-                continue;
-            }
+            DCHECK(_map.find(key) == _map.cend());
             key.data = _arena.insert(key.data, key.size);
-            assert_cast<KeyColumnType&>(*_key_column).insert_data(key.data, key.size);
+            assert_cast<KeyColumnType&, TypeCheckOnRelease::DISABLE>(*_key_column)
+                    .insert_data(key.data, key.size);
         }
         StringRef val;
         for (size_t i = 0; i < size; i++) {
@@ -205,22 +205,25 @@ public:
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena* arena) const override {
         if (columns[0]->is_nullable()) {
-            auto& nullable_col = assert_cast<const ColumnNullable&>(*columns[0]);
-            auto& nullable_map = nullable_col.get_null_map_data();
+            const auto& nullable_col =
+                    assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(*columns[0]);
+            const auto& nullable_map = nullable_col.get_null_map_data();
             if (nullable_map[row_num]) {
                 return;
             }
             Field value;
             columns[1]->get(row_num, value);
-            this->data(place).add(
-                    assert_cast<const KeyColumnType&>(nullable_col.get_nested_column())
-                            .get_data_at(row_num),
-                    value);
+            this->data(place).add(assert_cast<const KeyColumnType&, TypeCheckOnRelease::DISABLE>(
+                                          nullable_col.get_nested_column())
+                                          .get_data_at(row_num),
+                                  value);
         } else {
             Field value;
             columns[1]->get(row_num, value);
             this->data(place).add(
-                    assert_cast<const KeyColumnType&>(*columns[0]).get_data_at(row_num), value);
+                    assert_cast<const KeyColumnType&, TypeCheckOnRelease::DISABLE>(*columns[0])
+                            .get_data_at(row_num),
+                    value);
         }
     }
 
@@ -251,6 +254,7 @@ public:
             Field key, value;
             columns[0]->get(i, key);
             if (key.is_null()) {
+                col.insert(Map {Array {}, Array {}});
                 continue;
             }
 
@@ -261,7 +265,7 @@ public:
 
     void deserialize_from_column(AggregateDataPtr places, const IColumn& column, Arena* arena,
                                  size_t num_rows) const override {
-        auto& col = assert_cast<const ColumnMap&>(column);
+        const auto& col = assert_cast<const ColumnMap&>(column);
         auto* data = &(this->data(places));
         for (size_t i = 0; i != num_rows; ++i) {
             auto map = doris::vectorized::get<Map>(col[i]);
@@ -292,7 +296,7 @@ public:
                                                  Arena* arena) const override {
         DCHECK(end <= column.size() && begin <= end)
                 << ", begin:" << begin << ", end:" << end << ", column.size():" << column.size();
-        auto& col = assert_cast<const ColumnMap&>(column);
+        const auto& col = assert_cast<const ColumnMap&>(column);
         for (size_t i = begin; i <= end; ++i) {
             auto map = doris::vectorized::get<Map>(col[i]);
             this->data(place).add(map[0], map[1]);

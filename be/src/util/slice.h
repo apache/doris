@@ -344,6 +344,10 @@ class OwnedSlice : private Allocator<false, false, false, DefaultMemoryAllocator
 public:
     OwnedSlice() : _slice((uint8_t*)nullptr, 0) {}
 
+    OwnedSlice(size_t length)
+            : _slice(reinterpret_cast<char*>(Allocator::alloc(length)), length),
+              _capacity(length) {}
+
     OwnedSlice(OwnedSlice&& src) : _slice(src._slice), _capacity(src._capacity) {
         src._slice.data = nullptr;
         src._slice.size = 0;
@@ -358,7 +362,18 @@ public:
         return *this;
     }
 
-    ~OwnedSlice() { Allocator::free(_slice.data, _capacity); }
+    // disable copy constructor and copy assignment
+    OwnedSlice(const OwnedSlice&) = delete;
+    void operator=(const OwnedSlice&) = delete;
+
+    ~OwnedSlice() {
+        if (_slice.data != nullptr) {
+            DCHECK(_capacity != 0);
+            Allocator::free(_slice.data, _capacity);
+        }
+    }
+
+    char* data() const { return _slice.data; }
 
     const Slice& slice() const { return _slice; }
 
@@ -368,11 +383,6 @@ private:
 
     OwnedSlice(uint8_t* _data, size_t size, size_t capacity)
             : _slice(_data, size), _capacity(capacity) {}
-
-private:
-    // disable copy constructor and copy assignment
-    OwnedSlice(const OwnedSlice&) = delete;
-    void operator=(const OwnedSlice&) = delete;
 
     Slice _slice;
     size_t _capacity = 0;

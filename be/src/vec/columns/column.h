@@ -185,10 +185,19 @@ public:
 
     /// Removes all elements outside of specified range.
     /// Is used in LIMIT operation, for example.
-    virtual Ptr cut(size_t start, size_t length) const {
+    virtual Ptr cut(size_t start, size_t length) const final {
         MutablePtr res = clone_empty();
         res->insert_range_from(*this, start, length);
         return res;
+    }
+
+    /// cut or expand inplace. `this` would be moved, only the return value is avaliable.
+    virtual Ptr shrink(size_t length) const final {
+        // NOLINTBEGIN(performance-move-const-arg)
+        MutablePtr res = std::move(*this).mutate();
+        res->resize(length);
+        // NOLINTEND(performance-move-const-arg)
+        return res->get_ptr();
     }
 
     /// Appends new value at the end of column (column's size is increased by 1).

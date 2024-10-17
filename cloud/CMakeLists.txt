@@ -29,7 +29,7 @@ include(cppcheck)
 if (CMAKE_SYSTEM_PROCESSOR MATCHES "amd64|x86_64")
     set (ARCH_AMD64 1)
 endif ()
-if (CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64.*|AARCH64.*)")
+if (CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64.*|AARCH64.*|arm64.*)")
     set (ARCH_AARCH64 1)
 endif ()
 if (ARCH_AARCH64 OR CMAKE_SYSTEM_PROCESSOR MATCHES "arm")
@@ -435,7 +435,7 @@ endif()
 
 if (NOT EXISTS "${THIRDPARTY_SRC}/${FDB_LIB}")
     file(MAKE_DIRECTORY ${THIRDPARTY_SRC})
-    execute_process(COMMAND "curl" "${FDB_LIB_URL}"
+    execute_process(COMMAND "curl --retry 10 --retry-delay 2 --retry-max-time 30" "${FDB_LIB_URL}"
                             "-o" "${THIRDPARTY_SRC}/${FDB_LIB}" "-k"
                     RESULTS_VARIABLE DOWNLOAD_RET)
     if (NOT ${DOWNLOAD_RET} STREQUAL "0")
@@ -457,6 +457,11 @@ if (NOT EXISTS ${THIRDPARTY_DIR}/include/foundationdb)
     execute_process(COMMAND "tar" "xf" "${THIRDPARTY_SRC}/${FDB_LIB}" "-C" "${THIRDPARTY_DIR}/")
 endif ()
 
+# enable glog custom prefix
+add_definitions(-DGLOG_CUSTOM_PREFIX_SUPPORT)
+
+set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -lfdb_c -L${THIRDPARTY_DIR}/lib")
+
 add_subdirectory(${SRC_DIR}/common)
 add_subdirectory(${SRC_DIR}/gen-cpp)
 add_subdirectory(${SRC_DIR}/meta-service)
@@ -471,8 +476,6 @@ endif ()
 add_subdirectory(${COMMON_SRC_DIR}/cpp ${BUILD_DIR}/src/common_cpp)
 
 if (${MAKE_TEST} STREQUAL "OFF")
-    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -lfdb_c -L${THIRDPARTY_DIR}/lib")
-
     add_executable(doris_cloud src/main.cpp)
 
     # This permits libraries loaded by dlopen to link to the symbols in the program.

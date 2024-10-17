@@ -73,9 +73,13 @@ public:
 
     void change_if(const IColumn& column, size_t row_num, bool less) {
         has_value = true;
-        value = less ? std::min(assert_cast<const ColumnVector<T>&>(column).get_data()[row_num],
+        value = less ? std::min(assert_cast<const ColumnVector<T>&, TypeCheckOnRelease::DISABLE>(
+                                        column)
+                                        .get_data()[row_num],
                                 value)
-                     : std::max(assert_cast<const ColumnVector<T>&>(column).get_data()[row_num],
+                     : std::max(assert_cast<const ColumnVector<T>&, TypeCheckOnRelease::DISABLE>(
+                                        column)
+                                        .get_data()[row_num],
                                 value);
     }
 
@@ -109,7 +113,8 @@ public:
 
     void change(const IColumn& column, size_t row_num, Arena*) {
         has_value = true;
-        value = assert_cast<const ColumnVector<T>&>(column).get_data()[row_num];
+        value = assert_cast<const ColumnVector<T>&, TypeCheckOnRelease::DISABLE>(column)
+                        .get_data()[row_num];
     }
 
     /// Assuming to.has()
@@ -119,7 +124,8 @@ public:
     }
 
     bool change_if_less(const IColumn& column, size_t row_num, Arena* arena) {
-        if (!has() || assert_cast<const ColumnVector<T>&>(column).get_data()[row_num] < value) {
+        if (!has() || assert_cast<const ColumnVector<T>&, TypeCheckOnRelease::DISABLE>(column)
+                                      .get_data()[row_num] < value) {
             change(column, row_num, arena);
             return true;
         } else {
@@ -137,7 +143,8 @@ public:
     }
 
     bool change_if_greater(const IColumn& column, size_t row_num, Arena* arena) {
-        if (!has() || assert_cast<const ColumnVector<T>&>(column).get_data()[row_num] > value) {
+        if (!has() || assert_cast<const ColumnVector<T>&, TypeCheckOnRelease::DISABLE>(column)
+                                      .get_data()[row_num] > value) {
             change(column, row_num, arena);
             return true;
         } else {
@@ -188,9 +195,13 @@ public:
 
     void change_if(const IColumn& column, size_t row_num, bool less) {
         has_value = true;
-        value = less ? std::min(assert_cast<const ColumnDecimal<T>&>(column).get_data()[row_num],
+        value = less ? std::min(assert_cast<const ColumnDecimal<T>&, TypeCheckOnRelease::DISABLE>(
+                                        column)
+                                        .get_data()[row_num],
                                 value)
-                     : std::max(assert_cast<const ColumnDecimal<T>&>(column).get_data()[row_num],
+                     : std::max(assert_cast<const ColumnDecimal<T>&, TypeCheckOnRelease::DISABLE>(
+                                        column)
+                                        .get_data()[row_num],
                                 value);
     }
 
@@ -224,7 +235,8 @@ public:
 
     void change(const IColumn& column, size_t row_num, Arena*) {
         has_value = true;
-        value = assert_cast<const ColumnDecimal<T>&>(column).get_data()[row_num];
+        value = assert_cast<const ColumnDecimal<T>&, TypeCheckOnRelease::DISABLE>(column)
+                        .get_data()[row_num];
     }
 
     /// Assuming to.has()
@@ -234,7 +246,8 @@ public:
     }
 
     bool change_if_less(const IColumn& column, size_t row_num, Arena* arena) {
-        if (!has() || assert_cast<const ColumnDecimal<T>&>(column).get_data()[row_num] < value) {
+        if (!has() || assert_cast<const ColumnDecimal<T>&, TypeCheckOnRelease::DISABLE>(column)
+                                      .get_data()[row_num] < value) {
             change(column, row_num, arena);
             return true;
         } else {
@@ -252,7 +265,8 @@ public:
     }
 
     bool change_if_greater(const IColumn& column, size_t row_num, Arena* arena) {
-        if (!has() || assert_cast<const ColumnDecimal<T>&>(column).get_data()[row_num] > value) {
+        if (!has() || assert_cast<const ColumnDecimal<T>&, TypeCheckOnRelease::DISABLE>(column)
+                                      .get_data()[row_num] > value) {
             change(column, row_num, arena);
             return true;
         } else {
@@ -389,14 +403,18 @@ public:
     }
 
     void change(const IColumn& column, size_t row_num, Arena* arena) {
-        change_impl(assert_cast<const ColumnString&>(column).get_data_at(row_num), arena);
+        change_impl(
+                assert_cast<const ColumnString&, TypeCheckOnRelease::DISABLE>(column).get_data_at(
+                        row_num),
+                arena);
     }
 
     void change(const Self& to, Arena* arena) { change_impl(to.get_string_ref(), arena); }
 
     bool change_if_less(const IColumn& column, size_t row_num, Arena* arena) {
         if (!has() ||
-            assert_cast<const ColumnString&>(column).get_data_at(row_num) < get_string_ref()) {
+            assert_cast<const ColumnString&, TypeCheckOnRelease::DISABLE>(column).get_data_at(
+                    row_num) < get_string_ref()) {
             change(column, row_num, arena);
             return true;
         } else {
@@ -406,7 +424,8 @@ public:
 
     bool change_if_greater(const IColumn& column, size_t row_num, Arena* arena) {
         if (!has() ||
-            assert_cast<const ColumnString&>(column).get_data_at(row_num) > get_string_ref()) {
+            assert_cast<const ColumnString&, TypeCheckOnRelease::DISABLE>(column).get_data_at(
+                    row_num) > get_string_ref()) {
             change(column, row_num, arena);
             return true;
         } else {

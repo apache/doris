@@ -34,6 +34,7 @@ PartitionedAggSinkLocalState::PartitionedAggSinkLocalState(DataSinkOperatorXBase
             std::make_shared<Dependency>(parent->operator_id(), parent->node_id(),
                                          parent->get_name() + "_SPILL_DEPENDENCY", true);
 }
+
 Status PartitionedAggSinkLocalState::init(doris::RuntimeState* state,
                                           doris::pipeline::LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
@@ -66,6 +67,7 @@ Status PartitionedAggSinkLocalState::open(RuntimeState* state) {
     SCOPED_TIMER(Base::_open_timer);
     return Base::open(state);
 }
+
 Status PartitionedAggSinkLocalState::close(RuntimeState* state, Status exec_status) {
     SCOPED_TIMER(Base::exec_time_counter());
     SCOPED_TIMER(Base::_close_timer);
@@ -79,10 +81,10 @@ Status PartitionedAggSinkLocalState::close(RuntimeState* state, Status exec_stat
 void PartitionedAggSinkLocalState::_init_counters() {
     _internal_runtime_profile = std::make_unique<RuntimeProfile>("internal_profile");
 
-    _hash_table_memory_usage = ADD_CHILD_COUNTER_WITH_LEVEL(Base::profile(), "HashTable",
-                                                            TUnit::BYTES, "MemoryUsage", 1);
+    _hash_table_memory_usage =
+            ADD_COUNTER_WITH_LEVEL(Base::profile(), "MemoryUsageHashTable", TUnit::BYTES, 1);
     _serialize_key_arena_memory_usage = Base::profile()->AddHighWaterMarkCounter(
-            "SerializeKeyArena", TUnit::BYTES, "MemoryUsage", 1);
+            "MemoryUsageSerializeKeyArena", TUnit::BYTES, "", 1);
 
     _build_timer = ADD_TIMER(Base::profile(), "BuildTime");
     _serialize_key_timer = ADD_TIMER(Base::profile(), "SerializeKeyTime");
@@ -108,8 +110,8 @@ void PartitionedAggSinkLocalState::_init_counters() {
     } while (false)
 
 void PartitionedAggSinkLocalState::update_profile(RuntimeProfile* child_profile) {
-    UPDATE_PROFILE(_hash_table_memory_usage, "HashTable");
-    UPDATE_PROFILE(_serialize_key_arena_memory_usage, "SerializeKeyArena");
+    UPDATE_PROFILE(_hash_table_memory_usage, "MemoryUsageHashTable");
+    UPDATE_PROFILE(_serialize_key_arena_memory_usage, "MemoryUsageSerializeKeyArena");
     UPDATE_PROFILE(_build_timer, "BuildTime");
     UPDATE_PROFILE(_serialize_key_timer, "SerializeKeyTime");
     UPDATE_PROFILE(_merge_timer, "MergeTime");
@@ -139,13 +141,9 @@ Status PartitionedAggSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* s
     }
 
     _agg_sink_operator->set_dests_id(DataSinkOperatorX<PartitionedAggSinkLocalState>::dests_id());
-    RETURN_IF_ERROR(_agg_sink_operator->set_child(
-            DataSinkOperatorX<PartitionedAggSinkLocalState>::_child_x));
+    RETURN_IF_ERROR(
+            _agg_sink_operator->set_child(DataSinkOperatorX<PartitionedAggSinkLocalState>::_child));
     return _agg_sink_operator->init(tnode, state);
-}
-
-Status PartitionedAggSinkOperatorX::prepare(RuntimeState* state) {
-    return _agg_sink_operator->prepare(state);
 }
 
 Status PartitionedAggSinkOperatorX::open(RuntimeState* state) {

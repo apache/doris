@@ -23,8 +23,14 @@ import org.apache.doris.mysql.privilege.CatalogAccessController;
 import java.util.Map;
 
 public class RangerHiveAccessControllerFactory implements AccessControllerFactory {
+
+    @Override
+    public String factoryIdentifier() {
+        return "ranger-hive";
+    }
+
     @Override
     public CatalogAccessController createAccessController(Map<String, String> prop) {
-        return new RangerCacheHiveAccessController(prop);
+        return new RangerHiveAccessController(prop);
     }
 }

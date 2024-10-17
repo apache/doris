@@ -78,6 +78,18 @@ public abstract class MetastoreEvent {
         this.event = null;
     }
 
+    // for IgnoredEvent
+    protected MetastoreEvent(NotificationEvent event) {
+        this.event = event;
+        this.metastoreNotificationEvent = event;
+        this.eventId = -1;
+        this.eventTime = -1L;
+        this.catalogName = null;
+        this.dbName = null;
+        this.tblName = null;
+        this.eventType = null;
+    }
+
     protected MetastoreEvent(NotificationEvent event, String catalogName) {
         this.event = event;
         // Some events that we don't care about, dbName may be empty

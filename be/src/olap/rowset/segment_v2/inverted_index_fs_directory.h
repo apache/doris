@@ -29,6 +29,7 @@
 #include "CLucene/SharedHeader.h"
 #include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/file_system.h"
+#include "io/fs/file_writer.h"
 #include "io/io_common.h"
 
 class CLuceneError;
@@ -46,8 +47,6 @@ class CLUCENE_EXPORT DorisFSDirectory : public lucene::store::Directory {
 public:
     static const char* const WRITE_LOCK_FILE;
     static const int64_t MAX_HEADER_DATA_SIZE = 1024 * 128; // 128k
-private:
-    int filemode;
 
 protected:
     mutable std::mutex _this_lock;
@@ -91,6 +90,12 @@ public:
 
     virtual void init(const io::FileSystemSPtr& fs, const char* path,
                       lucene::store::LockFactory* lock_factory = nullptr);
+
+    void set_file_writer_opts(const io::FileWriterOptions& opts) { _opts = opts; }
+
+private:
+    int32_t filemode;
+    io::FileWriterOptions _opts;
 };
 
 class CLUCENE_EXPORT DorisRAMFSDirectory : public DorisFSDirectory {
@@ -184,7 +189,7 @@ protected:
 
 public:
     static bool open(const io::FileSystemSPtr& fs, const char* path, IndexInput*& ret,
-                     CLuceneError& error, int32_t bufferSize = -1);
+                     CLuceneError& error, int32_t bufferSize = -1, int64_t file_size = -1);
     ~FSIndexInput() override;
 
     IndexInput* clone() const override;

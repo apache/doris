@@ -51,7 +51,7 @@ import java.util.Map;
 /**
  * Copy statement
  */
-public class CopyStmt extends DdlStmt {
+public class CopyStmt extends DdlStmt implements NotFallbackInParser {
     private static final Logger LOG = LogManager.getLogger(CopyStmt.class);
 
     private static final ShowResultSetMetaData COPY_INTO_META_DATA =
@@ -205,7 +205,8 @@ public class CopyStmt extends DdlStmt {
         }
         brokerProperties.put(S3_BUCKET, objInfo.getBucket());
         brokerProperties.put(S3_PREFIX, objInfo.getPrefix());
-        brokerProperties.put(S3Properties.PROVIDER, objInfo.getProvider().toString());
+        // S3 Provider properties should be case insensitive.
+        brokerProperties.put(S3Properties.PROVIDER, objInfo.getProvider().toString().toUpperCase());
         StageProperties stageProperties = new StageProperties(stagePB.getPropertiesMap());
         this.copyIntoProperties.mergeProperties(stageProperties);
         this.copyIntoProperties.analyze();

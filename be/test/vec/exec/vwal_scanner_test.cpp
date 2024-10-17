@@ -259,7 +259,7 @@ void VWalScannerTest::init() {
             std::make_shared<pipeline::FileScanOperatorX>(&_obj_pool, _tnode, 0, *_desc_tbl, 1);
     _scan_node->_output_tuple_desc = _runtime_state.desc_tbl().get_tuple_descriptor(_dst_tuple_id);
     WARN_IF_ERROR(_scan_node->init(_tnode, &_runtime_state), "fail to init scan_node");
-    WARN_IF_ERROR(_scan_node->prepare(&_runtime_state), "fail to prepare scan_node");
+    WARN_IF_ERROR(_scan_node->open(&_runtime_state), "fail to prepare scan_node");
 
     auto local_state =
             pipeline::FileScanLocalState::create_unique(&_runtime_state, _scan_node.get());
@@ -306,16 +306,16 @@ void VWalScannerTest::init() {
 
 void VWalScannerTest::generate_scanner(std::shared_ptr<VFileScanner>& scanner) {
     auto split_source = std::make_shared<TestSplitSourceConnector>(_scan_range);
+    std::unordered_map<std::string, ColumnValueRangeType> _colname_to_value_range;
+    std::unordered_map<std::string, int> _colname_to_slot_id;
     scanner = std::make_shared<VFileScanner>(
             &_runtime_state,
             &(_runtime_state.get_local_state(0)->cast<pipeline::FileScanLocalState>()), -1,
-            split_source, _profile, _kv_cache.get());
+            split_source, _profile, _kv_cache.get(), &_colname_to_value_range,
+            &_colname_to_slot_id);
     scanner->_is_load = false;
     vectorized::VExprContextSPtrs _conjuncts;
-    std::unordered_map<std::string, ColumnValueRangeType> _colname_to_value_range;
-    std::unordered_map<std::string, int> _colname_to_slot_id;
-    WARN_IF_ERROR(scanner->prepare(_conjuncts, &_colname_to_value_range, &_colname_to_slot_id),
-                  "fail to prepare scanner");
+    WARN_IF_ERROR(scanner->prepare(&_runtime_state, _conjuncts), "fail to prepare scanner");
 }
 
 TEST_F(VWalScannerTest, normal) {

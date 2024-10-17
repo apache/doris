@@ -93,7 +93,7 @@ suite("test_count_on_index_httplogs", "p0") {
                             """
         }
     
-    def load_httplogs_data = {table_name, label, read_flag, format_flag, file_name, ignore_failure=false,
+    def stream_load_data = {table_name, label, read_flag, format_flag, file_name, ignore_failure=false,
                         expected_succ_rows = -1, load_to_single_tablet = 'true' ->
         
         // load the json data
@@ -137,12 +137,16 @@ suite("test_count_on_index_httplogs", "p0") {
         create_httplogs_dup_table.call(testTable_dup)
         create_httplogs_unique_table.call(testTable_unique)
 
-        load_httplogs_data.call(testTable_dup, 'test_httplogs_load_count_on_index', 'true', 'json', 'documents-1000.json')
-        load_httplogs_data.call(testTable_unique, 'test_httplogs_load_count_on_index', 'true', 'json', 'documents-1000.json')
+        stream_load_data.call(testTable_dup, 'test_httplogs_load_count_on_index', 'true', 'json', 'documents-1000.json')
+        stream_load_data.call(testTable_unique, 'test_httplogs_load_count_on_index', 'true', 'json', 'documents-1000.json')
 
         sql "sync"
+        sql """ set enable_common_expr_pushdown = true """
         sql """set experimental_enable_nereids_planner=true;"""
         sql """set enable_fallback_to_original_planner=false;"""
+        sql """analyze table ${testTable_dup} with sync""";
+        // wait BE report every partition's row count
+        sleep(10000)
         // case1: test duplicate table
         explain {
             sql("select COUNT() from ${testTable_dup} where request match 'GET'")
@@ -155,6 +159,7 @@ suite("test_count_on_index_httplogs", "p0") {
 
         // case1.1: test duplicate table with null values.
         sql " insert into ${testTable_dup} values(1683964756,null,'GET /images/hm_bg.jpg HTTP/1.0 ',null,null); "
+        sql """analyze table ${testTable_dup} with sync""";
         explain {
             sql("select COUNT(request) from ${testTable_dup} where request match 'GET'")
             contains "pushAggOp=COUNT_ON_INDEX"
@@ -205,6 +210,7 @@ suite("test_count_on_index_httplogs", "p0") {
 
         // case2.1: test duplicate table with null values.
         sql " insert into ${testTable_unique} values(1683964756,null,'GET /images/hm_bg.jpg HTTP/1.0 ',null,null); "
+        sql """analyze table ${testTable_unique} with sync""";
         explain {
             sql("select COUNT(request) from ${testTable_unique} where request match 'GET'")
             contains "pushAggOp=COUNT_ON_INDEX"
@@ -262,7 +268,7 @@ suite("test_count_on_index_httplogs", "p0") {
         sql "INSERT INTO ${tableName} values ('dt_bjn003');"
 
         sql "sync"
-
+        sql "analyze table  ${tableName} with sync;"
         explain {
             sql("select COUNT() from ${tableName} where key_id match 'bjn002'")
             contains "pushAggOp=COUNT_ON_INDEX"
@@ -272,6 +278,41 @@ suite("test_count_on_index_httplogs", "p0") {
         // case4: test compound query when inverted_index_query disable
         qt_sql "SELECT  COUNT() from ${testTable_dup} where request = 'images'  or (size = 0 and status > 400)"
         qt_sql "SELECT /*+SET_VAR(enable_inverted_index_query=false) */ COUNT() from ${testTable_dup} where request = 'images'  or (size = 0 and status > 400)"
+
+        // case5: test complex count to testify bad case
+        def tableName5 = 'test_count_on_index_bad_case'
+        sql "DROP TABLE IF EXISTS ${tableName5}"
+        sql """
+        CREATE TABLE `${tableName5}` (
+          `a` DATE NOT NULL COMMENT '',
+          `b` VARCHAR(4096) NULL COMMENT '',
+          `c` VARCHAR(4096) NULL COMMENT '',
+          `d` VARCHAR(4096) NULL COMMENT '',
+          `e` VARCHAR(4096) NULL COMMENT '',
+          INDEX idx_a(`a`) USING INVERTED COMMENT '',
+          INDEX idx_e(`e`) USING INVERTED COMMENT ''
+        ) ENGINE=OLAP
+        UNIQUE KEY(`a`, `b`)
+        COMMENT ''
+        DISTRIBUTED BY HASH(`a`) BUCKETS 3
+        PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+        );
+        """
+        stream_load_data.call(tableName5, 'test_count_on_index_bad_case', 'true', 'json', 'count-on-index.json')
+        def bad_sql = """
+        SELECT
+          COUNT(CASE WHEN c IN ('c1', 'c2', 'c3') AND d = 'd1' THEN b END) AS num1,
+          COUNT(CASE WHEN e = 'e1' AND c IN ('c1', 'c2', 'c3') THEN b END) AS num2
+        FROM ${tableName5}
+        WHERE a = '2024-07-26'
+          AND e = 'e1';
+        """
+        explain {
+            sql("${bad_sql}")
+                contains "pushAggOp=NONE"
+        }
+        qt_sql_bad "${bad_sql}"
     } finally {
         //try_sql("DROP TABLE IF EXISTS ${testTable}")
     }

@@ -159,6 +159,7 @@ public class ProfileManager extends MasterDaemon {
 
     // The visiablity of ProfileManager() is package level, so that we can write ut for it.
     ProfileManager() {
+        super("profile-manager", Config.profile_manager_gc_interval_seconds * 1000);
         lock = new ReentrantReadWriteLock(true);
         readLock = lock.readLock();
         writeLock = lock.writeLock();
@@ -192,28 +193,6 @@ public class ProfileManager extends MasterDaemon {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("Add execution profile {} to profile manager",
                         DebugUtil.printId(executionProfile.getQueryId()));
-            }
-            // This branch has two purposes:
-            // 1. discard profile collecting if its collection not finished in 5 seconds after query finished.
-            // 2. prevent execution profile from leakage. If we have too many execution profiles in memory,
-            // we will remove execution profiles of query that has finished in 5 seconds ago.
-            if (queryIdToExecutionProfiles.size() > 2 * Config.max_query_profile_num) {
-                List<ExecutionProfile> finishOrExpireExecutionProfiles = Lists.newArrayList();
-                for (ExecutionProfile tmpProfile : queryIdToExecutionProfiles.values()) {
-                    boolean queryFinishedLongEnough = tmpProfile.getQueryFinishTime() > 0
-                            && System.currentTimeMillis() - tmpProfile.getQueryFinishTime()
-                            > Config.profile_async_collect_expire_time_secs * 1000;
-
-                    if (queryFinishedLongEnough) {
-                        finishOrExpireExecutionProfiles.add(tmpProfile);
-                    }
-                }
-                StringBuilder stringBuilder = new StringBuilder();
-                for (ExecutionProfile tmp : finishOrExpireExecutionProfiles) {
-                    stringBuilder.append(DebugUtil.printId(tmp.getQueryId())).append(",");
-                    queryIdToExecutionProfiles.remove(tmp.getQueryId());
-                }
-                LOG.warn("Remove expired execution profiles {}", stringBuilder.toString());
             }
         } finally {
             writeLock.unlock();
@@ -253,7 +232,7 @@ public class ProfileManager extends MasterDaemon {
         List<List<String>> result = Lists.newArrayList();
         readLock.lock();
         try {
-            PriorityQueue<ProfileElement> queueIdDeque = getProfileOrderByQueryFinishTime();
+            PriorityQueue<ProfileElement> queueIdDeque = getProfileOrderByQueryFinishTimeDesc();
             while (!queueIdDeque.isEmpty()) {
                 ProfileElement profileElement = queueIdDeque.poll();
                 Map<String, String> infoStrings = profileElement.infoStrings;
@@ -278,9 +257,10 @@ public class ProfileManager extends MasterDaemon {
             client = ClientPool.backendPool.borrowObject(targetBackend);
         } catch (Exception e) {
             LOG.warn("Fetch a agent client failed, address: {}", targetBackend.toString());
+            ClientPool.backendPool.invalidateObject(targetBackend, client);
             return resp;
         }
-
+        boolean ok = true;
         try {
             TGetRealtimeExecStatusRequest req = new TGetRealtimeExecStatusRequest();
             req.setId(queryID);
@@ -288,9 +268,13 @@ public class ProfileManager extends MasterDaemon {
         } catch (TException e) {
             LOG.warn("Got exception when getRealtimeExecStatus, query {} backend {}",
                     DebugUtil.printId(queryID), targetBackend.toString(), e);
-            ClientPool.backendPool.invalidateObject(targetBackend, client);
+            ok = false;
         } finally {
-            ClientPool.backendPool.returnObject(targetBackend, client);
+            if (ok) {
+                ClientPool.backendPool.returnObject(targetBackend, client);
+            } else {
+                ClientPool.backendPool.invalidateObject(targetBackend, client);
+            }
         }
 
         if (!resp.isSetStatus()) {
@@ -556,7 +540,9 @@ public class ProfileManager extends MasterDaemon {
         loadProfilesFromStorageIfFirstTime();
         writeProfileToStorage();
         deleteBrokenProfiles();
+        deleteOutdatedProfilesFromMemory();
         deleteOutdatedProfilesFromStorage();
+        preventExecutionProfileLeakage();
     }
 
     // List PROFILE_STORAGE_PATH and return all dir names
@@ -706,7 +692,7 @@ public class ProfileManager extends MasterDaemon {
                     for (ExecutionProfile executionProfile : profileElement.profile.getExecutionProfiles()) {
                         this.queryIdToExecutionProfiles.remove(executionProfile.getQueryId());
                     }
-                    profileElement.profile.releaseExecutionProfile();
+                    profileElement.profile.releaseMemory();
                 }
             } finally {
                 writeLock.unlock();
@@ -882,9 +868,21 @@ public class ProfileManager extends MasterDaemon {
 
     // The init value of query finish time of profile is MAX_VALUE
     // So more recent query will be on the top of heap.
-    private PriorityQueue<ProfileElement> getProfileOrderByQueryFinishTime() {
+    private PriorityQueue<ProfileElement> getProfileOrderByQueryFinishTimeDesc() {
         PriorityQueue<ProfileElement> queryIdDeque = new PriorityQueue<>(Comparator.comparingLong(
                 (ProfileElement profileElement) -> profileElement.profile.getQueryFinishTimestamp()).reversed());
+
+        queryIdToProfileMap.forEach((queryId, profileElement) -> {
+            queryIdDeque.add(profileElement);
+        });
+
+        return queryIdDeque;
+    }
+
+    // Older query will be on the top of heap
+    private PriorityQueue<ProfileElement> getProfileOrderByQueryStartTime() {
+        PriorityQueue<ProfileElement> queryIdDeque = new PriorityQueue<>(Comparator.comparingLong(
+                (ProfileElement profileElement) -> profileElement.profile.getSummaryProfile().getQueryBeginTime()));
 
         queryIdToProfileMap.forEach((queryId, profileElement) -> {
             queryIdDeque.add(profileElement);
@@ -913,8 +911,98 @@ public class ProfileManager extends MasterDaemon {
     }
 
     public String getLastProfileId() {
-        PriorityQueue<ProfileElement> queueIdDeque = getProfileOrderByQueryFinishTime();
+        PriorityQueue<ProfileElement> queueIdDeque = getProfileOrderByQueryFinishTimeDesc();
         ProfileElement profileElement = queueIdDeque.poll();
         return profileElement.profile.getSummaryProfile().getProfileId();
+    }
+
+    private void preventExecutionProfileLeakage() {
+        StringBuilder stringBuilder = new StringBuilder();
+        int executionProfileNum = 0;
+        writeLock.lock();
+        try {
+            // This branch has two purposes:
+            // 1. discard profile collecting if its collection not finished in 5 seconds after query finished.
+            // 2. prevent execution profile from leakage. If we have too many execution profiles in memory,
+            // we will remove execution profiles of query that has finished in 5 seconds ago.
+            if (queryIdToExecutionProfiles.size() > 2 * Config.max_query_profile_num) {
+                List<ExecutionProfile> finishOrExpireExecutionProfiles = Lists.newArrayList();
+                for (ExecutionProfile tmpProfile : queryIdToExecutionProfiles.values()) {
+                    boolean queryFinishedLongEnough = tmpProfile.getQueryFinishTime() > 0
+                            && System.currentTimeMillis() - tmpProfile.getQueryFinishTime()
+                            > Config.profile_async_collect_expire_time_secs * 1000;
+
+                    if (queryFinishedLongEnough) {
+                        finishOrExpireExecutionProfiles.add(tmpProfile);
+                    }
+                }
+
+                for (ExecutionProfile tmp : finishOrExpireExecutionProfiles) {
+                    stringBuilder.append(DebugUtil.printId(tmp.getQueryId())).append(",");
+                    queryIdToExecutionProfiles.remove(tmp.getQueryId());
+                }
+
+                executionProfileNum = queryIdToExecutionProfiles.size();
+            }
+        } finally {
+            writeLock.unlock();
+            if (stringBuilder.length() != 0) {
+                LOG.warn("Remove expired execution profiles {}, current execution profile map size {},"
+                        + "Config.max_query_profile_num{}, Config.profile_async_collect_expire_time_secs {}",
+                        stringBuilder.toString(), executionProfileNum,
+                        Config.max_query_profile_num, Config.profile_async_collect_expire_time_secs);
+            }
+        }
+    }
+
+    private void deleteOutdatedProfilesFromMemory() {
+        StringBuilder stringBuilder = new StringBuilder();
+        int profileNum = 0;
+        writeLock.lock();
+
+        try {
+            // Remove profiles that costs less than auto_profile_threshold_ms
+            List<String> profilesToRemove = Lists.newArrayList();
+
+            for (ProfileElement profileElement : this.queryIdToProfileMap.values()) {
+                if (profileElement.profile.shouldBeRemoveFromMemory()) {
+                    profilesToRemove.add(profileElement.profile.getSummaryProfile().getProfileId());
+                }
+            }
+
+            for (String profileId : profilesToRemove) {
+                ProfileElement profileElement = queryIdToProfileMap.get(profileId);
+                queryIdToProfileMap.remove(profileId);
+                for (ExecutionProfile executionProfile : profileElement.profile.getExecutionProfiles()) {
+                    queryIdToExecutionProfiles.remove(executionProfile.getQueryId());
+                }
+                stringBuilder.append(profileElement.profile.getSummaryProfile().getProfileId()).append(",");
+            }
+
+            if (this.queryIdToProfileMap.size() <= Config.max_query_profile_num) {
+                return;
+            }
+
+            PriorityQueue<ProfileElement> queueIdDeque = getProfileOrderByQueryStartTime();
+
+            while (queueIdDeque.size() > Config.max_query_profile_num) {
+                ProfileElement profileElement = queueIdDeque.poll();
+
+                queryIdToProfileMap.remove(profileElement.profile.getSummaryProfile().getProfileId());
+                for (ExecutionProfile executionProfile : profileElement.profile.getExecutionProfiles()) {
+                    queryIdToExecutionProfiles.remove(executionProfile.getQueryId());
+                }
+
+                stringBuilder.append(profileElement.profile.getSummaryProfile().getProfileId()).append(",");
+            }
+        } finally {
+            profileNum = queryIdToProfileMap.size();
+            writeLock.unlock();
+
+            if (stringBuilder.length() != 0) {
+                LOG.info("Remove outdated profiles {} from memoy, current profile map size {}",
+                        stringBuilder.toString(), profileNum);
+            }
+        }
     }
 }

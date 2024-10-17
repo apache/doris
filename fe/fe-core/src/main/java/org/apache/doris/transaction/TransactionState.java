@@ -429,6 +429,10 @@ public class TransactionState implements Writable {
         return requestId;
     }
 
+    public void setTransactionId(long transactionId) {
+        this.transactionId = transactionId;
+    }
+
     public long getTransactionId() {
         return transactionId;
     }

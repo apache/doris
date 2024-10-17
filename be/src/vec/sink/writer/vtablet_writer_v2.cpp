@@ -44,6 +44,7 @@
 #include "util/debug_points.h"
 #include "util/defer_op.h"
 #include "util/doris_metrics.h"
+#include "util/runtime_profile.h"
 #include "util/uid_util.h"
 #include "vec/core/block.h"
 #include "vec/sink/delta_writer_v2_pool.h"
@@ -150,6 +151,7 @@ Status VTabletWriterV2::_init(RuntimeState* state, RuntimeProfile* profile) {
     _schema.reset(new OlapTableSchemaParam());
     RETURN_IF_ERROR(_schema->init(table_sink.schema));
     _schema->set_timestamp_ms(state->timestamp_ms());
+    _schema->set_nano_seconds(state->nano_seconds());
     _schema->set_timezone(state->timezone());
     _location = _pool->add(new OlapTableLocationParam(table_sink.location));
     _nodes_info = _pool->add(new DorisNodesInfo(table_sink.nodes_info));
@@ -200,13 +202,11 @@ Status VTabletWriterV2::_init(RuntimeState* state, RuntimeProfile* profile) {
         return Status::InternalError("unknown destination tuple descriptor, id = {}",
                                      _tuple_desc_id);
     }
-    DBUG_EXECUTE_IF("VTabletWriterV2._init._vec_output_expr_ctxs_not_equal_output_tuple_slot", {
-        return Status::InvalidArgument(
-                "output_tuple_slot_num {} should be equal to output_expr_num {}",
-                _output_tuple_desc->slots().size() + 1, _vec_output_expr_ctxs.size());
-    });
+    auto output_tuple_desc_slots_size = _output_tuple_desc->slots().size();
+    DBUG_EXECUTE_IF("VTabletWriterV2._init._vec_output_expr_ctxs_not_equal_output_tuple_slot",
+                    { output_tuple_desc_slots_size++; });
     if (!_vec_output_expr_ctxs.empty() &&
-        _output_tuple_desc->slots().size() != _vec_output_expr_ctxs.size()) {
+        _vec_output_expr_ctxs.size() != output_tuple_desc_slots_size) {
         LOG(WARNING) << "output tuple slot num should be equal to num of output exprs, "
                      << "output_tuple_slot_num " << _output_tuple_desc->slots().size()
                      << " output_expr_num " << _vec_output_expr_ctxs.size();
@@ -220,7 +220,7 @@ Status VTabletWriterV2::_init(RuntimeState* state, RuntimeProfile* profile) {
     // on exchange node rather than on TabletWriter
     _block_convertor->init_autoinc_info(
             _schema->db_id(), _schema->table_id(), _state->batch_size(),
-            _schema->is_partial_update() && !_schema->auto_increment_coulumn().empty(),
+            _schema->is_fixed_partial_update() && !_schema->auto_increment_coulumn().empty(),
             _schema->auto_increment_column_unique_id());
     _output_row_desc = _pool->add(new RowDescriptor(_output_tuple_desc, false));
 
@@ -228,11 +228,14 @@ Status VTabletWriterV2::_init(RuntimeState* state, RuntimeProfile* profile) {
     _input_rows_counter = ADD_COUNTER(_profile, "RowsRead", TUnit::UNIT);
     _output_rows_counter = ADD_COUNTER(_profile, "RowsProduced", TUnit::UNIT);
     _filtered_rows_counter = ADD_COUNTER(_profile, "RowsFiltered", TUnit::UNIT);
-    _send_data_timer = ADD_TIMER(_profile, "SendDataTime");
-    _wait_mem_limit_timer = ADD_CHILD_TIMER(_profile, "WaitMemLimitTime", "SendDataTime");
-    _row_distribution_timer = ADD_CHILD_TIMER(_profile, "RowDistributionTime", "SendDataTime");
-    _write_memtable_timer = ADD_CHILD_TIMER(_profile, "WriteMemTableTime", "SendDataTime");
-    _validate_data_timer = ADD_TIMER(_profile, "ValidateDataTime");
+    _send_data_timer = ADD_TIMER_WITH_LEVEL(_profile, "SendDataTime", 1);
+    _wait_mem_limit_timer =
+            ADD_CHILD_TIMER_WITH_LEVEL(_profile, "WaitMemLimitTime", "SendDataTime", 1);
+    _row_distribution_timer =
+            ADD_CHILD_TIMER_WITH_LEVEL(_profile, "RowDistributionTime", "SendDataTime", 1);
+    _write_memtable_timer =
+            ADD_CHILD_TIMER_WITH_LEVEL(_profile, "WriteMemTableTime", "SendDataTime", 1);
+    _validate_data_timer = ADD_TIMER_WITH_LEVEL(_profile, "ValidateDataTime", 1);
     _open_timer = ADD_TIMER(_profile, "OpenTime");
     _close_timer = ADD_TIMER(_profile, "CloseWaitTime");
     _close_writer_timer = ADD_CHILD_TIMER(_profile, "CloseWriterTime", "CloseWaitTime");
@@ -289,6 +292,8 @@ Status VTabletWriterV2::_open_streams_to_backend(int64_t dst_id, Streams& stream
     }
     auto idle_timeout_ms = _state->execution_timeout() * 1000;
     std::vector<PTabletID>& tablets_for_schema = _indexes_from_node[node_info->id];
+    DBUG_EXECUTE_IF("VTabletWriterV2._open_streams_to_backend.no_schema_when_open_streams",
+                    { tablets_for_schema.clear(); });
     int fault_injection_skip_cnt = 0;
     for (auto& stream : streams) {
         DBUG_EXECUTE_IF("VTabletWriterV2._open_streams_to_backend.one_stream_open_failure", {
@@ -297,7 +302,7 @@ Status VTabletWriterV2::_open_streams_to_backend(int64_t dst_id, Streams& stream
                 continue;
             }
         });
-        auto st = stream->open(_state->exec_env()->brpc_internal_client_cache(), *node_info,
+        auto st = stream->open(_state->exec_env()->brpc_streaming_client_cache(), *node_info,
                                _txn_id, *_schema, tablets_for_schema, _total_streams,
                                idle_timeout_ms, _state->enable_profile());
         if (st.ok()) {
@@ -385,7 +390,7 @@ Status VTabletWriterV2::_select_streams(int64_t tablet_id, int64_t partition_id,
         VLOG_DEBUG << fmt::format("_select_streams P{} I{} T{}", partition_id, index_id, tablet_id);
         _tablets_for_node[node_id].emplace(tablet_id, tablet);
         auto stream = _load_stream_map->at(node_id)->at(_stream_index);
-        for (int i = 1; i < _stream_per_node && !stream->is_inited(); i++) {
+        for (int i = 1; i < _stream_per_node && !stream->is_open(); i++) {
             stream = _load_stream_map->at(node_id)->at((_stream_index + i) % _stream_per_node);
         }
         streams.emplace_back(std::move(stream));
@@ -482,6 +487,8 @@ Status VTabletWriterV2::_write_memtable(std::shared_ptr<vectorized::Block> block
                 break;
             }
         }
+        DBUG_EXECUTE_IF("VTabletWriterV2._write_memtable.index_not_found",
+                        { index_not_found = true; });
         if (index_not_found) {
             LOG(WARNING) << "index " << rows.index_id
                          << " not found in schema, load_id=" << print_id(_load_id);
@@ -675,6 +682,7 @@ void VTabletWriterV2::_close_wait(bool incremental) {
                     }
                     int64_t remain_ms = static_cast<int64_t>(_state->execution_timeout()) * 1000 -
                                         _timeout_watch.elapsed_time() / 1000 / 1000;
+                    DBUG_EXECUTE_IF("VTabletWriterV2._close_wait.load_timeout", { remain_ms = 0; });
                     if (remain_ms <= 0) {
                         LOG(WARNING) << "load timed out before close waiting, load_id="
                                      << print_id(_load_id);

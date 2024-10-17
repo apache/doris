@@ -135,9 +135,9 @@ suite("test_query_sys_tables", "query,p0") {
 
 
     // test partitions
-    // have no impl
+    // have  impl now, partition based on time and date so not doing data validation.
+    // data validation taken care in another regression test.
     qt_desc_partitions """ desc `information_schema`.`partitions` """ 
-    order_qt_select_partitions """ select * from  `information_schema`.`partitions`; """ 
 
     // test schemata
     // create test dbs

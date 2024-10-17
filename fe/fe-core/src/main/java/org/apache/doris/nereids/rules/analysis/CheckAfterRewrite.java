@@ -24,6 +24,7 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Match;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotNotFromChildren;
@@ -38,6 +39,10 @@ import org.apache.doris.nereids.trees.expressions.functions.window.WindowFunctio
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Generate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalDeferMaterializeOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
@@ -60,6 +65,7 @@ public class CheckAfterRewrite extends OneAnalysisRuleFactory {
             checkAllSlotReferenceFromChildren(plan);
             checkUnexpectedExpression(plan);
             checkMetricTypeIsUsedCorrectly(plan);
+            checkMatchIsUsedCorrectly(plan);
             return null;
         }).toRule(RuleType.CHECK_ANALYSIS);
     }
@@ -101,7 +107,6 @@ public class CheckAfterRewrite extends OneAnalysisRuleFactory {
         if (notFromChildren.isEmpty()) {
             return;
         }
-
         notFromChildren = removeValidSlotsNotFromChildren(notFromChildren, childrenOutput);
         if (!notFromChildren.isEmpty()) {
             if (plan.arity() != 0 && plan.child(0) instanceof LogicalAggregate) {
@@ -174,6 +179,33 @@ public class CheckAfterRewrite extends OneAnalysisRuleFactory {
                     throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
                 }
             });
+        } else if (plan instanceof LogicalJoin) {
+            LogicalJoin<?, ?> join = (LogicalJoin<?, ?>) plan;
+            for (Expression conjunct : join.getHashJoinConjuncts()) {
+                if (conjunct.anyMatch(e -> ((Expression) e).getDataType().isVariantType())) {
+                    throw new AnalysisException("variant type could not in join equal conditions: " + conjunct.toSql());
+                }
+            }
+            for (Expression conjunct : join.getMarkJoinConjuncts()) {
+                if (conjunct.anyMatch(e -> ((Expression) e).getDataType().isVariantType())) {
+                    throw new AnalysisException("variant type could not in join equal conditions: " + conjunct.toSql());
+                }
+            }
+        }
+    }
+
+    private void checkMatchIsUsedCorrectly(Plan plan) {
+        for (Expression expression : plan.getExpressions()) {
+            if (expression instanceof Match) {
+                if (plan instanceof LogicalFilter && (plan.child(0) instanceof LogicalOlapScan
+                        || plan.child(0) instanceof LogicalDeferMaterializeOlapScan)) {
+                    return;
+                } else {
+                    throw new AnalysisException(String.format(
+                            "Not support match in %s in plan: %s, only support in olapScan filter",
+                            plan.child(0), plan));
+                }
+            }
         }
     }
 }

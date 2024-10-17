@@ -19,6 +19,7 @@ suite("test_topn_fault_injection", "nonConcurrent") {
     // define a sql table
     def indexTbName1 = "test_topn_fault_injection1"
     def indexTbName2 = "test_topn_fault_injection2"
+    def indexTbName3 = "test_topn_fault_injection3"
 
     sql "DROP TABLE IF EXISTS ${indexTbName1}"
     sql """
@@ -61,6 +62,24 @@ suite("test_topn_fault_injection", "nonConcurrent") {
       );
     """
 
+    sql "DROP TABLE IF EXISTS ${indexTbName3}"
+    sql """
+      CREATE TABLE ${indexTbName3} (
+        `@timestamp` int(11) NULL COMMENT "",
+        `clientip` varchar(20) NULL COMMENT "",
+        `request` text NULL COMMENT "",
+        `status` int(11) NULL COMMENT "",
+        `size` int(11) NULL COMMENT ""
+      ) ENGINE=OLAP
+      DUPLICATE KEY(`@timestamp`, `clientip`)
+      COMMENT "OLAP"
+      DISTRIBUTED BY RANDOM BUCKETS 1
+      PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1",
+        "disable_auto_compaction" = "true"
+      );
+    """
+
     def load_httplogs_data = {table_name, label, read_flag, format_flag, file_name, ignore_failure=false,
                         expected_succ_rows = -1, load_to_single_tablet = 'true' ->
 
@@ -94,8 +113,10 @@ suite("test_topn_fault_injection", "nonConcurrent") {
     try {
       load_httplogs_data.call(indexTbName1, 'test_topn_fault_injection1', 'true', 'json', 'documents-1000.json')
       load_httplogs_data.call(indexTbName2, 'test_topn_fault_injection2', 'true', 'json', 'documents-1000.json')
+      load_httplogs_data.call(indexTbName3, 'test_topn_fault_injection3', 'true', 'json', 'documents-1000.json')
 
       sql "sync"
+      sql """ set enable_common_expr_pushdown = true """
 
       try {
         GetDebugPoint().enableDebugPointForAllBEs("segment_iterator.topn_opt_1")
@@ -123,10 +144,15 @@ suite("test_topn_fault_injection", "nonConcurrent") {
         qt_sql """ select * from ${indexTbName1} where (`@timestamp` >= 893964617 and `@timestamp` < 893966455) and (request match_phrase 'hm' and request like '%ag%') order by `@timestamp` limit 1; """
         qt_sql """ select * from ${indexTbName1} where (`@timestamp` >= 893964617 and `@timestamp` < 893966455) and (request match_phrase 'hm' and clientip like '%1%') order by `@timestamp` limit 1; """
         qt_sql """ select * from ${indexTbName1} where (`@timestamp` >= 893964617 and `@timestamp` < 893966455) and (clientip match_phrase '1' or clientip match_phrase '3' and request like '%ag%') order by `@timestamp` limit 1; """
+        qt_sql """ select * from ${indexTbName1} where (`@timestamp` >= 893964617 and `@timestamp` < 893966455) and (clientip match_phrase '1' or `@timestamp` = 1) order by `@timestamp` limit 1; """
 
         qt_sql """ select * from ${indexTbName2} where (`@timestamp` >= 893964617 and `@timestamp` < 893966455) and (request match_phrase 'hm' and request like '%ag%') order by `@timestamp` limit 1; """
         qt_sql """ select * from ${indexTbName2} where (`@timestamp` >= 893964617 and `@timestamp` < 893966455) and (request match_phrase 'hm' and clientip like '%1%') order by `@timestamp` limit 1; """
         qt_sql """ select * from ${indexTbName2} where (`@timestamp` >= 893964617 and `@timestamp` < 893966455) and (clientip match_phrase '1' or clientip match_phrase '3' and request like '%ag%') order by `@timestamp` limit 1; """
+        qt_sql """ select * from ${indexTbName2} where (`@timestamp` >= 893964617 and `@timestamp` < 893966455) and (clientip match_phrase '1' or `@timestamp` = 1) order by `@timestamp` limit 1; """
+        
+        qt_sql """ select * from ${indexTbName3} where (`@timestamp` >= 893964617 and `@timestamp` < 893966455) and clientip = '34.0.0.0' order by `@timestamp` limit 1; """
+        qt_sql """ select * from ${indexTbName3} where clientip = '34.0.0.0' order by `@timestamp` limit 1; """
       } finally {
         GetDebugPoint().disableDebugPointForAllBEs("segment_iterator.topn_opt_2")
       }

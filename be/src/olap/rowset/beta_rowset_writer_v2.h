@@ -141,7 +141,7 @@ public:
     }
 
     bool is_partial_update() override {
-        return _context.partial_update_info && _context.partial_update_info->is_partial_update;
+        return _context.partial_update_info && _context.partial_update_info->is_partial_update();
     }
 
 private:
@@ -156,6 +156,8 @@ private:
     SegmentFileCollection _seg_files;
 
     SegmentCreator _segment_creator;
+
+    InvertedIndexFilesInfo _idx_files_info;
 
     fmt::memory_buffer vlog_buffer;
 

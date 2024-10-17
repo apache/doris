@@ -25,6 +25,7 @@ import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.StmtType;
 import org.apache.doris.analysis.ValueList;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.DebugUtil;
@@ -39,8 +40,8 @@ import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableComma
 import org.apache.doris.nereids.trees.plans.logical.LogicalInlineTable;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
-import org.apache.doris.plugin.audit.AuditEvent.AuditEventBuilder;
-import org.apache.doris.plugin.audit.AuditEvent.EventType;
+import org.apache.doris.plugin.AuditEvent.AuditEventBuilder;
+import org.apache.doris.plugin.AuditEvent.EventType;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.service.FrontendOptions;
 
@@ -89,14 +90,14 @@ public class AuditLogHelper {
         }
         int maxLen = GlobalVariable.auditPluginMaxSqlLength;
         if (origStmt.length() <= maxLen) {
-            return origStmt.replace("\n", " ")
-                .replace("\t", " ")
-                .replace("\r", " ");
+            return origStmt.replace("\n", "\\n")
+                .replace("\t", "\\t")
+                .replace("\r", "\\r");
         }
         origStmt = truncateByBytes(origStmt)
-            .replace("\n", " ")
-            .replace("\t", " ")
-            .replace("\r", " ");
+            .replace("\n", "\\n")
+            .replace("\t", "\\t")
+            .replace("\r", "\\r");
         int rowCnt = 0;
         // old planner
         if (parsedStmt instanceof NativeInsertStmt) {
@@ -174,11 +175,17 @@ public class AuditLogHelper {
         long endTime = System.currentTimeMillis();
         long elapseMs = endTime - ctx.getStartTime();
         CatalogIf catalog = ctx.getCurrentCatalog();
-
-        String cluster = Config.isCloudMode() ? ctx.getCloudCluster(false) : "";
+        String cloudCluster = "";
+        try {
+            if (Config.isCloudMode()) {
+                cloudCluster = ctx.getCloudCluster(false);
+            }
+        } catch (ComputeGroupException e) {
+            LOG.warn("Failed to get cloud cluster", e);
+        }
+        String cluster = Config.isCloudMode() ? cloudCluster : "";
 
         AuditEventBuilder auditEventBuilder = ctx.getAuditEventBuilder();
-        auditEventBuilder.reset();
         auditEventBuilder
                 .setTimestamp(ctx.getStartTime())
                 .setClientIp(ctx.getClientIP())
@@ -204,21 +211,35 @@ public class AuditLogHelper {
                 .setFuzzyVariables(!printFuzzyVariables ? "" : ctx.getSessionVariable().printFuzzyVariables());
 
         if (ctx.getState().isQuery()) {
-            MetricRepo.COUNTER_QUERY_ALL.increase(1L);
-            MetricRepo.USER_COUNTER_QUERY_ALL.getOrAdd(ctx.getQualifiedUser()).increase(1L);
-            MetricRepo.increaseClusterQueryAll(ctx.getCloudCluster(false));
+            if (!ctx.getSessionVariable().internalSession) {
+                MetricRepo.COUNTER_QUERY_ALL.increase(1L);
+                MetricRepo.USER_COUNTER_QUERY_ALL.getOrAdd(ctx.getQualifiedUser()).increase(1L);
+            }
+            try {
+                if (Config.isCloudMode()) {
+                    cloudCluster = ctx.getCloudCluster(false);
+                }
+            } catch (ComputeGroupException e) {
+                LOG.warn("Failed to get cloud cluster", e);
+                return;
+            }
+            MetricRepo.increaseClusterQueryAll(cloudCluster);
             if (ctx.getState().getStateType() == MysqlStateType.ERR
                     && ctx.getState().getErrType() != QueryState.ErrType.ANALYSIS_ERR) {
                 // err query
-                MetricRepo.COUNTER_QUERY_ERR.increase(1L);
-                MetricRepo.USER_COUNTER_QUERY_ERR.getOrAdd(ctx.getQualifiedUser()).increase(1L);
-                MetricRepo.increaseClusterQueryErr(ctx.getCloudCluster(false));
+                if (!ctx.getSessionVariable().internalSession) {
+                    MetricRepo.COUNTER_QUERY_ERR.increase(1L);
+                    MetricRepo.USER_COUNTER_QUERY_ERR.getOrAdd(ctx.getQualifiedUser()).increase(1L);
+                    MetricRepo.increaseClusterQueryErr(cloudCluster);
+                }
             } else if (ctx.getState().getStateType() == MysqlStateType.OK
                     || ctx.getState().getStateType() == MysqlStateType.EOF) {
                 // ok query
-                MetricRepo.HISTO_QUERY_LATENCY.update(elapseMs);
-                MetricRepo.USER_HISTO_QUERY_LATENCY.getOrAdd(ctx.getQualifiedUser()).update(elapseMs);
-                MetricRepo.updateClusterQueryLatency(ctx.getCloudCluster(false), elapseMs);
+                if (!ctx.getSessionVariable().internalSession) {
+                    MetricRepo.HISTO_QUERY_LATENCY.update(elapseMs);
+                    MetricRepo.USER_HISTO_QUERY_LATENCY.getOrAdd(ctx.getQualifiedUser()).update(elapseMs);
+                    MetricRepo.updateClusterQueryLatency(cloudCluster, elapseMs);
+                }
 
                 if (elapseMs > Config.qe_slow_log_ms) {
                     String sqlDigest = DigestUtils.md5Hex(((Queriable) parsedStmt).toDigest());

@@ -446,7 +446,7 @@ void BaseTabletsChannel::refresh_profile() {
     {
         std::lock_guard<SpinLock> l(_tablet_writers_lock);
         for (auto&& [tablet_id, writer] : _tablet_writers) {
-            int64_t write_mem = writer->mem_consumption(MemType::WRITE);
+            int64_t write_mem = writer->mem_consumption(MemType::WRITE_FINISHED);
             write_mem_usage += write_mem;
             int64_t flush_mem = writer->mem_consumption(MemType::FLUSH);
             flush_mem_usage += flush_mem;
@@ -582,12 +582,15 @@ Status BaseTabletsChannel::_write_block_data(
 
         // add_batch may concurrency with inc_open but not under _lock.
         // so need to protect it with _tablet_writers_lock.
-        std::lock_guard<SpinLock> l(_tablet_writers_lock);
-
-        auto tablet_writer_it = _tablet_writers.find(tablet_id);
-        if (tablet_writer_it == _tablet_writers.end()) {
-            return Status::InternalError("unknown tablet to append data, tablet={}", tablet_id);
+        decltype(_tablet_writers.find(tablet_id)) tablet_writer_it;
+        {
+            std::lock_guard<SpinLock> l(_tablet_writers_lock);
+            tablet_writer_it = _tablet_writers.find(tablet_id);
+            if (tablet_writer_it == _tablet_writers.end()) {
+                return Status::InternalError("unknown tablet to append data, tablet={}", tablet_id);
+            }
         }
+
         Status st = write_func(tablet_writer_it->second.get());
         if (!st.ok()) {
             auto err_msg =

@@ -22,7 +22,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.transaction.TransactionEntry;
 
-public class TransactionBeginStmt extends TransactionStmt {
+public class TransactionBeginStmt extends TransactionStmt implements NotFallbackInParser {
     private String label = null;
 
     public TransactionBeginStmt() {

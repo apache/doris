@@ -68,8 +68,8 @@ public class TPCHTest extends TPCHTestBase implements MemoPatternMatchSupported 
                                 logicalAggregate(
                                     logicalProject().when(
                                             project -> project.getProjects().size() == 1
-                                                    && project.getProjects().get(0) instanceof SlotReference
-                                                    && "o_orderdate".equals(project.getProjects().get(0).toSql()))))
+                                                    && !(project.getProjects().get(0) instanceof SlotReference)
+                                    )))
                 );
     }
 }

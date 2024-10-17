@@ -17,17 +17,21 @@
 
 package org.apache.doris.insertoverwrite;
 
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.insertoverwrite.InsertOverwriteLog.InsertOverwriteOpType;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -40,7 +44,9 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Set;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class InsertOverwriteManager extends MasterDaemon implements Writable {
     private static final Logger LOG = LogManager.getLogger(InsertOverwriteManager.class);
@@ -61,6 +67,11 @@ public class InsertOverwriteManager extends MasterDaemon implements Writable {
     // <groupId, <oldPartId, newPartId>>. no need concern which task it belongs to.
     @SerializedName(value = "partitionPairs")
     private Map<Long, Map<Long, Long>> partitionPairs = Maps.newConcurrentMap();
+
+    // TableId running insert overwrite
+    // dbId ==> Set<tableId>
+    private Map<Long, Set<Long>> runningTables = Maps.newHashMap();
+    private ReentrantReadWriteLock runningLock = new ReentrantReadWriteLock(true);
 
     public InsertOverwriteManager() {
         super("InsertOverwriteDropDirtyPartitions", CLEAN_INTERVAL_SECOND * 1000);
@@ -268,6 +279,61 @@ public class InsertOverwriteManager extends MasterDaemon implements Writable {
             return true;
         }
         return InsertOverwriteUtil.dropPartitions(olapTable, task.getTempPartitionNames());
+    }
+
+    /**
+     * If the current table id has a running insert overwrite, throw an exception.
+     * If not, record it in runningTables
+     *
+     * @param db Run the db for insert overwrite
+     * @param table Run the table for insert overwrite
+     */
+    public void recordRunningTableOrException(DatabaseIf db, TableIf table) {
+        // The logic of OlapTable executing insert overwrite is to create temporary partitions,
+        // replace partitions, etc.
+        // If executed in parallel, it may cause problems such as not being able to find temporary partitions.
+        // But in terms of external table, we don't care the internal logic of execution,
+        // so there's no need to keep records
+        if (!(table instanceof OlapTable)) {
+            return;
+        }
+        long dbId = db.getId();
+        long tableId = table.getId();
+        runningLock.writeLock().lock();
+        try {
+            if (runningTables.containsKey(dbId) && runningTables.get(dbId).contains(tableId)) {
+                throw new AnalysisException(
+                        String.format("Not allowed running Insert Overwrite on same table: %s.%s", db.getFullName(),
+                                table.getName()));
+            }
+            if (runningTables.containsKey(dbId)) {
+                runningTables.get(dbId).add(tableId);
+            } else {
+                runningTables.put(dbId, Sets.newHashSet(tableId));
+            }
+        } finally {
+            runningLock.writeLock().unlock();
+        }
+    }
+
+    /**
+     * Remove from running records
+     *
+     * @param dbId Run the dbId for insert overwrite
+     * @param tableId Run the tableId for insert overwrite
+     */
+    public void dropRunningRecord(long dbId, long tableId) {
+        runningLock.writeLock().lock();
+        try {
+            if (runningTables.containsKey(dbId) && runningTables.get(dbId).contains(tableId)) {
+                runningTables.get(dbId).remove(tableId);
+                if (runningTables.get(dbId).size() == 0) {
+                    runningTables.remove(dbId);
+                }
+            }
+        } finally {
+            runningLock.writeLock().unlock();
+        }
     }
 
     /**

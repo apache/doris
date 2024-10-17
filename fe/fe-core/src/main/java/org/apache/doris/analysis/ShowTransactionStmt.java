@@ -37,7 +37,7 @@ import org.apache.logging.log4j.Logger;
 
 // syntax:
 //      SHOW TRANSACTION  WHERE id=123
-public class ShowTransactionStmt extends ShowStmt {
+public class ShowTransactionStmt extends ShowStmt implements NotFallbackInParser {
     private static final Logger LOG = LogManager.getLogger(ShowTransactionStmt.class);
 
     private String dbName;

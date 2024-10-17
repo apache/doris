@@ -91,11 +91,11 @@ PhysicalResultSink
 
 -- !groupby_pushdown_having --
 PhysicalResultSink
---filter((max(score) > 100))
-----hashAgg[GLOBAL]
-------hashAgg[LOCAL]
---------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
-----------PhysicalOlapScan[max_t]
+--hashAgg[GLOBAL]
+----hashAgg[LOCAL]
+------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+--------PhysicalOlapScan[max_t]
+--------filter((t1.score > 100))
 ----------PhysicalOlapScan[max_t]
 
 -- !groupby_pushdown_mixed_aggregates --
@@ -366,11 +366,11 @@ SyntaxError:
 
 -- !with_hint_groupby_pushdown_having --
 PhysicalResultSink
---filter((max(score) > 100))
-----hashAgg[GLOBAL]
-------hashAgg[LOCAL]
---------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
-----------PhysicalOlapScan[max_t]
+--hashAgg[GLOBAL]
+----hashAgg[LOCAL]
+------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+--------PhysicalOlapScan[max_t]
+--------filter((t1.score > 100))
 ----------PhysicalOlapScan[max_t]
 
 Hint log:
