@@ -61,7 +61,7 @@ suite("test_limit") {
     sql """ INSERT INTO row_number_limit_tbl VALUES (7844, 'TURNER', 'SALESMAN', 7698, '1981-09-08', 1500, 0, 30); """
     sleep(1000)
     qt_limit1 """
-            select row_number() over(order by k6 desc) k6s, t.* from row_number_limit_tbl t limit 1 offset 1;
+            select row_number() over(order by k6 desc) k6s, t.* from row_number_limit_tbl t order by k6s limit 1 offset 1;
         """
     sql """ truncate table row_number_limit_tbl; """
     sleep(1000)
