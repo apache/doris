@@ -23,6 +23,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.security.authentication.AuthenticationConfig;
 import org.apache.doris.common.security.authentication.HadoopAuthenticator;
 import org.apache.doris.common.util.URI;
+import org.apache.doris.fs.HdfsUtil;
 import org.apache.doris.fs.operations.HDFSFileOperations;
 import org.apache.doris.fs.operations.HDFSOpParams;
 import org.apache.doris.fs.operations.OpParams;
@@ -58,7 +59,7 @@ import java.util.List;
 import java.util.Map;
 
 public class DFSFileSystem extends RemoteFileSystem {
-
+    public static final String HADOOP_CONFIG_RESOURCES = "hadoop.config.resources";
     public static final String PROP_ALLOW_FALLBACK_TO_SIMPLE_AUTH = "ipc.client.fallback-to-simple-auth-allowed";
     private static final Logger LOG = LogManager.getLogger(DFSFileSystem.class);
     private HDFSFileOperations operations = null;
@@ -85,7 +86,12 @@ public class DFSFileSystem extends RemoteFileSystem {
                     throw new UserException("FileSystem is closed.");
                 }
                 if (dfsFileSystem == null) {
-                    Configuration conf = getHdfsConf(ifNotSetFallbackToSimpleAuth());
+                    Configuration conf;
+                    if (properties.containsKey(HADOOP_CONFIG_RESOURCES)) {
+                        conf = HdfsUtil.loadConfigurationFromHadoopConfDir(properties.get(HADOOP_CONFIG_RESOURCES));
+                    } else {
+                        conf = getHdfsConf(ifNotSetFallbackToSimpleAuth());
+                    }
                     for (Map.Entry<String, String> propEntry : properties.entrySet()) {
                         conf.set(propEntry.getKey(), propEntry.getValue());
                     }
@@ -111,7 +117,8 @@ public class DFSFileSystem extends RemoteFileSystem {
     }
 
     protected RemoteIterator<LocatedFileStatus> getLocatedFiles(boolean recursive,
-                FileSystem fileSystem, Path locatedPath) throws IOException {
+                                                                FileSystem fileSystem, Path locatedPath)
+            throws IOException {
         return authenticator.doAs(() -> fileSystem.listFiles(locatedPath, recursive));
     }
 
@@ -221,7 +228,7 @@ public class DFSFileSystem extends RemoteFileSystem {
      * @throws IOException when read data error.
      */
     private static ByteBuffer readStreamBuffer(FSDataInputStream fsDataInputStream, long readOffset, long length)
-                throws IOException {
+            throws IOException {
         synchronized (fsDataInputStream) {
             long currentStreamOffset;
             try {
