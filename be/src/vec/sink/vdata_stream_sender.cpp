@@ -120,6 +120,14 @@ Status Channel<Parent>::open(RuntimeState* state) {
     return Status::OK();
 }
 
+int PipChannel::sender_id() const {
+    return _parent->sender_id();
+}
+
+int PipChannel::be_number() const {
+    return _parent->be_number();
+}
+
 std::shared_ptr<pipeline::Dependency> PipChannel::get_local_channel_dependency() {
     if (!Channel<pipeline::ExchangeSinkLocalState>::_local_recvr) {
         return nullptr;
