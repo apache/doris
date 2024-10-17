@@ -238,7 +238,9 @@ public abstract class ConnectProcessor {
         long parseSqlStartTime = System.currentTimeMillis();
         List<StatementBase> cachedStmts = null;
         CacheKeyType cacheKeyType = null;
-        if (!sessionVariable.isEnableInsertGroupCommit() && sessionVariable.isEnableNereidsPlanner()) {
+        boolean isGroupCommitFromPreparedStatement =
+                sessionVariable.isEnableInsertGroupCommit() && mysqlCommand != MysqlCommand.COM_QUERY;
+        if (!isGroupCommitFromPreparedStatement && sessionVariable.isEnableNereidsPlanner()) {
             if (wantToParseSqlFromSqlCache) {
                 cachedStmts = parseFromSqlCache(originStmt);
                 Optional<SqlCacheContext> sqlCacheContext = ConnectContext.get()
