@@ -677,6 +677,7 @@ void ExecEnv::destroy() {
 
     // StorageEngine must be destoried before _page_no_cache_mem_tracker.reset and _cache_manager destory
     // shouldn't use SAFE_STOP. otherwise will lead to twice stop.
+    _storage_engine.stop();
     _storage_engine.reset();
 
     SAFE_STOP(_spill_stream_mgr);
