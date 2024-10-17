@@ -28,7 +28,8 @@ namespace doris::vectorized {
 template <template <typename> class Data>
 AggregateFunctionPtr create_aggregate_function_uniq(const std::string& name,
                                                     const DataTypes& argument_types,
-                                                    const bool result_is_nullable) {
+                                                    const bool result_is_nullable,
+                                                    const AggregateFunctionAttr& attr) {
     if (argument_types.size() == 1) {
         const IDataType& argument_type = *remove_nullable(argument_types[0]);
         WhichDataType which(argument_type);

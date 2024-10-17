@@ -27,6 +27,7 @@
 #include <vector>
 
 #include "common/status.h"
+#include "runtime/runtime_state.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/core/block.h"
@@ -66,8 +67,8 @@ Status VCaseExpr::prepare(RuntimeState* state, const RowDescriptor& desc, VExprC
         arguments.emplace_back(child->data_type());
     }
 
-    _function = SimpleFunctionFactory::instance().get_function(_function_name, argument_template,
-                                                               _data_type);
+    _function = SimpleFunctionFactory::instance().get_function(
+            _function_name, argument_template, _data_type, state->enable_decimal256());
     if (_function == nullptr) {
         return Status::NotSupported("vcase_expr Function {} is not implemented",
                                     _fn.name.function_name);
