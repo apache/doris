@@ -353,7 +353,7 @@ void HashJoinBuildSinkLocalState::_set_build_ignore_flag(vectorized::Block& bloc
 Status HashJoinBuildSinkLocalState::_hash_table_init(RuntimeState* state) {
     auto& p = _parent->cast<HashJoinBuildSinkOperatorX>();
     std::vector<vectorized::DataTypePtr> data_types;
-    for (size_t i = 0; i != _build_expr_ctxs.size(); ++i) {
+    for (size_t i = 0; i < _build_expr_ctxs.size(); ++i) {
         auto& ctx = _build_expr_ctxs[i];
         auto data_type = ctx->root()->data_type();
 
@@ -363,6 +363,9 @@ Status HashJoinBuildSinkLocalState::_hash_table_init(RuntimeState* state) {
             data_type = vectorized::make_nullable(data_type);
         }
         data_types.emplace_back(std::move(data_type));
+    }
+    if (_build_expr_ctxs.size() == 1) {
+        p._should_keep_hash_key_column = true;
     }
     return init_hash_method<JoinDataVariants>(_shared_state->hash_table_variants.get(), data_types,
                                               true);
