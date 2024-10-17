@@ -108,9 +108,6 @@ import org.apache.doris.nereids.rules.rewrite.PullUpJoinFromUnionAll;
 import org.apache.doris.nereids.rules.rewrite.PullUpProjectUnderApply;
 import org.apache.doris.nereids.rules.rewrite.PullUpProjectUnderLimit;
 import org.apache.doris.nereids.rules.rewrite.PullUpProjectUnderTopN;
-import org.apache.doris.nereids.rules.rewrite.PushConjunctsIntoEsScan;
-import org.apache.doris.nereids.rules.rewrite.PushConjunctsIntoJdbcScan;
-import org.apache.doris.nereids.rules.rewrite.PushConjunctsIntoOdbcScan;
 import org.apache.doris.nereids.rules.rewrite.PushCountIntoUnionAll;
 import org.apache.doris.nereids.rules.rewrite.PushDownAggThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.PushDownAggThroughJoinOnPkFk;
@@ -410,10 +407,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         topDown(
                                 new PruneOlapScanPartition(),
                                 new PruneEmptyPartition(),
-                                new PruneFileScanPartition(),
-                                new PushConjunctsIntoJdbcScan(),
-                                new PushConjunctsIntoOdbcScan(),
-                                new PushConjunctsIntoEsScan()
+                                new PruneFileScanPartition()
                         )
                 ),
                 topic("MV optimization",
