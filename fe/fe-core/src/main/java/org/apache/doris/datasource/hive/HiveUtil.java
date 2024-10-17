@@ -215,8 +215,6 @@ public final class HiveUtil {
         props.put("comment", hiveTable.getComment());
         if (props.containsKey("owner")) {
             table.setOwner(props.get("owner"));
-        } else {
-            table.setOwner(ConnectContext.get().getUserIdentity().getUser());
         }
         HiveProperties.setTableProperties(table, props);
         return table;
