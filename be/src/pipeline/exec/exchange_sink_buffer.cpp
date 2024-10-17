@@ -248,26 +248,14 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
         if (config::exchange_sink_ignore_eovercrowded) {
             send_callback->cntl_->ignore_eovercrowded();
         }
-        send_callback->addFailedHandler([&, weak_task_ctx = weak_task_exec_ctx()](
-                                                const InstanceLoId& id, const std::string& err) {
-            auto task_lock = weak_task_ctx.lock();
-            if (task_lock == nullptr) {
-                // This means ExchangeSinkBuffer Ojbect already destroyed, not need run failed any more.
-                return;
-            }
+        send_callback->addFailedHandler([&](const InstanceLoId& id, const std::string& err) {
             // attach task for memory tracker and query id when core
             SCOPED_ATTACH_TASK(_fragment_state);
             _failed(id, err);
         });
-        send_callback->addSuccessHandler([&, weak_task_ctx = weak_task_exec_ctx()](
-                                                 const InstanceLoId& id, const bool& eos,
-                                                 const PTransmitDataResult& result,
-                                                 const int64_t& start_rpc_time) {
-            auto task_lock = weak_task_ctx.lock();
-            if (task_lock == nullptr) {
-                // This means ExchangeSinkBuffer Ojbect already destroyed, not need run failed any more.
-                return;
-            }
+        send_callback->addSuccessHandler([&](const InstanceLoId& id, const bool& eos,
+                                             const PTransmitDataResult& result,
+                                             const int64_t& start_rpc_time) {
             // attach task for memory tracker and query id when core
             SCOPED_ATTACH_TASK(_fragment_state);
             set_rpc_time(id, start_rpc_time, result.receive_time());
@@ -327,26 +315,14 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
         if (config::exchange_sink_ignore_eovercrowded) {
             send_callback->cntl_->ignore_eovercrowded();
         }
-        send_callback->addFailedHandler([&, weak_task_ctx = weak_task_exec_ctx()](
-                                                const InstanceLoId& id, const std::string& err) {
-            auto task_lock = weak_task_ctx.lock();
-            if (task_lock == nullptr) {
-                // This means ExchangeSinkBuffer Ojbect already destroyed, not need run failed any more.
-                return;
-            }
+        send_callback->addFailedHandler([&](const InstanceLoId& id, const std::string& err) {
             // attach task for memory tracker and query id when core
             SCOPED_ATTACH_TASK(_fragment_state);
             _failed(id, err);
         });
-        send_callback->addSuccessHandler([&, weak_task_ctx = weak_task_exec_ctx()](
-                                                 const InstanceLoId& id, const bool& eos,
-                                                 const PTransmitDataResult& result,
-                                                 const int64_t& start_rpc_time) {
-            auto task_lock = weak_task_ctx.lock();
-            if (task_lock == nullptr) {
-                // This means ExchangeSinkBuffer Ojbect already destroyed, not need run failed any more.
-                return;
-            }
+        send_callback->addSuccessHandler([&](const InstanceLoId& id, const bool& eos,
+                                             const PTransmitDataResult& result,
+                                             const int64_t& start_rpc_time) {
             // attach task for memory tracker and query id when core
             SCOPED_ATTACH_TASK(_fragment_state);
             set_rpc_time(id, start_rpc_time, result.receive_time());
