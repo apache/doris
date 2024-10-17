@@ -478,7 +478,6 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
         return context.statistics;
     }
 
-    // where not array_contains([xx, xx], xx)
     @Override
     public Statistics visitNot(Not not, EstimationContext context) {
         if (context.statistics.isInputSlotsUnknown(not.getInputSlots())) {
@@ -501,6 +500,7 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
                 // 2. not A in (...)
                 // 3. not A is null
                 // 4. not A like XXX
+                // 5. not array_contains([xx, xx], xx)
                 colBuilder.setNumNulls(0);
                 Preconditions.checkArgument(
                         child instanceof EqualPredicate
