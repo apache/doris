@@ -101,7 +101,8 @@ inline HashKeyType get_hash_key_type(const std::vector<vectorized::DataTypePtr>&
         return HashKeyType::string_key;
     }
 
-    size_t size = data_types[0]->get_maximum_size_of_value_in_memory();
+    size_t size = data_types[0]->get_maximum_size_of_value_in_memory() -
+                  (data_types[0]->is_nullable() ? 1 : 0);
     if (size == sizeof(vectorized::UInt8)) {
         return HashKeyType::int8_key;
     } else if (size == sizeof(vectorized::UInt16)) {
