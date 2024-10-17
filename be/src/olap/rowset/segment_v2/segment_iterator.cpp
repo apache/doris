@@ -901,6 +901,14 @@ bool SegmentIterator::_need_read_data(ColumnId cid) {
     if (_has_delete_predicate(cid)) {
         return true;
     }
+
+    // select count(b) from table where b is null;
+    // Even if the column "b" has produced a result through index calculation,
+    // it is still necessary to read the "b" column.
+    if (_has_is_null_predicate(cid)) {
+        return true;
+    }
+
     if (_output_columns.count(-1)) {
         // if _output_columns contains -1, it means that the light
         // weight schema change may not be enabled or other reasons
@@ -2457,6 +2465,13 @@ bool SegmentIterator::_no_need_read_key_data(ColumnId cid, vectorized::MutableCo
         return false;
     }
 
+    // select count(b) from table where b is null;
+    // Even if the column "b" has produced a result through index calculation,
+    // it is still necessary to read the "b" column.
+    if (_has_is_null_predicate(cid)) {
+        return false;
+    }
+
     if (!_check_all_conditions_passed_inverted_index_for_column(cid)) {
         return false;
     }
@@ -2476,6 +2491,19 @@ bool SegmentIterator::_has_delete_predicate(ColumnId cid) {
     std::set<uint32_t> delete_columns_set;
     _opts.delete_condition_predicates->get_all_column_ids(delete_columns_set);
     return delete_columns_set.contains(cid);
+}
+
+bool SegmentIterator::_has_is_null_predicate(ColumnId cid) {
+    if (const auto& pred_it = _column_predicate_inverted_index_status.find(cid);
+        pred_it != _column_predicate_inverted_index_status.end()) {
+        const auto& pred_map = pred_it->second;
+        for (const auto& [pred, _] : pred_map) {
+            if (pred->type() == PredicateType::IS_NULL) [[unlikely]] {
+                return true;
+            }
+        }
+    }
+    return false;
 }
 
 bool SegmentIterator::_can_opt_topn_reads() {
