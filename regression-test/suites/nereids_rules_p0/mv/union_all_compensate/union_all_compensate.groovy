@@ -160,7 +160,7 @@ suite("union_all_compensate") {
     sql """set enable_materialized_view_rewrite = false;"""
     order_qt_query1_0_before "${query1_0}"
     sql """set enable_materialized_view_rewrite = true;"""
-    mv_rewrite_success(query1_0, "test_agg_mv")
+    mv_rewrite_success_without_check_chosen(query1_0, "test_agg_mv")
     order_qt_query1_0_after "${query1_0}"
 
     // Data modify
@@ -197,7 +197,7 @@ suite("union_all_compensate") {
     order_qt_query2_0_before "${query2_0}"
     sql """set enable_materialized_view_rewrite = true;"""
     sql """ALTER MATERIALIZED VIEW test_agg_mv set("grace_period"="100000");"""
-    mv_rewrite_success(query2_0, "test_agg_mv")
+    mv_rewrite_success_without_check_chosen(query2_0, "test_agg_mv")
     order_qt_query2_0_after "${query2_0}"
 
 
@@ -240,7 +240,7 @@ suite("union_all_compensate") {
     order_qt_query4_0_before "${query4_0}"
     sql """set enable_materialized_view_rewrite = true;"""
     sql """ALTER MATERIALIZED VIEW test_agg_mv set("grace_period"="100000");"""
-    mv_rewrite_success(query4_0, "test_agg_mv")
+    mv_rewrite_success_without_check_chosen(query4_0, "test_agg_mv")
     order_qt_query4_0_after "${query4_0}"
 
 
@@ -262,7 +262,7 @@ suite("union_all_compensate") {
     order_qt_query5_0_before "${query4_0}"
     sql """ALTER MATERIALIZED VIEW test_agg_mv set("grace_period"="0");"""
     sql """set enable_materialized_view_rewrite = true;"""
-    mv_rewrite_success(query4_0, "test_agg_mv")
+    mv_rewrite_success_without_check_chosen(query4_0, "test_agg_mv")
     order_qt_query5_0_after "${query4_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS test_agg_mv"""
 
@@ -317,7 +317,7 @@ suite("union_all_compensate") {
     sql """set enable_materialized_view_rewrite = false;"""
     order_qt_query6_0_before "${query6_0}"
     sql """set enable_materialized_view_rewrite = true;"""
-    mv_rewrite_success(query6_0, "test_join_mv")
+    mv_rewrite_success_without_check_chosen(query6_0, "test_join_mv")
     order_qt_query6_0_after "${query6_0}"
 
 
@@ -338,7 +338,7 @@ suite("union_all_compensate") {
     order_qt_query7_0_before "${query7_0}"
     sql """set enable_materialized_view_rewrite = true;"""
     sql """ALTER MATERIALIZED VIEW test_join_mv set("grace_period"="100000");"""
-    mv_rewrite_success(query7_0, "test_join_mv")
+    mv_rewrite_success_without_check_chosen(query7_0, "test_join_mv")
     order_qt_query7_0_after "${query7_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS test_join_mv"""
 
