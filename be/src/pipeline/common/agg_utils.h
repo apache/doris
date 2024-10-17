@@ -22,13 +22,11 @@
 
 #include "vec/common/arena.h"
 #include "vec/common/hash_table/hash_map_context.h"
-#include "vec/common/hash_table/hash_map_context_creator.h"
 #include "vec/common/hash_table/hash_map_util.h"
 #include "vec/common/hash_table/ph_hash_map.h"
 #include "vec/common/hash_table/string_hash_map.h"
 
 namespace doris {
-namespace pipeline {
 
 using AggregatedDataWithoutKey = vectorized::AggregateDataPtr;
 using AggregatedDataWithStringKey = PHHashMap<StringRef, vectorized::AggregateDataPtr>;
@@ -117,57 +115,47 @@ using AggregatedMethodVariants = std::variant<
         vectorized::MethodKeysFixed<AggregatedDataWithUInt256Key, false>,
         vectorized::MethodKeysFixed<AggregatedDataWithUInt256Key, true>,
         vectorized::MethodKeysFixed<AggregatedDataWithUInt136Key, false>,
-        vectorized::MethodKeysFixed<AggregatedDataWithUInt136Key, true>,
-        vectorized::MethodKeysFixed<AggregatedDataWithUInt64KeyPhase2, false>,
-        vectorized::MethodKeysFixed<AggregatedDataWithUInt64KeyPhase2, true>,
-        vectorized::MethodKeysFixed<AggregatedDataWithUInt128KeyPhase2, false>,
-        vectorized::MethodKeysFixed<AggregatedDataWithUInt128KeyPhase2, true>,
-        vectorized::MethodKeysFixed<AggregatedDataWithUInt256KeyPhase2, false>,
-        vectorized::MethodKeysFixed<AggregatedDataWithUInt256KeyPhase2, true>,
-        vectorized::MethodKeysFixed<AggregatedDataWithUInt136KeyPhase2, false>,
-        vectorized::MethodKeysFixed<AggregatedDataWithUInt136KeyPhase2, true>>;
+        vectorized::MethodKeysFixed<AggregatedDataWithUInt136Key, true>>;
 
 struct AggregatedDataVariants
-        : public vectorized::DataVariants<AggregatedMethodVariants,
-                                          vectorized::MethodSingleNullableColumn,
-                                          vectorized::MethodOneNumber, vectorized::MethodKeysFixed,
-                                          vectorized::DataWithNullKey> {
+        : public DataVariants<AggregatedMethodVariants, vectorized::MethodSingleNullableColumn,
+                              vectorized::MethodOneNumber, vectorized::MethodKeysFixed,
+                              vectorized::DataWithNullKey> {
     AggregatedDataWithoutKey without_key = nullptr;
 
     template <bool nullable>
-    void init(Type type) {
-        _type = type;
-        switch (_type) {
-        case Type::without_key:
+    void init(const std::vector<vectorized::DataTypePtr>& data_types, HashKeyType type) {
+        switch (type) {
+        case HashKeyType::without_key:
             break;
-        case Type::serialized:
+        case HashKeyType::serialized:
             method_variant.emplace<vectorized::MethodSerialized<AggregatedDataWithStringKey>>();
             break;
-        case Type::int8_key:
+        case HashKeyType::int8_key:
             emplace_single<vectorized::UInt8, AggregatedDataWithUInt8Key, nullable>();
             break;
-        case Type::int16_key:
+        case HashKeyType::int16_key:
             emplace_single<vectorized::UInt16, AggregatedDataWithUInt16Key, nullable>();
             break;
-        case Type::int32_key:
+        case HashKeyType::int32_key:
             emplace_single<vectorized::UInt32, AggregatedDataWithUInt32Key, nullable>();
             break;
-        case Type::int32_key_phase2:
+        case HashKeyType::int32_key_phase2:
             emplace_single<vectorized::UInt32, AggregatedDataWithUInt32KeyPhase2, nullable>();
             break;
-        case Type::int64_key:
+        case HashKeyType::int64_key:
             emplace_single<vectorized::UInt64, AggregatedDataWithUInt64Key, nullable>();
             break;
-        case Type::int64_key_phase2:
+        case HashKeyType::int64_key_phase2:
             emplace_single<vectorized::UInt64, AggregatedDataWithUInt64KeyPhase2, nullable>();
             break;
-        case Type::int128_key:
+        case HashKeyType::int128_key:
             emplace_single<vectorized::UInt128, AggregatedDataWithUInt128Key, nullable>();
             break;
-        case Type::int128_key_phase2:
+        case HashKeyType::int128_key_phase2:
             emplace_single<vectorized::UInt128, AggregatedDataWithUInt128KeyPhase2, nullable>();
             break;
-        case Type::string_key:
+        case HashKeyType::string_key:
             if (nullable) {
                 method_variant.emplace<
                         vectorized::MethodSingleNullableColumn<vectorized::MethodStringNoCache<
@@ -177,16 +165,24 @@ struct AggregatedDataVariants
                         vectorized::MethodStringNoCache<AggregatedDataWithShortStringKey>>();
             }
             break;
+        case HashKeyType::fixed64:
+            method_variant
+                    .emplace<vectorized::MethodKeysFixed<AggregatedDataWithUInt64Key, nullable>>(
+                            get_key_sizes(data_types));
+        case HashKeyType::fixed128:
+            method_variant
+                    .emplace<vectorized::MethodKeysFixed<AggregatedDataWithUInt128Key, nullable>>(
+                            get_key_sizes(data_types));
+        case HashKeyType::fixed136:
+            method_variant
+                    .emplace<vectorized::MethodKeysFixed<AggregatedDataWithUInt136Key, nullable>>(
+                            get_key_sizes(data_types));
+        case HashKeyType::fixed256:
+            method_variant
+                    .emplace<vectorized::MethodKeysFixed<AggregatedDataWithUInt256Key, nullable>>(
+                            get_key_sizes(data_types));
         default:
             throw Exception(ErrorCode::INTERNAL_ERROR, "meet invalid key type, type={}", type);
-        }
-    }
-
-    void init(Type type, bool is_nullable = false) {
-        if (is_nullable) {
-            init<true>(type);
-        } else {
-            init<false>(type);
         }
     }
 };
@@ -332,9 +328,6 @@ private:
     bool _inited = false;
 };
 
-} // namespace pipeline
-
-constexpr auto init_agg_hash_method =
-        init_hash_method<pipeline::AggregatedDataVariants, vectorized::AggregateDataPtr>;
+constexpr auto init_agg_hash_method = init_hash_method<AggregatedDataVariants>;
 
 } // namespace doris

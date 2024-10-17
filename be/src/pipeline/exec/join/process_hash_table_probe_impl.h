@@ -727,24 +727,24 @@ struct ExtractType<T(U)> {
             ExtractType<void(T)>::Type & hash_table_ctx, vectorized::MutableBlock & mutable_block, \
             vectorized::Block * output_block, bool* eos, bool is_mark_join);
 
-#define INSTANTIATION_FOR(JoinOpType)                                    \
-    template struct ProcessHashTableProbe<JoinOpType>;                   \
-                                                                         \
-    INSTANTIATION(JoinOpType, (vectorized::SerializedHashTableContext)); \
-    INSTANTIATION(JoinOpType, (I8HashTableContext));                     \
-    INSTANTIATION(JoinOpType, (I16HashTableContext));                    \
-    INSTANTIATION(JoinOpType, (I32HashTableContext));                    \
-    INSTANTIATION(JoinOpType, (I64HashTableContext));                    \
-    INSTANTIATION(JoinOpType, (I128HashTableContext));                   \
-    INSTANTIATION(JoinOpType, (I256HashTableContext));                   \
-    INSTANTIATION(JoinOpType, (I64FixedKeyHashTableContext<true>));      \
-    INSTANTIATION(JoinOpType, (I64FixedKeyHashTableContext<false>));     \
-    INSTANTIATION(JoinOpType, (I128FixedKeyHashTableContext<true>));     \
-    INSTANTIATION(JoinOpType, (I128FixedKeyHashTableContext<false>));    \
-    INSTANTIATION(JoinOpType, (I256FixedKeyHashTableContext<true>));     \
-    INSTANTIATION(JoinOpType, (I256FixedKeyHashTableContext<false>));    \
-    INSTANTIATION(JoinOpType, (I136FixedKeyHashTableContext<true>));     \
-    INSTANTIATION(JoinOpType, (MethodOneString));                        \
+#define INSTANTIATION_FOR(JoinOpType)                                 \
+    template struct ProcessHashTableProbe<JoinOpType>;                \
+                                                                      \
+    INSTANTIATION(JoinOpType, (SerializedHashTableContext));          \
+    INSTANTIATION(JoinOpType, (I8HashTableContext));                  \
+    INSTANTIATION(JoinOpType, (I16HashTableContext));                 \
+    INSTANTIATION(JoinOpType, (I32HashTableContext));                 \
+    INSTANTIATION(JoinOpType, (I64HashTableContext));                 \
+    INSTANTIATION(JoinOpType, (I128HashTableContext));                \
+    INSTANTIATION(JoinOpType, (I256HashTableContext));                \
+    INSTANTIATION(JoinOpType, (I64FixedKeyHashTableContext<true>));   \
+    INSTANTIATION(JoinOpType, (I64FixedKeyHashTableContext<false>));  \
+    INSTANTIATION(JoinOpType, (I128FixedKeyHashTableContext<true>));  \
+    INSTANTIATION(JoinOpType, (I128FixedKeyHashTableContext<false>)); \
+    INSTANTIATION(JoinOpType, (I256FixedKeyHashTableContext<true>));  \
+    INSTANTIATION(JoinOpType, (I256FixedKeyHashTableContext<false>)); \
+    INSTANTIATION(JoinOpType, (I136FixedKeyHashTableContext<true>));  \
+    INSTANTIATION(JoinOpType, (MethodOneString));                     \
     INSTANTIATION(JoinOpType, (I136FixedKeyHashTableContext<false>));
 
 } // namespace doris::pipeline

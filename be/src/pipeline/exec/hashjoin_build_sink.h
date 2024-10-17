@@ -55,7 +55,7 @@ public:
     Status close(RuntimeState* state, Status exec_status) override;
 
 protected:
-    void _hash_table_init(RuntimeState* state);
+    Status _hash_table_init(RuntimeState* state);
     void _set_build_ignore_flag(vectorized::Block& block, const std::vector<int>& res_col_ids);
     Status _do_evaluate(vectorized::Block& block, vectorized::VExprContextSPtrs& exprs,
                         RuntimeProfile::Counter& expr_call_timer, std::vector<int>& res_col_ids);
