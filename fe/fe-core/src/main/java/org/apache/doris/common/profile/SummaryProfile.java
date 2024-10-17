@@ -904,11 +904,11 @@ public class SummaryProfile {
     }
 
     public void setSystemMessage(String msg) {
-        summaryProfile.addInfoString(SYSTEM_MESSAGE, msg);
+        executionSummaryProfile.addInfoString(SYSTEM_MESSAGE, msg);
     }
 
     public void setExecutedByFrontend(boolean executedByFrontend) {
-        summaryProfile.addInfoString(EXECUTED_BY_FRONTEND, String.valueOf(executedByFrontend));
+        executionSummaryProfile.addInfoString(EXECUTED_BY_FRONTEND, String.valueOf(executedByFrontend));
     }
 
     public void write(DataOutput output) throws IOException {
