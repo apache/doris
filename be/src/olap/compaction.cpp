@@ -740,6 +740,19 @@ Status Compaction::do_inverted_index_compaction() {
                     break;
                 }
             }
+
+            // if we restore tablets from other cluster, then we got schema.index.index_id
+            // from src cluster in be, but in fe, we will generate new index_id,
+            // different index_id make we can not find index file correctly.
+            // Here we temporarily skip index compaction.
+            // (TODO) we should use index_id in rowset schema, not tablet schema.
+            if (index_meta->index_id() != tablet_index->index_id()) {
+                error_handler(index_meta->index_id(), column_uniq_id);
+                status = Status::Error<INVERTED_INDEX_COMPACTION_ERROR>(
+                        "index ids are different, skip index compaction");
+                is_continue = true;
+                break;
+            }
         }
         if (is_continue) {
             continue;
