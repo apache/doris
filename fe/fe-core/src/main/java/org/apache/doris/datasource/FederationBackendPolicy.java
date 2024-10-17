@@ -179,6 +179,7 @@ public class FederationBackendPolicy {
                 .preferComputeNode(Config.prefer_compute_node_for_external_table)
                 .assignExpectBeNum(Config.min_backend_num_for_external_table)
                 .addPreLocations(preLocations)
+                .setForQuery(true)
                 .build();
         init(policy);
     }
