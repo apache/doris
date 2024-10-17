@@ -424,7 +424,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 partialUpdateCols.add(col.getName());
             }
         }
-        TupleDescriptor olapTuple = generateTupleDescForSink(olapTableSink.getTargetTableSlots(), context);
+        TupleDescriptor olapTuple = generateTupleDesc(olapTableSink.getTargetTableSlots(),
+                olapTableSink.getTargetTable(), context);
         List<Expr> partitionExprs = olapTableSink.getPartitionExprList().stream()
                 .map(e -> ExpressionTranslator.translate(e, context)).collect(Collectors.toList());
         Map<Long, Expr> syncMvWhereClauses = new HashMap<>();
@@ -2471,14 +2472,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         tupleDescriptor.setTable(table);
         for (Slot slot : slotList) {
             context.createSlotDesc(tupleDescriptor, (SlotReference) slot, table);
-        }
-        return tupleDescriptor;
-    }
-
-    private TupleDescriptor generateTupleDescForSink(List<Slot> slotList, PlanTranslatorContext context) {
-        TupleDescriptor tupleDescriptor = context.generateTupleDesc();
-        for (Slot slot : slotList) {
-            context.createSlotDescForSink(tupleDescriptor, (SlotReference) slot);
         }
         return tupleDescriptor;
     }

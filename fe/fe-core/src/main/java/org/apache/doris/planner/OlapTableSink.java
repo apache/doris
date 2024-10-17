@@ -405,8 +405,16 @@ public class OlapTableSink extends DataSink {
             indexSchema.setIndexesDesc(indexDesc);
             schemaParam.addToIndexes(indexSchema);
         }
-        schemaParam.setIsPartialUpdate(isPartialUpdate);
-        if (isPartialUpdate) {
+        // for backward compatibility
+        schemaParam.setIsPartialUpdate(uniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS);
+        schemaParam.setUniqueKeyUpdateMode(uniqueKeyUpdateMode);
+        if (uniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS && table.getSequenceMapCol() != null) {
+            Column seqMapCol = table.getFullSchema().stream()
+                    .filter(col -> col.getName().equalsIgnoreCase(table.getSequenceMapCol()))
+                    .findFirst().get();
+            schemaParam.setSequenceMapColUniqueId(seqMapCol.getUniqueId());
+        }
+        if (uniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS) {
             for (String s : partialUpdateInputColumns) {
                 schemaParam.addToPartialUpdateInputColumns(s);
             }
