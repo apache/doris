@@ -337,6 +337,14 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
         return this;
     }
 
+    /**
+     * sql: select sum(distinct c1) from t;
+     * assume c1 is not null, because there is no group by
+     * sum(distinct c1)'s nullable is alwasNullable in rewritten phase.
+     * But in implementation phase, we may create 3 phase agg with group by key c1.
+     * And the sum(distinct c1)'s nullability should be changed depending on if there is any group by expressions.
+     * This pr update the agg function's nullability accordingly
+     */
     private List<NamedExpression> adjustNullableForOutputs(List<NamedExpression> outputs, boolean alwaysNullable) {
         return ExpressionUtils.rewriteDownShortCircuit(outputs, output -> {
             if (output instanceof AggregateExpression) {
