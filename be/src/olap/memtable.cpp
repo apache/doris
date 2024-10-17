@@ -161,9 +161,8 @@ MemTable::~MemTable() {
     std::for_each(_row_in_blocks.begin(), _row_in_blocks.end(), std::default_delete<RowInBlock>());
     _insert_mem_tracker->release(_mem_usage);
     _flush_mem_tracker->set_consumption(0);
-    DCHECK_EQ(_insert_mem_tracker->consumption(), 0)
-            << std::endl
-            << MemTracker::log_usage(_insert_mem_tracker->make_snapshot());
+    DCHECK_EQ(_insert_mem_tracker->consumption(), 0) << std::endl
+                                                     << _insert_mem_tracker->log_usage();
     DCHECK_EQ(_flush_mem_tracker->consumption(), 0);
     _arena.reset();
     _agg_buffer_pool.clear();

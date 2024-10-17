@@ -17,7 +17,7 @@
 
 #pragma once
 
-#include "runtime/memory/mem_tracker.h"
+#include "runtime/memory/mem_tracker_limiter.h"
 #include "util/mem_info.h"
 
 namespace doris {
@@ -106,20 +106,6 @@ public:
     static bool try_reserve_process_memory(int64_t bytes);
     static void release_process_reserved_memory(int64_t bytes);
 
-    static inline void make_reserved_memory_snapshots(
-            std::vector<MemTracker::Snapshot>* snapshots) {
-        std::lock_guard<std::mutex> l(_reserved_trackers_lock);
-        for (const auto& pair : _reserved_trackers) {
-            MemTracker::Snapshot snapshot;
-            snapshot.type = "reserved_memory";
-            snapshot.label = pair.first;
-            snapshot.limit = -1;
-            snapshot.cur_consumption = pair.second.current_value();
-            snapshot.peak_consumption = pair.second.peak_value();
-            (*snapshots).emplace_back(snapshot);
-        }
-    }
-
     static inline int64_t process_reserved_memory() {
         return _s_process_reserved_memory.load(std::memory_order_relaxed);
     }
@@ -207,9 +193,6 @@ public:
 
 private:
     static std::atomic<int64_t> _s_process_reserved_memory;
-
-    static std::mutex _reserved_trackers_lock;
-    static std::unordered_map<std::string, MemTracker::MemCounter> _reserved_trackers;
 };
 
 } // namespace doris

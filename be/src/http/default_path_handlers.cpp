@@ -142,7 +142,7 @@ void display_tablets_callback(const WebPageHandler::ArgumentMap& args, EasyJson*
 // Registered to handle "/mem_tracker", and prints out memory tracker information.
 void mem_tracker_handler(const WebPageHandler::ArgumentMap& args, std::stringstream* output) {
     (*output) << "<h1>Memory usage by subsystem</h1>\n";
-    std::vector<MemTracker::Snapshot> snapshots;
+    std::vector<MemTrackerLimiter::Snapshot> snapshots;
     auto iter = args.find("type");
     if (iter != args.end()) {
         if (iter->second == "global") {
@@ -159,7 +159,7 @@ void mem_tracker_handler(const WebPageHandler::ArgumentMap& args, std::stringstr
         } else if (iter->second == "other") {
             MemTrackerLimiter::make_type_snapshots(&snapshots, MemTrackerLimiter::Type::OTHER);
         } else if (iter->second == "reserved_memory") {
-            GlobalMemoryArbitrator::make_reserved_memory_snapshots(&snapshots);
+            MemTrackerLimiter::make_all_reserved_trackers_snapshots(&snapshots);
         } else if (iter->second == "all") {
             MemTrackerLimiter::make_all_memory_state_snapshots(&snapshots);
         }
@@ -191,7 +191,6 @@ void mem_tracker_handler(const WebPageHandler::ArgumentMap& args, std::stringstr
     (*output) << "<thead><tr>"
                  "<th data-sortable='true'>Type</th>"
                  "<th data-sortable='true'>Label</th>"
-                 "<th data-sortable='true'>Parent Label</th>"
                  "<th>Limit</th>"
                  "<th data-sortable='true' "
                  ">Current Consumption(Bytes)</th>"
@@ -207,8 +206,8 @@ void mem_tracker_handler(const WebPageHandler::ArgumentMap& args, std::stringstr
         string peak_consumption_normalize = AccurateItoaKMGT(item.peak_consumption);
         (*output) << strings::Substitute(
                 "<tr><td>$0</td><td>$1</td><td>$2</td><td>$3</td><td>$4</td><td>$5</td><td>$6</"
-                "td><td>$7</td></tr>\n",
-                item.type, item.label, item.parent_label, limit_str, item.cur_consumption,
+                "td></tr>\n",
+                item.type, item.label, limit_str, item.cur_consumption,
                 current_consumption_normalize, item.peak_consumption, peak_consumption_normalize);
     }
     (*output) << "</tbody></table>\n";

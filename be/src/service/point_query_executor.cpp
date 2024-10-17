@@ -191,9 +191,9 @@ LookupConnectionCache* LookupConnectionCache::create_global_instance(size_t capa
 }
 
 RowCache::RowCache(int64_t capacity, int num_shards)
-        : LRUCachePolicyTrackingManual(
-                  CachePolicy::CacheType::POINT_QUERY_ROW_CACHE, capacity, LRUCacheType::SIZE,
-                  config::point_query_row_cache_stale_sweep_time_sec, num_shards) {}
+        : LRUCachePolicy(CachePolicy::CacheType::POINT_QUERY_ROW_CACHE, capacity,
+                         LRUCacheType::SIZE, config::point_query_row_cache_stale_sweep_time_sec,
+                         num_shards) {}
 
 // Create global instance of this class
 RowCache* RowCache::create_global_cache(int64_t capacity, uint32_t num_shards) {
@@ -223,8 +223,8 @@ void RowCache::insert(const RowCacheKey& key, const Slice& value) {
     auto* row_cache_value = new RowCacheValue;
     row_cache_value->cache_value = cache_value;
     const std::string& encoded_key = key.encode();
-    auto* handle = LRUCachePolicyTrackingManual::insert(encoded_key, row_cache_value, value.size,
-                                                        value.size, CachePriority::NORMAL);
+    auto* handle = LRUCachePolicy::insert(encoded_key, row_cache_value, value.size, value.size,
+                                          CachePriority::NORMAL);
     // handle will released
     auto tmp = CacheHandle {this, handle};
 }
