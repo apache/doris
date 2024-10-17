@@ -707,7 +707,8 @@ Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_po
         } else {
             return Status::NotSupported<false>(
                     "SegmentWriter doesn't support flexible partial update, please set "
-                    "enable_vertical_segment_writer=true on all BEs to use VerticalSegmentWriter.");
+                    "enable_vertical_segment_writer=true in be.conf on all BEs to use "
+                    "VerticalSegmentWriter.");
         }
         return Status::OK();
     }

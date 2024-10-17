@@ -57,7 +57,7 @@ suite('test_f_segment_writer', 'docker') {
                 }
                 def json = parseJson(result)
                 assertEquals("fail", json.Status.toLowerCase())
-                assertTrue(json.Message.contains("[NOT_IMPLEMENTED_ERROR]SegmentWriter doesn't support flexible partial update, please set enable_vertical_segment_writer=true on all BEs to use VerticalSegmentWriter."));
+                assertTrue(json.Message.contains("[NOT_IMPLEMENTED_ERROR]SegmentWriter doesn't support flexible partial update, please set enable_vertical_segment_writer=true in be.conf on all BEs to use VerticalSegmentWriter."));
             }
         }
         qt_sql "select k,v1,v2,v3,v4,v5,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName} order by k;"
