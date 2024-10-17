@@ -834,14 +834,6 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                 hasUnknownCol = true;
             }
             if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().enableStats) {
-                if (deltaRowCount > 0) {
-                    // clear min-max to avoid error estimation
-                    // for example, after yesterday data loaded, user send query about yesterday immediately.
-                    // since yesterday data are not analyzed, the max date is before yesterday, and hence optimizer
-                    // estimates the filter result is zero
-                    colStatsBuilder.setMinExpr(null).setMinValue(Double.NEGATIVE_INFINITY)
-                            .setMaxExpr(null).setMaxValue(Double.POSITIVE_INFINITY);
-                }
                 columnStatisticBuilderMap.put(slotReference, colStatsBuilder);
             } else {
                 columnStatisticBuilderMap.put(slotReference, new ColumnStatisticBuilder(ColumnStatistic.UNKNOWN));
@@ -862,7 +854,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             columnStatisticMap.put(slot,
                     columnStatisticBuilderMap.get(slot).setCount(rowCount).build());
         }
-        return new Statistics(rowCount, columnStatisticMap);
+        return new Statistics(rowCount, 1, columnStatisticMap, deltaRowCount);
     }
 
     private Statistics computeTopN(TopN topN) {
