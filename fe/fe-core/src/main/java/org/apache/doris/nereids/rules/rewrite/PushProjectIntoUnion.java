@@ -19,11 +19,14 @@ package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
+import org.apache.doris.nereids.rules.expression.rules.FoldConstantRule;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
@@ -42,7 +45,9 @@ public class PushProjectIntoUnion extends OneRewriteRuleFactory {
         return logicalProject(logicalUnion()
                 .when(u -> u.getQualifier() == Qualifier.ALL)
                 .when(u -> u.arity() == 0)
-        ).then(p -> {
+        ).thenApply(ctx -> {
+            LogicalProject<LogicalUnion> p = ctx.root;
+            ExpressionRewriteContext expressionRewriteContext = new ExpressionRewriteContext(ctx.cascadesContext);
             LogicalUnion union = p.child();
             ImmutableList.Builder<List<NamedExpression>> newConstExprs = ImmutableList.builder();
             for (List<NamedExpression> constExprs : union.getConstantExprsList()) {
@@ -60,9 +65,11 @@ public class PushProjectIntoUnion extends OneRewriteRuleFactory {
                 ImmutableList.Builder<NamedExpression> newProjections = ImmutableList.builder();
                 for (NamedExpression old : p.getProjects()) {
                     if (old instanceof SlotReference) {
-                        newProjections.add(replaceRootMap.get(old));
+                        newProjections.add((NamedExpression) FoldConstantRule.evaluate(replaceRootMap.get(old),
+                                expressionRewriteContext));
                     } else {
-                        newProjections.add(ExpressionUtils.replaceNameExpression(old, replaceMap));
+                        newProjections.add((NamedExpression) FoldConstantRule.evaluate(
+                                ExpressionUtils.replaceNameExpression(old, replaceMap), expressionRewriteContext));
                     }
                 }
                 newConstExprs.add(newProjections.build());
