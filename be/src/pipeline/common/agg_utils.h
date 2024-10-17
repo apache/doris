@@ -169,20 +169,25 @@ struct AggregatedDataVariants
             method_variant
                     .emplace<vectorized::MethodKeysFixed<AggregatedDataWithUInt64Key, nullable>>(
                             get_key_sizes(data_types));
+            break;
         case HashKeyType::fixed128:
             method_variant
                     .emplace<vectorized::MethodKeysFixed<AggregatedDataWithUInt128Key, nullable>>(
                             get_key_sizes(data_types));
+            break;
         case HashKeyType::fixed136:
             method_variant
                     .emplace<vectorized::MethodKeysFixed<AggregatedDataWithUInt136Key, nullable>>(
                             get_key_sizes(data_types));
+            break;
         case HashKeyType::fixed256:
             method_variant
                     .emplace<vectorized::MethodKeysFixed<AggregatedDataWithUInt256Key, nullable>>(
                             get_key_sizes(data_types));
+            break;
         default:
-            throw Exception(ErrorCode::INTERNAL_ERROR, "meet invalid key type, type={}", type);
+            throw Exception(ErrorCode::INTERNAL_ERROR,
+                            "AggregatedDataVariants meet invalid key type, type={}", type);
         }
     }
 };

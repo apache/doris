@@ -81,8 +81,8 @@ inline HashKeyType get_hash_key_type_fixed(const std::vector<vectorized::DataTyp
         if (!data_type->have_maximum_size_of_value()) {
             return HashKeyType::serialized;
         }
-        key_byte_size += data_type->get_maximum_size_of_value_in_memory() -
-                         (data_type->is_nullable() ? 1 : 0);
+        key_byte_size +=
+                data_type->get_maximum_size_of_value_in_memory() - data_type->is_nullable();
     }
 
     size_t bitmap_size = has_null ? vectorized::get_bitmap_size(data_types.size()) : 0;
@@ -101,8 +101,8 @@ inline HashKeyType get_hash_key_type(const std::vector<vectorized::DataTypePtr>&
         return HashKeyType::string_key;
     }
 
-    size_t size = data_types[0]->get_maximum_size_of_value_in_memory() -
-                  (data_types[0]->is_nullable() ? 1 : 0);
+    size_t size =
+            data_types[0]->get_maximum_size_of_value_in_memory() - data_types[0]->is_nullable();
     if (size == sizeof(vectorized::UInt8)) {
         return HashKeyType::int8_key;
     } else if (size == sizeof(vectorized::UInt16)) {

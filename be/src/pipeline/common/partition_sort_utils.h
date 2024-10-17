@@ -211,20 +211,25 @@ struct PartitionedHashMapVariants
             method_variant
                     .emplace<vectorized::MethodKeysFixed<PartitionDataWithUInt64Key, nullable>>(
                             get_key_sizes(data_types));
+            break;
         case HashKeyType::fixed128:
             method_variant
                     .emplace<vectorized::MethodKeysFixed<PartitionDataWithUInt128Key, nullable>>(
                             get_key_sizes(data_types));
+            break;
         case HashKeyType::fixed136:
             method_variant
                     .emplace<vectorized::MethodKeysFixed<PartitionDataWithUInt136Key, nullable>>(
                             get_key_sizes(data_types));
+            break;
         case HashKeyType::fixed256:
             method_variant
                     .emplace<vectorized::MethodKeysFixed<PartitionDataWithUInt256Key, nullable>>(
                             get_key_sizes(data_types));
+            break;
         default:
-            throw Exception(ErrorCode::INTERNAL_ERROR, "meet invalid key type, type={}", type);
+            throw Exception(ErrorCode::INTERNAL_ERROR,
+                            "PartitionedHashMapVariants meet invalid key type, type={}", type);
         }
     }
 };

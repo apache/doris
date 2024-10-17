@@ -99,17 +99,22 @@ struct JoinDataVariants {
         case HashKeyType::fixed64:
             method_variant.emplace<I64FixedKeyHashTableContext<nullable>>(
                     get_key_sizes(data_types));
+            break;
         case HashKeyType::fixed128:
             method_variant.emplace<I128FixedKeyHashTableContext<nullable>>(
                     get_key_sizes(data_types));
+            break;
         case HashKeyType::fixed136:
             method_variant.emplace<I136FixedKeyHashTableContext<nullable>>(
                     get_key_sizes(data_types));
+            break;
         case HashKeyType::fixed256:
             method_variant.emplace<I256FixedKeyHashTableContext<nullable>>(
                     get_key_sizes(data_types));
+            break;
         default:
-            throw Exception(ErrorCode::INTERNAL_ERROR, "meet invalid key type, type={}", type);
+            throw Exception(ErrorCode::INTERNAL_ERROR,
+                            "JoinDataVariants meet invalid key type, type={}", type);
         }
     }
 };

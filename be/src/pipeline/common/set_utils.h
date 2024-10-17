@@ -86,17 +86,22 @@ struct SetDataVariants {
         case HashKeyType::fixed64:
             method_variant.emplace<SetFixedKeyHashTableContext<vectorized::UInt64, nullable>>(
                     get_key_sizes(data_types));
+            break;
         case HashKeyType::fixed128:
             method_variant.emplace<SetFixedKeyHashTableContext<vectorized::UInt128, nullable>>(
                     get_key_sizes(data_types));
+            break;
         case HashKeyType::fixed136:
             method_variant.emplace<SetFixedKeyHashTableContext<vectorized::UInt136, nullable>>(
                     get_key_sizes(data_types));
+            break;
         case HashKeyType::fixed256:
             method_variant.emplace<SetFixedKeyHashTableContext<vectorized::UInt256, nullable>>(
                     get_key_sizes(data_types));
+            break;
         default:
-            throw Exception(ErrorCode::INTERNAL_ERROR, "meet invalid key type, type={}", type);
+            throw Exception(ErrorCode::INTERNAL_ERROR,
+                            "SetDataVariants meet invalid key type, type={}", type);
         }
     }
 };
