@@ -100,7 +100,16 @@ Status FlushToken::submit(std::shared_ptr<MemTable> mem_table) {
     int64_t submit_task_time = MonotonicNanos();
     auto task = MemtableFlushTask::create_shared(
             shared_from_this(), mem_table, _rowset_writer->allocate_segment_id(), submit_task_time);
-    Status ret = _thread_pool->submit(std::move(task));
+    // NOTE: we should guarantee WorkloadGroup is not deconstructed when submit memtable flush task.
+    // because currently WorkloadGroup's can only be destroyed when all queries in the group is finished,
+    // but not consider whether load channel is finish.
+    std::shared_ptr<WorkloadGroup> wg_sptr = _wg_wptr.lock();
+    ThreadPool* wg_thread_pool = nullptr;
+    if (wg_sptr) {
+        wg_thread_pool = wg_sptr->get_memtable_flush_pool_ptr();
+    }
+    Status ret = wg_thread_pool ? wg_thread_pool->submit(std::move(task))
+                                : _thread_pool->submit(std::move(task));
     if (ret.ok()) {
         // _wait_running_task_finish was executed after this function, so no need to notify _cond here
         _stats.flush_running_count++;
@@ -236,7 +245,8 @@ void MemTableFlushExecutor::init(int num_disk) {
 // NOTE: we use SERIAL mode here to ensure all mem-tables from one tablet are flushed in order.
 Status MemTableFlushExecutor::create_flush_token(std::shared_ptr<FlushToken>& flush_token,
                                                  std::shared_ptr<RowsetWriter> rowset_writer,
-                                                 bool is_high_priority) {
+                                                 bool is_high_priority,
+                                                 std::shared_ptr<WorkloadGroup> wg_sptr) {
     switch (rowset_writer->type()) {
     case ALPHA_ROWSET:
         // alpha rowset do not support flush in CONCURRENT.  and not support alpha rowset now.
@@ -244,25 +254,13 @@ Status MemTableFlushExecutor::create_flush_token(std::shared_ptr<FlushToken>& fl
     case BETA_ROWSET: {
         // beta rowset can be flush in CONCURRENT, because each memtable using a new segment writer.
         ThreadPool* pool = is_high_priority ? _high_prio_flush_pool.get() : _flush_pool.get();
-        flush_token = FlushToken::create_shared(pool);
+        flush_token = FlushToken::create_shared(pool, wg_sptr);
         flush_token->set_rowset_writer(rowset_writer);
         return Status::OK();
     }
     default:
         return Status::InternalError<false>("unknown rowset type.");
     }
-}
-
-Status MemTableFlushExecutor::create_flush_token(std::shared_ptr<FlushToken>& flush_token,
-                                                 std::shared_ptr<RowsetWriter> rowset_writer,
-                                                 ThreadPool* wg_flush_pool_ptr) {
-    if (rowset_writer->type() == BETA_ROWSET) {
-        flush_token = FlushToken::create_shared(wg_flush_pool_ptr);
-    } else {
-        return Status::InternalError<false>("not support alpha rowset load now.");
-    }
-    flush_token->set_rowset_writer(rowset_writer);
-    return Status::OK();
 }
 
 void MemTableFlushExecutor::_register_metrics() {
