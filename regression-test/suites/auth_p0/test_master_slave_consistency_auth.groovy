@@ -27,7 +27,7 @@ suite ("test_follower_consistent_auth","p0,auth") {
         return "null"
     }
     def switch_ip = get_follower_ip()
-    if (switch_ip != "null") {
+//    if (switch_ip != "null") {
         logger.info("switch_ip: " + switch_ip)
         def new_jdbc_url = context.config.jdbcUrl.replaceAll(/\/\/[0-9.]+:/, "//${switch_ip}:")
         logger.info("new_jdbc_url: " + new_jdbc_url)
@@ -331,6 +331,6 @@ suite ("test_follower_consistent_auth","p0,auth") {
         try_sql("DROP USER ${user}")
         try_sql("drop workload group if exists ${wg};")
 
-    }
+//    }
 
 }
