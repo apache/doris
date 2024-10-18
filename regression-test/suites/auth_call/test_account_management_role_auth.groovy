@@ -27,6 +27,14 @@ suite("test_account_management_role_auth","p0,auth_call") {
 
     String role_derive = 'test_account_management_role_auth_derive_role'
 
+    //cloud-mode
+    if (isCloudMode()) {
+        def clusters = sql " SHOW CLUSTERS; "
+        assertTrue(!clusters.isEmpty())
+        def validCluster = clusters[0][0]
+        sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO ${user}""";
+    }
+
     try_sql("DROP USER ${user}")
     try_sql("DROP role ${role}")
     try_sql("DROP role ${role_derive}")

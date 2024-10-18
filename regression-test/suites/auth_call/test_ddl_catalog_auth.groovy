@@ -24,6 +24,14 @@ suite("test_ddl_catalog_auth","p0,auth_call") {
     String catalogNameNew = 'test_ddl_catalog_auth_catalog_new'
     String catalogNameOther = 'test_ddl_catalog_auth_catalog_other'
 
+    //cloud-mode
+    if (isCloudMode()) {
+        def clusters = sql " SHOW CLUSTERS; "
+        assertTrue(!clusters.isEmpty())
+        def validCluster = clusters[0][0]
+        sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO ${user}""";
+    }
+
     sql """create catalog if not exists ${catalogNameOther} properties (
             'type'='hms'
         );"""

@@ -17,11 +17,12 @@
 
 import org.junit.Assert;
 
-suite("test_show_tablet_auth","p0,auth_call") {
-    String user = 'test_show_tablet_auth_user'
+suite("test_ddl_mask_view_auth","p0,auth_call") {
+    String user = 'test_ddl_mask_view_auth_user'
     String pwd = 'C123_567p'
-    String dbName = 'test_show_tablet_auth_db'
-    String tableName = 'test_show_tablet_auth_tb'
+    String dbName = 'test_ddl_mask_view_auth_db'
+    String tableName = 'test_ddl_mask_view_auth_tb'
+    String viewName = 'test_ddl_mask_view_auth_view'
 
     //cloud-mode
     if (isCloudMode()) {
@@ -45,44 +46,26 @@ suite("test_show_tablet_auth","p0,auth_call") {
                 "replication_num" = "1"
             );"""
     sql """
-        insert into ${dbName}.`${tableName}` values 
-        (1, "111"),
-        (2, "222"),
-        (3, "333");
+        INSERT INTO ${dbName}.${tableName} (id, username)
+        VALUES (1, "111aaaAAA"),
+               (2, "222bbbBBB"),
+               (3, "333cccCCC")
         """
+    sql """CREATE VIEW ${dbName}.${viewName} (k1, v1)
+                AS
+                SELECT mask(id) as k1, mask(username) as v1 FROM ${dbName}.${tableName} GROUP BY k1, v1;"""
 
-    sql """grant select_priv on ${dbName}.${tableName} to ${user}"""
     connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
         test {
-            sql """SHOW TABLETS FROM ${dbName}.${tableName}"""
-            exception "denied"
-        }
-        test {
-            sql """SHOW TABLET 1000"""
-            exception "denied"
-        }
-        test {
-            sql """SHOW TABLETS BELONG 1000"""
-            exception "denied"
-        }
-        test {
-            sql """SHOW PLUGINS"""
+            sql """select * from ${dbName}.${viewName};"""
             exception "denied"
         }
     }
-    sql """revoke select_priv on ${dbName}.${tableName} from ${user}"""
-
-    sql """grant admin_priv on *.*.* to ${user}"""
+    sql """grant select_PRIV on ${dbName}.${viewName} to ${user}"""
     connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
-        def res = sql """SHOW TABLETS FROM ${dbName}.${tableName}"""
-
-        def tablet_res = sql """SHOW TABLET ${res[0][0]}"""
-        assertTrue(tablet_res.size() == 1)
-
-        tablet_res = sql """SHOW TABLETS BELONG ${res[0][0]}"""
-        assertTrue(tablet_res.size() == 1)
-
-        sql """SHOW PLUGINS"""
+        def res = sql """select * from ${dbName}.${viewName};"""
+        assertTrue(res[0][0] == "n")
+        assertTrue(res[0][1] == "nnnxxxXXX")
     }
 
 

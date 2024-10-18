@@ -24,6 +24,14 @@ suite("test_ddl_row_policy_auth","p0,auth_call") {
     String tableName = 'test_ddl_row_policy_auth_tb'
     String rowPolicyName = 'test_ddl_row_policy_auth_rp'
 
+    //cloud-mode
+    if (isCloudMode()) {
+        def clusters = sql " SHOW CLUSTERS; "
+        assertTrue(!clusters.isEmpty())
+        def validCluster = clusters[0][0]
+        sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO ${user}""";
+    }
+
     try_sql("DROP USER ${user}")
     try_sql """drop database if exists ${dbName}"""
     try_sql """DROP ROW POLICY ${rowPolicyName} on ${dbName}.${tableName}"""

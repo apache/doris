@@ -22,6 +22,14 @@ suite("test_show_no_auth","p0,auth_call") {
     String user1 = 'test_show_charset_auth_user1'
     String pwd = 'C123_567p'
 
+    //cloud-mode
+    if (isCloudMode()) {
+        def clusters = sql " SHOW CLUSTERS; "
+        assertTrue(!clusters.isEmpty())
+        def validCluster = clusters[0][0]
+        sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO ${user}""";
+    }
+
     try_sql("DROP USER ${user}")
     try_sql("DROP USER ${user1}")
     sql """CREATE USER '${user}' IDENTIFIED BY '${pwd}'"""

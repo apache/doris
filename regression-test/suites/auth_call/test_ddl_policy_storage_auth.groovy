@@ -24,6 +24,14 @@ suite("test_ddl_policy_storage_auth","p0,auth_call") {
     String storagePolicyName = 'test_ddl_policy_storage_auth_policy'
     String resourceName = 'test_ddl_policy_storage_auth_rs'
 
+    //cloud-mode
+    if (isCloudMode()) {
+        def clusters = sql " SHOW CLUSTERS; "
+        assertTrue(!clusters.isEmpty())
+        def validCluster = clusters[0][0]
+        sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO ${user}""";
+    }
+
     try_sql("DROP USER ${user}")
     try_sql """drop database if exists ${dbName}"""
     try_sql """DROP STORAGE POLICY if exists ${storagePolicyName}"""

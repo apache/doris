@@ -24,6 +24,14 @@ suite("test_database_management_auth","p0,auth_call") {
     String pwd = 'C123_567p'
     String dbName = 'test_database_management_auth_db'
 
+    //cloud-mode
+    if (isCloudMode()) {
+        def clusters = sql " SHOW CLUSTERS; "
+        assertTrue(!clusters.isEmpty())
+        def validCluster = clusters[0][0]
+        sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO ${user}""";
+    }
+
     try_sql("DROP USER ${user}")
     try_sql """drop database if exists ${dbName}"""
 

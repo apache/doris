@@ -320,12 +320,18 @@ suite ("test_follower_consistent_auth","p0,auth") {
         }
         sql """GRANT USAGE_PRIV ON RESOURCE ${rg} TO ${user};"""
         connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
-            def res = sql """SHOW RESOURCES;"""
-            assertTrue(res.size == 10)
+            ArrayList res = sql """SHOW RESOURCES;"""
+            logger.info("res:" + res)
+            logger.info("res1: " + res.getClass())
+            logger.info("res2: " + res.getClass().getName())
+            assertTrue(res.size() == 10)
         }
         connect(user=user, password="${pwd}", url=new_jdbc_url) {
-            def res = sql """SHOW RESOURCES;"""
-            assertTrue(res.size == 10)
+            ArrayList res = sql """SHOW RESOURCES;"""
+            logger.info("res:" + res)
+            logger.info("res1: " + res.getClass())
+            logger.info("res2: " + res.getClass().getName())
+            assertTrue(res.size() == 10)
         }
 
         try_sql("DROP USER ${user}")

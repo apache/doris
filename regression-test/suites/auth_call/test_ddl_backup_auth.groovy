@@ -35,7 +35,15 @@ suite("test_ddl_backup_auth","p0,auth_call") {
     String sk = getS3SK()
     String endpoint = getS3Endpoint()
     String region = getS3Region()
-    String bucket = context.config.otherConfigs.get("s3BucketName");
+    String bucket = context.config.otherConfigs.get("s3BucketName")
+
+    //cloud-mode
+    if (isCloudMode()) {
+        def clusters = sql " SHOW CLUSTERS; "
+        assertTrue(!clusters.isEmpty())
+        def validCluster = clusters[0][0]
+        sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO ${user}""";
+    }
 
     try_sql("DROP USER ${user}")
     try_sql """drop database if exists ${dbName}"""

@@ -29,6 +29,14 @@ suite("test_dml_select_udf_auth","p0,auth_call") {
     String tableName = 'test_dml_select_udf_auth_tb'
     String udfName = 'test_dml_select_udf_auth_udf'
 
+    //cloud-mode
+    if (isCloudMode()) {
+        def clusters = sql " SHOW CLUSTERS; "
+        assertTrue(!clusters.isEmpty())
+        def validCluster = clusters[0][0]
+        sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO ${user}""";
+    }
+
     try_sql("DROP USER ${user}")
     try_sql """drop database if exists ${dbName}"""
     sql """CREATE USER '${user}' IDENTIFIED BY '${pwd}'"""

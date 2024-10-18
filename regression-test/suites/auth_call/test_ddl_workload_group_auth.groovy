@@ -23,6 +23,14 @@ suite("test_ddl_workload_group_auth","p0,auth_call") {
     String dbName = 'test_ddl_wg_auth_db'
     String workloadGroupName = 'test_ddl_wg_auth_wg'
 
+    //cloud-mode
+    if (isCloudMode()) {
+        def clusters = sql " SHOW CLUSTERS; "
+        assertTrue(!clusters.isEmpty())
+        def validCluster = clusters[0][0]
+        sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO ${user}""";
+    }
+
     try_sql("DROP USER ${user}")
     try_sql """drop database if exists ${dbName}"""
     try_sql("""drop workload group if exists ${workloadGroupName};""")

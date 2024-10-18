@@ -24,6 +24,14 @@ suite("test_hive_base_case_auth", "p0,auth_call") {
     String tableName = 'test_hive_base_case_auth_tb'
     String tableNameNew = 'test_hive_base_case_auth_tb_new'
 
+    //cloud-mode
+    if (isCloudMode()) {
+        def clusters = sql " SHOW CLUSTERS; "
+        assertTrue(!clusters.isEmpty())
+        def validCluster = clusters[0][0]
+        sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO ${user}""";
+    }
+
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
         logger.info("diable Hive test.")

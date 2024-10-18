@@ -25,6 +25,14 @@ suite("test_ddl_mv_auth","p0,auth_call") {
     String mvName = 'test_ddl_mv_auth_mv'
     String rollupName = 'test_ddl_mv_auth_rollup'
 
+    //cloud-mode
+    if (isCloudMode()) {
+        def clusters = sql " SHOW CLUSTERS; "
+        assertTrue(!clusters.isEmpty())
+        def validCluster = clusters[0][0]
+        sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO ${user}""";
+    }
+
     try_sql("DROP USER ${user}")
     try_sql """drop database if exists ${dbName}"""
     sql """CREATE USER '${user}' IDENTIFIED BY '${pwd}'"""

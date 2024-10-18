@@ -25,6 +25,14 @@ suite("test_dml_delete_table_auth","p0,auth_call") {
     String dbName = 'test_dml_delete_table_auth_db'
     String tableName = 'test_dml_delete_table_auth_tb'
 
+    //cloud-mode
+    if (isCloudMode()) {
+        def clusters = sql " SHOW CLUSTERS; "
+        assertTrue(!clusters.isEmpty())
+        def validCluster = clusters[0][0]
+        sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO ${user}""";
+    }
+
     try_sql("DROP USER ${user}")
     try_sql """drop database if exists ${dbName}"""
     sql """CREATE USER '${user}' IDENTIFIED BY '${pwd}'"""

@@ -26,6 +26,14 @@ suite("test_assistant_command_auth","p0,auth_call") {
     String tableName = 'test_assistant_command_auth_tb'
     String catalogName = 'test_assistant_command_auth_catalog'
 
+    //cloud-mode
+    if (isCloudMode()) {
+        def clusters = sql " SHOW CLUSTERS; "
+        assertTrue(!clusters.isEmpty())
+        def validCluster = clusters[0][0]
+        sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO ${user}""";
+    }
+
     try_sql("DROP USER ${user}")
     try_sql """drop database if exists ${dbName}"""
 

@@ -25,6 +25,14 @@ suite("test_ddl_job_auth","p0,auth_call") {
     String tableNameDst = 'test_ddl_job_auth_tb_dst'
     String jobName = 'test_ddl_job_auth_job'
 
+    //cloud-mode
+    if (isCloudMode()) {
+        def clusters = sql " SHOW CLUSTERS; "
+        assertTrue(!clusters.isEmpty())
+        def validCluster = clusters[0][0]
+        sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO ${user}""";
+    }
+
     try_sql("DROP USER ${user}")
     try_sql """drop database if exists ${dbName}"""
     try_sql("""DROP JOB where jobName='${jobName}';""")
