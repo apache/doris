@@ -573,7 +573,7 @@ public class ShowExecutor {
     }
 
     // Handle show authors
-    private void handleEmtpy() {
+    private void handleEmtpy() throws AnalysisException {
         // Only success
         resultSet = new ShowResultSet(stmt.getMetaData(), EMPTY_SET);
     }

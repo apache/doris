@@ -21,6 +21,7 @@ import org.apache.doris.analysis.ResourceTypeEnum;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AuthorizationException;
+import org.apache.doris.policy.DorisDataMaskPolicy;
 
 import java.util.List;
 import java.util.Optional;
@@ -78,7 +79,9 @@ public class InternalAccessController implements CatalogAccessController {
     @Override
     public Optional<DataMaskPolicy> evalDataMaskPolicy(UserIdentity currentUser, String ctl, String db, String tbl,
             String col) {
-        return Optional.empty();
+        DorisDataMaskPolicy dataMaskPolicy = Env.getCurrentEnv().getPolicyMgr().getDataMaskPolicy(ctl, db, tbl, col,
+                currentUser);
+        return Optional.ofNullable(dataMaskPolicy);
     }
 
     @Override

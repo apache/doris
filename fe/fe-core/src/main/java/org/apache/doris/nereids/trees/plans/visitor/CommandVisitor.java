@@ -35,6 +35,7 @@ import org.apache.doris.nereids.trees.plans.commands.DeleteFromUsingCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropCatalogRecycleBinCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropConstraintCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropMTMVCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropPolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropProcedureCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExportCommand;
@@ -47,6 +48,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowConfigCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowConstraintsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateProcedureCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowPolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowProcedureStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.UnsupportedCommand;
 import org.apache.doris.nereids.trees.plans.commands.UpdateCommand;
@@ -69,6 +71,14 @@ public interface CommandVisitor<R, C> {
 
     default R visitCreatePolicyCommand(CreatePolicyCommand createPolicy, C context) {
         return visitCommand(createPolicy, context);
+    }
+
+    default R visitDropPolicyCommand(DropPolicyCommand dropPolicyCommand, C context) {
+        return visitCommand(dropPolicyCommand, context);
+    }
+
+    default R visitShowPolicyCommand(ShowPolicyCommand showPolicyCommand, C context) {
+        return visitCommand(showPolicyCommand, context);
     }
 
     default R visitInsertIntoTableCommand(InsertIntoTableCommand insertIntoTableCommand,
