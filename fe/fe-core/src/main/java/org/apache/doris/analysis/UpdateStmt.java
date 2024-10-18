@@ -23,7 +23,6 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -147,7 +146,7 @@ public class UpdateStmt extends DdlStmt implements NotFallbackInParser {
 
         // step2: resolve table name with catalog, only unique olap table could be updated
         targetTable = targetTableRef.getTable();
-        if ((targetTable.getType() != Table.TableType.OLAP && targetTable.getType() != TableType.TEMP)
+        if (targetTable.getType() != Table.TableType.OLAP
                 || ((OlapTable) targetTable).getKeysType() != KeysType.UNIQUE_KEYS) {
             throw new AnalysisException("Only unique table could be updated.");
         }

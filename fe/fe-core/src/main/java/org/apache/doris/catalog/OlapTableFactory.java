@@ -35,7 +35,7 @@ public class OlapTableFactory {
     public static class BuildParams {
         public long tableId;
         public String tableName;
-        public TableType tableType;
+        public boolean isTemporary;
         public List<Column> schema;
         public KeysType keysType;
         public PartitionInfo partitionInfo;
@@ -45,8 +45,8 @@ public class OlapTableFactory {
     public static class OlapTableParams extends BuildParams {
         public TableIndexes indexes;
 
-        public OlapTableParams(TableType tableType) {
-            this.tableType = tableType;
+        public OlapTableParams(boolean isTemporary) {
+            this.isTemporary = isTemporary;
         }
     }
 
@@ -64,15 +64,15 @@ public class OlapTableFactory {
         if (stmt instanceof CreateMTMVStmt) {
             return TableType.MATERIALIZED_VIEW;
         } else if (stmt instanceof CreateTableStmt) {
-            return ((CreateTableStmt) stmt).isTemp() ? TableType.TEMP : TableType.OLAP;
+            return TableType.OLAP;
         } else {
             throw new IllegalArgumentException("Invalid DDL statement: " + stmt.toSql());
         }
     }
 
-    public OlapTableFactory init(TableType type) {
-        if (type == TableType.OLAP || type == TableType.TEMP) {
-            params = new OlapTableParams(type);
+    public OlapTableFactory init(TableType type, boolean isTemporary) {
+        if (type == TableType.OLAP) {
+            params = new OlapTableParams(isTemporary);
         } else {
             params = new MTMVParams();
         }
@@ -87,7 +87,7 @@ public class OlapTableFactory {
             return new OlapTable(
                     olapTableParams.tableId,
                     olapTableParams.tableName,
-                    olapTableParams.tableType,
+                    olapTableParams.isTemporary,
                     olapTableParams.schema,
                     olapTableParams.keysType,
                     olapTableParams.partitionInfo,

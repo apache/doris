@@ -76,6 +76,26 @@ suite("test_backup_restore", "backup_restore") {
     result = sql "SELECT * FROM ${dbName}.${tableName}"
     assertEquals(result.size(), values.size());
 
+    // backup of temp table should not support
+    sql """ 
+        create temporary table test_temp_table_backup PROPERTIES (
+            'replication_num' = '1', 'light_schema_change' = 'true', 'bloom_filter_columns' = 'add_date'
+        ) 
+        as select * from ${dbName}.${tableName};
+        """
+
+    try {
+        sql """
+            BACKUP SNAPSHOT ${dbName}.${snapshotName}_1
+            TO `${repoName}`
+            ON (test_temp_table_backup)
+        """
+        throw new IllegalStateException("Should throw error")
+    } catch (Exception ex) {
+        assertTrue(ex.getMessage().contains("is not a OLAP table"), ex.getMessage())
+    }
+
+    sql "DROP TABLE ${dbName}.test_temp_table_backup FORCE"
     sql "DROP TABLE ${dbName}.${tableName} FORCE"
     sql "DROP DATABASE ${dbName} FORCE"
     sql "DROP REPOSITORY `${repoName}`"

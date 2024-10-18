@@ -29,7 +29,6 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.Table;
-import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
@@ -185,7 +184,7 @@ public class PolicyMgr implements Writable {
                     if (table instanceof OlapTable) {
                         OlapTable olapTable = (OlapTable) table;
                         String tableName = table.getName();
-                        if (table.getType() == TableType.TEMP) {
+                        if (table.isTemporary()) {
                             tableName = Util.getTempTableOuterName(tableName);
                         }
                         PartitionInfo partitionInfo = olapTable.getPartitionInfo();

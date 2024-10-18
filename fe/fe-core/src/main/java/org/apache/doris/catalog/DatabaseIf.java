@@ -283,7 +283,7 @@ public interface DatabaseIf<T extends TableIf> {
 
     default OlapTable getOlapTableOrAnalysisException(String tableName) throws AnalysisException {
         T table = getTableOrAnalysisException(tableName);
-        if (!(table instanceof OlapTable) && !(table.getType() == TableType.TEMP)) {
+        if (!(table instanceof OlapTable) && !(table.isTemporary())) {
             throw new AnalysisException(ErrorCode.ERR_NOT_OLAP_TABLE.formatErrorMsg(tableName));
         }
         return (OlapTable) table;
