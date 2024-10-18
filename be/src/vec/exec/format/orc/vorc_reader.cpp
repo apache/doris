@@ -2020,7 +2020,7 @@ bool OrcReader::_can_filter_by_dict(int slot_id) {
         //  cannot work properly, such as is null, is not null, coalesce, etc.
         //  Here we first disable dictionary filtering when predicate contains functions.
         //  Implementation of NULL value dictionary filtering will be carried out later.
-        if (expr->node_type() == TExprNodeType::FUNCTION_CALL) {
+        if (expr->node_type() != TExprNodeType::SLOT_REF) {
             return false;
         }
         for (auto& child : expr->children()) {
