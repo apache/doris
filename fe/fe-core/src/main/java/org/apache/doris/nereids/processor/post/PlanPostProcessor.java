@@ -19,6 +19,7 @@ package org.apache.doris.nereids.processor.post;
 
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalPlan;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 
 /**
@@ -27,6 +28,7 @@ import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 public class PlanPostProcessor extends DefaultPlanRewriter<CascadesContext> {
 
     public Plan processRoot(Plan plan, CascadesContext ctx) {
-        return plan.accept(this, ctx);
+        AbstractPhysicalPlan newPlan = (AbstractPhysicalPlan) super.visit(plan, ctx);
+        return newPlan == plan ? plan : newPlan.copyStatsAndGroupIdFrom((AbstractPhysicalPlan) plan);
     }
 }
