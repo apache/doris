@@ -3196,6 +3196,10 @@ public class Coordinator implements CoordInterface {
                                     targetParamsV2.get(targetParam.targetFragmentInstanceAddr)
                                             .target_fragment_ids
                                             .add(targetParam.targetFragmentId);
+                                    // `target_fragment_instance_ids` is a required field
+                                    targetParamsV2.get(targetParam.targetFragmentInstanceAddr)
+                                            .target_fragment_instance_ids
+                                            = new ArrayList<>();
                                 }
                             }
 
