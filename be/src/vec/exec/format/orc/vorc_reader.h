@@ -670,7 +670,7 @@ protected:
     void _collect_profile_at_runtime() override {};
     void _collect_profile_before_close() override;
 
-public:
+private:
     const std::string& _file_name;
     io::FileReaderSPtr _inner_reader;
     io::FileReaderSPtr _file_reader;
