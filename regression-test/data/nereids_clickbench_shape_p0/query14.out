@@ -4,11 +4,12 @@ PhysicalResultSink
 --PhysicalTopN[MERGE_SORT]
 ----PhysicalDistribute[DistributionSpecGather]
 ------PhysicalTopN[LOCAL_SORT]
---------hashAgg[DISTINCT_LOCAL]
-----------hashAgg[GLOBAL]
-------------PhysicalDistribute[DistributionSpecHash]
---------------hashAgg[LOCAL]
-----------------PhysicalProject
-------------------filter(( not (SearchPhrase = '')))
---------------------PhysicalOlapScan[hits]
+--------hashAgg[DISTINCT_GLOBAL]
+----------PhysicalDistribute[DistributionSpecHash]
+------------hashAgg[DISTINCT_LOCAL]
+--------------hashAgg[GLOBAL]
+----------------hashAgg[LOCAL]
+------------------PhysicalProject
+--------------------filter(( not (SearchPhrase = '')))
+----------------------PhysicalOlapScan[hits]
 
