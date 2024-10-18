@@ -288,11 +288,12 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
             static_cast<size_t>(CpuInfo::num_cores()) * config::max_flush_thread_num_per_cpu);
     _load_stream_mgr = std::make_unique<LoadStreamMgr>(num_flush_threads);
     _new_load_stream_mgr = NewLoadStreamMgr::create_shared();
-    _internal_client_cache = new BrpcClientCache<PBackendService_Stub>();
-    _streaming_client_cache =
-            new BrpcClientCache<PBackendService_Stub>("baidu_std", "single", "streaming");
-    _function_client_cache =
-            new BrpcClientCache<PFunctionService_Stub>(config::function_service_protocol);
+    _internal_client_cache =
+            new BrpcClientCache<PBackendService_Stub>("baidu_std", config::brpc_connection_type);
+    _streaming_client_cache = new BrpcClientCache<PBackendService_Stub>(
+            "baidu_std", config::brpc_connection_type, "streaming");
+    _function_client_cache = new BrpcClientCache<PFunctionService_Stub>(
+            config::function_service_protocol, config::brpc_connection_type);
     if (config::is_cloud_mode()) {
         _stream_load_executor = std::make_shared<CloudStreamLoadExecutor>(this);
     } else {

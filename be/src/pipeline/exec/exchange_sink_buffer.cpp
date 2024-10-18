@@ -261,6 +261,11 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
             // attach task for memory tracker and query id when core
             SCOPED_ATTACH_TASK(_state);
             _failed(id, err);
+            if (config::enable_brpc_failed_reconnected) {
+                auto remote_side = send_callback->cntl_->remote_side();
+                _state->exec_env()->brpc_internal_client_cache()->refresh_client(
+                        remote_side, request.channel->_brpc_stub);
+            }
         });
         send_callback->start_rpc_time = GetCurrentTimeNanos();
         send_callback->addSuccessHandler([&, weak_task_ctx = weak_task_exec_ctx()](
