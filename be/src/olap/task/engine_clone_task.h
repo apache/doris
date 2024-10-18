@@ -23,6 +23,7 @@
 #include <string>
 #include <vector>
 
+#include "common/factory_creator.h"
 #include "common/status.h"
 #include "olap/rowset/pending_rowset_helper.h"
 #include "olap/tablet_fwd.h"
@@ -47,6 +48,8 @@ const uint32_t GET_LENGTH_TIMEOUT = 10;
 // base class for storage engine
 // add "Engine" as task prefix to prevent duplicate name with agent task
 class EngineCloneTask final : public EngineTask {
+    ENABLE_FACTORY_CREATOR(EngineCloneTask);
+
 public:
     Status execute() override;
 

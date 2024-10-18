@@ -26,6 +26,7 @@
 #include <set>
 #include <vector>
 
+#include "common/factory_creator.h"
 #include "common/status.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/rowset_fwd.h"
@@ -62,6 +63,8 @@ struct TabletPublishStatistics {
 };
 
 class TabletPublishTxnTask {
+    ENABLE_FACTORY_CREATOR(TabletPublishTxnTask);
+
 public:
     TabletPublishTxnTask(StorageEngine& engine, EnginePublishVersionTask* engine_task,
                          TabletSharedPtr tablet, RowsetSharedPtr rowset, int64_t partition_id,
@@ -87,6 +90,8 @@ private:
 };
 
 class EnginePublishVersionTask final : public EngineTask {
+    ENABLE_FACTORY_CREATOR(EnginePublishVersionTask);
+
 public:
     EnginePublishVersionTask(
             StorageEngine& engine, const TPublishVersionRequest& publish_version_req,
@@ -115,6 +120,8 @@ private:
 };
 
 class AsyncTabletPublishTask {
+    ENABLE_FACTORY_CREATOR(AsyncTabletPublishTask);
+
 public:
     AsyncTabletPublishTask(StorageEngine& engine, TabletSharedPtr tablet, int64_t partition_id,
                            int64_t transaction_id, int64_t version)

@@ -19,6 +19,7 @@
 
 #include <memory>
 
+#include "common/factory_creator.h"
 #include "common/status.h"
 
 namespace brpc {
@@ -31,6 +32,8 @@ class ExecEnv;
 
 // Class enclose brpc service
 class BRpcService {
+    ENABLE_FACTORY_CREATOR(BRpcService);
+
 public:
     BRpcService(ExecEnv* exec_env);
     ~BRpcService();
