@@ -75,6 +75,7 @@ import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -199,9 +200,12 @@ public class BindSink implements AnalysisRuleFactory {
                 // including the following cases:
                 // 1. it's a load job with `partial_columns=true`
                 // 2. UPDATE and DELETE, planner will automatically add these hidden columns
+                // 3. session value `require_sequence_in_insert` is false
                 if (!haveInputSeqCol && !isPartialUpdate && (
                         boundSink.getDmlCommandType() != DMLCommandType.UPDATE
-                                && boundSink.getDmlCommandType() != DMLCommandType.DELETE)) {
+                                && boundSink.getDmlCommandType() != DMLCommandType.DELETE) && (
+                        boundSink.getDmlCommandType() != DMLCommandType.INSERT
+                                || ConnectContext.get().getSessionVariable().isRequireSequenceInInsert())) {
                     if (!seqColInTable.isPresent() || seqColInTable.get().getDefaultValue() == null
                             || !seqColInTable.get().getDefaultValue()
                             .equalsIgnoreCase(DefaultValue.CURRENT_TIMESTAMP)) {
