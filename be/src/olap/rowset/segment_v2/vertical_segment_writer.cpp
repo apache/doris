@@ -702,11 +702,11 @@ Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(
     std::vector<vectorized::IOlapColumnDataAccessor*> key_columns {};
     vectorized::IOlapColumnDataAccessor* seq_column {nullptr};
 
-    auto encode_key_columns =
+    auto encode_pk_columns =
             [&full_block, &data,
              this](std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns) -> Status {
         key_columns.clear();
-        for (std::size_t cid {0}; cid < _num_sort_key_columns; cid++) {
+        for (std::size_t cid {0}; cid < _tablet_schema->num_key_columns(); cid++) {
             full_block.replace_by_position(cid, data.block->get_by_position(cid).column);
             RETURN_IF_ERROR(_olap_data_convertor->set_source_content_with_specifid_column(
                     full_block.get_by_position(cid), data.row_pos, data.num_rows, cid));
@@ -739,7 +739,7 @@ Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(
     // 1. encode key columns
     // we can only encode sort key columns currently becasue all non-key columns in flexible partial update
     // can have missing cells
-    RETURN_IF_ERROR(encode_key_columns(key_columns));
+    RETURN_IF_ERROR(encode_pk_columns(key_columns));
 
     // 2. encode sequence column
     // We encode the seguence column even thought it may have invalid values in some rows because we need to
@@ -760,7 +760,7 @@ Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(
         if (origin_rows != data.num_rows) {
             // data in block has changed, should re-encode key columns, sequence column and re-get skip_bitmaps
             _olap_data_convertor->clear_source_content();
-            RETURN_IF_ERROR(encode_key_columns(key_columns));
+            RETURN_IF_ERROR(encode_pk_columns(key_columns));
             RETURN_IF_ERROR(encode_seq_column(seq_column));
             skip_bitmaps = get_skip_bitmaps(data.block);
             delete_signs = BaseTablet::get_delete_sign_column_data(*data.block,
@@ -775,15 +775,15 @@ Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(
     if (data.num_rows != origin_rows) {
         // data in block has changed, should re-encode key columns, sequence column and re-get skip_bitmaps, delete signs
         _olap_data_convertor->clear_source_content();
-        RETURN_IF_ERROR(encode_key_columns(key_columns));
+        RETURN_IF_ERROR(encode_pk_columns(key_columns));
         RETURN_IF_ERROR(encode_seq_column(seq_column));
         skip_bitmaps = get_skip_bitmaps(data.block);
         delete_signs =
                 BaseTablet::get_delete_sign_column_data(*data.block, data.row_pos + data.num_rows);
     }
 
-    // 5. write key columns data
-    for (std::size_t cid {0}; cid < _num_sort_key_columns; cid++) {
+    // 5. write primary key columns data
+    for (std::size_t cid {0}; cid < _tablet_schema->num_key_columns(); cid++) {
         const auto& column = key_columns[cid];
         DCHECK(_column_writers[cid]->get_next_rowid() == _num_rows_written);
         RETURN_IF_ERROR(_column_writers[cid]->append(column->get_nullmap(), column->get_data(),
@@ -805,6 +805,8 @@ Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(
                                                     _mow_context->rowset_ids);
     }
 
+    VLOG_DEBUG << fmt::format("before fill_non_primary_key_columns: block:\n{}",
+                              data.block->dump_data());
     // 7. read according plan to fill full_block
     RETURN_IF_ERROR(read_plan.fill_non_primary_key_columns(
             _opts.rowset_ctx, _rsid_to_rowset, *_tablet_schema, full_block,
@@ -818,7 +820,7 @@ Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(
     _serialize_block_to_row_column(full_block);
 
     // 9. encode and write all non-primary key columns(including sequence column if exists)
-    for (auto cid = _num_sort_key_columns; cid < _tablet_schema->num_columns(); cid++) {
+    for (auto cid = _tablet_schema->num_key_columns(); cid < _tablet_schema->num_columns(); cid++) {
         RETURN_IF_ERROR(_olap_data_convertor->set_source_content_with_specifid_column(
                 full_block.get_by_position(cid), data.row_pos, data.num_rows, cid));
         auto [status, column] = _olap_data_convertor->convert_column_data(cid);
@@ -909,14 +911,6 @@ Status VerticalSegmentWriter::_generate_flexible_read_plan(
         size_t delta_pos = block_pos - data.row_pos;
         size_t segment_pos = segment_start_pos + delta_pos;
         auto& skip_bitmap = skip_bitmaps->at(block_pos);
-
-        // the hidden sequence column should have the same mark with sequence map column
-        if (seq_map_col_unique_id != -1) {
-            DCHECK(schema_has_sequence_col);
-            if (skip_bitmap.contains(seq_map_col_unique_id)) {
-                skip_bitmap.add(seq_col_unique_id);
-            }
-        }
 
         std::string key = _full_encode_keys(key_columns, delta_pos);
         _maybe_invalid_row_cache(key);
@@ -1187,6 +1181,8 @@ Status VerticalSegmentWriter::_merge_rows_for_insert_after_delete(
                     // for this row
                     bool row_has_sequence_col = (!skip_bitmap.contains(seq_col_unique_id));
                     if (!row_has_sequence_col) {
+                        VLOG_DEBUG << fmt::format("prepare to read seq val for block_pos={}",
+                                                  block_pos);
                         read_plan.prepare_to_read(loc, block_pos);
                         _rsid_to_rowset.emplace(rowset->rowset_id(), rowset);
                     }
@@ -1229,9 +1225,6 @@ Status VerticalSegmentWriter::_merge_rows_for_insert_after_delete(
         RETURN_IF_ERROR(_filter_block(data, std::move(filter_column), duplicate_rows,
                                       "__filter_insert_after_delete_col__"));
     }
-    VLOG_DEBUG << fmt::format(
-            "VerticalSegmentWriter::_merge_rows_for_insert_after_delete after: data.block:{}\n",
-            block->dump_data());
     return Status::OK();
 }
 
