@@ -121,6 +121,7 @@ suite('test_mix_partial_update') {
                 file "test_mix_partial_update_load1.csv"
                 time 10000 // limit inflight 10s
             }
+            sql "sync"
             // sql "insert into ${tableInsertName1} values(1,1,1,1,1),(1,1,1,1,10),(2,2,2,2,2),(3,3,3,3,3)"
             // 1,1,1,1,10
             // 2,2,2,2,2
@@ -136,6 +137,7 @@ suite('test_mix_partial_update') {
                 file "test_mix_partial_update_load2.csv"
                 time 10000 // limit inflight 10s
             }
+            sql "sync"
             //sql "insert into ${tableStreamName1} (k1,c1,c2,c3,seq,__DORIS_DELETE_SIGN__) values(1,10,null,10,10,1)"
             // 2,2,2,2,2
             // 3,3,3,3,3
@@ -151,6 +153,7 @@ suite('test_mix_partial_update') {
                 file "test_mix_partial_update_load3.csv"
                 time 10000 // limit inflight 10s
             }
+            sql "sync"
             //sql "insert into ${tableStreamName1} (k1,c1,c2,c3,seq,__DORIS_DELETE_SIGN__) values(1,10,null,10,20,1)"
             // 2,2,2,2,2
             // 3,3,3,3,3
@@ -166,6 +169,7 @@ suite('test_mix_partial_update') {
                 file "test_mix_partial_update_load4.csv"
                 time 10000 // limit inflight 10s
             }
+            sql "sync"
             //sql "insert into ${tableStreamName1} (k1,c1,c2,c3,seq,__DORIS_DELETE_SIGN__) values(1,10,null,10,1,0)"
             // 1,10,null,10,1
             // 2,2,2,2,2
@@ -197,6 +201,7 @@ suite('test_mix_partial_update') {
                     assertTrue(json.Message.contains("Can't do partial update on merge-on-write Unique table with cluster keys"))
                 }
             }
+            sql "sync"
             //sql "set enable_unique_key_partial_update=true;"
             //sql "set enable_insert_strict=false;"
             //sql "insert into ${tableStreamName1} (k1,seq) values(2,1)"
@@ -224,6 +229,7 @@ suite('test_mix_partial_update') {
                     assertTrue(json.Message.contains("Can't do partial update on merge-on-write Unique table with cluster keys"))
                 }
             }
+            sql "sync"
             //sql "set enable_unique_key_partial_update=true;"
             //sql "set enable_insert_strict=false;"
             // sql "insert into ${tableStreamName1} (k1,seq,__DORIS_DELETE_SIGN__) values(3,1,1)"
@@ -238,6 +244,7 @@ suite('test_mix_partial_update') {
                 file "test_mix_partial_update_load7.csv"
                 time 10000 // limit inflight 10s
             }
+            sql "sync"
             // sql "insert into ${tableStreamName1} values(4,4,4,4,4)"
             // 2,2,2,2,1
             // 3,3,3,3,3
@@ -342,6 +349,7 @@ suite('test_mix_partial_update') {
                 file "test_mix_partial_update_load_A.csv"
                 time 10000 // limit inflight 10s
             }
+            sql "sync"
             qt_select_A "select k1,c2,c3,c4 from ${tableStreamName2}"
             qt_select_AA "select count(distinct c1) from ${tableStreamName2}"
             qt_select_AAA "select count(*) from ${tableStreamName2} where c5 = c6"
@@ -367,6 +375,7 @@ suite('test_mix_partial_update') {
                     assertTrue(json.Message.contains("Can't do partial update on merge-on-write Unique table with cluster keys"))
                 }
             }
+            sql "sync"
             qt_select_B "select k1,c2,c3,c4 from ${tableStreamName2}"
             qt_select_BB "select count(distinct c1) from ${tableStreamName2}"
             qt_select_BBB "select count(*) from ${tableStreamName2} where c5 = c6"
@@ -391,6 +400,7 @@ suite('test_mix_partial_update') {
                 file "test_mix_partial_update_load_C.csv"
                 time 10000 // limit inflight 10s
             }
+            sql "sync"
             qt_select_D "select k1,c2,c3,c4 from ${tableStreamName2}"
             qt_select_DD "select count(distinct c1) from ${tableStreamName2}"
             qt_select_DDD "select count(*) from ${tableStreamName2} where c5 = c7"
@@ -410,6 +420,7 @@ suite('test_mix_partial_update') {
                 file "test_mix_partial_update_load_D.csv"
                 time 10000 // limit inflight 10s
             }
+            sql "sync"
             qt_select_E "select k1,c2,c3,c4 from ${tableStreamName2}"
             qt_select_EE "select count(distinct c1) from ${tableStreamName2}"
             qt_select_EEE "select count(*) from ${tableStreamName2} where c5 = c7"
