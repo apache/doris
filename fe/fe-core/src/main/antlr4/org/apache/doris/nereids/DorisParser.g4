@@ -1117,6 +1117,7 @@ querySpecification
       whereClause?
       aggClause?
       havingClause?
+      qualifyClause?
       {doris_legacy_SQL_syntax}? queryOrganization                         #regularQuerySpecification
     ;
 
@@ -1201,6 +1202,10 @@ groupingSet
 
 havingClause
     : HAVING booleanExpression
+    ;
+
+qualifyClause
+    : QUALIFY booleanExpression
     ;
 
 selectHint: hintStatements+=hintStatement (COMMA? hintStatements+=hintStatement)* HINT_END;
@@ -2018,6 +2023,7 @@ nonReserved
     | QUANTILE_UNION
     | QUERY
     | QUOTA
+    | QUALIFY
     | RANDOM
     | RECENT
     | RECOVER
