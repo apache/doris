@@ -79,7 +79,7 @@ private:
         if (!predicate.target_is_slot(_parent->node_id())) {
             return false;
         }
-        return _is_key_column(predicate.get_col_name(_parent->node_id())) || _storage_no_merge();
+        return _is_key_column(predicate.get_col_name(_parent->node_id()));
     }
 
     Status _init_scanners(std::list<vectorized::VScannerSPtr>* scanners) override;
