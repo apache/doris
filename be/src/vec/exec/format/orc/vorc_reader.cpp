@@ -1184,7 +1184,9 @@ Status OrcReader::_decode_string_non_dict_encoded_column(const std::string& col_
             }
         }
     }
-    data_column->insert_many_strings(&string_values[0], num_values);
+    if (!string_values.empty()) {
+        data_column->insert_many_strings(&string_values[0], num_values);
+    }
     return Status::OK();
 }
 
@@ -1288,8 +1290,10 @@ Status OrcReader::_decode_string_dict_encoded_column(const std::string& col_name
             }
         }
     }
-    data_column->insert_many_strings_overflow(&string_values[0], string_values.size(),
-                                              max_value_length);
+    if (!string_values.empty()) {
+        data_column->insert_many_strings_overflow(&string_values[0], string_values.size(),
+                                                  max_value_length);
+    }
     return Status::OK();
 }
 
@@ -2402,7 +2406,9 @@ MutableColumnPtr OrcReader::_convert_dict_column_to_string_column(
             }
         }
     }
-    res->insert_many_strings_overflow(&string_values[0], num_values, max_value_length);
+    if (!string_values.empty()) {
+        res->insert_many_strings_overflow(&string_values[0], num_values, max_value_length);
+    }
     return res;
 }
 
