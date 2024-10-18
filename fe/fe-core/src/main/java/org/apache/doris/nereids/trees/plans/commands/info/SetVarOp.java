@@ -53,5 +53,5 @@ public abstract class SetVarOp {
         return false;
     }
 
-    public void forwardToMaster(ConnectContext ctx) throws Exception {}
+    public void afterForwardToMaster(ConnectContext ctx) throws Exception {}
 }

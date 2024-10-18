@@ -125,5 +125,5 @@ public abstract class Command extends AbstractPlan implements LogicalPlan, Block
         return false;
     }
 
-    public void forwardToMaster(ConnectContext ctx) throws Exception {}
+    public void afterForwardToMaster(ConnectContext ctx) throws Exception {}
 }

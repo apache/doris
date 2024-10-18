@@ -127,11 +127,12 @@ public class SetSessionVarOp extends SetVarOp {
         return sb.toString();
     }
 
-    public void forwardToMaster(ConnectContext ctx) throws Exception {
+    public void afterForwardToMaster(ConnectContext ctx) throws Exception {
         setType(SetType.SESSION);
         VariableMgr.setVarForNonMasterFE(ctx.getSessionVariable(), translateToLegacyVar(ctx));
     }
 
+    // TODO delete this method after removing dependence of SetVar in VariableMgr
     private SetVar translateToLegacyVar(ConnectContext ctx) {
         LogicalEmptyRelation plan = new LogicalEmptyRelation(
                 ConnectContext.get().getStatementContext().getNextRelationId(), new ArrayList<>());

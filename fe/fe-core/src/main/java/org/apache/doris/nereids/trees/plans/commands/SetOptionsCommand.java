@@ -33,7 +33,7 @@ import java.util.List;
 /**
  * SetOptionsCommand
  */
-public class SetOptionsCommand extends Command implements ForwardWithSync {
+public class SetOptionsCommand extends Command implements Forward, NeedAuditEncryption {
     private final List<SetVarOp> setVarOpList;
 
     public SetOptionsCommand(List<SetVarOp> setVarOpList) {
@@ -96,10 +96,10 @@ public class SetOptionsCommand extends Command implements ForwardWithSync {
     }
 
     @Override
-    public void forwardToMaster(ConnectContext ctx) throws Exception {
+    public void afterForwardToMaster(ConnectContext ctx) throws Exception {
         for (SetVarOp varOp : setVarOpList) {
             varOp.validate(ctx);
-            varOp.forwardToMaster(ctx);
+            varOp.afterForwardToMaster(ctx);
         }
     }
 }

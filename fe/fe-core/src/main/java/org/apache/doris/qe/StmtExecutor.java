@@ -1204,7 +1204,7 @@ public class StmtExecutor {
             // for nereids command
             if (((LogicalPlanAdapter) parsedStmt).getLogicalPlan() instanceof Command) {
                 Command command = (Command) ((LogicalPlanAdapter) parsedStmt).getLogicalPlan();
-                command.forwardToMaster(context);
+                command.afterForwardToMaster(context);
             }
         } else if (parsedStmt instanceof SetStmt) {
             SetStmt setStmt = (SetStmt) parsedStmt;

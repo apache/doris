@@ -3865,14 +3865,14 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         List<SetVarOp> setVarOpList = new ArrayList<>(1);
         for (Object child : ctx.children) {
             if (child instanceof RuleNode) {
-                setVarOpList.add((SetVarOp) ((RuleNode) child).accept(this));
+                setVarOpList.add(typedVisit((RuleNode) child));
             }
         }
         return new SetOptionsCommand(setVarOpList);
     }
 
     @Override
-    public SetSessionVarOp visitSetSystemVariable(SetSystemVariableContext ctx) {
+    public SetVarOp visitSetSystemVariable(SetSystemVariableContext ctx) {
         SetType type = SetType.DEFAULT;
         if (ctx.GLOBAL() != null) {
             type = SetType.GLOBAL;
@@ -3885,7 +3885,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
-    public SetSessionVarOp visitSetVariableWithType(SetVariableWithTypeContext ctx) {
+    public SetVarOp visitSetVariableWithType(SetVariableWithTypeContext ctx) {
         SetType type = SetType.DEFAULT;
         if (ctx.GLOBAL() != null) {
             type = SetType.GLOBAL;
@@ -3898,7 +3898,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
-    public SetPassVarOp visitSetPassword(SetPasswordContext ctx) {
+    public SetVarOp visitSetPassword(SetPasswordContext ctx) {
         String user;
         String host;
         boolean isDomain;
@@ -3917,32 +3917,32 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
-    public SetNamesVarOp visitSetNames(SetNamesContext ctx) {
+    public SetVarOp visitSetNames(SetNamesContext ctx) {
         return new SetNamesVarOp();
     }
 
     @Override
-    public SetCharsetAndCollateVarOp visitSetCharset(SetCharsetContext ctx) {
+    public SetVarOp visitSetCharset(SetCharsetContext ctx) {
         String charset = ctx.charsetName != null ? stripQuotes(ctx.charsetName.getText()) : null;
         return new SetCharsetAndCollateVarOp(charset);
     }
 
     @Override
-    public SetCharsetAndCollateVarOp visitSetCollate(SetCollateContext ctx) {
+    public SetVarOp visitSetCollate(SetCollateContext ctx) {
         String charset = ctx.charsetName != null ? stripQuotes(ctx.charsetName.getText()) : null;
         String collate = ctx.collateName != null ? stripQuotes(ctx.collateName.getText()) : null;
         return new SetCharsetAndCollateVarOp(charset, collate);
     }
 
     @Override
-    public SetLdapPassVarOp visitSetLdapAdminPassword(SetLdapAdminPasswordContext ctx) {
+    public SetVarOp visitSetLdapAdminPassword(SetLdapAdminPasswordContext ctx) {
         String passwordText = stripQuotes(ctx.STRING_LITERAL().getText());
         boolean isPlain = ctx.LEFT_PAREN() != null;
         return new SetLdapPassVarOp(new PassVar(passwordText, isPlain));
     }
 
     @Override
-    public SetUserDefinedVarOp visitSetUserVariable(SetUserVariableContext ctx) {
+    public SetVarOp visitSetUserVariable(SetUserVariableContext ctx) {
         String name = stripQuotes(ctx.identifier().getText());
         Expression expression = typedVisit(ctx.expression());
         return new SetUserDefinedVarOp(name, expression);
