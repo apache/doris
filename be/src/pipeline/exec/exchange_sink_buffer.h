@@ -200,7 +200,7 @@ public:
         if ((--_running_sink) == 0) {
             _is_all_eos = true;
         }
-        // _set_ready_to_finish(_busy_channels == 0);
+        _set_ready_to_finish(_busy_channels == 0);
     }
 
 private:
