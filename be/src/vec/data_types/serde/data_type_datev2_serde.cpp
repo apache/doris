@@ -178,6 +178,9 @@ Status DataTypeDateV2SerDe::write_column_to_orc(const std::string& timezone, con
 Status DataTypeDateV2SerDe::deserialize_column_from_fixed_json(IColumn& column, Slice& slice,
                                                                int rows, int* num_deserialized,
                                                                const FormatOptions& options) const {
+    if (rows < 1) [[unlikely]] {
+        return Status::OK();
+    }
     Status st = deserialize_one_cell_from_json(column, slice, options);
     if (!st.ok()) {
         return st;
@@ -189,6 +192,9 @@ Status DataTypeDateV2SerDe::deserialize_column_from_fixed_json(IColumn& column, 
 
 void DataTypeDateV2SerDe::insert_column_last_value_multiple_times(IColumn& column,
                                                                   int times) const {
+    if (times < 1) [[unlikely]] {
+        return;
+    }
     auto& col = static_cast<ColumnVector<UInt32>&>(column);
     auto sz = col.size();
     UInt32 val = col.get_element(sz - 1);

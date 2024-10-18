@@ -243,17 +243,26 @@ public:
     virtual Status deserialize_column_from_fixed_json(IColumn& column, Slice& slice, int rows,
                                                       int* num_deserialized,
                                                       const FormatOptions& options) const {
+        //In this function implementation, we need to consider the case where rows is 0, 1, and other larger integers.
+        if (rows < 1) [[unlikely]] {
+            return Status::OK();
+        }
         Status st = deserialize_one_cell_from_json(column, slice, options);
         if (!st.ok()) {
             *num_deserialized = 0;
             return st;
         }
-        insert_column_last_value_multiple_times(column, rows - 1);
+        if (rows > 1) [[likely]] {
+            insert_column_last_value_multiple_times(column, rows - 1);
+        }
         *num_deserialized = rows;
         return Status::OK();
     }
     // Insert the last value to the end of this column multiple times.
     virtual void insert_column_last_value_multiple_times(IColumn& column, int times) const {
+        if (times < 1) [[unlikely]] {
+            return;
+        }
         //If you try to simplify this operation by using `column.insert_many_from(column, column.size() - 1, rows - 1);`
         // you are likely to get incorrect data results.
         MutableColumnPtr dum_col = column.clone_empty();

@@ -2244,6 +2244,9 @@ public class DatabaseTransactionMgr {
                                         replica.getId(), newVersion, lastFailedVersion, lastSuccessVersion);
                             }
                             replica.updateVersionWithFailed(newVersion, lastFailedVersion, lastSuccessVersion);
+                            if (newVersion == Partition.PARTITION_INIT_VERSION + 1) {
+                                index.setRowCountReported(false);
+                            }
                             Set<Long> partitionIds = backendPartitions.get(replica.getBackendIdWithoutException());
                             if (partitionIds == null) {
                                 partitionIds = Sets.newHashSet();

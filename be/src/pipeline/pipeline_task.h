@@ -130,15 +130,16 @@ public:
 
     void wake_up();
 
-    DataSinkOperatorXPtr sink() const { return _sink; }
+    DataSinkOperatorPtr sink() const { return _sink; }
 
     int task_id() const { return _index; };
     bool is_finalized() const { return _finalized; }
 
-    void clear_blocking_state() {
+    void clear_blocking_state(bool wake_up_by_downstream = false) {
         _state->get_query_ctx()->get_execution_dependency()->set_always_ready();
         // We use a lock to assure all dependencies are not deconstructed here.
         std::unique_lock<std::mutex> lc(_dependency_lock);
+        _wake_up_by_downstream = _wake_up_by_downstream || wake_up_by_downstream;
         if (!_finalized) {
             _execution_dep->set_always_ready();
             for (auto* dep : _filter_dependencies) {
@@ -231,6 +232,10 @@ public:
         }
     }
 
+    PipelineId pipeline_id() const { return _pipeline->id(); }
+
+    bool wake_up_by_downstream() const { return _wake_up_by_downstream; }
+
 private:
     friend class RuntimeFilterDependency;
     bool _is_blocked();
@@ -282,10 +287,10 @@ private:
 
     MonotonicStopWatch _pipeline_task_watcher;
 
-    OperatorXs _operators; // left is _source, right is _root
+    Operators _operators; // left is _source, right is _root
     OperatorXBase* _source;
     OperatorXBase* _root;
-    DataSinkOperatorXPtr _sink;
+    DataSinkOperatorPtr _sink;
 
     // `_read_dependencies` is stored as same order as `_operators`
     std::vector<std::vector<Dependency*>> _read_dependencies;
@@ -306,11 +311,12 @@ private:
 
     Dependency* _execution_dep = nullptr;
 
-    std::atomic<bool> _finalized {false};
+    std::atomic<bool> _finalized = false;
     std::mutex _dependency_lock;
 
-    std::atomic<bool> _running {false};
-    std::atomic<bool> _eos {false};
+    std::atomic<bool> _running = false;
+    std::atomic<bool> _eos = false;
+    std::atomic<bool> _wake_up_by_downstream = false;
 };
 
 } // namespace doris::pipeline

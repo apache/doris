@@ -559,4 +559,6 @@ public interface TableIf {
     default boolean isPartitionedTable() {
         return false;
     }
+
+    boolean autoAnalyzeEnabled();
 }

@@ -72,13 +72,12 @@ private:
 
     Status _start_bg_worker();
 
-    class LastSuccessChannelCache : public LRUCachePolicyTrackingManual {
+    class LastSuccessChannelCache : public LRUCachePolicy {
     public:
         LastSuccessChannelCache(size_t capacity)
-                : LRUCachePolicyTrackingManual(CachePolicy::CacheType::LAST_SUCCESS_CHANNEL_CACHE,
-                                               capacity, LRUCacheType::SIZE, -1,
-                                               DEFAULT_LRU_CACHE_NUM_SHARDS,
-                                               DEFAULT_LRU_CACHE_ELEMENT_COUNT_CAPACITY, false) {}
+                : LRUCachePolicy(CachePolicy::CacheType::LAST_SUCCESS_CHANNEL_CACHE, capacity,
+                                 LRUCacheType::SIZE, -1, DEFAULT_LRU_CACHE_NUM_SHARDS,
+                                 DEFAULT_LRU_CACHE_ELEMENT_COUNT_CAPACITY, false) {}
     };
 
 protected:

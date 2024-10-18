@@ -151,6 +151,9 @@ DEFINE_mInt64(stacktrace_in_alloc_large_memory_bytes, "2147483648");
 
 DEFINE_mInt64(crash_in_alloc_large_memory_bytes, "-1");
 
+// If memory tracker value is inaccurate, BE will crash. usually used in test environments, default value is false.
+DEFINE_mBool(crash_in_memory_tracker_inaccurate, "false");
+
 // default is true. if any memory tracking in Orphan mem tracker will report error.
 // !! not modify the default value of this conf!! otherwise memory errors cannot be detected in time.
 // allocator free memory not need to check, because when the thread memory tracker label is Orphan,
@@ -1717,7 +1720,9 @@ bool init(const char* conf_file, bool fill_conf_map, bool must_exist, bool set_t
 
     if (config::is_cloud_mode()) {
         auto st = config::set_config("enable_file_cache", "true", true, true);
-        LOG(INFO) << "set config enable_file_cache " << "true" << " " << st;
+        LOG(INFO) << "set config enable_file_cache "
+                  << "true"
+                  << " " << st;
     }
 
     return true;
