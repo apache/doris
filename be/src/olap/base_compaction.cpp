@@ -55,9 +55,12 @@ Status BaseCompaction::prepare_compact() {
     }
 
     // 1. pick rowsets to compact
-    RETURN_IF_ERROR(pick_rowsets_to_compact());
+    Status res = pick_rowsets_to_compact();
+    tablet()->set_last_base_compaction_status(res.to_string());
+    RETURN_IF_ERROR(res);
     COUNTER_UPDATE(_input_rowsets_counter, _input_rowsets.size());
 
+    tablet()->set_last_base_compaction_status(Status::OK().to_string());
     return Status::OK();
 }
 
@@ -75,13 +78,17 @@ Status BaseCompaction::execute_compact() {
 
     SCOPED_ATTACH_TASK(_mem_tracker);
 
-    RETURN_IF_ERROR(CompactionMixin::execute_compact());
+    Status res = CompactionMixin::execute_compact();
+    tablet()->set_last_base_compaction_status(res.to_string());
+    RETURN_IF_ERROR(res);
+
     DCHECK_EQ(_state, CompactionState::SUCCESS);
 
     tablet()->set_last_base_compaction_success_time(UnixMillis());
     DorisMetrics::instance()->base_compaction_deltas_total->increment(_input_rowsets.size());
     DorisMetrics::instance()->base_compaction_bytes_total->increment(_input_rowsets_size);
 
+    tablet()->set_last_base_compaction_status(Status::OK().to_string());
     return Status::OK();
 }
 
