@@ -61,10 +61,7 @@ suite ("unique") {
 
     sql """analyze table u_table with sync;"""
     sql """set enable_stats=false;"""
-    explain {
-        sql("select k3,length(k1),k2 from u_table order by 1,2,3;")
-        contains "(k31l42)"
-    }
+    mv_rewrite_success("select k3,length(k1),k2 from u_table order by 1,2,3;", "k31l42")
     qt_select "select k3,length(k1),k2 from u_table order by 1,2,3;"
 
 
@@ -76,10 +73,7 @@ suite ("unique") {
     qt_select_star "select * from u_table order by k1;"
 
     sql """set enable_stats=true;"""
-    explain {
-        sql("select k3,length(k1),k2 from u_table order by 1,2,3;")
-        contains "(k31l42)"
-    }
+    mv_rewrite_success("select k3,length(k1),k2 from u_table order by 1,2,3;", "k31l42")
 
     // todo: support match query
 }

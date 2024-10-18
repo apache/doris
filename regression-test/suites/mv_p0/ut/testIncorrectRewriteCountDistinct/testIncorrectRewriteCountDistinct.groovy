@@ -38,26 +38,14 @@ suite ("testIncorrectRewriteCountDistinct") {
     sql "analyze table user_tags with sync;"
     sql """set enable_stats=false;"""
 
-    explain {
-        sql("select * from user_tags order by time_col;")
-        contains "(user_tags)"
-    }
+    mv_rewrite_fail("select * from user_tags order by time_col;", "user_tags_mv")
     qt_select_star "select * from user_tags order by time_col,tag_id;"
 
-    explain {
-        sql("select user_name, count(distinct tag_id) from user_tags group by user_name;")
-        contains "(user_tags)"
-    }
+    mv_rewrite_fail("select user_name, count(distinct tag_id) from user_tags group by user_name;", "user_tags_mv")
     qt_select_mv "select user_name, count(distinct tag_id) from user_tags group by user_name order by user_name;"
 
     sql """set enable_stats=true;"""
-    explain {
-        sql("select * from user_tags order by time_col;")
-        contains "(user_tags)"
-    }
+    mv_rewrite_fail("select * from user_tags order by time_col;", "user_tags_mv")
 
-    explain {
-        sql("select user_name, count(distinct tag_id) from user_tags group by user_name;")
-        contains "(user_tags)"
-    }
+    mv_rewrite_fail("select user_name, count(distinct tag_id) from user_tags group by user_name;", "user_tags_mv")
 }
