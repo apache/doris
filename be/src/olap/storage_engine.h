@@ -72,6 +72,7 @@ class ReportWorker;
 class CreateTabletIdxCache;
 struct DirInfo;
 class SnapshotManager;
+class CgroupCpuCtl;
 
 using SegCompactionCandidates = std::vector<segment_v2::SegmentSharedPtr>;
 using SegCompactionCandidatesSharedPtr = std::shared_ptr<SegCompactionCandidates>;
@@ -105,7 +106,7 @@ public:
     virtual bool stopped() = 0;
 
     // start all background threads. This should be call after env is ready.
-    virtual Status start_bg_threads() = 0;
+    virtual Status start_bg_threads(CgroupCpuCtl* cg_cpu_ctl_ptr = nullptr) = 0;
 
     virtual Result<BaseTabletSPtr> get_tablet(int64_t tablet_id) = 0;
 
@@ -278,7 +279,7 @@ public:
         return _default_rowset_type;
     }
 
-    Status start_bg_threads() override;
+    Status start_bg_threads(CgroupCpuCtl* cg_cpu_ctl_ptr = nullptr) override;
 
     // clear trash and snapshot file
     // option: update disk usage after sweep
