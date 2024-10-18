@@ -187,6 +187,8 @@ public class DorisFE {
             Env.getCurrentEnv().initialize(args);
             Env.getCurrentEnv().waitForReady();
 
+            Env.getCurrentEnv().cleanPhantomTempTable();
+
             // init and start:
             // 1. HttpServer for HTTP Server
             // 2. FeServer for Thrift Server
