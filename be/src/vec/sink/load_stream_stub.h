@@ -288,6 +288,9 @@ public:
 
     size_t size() const { return _streams.size(); }
 
+    // for UT only
+    void mark_open() { _open_success.store(true); }
+
     std::shared_ptr<LoadStreamStub> select_one_stream() {
         if (!_open_success.load()) {
             return nullptr;
