@@ -70,10 +70,10 @@ class FilterEstimationTest {
         LessThan lessThan = new LessThan(b, int100);
         Or or = new Or(greaterThan1, lessThan);
         Map<Expression, ColumnStatistic> columnStat = new HashMap<>();
-        ColumnStatistic aStats = new ColumnStatisticBuilder().setCount(500).setNdv(500).setAvgSizeByte(4)
+        ColumnStatistic aStats = new ColumnStatisticBuilder(500).setNdv(500).setAvgSizeByte(4)
                 .setNumNulls(0).setDataSize(0)
                 .setMinValue(0).setMaxValue(1000).setMinExpr(null).build();
-        ColumnStatistic bStats = new ColumnStatisticBuilder().setCount(500).setNdv(500).setAvgSizeByte(4)
+        ColumnStatistic bStats = new ColumnStatisticBuilder(500).setNdv(500).setAvgSizeByte(4)
                 .setNumNulls(0).setDataSize(0)
                 .setMinValue(0).setMaxValue(1000).setMinExpr(null).setIsUnknown(true).build();
         columnStat.put(a, aStats);
@@ -99,10 +99,10 @@ class FilterEstimationTest {
         LessThan lessThan = new LessThan(b, int100);
         And and = new And(greaterThan1, lessThan);
         Map<Expression, ColumnStatistic> columnStat = new HashMap<>();
-        ColumnStatistic aStats = new ColumnStatisticBuilder().setCount(500).setNdv(500)
+        ColumnStatistic aStats = new ColumnStatisticBuilder(500).setNdv(500)
                 .setAvgSizeByte(4).setNumNulls(0).setDataSize(0)
                 .setMinValue(0).setMaxValue(1000).setMinExpr(null).build();
-        ColumnStatistic bStats = new ColumnStatisticBuilder().setCount(500).setNdv(500)
+        ColumnStatistic bStats = new ColumnStatisticBuilder(500).setNdv(500)
                 .setAvgSizeByte(4).setNumNulls(0).setDataSize(0)
                 .setMinValue(0).setMaxValue(1000).setMinExpr(null).setIsUnknown(true).build();
         columnStat.put(a, aStats);
@@ -165,7 +165,7 @@ class FilterEstimationTest {
         LessThan le = new LessThan(a, int200);
         And and = new And(ge, le);
         Map<Expression, ColumnStatistic> slotToColumnStat = new HashMap<>();
-        ColumnStatistic aStats = new ColumnStatisticBuilder().setCount(300).setNdv(30)
+        ColumnStatistic aStats = new ColumnStatisticBuilder(300).setNdv(30)
                 .setAvgSizeByte(4).setNumNulls(0).setDataSize(0)
                 .setMinValue(0).setMaxValue(300).build();
         slotToColumnStat.put(a, aStats);
@@ -184,8 +184,7 @@ class FilterEstimationTest {
         SlotReference ym = new SlotReference("a", new VarcharType(7));
         double rowCount = 404962.0;
         double ndv = 14.0;
-        ColumnStatistic ymStats = new ColumnStatisticBuilder()
-                .setCount(rowCount)
+        ColumnStatistic ymStats = new ColumnStatisticBuilder(rowCount)
                 .setNdv(ndv)
                 .setMinExpr(new StringLiteral("2023-07"))
                 .setMinValue(14126741000630328.000000)
@@ -211,8 +210,7 @@ class FilterEstimationTest {
         SlotReference ym = new SlotReference("a", new VarcharType(7));
         double rowCount = 404962.0;
         double ndv = 0.5;
-        ColumnStatistic ymStats = new ColumnStatisticBuilder()
-                .setCount(rowCount)
+        ColumnStatistic ymStats = new ColumnStatisticBuilder(rowCount)
                 .setNdv(ndv)
                 .setMinExpr(new StringLiteral("2023-07"))
                 .setMinValue(14126741000630328.000000)
@@ -267,13 +265,13 @@ class FilterEstimationTest {
         And and = new And(greaterThan1, lessThan);
         Or or = new Or(and, equalTo);
         Map<Expression, ColumnStatistic> slotToColumnStat = new HashMap<>();
-        ColumnStatistic aStats = new ColumnStatisticBuilder().setCount(500).setNdv(500)
+        ColumnStatistic aStats = new ColumnStatisticBuilder(500).setNdv(500)
                 .setAvgSizeByte(4).setNumNulls(0).setDataSize(0)
                 .setMinValue(0).setMaxValue(1000).setMinExpr(null).build();
-        ColumnStatistic bStats = new ColumnStatisticBuilder().setCount(500).setNdv(500)
+        ColumnStatistic bStats = new ColumnStatisticBuilder(500).setNdv(500)
                 .setAvgSizeByte(4).setNumNulls(0).setDataSize(0)
                 .setMinValue(0).setMaxValue(1000).setMinExpr(null).build();
-        ColumnStatistic cStats = new ColumnStatisticBuilder().setCount(500).setNdv(500)
+        ColumnStatistic cStats = new ColumnStatisticBuilder(500).setNdv(500)
                 .setAvgSizeByte(4).setNumNulls(0).setDataSize(0)
                 .setMinValue(0).setMaxValue(1000).setMinExpr(null).build();
         slotToColumnStat.put(a, aStats);
@@ -312,7 +310,7 @@ class FilterEstimationTest {
         FilterEstimation filterEstimation = new FilterEstimation();
         Statistics expected = filterEstimation.estimate(or, stat);
         Assertions.assertTrue(
-                Precision.equals(512.5,
+                Precision.equals(503.12,
                         expected.getRowCount(), 0.01));
     }
 
@@ -334,7 +332,7 @@ class FilterEstimationTest {
         Statistics stat = new Statistics(1000, slotToColumnStat);
         FilterEstimation filterEstimation = new FilterEstimation();
         Statistics expected = filterEstimation.estimate(ge, stat);
-        Assertions.assertEquals(1000 * 1.0 / 500, expected.getRowCount());
+        Assertions.assertEquals(1000 * (500.0 / 1000) * (1.0 / 500), expected.getRowCount());
     }
 
     // a <= 500
@@ -355,7 +353,7 @@ class FilterEstimationTest {
         Statistics stat = new Statistics(1000, slotToColumnStat);
         FilterEstimation filterEstimation = new FilterEstimation();
         Statistics expected = filterEstimation.estimate(le, stat);
-        Assertions.assertEquals(1000 * 1.0 / 500, expected.getRowCount());
+        Assertions.assertEquals(1000 * (500.0 / 1000) * (1.0 / 500), expected.getRowCount());
     }
 
     // a < 500
@@ -376,7 +374,7 @@ class FilterEstimationTest {
         Statistics stat = new Statistics(1000, slotToColumnStat);
         FilterEstimation filterEstimation = new FilterEstimation();
         Statistics expected = filterEstimation.estimate(less, stat);
-        Assertions.assertEquals(2, expected.getRowCount());
+        Assertions.assertEquals(1, expected.getRowCount());
     }
 
     // a > 1000
@@ -397,7 +395,7 @@ class FilterEstimationTest {
         Statistics stat = new Statistics(1000, slotToColumnStat);
         FilterEstimation filterEstimation = new FilterEstimation();
         Statistics expected = filterEstimation.estimate(ge, stat);
-        Assertions.assertEquals(2, expected.getRowCount());
+        Assertions.assertEquals(1, expected.getRowCount());
     }
 
     // a > b
@@ -659,27 +657,24 @@ class FilterEstimationTest {
         IntegerLiteral i300 = new IntegerLiteral(300);
         GreaterThan ge = new GreaterThan(c, i300);
         Map<Expression, ColumnStatistic> slotToColumnStat = new HashMap<>();
-        ColumnStatisticBuilder builderA = new ColumnStatisticBuilder()
+        ColumnStatisticBuilder builderA = new ColumnStatisticBuilder(1000)
                 .setNdv(1000)
                 .setAvgSizeByte(4)
                 .setNumNulls(0)
                 .setMinValue(1000)
-                .setMaxValue(10000)
-                .setCount(1000);
-        ColumnStatisticBuilder builderB = new ColumnStatisticBuilder()
+                .setMaxValue(10000);
+        ColumnStatisticBuilder builderB = new ColumnStatisticBuilder(1000)
                 .setNdv(100)
                 .setAvgSizeByte(4)
                 .setNumNulls(0)
                 .setMinValue(0)
-                .setMaxValue(500)
-                .setCount(1000);
-        ColumnStatisticBuilder builderC = new ColumnStatisticBuilder()
+                .setMaxValue(500);
+        ColumnStatisticBuilder builderC = new ColumnStatisticBuilder(1000)
                 .setNdv(100)
                 .setAvgSizeByte(4)
                 .setNumNulls(0)
                 .setMinValue(0)
-                .setMaxValue(200)
-                .setCount(1000);
+                .setMaxValue(200);
         slotToColumnStat.put(a, builderA.build());
         slotToColumnStat.put(b, builderB.build());
         slotToColumnStat.put(c, builderC.build());
@@ -799,22 +794,19 @@ class FilterEstimationTest {
         IntegerLiteral i200 = new IntegerLiteral(200);
         Map<Expression, ColumnStatistic> slotToColumnStat = new HashMap<>();
 
-        ColumnStatisticBuilder builderA = new ColumnStatisticBuilder()
+        ColumnStatisticBuilder builderA = new ColumnStatisticBuilder(100)
                 .setNdv(100)
                 .setAvgSizeByte(4)
                 .setNumNulls(0)
                 .setMinValue(0)
-                .setMaxValue(100)
-                .setCount(100);
-        ColumnStatisticBuilder builderB = new ColumnStatisticBuilder()
-                .setCount(100)
+                .setMaxValue(100);
+        ColumnStatisticBuilder builderB = new ColumnStatisticBuilder(100)
                 .setNdv(20)
                 .setAvgSizeByte(4)
                 .setNumNulls(0)
                 .setMinValue(0)
                 .setMaxValue(500);
-        ColumnStatisticBuilder builderC = new ColumnStatisticBuilder()
-                .setCount(100)
+        ColumnStatisticBuilder builderC = new ColumnStatisticBuilder(100)
                 .setNdv(40)
                 .setAvgSizeByte(4)
                 .setNumNulls(0)
@@ -868,22 +860,19 @@ class FilterEstimationTest {
         IntegerLiteral i10 = new IntegerLiteral(10);
         Map<Expression, ColumnStatistic> slotToColumnStat = new HashMap<>();
 
-        ColumnStatisticBuilder builderA = new ColumnStatisticBuilder()
+        ColumnStatisticBuilder builderA = new ColumnStatisticBuilder(100)
                 .setNdv(100)
                 .setAvgSizeByte(4)
                 .setNumNulls(0)
                 .setMinValue(0)
-                .setMaxValue(100)
-                .setCount(100);
-        ColumnStatisticBuilder builderB = new ColumnStatisticBuilder()
-                .setCount(100)
+                .setMaxValue(100);
+        ColumnStatisticBuilder builderB = new ColumnStatisticBuilder(100)
                 .setNdv(20)
                 .setAvgSizeByte(4)
                 .setNumNulls(0)
                 .setMinValue(0)
                 .setMaxValue(500);
-        ColumnStatisticBuilder builderC = new ColumnStatisticBuilder()
-                .setCount(100)
+        ColumnStatisticBuilder builderC = new ColumnStatisticBuilder(100)
                 .setNdv(40)
                 .setAvgSizeByte(4)
                 .setNumNulls(0)
@@ -914,15 +903,14 @@ class FilterEstimationTest {
     @Test
     public void testBetweenCastFilter() {
         SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
-        ColumnStatisticBuilder builder = new ColumnStatisticBuilder()
+        ColumnStatisticBuilder builder = new ColumnStatisticBuilder(100)
                 .setNdv(100)
                 .setAvgSizeByte(4)
                 .setNumNulls(0)
                 .setMaxExpr(new IntLiteral(100))
                 .setMaxValue(100)
                 .setMinExpr(new IntLiteral(0))
-                .setMinValue(0)
-                .setCount(100);
+                .setMinValue(0);
         DoubleLiteral begin = new DoubleLiteral(40.0);
         DoubleLiteral end = new DoubleLiteral(50.0);
         LessThan less = new LessThan(new Cast(a, DoubleType.INSTANCE), end);
@@ -943,13 +931,12 @@ class FilterEstimationTest {
         DateLiteral from = new DateLiteral("1990-01-01");
         DateLiteral to = new DateLiteral("2000-01-01");
         SlotReference a = new SlotReference("a", DateType.INSTANCE);
-        ColumnStatisticBuilder builder = new ColumnStatisticBuilder()
+        ColumnStatisticBuilder builder = new ColumnStatisticBuilder(100)
                 .setNdv(100)
                 .setAvgSizeByte(4)
                 .setNumNulls(0)
                 .setMaxValue(to.getDouble())
-                .setMinValue(from.getDouble())
-                .setCount(100);
+                .setMinValue(from.getDouble());
         DateLiteral mid = new DateLiteral("1999-01-01");
         GreaterThan greaterThan = new GreaterThan(a, mid);
         Statistics stats = new Statistics(100, new HashMap<>());
@@ -962,13 +949,12 @@ class FilterEstimationTest {
     @Test
     public void testIsNull() {
         SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
-        ColumnStatisticBuilder builder = new ColumnStatisticBuilder()
+        ColumnStatisticBuilder builder = new ColumnStatisticBuilder(100)
                 .setNdv(100)
                 .setAvgSizeByte(4)
                 .setNumNulls(10)
                 .setMaxValue(100)
-                .setMinValue(0)
-                .setCount(100);
+                .setMinValue(0);
         IsNull isNull = new IsNull(a);
         Statistics stats = new Statistics(100, new HashMap<>());
         stats.addColumnStats(a, builder.build());
@@ -980,13 +966,12 @@ class FilterEstimationTest {
     @Test
     public void testIsNotNull() {
         SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
-        ColumnStatisticBuilder builder = new ColumnStatisticBuilder()
+        ColumnStatisticBuilder builder = new ColumnStatisticBuilder(100)
                 .setNdv(100)
                 .setAvgSizeByte(4)
                 .setNumNulls(10)
                 .setMaxValue(100)
-                .setMinValue(0)
-                .setCount(100);
+                .setMinValue(0);
         IsNull isNull = new IsNull(a);
         Not not = new Not(isNull);
         Statistics stats = new Statistics(100, new HashMap<>());
@@ -1002,13 +987,12 @@ class FilterEstimationTest {
     @Test
     public void testNumNullsEqualTo() {
         SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
-        ColumnStatisticBuilder builder = new ColumnStatisticBuilder()
+        ColumnStatisticBuilder builder = new ColumnStatisticBuilder(10)
                 .setNdv(2)
                 .setAvgSizeByte(4)
                 .setNumNulls(8)
                 .setMaxValue(2)
-                .setMinValue(1)
-                .setCount(10);
+                .setMinValue(1);
         IntegerLiteral int1 = new IntegerLiteral(1);
         EqualTo equalTo = new EqualTo(a, int1);
         Statistics stats = new Statistics(10, new HashMap<>());
@@ -1024,13 +1008,12 @@ class FilterEstimationTest {
     @Test
     public void testNumNullsComparable() {
         SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
-        ColumnStatisticBuilder builder = new ColumnStatisticBuilder()
+        ColumnStatisticBuilder builder = new ColumnStatisticBuilder(10)
                 .setNdv(2)
                 .setAvgSizeByte(4)
                 .setNumNulls(8)
                 .setMaxValue(2)
-                .setMinValue(1)
-                .setCount(10);
+                .setMinValue(1);
         IntegerLiteral int1 = new IntegerLiteral(1);
         GreaterThan greaterThan = new GreaterThan(a, int1);
         Statistics stats = new Statistics(10, new HashMap<>());
@@ -1046,13 +1029,12 @@ class FilterEstimationTest {
     @Test
     public void testNumNullsIn() {
         SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
-        ColumnStatisticBuilder builder = new ColumnStatisticBuilder()
+        ColumnStatisticBuilder builder = new ColumnStatisticBuilder(10)
                 .setNdv(2)
                 .setAvgSizeByte(4)
                 .setNumNulls(8)
                 .setMaxValue(2)
-                .setMinValue(1)
-                .setCount(10);
+                .setMinValue(1);
         IntegerLiteral int1 = new IntegerLiteral(1);
         IntegerLiteral int2 = new IntegerLiteral(2);
         InPredicate in = new InPredicate(a, Lists.newArrayList(int1, int2));
@@ -1060,7 +1042,7 @@ class FilterEstimationTest {
         stats.addColumnStats(a, builder.build());
         FilterEstimation filterEstimation = new FilterEstimation();
         Statistics result = filterEstimation.estimate(in, stats);
-        Assertions.assertEquals(result.getRowCount(), 10.0, 0.01);
+        Assertions.assertEquals(result.getRowCount(), 2.0, 0.01);
     }
 
     /**
@@ -1069,13 +1051,12 @@ class FilterEstimationTest {
     @Test
     public void testNumNullsNotEqualTo() {
         SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
-        ColumnStatisticBuilder builder = new ColumnStatisticBuilder()
+        ColumnStatisticBuilder builder = new ColumnStatisticBuilder(10)
                 .setNdv(2)
                 .setAvgSizeByte(4)
                 .setNumNulls(8)
                 .setMaxValue(2)
-                .setMinValue(1)
-                .setCount(10);
+                .setMinValue(1);
         IntegerLiteral int1 = new IntegerLiteral(1);
         EqualTo equalTo = new EqualTo(a, int1);
         Not not = new Not(equalTo);
@@ -1092,13 +1073,12 @@ class FilterEstimationTest {
     @Test
     public void testNumNullsNotIn() {
         SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
-        ColumnStatisticBuilder builder = new ColumnStatisticBuilder()
+        ColumnStatisticBuilder builder = new ColumnStatisticBuilder(10)
                 .setNdv(2)
                 .setAvgSizeByte(4)
                 .setNumNulls(8)
                 .setMaxValue(2)
-                .setMinValue(1)
-                .setCount(10);
+                .setMinValue(1);
         IntegerLiteral int1 = new IntegerLiteral(1);
         IntegerLiteral int2 = new IntegerLiteral(2);
         InPredicate in = new InPredicate(a, Lists.newArrayList(int1, int2));
@@ -1116,13 +1096,12 @@ class FilterEstimationTest {
     @Test
     public void testNumNullsAnd() {
         SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
-        ColumnStatisticBuilder builder = new ColumnStatisticBuilder()
+        ColumnStatisticBuilder builder = new ColumnStatisticBuilder(10)
                 .setNdv(2)
                 .setAvgSizeByte(4)
                 .setNumNulls(8)
                 .setMaxValue(2)
-                .setMinValue(1)
-                .setCount(10);
+                .setMinValue(1);
         IntegerLiteral int1 = new IntegerLiteral(1);
         IntegerLiteral int2 = new IntegerLiteral(2);
         GreaterThanEqual greaterThanEqual = new GreaterThanEqual(a, int1);
@@ -1141,23 +1120,21 @@ class FilterEstimationTest {
     @Test
     public void testNumNullsAndTwoCol() {
         SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
-        ColumnStatisticBuilder builderA = new ColumnStatisticBuilder()
+        ColumnStatisticBuilder builderA = new ColumnStatisticBuilder(10)
                 .setNdv(2)
                 .setAvgSizeByte(4)
                 .setNumNulls(0)
                 .setMaxValue(2)
-                .setMinValue(1)
-                .setCount(10);
+                .setMinValue(1);
         IntegerLiteral int1 = new IntegerLiteral(1);
         EqualTo equalTo = new EqualTo(a, int1);
         SlotReference b = new SlotReference("a", IntegerType.INSTANCE);
-        ColumnStatisticBuilder builderB = new ColumnStatisticBuilder()
+        ColumnStatisticBuilder builderB = new ColumnStatisticBuilder(10)
                 .setNdv(2)
                 .setAvgSizeByte(4)
                 .setNumNulls(8)
                 .setMaxValue(2)
-                .setMinValue(1)
-                .setCount(10);
+                .setMinValue(1);
         Not isNotNull = new Not(new IsNull(b));
         And and = new And(equalTo, isNotNull);
         Statistics stats = new Statistics(10, new HashMap<>());
@@ -1174,13 +1151,12 @@ class FilterEstimationTest {
     @Test
     public void testNumNullsOr() {
         SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
-        ColumnStatisticBuilder builder = new ColumnStatisticBuilder()
+        ColumnStatisticBuilder builder = new ColumnStatisticBuilder(10)
                 .setNdv(2)
                 .setAvgSizeByte(4)
                 .setNumNulls(8)
                 .setMaxValue(2)
-                .setMinValue(1)
-                .setCount(10);
+                .setMinValue(1);
         IntegerLiteral int1 = new IntegerLiteral(1);
         IntegerLiteral int2 = new IntegerLiteral(2);
         GreaterThanEqual greaterThanEqual = new GreaterThanEqual(a, int2);
@@ -1199,13 +1175,12 @@ class FilterEstimationTest {
     @Test
     public void testNumNullsOrIsNull() {
         SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
-        ColumnStatisticBuilder builder = new ColumnStatisticBuilder()
+        ColumnStatisticBuilder builder = new ColumnStatisticBuilder(10)
                 .setNdv(2)
                 .setAvgSizeByte(4)
                 .setNumNulls(8)
                 .setMaxValue(2)
-                .setMinValue(1)
-                .setCount(10);
+                .setMinValue(1);
         IntegerLiteral int1 = new IntegerLiteral(1);
         GreaterThanEqual greaterThanEqual = new GreaterThanEqual(a, int1);
         IsNull isNull = new IsNull(a);
@@ -1219,23 +1194,22 @@ class FilterEstimationTest {
 
     @Test
     public void testNullSafeEqual() {
-        ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder()
+        ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder(10)
                 .setNdv(2)
                 .setAvgSizeByte(4)
                 .setNumNulls(8)
                 .setMaxValue(2)
-                .setMinValue(1)
-                .setCount(10);
+                .setMinValue(1);
         ColumnStatistic aStats = columnStatisticBuilder.build();
         SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
 
-        columnStatisticBuilder.setNdv(2)
+        ColumnStatisticBuilder columnStatisticBuilder2 = new ColumnStatisticBuilder(10)
+                .setNdv(2)
                 .setAvgSizeByte(4)
                 .setNumNulls(7)
                 .setMaxValue(2)
-                .setMinValue(1)
-                .setCount(10);
-        ColumnStatistic bStats = columnStatisticBuilder.build();
+                .setMinValue(1);
+        ColumnStatistic bStats = columnStatisticBuilder2.build();
         SlotReference b = new SlotReference("b", IntegerType.INSTANCE);
 
         StatisticsBuilder statsBuilder = new StatisticsBuilder();
@@ -1258,15 +1232,14 @@ class FilterEstimationTest {
     @Test
     public void testStringRangeColToLiteral() {
         SlotReference a = new SlotReference("a", new VarcharType(25));
-        ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder()
+        ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder(100)
                 .setNdv(100)
                 .setAvgSizeByte(25)
                 .setNumNulls(0)
                 .setMaxExpr(new StringLiteral("200"))
                 .setMaxValue(new VarcharLiteral("200").getDouble())
                 .setMinExpr(new StringLiteral("100"))
-                .setMinValue(new VarcharLiteral("100").getDouble())
-                .setCount(100);
+                .setMinValue(new VarcharLiteral("100").getDouble());
         StatisticsBuilder statsBuilder = new StatisticsBuilder();
         statsBuilder.setRowCount(100);
         statsBuilder.putColumnStatistics(a, columnStatisticBuilder.build());
@@ -1287,15 +1260,14 @@ class FilterEstimationTest {
     @Test
     public void testStringRangeColToDateLiteral() {
         SlotReference a = new SlotReference("a", new VarcharType(25));
-        ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder()
+        ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder(100)
                 .setNdv(100)
                 .setAvgSizeByte(25)
                 .setNumNulls(0)
                 .setMaxExpr(new StringLiteral("2022-01-01"))
                 .setMaxValue(new VarcharLiteral("2022-01-01").getDouble())
                 .setMinExpr(new StringLiteral("2020-01-01"))
-                .setMinValue(new VarcharLiteral("2020-01-01").getDouble())
-                .setCount(100);
+                .setMinValue(new VarcharLiteral("2020-01-01").getDouble());
         StatisticsBuilder statsBuilder = new StatisticsBuilder();
         statsBuilder.setRowCount(100);
         statsBuilder.putColumnStatistics(a, columnStatisticBuilder.build());
@@ -1316,37 +1288,34 @@ class FilterEstimationTest {
     @Test
     public void testStringRangeColToCol() {
         SlotReference a = new SlotReference("a", new VarcharType(25));
-        ColumnStatisticBuilder columnStatisticBuilderA = new ColumnStatisticBuilder()
+        ColumnStatisticBuilder columnStatisticBuilderA = new ColumnStatisticBuilder(100)
                 .setNdv(100)
                 .setAvgSizeByte(25)
                 .setNumNulls(0)
                 .setMaxExpr(new StringLiteral("2022-01-01"))
                 .setMaxValue(new VarcharLiteral("2022-01-01").getDouble())
                 .setMinExpr(new StringLiteral("2020-01-01"))
-                .setMinValue(new VarcharLiteral("2020-01-01").getDouble())
-                .setCount(100);
+                .setMinValue(new VarcharLiteral("2020-01-01").getDouble());
 
         SlotReference b = new SlotReference("b", new VarcharType(25));
-        ColumnStatisticBuilder columnStatisticBuilderB = new ColumnStatisticBuilder()
+        ColumnStatisticBuilder columnStatisticBuilderB = new ColumnStatisticBuilder(100)
                 .setNdv(100)
                 .setAvgSizeByte(25)
                 .setNumNulls(0)
                 .setMaxExpr(new StringLiteral("2012-01-01"))
                 .setMaxValue(new VarcharLiteral("2012-01-01").getDouble())
                 .setMinExpr(new StringLiteral("2010-01-01"))
-                .setMinValue(new VarcharLiteral("2010-01-01").getDouble())
-                .setCount(100);
+                .setMinValue(new VarcharLiteral("2010-01-01").getDouble());
 
         SlotReference c = new SlotReference("c", new VarcharType(25));
-        ColumnStatisticBuilder columnStatisticBuilderC = new ColumnStatisticBuilder()
+        ColumnStatisticBuilder columnStatisticBuilderC = new ColumnStatisticBuilder(100)
                 .setNdv(100)
                 .setAvgSizeByte(25)
                 .setNumNulls(0)
                 .setMaxExpr(new StringLiteral("2021-01-01"))
                 .setMaxValue(new VarcharLiteral("2021-01-01").getDouble())
                 .setMinExpr(new StringLiteral("2010-01-01"))
-                .setMinValue(new VarcharLiteral("2010-01-01").getDouble())
-                .setCount(100);
+                .setMinValue(new VarcharLiteral("2010-01-01").getDouble());
 
         StatisticsBuilder statsBuilder = new StatisticsBuilder();
         statsBuilder.setRowCount(100);
@@ -1372,9 +1341,8 @@ class FilterEstimationTest {
         SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
         long tenB = 1000000000;
         long row = 1600000000;
-        ColumnStatistic colStats = new ColumnStatisticBuilder()
+        ColumnStatistic colStats = new ColumnStatisticBuilder(row)
                 .setAvgSizeByte(10)
-                .setCount(row)
                 .setNdv(10000)
                 .setMinExpr(new IntLiteral(0))
                 .setMinValue(0)
@@ -1399,18 +1367,16 @@ class FilterEstimationTest {
     void testAndWithInfinity() {
         Double row = 1000.0;
         SlotReference a = new SlotReference("a", new VarcharType(25));
-        ColumnStatisticBuilder columnStatisticBuilderA = new ColumnStatisticBuilder()
+        ColumnStatisticBuilder columnStatisticBuilderA = new ColumnStatisticBuilder(row)
                 .setNdv(10)
                 .setAvgSizeByte(4)
-                .setNumNulls(0)
-                .setCount(row);
+                .setNumNulls(0);
 
         SlotReference b = new SlotReference("b", IntegerType.INSTANCE);
-        ColumnStatisticBuilder columnStatisticBuilderB = new ColumnStatisticBuilder()
+        ColumnStatisticBuilder columnStatisticBuilderB = new ColumnStatisticBuilder(row)
                 .setNdv(488)
                 .setAvgSizeByte(25)
-                .setNumNulls(0)
-                .setCount(row);
+                .setNumNulls(0);
         StatisticsBuilder statsBuilder = new StatisticsBuilder();
         statsBuilder.setRowCount(row);
         statsBuilder.putColumnStatistics(a, columnStatisticBuilderA.build());

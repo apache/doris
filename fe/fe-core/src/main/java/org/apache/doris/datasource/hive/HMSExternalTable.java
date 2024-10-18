@@ -601,9 +601,8 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         if (!parameters.containsKey(NUM_ROWS) || Long.parseLong(parameters.get(NUM_ROWS)) == 0) {
             return Optional.empty();
         }
-        ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder();
         long count = Long.parseLong(parameters.get(NUM_ROWS));
-        columnStatisticBuilder.setCount(count);
+        ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder(count);
         // The tableStats length is at most 1.
         for (ColumnStatisticsObj tableStat : tableStats) {
             if (!tableStat.isSetStatsData()) {
