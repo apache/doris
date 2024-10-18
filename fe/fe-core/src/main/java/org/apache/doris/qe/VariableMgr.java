@@ -800,6 +800,42 @@ public class VariableMgr {
         return changedRows;
     }
 
+    public static List<List<String>> dumpChangedVars(SessionVariable sessionVar) {
+        // Hold the read lock when session dump, because this option need to access global variable.
+        rlock.lock();
+        List<List<String>> changedRows = Lists.newArrayList();
+        try {
+            for (Map.Entry<String, VarContext> entry : ctxByDisplayVarName.entrySet()) {
+                VarContext ctx = entry.getValue();
+                List<String> row = Lists.newArrayList();
+                String varName = entry.getKey();
+                String curValue = getValue(sessionVar, ctx.getField());
+                String defaultValue = ctx.getDefaultValue();
+                if (VariableVarConverters.hasConverter(varName)) {
+                    try {
+                        defaultValue = VariableVarConverters.decode(varName, Long.valueOf(defaultValue));
+                        curValue = VariableVarConverters.decode(varName, Long.valueOf(curValue));
+                    } catch (DdlException e) {
+                        LOG.warn("Decode session variable {} failed, reason: {}", varName, e.getMessage());
+                    }
+                }
+
+                if (curValue.equals(defaultValue)) {
+                    continue;
+                }
+
+                row.add(varName);
+                row.add(curValue);
+                row.add(defaultValue);
+                changedRows.add(row);
+            }
+        } finally {
+            rlock.unlock();
+        }
+
+        return changedRows;
+    }
+
     @Retention(RetentionPolicy.RUNTIME)
     public @interface VarAttr {
         // Name in show variables and set statement;

@@ -687,7 +687,7 @@ public class ProfileManager extends MasterDaemon {
                     for (ExecutionProfile executionProfile : profileElement.profile.getExecutionProfiles()) {
                         this.queryIdToExecutionProfiles.remove(executionProfile.getQueryId());
                     }
-                    profileElement.profile.releaseExecutionProfile();
+                    profileElement.profile.releaseMemory();
                 }
             } finally {
                 writeLock.unlock();
