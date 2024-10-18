@@ -162,12 +162,13 @@ public class LdapClient {
         List<String> groupDns;
 
         // Support Open Directory implementations
-        // If no group filter is configured, it defaults to querying groups based on the attribute 'member' for standard LDAP implementations
+        // If no group filter is configured, it defaults to querying groups based on the attribute 'member'
+        // for standard LDAP implementations
         if (!LdapConfig.ldap_group_filter.isEmpty()) {
             groupDns = getDn(org.springframework.ldap.query.LdapQueryBuilder.query()
                 .base(LdapConfig.ldap_group_basedn)
                 .filter(getGroupFilter(LdapConfig.ldap_group_filter, userName)));
-        }else{
+        } else {
             groupDns = getDn(org.springframework.ldap.query.LdapQueryBuilder.query()
                 .base(LdapConfig.ldap_group_basedn)
                 .where("member").is(userDn));
