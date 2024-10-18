@@ -1148,9 +1148,30 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             }
         }
         ImmutableList.Builder<BulkLoadDataDesc> dataDescriptions = new ImmutableList.Builder<>();
+        List<String> labelParts = visitMultipartIdentifier(ctx.lableName);
+        String labelName = null;
+        String labelDbName = null;
+        if (ConnectContext.get().getDatabase().isEmpty() && labelParts.size() == 1) {
+            throw new AnalysisException("Current database is not set.");
+        } else if (labelParts.size() == 1) {
+            labelName = labelParts.get(0);
+        } else if (labelParts.size() == 2) {
+            labelDbName = labelParts.get(0);
+            labelName = labelParts.get(1);
+        } else if (labelParts.size() == 3) {
+            labelDbName = labelParts.get(1);
+            labelName = labelParts.get(2);
+        } else {
+            throw new AnalysisException("labelParts in load should be [ctl.][db.]label");
+        }
+
         for (DorisParser.DataDescContext ddc : ctx.dataDescs) {
-            List<String> tableName = RelationUtil.getQualifierName(ConnectContext.get(),
-                    visitMultipartIdentifier(ddc.tableName));
+            List<String> nameParts = Lists.newArrayList();
+            if (labelDbName != null) {
+                nameParts.add(labelDbName);
+            }
+            nameParts.add(ddc.targetTableName.getText());
+            List<String> tableName = RelationUtil.getQualifierName(ConnectContext.get(), nameParts);
             List<String> colNames = (ddc.columns == null ? ImmutableList.of() : visitIdentifierList(ddc.columns));
             List<String> columnsFromPath = (ddc.columnsFromPath == null ? ImmutableList.of()
                         : visitIdentifierList(ddc.columnsFromPath.identifierList()));
@@ -1198,7 +1219,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     ddc.sequenceColumn == null ? Optional.empty()
                             : Optional.of(ddc.sequenceColumn.identifier().getText()), dataProperties));
         }
-        String labelName = ctx.lableName.getText();
         Map<String, String> properties = Collections.emptyMap();
         if (ctx.propertyClause() != null) {
             properties = visitPropertyItemList(ctx.propertyClause().propertyItemList());

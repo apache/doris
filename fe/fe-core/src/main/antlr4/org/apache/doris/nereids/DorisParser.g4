@@ -906,7 +906,7 @@ identityOrFunction
 
 dataDesc
     : ((WITH)? mergeType)? DATA INFILE LEFT_PAREN filePaths+=STRING_LITERAL (COMMA filePath+=STRING_LITERAL)* RIGHT_PAREN
-        INTO TABLE tableName=multipartIdentifier
+        INTO TABLE targetTableName=identifier
         (PARTITION partition=identifierList)?
         (COLUMNS TERMINATED BY comma=STRING_LITERAL)?
         (LINES TERMINATED BY separator=STRING_LITERAL)?
@@ -920,8 +920,8 @@ dataDesc
         (deleteOn=deleteOnClause)?
         (sequenceColumn=sequenceColClause)?
         (propertyClause)?
-    | ((WITH)? mergeType)? DATA FROM TABLE tableName=multipartIdentifier
-        INTO TABLE tableName=multipartIdentifier
+    | ((WITH)? mergeType)? DATA FROM TABLE sourceTableName=identifier
+        INTO TABLE targetTableName=identifier
         (PARTITION partition=identifierList)?
         (columnMapping=colMappingList)?
         (where=whereClause)?
