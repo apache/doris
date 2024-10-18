@@ -72,6 +72,12 @@ public:
 
     static int get_remote_scan_thread_queue_size();
 
+    SimplifiedScanScheduler* get_local_scan_thread_pool() { return _local_scan_thread_pool.get(); }
+
+    SimplifiedScanScheduler* get_remote_scan_thread_pool() {
+        return _remote_scan_thread_pool.get();
+    }
+
 private:
     static void _scanner_scan(std::shared_ptr<ScannerContext> ctx,
                               std::shared_ptr<ScanTask> scan_task);
