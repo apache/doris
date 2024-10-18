@@ -410,7 +410,11 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                 new EliminateFilter(),
                                 new PushDownFilterThroughProject(),
                                 new MergeProjects(),
-                                new PruneOlapScanTablet()
+                                new PruneOlapScanTablet(),
+                                // SelectMaterializedIndexWithAggregate may change the nullability of agg functions
+                                // need rerun AdjustAggregateNullableForEmptySet to make the nullability correct
+                                // TODO: remove AdjustAggregateNullableForEmptySet when remove rbo mv selection rules
+                                new AdjustAggregateNullableForEmptySet()
                         ),
                         custom(RuleType.COLUMN_PRUNING, ColumnPruning::new),
                         bottomUp(RuleSet.PUSH_DOWN_FILTERS),
