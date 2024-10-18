@@ -527,10 +527,15 @@ Status LoadStreamStubs::open(BrpcClientCache<PBackendService_Stub>* client_cache
         } else {
             LOG(WARNING) << "open stream failed: " << st << "; stream: " << *stream;
             status = st;
+            // no break here to try get schema from the rest streams
         }
     }
     // only mark open when all streams open success
     _open_success.store(status.ok());
+    // cancel all streams if open failed
+    if (!status.ok()) {
+        cancel(status);
+    }
     return status;
 }
 
