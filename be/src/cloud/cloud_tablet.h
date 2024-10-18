@@ -39,6 +39,8 @@ public:
 
     Status capture_rs_readers(const Version& spec_version, std::vector<RowSetSplits>* rs_splits,
                               bool skip_missing_version) override;
+    Status capture_sub_txn_rowsets(const std::vector<int64_t>& sub_txn_ids,
+                                   std::vector<RowsetSharedPtr>* rowsets) override;
 
     Status capture_consistent_rowsets_unlocked(
             const Version& spec_version, std::vector<RowsetSharedPtr>* rowsets) const override;

@@ -56,7 +56,7 @@ public class OlapTxnInsertExecutor extends OlapInsertExecutor {
                 throw new AnalysisException("Transaction insert expect label " + txnEntry.getLabel()
                         + ", but got " + this.labelName);
             }
-            this.txnId = txnEntry.beginTransaction(table, SubTransactionType.INSERT);
+            this.txnId = txnEntry.beginTransaction(table);
             this.labelName = txnEntry.getLabel();
         } catch (Exception e) {
             throw new AnalysisException("begin transaction failed. " + e.getMessage(), e);
