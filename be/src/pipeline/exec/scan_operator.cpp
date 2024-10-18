@@ -305,18 +305,15 @@ Status ScanLocalState<Derived>::_normalize_predicate(
                             RETURN_IF_PUSH_DOWN(_normalize_noneq_binary_predicate(
                                                         cur_expr, context, slot, value_range, &pdt),
                                                 status);
-                            if (_is_key_column(slot->col_name())) {
+                            RETURN_IF_PUSH_DOWN(
+                                    _normalize_bitmap_filter(cur_expr, context, slot, &pdt),
+                                    status);
+                            RETURN_IF_PUSH_DOWN(
+                                    _normalize_bloom_filter(cur_expr, context, slot, &pdt), status);
+                            if (state()->enable_function_pushdown()) {
                                 RETURN_IF_PUSH_DOWN(
-                                        _normalize_bitmap_filter(cur_expr, context, slot, &pdt),
+                                        _normalize_function_filters(cur_expr, context, slot, &pdt),
                                         status);
-                                RETURN_IF_PUSH_DOWN(
-                                        _normalize_bloom_filter(cur_expr, context, slot, &pdt),
-                                        status);
-                                if (state()->enable_function_pushdown()) {
-                                    RETURN_IF_PUSH_DOWN(_normalize_function_filters(
-                                                                cur_expr, context, slot, &pdt),
-                                                        status);
-                                }
                             }
                         },
                         *range);
@@ -330,8 +327,7 @@ Status ScanLocalState<Derived>::_normalize_predicate(
                 return Status::OK();
             }
 
-            if (pdt == PushDownType::ACCEPTABLE &&
-                (_is_key_column(slot->col_name()) || _storage_no_merge())) {
+            if (pdt == PushDownType::ACCEPTABLE && (_is_key_column(slot->col_name()))) {
                 output_expr = nullptr;
                 return Status::OK();
             } else {
@@ -524,7 +520,7 @@ Status ScanLocalState<Derived>::_eval_const_conjuncts(vectorized::VExpr* vexpr,
     if (vexpr->is_constant()) {
         std::shared_ptr<ColumnPtrWrapper> const_col_wrapper;
         RETURN_IF_ERROR(vexpr->get_const_col(expr_ctx, &const_col_wrapper));
-        if (const vectorized::ColumnConst* const_column =
+        if (const auto* const_column =
                     check_and_get_column<vectorized::ColumnConst>(const_col_wrapper->column_ptr)) {
             constant_val = const_cast<char*>(const_column->get_data_at(0).data);
             if (constant_val == nullptr || !*reinterpret_cast<bool*>(constant_val)) {
@@ -532,7 +528,7 @@ Status ScanLocalState<Derived>::_eval_const_conjuncts(vectorized::VExpr* vexpr,
                 _eos = true;
                 _scan_dependency->set_ready();
             }
-        } else if (const vectorized::ColumnVector<vectorized::UInt8>* bool_column =
+        } else if (const auto* bool_column =
                            check_and_get_column<vectorized::ColumnVector<vectorized::UInt8>>(
                                    const_col_wrapper->column_ptr)) {
             // TODO: If `vexpr->is_constant()` is true, a const column is expected here.
@@ -583,24 +579,21 @@ Status ScanLocalState<Derived>::_normalize_in_and_eq_predicate(vectorized::VExpr
             if (hybrid_set->size() <=
                 _parent->cast<typename Derived::Parent>()._max_pushdown_conditions_per_column) {
                 iter = hybrid_set->begin();
-            } else if (_is_key_column(slot->col_name()) || _storage_no_merge()) {
+            } else {
                 _filter_predicates.in_filters.emplace_back(slot->col_name(), expr->get_set_func());
                 *pdt = PushDownType::ACCEPTABLE;
-                return Status::OK();
-            } else {
-                *pdt = PushDownType::UNACCEPTABLE;
                 return Status::OK();
             }
         } else {
             // normal in predicate
-            vectorized::VInPredicate* pred = static_cast<vectorized::VInPredicate*>(expr);
+            auto* pred = static_cast<vectorized::VInPredicate*>(expr);
             PushDownType temp_pdt = _should_push_down_in_predicate(pred, expr_ctx, false);
             if (temp_pdt == PushDownType::UNACCEPTABLE) {
                 return Status::OK();
             }
 
             // begin to push InPredicate value into ColumnValueRange
-            vectorized::InState* state = reinterpret_cast<vectorized::InState*>(
+            auto* state = reinterpret_cast<vectorized::InState*>(
                     expr_ctx->fn_context(pred->fn_context_index())
                             ->get_function_state(FunctionContext::FRAGMENT_LOCAL));
 
@@ -619,7 +612,7 @@ Status ScanLocalState<Derived>::_normalize_in_and_eq_predicate(vectorized::VExpr
                 iter->next();
                 continue;
             }
-            auto value = const_cast<void*>(iter->get_value());
+            auto* value = const_cast<void*>(iter->get_value());
             RETURN_IF_ERROR(_change_value_range<true>(
                     temp_range, value, ColumnValueRange<T>::add_fixed_value_range, ""));
             iter->next();
