@@ -275,6 +275,16 @@ Status HeartbeatServer::_heartbeat(const TMasterInfo& master_info) {
         LOG(INFO) << "set config cloud_unique_id " << master_info.cloud_unique_id << " " << st;
     }
 
+    if (master_info.__isset.cloud_tablet_report_exceed_time_limit &&
+        config::cloud_tablet_report_exceed_time_limit <= 0) {
+        // be not set, use fe heartbeat, default be not set it
+        auto st = config::set_config(
+                "cloud_tablet_report_exceed_time_limit",
+                std::to_string(master_info.cloud_tablet_report_exceed_time_limit), true);
+        LOG(INFO) << "set config cloud_tablet_report_exceed_time_limit "
+                  << master_info.cloud_tablet_report_exceed_time_limit << " " << st;
+    }
+
     if (need_report) {
         LOG(INFO) << "Master FE is changed or restarted. report tablet and disk info immediately";
         _engine.notify_listeners();

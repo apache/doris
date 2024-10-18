@@ -75,4 +75,7 @@ DEFINE_mInt32(tablet_txn_info_min_expired_seconds, "120");
 
 DEFINE_mBool(enable_use_cloud_unique_id_from_fe, "true");
 
+DEFINE_mBool(enable_cloud_tablet_report, "true");
+
+DEFINE_mInt32(cloud_tablet_report_exceed_time_limit, "0");
 } // namespace doris::config
