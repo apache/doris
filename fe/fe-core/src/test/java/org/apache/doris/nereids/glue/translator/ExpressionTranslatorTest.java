@@ -23,7 +23,6 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.catalog.Function.NullableMode;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.BitNot;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 
@@ -33,7 +32,7 @@ import org.junit.jupiter.api.Test;
 public class ExpressionTranslatorTest {
 
     @Test
-    public void testUnaryArithmetic() throws AnalysisException {
+    public void testUnaryArithmetic() throws Exception {
         BitNot bitNot = new BitNot(new IntegerLiteral(1));
         ExpressionTranslator translator = ExpressionTranslator.INSTANCE;
         Expr actual = translator.visitUnaryArithmetic(bitNot, null);
