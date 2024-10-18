@@ -868,10 +868,15 @@ Status OrcReader::set_fill_columns(
 
     int64_t range_end_offset = _range_start_offset + _range_size;
 
-    // 三个参数  todo
-    int orc_tiny_stripe_threshold = 8L * 1024L * 1024L;
-    int orc_once_max_read_size = 8L * 1024L * 1024L;
-    int orc_max_merge_distance = 1L * 1024L * 1024L;
+    int64_t orc_tiny_stripe_threshold = 8L * 1024L * 1024L;
+    int64_t orc_once_max_read_size = 8L * 1024L * 1024L;
+    int64_t orc_max_merge_distance = 1L * 1024L * 1024L;
+
+    if (_state != nullptr) {
+        orc_tiny_stripe_threshold = _state->query_options().orc_tiny_stripe_threshold;
+        orc_once_max_read_size = _state->query_options().orc_once_max_read_size;
+        orc_max_merge_distance = _state->query_options().orc_max_merge_distance;
+    }
 
     bool all_tiny_stripes = true;
     std::vector<io::PrefetchRange> tiny_stripe_ranges;
@@ -896,7 +901,6 @@ Status OrcReader::set_fill_columns(
         std::vector<io::PrefetchRange> prefetch_merge_ranges =
                 io::PrefetchRange::mergeAdjacentSeqRanges(
                         tiny_stripe_ranges, orc_max_merge_distance, orc_once_max_read_size);
-
         auto range_finder =
                 std::make_shared<io::LinearProbeRangeFinder>(std::move(prefetch_merge_ranges));
 
