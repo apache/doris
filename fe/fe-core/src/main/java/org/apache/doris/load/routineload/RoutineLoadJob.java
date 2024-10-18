@@ -31,7 +31,6 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
-import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.AnalysisException;
@@ -1353,7 +1352,7 @@ public abstract class RoutineLoadJob
             return;
         }
 
-        if (olapTable.getType() == TableType.TEMP) {
+        if (olapTable.isTemporary()) {
             throw new DdlException("Cannot create routine load for temporary table "
                 + Util.getTempTableOuterName(olapTable.getName()));
         }

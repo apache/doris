@@ -957,7 +957,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             }
 
             if (table.isTemporary()) {
-                dropTableInternal(db, table, false,true, watch, costTimes);
+                dropTableInternal(db, table, false, true, watch, costTimes);
             } else {
                 dropTableInternal(db, table, stmt.isView(), stmt.isForceDrop(), watch, costTimes);
             }
@@ -1023,7 +1023,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         DropInfo info = new DropInfo(db.getId(), table.getId(), tableName, isView, forceDrop, recycleTime);
         Env.getCurrentEnv().getEditLog().logDropTable(info);
         Env.getCurrentEnv().getMtmvService().dropTable(table);
-        if (table.getType() == TableType.TEMP && ConnectContext.get() != null) {
+        if (table.isTemporary() && ConnectContext.get() != null) {
             ConnectContext.get().removeTempTableFromDB(db.getFullName(), tableName);
         }
     }
@@ -1049,7 +1049,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             Env.getCurrentEnv().getMtmvService().deregisterMTMV((MTMV) table);
         }
 
-        if (isReplay && table.getType() == TableType.TEMP) {
+        if (isReplay && table.isTemporary()) {
             Env.getCurrentEnv().removePhantomTempTable(table);
         }
         Env.getCurrentEnv().getAnalysisManager().removeTableStats(table.getId());
@@ -1251,7 +1251,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
 
         // check if table exists in db
-        boolean isTableExist = stmt.isTemp() ? db.isTableExist(tableName, TableType.TEMP) : db.isTableExist(tableName);
+        boolean isTableExist = stmt.isTemp() ? db.isTableExist(tableName, true) : db.isTableExist(tableName);
         if (isTableExist) {
             if (stmt.isSetIfNotExists()) {
                 LOG.info("create table[{}] which already exists", tableShowName);
@@ -2490,7 +2490,11 @@ public class InternalCatalog implements CatalogIf<Database> {
             }
             long partitionId = idGeneratorBuffer.getNextId();
             // use table name as single partition name
-            partitionNameToId.put(tableName, partitionId);
+            if (stmt.isTemp()) {
+                partitionNameToId.put(Util.getTempTableOuterName(tableName), partitionId);
+            } else {
+                partitionNameToId.put(tableName, partitionId);
+            }
             partitionInfo = new SinglePartitionInfo();
         }
 
@@ -2515,7 +2519,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         long tableId = idGeneratorBuffer.getNextId();
         TableType tableType = OlapTableFactory.getTableType(stmt);
         OlapTable olapTable = (OlapTable) new OlapTableFactory()
-                .init(tableType)
+                .init(tableType, stmt.isTemp())
                 .withTableId(tableId)
                 .withTableName(tableName)
                 .withSchema(baseSchema)
@@ -2941,7 +2945,12 @@ public class InternalCatalog implements CatalogIf<Database> {
             // in RangePartitionDesc analyze phase.
 
             // use table name as this single partition name
-            long partitionId = partitionNameToId.get(tableName);
+            long partitionId = -1;
+            if (stmt.isTemp()) {
+                partitionId = partitionNameToId.get(Util.getTempTableOuterName(tableName));
+            } else {
+                partitionId = partitionNameToId.get(tableName);
+            }
             DataProperty dataProperty = null;
             try {
                 dataProperty = PropertyAnalyzer.analyzeDataProperty(stmt.getProperties(),
@@ -3104,6 +3113,9 @@ public class InternalCatalog implements CatalogIf<Database> {
                 // use table name as partition name
                 DistributionInfo partitionDistributionInfo = distributionDesc.toDistributionInfo(baseSchema);
                 String partitionName = tableName;
+                if (stmt.isTemp()) {
+                    partitionName = Util.getTempTableOuterName(tableName);
+                }
                 long partitionId = partitionNameToId.get(partitionName);
 
                 // check replica quota if this operation done

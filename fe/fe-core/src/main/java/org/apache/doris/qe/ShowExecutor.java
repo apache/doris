@@ -872,7 +872,7 @@ public class ShowExecutor {
             if (table != null) {
                 List<String> row = new ArrayList<>();
                 row.add(database.getFullName());
-                if (table.getType() == TableType.TEMP) {
+                if (table.isTemporary()) {
                     if (!Util.isTempTableInCurrentSession(table.getName())) {
                         continue;
                     }
@@ -909,7 +909,7 @@ public class ShowExecutor {
                         if (partition != null) {
                             List<String> row = new ArrayList<>();
                             row.add(database.getFullName());
-                            if (tbl.getType() == TableType.TEMP) {
+                            if (tbl.isTemporary()) {
                                 if (!Util.isTempTableInCurrentSession(tbl.getName())) {
                                     continue;
                                 }
@@ -988,7 +988,7 @@ public class ShowExecutor {
             if (showTableStmt.getType() != null && tbl.getType() != showTableStmt.getType()) {
                 continue;
             }
-            if (tbl.getType() == TableType.TEMP) {
+            if (tbl.isTemporary()) {
                 continue;
             }
             if (matcher != null && !matcher.match(tbl.getName())) {
@@ -1053,7 +1053,7 @@ public class ShowExecutor {
                 }
                 List<String> row = Lists.newArrayList();
                 // Name
-                if (table.getType() == TableType.TEMP) {
+                if (table.isTemporary()) {
                     if (!Util.isTempTableInCurrentSession(table.getName())) {
                         continue;
                     }
@@ -2052,12 +2052,6 @@ public class ShowExecutor {
                 table.readLock();
                 try {
                     tableName = table.getName();
-                    if (table.getType() == TableType.TEMP) {
-                        if (!Util.isTempTableInCurrentSession(table.getName())) {
-                            throw new AnalysisException("Unknown tablet: " + tabletId);
-                        }
-                        tableName = Util.getTempTableOuterName(tableName);
-                    }
                     OlapTable olapTable = (OlapTable) table;
                     Partition partition = olapTable.getPartition(partitionId);
                     if (partition == null) {
@@ -2564,7 +2558,7 @@ public class ShowExecutor {
                     DynamicPartitionProperty dynamicPartitionProperty
                             = olapTable.getTableProperty().getDynamicPartitionProperty();
                     String tableName = olapTable.getName();
-                    if (olapTable.getType() == TableType.TEMP) {
+                    if (olapTable.isTemporary()) {
                         if (!Util.isTempTableInCurrentSession(tableName)) {
                             continue;
                         }
@@ -3073,7 +3067,8 @@ public class ShowExecutor {
                 row.add(databaseIf.isPresent() ? databaseIf.get().getFullName() : "DB may get deleted");
                 if (databaseIf.isPresent()) {
                     Optional<? extends TableIf> table = databaseIf.get().getTable(analysisInfo.tblId);
-                    row.add(table.isPresent() ? table.get().getName() : "Table may get deleted");
+                    row.add(table.isPresent() ? Util.getTempTableOuterName(table.get().getName())
+                            : "Table may get deleted");
                 } else {
                     row.add("DB may get deleted");
                 }
