@@ -33,7 +33,7 @@ void HealthAction::handle(HttpRequest* req) {
     std::stringstream ss;
     ss << "{";
     ss << "\"status\": \"OK\",";
-    ss << "\"msg\": \"To Be Added\"";
+    ss << "\"msg\": \" \"";
     ss << "}";
     std::string result = ss.str();
 
