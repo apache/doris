@@ -5,5 +5,5 @@ PhysicalResultSink
 ----PhysicalDistribute[DistributionSpecGather]
 ------hashAgg[LOCAL]
 --------PhysicalProject
-----------PhysicalStorageLayerAggregate[hits]
+----------PhysicalOlapScan[hits]
 
