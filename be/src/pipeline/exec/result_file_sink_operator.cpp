@@ -204,7 +204,6 @@ Status ResultFileSinkLocalState::close(RuntimeState* state, Status exec_status) 
                 }
             } else {
                 {
-                    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
                     bool serialized = false;
                     RETURN_IF_ERROR(_serializer->next_serialized_block(
                             _output_block.get(), _block_holder->get_block(), _channels.size(),
@@ -223,7 +222,6 @@ Status ResultFileSinkLocalState::close(RuntimeState* state, Status exec_status) 
                                 if (channel->is_local()) {
                                     status = channel->send_local_block(&cur_block, false);
                                 } else {
-                                    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
                                     status = channel->send_broadcast_block(_block_holder, true);
                                 }
                                 HANDLE_CHANNEL_STATUS(state, channel, status);

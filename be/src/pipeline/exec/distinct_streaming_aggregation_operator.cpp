@@ -460,7 +460,6 @@ Status DistinctStreamingAggOperatorX::pull(RuntimeState* state, vectorized::Bloc
                                                                block->columns()));
     }
     local_state.add_num_rows_returned(block->rows());
-    COUNTER_UPDATE(local_state.blocks_returned_counter(), 1);
     // If the limit is not reached, it is important to ensure that _aggregated_block is empty
     // because it may still contain data.
     // However, if the limit is reached, there is no need to output data even if some exists.
