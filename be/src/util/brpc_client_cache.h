@@ -67,6 +67,49 @@ public:
         return get_client(butil::endpoint2str(endpoint).c_str());
     }
 
+    void refresh_client(const butil::EndPoint& endpoint, std::shared_ptr<T> origin_stub) {
+        refresh_client(butil::endpoint2str(endpoint).c_str(), origin_stub);
+    }
+
+    void refresh_client(const std::string& host_port, std::shared_ptr<T> origin_stub) {
+        int pos = host_port.rfind(':');
+        std::string host = host_port.substr(0, pos);
+        int port = 0;
+        try {
+            port = stoi(host_port.substr(pos + 1));
+        } catch (const std::exception& err) {
+            LOG(WARNING) << "failed to parse port from " << host_port << ": " << err.what();
+        }
+        refresh_client(host, port, origin_stub);
+    }
+
+    void refresh_client(const std::string& host, int port, std::shared_ptr<T> origin_stub) {
+        std::string realhost = host;
+        auto dns_cache = ExecEnv::GetInstance()->dns_cache();
+        if (dns_cache == nullptr) {
+            LOG(WARNING) << "DNS cache is not initialized, skipping hostname resolve";
+        } else if (!is_valid_ip(host)) {
+            Status status = dns_cache->get(host, &realhost);
+            if (!status.ok()) {
+                LOG(WARNING) << "failed to get ip from host:" << status.to_string();
+            }
+        }
+        std::string host_port = get_host_port(realhost, port);
+
+        // new one stub and insert into map
+        auto stub = get_new_client_no_cache(host_port);
+        if (stub != nullptr) {
+            _stub_map.try_emplace_l(
+                    host_port,
+                    [&stub, &origin_stub](auto& v) {
+                        if (v.second.get() == origin_stub.get()) {
+                            v.second = stub;
+                        }
+                    },
+                    stub);
+        }
+    }
+
 #ifdef BE_TEST
     virtual std::shared_ptr<T> get_client(const TNetworkAddress& taddr) {
         std::string host_port = fmt::format("{}:{}", taddr.hostname, taddr.port);
@@ -105,8 +148,7 @@ public:
         // new one stub and insert into map
         auto stub = get_new_client_no_cache(host_port);
         if (stub != nullptr) {
-            _stub_map.try_emplace_l(
-                    host_port, [&stub](const auto& v) { stub = v.second; }, stub);
+            _stub_map.try_emplace_l(host_port, [&stub](const auto& v) { stub = v.second; }, stub);
         }
         return stub;
     }

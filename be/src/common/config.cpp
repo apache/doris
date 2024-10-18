@@ -1352,6 +1352,9 @@ DEFINE_mInt32(check_score_rounds_num, "1000");
 
 DEFINE_Int32(query_cache_size, "512");
 
+DEFINE_String(brpc_connection_type, "single");
+
+DEFINE_mBool(enable_brpc_failed_reconnected, "true");
 // clang-format off
 #ifdef BE_TEST
 // test s3
@@ -1690,9 +1693,7 @@ bool init(const char* conf_file, bool fill_conf_map, bool must_exist, bool set_t
 
     if (config::is_cloud_mode()) {
         auto st = config::set_config("enable_file_cache", "true", true, true);
-        LOG(INFO) << "set config enable_file_cache "
-                  << "true"
-                  << " " << st;
+        LOG(INFO) << "set config enable_file_cache " << "true" << " " << st;
     }
 
     return true;
