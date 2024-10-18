@@ -311,7 +311,6 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         fn = other.fn;
         printSqlInParens = other.printSqlInParens;
         children = Expr.cloneList(other.children);
-        nullableFromNereids = other.nullableFromNereids;
     }
 
     public boolean isAnalyzed() {
