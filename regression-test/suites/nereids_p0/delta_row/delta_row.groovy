@@ -18,9 +18,11 @@
 suite("delta_row") {
     String database = context.config.getDbNameByFile(context.file)
     sql """
+        set global enable_auto_analyze=false;
         drop database if exists ${database};
         create database ${database};
         use ${database};
+        drop table if exists t;
         CREATE TABLE IF NOT EXISTS t (
             k int(11) null comment "",
             v string replace null comment "",
@@ -52,4 +54,11 @@ suite("delta_row") {
 // +--PhysicalFilter[72]@1 ( stats=0.5, predicates=(k#0 > 6) )
 //    +--PhysicalOlapScan[t]@0 ( stats=5(1) )
     }
+    sql "alter table t modify column v set stats ('row_count'='200000', 'ndv'='197960', 'num_nulls'='0', 'min_value'='  2MrUy', 'max_value'='zzzqXhTdKxT0RAR8yxbc', 'data_size'='2998285')"
+    // verify that inject rowCount has highest priority 
+    explain{
+        sql "physical plan select * from t"
+        contains("PhysicalOlapScan[t]@0 ( stats=200,000")
+    }
+    sql "set global enable_auto_analyze=true;"
 }

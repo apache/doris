@@ -4,7 +4,8 @@ PhysicalResultSink
 --PhysicalLimit[GLOBAL]
 ----PhysicalDistribute[DistributionSpecGather]
 ------PhysicalLimit[LOCAL]
---------hashAgg[LOCAL]
-----------PhysicalProject
-------------PhysicalOlapScan[hits]
+--------hashAgg[GLOBAL]
+----------hashAgg[LOCAL]
+------------PhysicalProject
+--------------PhysicalOlapScan[hits]
 

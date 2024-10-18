@@ -4,7 +4,8 @@ PhysicalResultSink
 --PhysicalTopN[MERGE_SORT]
 ----PhysicalDistribute[DistributionSpecGather]
 ------PhysicalTopN[LOCAL_SORT]
---------hashAgg[LOCAL]
-----------PhysicalProject
-------------PhysicalOlapScan[hits]
+--------hashAgg[GLOBAL]
+----------hashAgg[LOCAL]
+------------PhysicalProject
+--------------PhysicalOlapScan[hits]
 
