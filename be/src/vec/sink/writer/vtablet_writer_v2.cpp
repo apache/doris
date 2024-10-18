@@ -390,8 +390,9 @@ Status VTabletWriterV2::_select_streams(int64_t tablet_id, int64_t partition_id,
         }
         streams.emplace_back(std::move(stream));
     }
-    if (streams.empty()) {
-        return Status::InternalError("no streams selected");
+    if (streams.size() <= location->node_ids.size() / 2) {
+        return Status::InternalError("not enough streams {}/{}", streams.size(),
+                                     location->node_ids.size());
     }
     Status st;
     for (auto& stream : streams) {
