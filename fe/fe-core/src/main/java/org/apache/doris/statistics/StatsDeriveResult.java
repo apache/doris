@@ -20,8 +20,6 @@ package org.apache.doris.statistics;
 import org.apache.doris.common.Id;
 import org.apache.doris.nereids.trees.expressions.Slot;
 
-import com.google.common.base.Preconditions;
-
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -121,25 +119,6 @@ public class StatsDeriveResult {
         for (Entry<Id, ColumnStatistic> entry : slotIdToColumnStats.entrySet()) {
             statsDeriveResult.addColumnStats(entry.getKey(),
                         entry.getValue().updateBySelectivity(selectivity, rowCount));
-        }
-        return statsDeriveResult;
-    }
-
-    public StatsDeriveResult updateByLimit(long limit) {
-        Preconditions.checkArgument(limit >= 0);
-        limit = Math.min(limit, (long) rowCount);
-        StatsDeriveResult statsDeriveResult = new StatsDeriveResult(limit, width, penalty);
-        for (Entry<Id, ColumnStatistic> entry : slotIdToColumnStats.entrySet()) {
-            statsDeriveResult.addColumnStats(entry.getKey(), entry.getValue().updateByLimit(limit, rowCount));
-        }
-        // When the table is first created, rowCount is empty.
-        // This leads to NPE if there is SetOperation outside the limit.
-        // Therefore, when rowCount is empty, slotIdToColumnStats is also imported,
-        // but the possible problem is that the first query statistics are not derived accurately.
-        if (statsDeriveResult.slotIdToColumnStats.isEmpty()) {
-            for (Entry<Id, ColumnStatistic> entry : slotIdToColumnStats.entrySet()) {
-                statsDeriveResult.addColumnStats(entry.getKey(), entry.getValue());
-            }
         }
         return statsDeriveResult;
     }

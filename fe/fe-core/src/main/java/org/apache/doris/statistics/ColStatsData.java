@@ -137,8 +137,7 @@ public class ColStatsData {
             return ColumnStatistic.UNKNOWN;
         }
         try {
-            ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder();
-            columnStatisticBuilder.setCount(count);
+            ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder(count);
             columnStatisticBuilder.setNdv(ndv);
             columnStatisticBuilder.setNumNulls(nullCount);
             columnStatisticBuilder.setDataSize(dataSizeInBytes);
