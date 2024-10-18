@@ -229,7 +229,6 @@ Status RuntimeFilterMergeControllerEntity::_init_with_desc(
     // so we need to copy to cnt_val
     cnt_val->producer_size = producer_size;
     cnt_val->runtime_filter_desc = *runtime_filter_desc;
-    cnt_val->target_info = *target_info;
     cnt_val->pool.reset(new ObjectPool());
     cnt_val->filter = cnt_val->pool->add(new IRuntimeFilter(_state, runtime_filter_desc));
 
@@ -458,10 +457,17 @@ Status RuntimeFilterMergeControllerEntity::merge(const PMergeFilterRequest* requ
             }
             closure->cntl_->set_timeout_ms(std::min(3600, _state->execution_timeout) * 1000);
             // set fragment-id
-            for (auto& target_fragment_instance_id : target.target_fragment_instance_ids) {
-                PUniqueId* cur_id = closure->request_->add_fragment_instance_ids();
-                cur_id->set_hi(target_fragment_instance_id.hi);
-                cur_id->set_lo(target_fragment_instance_id.lo);
+            if (target.__isset.target_fragment_ids) {
+                for (auto& target_fragment_id : target.target_fragment_ids) {
+                    closure->request_->add_fragment_ids(target_fragment_id);
+                }
+            } else {
+                // FE not upgraded yet.
+                for (auto& target_fragment_instance_id : target.target_fragment_instance_ids) {
+                    PUniqueId* cur_id = closure->request_->add_fragment_instance_ids();
+                    cur_id->set_hi(target_fragment_instance_id.hi);
+                    cur_id->set_lo(target_fragment_instance_id.lo);
+                }
             }
 
             std::shared_ptr<PBackendService_Stub> stub(
