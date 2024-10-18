@@ -26,7 +26,7 @@
 #include "vec/data_types/data_type_nullable.h"
 
 namespace doris::pipeline {
-
+#include "common/compile_check_begin.h"
 HashJoinProbeLocalState::HashJoinProbeLocalState(RuntimeState* state, OperatorXBase* parent)
         : JoinProbeLocalState<HashJoinSharedState, HashJoinProbeLocalState>(state, parent),
           _process_hashtable_ctx_variants(std::make_unique<HashTableCtxVariants>()) {}
@@ -645,7 +645,7 @@ Status HashJoinProbeOperatorX::open(RuntimeState* state) {
         }
     }
 
-    const int right_col_idx =
+    const size_t right_col_idx =
             (_is_right_semi_anti && !_have_other_join_conjunct) ? 0 : _left_table_data_types.size();
     size_t idx = 0;
     for (const auto* slot : slots_to_check) {

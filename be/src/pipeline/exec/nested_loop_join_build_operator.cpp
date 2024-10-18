@@ -23,7 +23,7 @@
 #include "pipeline/exec/operator.h"
 
 namespace doris::pipeline {
-
+#include "common/compile_check_begin.h"
 struct RuntimeFilterBuild {
     RuntimeFilterBuild(NestedLoopJoinBuildSinkLocalState* parent) : _parent(parent) {}
     Status operator()(RuntimeState* state) {
@@ -109,9 +109,9 @@ Status NestedLoopJoinBuildSinkOperatorX::init(const TPlanNode& tnode, RuntimeSta
 
 Status NestedLoopJoinBuildSinkOperatorX::open(RuntimeState* state) {
     RETURN_IF_ERROR(JoinBuildSinkOperatorX<NestedLoopJoinBuildSinkLocalState>::open(state));
-    int num_build_tuples = _child->row_desc().tuple_descriptors().size();
+    size_t num_build_tuples = _child->row_desc().tuple_descriptors().size();
 
-    for (int i = 0; i < num_build_tuples; ++i) {
+    for (size_t i = 0; i < num_build_tuples; ++i) {
         TupleDescriptor* build_tuple_desc = _child->row_desc().tuple_descriptors()[i];
         auto tuple_idx = _row_descriptor.get_tuple_idx(build_tuple_desc->id());
         RETURN_IF_INVALID_TUPLE_IDX(build_tuple_desc->id(), tuple_idx);
