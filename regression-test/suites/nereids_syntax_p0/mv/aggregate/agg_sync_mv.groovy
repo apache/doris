@@ -44,10 +44,7 @@ suite("agg_sync_mv") {
     qt_select_approx_count_distinct """select id, approx_count_distinct(kint) from agg_mv_test group by id order by id;"""
     sql """drop materialized view if exists mv_sync3 on agg_mv_test;"""
     createMV("""create materialized view mv_sync3 as select id, approx_count_distinct(kint) from agg_mv_test group by id order by id;""")
-    explain {
-        sql("select id, approx_count_distinct(kint) from agg_mv_test group by id order by id;")
-        contains "(mv_sync3)"
-    }
+    mv_rewrite_success("select id, approx_count_distinct(kint) from agg_mv_test group by id order by id;", "mv_sync3")
     qt_select_approx_count_distinct_mv """select id, approx_count_distinct(kint) from agg_mv_test group by id order by id;"""
 
     qt_select_collect_set """select id, collect_set(kint) from agg_mv_test group by id order by id;"""
