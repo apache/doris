@@ -23,12 +23,8 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.catalog.Function.NullableMode;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.BitNot;
-import org.apache.doris.nereids.trees.expressions.MatchAny;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;

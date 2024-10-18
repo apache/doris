@@ -530,7 +530,6 @@ public class SelectStmtTest {
         Assert.assertTrue(explain
                 .contains("__DORIS_DELETE_SIGN__ = 0"));
         Assert.assertFalse(explain.contains("other predicates:"));
-        ConnectContext.get().getSessionVariable().setEnableNereidsPlanner(false);
         String sql2 = "SELECT /*+ SET_VAR(enable_nereids_planner=false) */ * FROM db1.table1 JOIN db1.table2 ON db1.table1.siteid = db1.table2.siteid;";
         explain = dorisAssert.query(sql2).explainQuery();
         Assert.assertTrue(explain
