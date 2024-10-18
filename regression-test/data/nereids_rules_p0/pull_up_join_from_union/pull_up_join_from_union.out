@@ -199,3 +199,108 @@ PhysicalResultSink
 
 -- !union_filter2_res --
 
+-- !expr --
+1	4
+34	25
+34	35
+34	35
+34	35
+79	25
+101	5
+
+-- !const --
+1	2
+34	2
+34	3
+34	3
+34	3
+79	2
+101	2
+
+-- !multi_condition --
+\N	2
+\N	2
+\N	2
+1	2
+2	3
+11	2
+
+-- !multi_condition2 --
+1	2
+2	3
+11	2
+
+-- !multi_differenct_count_condition --
+
+-- !no_common_side_project --
+1	4
+34	25
+34	35
+34	35
+34	35
+79	25
+101	5
+
+-- !common_slot_differnt --
+34	5
+34	25
+34	101
+
+-- !other_expr_differnt --
+1	4
+34	25
+34	103
+34	123
+34	199
+79	25
+101	5
+
+-- !2_same_tables --
+0	0
+0	1
+33	1
+33	33
+78	1
+78	78
+100	1
+100	100
+
+-- !simple_column --
+0	0
+0	0
+33	33
+33	33
+78	78
+78	78
+100	100
+100	100
+
+-- !func_column --
+1	2
+34	2
+34	3
+34	3
+34	3
+79	2
+101	2
+
+-- !other_join_slot_differnt --
+34
+34
+34
+
+-- !join_common_slot_has_expr --
+
+-- !can_not_transform --
+0	2
+2	0
+3	100
+23	33
+23	78
+33	23
+78	23
+100	3
+
+-- !other_side_condition_slot_has_expr_do_transform --
+13
+
