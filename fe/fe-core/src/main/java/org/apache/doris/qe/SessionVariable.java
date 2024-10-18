@@ -504,6 +504,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String JDBC_ORACLE_NULL_PREDICATE_PUSHDOWN = "jdbc_oracle_null_predicate_pushdown";
 
+    public static final String JDBC_CAST_EXPR_PUSHDOWN = "jdbc_cast_expr_pushdown";
+
     public static final String ENABLE_MEMTABLE_ON_SINK_NODE =
             "enable_memtable_on_sink_node";
 
@@ -697,6 +699,11 @@ public class SessionVariable implements Serializable, Writable {
             description = {"是否允许将 NULL 谓词下推到 Oracle JDBC 外部表。",
                     "Whether to allow NULL predicates to be pushed down to Oracle JDBC external tables."})
     public boolean jdbcOracleNullPredicatePushdown = false;
+
+    @VariableMgr.VarAttr(name = JDBC_CAST_EXPR_PUSHDOWN, needForward = true,
+            description = {"是否允许将带有 CAST 表达式的谓词下推到 JDBC 外部表。",
+                    "Whether to allow predicates with CAST expressions to be pushed down to JDBC external tables."})
+    public boolean jdbcCastExprPushdown = false;
 
     @VariableMgr.VarAttr(name = ROUND_PRECISE_DECIMALV2_VALUE)
     public boolean roundPreciseDecimalV2Value = false;

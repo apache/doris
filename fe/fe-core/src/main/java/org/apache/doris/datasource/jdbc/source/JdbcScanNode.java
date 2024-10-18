@@ -20,6 +20,7 @@ package org.apache.doris.datasource.jdbc.source;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.BoolLiteral;
+import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprSubstitutionMap;
@@ -138,6 +139,11 @@ public class JdbcScanNode extends ExternalScanNode {
     private List<Expr> collectConjunctsToPushDown(List<Expr> conjunctsList, List<String> errors) {
         List<Expr> pushDownConjuncts = new ArrayList<>();
         for (Expr p : conjunctsList) {
+            if (ConnectContext.get() != null && !ConnectContext.get().getSessionVariable().jdbcCastExprPushdown) {
+                if (containsCastExpr(p)) {
+                    continue;
+                }
+            }
             if (shouldPushDownConjunct(jdbcType, p)) {
                 List<Expr> individualConjuncts = p.getConjuncts();
                 for (Expr individualConjunct : individualConjuncts) {
@@ -383,5 +389,11 @@ public class JdbcScanNode extends ExternalScanNode {
         List<NullLiteral> nullExprList = Lists.newArrayList();
         expr.collect(NullLiteral.class, nullExprList);
         return !nullExprList.isEmpty();
+    }
+
+    private static boolean containsCastExpr(Expr expr) {
+        List<CastExpr> castExprList = Lists.newArrayList();
+        expr.collect(CastExpr.class, castExprList);
+        return !castExprList.isEmpty();
     }
 }
