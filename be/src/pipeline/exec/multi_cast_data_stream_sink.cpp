@@ -21,7 +21,7 @@
 #include "pipeline/exec/multi_cast_data_streamer.h"
 
 namespace doris::pipeline {
-
+#include "common/compile_check_begin.h"
 std::string MultiCastDataStreamSinkLocalState::name_suffix() {
     auto& sinks = static_cast<MultiCastDataStreamSinkOperatorX*>(_parent)->sink_node().sinks;
     std::string id_name = " (dst id : ";

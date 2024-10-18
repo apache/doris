@@ -23,7 +23,7 @@
 #include "vec/sink/vtablet_block_convertor.h"
 
 namespace doris::pipeline {
-
+#include "common/compile_check_begin.h"
 GroupCommitBlockSinkLocalState::~GroupCommitBlockSinkLocalState() {
     if (_load_block_queue) {
         _remove_estimated_wal_bytes();
@@ -293,7 +293,7 @@ Status GroupCommitBlockSinkOperatorX::sink(RuntimeState* state, vectorized::Bloc
                 int64_t num_selected_rows =
                         state->num_rows_load_total() - state->num_rows_load_unselected();
                 if (num_selected_rows > 0 &&
-                    (double)state->num_rows_load_filtered() / num_selected_rows >
+                    (double)state->num_rows_load_filtered() / (double)num_selected_rows >
                             _max_filter_ratio) {
                     return Status::DataQualityError("too many filtered rows");
                 }

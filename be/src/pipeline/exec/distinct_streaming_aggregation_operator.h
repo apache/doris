@@ -32,7 +32,7 @@ class ExecNode;
 class RuntimeState;
 
 namespace pipeline {
-
+#include "common/compile_check_begin.h"
 class DistinctStreamingAggOperatorX;
 
 class DistinctStreamingAggLocalState final : public PipelineXLocalState<FakeSharedState> {
@@ -140,3 +140,4 @@ private:
 
 } // namespace pipeline
 } // namespace doris
+#include "common/compile_check_end.h"
