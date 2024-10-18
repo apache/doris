@@ -172,6 +172,9 @@ struct PartitionedHashMapVariants
     template <bool nullable>
     void init(const std::vector<vectorized::DataTypePtr>& data_types, HashKeyType type) {
         switch (type) {
+        case HashKeyType::without_key: {
+            break;
+        }
         case HashKeyType::serialized: {
             method_variant.emplace<vectorized::MethodSerialized<PartitionDataWithStringKey>>();
             break;

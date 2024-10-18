@@ -211,7 +211,7 @@ public:
         }
 
         *reinterpret_cast<KeyType*>(_current_keys) = key;
-        auto aggregate_data = _current_agg_data;
+        auto* aggregate_data = _current_agg_data;
         ++_total_count;
         ++_index_in_sub_container;
         _current_agg_data += _size_of_aggregate_states;
@@ -276,15 +276,15 @@ public:
         using IteratorBase<ConstIterator, true>::IteratorBase;
     };
 
-    ConstIterator begin() const { return ConstIterator(this, 0); }
+    ConstIterator begin() const { return {this, 0}; }
 
     ConstIterator cbegin() const { return begin(); }
 
-    Iterator begin() { return Iterator(this, 0); }
+    Iterator begin() { return {this, 0}; }
 
-    ConstIterator end() const { return ConstIterator(this, _total_count); }
+    ConstIterator end() const { return {this, _total_count}; }
     ConstIterator cend() const { return end(); }
-    Iterator end() { return Iterator(this, _total_count); }
+    Iterator end() { return {this, _total_count}; }
 
     void init_once() {
         if (_inited) {
@@ -332,7 +332,4 @@ private:
     uint32_t _total_count {};
     bool _inited = false;
 };
-
-constexpr auto init_agg_hash_method = init_hash_method<AggregatedDataVariants>;
-
 } // namespace doris

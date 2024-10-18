@@ -499,7 +499,7 @@ Status StreamingAggLocalState::_merge_with_serialized_key(vectorized::Block* blo
 }
 
 Status StreamingAggLocalState::_init_hash_method(const vectorized::VExprContextSPtrs& probe_exprs) {
-    RETURN_IF_ERROR(init_agg_hash_method(
+    RETURN_IF_ERROR(init_hash_method<AggregatedDataVariants>(
             _agg_data.get(), get_data_types(probe_exprs),
             Base::_parent->template cast<StreamingAggOperatorX>()._is_first_phase));
     return Status::OK();

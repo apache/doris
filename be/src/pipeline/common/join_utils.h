@@ -79,19 +79,39 @@ struct JoinDataVariants {
             method_variant.emplace<SerializedHashTableContext>();
             break;
         case HashKeyType::int8_key:
-            method_variant.emplace<I8HashTableContext>();
+            if (nullable) {
+                method_variant.emplace<SerializedHashTableContext>();
+            } else {
+                method_variant.emplace<I8HashTableContext>();
+            }
             break;
         case HashKeyType::int16_key:
-            method_variant.emplace<I16HashTableContext>();
+            if (nullable) {
+                method_variant.emplace<SerializedHashTableContext>();
+            } else {
+                method_variant.emplace<I16HashTableContext>();
+            }
             break;
         case HashKeyType::int32_key:
-            method_variant.emplace<I32HashTableContext>();
+            if (nullable) {
+                method_variant.emplace<SerializedHashTableContext>();
+            } else {
+                method_variant.emplace<I32HashTableContext>();
+            }
             break;
         case HashKeyType::int64_key:
-            method_variant.emplace<I64HashTableContext>();
+            if (nullable) {
+                method_variant.emplace<SerializedHashTableContext>();
+            } else {
+                method_variant.emplace<I64HashTableContext>();
+            }
             break;
         case HashKeyType::int128_key:
-            method_variant.emplace<I128HashTableContext>();
+            if (nullable) {
+                method_variant.emplace<SerializedHashTableContext>();
+            } else {
+                method_variant.emplace<I128HashTableContext>();
+            }
             break;
         case HashKeyType::string_key:
             method_variant.emplace<MethodOneString>();

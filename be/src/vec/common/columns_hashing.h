@@ -46,7 +46,7 @@ inline Sizes get_key_sizes(const std::vector<DataTypePtr>& data_types) {
     Sizes key_sizes;
     for (const auto& data_type : data_types) {
         key_sizes.emplace_back(data_type->get_maximum_size_of_value_in_memory() -
-                               (data_type->is_nullable() ? 1 : 0));
+                               data_type->is_nullable());
     }
     return key_sizes;
 }
