@@ -350,6 +350,7 @@ struct TQueryOptions {
   135: optional bool enable_parallel_outfile = false;
 
   136: optional bool enable_phrase_query_sequential_opt = true;
+  137: optional bool query_mow_in_mor = false
 
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.

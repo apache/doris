@@ -375,6 +375,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String SKIP_DELETE_BITMAP = "skip_delete_bitmap";
 
+    public static final String QUERY_MOW_IN_MOR = "query_mow_in_mor";
+
     public static final String SKIP_MISSING_VERSION = "skip_missing_version";
 
     public static final String SKIP_BAD_TABLET = "skip_bad_tablet";
@@ -483,6 +485,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_STRONG_CONSISTENCY = "enable_strong_consistency_read";
 
     public static final String GROUP_COMMIT = "group_commit";
+
+    public static final String ENABLE_QUERY_IN_TRANSACTION_LOAD = "enable_query_in_transaction_load";
 
     public static final String ENABLE_PREPARED_STMT_AUDIT_LOG = "enable_prepared_stmt_audit_log";
 
@@ -1446,6 +1450,12 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = SKIP_DELETE_BITMAP)
     public boolean skipDeleteBitmap = false;
 
+    /**
+     * Query mow table in mor way.
+     */
+    @VariableMgr.VarAttr(name = QUERY_MOW_IN_MOR)
+    public boolean queryMowInMor = false;
+
     // This variable replace the original FE config `recover_with_skip_missing_version`.
     // In some scenarios, all replicas of tablet are having missing versions, and the tablet is unable to recover.
     // This config can control the behavior of query. When it is set to `true`, the query will ignore the
@@ -1749,6 +1759,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = GROUP_COMMIT, needForward = true)
     public String groupCommit = "off_mode";
+
+    @VariableMgr.VarAttr(name = ENABLE_QUERY_IN_TRANSACTION_LOAD, needForward = true)
+    public boolean enableQueryInTransactionLoad = false;
 
     @VariableMgr.VarAttr(name = ENABLE_PREPARED_STMT_AUDIT_LOG, needForward = true)
     public boolean enablePreparedStmtAuditLog = false;
@@ -3737,6 +3750,11 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setSkipDeletePredicate(skipDeletePredicate);
 
         tResult.setSkipDeleteBitmap(skipDeleteBitmap);
+        tResult.setQueryMowInMor(queryMowInMor);
+        if (ConnectContext.get() != null && ConnectContext.get().isTxnModel()) {
+            // TODO set to true only if the sub txn ids are not empty
+            tResult.setQueryMowInMor(true);
+        }
 
         tResult.setPartitionedHashJoinRowsThreshold(partitionedHashJoinRowsThreshold);
         tResult.setPartitionedHashAggRowsThreshold(partitionedHashAggRowsThreshold);
