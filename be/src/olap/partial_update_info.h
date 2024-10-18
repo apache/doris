@@ -36,10 +36,17 @@ class BitmapValue;
 struct RowLocation;
 namespace vectorized {
 class Block;
-}
+class IOlapColumnDataAccessor;
+
+} // namespace vectorized
 struct RowsetWriterContext;
 struct RowsetId;
 class BitmapValue;
+namespace segment_v2 {
+class VerticalSegmentWriter;
+}
+
+class SegmentCacheHandle;
 
 struct PartialUpdateInfo {
     Status init(int64_t tablet_id, int64_t txn_id, const TabletSchema& tablet_schema,
@@ -179,6 +186,31 @@ private:
     // rowset_id -> segment_id -> column unique id -> mappings
     std::map<RowsetId, std::map<uint32_t, std::map<uint32_t, std::vector<RidAndPos>>>> plan;
     std::map<RowsetId, std::map<uint32_t /* segment_id */, std::vector<RidAndPos>>> row_store_plan;
+};
+
+class BlockAggregator {
+public:
+    ~BlockAggregator() = default;
+    BlockAggregator(segment_v2::VerticalSegmentWriter& vertical_segment_writer);
+
+    Status aggregate_for_sequence_column(
+            vectorized::Block* block, size_t num_rows,
+            const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns,
+            vectorized::IOlapColumnDataAccessor* seq_column,
+            const std::vector<RowsetSharedPtr>& specified_rowsets,
+            std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches);
+    Status aggregate_for_insert_after_delete(
+            vectorized::Block* block, size_t num_rows,
+            const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns,
+            const std::vector<RowsetSharedPtr>& specified_rowsets,
+            std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches);
+    Status filter_block(vectorized::Block* block, size_t num_rows,
+                        vectorized::MutableColumnPtr filter_column, int duplicate_rows,
+                        std::string col_name);
+
+private:
+    segment_v2::VerticalSegmentWriter& _writer;
+    TabletSchema& _tablet_schema;
 };
 
 struct PartialUpdateStats {
