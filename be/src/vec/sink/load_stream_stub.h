@@ -286,6 +286,8 @@ public:
 
     bool is_incremental() const { return _is_incremental; }
 
+    size_t size() const { return _streams.size(); }
+
     std::shared_ptr<LoadStreamStub> select_one_stream() {
         if (!_open_success.load()) {
             return nullptr;
