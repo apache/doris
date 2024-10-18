@@ -333,7 +333,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     private void adjustColStats(OlapScan olapScan, SlotReference slot,
             ColumnStatisticBuilder builder) {
         if (builder.getAvgSizeByte() <= 0) {
-            builder.setAvgSizeByte(slot.getDataType().toCatalogDataType().getSlotSize());
+            builder.normalizeAvgSizeByte(slot);
         }
         long delta = computeDeltaRowCount(olapScan, slot);
         if (delta > 0) {

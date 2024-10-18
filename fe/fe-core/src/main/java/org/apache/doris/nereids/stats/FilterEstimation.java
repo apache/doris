@@ -327,6 +327,7 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
             } else {
                 double val = statsForRight.maxValue;
                 if (val > statsForLeft.maxValue || val < statsForLeft.minValue) {
+                    // TODO: will fix this in the next pr by adding RangeScalable protection
                     selectivity = 0.0;
                 } else if (ndv >= 1.0) {
                     selectivity = StatsMathUtil.minNonNaN(1.0, 1.0 / ndv);
