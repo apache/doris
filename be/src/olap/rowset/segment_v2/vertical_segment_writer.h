@@ -33,6 +33,7 @@
 #include "gutil/macros.h"
 #include "gutil/strings/substitute.h"
 #include "olap/olap_define.h"
+#include "olap/partial_update_info.h"
 #include "olap/rowset/segment_v2/column_writer.h"
 #include "olap/tablet.h"
 #include "olap/tablet_schema.h"
@@ -57,7 +58,6 @@ namespace io {
 class FileWriter;
 class FileSystem;
 } // namespace io
-
 namespace segment_v2 {
 class InvertedIndexFileWriter;
 
@@ -168,8 +168,6 @@ private:
                               const std::function<Status()>& not_found_cb,
                               PartialUpdateStats& stats);
     Status _append_block_with_partial_content(RowsInBlock& data, vectorized::Block& full_block);
-    Status _filter_block(RowsInBlock& data, vectorized::MutableColumnPtr filter_column,
-                         int duplicate_rows, std::string col_name);
     Status _append_block_with_flexible_partial_content(RowsInBlock& data,
                                                        vectorized::Block& full_block);
     Status _generate_encoded_default_seq_value(const TabletSchema& tablet_schema,
@@ -185,17 +183,6 @@ private:
             std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
             bool& has_default_or_nullable, std::vector<bool>& use_default_or_null_flag,
             PartialUpdateStats& stats);
-    Status _merge_rows_for_sequence_column(
-            RowsInBlock& data, std::vector<BitmapValue>* skip_bitmaps,
-            const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns,
-            vectorized::IOlapColumnDataAccessor* seq_column, const signed char* delete_signs,
-            const std::vector<RowsetSharedPtr>& specified_rowsets,
-            std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches);
-    Status _merge_rows_for_insert_after_delete(
-            RowsInBlock& data, std::vector<BitmapValue>* skip_bitmaps,
-            const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns,
-            const signed char* delete_signs, const std::vector<RowsetSharedPtr>& specified_rowsets,
-            std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches);
     Status _append_block_with_variant_subcolumns(RowsInBlock& data);
     Status _generate_key_index(
             RowsInBlock& data, std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns,
@@ -211,6 +198,7 @@ private:
     bool _is_mow_with_cluster_key();
 
 private:
+    friend class ::doris::BlockAggregator;
     uint32_t _segment_id;
     TabletSchemaSPtr _tablet_schema;
     BaseTabletSPtr _tablet;
@@ -269,6 +257,8 @@ private:
 
     // contains auto generated columns, should be nullptr if no variants's subcolumns
     TabletSchemaSPtr _flush_schema = nullptr;
+
+    BlockAggregator _block_aggregator;
 };
 
 } // namespace segment_v2
