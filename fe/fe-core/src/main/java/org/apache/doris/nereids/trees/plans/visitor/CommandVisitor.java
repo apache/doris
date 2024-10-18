@@ -43,6 +43,10 @@ import org.apache.doris.nereids.trees.plans.commands.PauseMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.RefreshMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.ReplayCommand;
 import org.apache.doris.nereids.trees.plans.commands.ResumeMTMVCommand;
+import org.apache.doris.nereids.trees.plans.commands.SetDefaultStorageVaultCommand;
+import org.apache.doris.nereids.trees.plans.commands.SetOptionsCommand;
+import org.apache.doris.nereids.trees.plans.commands.SetTransactionCommand;
+import org.apache.doris.nereids.trees.plans.commands.SetUserPropertiesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowConfigCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowConstraintsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateMTMVCommand;
@@ -200,5 +204,21 @@ public interface CommandVisitor<R, C> {
 
     default R visitShowConfigCommand(ShowConfigCommand showConfigCommand, C context) {
         return visitCommand(showConfigCommand, context);
+    }
+
+    default R visitSetOptionsCommand(SetOptionsCommand setOptionsCommand, C context) {
+        return visitCommand(setOptionsCommand, context);
+    }
+
+    default R visitSetTransactionCommand(SetTransactionCommand setTransactionCommand, C context) {
+        return visitCommand(setTransactionCommand, context);
+    }
+
+    default R visitSetUserPropertiesCommand(SetUserPropertiesCommand setUserPropertiesCommand, C context) {
+        return visitCommand(setUserPropertiesCommand, context);
+    }
+
+    default R visitSetDefaultStorageVault(SetDefaultStorageVaultCommand setDefaultStorageVaultCommand, C context) {
+        return visitCommand(setDefaultStorageVaultCommand, context);
     }
 }
