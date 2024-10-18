@@ -597,6 +597,11 @@ public abstract class JoinNodeBase extends PlanNode {
         this.useSpecificProjections = useSpecificProjections;
     }
 
+    @Override
+    public boolean isSerialOperator() {
+        return joinOp == JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN;
+    }
+
 
     public boolean isUseSpecificProjections() {
         return useSpecificProjections;
