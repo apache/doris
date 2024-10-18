@@ -374,6 +374,8 @@ private:
 
     bool _has_delete_predicate(ColumnId cid);
 
+    bool _has_is_null_predicate(ColumnId cid);
+
     bool _can_opt_topn_reads();
 
     void _initialize_predicate_results();
