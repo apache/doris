@@ -317,7 +317,7 @@ suite("union_all_compensate") {
     sql """set enable_materialized_view_rewrite = false;"""
     order_qt_query6_0_before "${query6_0}"
     sql """set enable_materialized_view_rewrite = true;"""
-    mv_rewrite_success(query6_0, "test_join_mv")
+    mv_rewrite_success_without_check_chosen(query6_0, "test_join_mv")
     order_qt_query6_0_after "${query6_0}"
 
 

@@ -107,7 +107,6 @@ public class CheckAfterRewrite extends OneAnalysisRuleFactory {
         if (notFromChildren.isEmpty()) {
             return;
         }
-
         notFromChildren = removeValidSlotsNotFromChildren(notFromChildren, childrenOutput);
         if (!notFromChildren.isEmpty()) {
             if (plan.arity() != 0 && plan.child(0) instanceof LogicalAggregate) {

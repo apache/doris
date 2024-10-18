@@ -63,6 +63,7 @@ public class FlightSqlConnectContext extends ConnectContext {
         if (flightSqlChannel != null) {
             flightSqlChannel.close();
         }
+        connectScheduler.unregisterConnection(this);
     }
 
     // kill operation with no protect.
@@ -72,8 +73,8 @@ public class FlightSqlConnectContext extends ConnectContext {
 
         if (killConnection) {
             isKilled = true;
+            // Close channel and break connection with client.
             closeChannel();
-            connectScheduler.unregisterConnection(this);
         }
         // Now, cancel running query.
         cancelQuery(new Status(TStatusCode.CANCELLED, "arrow flight query killed by user"));

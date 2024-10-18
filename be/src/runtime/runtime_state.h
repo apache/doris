@@ -113,12 +113,6 @@ public:
         return _query_options.__isset.scan_queue_mem_limit ? _query_options.scan_queue_mem_limit
                                                            : _query_options.mem_limit / 20;
     }
-    int64_t query_mem_limit() const {
-        if (_query_options.__isset.mem_limit && (_query_options.mem_limit > 0)) {
-            return _query_options.mem_limit;
-        }
-        return 0;
-    }
 
     ObjectPool* obj_pool() const { return _obj_pool.get(); }
 
@@ -174,7 +168,7 @@ public:
                _query_options.check_overflow_for_decimal;
     }
 
-    bool enable_decima256() const {
+    bool enable_decimal256() const {
         return _query_options.__isset.enable_decimal256 && _query_options.enable_decimal256;
     }
 
@@ -605,10 +599,6 @@ public:
 
     int task_num() const { return _task_num; }
 
-    vectorized::ColumnInt64* partial_update_auto_inc_column() {
-        return _partial_update_auto_inc_column;
-    };
-
 private:
     Status create_error_log_file();
 
@@ -693,7 +683,6 @@ private:
     size_t _content_length = 0;
 
     // mini load
-    int64_t _normal_row_number;
     int64_t _error_row_number;
     std::string _error_log_file_path;
     std::unique_ptr<std::ofstream> _error_log_file; // error file path, absolute path
@@ -723,8 +712,6 @@ private:
 
     // prohibit copies
     RuntimeState(const RuntimeState&);
-
-    vectorized::ColumnInt64* _partial_update_auto_inc_column;
 
     // save error log to s3
     std::shared_ptr<io::S3FileSystem> _s3_error_fs;
