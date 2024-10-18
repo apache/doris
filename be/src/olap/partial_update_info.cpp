@@ -283,6 +283,10 @@ void PartialUpdateInfo::_generate_default_values_for_missing_cids(
     CHECK_EQ(missing_cids.size(), default_values.size());
 }
 
+bool FixedReadPlan::empty() const {
+    return plan.empty();
+}
+
 void FixedReadPlan::prepare_to_read(const RowLocation& row_location, size_t pos) {
     plan[row_location.rowset_id][row_location.segment_id].emplace_back(row_location.row_id, pos);
 }
