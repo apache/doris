@@ -169,6 +169,7 @@ class SimpleCommand(Command):
         LOG.info(
             utils.render_green("{} succ, total related node num {}".format(
                 show_cmd, related_node_num)))
+        return ""
 
 
 class UpCommand(Command):
@@ -1213,6 +1214,20 @@ class GetCloudIniCommand(Command):
         return self._handle_data(header, rows)
 
 
+class AddRWPermCommand(Command):
+
+    def add_parser(self, args_parsers):
+        parser = args_parsers.add_parser(
+            "add-rw-perm",
+            help="Add read and write permissions to the cluster files")
+        parser.add_argument("NAME", help="Specify cluster name.")
+        self._add_parser_common_args(parser)
+
+    def run(self, args):
+        utils.enable_dir_with_rw_perm(CLUSTER.get_cluster_path(args.NAME))
+        return ""
+
+
 ALL_COMMANDS = [
     UpCommand("up"),
     DownCommand("down"),
@@ -1224,4 +1239,5 @@ ALL_COMMANDS = [
     GetCloudIniCommand("get-cloud-ini"),
     GenConfCommand("config"),
     ListCommand("ls"),
+    AddRWPermCommand("add-rw-perm"),
 ]
