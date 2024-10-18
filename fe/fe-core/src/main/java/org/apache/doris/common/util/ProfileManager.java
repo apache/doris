@@ -443,67 +443,6 @@ public class ProfileManager extends MasterDaemon {
         }
     }
 
-    public ProfileTreeNode getFragmentProfileTree(String queryID, String executionId) throws AnalysisException {
-        MultiProfileTreeBuilder builder;
-        readLock.lock();
-        try {
-            ProfileElement element = queryIdToProfileMap.get(queryID);
-            if (element == null || element.builder == null) {
-                throw new AnalysisException("failed to get fragment profile tree. err: "
-                        + (element == null ? "not found" : element.errMsg));
-            }
-            builder = element.builder;
-        } finally {
-            readLock.unlock();
-        }
-        return builder.getFragmentTreeRoot(executionId);
-    }
-
-    public ProfileTreeNode getInstanceProfileTree(String queryID, String executionId,
-            String fragmentId, String instanceId)
-            throws AnalysisException {
-        MultiProfileTreeBuilder builder;
-        readLock.lock();
-        try {
-            ProfileElement element = queryIdToProfileMap.get(queryID);
-            if (element == null || element.builder == null) {
-                throw new AnalysisException("failed to get instance profile tree. err: "
-                        + (element == null ? "not found" : element.errMsg));
-            }
-            builder = element.builder;
-        } finally {
-            readLock.unlock();
-        }
-
-        return builder.getInstanceTreeRoot(executionId, fragmentId, instanceId);
-    }
-
-    // Return the tasks info of the specified load job
-    // Columns: TaskId, ActiveTime
-    public List<List<String>> getLoadJobTaskList(String jobId) throws AnalysisException {
-        MultiProfileTreeBuilder builder = getMultiProfileTreeBuilder(jobId);
-        return builder.getSubTaskInfo();
-    }
-
-    public List<ProfileTreeBuilder.FragmentInstances> getFragmentsAndInstances(String queryId)
-            throws AnalysisException {
-        return getMultiProfileTreeBuilder(queryId).getFragmentInstances(queryId);
-    }
-
-    private MultiProfileTreeBuilder getMultiProfileTreeBuilder(String jobId) throws AnalysisException {
-        readLock.lock();
-        try {
-            ProfileElement element = queryIdToProfileMap.get(jobId);
-            if (element == null || element.builder == null) {
-                throw new AnalysisException("failed to get task ids. err: "
-                        + (element == null ? "not found" : element.errMsg));
-            }
-            return element.builder;
-        } finally {
-            readLock.unlock();
-        }
-    }
-
     public String getQueryIdByTraceId(String traceId) {
         readLock.lock();
         try {
