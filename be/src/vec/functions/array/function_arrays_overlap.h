@@ -181,12 +181,16 @@ public:
             RETURN_IF_ERROR(iter->read_null_bitmap(&null_bitmap_cache_handle));
             null_bitmap = null_bitmap_cache_handle.get_bitmap();
         }
-        std::unique_ptr<InvertedIndexQueryParamFactory> query_param = nullptr;
+        std::unique_ptr<segment_v2::InvertedIndexQueryParamFactory> query_param = nullptr;
         const Array& query_val = param_value.get<Array>();
-        for (size_t i = 0; i < query_val.size(); ++i) {
-            Field nested_query_val = query_val[i];
+        for (auto nested_query_val : query_val) {
+            // any element inside array is NULL, return NULL
+            // by current arrays_overlap execute logic.
+            if (nested_query_val.is_null()) {
+                return Status::OK();
+            }
             std::shared_ptr<roaring::Roaring> single_res = std::make_shared<roaring::Roaring>();
-            RETURN_IF_ERROR(InvertedIndexQueryParamFactory::create_query_value(
+            RETURN_IF_ERROR(segment_v2::InvertedIndexQueryParamFactory::create_query_value(
                     nested_param_type, &nested_query_val, query_param));
             RETURN_IF_ERROR(iter->read_from_inverted_index(
                     data_type_with_name.first, query_param->get_value(),

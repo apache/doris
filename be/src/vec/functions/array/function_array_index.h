@@ -127,9 +127,9 @@ public:
             RETURN_IF_ERROR(iter->read_null_bitmap(&null_bitmap_cache_handle));
             null_bitmap = null_bitmap_cache_handle.get_bitmap();
         }
-        std::unique_ptr<InvertedIndexQueryParamFactory> query_param = nullptr;
-        RETURN_IF_ERROR(InvertedIndexQueryParamFactory::create_query_value(param_type, &param_value,
-                                                                           query_param));
+        std::unique_ptr<segment_v2::InvertedIndexQueryParamFactory> query_param = nullptr;
+        RETURN_IF_ERROR(segment_v2::InvertedIndexQueryParamFactory::create_query_value(
+                param_type, &param_value, query_param));
         RETURN_IF_ERROR(iter->read_from_inverted_index(
                 data_type_with_name.first, query_param->get_value(),
                 segment_v2::InvertedIndexQueryType::EQUAL_QUERY, num_rows, roaring));
