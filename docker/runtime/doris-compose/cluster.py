@@ -122,6 +122,7 @@ def gen_subnet_prefix16():
     intervals = [
         [(subnet_part_1, subnet_part_1 + 1), (subnet_part_2, 256)],
         [(subnet_part_1 + 1, subnet_end), (0, 256)],
+        [(subnet_begin, subnet_part_1), (0, 256)],
         [(subnet_part_1, subnet_part_1 + 1), (0, subnet_part_2)],
     ]
     for interval in intervals:
