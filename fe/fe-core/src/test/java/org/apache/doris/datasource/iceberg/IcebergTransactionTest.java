@@ -19,6 +19,7 @@ package org.apache.doris.datasource.iceberg;
 
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.info.SimpleTableInfo;
+import org.apache.doris.common.util.SerializationUtils;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.nereids.trees.plans.commands.insert.IcebergInsertCommandContext;
 import org.apache.doris.thrift.TFileContent;
@@ -27,7 +28,6 @@ import org.apache.doris.thrift.TIcebergCommitData;
 import com.google.common.collect.Maps;
 import mockit.Mock;
 import mockit.MockUp;
-import org.apache.commons.lang3.SerializationUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.FileScanTask;
