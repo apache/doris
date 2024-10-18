@@ -105,21 +105,19 @@ suite("test_qualify_query") {
 
     qt_select_29 "select distinct year + 1,country from sales qualify row_number() over (order by profit + 1) > 1;"
 
-    qt_select_30 "select distinct year,country, row_number() over (order by profit + 1) as rk from sales qualify row_number() over (order by profit + 1) > 1;"
+    qt_select_30 "select distinct year,country, row_number() over (order by profit + 1) as rk from sales qualify row_number() over (order by profit + 1) = 1;"
 
     qt_select_31 "select distinct year + 1 as year,country from sales group by year, country qualify row_number() over (order by year) > 1;"
 
-    qt_select_32 "select distinct year,country, row_number() over (order by profit + 1) as rk from sales qualify row_number() over (order by profit + 1) > 1;"
+    qt_select_32 "select distinct year,country from sales having sum(profit) > 100 qualify row_number() over (order by year) > 1;"
 
-    qt_select_33 "select distinct year,country from sales having sum(profit) > 100 qualify row_number() over (order by year) > 1;"
+    qt_select_33 "select distinct year,country,rank() over (order by year) from sales having sum(profit) > 100 qualify row_number() over (order by year) > 1;"
 
-    qt_select_34 "select distinct year,country,rank() over (order by year) from sales having sum(profit) > 100 qualify row_number() over (order by year) > 1;"
+    qt_select_34 "select distinct year,country,rank() over (order by year) from sales having sum(profit) > 100;"
 
-    qt_select_35 "select distinct year,country,rank() over (order by year) from sales having sum(profit) > 100;"
+    qt_select_35 "select year + 1, country from sales having profit >= 100 qualify row_number() over (order by year) > 1;"
 
-    qt_select_36 "select year + 1, country from sales having profit >= 100 qualify row_number() over (order by year) > 1;"
-
-    qt_select_37 "select year + 1, country, row_number() over (order by year) rk from sales having profit >= 100 qualify rk > 1;"
+    qt_select_36 "select year + 1, country, row_number() over (order by year) rk from sales having profit >= 100 qualify rk > 1;"
 }
 
 
