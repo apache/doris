@@ -44,7 +44,7 @@ suite("test_ddl_encryptkey_auth","p0,auth_call") {
             exception "denied"
         }
     }
-    sql """grant admin_priv on *.*.* to ${user}"""
+    sql """grant create_priv on ${dbName} to ${user}"""
     connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
         sql """use ${dbName}"""
         sql """CREATE ENCRYPTKEY ${encryptkeyName} AS "ABCD123456789";"""
