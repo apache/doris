@@ -64,7 +64,7 @@ public class OrToIn implements ExpressionPatternRuleFactory {
 
     public Expression rewriteTree(Expression expr, ExpressionRewriteContext context) {
         if (expr instanceof CompoundPredicate) {
-            expr = SimplifyRange.rewrite((CompoundPredicate) expr);
+            expr = SimplifyRange.rewrite((CompoundPredicate) expr, context);
         }
         ExpressionBottomUpRewriter bottomUpRewriter = ExpressionRewrite.bottomUp(this);
         return bottomUpRewriter.rewrite(expr, context);

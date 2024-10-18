@@ -17,9 +17,11 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
@@ -29,16 +31,18 @@ import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.PlanUtils;
+import org.apache.doris.nereids.util.PredicateInferUtils;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
 
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * infer additional predicates for `LogicalFilter` and `LogicalJoin`.
@@ -58,10 +62,17 @@ import java.util.stream.Collectors;
  * </pre>
  */
 public class InferPredicates extends DefaultPlanRewriter<JobContext> implements CustomRewriter {
-    private final PullUpPredicates pollUpPredicates = new PullUpPredicates();
+    private final PullUpPredicates pullUpPredicates = new PullUpPredicates(false);
+    // The role of pullUpAllPredicates is to prevent inference of redundant predicates
+    private final PullUpPredicates pullUpAllPredicates = new PullUpPredicates(true);
 
     @Override
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
+        // Preparing stmt requires that the predicate cannot be changed, so no predicate inference is performed.
+        ConnectContext connectContext = jobContext.getCascadesContext().getConnectContext();
+        if (connectContext != null && connectContext.getCommand() == MysqlCommand.COM_STMT_PREPARE) {
+            return plan;
+        }
         return plan.accept(this, jobContext);
     }
 
@@ -104,13 +115,8 @@ public class InferPredicates extends DefaultPlanRewriter<JobContext> implements 
     public Plan visitLogicalFilter(LogicalFilter<? extends Plan> filter, JobContext context) {
         filter = visitChildren(this, filter, context);
         Set<Expression> filterPredicates = pullUpPredicates(filter);
-        filterPredicates.removeAll(pullUpPredicates(filter.child()));
-        filter.getConjuncts().forEach(filterPredicates::remove);
-        if (!filterPredicates.isEmpty()) {
-            filterPredicates.addAll(filter.getConjuncts());
-            return new LogicalFilter<>(ImmutableSet.copyOf(filterPredicates), filter.child());
-        }
-        return filter;
+        filterPredicates.removeAll(pullUpAllPredicates(filter.child()));
+        return new LogicalFilter<>(ImmutableSet.copyOf(filterPredicates), filter.child());
     }
 
     @Override
@@ -156,19 +162,27 @@ public class InferPredicates extends DefaultPlanRewriter<JobContext> implements 
         Set<Expression> baseExpressions = pullUpPredicates(left);
         baseExpressions.addAll(pullUpPredicates(right));
         condition.ifPresent(on -> baseExpressions.addAll(ExpressionUtils.extractConjunction(on)));
-        baseExpressions.addAll(PredicatePropagation.infer(baseExpressions));
-        return baseExpressions;
+        return PredicateInferUtils.inferPredicate(baseExpressions);
     }
 
     private Set<Expression> pullUpPredicates(Plan plan) {
-        return Sets.newHashSet(plan.accept(pollUpPredicates, null));
+        return Sets.newLinkedHashSet(plan.accept(pullUpPredicates, null));
+    }
+
+    private Set<Expression> pullUpAllPredicates(Plan plan) {
+        return Sets.newLinkedHashSet(plan.accept(pullUpAllPredicates, null));
     }
 
     private Plan inferNewPredicate(Plan plan, Set<Expression> expressions) {
-        Set<Expression> predicates = expressions.stream()
-                .filter(c -> !c.getInputSlots().isEmpty() && plan.getOutputSet().containsAll(c.getInputSlots()))
-                .collect(Collectors.toSet());
-        predicates.removeAll(plan.accept(pollUpPredicates, null));
+        Set<Expression> predicates = new LinkedHashSet<>();
+        Set<Slot> planOutputs = plan.getOutputSet();
+        for (Expression expr : expressions) {
+            Set<Slot> slots = expr.getInputSlots();
+            if (!slots.isEmpty() && planOutputs.containsAll(slots)) {
+                predicates.add(expr);
+            }
+        }
+        predicates.removeAll(plan.accept(pullUpAllPredicates, null));
         return PlanUtils.filterOrSelf(predicates, plan);
     }
 }
