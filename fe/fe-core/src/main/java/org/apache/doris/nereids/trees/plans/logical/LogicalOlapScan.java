@@ -503,6 +503,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
         if (getTable() instanceof MTMV) {
             MTMV mtmv = (MTMV) getTable();
             MTMVCache cache = mtmv.getCache();
+            // Maybe query specified index, should not calc, such as select count(*) from t1 index col_index
             if (cache == null || this.getSelectedIndexId() != this.getTable().getBaseIndexId()) {
                 return;
             }
@@ -529,6 +530,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
         if (getTable() instanceof MTMV) {
             MTMV mtmv = (MTMV) getTable();
             MTMVCache cache = mtmv.getCache();
+            // Maybe query specified index, should not calc, such as select count(*) from t1 index col_index
             if (cache == null || this.getSelectedIndexId() != this.getTable().getBaseIndexId()) {
                 return;
             }
@@ -543,6 +545,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
         if (getTable() instanceof MTMV) {
             MTMV mtmv = (MTMV) getTable();
             MTMVCache cache = mtmv.getCache();
+            // Maybe query specified index, should not calc, such as select count(*) from t1 index col_index
             if (cache == null || this.getSelectedIndexId() != this.getTable().getBaseIndexId()) {
                 return;
             }
@@ -557,6 +560,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
         if (getTable() instanceof MTMV) {
             MTMV mtmv = (MTMV) getTable();
             MTMVCache cache = mtmv.getCache();
+            // Maybe query specified index, should not calc, such as select count(*) from t1 index col_index
             if (cache == null || this.getSelectedIndexId() != this.getTable().getBaseIndexId()) {
                 return;
             }

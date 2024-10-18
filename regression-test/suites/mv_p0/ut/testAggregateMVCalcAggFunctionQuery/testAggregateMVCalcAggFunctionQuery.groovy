@@ -43,26 +43,14 @@ suite ("testAggregateMVCalcAggFunctionQuery") {
     sql "analyze table emps with sync;"
     sql """set enable_stats=false;"""
 
-    explain {
-        sql("select * from emps order by empid;")
-        contains "(emps)"
-    }
+    mv_rewrite_fail("select * from emps order by empid;", "emps_mv")
     qt_select_star "select * from emps order by empid;"
 
-
-    explain {
-        sql("select deptno, sum(salary + 1) from emps where deptno > 10 group by deptno;")
-        notContains "(emps_mv)"
-    }
+    mv_rewrite_fail("select deptno, sum(salary + 1) from emps where deptno > 10 group by deptno;", "emps_mv")
     qt_select_mv "select deptno, sum(salary + 1) from emps where deptno > 10 group by deptno order by deptno;"
 
     sql """set enable_stats=true;"""
-    explain {
-        sql("select * from emps order by empid;")
-        contains "(emps)"
-    }
-    explain {
-        sql("select deptno, sum(salary + 1) from emps where deptno > 10 group by deptno;")
-        notContains "(emps_mv)"
-    }
+    mv_rewrite_fail("select * from emps order by empid;", "emps_mv")
+
+    mv_rewrite_fail("select deptno, sum(salary + 1) from emps where deptno > 10 group by deptno;", "emps_mv")
 }

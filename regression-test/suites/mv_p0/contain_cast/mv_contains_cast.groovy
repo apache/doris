@@ -119,10 +119,6 @@ suite("mv_contains_cast") {
       cast(FLOOR(MINUTE(`time`) / 15) as decimal(9, 0));
     """)
 
-    explain {
-        sql("""${query_sql}""")
-        contains "(sync_mv)"
-    }
-
+    mv_rewrite_success(query_sql, "sync_mv")
     order_qt_query_after "${query_sql}"
 }
