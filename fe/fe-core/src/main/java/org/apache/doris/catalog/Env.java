@@ -3879,7 +3879,7 @@ public class Env {
                 || table.getType() == TableType.HIVE || table.getType() == TableType.JDBC) {
             sb.append("EXTERNAL ");
         }
-        if (table.getType() == TableType.TEMP) {
+        if (table.isTemporary()) {
             sb.append("TEMPORARY ");
         }
         sb.append(table.getType() != TableType.MATERIALIZED_VIEW ? "TABLE " : "MATERIALIZED VIEW ");
@@ -3887,7 +3887,7 @@ public class Env {
         if (!Strings.isNullOrEmpty(dbName)) {
             sb.append("`").append(dbName).append("`.");
         }
-        if (table.getType() == TableType.TEMP) {
+        if (table.isTemporary()) {
             sb.append("`").append(Util.getTempTableOuterName(table.getName())).append("`");
         } else {
             sb.append("`").append(table.getName()).append("`");
@@ -3920,11 +3920,7 @@ public class Env {
             }
         }
         sb.append("\n) ENGINE=");
-        if (table.getType() == TableType.TEMP) {
-            sb.append("OLAP");
-        } else {
-            sb.append(table.getType().name());
-        }
+        sb.append(table.getType().name());
 
         if (table instanceof OlapTable) {
             OlapTable olapTable = (OlapTable) table;

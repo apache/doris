@@ -382,12 +382,12 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
         checkReplicaQuota();
     }
 
-    public boolean isTableExist(String tableName, TableType tableType) {
+    public boolean isTableExist(String tableName, boolean isTemporary) {
         if (Env.isTableNamesCaseInsensitive()) {
             tableName = tableName.toLowerCase();
         }
 
-        if (tableType == TableType.TEMP) {
+        if (isTemporary) {
             Set<String> tableSet = ConnectContext.get().getDbToTempTableNamesMap().get(fullQualifiedName);
             return tableSet != null && tableSet.contains(tableName);
         } else {
@@ -426,7 +426,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
                 idToTable.put(table.getId(), table);
                 lowerCaseToTableName.put(tableName.toLowerCase(), tableName);
                 nameToTable.put(table.getName(), table);
-                if (table.getType() == TableType.TEMP) {
+                if (table.isTemporary()) {
                     if (isReplay) {
                         // add to to-deleted list, and delete it after catalog is ready
                         Env.getCurrentEnv().addPhantomTempTable(table);
