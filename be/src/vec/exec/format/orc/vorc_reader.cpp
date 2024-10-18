@@ -934,8 +934,7 @@ Status OrcReader::set_fill_columns(
                 uint64_t strip_end_offset = strip_start_offset + strip_info->getLength();
 
                 if (strip_start_offset >= range_end_offset ||
-                    strip_end_offset < _range_start_offset) {
-                    //|| !allStripesNeeded[i]
+                    strip_end_offset < _range_start_offset || !allStripesNeeded[i]) {
                     continue;
                 }
                 if (ranges.empty()) {
@@ -2543,20 +2542,32 @@ void ORCCacheFileInputStream::read(void* buf, uint64_t length, uint64_t offset) 
     _orc_cache_statistics.request_bytes += length;
     SCOPED_RAW_TIMER(&_orc_cache_statistics.request_time);
 
-    if (_current_ranges != -1 && _current_ranges < _prefetch_ranges.size() &&
-        _prefetch_ranges[_current_ranges].end_offset > offset) [[likely]] {
-        // Because of apache-orc seq read,
-        // so I think just check  `_prefetch_ranges[_current_ranges].end_offset > offset` is ok.
-        // To be more absolute, I don’t even think this check is needed here.
-        int64_t buffer_offset = offset - _prefetch_ranges[_current_ranges].start_offset;
-        memcpy_inlined(buf, _buf.get() + buffer_offset, length);
-    } else {
-        // not in cache.
-        _orc_cache_statistics.miss_cache_io++;
-        _orc_cache_statistics.miss_cache_bytes += length;
-        SCOPED_RAW_TIMER(&_orc_cache_statistics.read_miss_cache_time);
-        read_impl(reinterpret_cast<char*>(buf), length, offset);
+    if (_current_ranges == -1 || _prefetch_ranges[_current_ranges].end_offset <= offset)
+            [[unlikely]] {
+        read_range_to_cache();
     }
+    // Because of apache-orc seq read,
+    // so I think just check  `_prefetch_ranges[_current_ranges].end_offset > offset` is ok.
+    // To be more absolute, I don’t even think this check is needed here.
+    int64_t buffer_offset = offset - _prefetch_ranges[_current_ranges].start_offset;
+    memcpy_inlined(buf, _buf.get() + buffer_offset, length);
+
+    //    if (_current_ranges != -1 && _current_ranges < _prefetch_ranges.size()) [[likely]] {
+    //        if (_prefetch_ranges[_current_ranges].end_offset <= offset) [[unlikely]] {
+    //            read_range_to_cache();
+    //        }
+    //        // Because of apache-orc seq read,
+    //        // so I think just check  `_prefetch_ranges[_current_ranges].end_offset > offset` is ok.
+    //        // To be more absolute, I don’t even think this check is needed here.
+    //        int64_t buffer_offset = offset - _prefetch_ranges[_current_ranges].start_offset;
+    //        memcpy_inlined(buf, _buf.get() + buffer_offset, length);
+    //    } else {
+    //        // not in cache and not read to cache.
+    //        _orc_cache_statistics.miss_cache_io ++;
+    //        _orc_cache_statistics.miss_cache_bytes += length;
+    //        SCOPED_RAW_TIMER(&_orc_cache_statistics.read_miss_cache_time);
+    //        read_impl(reinterpret_cast<char*>(buf),length,offset);
+    //    }
 }
 void ORCCacheFileInputStream::beforeReadStripe(
         std::unique_ptr<orc::StripeInformation> current_strip_information,
