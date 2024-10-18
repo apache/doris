@@ -276,7 +276,8 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* s
         int64_t version = 0;
         std::from_chars(scan_range->version.data(),
                         scan_range->version.data() + scan_range->version.size(), version);
-        tablets.emplace_back(std::move(tablet), version);
+        std::vector<int64_t> sub_txn_ids = scan_range->sub_txn_ids;
+        tablets.emplace_back(std::move(tablet), version, sub_txn_ids);
     }
 
     if (config::is_cloud_mode()) {
@@ -284,8 +285,8 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* s
         SCOPED_RAW_TIMER(&duration_ns);
         std::vector<std::function<Status()>> tasks;
         tasks.reserve(_scan_ranges.size());
-        for (auto&& [tablet, version] : tablets) {
-            tasks.emplace_back([tablet, version]() {
+        for (auto&& [tablet, version, sub_txn_ids] : tablets) {
+            tasks.emplace_back([tablet, version, sub_txn_ids]() {
                 return std::dynamic_pointer_cast<CloudTablet>(tablet)->sync_rowsets(version);
             });
         }
@@ -369,6 +370,7 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* s
                                   {},
                                   p._limit,
                                   p._olap_scan_node.is_preaggregation,
+                                  scan_range->sub_txn_ids,
                           });
             RETURN_IF_ERROR(scanner->prepare(state(), _conjuncts));
             scanners->push_back(std::move(scanner));
