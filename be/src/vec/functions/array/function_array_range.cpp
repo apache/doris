@@ -65,8 +65,6 @@ public:
 
     bool is_variadic() const override { return true; }
 
-    bool use_default_implementation_for_nulls() const override { return false; }
-
     size_t get_number_of_arguments() const override {
         return get_variadic_argument_types_impl().size();
     }
@@ -146,14 +144,6 @@ struct RangeImplUtil {
         for (int i = 0; i < 3; ++i) {
             argument_columns[i] =
                     block.get_by_position(arguments[i]).column->convert_to_full_column_if_const();
-            if (auto* nullable = check_and_get_column<ColumnNullable>(*argument_columns[i])) {
-                // Danger: Here must dispose the null map data first! Because
-                // argument_columns[i]=nullable->get_nested_column_ptr(); will release the mem
-                // of column nullable mem of null map
-                VectorizedUtils::update_null_map(args_null_map->get_data(),
-                                                 nullable->get_null_map_data());
-                argument_columns[i] = nullable->get_nested_column_ptr();
-            }
         }
         auto start_column =
                 assert_cast<const ColumnVector<SourceDataType>*>(argument_columns[0].get());
