@@ -45,7 +45,6 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.loadv2.LoadTask;
-import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.task.LoadTaskInfo;
@@ -309,12 +308,6 @@ public class StreamLoadPlanner {
         descTable.computeStatAndMemLayout();
 
         int timeout = taskInfo.getTimeout();
-        if (taskInfo instanceof RoutineLoadJob) {
-            // For routine load, make the timeout fo plan fragment larger than MaxIntervalS config.
-            // So that the execution won't be killed before consuming finished.
-            timeout *= 2;
-        }
-
         final boolean enableMemtableOnSinkNode =
                 destTable.getTableProperty().getUseSchemaLightChange()
                 ? taskInfo.isMemtableOnSinkNode() : false;

@@ -620,7 +620,7 @@ public abstract class RoutineLoadJob
 
     @Override
     public int getTimeout() {
-        return (int) getMaxBatchIntervalS();
+        return (int) getMaxBatchIntervalS() * Config.routine_load_task_timeout_multiplier;
     }
 
     @Override
