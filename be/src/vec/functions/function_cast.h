@@ -438,9 +438,13 @@ struct ConvertImpl {
                     for (size_t i = 0; i < size; ++i) {
                         map_ipv4_to_ipv6(vec_from[i], reinterpret_cast<UInt8*>(&vec_to[i]));
                     }
-                } else {
+                } else if constexpr (!std::is_same_v<uint8_t, ToFieldType>) {
                     for (size_t i = 0; i < size; ++i) {
                         vec_to[i] = static_cast<ToFieldType>(vec_from[i]);
+                    }
+                } else {
+                    for (int i = 0; i < size; ++i) {
+                        vec_to[i] = static_cast<bool>(vec_from[i]);
                     }
                 }
             }
