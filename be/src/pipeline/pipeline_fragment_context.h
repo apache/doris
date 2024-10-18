@@ -115,20 +115,6 @@ public:
 
     [[nodiscard]] int next_sink_operator_id() { return _sink_operator_id--; }
 
-    void instance_ids(std::vector<TUniqueId>& ins_ids) const {
-        ins_ids.resize(_fragment_instance_ids.size());
-        for (size_t i = 0; i < _fragment_instance_ids.size(); i++) {
-            ins_ids[i] = _fragment_instance_ids[i];
-        }
-    }
-
-    void instance_ids(std::vector<string>& ins_ids) const {
-        ins_ids.resize(_fragment_instance_ids.size());
-        for (size_t i = 0; i < _fragment_instance_ids.size(); i++) {
-            ins_ids[i] = print_id(_fragment_instance_ids[i]);
-        }
-    }
-
     void clear_finished_tasks() {
         for (size_t j = 0; j < _tasks.size(); j++) {
             for (size_t i = 0; i < _tasks[j].size(); i++) {

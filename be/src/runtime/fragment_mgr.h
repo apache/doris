@@ -100,9 +100,6 @@ public:
     Status trigger_pipeline_context_report(const ReportStatusRequest,
                                            std::shared_ptr<pipeline::PipelineFragmentContext>&&);
 
-    // Cancel instance (pipeline or nonpipeline).
-    void cancel_instance(const TUniqueId instance_id, const Status reason);
-
     // Can be used in both version.
     void cancel_query(const TUniqueId query_id, const Status reason);
 
@@ -169,7 +166,10 @@ private:
     // call _lock, so that there is dead lock.
     std::mutex _lock;
 
-    std::unordered_map<TUniqueId, std::shared_ptr<pipeline::PipelineFragmentContext>> _pipeline_map;
+    // (QueryID, FragmentID) -> PipelineFragmentContext
+    std::unordered_map<std::pair<TUniqueId, int>,
+                       std::shared_ptr<pipeline::PipelineFragmentContext>>
+            _pipeline_map;
 
     // query id -> QueryContext
     std::unordered_map<TUniqueId, std::weak_ptr<QueryContext>> _query_ctx_map;
