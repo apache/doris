@@ -1669,6 +1669,8 @@ void PInternalService::reset_rpc_channel(google::protobuf::RpcController* contro
 void PInternalService::hand_shake(google::protobuf::RpcController* controller,
                                   const PHandShakeRequest* request, PHandShakeResponse* response,
                                   google::protobuf::Closure* done) {
+    // The light pool may be full. Handshake is used to check the connection state of brpc.
+    // Should not be interfered by the thread pool logic.
     brpc::ClosureGuard closure_guard(done);
     if (request->has_hello()) {
         response->set_hello(request->hello());
