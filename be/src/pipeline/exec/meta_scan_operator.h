@@ -51,7 +51,7 @@ private:
     void set_scan_ranges(RuntimeState* state,
                          const std::vector<TScanRangeParams>& scan_ranges) override;
     Status _init_scanners(std::list<vectorized::VScannerSPtr>* scanners) override;
-    Status _process_conjuncts() override;
+    Status _process_conjuncts(RuntimeState* state) override;
 
     std::vector<TScanRangeParams> _scan_ranges;
 };
