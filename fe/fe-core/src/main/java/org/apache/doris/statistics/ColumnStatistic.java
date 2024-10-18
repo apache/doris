@@ -333,7 +333,7 @@ public class ColumnStatistic {
         );
     }
 
-    public boolean minOrMaxIsInf() {
+    public boolean isMinMaxInvalid() {
         return Double.isInfinite(maxValue) || Double.isInfinite(minValue);
     }
 
