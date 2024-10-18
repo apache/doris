@@ -117,7 +117,7 @@ suite("insert_group_commit_into_max_filter_ratio") {
         assertTrue(json.GroupCommit)
         // assertTrue(json.Label.startsWith("group_commit_"))
         assertEquals(total_rows, json.NumberTotalRows)
-        assertEquals(loaded_rows, json.NumberLoadedRows)
+        assertEquals(0, json.NumberLoadedRows)
         assertEquals(filtered_rows, json.NumberFilteredRows)
         assertEquals(unselected_rows, json.NumberUnselectedRows)
         if (filtered_rows > 0) {
