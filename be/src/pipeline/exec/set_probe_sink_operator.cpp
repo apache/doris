@@ -85,7 +85,7 @@ Status SetProbeSinkOperatorX<is_intersect>::sink(RuntimeState* state, vectorized
                         __builtin_unreachable();
                     }
                 },
-                *local_state._shared_state->hash_table_variants));
+                local_state._shared_state->hash_table_variants->method_variant));
     }
 
     if (eos) {
@@ -183,7 +183,7 @@ void SetProbeSinkOperatorX<is_intersect>::_finalize_probe(
                             valid_element_in_hash_tbl = arg.hash_table->size();
                         }
                     },
-                    *hash_table_variants);
+                    hash_table_variants->method_variant);
         }
         local_state._probe_columns.resize(
                 local_state._shared_state->child_exprs_lists[_cur_child_id + 1].size());
@@ -248,7 +248,7 @@ void SetProbeSinkOperatorX<is_intersect>::_refresh_hash_table(
                     __builtin_unreachable();
                 }
             },
-            *hash_table_variants);
+            hash_table_variants->method_variant);
 }
 
 template class SetProbeSinkLocalState<true>;

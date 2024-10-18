@@ -95,12 +95,8 @@ Status DistinctStreamingAggLocalState::open(RuntimeState* state) {
         RETURN_IF_ERROR(p._probe_expr_ctxs[i]->clone(state, _probe_expr_ctxs[i]));
     }
 
-    if (_probe_expr_ctxs.empty()) {
-        _agg_data->without_key = reinterpret_cast<vectorized::AggregateDataPtr>(
-                _agg_profile_arena->alloc(p._total_size_of_aggregate_states));
-    } else {
-        RETURN_IF_ERROR(_init_hash_method(_probe_expr_ctxs));
-    }
+    DCHECK_EQ(p._total_size_of_aggregate_states, 0);
+    RETURN_IF_ERROR(_init_hash_method(_probe_expr_ctxs));
     return Status::OK();
 }
 
@@ -172,7 +168,7 @@ bool DistinctStreamingAggLocalState::_should_expand_preagg_hash_tables() {
 Status DistinctStreamingAggLocalState::_init_hash_method(
         const vectorized::VExprContextSPtrs& probe_exprs) {
     RETURN_IF_ERROR(init_agg_hash_method(
-            _agg_data.get(), probe_exprs,
+            _agg_data.get(), get_data_types(probe_exprs),
             Base::_parent->template cast<DistinctStreamingAggOperatorX>()._is_first_phase));
     return Status::OK();
 }

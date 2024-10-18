@@ -63,7 +63,7 @@ Status SetSinkOperatorX<is_intersect>::sink(RuntimeState* state, vectorized::Blo
                                 valid_element_in_hash_tbl = arg.hash_table->size();
                             }
                         },
-                        *local_state._shared_state->hash_table_variants);
+                        local_state._shared_state->hash_table_variants->method_variant);
             }
             local_state._shared_state->probe_finished_children_dependency[_cur_child_id + 1]
                     ->set_ready();
@@ -100,7 +100,7 @@ Status SetSinkOperatorX<is_intersect>::_process_build_block(
                     __builtin_unreachable();
                 }
             },
-            *local_state._shared_state->hash_table_variants);
+            local_state._shared_state->hash_table_variants->method_variant);
 
     return Status::OK();
 }
@@ -181,8 +181,8 @@ Status SetSinkLocalState<is_intersect>::open(RuntimeState* state) {
 
     auto& parent = _parent->cast<Parent>();
     DCHECK(parent._cur_child_id == 0);
-    _shared_state->hash_table_variants = std::make_unique<SetHashTableVariants>();
-    _shared_state->hash_table_init();
+    _shared_state->hash_table_variants = std::make_unique<SetDataVariants>();
+    RETURN_IF_ERROR(_shared_state->hash_table_init());
     return Status::OK();
 }
 

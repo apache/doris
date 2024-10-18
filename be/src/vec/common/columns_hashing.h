@@ -36,6 +36,21 @@
 namespace doris::vectorized {
 
 using Sizes = std::vector<size_t>;
+
+inline bool has_nullable_key(const std::vector<DataTypePtr>& data_types) {
+    return std::ranges::any_of(data_types.begin(), data_types.end(),
+                               [](auto t) { return t->is_nullable(); });
+}
+
+inline Sizes get_key_sizes(const std::vector<DataTypePtr>& data_types) {
+    Sizes key_sizes;
+    for (const auto& data_type : data_types) {
+        key_sizes.emplace_back(data_type->get_maximum_size_of_value_in_memory() -
+                               (data_type->is_nullable() ? 1 : 0));
+    }
+    return key_sizes;
+}
+
 namespace ColumnsHashing {
 
 /// For the case when there is one numeric key.
