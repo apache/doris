@@ -47,6 +47,8 @@ private:
     void find_longest_consecutive_version(std::vector<RowsetSharedPtr>* rowsets,
                                           std::vector<Version>* missing_version);
 
+    void process_old_version_delete_bitmap();
+
     Version _last_delete_version {-1, -1};
 };
 

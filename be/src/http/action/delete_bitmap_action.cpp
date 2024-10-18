@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "cloud_delete_bitmap_action.h"
+#include "delete_bitmap_action.h"
 
 #include <rapidjson/document.h>
 #include <rapidjson/encodings.h>
@@ -33,8 +33,10 @@
 #include <thread>
 #include <utility>
 
+#include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet.h"
 #include "cloud/cloud_tablet_mgr.h"
+#include "cloud/config.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "gutil/strings/substitute.h"
@@ -43,7 +45,6 @@
 #include "http/http_request.h"
 #include "http/http_status.h"
 #include "olap/olap_define.h"
-#include "olap/storage_engine.h"
 #include "olap/tablet_manager.h"
 #include "util/doris_metrics.h"
 #include "util/stopwatch.hpp"
@@ -57,10 +58,9 @@ constexpr std::string_view HEADER_JSON = "application/json";
 
 } // namespace
 
-CloudDeleteBitmapAction::CloudDeleteBitmapAction(DeleteBitmapActionType ctype, ExecEnv* exec_env,
-                                                 CloudStorageEngine& engine,
-                                                 TPrivilegeHier::type hier,
-                                                 TPrivilegeType::type ptype)
+DeleteBitmapAction::DeleteBitmapAction(DeleteBitmapActionType ctype, ExecEnv* exec_env,
+                                       BaseStorageEngine& engine, TPrivilegeHier::type hier,
+                                       TPrivilegeType::type ptype)
         : HttpHandlerWithAuth(exec_env, hier, ptype),
           _engine(engine),
           _delete_bitmap_action_type(ctype) {}
@@ -78,8 +78,8 @@ static Status _check_param(HttpRequest* req, uint64_t* tablet_id) {
     return Status::OK();
 }
 
-Status CloudDeleteBitmapAction::_handle_show_delete_bitmap_count(HttpRequest* req,
-                                                                 std::string* json_result) {
+Status DeleteBitmapAction::_handle_show_delete_bitmap_count(HttpRequest* req,
+                                                            std::string* json_result) {
     uint64_t tablet_id = 0;
     // check & retrieve tablet_id from req if it contains
     RETURN_NOT_OK_STATUS_WITH_WARN(_check_param(req, &tablet_id), "check param failed");
@@ -87,11 +87,15 @@ Status CloudDeleteBitmapAction::_handle_show_delete_bitmap_count(HttpRequest* re
         return Status::InternalError("check param failed: missing tablet_id");
     }
 
-    CloudTabletSPtr tablet = DORIS_TRY(_engine.tablet_mgr().get_tablet(tablet_id));
+    BaseTabletSPtr tablet = nullptr;
+    if (config::is_cloud_mode()) {
+        tablet = DORIS_TRY(_engine.to_cloud().tablet_mgr().get_tablet(tablet_id));
+    } else {
+        tablet = _engine.to_local().tablet_manager()->get_tablet(tablet_id);
+    }
     if (tablet == nullptr) {
         return Status::NotFound("Tablet not found. tablet_id={}", tablet_id);
     }
-
     auto count = tablet->tablet_meta()->delete_bitmap().get_delete_bitmap_count();
     auto cardinality = tablet->tablet_meta()->delete_bitmap().cardinality();
     auto size = tablet->tablet_meta()->delete_bitmap().get_size();
@@ -111,7 +115,7 @@ Status CloudDeleteBitmapAction::_handle_show_delete_bitmap_count(HttpRequest* re
     return Status::OK();
 }
 
-void CloudDeleteBitmapAction::handle(HttpRequest* req) {
+void DeleteBitmapAction::handle(HttpRequest* req) {
     req->add_output_header(HttpHeaders::CONTENT_TYPE, HEADER_JSON.data());
     if (_delete_bitmap_action_type == DeleteBitmapActionType::COUNT_INFO) {
         std::string json_result;
