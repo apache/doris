@@ -17,8 +17,18 @@
 
 suite('test_flexible_partial_update_delete_sign') {
 
-    for (def use_row_store : [false, true]) {
-        logger.info("current params: use_row_store: ${use_row_store}")
+    def inspect_rows = { sqlStr ->
+        sql "set skip_delete_sign=true;"
+        sql "set skip_delete_bitmap=true;"
+        sql "sync"
+        qt_inspect sqlStr
+        sql "set skip_delete_sign=false;"
+        sql "set skip_delete_bitmap=false;"
+        sql "sync"
+    }
+
+    for (def use_row_store : [false]) {
+        // logger.info("current params: use_row_store: ${use_row_store}")
 
         // 1. table without sequence col
         def tableName = "test_flexible_partial_update_delete_sign_${use_row_store}"
@@ -40,16 +50,6 @@ suite('test_flexible_partial_update_delete_sign') {
 
         sql """insert into ${tableName} select number, number, number, number, number, number from numbers("number" = "6"); """
         order_qt_no_seq_col_1 "select k,v1,v2,v3,v4,v5 from ${tableName};"
-
-        def inspect_rows = { sqlStr ->
-            sql "set skip_delete_sign=true;"
-            sql "set skip_delete_bitmap=true;"
-            sql "sync"
-            qt_inspect sqlStr
-            sql "set skip_delete_sign=false;"
-            sql "set skip_delete_bitmap=false;"
-            sql "sync"
-        }
 
         // update rows(2,4,5), delete rows(1,3), insert new rows(6), delete new rows(7)
         // should not fail although rows(1,3,7) doesn't specify v3(which is not nullable and has no default value)
@@ -199,7 +199,7 @@ suite('test_flexible_partial_update_delete_sign') {
             "function_column.sequence_type" = "int",
             "store_row_column" = "${use_row_store}"); """
         sql """insert into ${tableName}(k,v1,v2,v3,v4,v5,__DORIS_SEQUENCE_COL__) select number, number, number, number, number, number, null from numbers("number" = "15"); """
-        qt_insert_after_delete_3_2 "select k,v1,v2,v3,v4,v5,__DORIS_SEQUENCE_COL__ from ${tableName} order by k;"
+        qt_insert_after_delete_3_2_1 "select k,v1,v2,v3,v4,v5,__DORIS_SEQUENCE_COL__ from ${tableName} order by k;"
         // rows(1,2,3,4,5,6) are all without sequence column
         // rows(7,8,9,10,11,12) are all with sequence column, seq col value is increasing
         // row(1,7): delete + insert
@@ -217,11 +217,12 @@ suite('test_flexible_partial_update_delete_sign') {
             file "delete5.json"
             time 20000
         }
-        qt_insert_after_delete_3_2 "select k,v1,v2,v3,v4,v5,__DORIS_DELETE_SIGN__ from ${tableName} order by k;"
+        qt_insert_after_delete_3_2_2 "select k,v1,v2,v3,v4,v5,__DORIS_DELETE_SIGN__ from ${tableName} order by k;"
         inspect_rows "select k,v1,v2,v3,v4,v5,__DORIS_SEQUENCE_COL__,__DORIS_DELETE_SIGN__,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__),__DORIS_VERSION_COL__ from ${tableName} order by k,__DORIS_VERSION_COL__,v1,v2,v3,v4,v5;"
         
         sql "truncate table ${tableName};"
         sql """insert into ${tableName}(k,v1,v2,v3,v4,v5,__DORIS_SEQUENCE_COL__) select number, number, number, number, number, number, null from numbers("number" = "15"); """
+        qt_insert_after_delete_3_2_3 "select k,v1,v2,v3,v4,v5,__DORIS_SEQUENCE_COL__ from ${tableName} order by k;"
         // rows(7,8,9,10,11,12) same as above, insert some rows with lower seq value
         streamLoad {
             table "${tableName}"
@@ -232,11 +233,12 @@ suite('test_flexible_partial_update_delete_sign') {
             file "delete6.json"
             time 20000
         }
-        qt_insert_after_delete_3_2 "select k,v1,v2,v3,v4,v5,__DORIS_DELETE_SIGN__ from ${tableName} order by k;"
+        qt_insert_after_delete_3_2_3 "select k,v1,v2,v3,v4,v5,__DORIS_DELETE_SIGN__ from ${tableName} order by k;"
         inspect_rows "select k,v1,v2,v3,v4,v5,__DORIS_SEQUENCE_COL__,__DORIS_DELETE_SIGN__,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__),__DORIS_VERSION_COL__ from ${tableName} order by k,__DORIS_VERSION_COL__,v1,v2,v3,v4,v5;"
 
         sql "truncate table ${tableName};"
         sql """insert into ${tableName}(k,v1,v2,v3,v4,v5,__DORIS_SEQUENCE_COL__) select number, number, number, number, number, number, number*10 from numbers("number" = "13"); """
+        qt_insert_after_delete_3_2_4 "select k,v1,v2,v3,v4,v5,__DORIS_SEQUENCE_COL__ from ${tableName} order by k;"
         streamLoad {
             table "${tableName}"
             set 'format', 'json'
@@ -246,7 +248,7 @@ suite('test_flexible_partial_update_delete_sign') {
             file "delete7.json"
             time 20000
         }
-        qt_insert_after_delete_3_2 "select k,v1,v2,v3,v4,v5,__DORIS_SEQUENCE_COL__,__DORIS_DELETE_SIGN__ from ${tableName} order by k;"
+        qt_insert_after_delete_3_2_4 "select k,v1,v2,v3,v4,v5,__DORIS_SEQUENCE_COL__,__DORIS_DELETE_SIGN__ from ${tableName} order by k;"
         inspect_rows "select k,v1,v2,v3,v4,v5,__DORIS_SEQUENCE_COL__,__DORIS_DELETE_SIGN__,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__),__DORIS_VERSION_COL__ from ${tableName} order by k,__DORIS_VERSION_COL__,v1,v2,v3,v4,v5;"
 
         // 3.3 with sequence map col (no default value)
@@ -268,7 +270,7 @@ suite('test_flexible_partial_update_delete_sign') {
             "function_column.sequence_col" = "v1",
             "store_row_column" = "${use_row_store}"); """
         sql """insert into ${tableName}(k,v1,v2,v3,v4,v5) select number, null, number, number, number, number from numbers("number" = "15"); """
-        qt_insert_after_delete_3_3 "select k,v1,v2,v3,v4,v5,__DORIS_SEQUENCE_COL__ from ${tableName} order by k;"
+        qt_insert_after_delete_3_3_1 "select k,v1,v2,v3,v4,v5,__DORIS_SEQUENCE_COL__ from ${tableName} order by k;"
         // rows(1,2,3,4,5,6) are all without sequence column
         // rows(7,8,9,10,11,12) are all with sequence column, seq col value is increasing
         // row(1,7): delete + insert
@@ -286,11 +288,12 @@ suite('test_flexible_partial_update_delete_sign') {
             file "delete8.json"
             time 20000
         }
-        qt_insert_after_delete_3_3 "select k,v1,v2,v3,v4,v5,__DORIS_DELETE_SIGN__ from ${tableName} order by k;"
+        qt_insert_after_delete_3_3_2 "select k,v1,v2,v3,v4,v5,__DORIS_DELETE_SIGN__ from ${tableName} order by k;"
         inspect_rows "select k,v1,v2,v3,v4,v5,__DORIS_SEQUENCE_COL__,__DORIS_DELETE_SIGN__,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__),__DORIS_VERSION_COL__ from ${tableName} order by k,__DORIS_VERSION_COL__,v1,v2,v3,v4,v5;"
         
         sql "truncate table ${tableName};"
         sql """insert into ${tableName}(k,v1,v2,v3,v4,v5) select number, null, number, number, number, number from numbers("number" = "15"); """
+        qt_insert_after_delete_3_3_3 "select k,v1,v2,v3,v4,v5,__DORIS_SEQUENCE_COL__ from ${tableName} order by k;"
         // rows(7,8,9,10,11,12) same as above, insert some rows with lower seq value
         streamLoad {
             table "${tableName}"
@@ -301,11 +304,12 @@ suite('test_flexible_partial_update_delete_sign') {
             file "delete9.json"
             time 20000
         }
-        qt_insert_after_delete_3_3 "select k,v1,v2,v3,v4,v5,__DORIS_DELETE_SIGN__ from ${tableName} order by k;"
+        qt_insert_after_delete_3_3_4 "select k,v1,v2,v3,v4,v5,__DORIS_DELETE_SIGN__ from ${tableName} order by k;"
         inspect_rows "select k,v1,v2,v3,v4,v5,__DORIS_SEQUENCE_COL__,__DORIS_DELETE_SIGN__,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__),__DORIS_VERSION_COL__ from ${tableName} order by k,__DORIS_VERSION_COL__,v1,v2,v3,v4,v5;"
 
         sql "truncate table ${tableName};"
         sql """insert into ${tableName}(k,v1,v2,v3,v4,v5) select number, number*10, number, number, number, number from numbers("number" = "13"); """
+        qt_insert_after_delete_3_3_5 "select k,v1,v2,v3,v4,v5,__DORIS_SEQUENCE_COL__ from ${tableName} order by k;"
         streamLoad {
             table "${tableName}"
             set 'format', 'json'
@@ -315,7 +319,7 @@ suite('test_flexible_partial_update_delete_sign') {
             file "delete10.json"
             time 20000
         }
-        qt_insert_after_delete_3_3 "select k,v1,v2,v3,v4,v5,__DORIS_SEQUENCE_COL__,__DORIS_DELETE_SIGN__ from ${tableName} order by k;"
+        qt_insert_after_delete_3_3_6 "select k,v1,v2,v3,v4,v5,__DORIS_SEQUENCE_COL__,__DORIS_DELETE_SIGN__ from ${tableName} order by k;"
         inspect_rows "select k,v1,v2,v3,v4,v5,__DORIS_SEQUENCE_COL__,__DORIS_DELETE_SIGN__,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__),__DORIS_VERSION_COL__ from ${tableName} order by k,__DORIS_VERSION_COL__,v1,v2,v3,v4,v5;"
 
 
