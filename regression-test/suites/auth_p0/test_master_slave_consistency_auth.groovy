@@ -321,7 +321,8 @@ suite ("test_follower_consistent_auth","p0,auth") {
         sql """GRANT USAGE_PRIV ON RESOURCE ${rg} TO ${user};"""
         connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
             def res = sql """SHOW RESOURCES;"""
-            assertTrue(res.size == 10)
+            logger.info("res:" + res)
+            assertTrue(res.size() == 10)
         }
         connect(user=user, password="${pwd}", url=new_jdbc_url) {
             def res = sql """SHOW RESOURCES;"""
