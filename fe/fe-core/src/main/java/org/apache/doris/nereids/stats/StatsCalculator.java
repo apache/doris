@@ -490,6 +490,10 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                 }
                 checkIfUnknownStatsUsedAsKey(builder);
                 builder.setRowCount(selectedPartitionsRowCount);
+            } else {
+                // estimate table rowCount according to pruned partition num
+                tableRowCount = tableRowCount * olapScan.getSelectedPartitionIds().size()
+                        / olapScan.getTable().getPartitionNum();
             }
         }
         // 1. no partition is pruned, or
