@@ -27,6 +27,7 @@
 #include <utility>
 
 #include "beta_rowset.h"
+#include "cloud/config.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
@@ -41,8 +42,10 @@
 #include "olap/rowset/segment_v2/inverted_index_cache.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
 #include "olap/rowset/segment_v2/inverted_index_file_reader.h"
+#include "olap/tablet.h"
 #include "olap/tablet_schema.h"
 #include "olap/utils.h"
+#include "runtime/exec_env.h"
 #include "util/crc32c.h"
 #include "util/debug_points.h"
 #include "util/doris_metrics.h"
@@ -188,6 +191,14 @@ Status BetaRowset::load_segment(int64_t seg_id, segment_v2::SegmentSharedPtr* se
     if (!s.ok()) {
         LOG(WARNING) << "failed to open segment. " << seg_path << " under rowset " << rowset_id()
                      << " : " << s.to_string();
+        if (!config::is_cloud_mode() && is_local()) {
+            auto res = ExecEnv::get_tablet(_rowset_meta->tablet_id());
+            TabletSharedPtr tablet =
+                    res.has_value() ? std::dynamic_pointer_cast<Tablet>(res.value()) : nullptr;
+            if (tablet) {
+                tablet->report_error(s);
+            }
+        }
         return s;
     }
     return Status::OK();
@@ -548,6 +559,14 @@ Status BetaRowset::check_current_rowset_segment() {
                                            _rowset_meta->inverted_index_file_info(seg_id));
         if (!s.ok()) {
             LOG(WARNING) << "segment can not be opened. file=" << seg_path;
+            if (!config::is_cloud_mode() && is_local()) {
+                auto res = ExecEnv::get_tablet(_rowset_meta->tablet_id());
+                TabletSharedPtr tablet =
+                        res.has_value() ? std::dynamic_pointer_cast<Tablet>(res.value()) : nullptr;
+                if (tablet) {
+                    tablet->report_error(s);
+                }
+            }
             return s;
         }
     }
