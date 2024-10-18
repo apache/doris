@@ -479,7 +479,7 @@ Status BaseTablet::lookup_row_key(const Slice& encoded_key, TabletSchema* latest
                                   RowLocation* row_location, uint32_t version,
                                   std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
                                   RowsetSharedPtr* rowset, bool with_rowid,
-                                  std::string* encoded_seq_value) {
+                                  std::string* encoded_seq_value, DeleteBitmapPtr delete_bitmap) {
     SCOPED_BVAR_LATENCY(g_tablet_lookup_rowkey_latency);
     size_t seq_col_length = 0;
     // use the latest tablet schema to decide if the tablet has sequence column currently
@@ -496,6 +496,8 @@ Status BaseTablet::lookup_row_key(const Slice& encoded_key, TabletSchema* latest
             Slice(encoded_key.get_data(), encoded_key.get_size() - seq_col_length - rowid_length);
     RowLocation loc;
 
+    auto tablet_delete_bitmap =
+            delete_bitmap == nullptr ? _tablet_meta->delete_bitmap() : *delete_bitmap;
     for (size_t i = 0; i < specified_rowsets.size(); i++) {
         auto& rs = specified_rowsets[i];
         auto& segments_key_bounds = rs->rowset_meta()->get_segments_key_bounds();
@@ -534,7 +536,7 @@ Status BaseTablet::lookup_row_key(const Slice& encoded_key, TabletSchema* latest
             if (!s.ok() && !s.is<KEY_ALREADY_EXISTS>()) {
                 return s;
             }
-            if (s.ok() && _tablet_meta->delete_bitmap().contains_agg_without_cache(
+            if (s.ok() && tablet_delete_bitmap.contains_agg_without_cache(
                                   {loc.rowset_id, loc.segment_id, version}, loc.row_id)) {
                 // if has sequence col, we continue to compare the sequence_id of
                 // all rowsets, util we find an existing key.
@@ -568,7 +570,8 @@ Status BaseTablet::calc_delete_bitmap(const BaseTabletSPtr& tablet, RowsetShared
                                       const std::vector<segment_v2::SegmentSharedPtr>& segments,
                                       const std::vector<RowsetSharedPtr>& specified_rowsets,
                                       DeleteBitmapPtr delete_bitmap, int64_t end_version,
-                                      CalcDeleteBitmapToken* token, RowsetWriter* rowset_writer) {
+                                      CalcDeleteBitmapToken* token, RowsetWriter* rowset_writer,
+                                      DeleteBitmapPtr tablet_delete_bitmap) {
     auto rowset_id = rowset->rowset_id();
     if (specified_rowsets.empty() || segments.empty()) {
         LOG(INFO) << "skip to construct delete bitmap tablet: " << tablet->tablet_id()
@@ -581,10 +584,11 @@ Status BaseTablet::calc_delete_bitmap(const BaseTabletSPtr& tablet, RowsetShared
         const auto& seg = segment;
         if (token != nullptr) {
             RETURN_IF_ERROR(token->submit(tablet, rowset, seg, specified_rowsets, end_version,
-                                          delete_bitmap, rowset_writer));
+                                          delete_bitmap, rowset_writer, tablet_delete_bitmap));
         } else {
             RETURN_IF_ERROR(tablet->calc_segment_delete_bitmap(
-                    rowset, segment, specified_rowsets, delete_bitmap, end_version, rowset_writer));
+                    rowset, segment, specified_rowsets, delete_bitmap, end_version, rowset_writer,
+                    tablet_delete_bitmap));
         }
     }
 
@@ -595,7 +599,8 @@ Status BaseTablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
                                               const segment_v2::SegmentSharedPtr& seg,
                                               const std::vector<RowsetSharedPtr>& specified_rowsets,
                                               DeleteBitmapPtr delete_bitmap, int64_t end_version,
-                                              RowsetWriter* rowset_writer) {
+                                              RowsetWriter* rowset_writer,
+                                              DeleteBitmapPtr tablet_delete_bitmap) {
     OlapStopWatch watch;
     auto rowset_id = rowset->rowset_id();
     Version dummy_version(end_version + 1, end_version + 1);
@@ -709,8 +714,15 @@ Status BaseTablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
             }
 
             RowsetSharedPtr rowset_find;
-            auto st = lookup_row_key(key, rowset_schema.get(), true, specified_rowsets, &loc,
-                                     dummy_version.first - 1, segment_caches, &rowset_find);
+            Status st = Status::OK();
+            if (tablet_delete_bitmap == nullptr) {
+                st = lookup_row_key(key, rowset_schema.get(), true, specified_rowsets, &loc,
+                                    dummy_version.first - 1, segment_caches, &rowset_find);
+            } else {
+                st = lookup_row_key(key, rowset_schema.get(), true, specified_rowsets, &loc,
+                                    dummy_version.first - 1, segment_caches, &rowset_find, true,
+                                    nullptr, tablet_delete_bitmap);
+            }
             bool expected_st = st.ok() || st.is<KEY_NOT_FOUND>() || st.is<KEY_ALREADY_EXISTS>();
             // It's a defensive DCHECK, we need to exclude some common errors to avoid core-dump
             // while stress test
@@ -1382,7 +1394,8 @@ Status BaseTablet::check_delete_bitmap_correctness(DeleteBitmapPtr delete_bitmap
 Status BaseTablet::update_delete_bitmap(const BaseTabletSPtr& self, TabletTxnInfo* txn_info,
                                         int64_t txn_id, int64_t txn_expiration,
                                         std::vector<RowsetSharedPtr>* non_visible_rowsets,
-                                        int64_t base_txn_id, int64_t next_visible_version) {
+                                        int64_t base_txn_id, int64_t next_visible_version,
+                                        DeleteBitmapPtr tablet_delete_bitmap) {
     SCOPED_BVAR_LATENCY(g_tablet_update_delete_bitmap_latency);
     RowsetIdUnorderedSet cur_rowset_ids;
     RowsetIdUnorderedSet rowset_ids_to_add;
@@ -1482,7 +1495,8 @@ Status BaseTablet::update_delete_bitmap(const BaseTabletSPtr& self, TabletTxnInf
         auto token = self->calc_delete_bitmap_executor()->create_token();
         // set rowset_writer to nullptr to skip the alignment process
         RETURN_IF_ERROR(calc_delete_bitmap(self, rowset, segments, rowsets_skip_alignment,
-                                           delete_bitmap, cur_version - 1, token.get(), nullptr));
+                                           delete_bitmap, cur_version - 1, token.get(), nullptr,
+                                           tablet_delete_bitmap));
         RETURN_IF_ERROR(token->wait());
     }
 
@@ -1490,13 +1504,14 @@ Status BaseTablet::update_delete_bitmap(const BaseTabletSPtr& self, TabletTxnInf
     // Otherwise, it will be submitted to the thread pool for calculation.
     if (segments.size() <= 1) {
         RETURN_IF_ERROR(calc_delete_bitmap(self, rowset, segments, specified_rowsets, delete_bitmap,
-                                           cur_version - 1, nullptr, transient_rs_writer.get()));
+                                           cur_version - 1, nullptr, transient_rs_writer.get(),
+                                           tablet_delete_bitmap));
 
     } else {
         auto token = self->calc_delete_bitmap_executor()->create_token();
         RETURN_IF_ERROR(calc_delete_bitmap(self, rowset, segments, specified_rowsets, delete_bitmap,
-                                           cur_version - 1, token.get(),
-                                           transient_rs_writer.get()));
+                                           cur_version - 1, token.get(), transient_rs_writer.get(),
+                                           tablet_delete_bitmap));
         RETURN_IF_ERROR(token->wait());
     }
 
@@ -1562,7 +1577,7 @@ Status BaseTablet::update_delete_bitmap(const BaseTabletSPtr& self, TabletTxnInf
 Status BaseTablet::update_delete_bitmap(const BaseTabletSPtr& self, TabletTxnInfo* txn_info,
                                         int64_t txn_id, int64_t txn_expiration) {
     return update_delete_bitmap(self, txn_info, txn_id, txn_expiration, nullptr, -1,
-                                txn_info->rowset->start_version());
+                                txn_info->rowset->start_version(), nullptr);
 }
 
 void BaseTablet::calc_compaction_output_rowset_delete_bitmap(

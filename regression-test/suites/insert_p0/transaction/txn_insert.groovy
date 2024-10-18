@@ -704,7 +704,6 @@ suite("txn_insert") {
         }
 
         // 18. column update(mow table)
-        if (!isCloudMode()) {  // TODO cloud mode support partial update
         if (use_nereids_planner) {
             def unique_table = "txn_insert_cu"
             for (def i in 0..3) {
@@ -756,7 +755,6 @@ suite("txn_insert") {
             order_qt_select_cu1 """select * from ${unique_table}_1"""
             order_qt_select_cu2 """select * from ${unique_table}_2"""
             order_qt_select_cu3 """select * from ${unique_table}_3"""
-        }
         }
     }
 
