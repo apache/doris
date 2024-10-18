@@ -108,17 +108,17 @@ enableBrokerLoad=true
 // for s3 releated cases, "aliyun" or "aliyun-internal" or "tencent" or "huawei" or "azure" or "gcp"
 // if s3Source is set,  s3Endpoint s3BucketName s3Region s3Provider will be filled with default value if not set
 s3Source="aliyun"
-// s3Endpoint = ""
-// s3BucketName = ""
-// s3Region = ""
-// s3Provider = ""
+s3Endpoint = "oss-cn-beijing.aliyuncs.com"
+s3BucketName = "doris-regression-bj"
+s3Region = "cn-beijing"
+s3Provider = "Aliyun"
 ak="***********"
 sk="***********"
 
 // jdbc connector test config
 // To enable jdbc test, you need first start mysql/pg container.
 // See `docker/thirdparties/run-thirdparties-docker.sh`
-enableJdbcTest=false
+enableJdbcTest=true
 mysql_57_port=3316
 pg_14_port=5442
 oracle_11_port=1521
@@ -233,7 +233,7 @@ max_failure_num=0
 // used for exporting test
 s3ExportBucketName = ""
 
-externalEnvIp="127.0.0.1"
+externalEnvIp="43.129.201.77"
 
 // trino-connector catalog test config
 enableTrinoConnectorTest = false
