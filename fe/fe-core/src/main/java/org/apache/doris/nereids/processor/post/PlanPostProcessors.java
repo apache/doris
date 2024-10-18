@@ -62,7 +62,6 @@ public class PlanPostProcessors {
         builder.add(new ColumnPruningPostProcessor());
         builder.add(new MergeProjectPostProcessor());
         builder.add(new RecomputeLogicalPropertiesProcessor());
-        builder.add(new AddOffsetIntoDistribute());
         builder.add(new TopNScanOpt());
         // after generate rf, DO NOT replace PLAN NODE
         builder.add(new FragmentProcessor());
