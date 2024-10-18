@@ -75,3 +75,59 @@ a,b,c		0
 a,b,c,12345	5	1
 a,b,c,12345	a	1
 
+-- !select9_null_const --
+abcde	a	1
+	a	0
+	a	0
+\N	a	\N
+asdasd	a	2
+a1b1c1d	a	1
+,,,	a	0
+a,b,c	a	1
+a,b,c,	a	1
+\N	a	\N
+a,b,c,12345	a	1
+a,b,c,12345	a	1
+
+-- !select10_not_null_const --
+abcde	a	1
+	a	0
+	a	0
+	a	0
+asdasd	a	2
+a1b1c1d	a	1
+,,,	a	0
+a,b,c	a	1
+a,b,c	a	1
+	a	0
+a,b,c,12345	a	1
+a,b,c,12345	a	1
+
+-- !select11_const_null --
+a		0
+a		0
+a	a	1
+a	\N	\N
+a	a	1
+a	1	0
+a	#	0
+a	v	0
+a	\N	\N
+a	asd	0
+a	5	0
+a	a	1
+
+-- !select12_const_not_null --
+a		0
+a		0
+a	a	1
+a		0
+a	a	1
+a	1	0
+a	#	0
+a	v	0
+a		0
+a	asd	0
+a	5	0
+a	a	1
+
