@@ -30,7 +30,7 @@
 namespace doris {
 
 // Record transaction related delete bitmaps using a lru cache.
-class CloudTxnDeleteBitmapCache : public LRUCachePolicyTrackingManual {
+class CloudTxnDeleteBitmapCache : public LRUCachePolicy {
 public:
     CloudTxnDeleteBitmapCache(size_t size_in_bytes);
 
