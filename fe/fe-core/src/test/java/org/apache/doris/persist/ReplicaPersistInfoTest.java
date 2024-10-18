@@ -60,8 +60,8 @@ public class ReplicaPersistInfoTest {
 
     @Test
     public void testGet() throws Exception {
-        ReplicaPersistInfo info = ReplicaPersistInfo.createForUpdate(0, 1, 2, 3, 4, 5, 7, 0, 0, 8,
-                101, 102, 103, 104, false);
+        ReplicaPersistInfo info = ReplicaPersistInfo.createForUpdate(100, 0, 1, 2, 3, 101, 4, 5, 0, 0,
+                101, 8, 103, 104, false);
         Assert.assertEquals(0, info.getTableId());
         Assert.assertEquals(1, info.getPartitionId());
         Assert.assertEquals(2, info.getIndexId());
