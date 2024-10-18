@@ -620,25 +620,21 @@ Status VTabletWriterV2::close(Status exec_status) {
 
         // calculate and submit commit info
         if (is_last_sink) {
-            /*
             DBUG_EXECUTE_IF("VTabletWriterV2.close.add_failed_tablet", {
                 auto streams = _load_stream_map->at(_tablets_for_node.begin()->first);
                 int64_t tablet_id = -1;
-                for (auto& stream : *streams) {
-                    const auto& tablets = stream->success_tablets();
-                    if (tablets.size() > 0) {
-                        tablet_id = tablets[0];
-                        break;
-                    }
+                for (auto tablet : streams->success_tablets()) {
+                    tablet_id = tablet;
+                    break;
                 }
                 if (tablet_id != -1) {
                     LOG(INFO) << "fault injection: adding failed tablet_id: " << tablet_id;
-                    streams->front()->add_failed_tablet(tablet_id,
-                                                        Status::InternalError("fault injection"));
+                    streams->select_one_stream()->add_failed_tablet(
+                            tablet_id, Status::InternalError("fault injection"));
                 } else {
                     LOG(INFO) << "fault injection: failed to inject failed tablet_id";
                 }
-            });*/
+            });
 
             std::vector<TTabletCommitInfo> tablet_commit_infos;
             RETURN_IF_ERROR(
