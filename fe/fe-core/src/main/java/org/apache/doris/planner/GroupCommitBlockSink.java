@@ -17,6 +17,7 @@
 
 package org.apache.doris.planner;
 
+import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.thrift.TDataSink;
@@ -26,6 +27,7 @@ import org.apache.doris.thrift.TGroupCommitMode;
 import com.google.common.base.Preconditions;
 
 import java.util.List;
+import java.util.Map;
 
 public class GroupCommitBlockSink extends OlapTableSink {
     private String groupCommit;
@@ -34,6 +36,16 @@ public class GroupCommitBlockSink extends OlapTableSink {
     public GroupCommitBlockSink(OlapTable dstTable, TupleDescriptor tupleDescriptor, List<Long> partitionIds,
             boolean singleReplicaLoad, String groupCommit, double maxFilterRatio) {
         super(dstTable, tupleDescriptor, partitionIds, singleReplicaLoad);
+        this.groupCommit = groupCommit;
+        this.maxFilterRatio = maxFilterRatio;
+    }
+
+    // new constructor for nereids
+    public GroupCommitBlockSink(OlapTable dstTable, TupleDescriptor tupleDescriptor,
+            List<Long> partitionIds, boolean singleReplicaLoad, List<Expr> partitionExprs,
+            Map<Long, Expr> syncMvWhereClauses, String groupCommit, double maxFilterRatio) {
+        super(dstTable, tupleDescriptor, partitionIds, singleReplicaLoad, partitionExprs,
+                syncMvWhereClauses);
         this.groupCommit = groupCommit;
         this.maxFilterRatio = maxFilterRatio;
     }
