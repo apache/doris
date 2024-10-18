@@ -92,7 +92,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
     // table family group map
     private final Map<Long, Table> idToTable;
     private ConcurrentMap<String, Table> nameToTable;
-    // table name lower cast -> table name
+    // table name lower case -> table name
     private final Map<String, String> lowerCaseToTableName;
 
     // user define function
