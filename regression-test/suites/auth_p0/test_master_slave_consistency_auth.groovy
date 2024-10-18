@@ -324,14 +324,14 @@ suite ("test_follower_consistent_auth","p0,auth") {
             logger.info("res:" + res)
             logger.info("res1: " + res.getClass())
             logger.info("res2: " + res.getClass().getName())
-            assertTrue(res.size == 10)
+            assertTrue(res.size() == 10)
         }
         connect(user=user, password="${pwd}", url=new_jdbc_url) {
             ArrayList res = sql """SHOW RESOURCES;"""
             logger.info("res:" + res)
             logger.info("res1: " + res.getClass())
             logger.info("res2: " + res.getClass().getName())
-            assertTrue(res.size == 10)
+            assertTrue(res.size() == 10)
         }
 
         try_sql("DROP USER ${user}")
