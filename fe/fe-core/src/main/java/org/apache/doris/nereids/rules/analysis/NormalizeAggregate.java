@@ -145,6 +145,7 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
 
         // Push down exprs:
         // collect group by exprs
+
         Set<Expression> groupingByExprs = Utils.fastToImmutableSet(aggregate.getGroupByExpressions());
 
         // collect all trivial-agg

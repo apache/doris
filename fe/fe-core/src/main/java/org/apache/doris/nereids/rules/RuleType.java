@@ -98,6 +98,7 @@ public enum RuleType {
     CHECK_DATA_TYPES(RuleTypeClass.CHECK),
 
     // rewrite rules
+    COMPRESSED_MATERIALIZE_GROUPBY(RuleTypeClass.REWRITE),
     NORMALIZE_AGGREGATE(RuleTypeClass.REWRITE),
     NORMALIZE_SORT(RuleTypeClass.REWRITE),
     NORMALIZE_REPEAT(RuleTypeClass.REWRITE),
