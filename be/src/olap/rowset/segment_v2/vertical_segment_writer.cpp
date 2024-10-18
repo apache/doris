@@ -651,17 +651,6 @@ Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(
     DCHECK(_tablet_schema->has_skip_bitmap_col());
     auto skip_bitmap_col_idx = _tablet_schema->skip_bitmap_col_idx();
 
-    auto get_skip_bitmaps = [&skip_bitmap_col_idx](const vectorized::Block* block) {
-        return &(assert_cast<vectorized::ColumnBitmap*>(
-                         block->get_by_position(skip_bitmap_col_idx).column->assume_mutable().get())
-                         ->get_data());
-    };
-    std::vector<BitmapValue>* skip_bitmaps = get_skip_bitmaps(data.block);
-
-    const auto* delete_signs =
-            BaseTablet::get_delete_sign_column_data(*data.block, data.row_pos + data.num_rows);
-    DCHECK(delete_signs != nullptr);
-
     bool has_default_or_nullable = false;
     std::vector<bool> use_default_or_null_flag;
     use_default_or_null_flag.reserve(data.num_rows);
@@ -674,97 +663,41 @@ Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(
     const std::vector<RowsetSharedPtr>& specified_rowsets = _mow_context->rowset_ptrs;
     std::vector<std::unique_ptr<SegmentCacheHandle>> segment_caches(specified_rowsets.size());
 
-    std::vector<vectorized::IOlapColumnDataAccessor*> key_columns {};
-    vectorized::IOlapColumnDataAccessor* seq_column {nullptr};
-
-    auto encode_pk_columns =
-            [&full_block, &data,
-             this](std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns) -> Status {
-        key_columns.clear();
-        for (std::size_t cid {0}; cid < _tablet_schema->num_key_columns(); cid++) {
-            full_block.replace_by_position(cid, data.block->get_by_position(cid).column);
-            RETURN_IF_ERROR(_olap_data_convertor->set_source_content_with_specifid_column(
-                    full_block.get_by_position(cid), data.row_pos, data.num_rows, cid));
-            auto [status, column] = _olap_data_convertor->convert_column_data(cid);
-            if (!status.ok()) {
-                return status;
-            }
-            key_columns.push_back(column);
-        }
-        return Status::OK();
-    };
-
-    auto encode_seq_column = [&data, &schema_has_sequence_col,
-                              this](vectorized::IOlapColumnDataAccessor*& seq_column) -> Status {
-        seq_column = nullptr;
-        if (schema_has_sequence_col) {
-            auto seq_col_idx = _tablet_schema->sequence_col_idx();
-            RETURN_IF_ERROR(_olap_data_convertor->set_source_content_with_specifid_column(
-                    data.block->get_by_position(seq_col_idx), data.row_pos, data.num_rows,
-                    seq_col_idx));
-            auto [status, column] = _olap_data_convertor->convert_column_data(seq_col_idx);
-            if (!status.ok()) {
-                return status;
-            }
-            seq_column = column;
-        }
-        return Status::OK();
-    };
+    RETURN_IF_ERROR(_block_aggregator.aggregate_for_flexible_partial_update(
+            const_cast<vectorized::Block*>(data.block), data.num_rows, specified_rowsets,
+            segment_caches));
+    if (data.block->rows() != data.num_rows) {
+        data.num_rows = data.block->rows();
+        _olap_data_convertor->clear_source_content();
+    }
 
     // 1. encode key columns
     // we can only encode sort key columns currently becasue all non-key columns in flexible partial update
     // can have missing cells
-    RETURN_IF_ERROR(encode_pk_columns(key_columns));
-
+    std::vector<vectorized::IOlapColumnDataAccessor*> key_columns {};
+    RETURN_IF_ERROR(_block_aggregator.convert_pk_columns(const_cast<vectorized::Block*>(data.block),
+                                                         data.row_pos, data.num_rows, key_columns));
     // 2. encode sequence column
     // We encode the seguence column even thought it may have invalid values in some rows because we need to
     // encode the value of sequence column in key for rows that have a valid value in sequence column during
     // lookup_raw_key. We will encode the sequence column again at the end of this method. At that time, we have
     // a valid sequence column to encode the key with seq col.
-    RETURN_IF_ERROR(encode_seq_column(seq_column));
+    vectorized::IOlapColumnDataAccessor* seq_column {nullptr};
+    RETURN_IF_ERROR(_block_aggregator.convert_seq_column(const_cast<vectorized::Block*>(data.block),
+                                                         data.row_pos, data.num_rows, seq_column));
 
-    std::size_t origin_rows = data.num_rows;
+    auto get_skip_bitmaps = [&skip_bitmap_col_idx](const vectorized::Block* block) {
+        return &(assert_cast<vectorized::ColumnBitmap*>(
+                         block->get_by_position(skip_bitmap_col_idx).column->assume_mutable().get())
+                         ->get_data());
+    };
+    std::vector<BitmapValue>* skip_bitmaps = get_skip_bitmaps(data.block);
+    const auto* delete_signs =
+            BaseTablet::get_delete_sign_column_data(*data.block, data.row_pos + data.num_rows);
+    DCHECK(delete_signs != nullptr);
 
-    // 3. merge duplicate rows when table has sequence column
-    // When there are multiple rows with the same keys in memtable, some of them specify specify the sequence column,
-    // some of them don't. We can't do the de-duplication in memtable. We must de-duplicate them here.
-    if (schema_has_sequence_col) {
-        RETURN_IF_ERROR(_block_aggregator.aggregate_for_sequence_column(
-                const_cast<vectorized::Block*>(data.block), data.num_rows, key_columns, seq_column,
-                specified_rowsets, segment_caches));
-        data.num_rows = data.block->rows();
-        // RETURN_IF_ERROR(_merge_rows_for_sequence_column(data, skip_bitmaps, key_columns, seq_column,
-        //                                                 delete_signs, specified_rowsets,
-        //                                                 segment_caches));
-        if (origin_rows != data.num_rows) {
-            // data in block has changed, should re-encode key columns, sequence column and re-get skip_bitmaps
-            _olap_data_convertor->clear_source_content();
-            RETURN_IF_ERROR(encode_pk_columns(key_columns));
-            RETURN_IF_ERROR(encode_seq_column(seq_column));
-            skip_bitmaps = get_skip_bitmaps(data.block);
-            delete_signs = BaseTablet::get_delete_sign_column_data(*data.block,
-                                                                   data.row_pos + data.num_rows);
-        }
-    }
-
-    // 4. merge duplicate rows and mark delete for insert after delete
-    origin_rows = data.num_rows;
-
-    RETURN_IF_ERROR(_block_aggregator.aggregate_for_insert_after_delete(
-            const_cast<vectorized::Block*>(data.block), data.num_rows, key_columns,
-            specified_rowsets, segment_caches));
-    data.num_rows = data.block->rows();
-
-    // RETURN_IF_ERROR(_merge_rows_for_insert_after_delete(
-    //         data, skip_bitmaps, key_columns, delete_signs, specified_rowsets, segment_caches));
-    if (data.num_rows != origin_rows) {
-        // data in block has changed, should re-encode key columns, sequence column and re-get skip_bitmaps, delete signs
-        _olap_data_convertor->clear_source_content();
-        RETURN_IF_ERROR(encode_pk_columns(key_columns));
-        RETURN_IF_ERROR(encode_seq_column(seq_column));
-        skip_bitmaps = get_skip_bitmaps(data.block);
-        delete_signs =
-                BaseTablet::get_delete_sign_column_data(*data.block, data.row_pos + data.num_rows);
+    for (std::size_t cid {0}; cid < _tablet_schema->num_key_columns(); cid++) {
+        full_block.replace_by_position(cid, data.block->get_by_position(cid).column);
     }
 
     // 5. write primary key columns data

@@ -1025,4 +1025,68 @@ Status BlockAggregator::filter_block(vectorized::Block* block, size_t num_rows,
     return Status::OK();
 }
 
+Status BlockAggregator::convert_pk_columns(
+        vectorized::Block* block, size_t row_pos, size_t num_rows,
+        std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns) {
+    key_columns.clear();
+    for (std::size_t cid {0}; cid < _tablet_schema.num_key_columns(); cid++) {
+        RETURN_IF_ERROR(_writer._olap_data_convertor->set_source_content_with_specifid_column(
+                block->get_by_position(cid), row_pos, num_rows, cid));
+        auto [status, column] = _writer._olap_data_convertor->convert_column_data(cid);
+        if (!status.ok()) {
+            return status;
+        }
+        key_columns.push_back(column);
+    }
+    return Status::OK();
+}
+
+Status BlockAggregator::convert_seq_column(vectorized::Block* block, size_t row_pos,
+                                           size_t num_rows,
+                                           vectorized::IOlapColumnDataAccessor*& seq_column) {
+    seq_column = nullptr;
+    if (_tablet_schema.has_sequence_col()) {
+        auto seq_col_idx = _tablet_schema.sequence_col_idx();
+        RETURN_IF_ERROR(_writer._olap_data_convertor->set_source_content_with_specifid_column(
+                block->get_by_position(seq_col_idx), row_pos, num_rows, seq_col_idx));
+        auto [status, column] = _writer._olap_data_convertor->convert_column_data(seq_col_idx);
+        if (!status.ok()) {
+            return status;
+        }
+        seq_column = column;
+    }
+    return Status::OK();
+};
+
+Status BlockAggregator::aggregate_for_flexible_partial_update(
+        vectorized::Block* block, size_t num_rows,
+        const std::vector<RowsetSharedPtr>& specified_rowsets,
+        std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches) {
+    std::vector<vectorized::IOlapColumnDataAccessor*> key_columns {};
+    vectorized::IOlapColumnDataAccessor* seq_column {nullptr};
+
+    RETURN_IF_ERROR(convert_pk_columns(block, 0, num_rows, key_columns));
+    RETURN_IF_ERROR(convert_seq_column(block, 0, num_rows, seq_column));
+
+    // 3. merge duplicate rows when table has sequence column
+    // When there are multiple rows with the same keys in memtable, some of them specify specify the sequence column,
+    // some of them don't. We can't do the de-duplication in memtable. We must de-duplicate them here.
+    if (_tablet_schema.has_sequence_col()) {
+        RETURN_IF_ERROR(aggregate_for_sequence_column(block, num_rows, key_columns, seq_column,
+                                                      specified_rowsets, segment_caches));
+    }
+
+    // 4. merge duplicate rows and mark delete for insert after delete
+    if (block->rows() != num_rows) {
+        num_rows = block->rows();
+        // data in block has changed, should re-encode key columns, sequence column and re-get skip_bitmaps
+        _writer._olap_data_convertor->clear_source_content();
+        RETURN_IF_ERROR(convert_pk_columns(block, 0, num_rows, key_columns));
+        RETURN_IF_ERROR(convert_seq_column(block, 0, num_rows, seq_column));
+    }
+    RETURN_IF_ERROR(aggregate_for_insert_after_delete(block, num_rows, key_columns,
+                                                      specified_rowsets, segment_caches));
+    return Status::OK();
+}
+
 } // namespace doris
