@@ -61,7 +61,7 @@ struct PrefetchRange {
         return {start_offset, other.end_offset};
     }
 
-    //Range needs to be sorted.
+    //Ranges needs to be sorted.
     static std::vector<PrefetchRange> mergeAdjacentSeqRanges(
             const std::vector<PrefetchRange>& seq_ranges, int64_t max_merge_distance_bytes,
             int64_t max_read_size_bytes) {
