@@ -251,7 +251,7 @@ Status BlockReader::init(const ReaderParams& read_params) {
         break;
     case KeysType::UNIQUE_KEYS:
         if (read_params.reader_type == ReaderType::READER_QUERY &&
-            _reader_context.enable_unique_key_merge_on_write) {
+            _reader_context.enable_unique_key_merge_on_write && !read_params.query_mow_in_mor) {
             _next_block_func = &BlockReader::_direct_next_block;
         } else {
             _next_block_func = &BlockReader::_unique_key_next_block;

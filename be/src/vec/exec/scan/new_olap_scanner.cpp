@@ -73,6 +73,7 @@ NewOlapScanner::NewOlapScanner(pipeline::ScanLocalStateBase* parent,
                                NewOlapScanner::Params&& params)
         : VScanner(params.state, parent, params.limit, params.profile),
           _key_ranges(std::move(params.key_ranges)),
+          _sub_txn_ids(std::move(params.sub_txn_ids)),
           _tablet_reader_params({
                   .tablet = std::move(params.tablet),
                   .tablet_schema {},
@@ -150,7 +151,8 @@ Status NewOlapScanner::init() {
         if (olap_scan_node.__isset.schema_version && olap_scan_node.__isset.columns_desc &&
             !olap_scan_node.columns_desc.empty() &&
             olap_scan_node.columns_desc[0].col_unique_id >= 0 &&
-            tablet->tablet_schema()->num_variant_columns() == 0) {
+            tablet->tablet_schema()->num_variant_columns() == 0 &&
+            !(tablet->enable_unique_key_merge_on_write() && _state->query_mow_in_mor())) {
             schema_key =
                     SchemaCache::get_schema_key(tablet->tablet_id(), olap_scan_node.columns_desc,
                                                 olap_scan_node.schema_version);
@@ -178,6 +180,14 @@ Status NewOlapScanner::init() {
             if (olap_scan_node.__isset.indexes_desc) {
                 tablet_schema->update_indexes_from_thrift(olap_scan_node.indexes_desc);
             }
+            if (tablet->enable_unique_key_merge_on_write() && _state->query_mow_in_mor()) {
+                auto delete_sign_idx = tablet_schema->delete_sign_idx();
+                if (delete_sign_idx != -1) {
+                    tablet_schema->mutable_column(delete_sign_idx)
+                            .set_aggregation_method(
+                                    FieldAggregationMethod::OLAP_FIELD_AGGREGATION_REPLACE);
+                }
+            }
         }
 
         if (_tablet_reader_params.rs_splits.empty()) {
@@ -192,12 +202,31 @@ Status NewOlapScanner::init() {
                 ExecEnv::GetInstance()->storage_engine().to_cloud().tablet_hotspot().count(*tablet);
             }
 
-            auto st = tablet->capture_rs_readers(_tablet_reader_params.version,
-                                                 &read_source.rs_splits,
-                                                 _state->skip_missing_version());
-            if (!st.ok()) {
-                LOG(WARNING) << "fail to init reader.res=" << st;
-                return st;
+            if (_sub_txn_ids.empty()) {
+                auto st = tablet->capture_rs_readers(_tablet_reader_params.version,
+                                                     &read_source.rs_splits,
+                                                     _state->skip_missing_version());
+                if (!st.ok()) {
+                    LOG(WARNING) << "fail to init reader.res=" << st;
+                    return st;
+                }
+            } else {
+                if (_tablet_reader_params.version.second > 0) {
+                    auto st = tablet->capture_rs_readers(_tablet_reader_params.version,
+                                                         &read_source.rs_splits,
+                                                         _state->skip_missing_version());
+                    if (!st.ok()) {
+                        LOG(WARNING) << "fail to init reader.res=" << st;
+                        return st;
+                    }
+                }
+                LOG(INFO) << "capture sub txn rs readers, size=" << _sub_txn_ids.size()
+                          << ", tablet_id=" << tablet->tablet_id()
+                          << ", version=" << _tablet_reader_params.version.second;
+                RETURN_IF_ERROR(
+                        tablet->capture_sub_txn_rs_readers(_tablet_reader_params.version.second,
+                                                           _sub_txn_ids, &read_source.rs_splits));
+                _tablet_reader_params.version.second += _sub_txn_ids.size();
             }
             if (!_state->skip_delete_predicate()) {
                 read_source.fill_delete_predicates();
@@ -355,8 +384,9 @@ Status NewOlapScanner::_init_tablet_reader_params(
                 }
             }
             if (auto sequence_col_idx = tablet_schema->sequence_col_idx();
-                has_replace_col && std::find(_return_columns.begin(), _return_columns.end(),
-                                             sequence_col_idx) == _return_columns.end()) {
+                (has_replace_col || _state->query_mow_in_mor()) &&
+                std::find(_return_columns.begin(), _return_columns.end(), sequence_col_idx) ==
+                        _return_columns.end()) {
                 _tablet_reader_params.return_columns.push_back(sequence_col_idx);
             }
         }
@@ -364,8 +394,11 @@ Status NewOlapScanner::_init_tablet_reader_params(
 
     _tablet_reader_params.use_page_cache = _state->enable_page_cache();
 
-    if (tablet->enable_unique_key_merge_on_write() && !_state->skip_delete_bitmap()) {
-        _tablet_reader_params.delete_bitmap = &tablet->tablet_meta()->delete_bitmap();
+    if (tablet->enable_unique_key_merge_on_write()) {
+        _tablet_reader_params.query_mow_in_mor = _state->query_mow_in_mor();
+        if (!(_state->skip_delete_bitmap() || _state->query_mow_in_mor())) {
+            _tablet_reader_params.delete_bitmap = &tablet->tablet_meta()->delete_bitmap();
+        }
     }
 
     if (!_state->skip_storage_engine_merge()) {

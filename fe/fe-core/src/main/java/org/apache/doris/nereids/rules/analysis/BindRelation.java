@@ -365,7 +365,8 @@ public class BindRelation extends OneAnalysisRuleFactory {
             }
             Preconditions.checkArgument(deleteSlot != null);
             Expression conjunct = new EqualTo(new TinyIntLiteral((byte) 0), deleteSlot);
-            if (!olapTable.getEnableUniqueKeyMergeOnWrite()) {
+            if (!olapTable.getEnableUniqueKeyMergeOnWrite() || ConnectContext.get()
+                    .getSessionVariable().queryMowInMor) {
                 scan = scan.withPreAggStatus(PreAggStatus.off(
                         Column.DELETE_SIGN + " is used as conjuncts."));
             }

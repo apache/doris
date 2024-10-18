@@ -802,6 +802,12 @@ public class OlapScanNode extends ScanNode {
             paloRange.setVersion(visibleVersionStr);
             paloRange.setVersionHash("");
             paloRange.setTabletId(tabletId);
+            if (ConnectContext.get().isTxnModel()) {
+                paloRange.setSubTxnIds(
+                        ConnectContext.get().getTxnEntry().getTabletSubTxnIds(olapTable.getId(), tablet));
+                LOG.info("table={}, partition={}, tablet={}, sub txn ids={}", olapTable.getId(), partition.getId(),
+                        tablet.getId(), paloRange.getSubTxnIds());
+            }
 
             // random shuffle List && only collect one copy
             //
@@ -809,6 +815,14 @@ public class OlapScanNode extends ScanNode {
             // for details.
             List<Replica> replicas = tablet.getQueryableReplicas(visibleVersion,
                     backendAlivePathHashs, skipMissingVersion);
+            if (paloRange.isSetSubTxnIds() && !paloRange.getSubTxnIds().isEmpty()) {
+                List<Replica> queryableReplicas = ConnectContext.get().getTxnEntry()
+                        .getQueryableReplicas(tabletId, replicas, paloRange.getSubTxnIds());
+                LOG.info("table={}, partition={}, tablet={}, replicas={}, sub txn filtered replicas={}, sub txn ids={}",
+                        olapTable.getId(), partition.getId(), tablet.getId(), replicas, queryableReplicas,
+                        paloRange.getSubTxnIds());
+                replicas.retainAll(queryableReplicas);
+            }
             if (replicas.isEmpty()) {
                 if (context.getSessionVariable().skipBadTablet) {
                     continue;
@@ -1791,7 +1805,8 @@ public class OlapScanNode extends ScanNode {
             Expr conjunct = new BinaryPredicate(BinaryPredicate.Operator.EQ, deleteSignSlot, new IntLiteral(0));
             conjunct.analyze(analyzer);
             conjuncts.add(conjunct);
-            if (!olapTable.getEnableUniqueKeyMergeOnWrite()) {
+            if (!olapTable.getEnableUniqueKeyMergeOnWrite() || ConnectContext.get()
+                    .getSessionVariable().queryMowInMor) {
                 closePreAggregation(Column.DELETE_SIGN + " is used as conjuncts.");
             }
         }

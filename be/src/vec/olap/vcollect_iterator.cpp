@@ -71,7 +71,11 @@ void VCollectIterator::init(TabletReader* reader, bool ori_data_overlapping, boo
         (_reader->_direct_mode || _reader->_tablet->keys_type() == KeysType::DUP_KEYS ||
          (_reader->_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
           _reader->_tablet->enable_unique_key_merge_on_write()))) {
-        _merge = false;
+        if (_reader->_reader_context.query_mow_in_mor) {
+            _merge = true;
+        } else {
+            _merge = false;
+        }
     }
 
     // When data is none overlapping, no need to build heap to traverse data
@@ -86,7 +90,8 @@ void VCollectIterator::init(TabletReader* reader, bool ori_data_overlapping, boo
     if (_reader->_reader_context.read_orderby_key_limit > 0 &&
         (_reader->_tablet->keys_type() == KeysType::DUP_KEYS ||
          (_reader->_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
-          _reader->_tablet->enable_unique_key_merge_on_write()))) {
+          _reader->_tablet->enable_unique_key_merge_on_write()
+          /*&& !_reader->_reader_context.query_mow_in_mor*/))) {
         _topn_limit = _reader->_reader_context.read_orderby_key_limit;
     } else {
         _topn_limit = 0;
