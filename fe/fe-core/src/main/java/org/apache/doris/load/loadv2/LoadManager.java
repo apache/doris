@@ -611,6 +611,12 @@ public class LoadManager implements Writable {
                     if (!states.contains(loadJob.getState())) {
                         continue;
                     }
+                    // check auth
+                    try {
+                        loadJob.checkAuth("show load");
+                    } catch (DdlException e) {
+                        continue;
+                    }
                     // add load job info
                     loadJobInfos.add(loadJob.getShowInfo());
                 } catch (RuntimeException | DdlException e) {
