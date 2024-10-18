@@ -93,16 +93,13 @@ suite ("mv_ssb_q_2_1") {
 
     qt_select_star "select * from lineorder_flat order by 1,2,P_MFGR;"
 
-    explain {
-        sql("""SELECT
+    mv_rewrite_success("""SELECT
                 SUM(LO_REVENUE), (LO_ORDERDATE DIV 10000) AS YEAR,
                 P_BRAND
             FROM lineorder_flat
             WHERE P_CATEGORY = 'MFGR#12' AND S_REGION = 'AMERICA'
             GROUP BY YEAR, P_BRAND
-            ORDER BY YEAR, P_BRAND;""")
-        contains "(lineorder_q_2_1)"
-    }
+            ORDER BY YEAR, P_BRAND;""", "lineorder_q_2_1")
     
     qt_select_mv """SELECT
                     SUM(LO_REVENUE), (LO_ORDERDATE DIV 10000) AS YEAR,

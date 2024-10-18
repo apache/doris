@@ -52,37 +52,21 @@ suite ("test_upper_alias") {
     sql "analyze table test_0401 with sync;"
     sql """set enable_stats=false;"""
 
-    explain {
-        sql("SELECT upper(d_b) AS d_b FROM test_0401 GROUP BY upper(d_b) order by 1;")
-        contains "(test_0401_mv)"
-    }
+    mv_rewrite_success("SELECT upper(d_b) AS d_b FROM test_0401 GROUP BY upper(d_b) order by 1;", "test_0401_mv");
     qt_select_mv "SELECT upper(d_b) AS d_b FROM test_0401 GROUP BY upper(d_b) order by 1;"
 
-    explain {
-        sql("SELECT upper(d_b) AS d_bb FROM test_0401 GROUP BY upper(d_b) order by 1;")
-        contains "(test_0401_mv)"
-    }
+    mv_rewrite_success("SELECT upper(d_b) AS d_bb FROM test_0401 GROUP BY upper(d_b) order by 1;", "test_0401_mv")
     qt_select_mv "SELECT upper(d_b) AS d_bb FROM test_0401 GROUP BY upper(d_b) order by 1;"
 
-    explain {
-        sql("SELECT d_a AS d_b FROM test_0401 where d_a = 'xx' order by 1;")
-        contains "(test_0401_mv2)"
-    }
+    mv_rewrite_success("SELECT d_a AS d_b FROM test_0401 where d_a = 'xx' order by 1;", "test_0401_mv2")
     qt_select_mv "SELECT d_a AS d_b FROM test_0401 order by 1;"
 
     sql """set enable_stats=true;"""
-    explain {
-        sql("SELECT upper(d_b) AS d_b FROM test_0401 GROUP BY upper(d_b) order by 1;")
-        contains "(test_0401_mv)"
-    }
+    mv_rewrite_any_success("SELECT upper(d_b) AS d_b FROM test_0401 GROUP BY upper(d_b) order by 1;",
+            ["test_0401_mv", "test_0401_mv2"])
 
-    explain {
-        sql("SELECT upper(d_b) AS d_bb FROM test_0401 GROUP BY upper(d_b) order by 1;")
-        contains "(test_0401_mv)"
-    }
+    mv_rewrite_any_success("SELECT upper(d_b) AS d_bb FROM test_0401 GROUP BY upper(d_b) order by 1;",
+            ["test_0401_mv", "test_0401_mv2"])
 
-    explain {
-        sql("SELECT d_a AS d_b FROM test_0401 where d_a = 'xx' order by 1;")
-        contains "(test_0401_mv2)"
-    }
+    mv_rewrite_success("SELECT d_a AS d_b FROM test_0401 where d_a = 'xx' order by 1;", "test_0401_mv2")
 }

@@ -43,29 +43,16 @@ suite ("testProjectionMV4") {
     sql "analyze table emps with sync;"
     sql """set enable_stats=false;"""
 
-    explain {
-        sql("select * from emps order by empid;")
-        contains "(emps)"
-    }
+    mv_rewrite_fail("select * from emps order by empid;", "emps_mv")
     qt_select_star "select * from emps order by empid;"
-
 
     qt_select_mv "select name from emps where deptno > 1 and salary > 1 order by name;"
 
-    explain {
-        sql("select empid from emps where deptno > 1 and empid > 1 order by empid;")
-        contains "(emps)"
-    }
+    mv_rewrite_fail("select empid from emps where deptno > 1 and empid > 1 order by empid;", "emps_mv")
     qt_select_base "select empid from emps where deptno > 1 and empid > 1 order by empid;"
 
     sql """set enable_stats=true;"""
-    explain {
-        sql("select * from emps order by empid;")
-        contains "(emps)"
-    }
+    mv_rewrite_fail("select * from emps order by empid;", "emps_mv")
 
-    explain {
-        sql("select empid from emps where deptno > 1 and empid > 1 order by empid;")
-        contains "(emps)"
-    }
+    mv_rewrite_fail("select empid from emps where deptno > 1 and empid > 1 order by empid;", "emps_mv")
 }

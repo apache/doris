@@ -58,10 +58,7 @@ suite("single_table_without_aggregate") {
 
         sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name} ON orders"""
         createMV("create materialized view ${mv_name} as ${mv_sql}")
-        explain {
-            sql("${query_sql}")
-            contains "(${mv_name})"
-        }
+        mv_rewrite_success(query_sql, mv_name)
         order_qt_query1_0 "${query_sql}"
         sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name} ON orders"""
     }

@@ -68,15 +68,9 @@ suite ("test_28741") {
     sql """analyze table test with sync;"""
     sql """set enable_stats=false;"""
 
-    explain {
-        sql("select b1 from test where t >= '2023-12-20 17:21:00'")
-        contains "(test)"
-    }
+    mv_rewrite_fail("select b1 from test where t >= '2023-12-20 17:21:00'", "mv_test")
     qt_select "select b1 from test where t >= '2023-12-20 17:21:00'"
 
     sql """set enable_stats=true;"""
-    explain {
-        sql("select b1 from test where t >= '2023-12-20 17:21:00'")
-        contains "(test)"
-    }
+    mv_rewrite_fail("select b1 from test where t >= '2023-12-20 17:21:00'", "mv_test")
 }

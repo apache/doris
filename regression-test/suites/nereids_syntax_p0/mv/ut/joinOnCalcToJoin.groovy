@@ -58,16 +58,10 @@ suite ("joinOnCalcToJoin") {
     sql "analyze table joinOnCalcToJoin_1 with sync;"
     sql """set enable_stats=false;"""
 
-    explain {
-        sql("select * from (select empid, deptno from joinOnCalcToJoin where empid = 0) A join (select deptno, cost from joinOnCalcToJoin_1 where deptno > 0) B on A.deptno = B.deptno;")
-        contains "(joinOnLeftPToJoin_mv)"
-        contains "(joinOnLeftPToJoin_1_mv)"
-    }
+    mv_rewrite_all_success("select * from (select empid, deptno from joinOnCalcToJoin where empid = 0) A join (select deptno, cost from joinOnCalcToJoin_1 where deptno > 0) B on A.deptno = B.deptno;",
+            ["joinOnLeftPToJoin_mv", "joinOnLeftPToJoin_1_mv"])
 
     sql """set enable_stats=true;"""
-    explain {
-        sql("select * from (select empid, deptno from joinOnCalcToJoin where empid = 0) A join (select deptno, cost from joinOnCalcToJoin_1 where deptno > 0) B on A.deptno = B.deptno;")
-        contains "(joinOnLeftPToJoin_mv)"
-        contains "(joinOnLeftPToJoin_1_mv)"
-    }
+    mv_rewrite_all_success("select * from (select empid, deptno from joinOnCalcToJoin where empid = 0) A join (select deptno, cost from joinOnCalcToJoin_1 where deptno > 0) B on A.deptno = B.deptno;",
+            ["joinOnLeftPToJoin_mv", "joinOnLeftPToJoin_1_mv"])
 }

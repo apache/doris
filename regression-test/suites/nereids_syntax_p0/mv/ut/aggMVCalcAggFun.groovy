@@ -48,26 +48,14 @@ suite ("aggMVCalcAggFun") {
     sql "analyze table aggMVCalcAggFun with sync;"
     sql """set enable_stats=false;"""
 
-    explain {
-        sql("select * from aggMVCalcAggFun order by empid;")
-        contains "(aggMVCalcAggFun)"
-    }
+    mv_rewrite_fail("select * from aggMVCalcAggFun order by empid;", "aggMVCalcAggFunMv")
     order_qt_select_star "select * from aggMVCalcAggFun order by empid;"
 
-
-    explain {
-        sql("select deptno, sum(salary + 1) from aggMVCalcAggFun where deptno > 10 group by deptno;")
-        notContains "(aggMVCalcAggFunMv)"
-    }
+    mv_rewrite_fail("select deptno, sum(salary + 1) from aggMVCalcAggFun where deptno > 10 group by deptno;", "aggMVCalcAggFunMv")
     order_qt_select_mv "select deptno, sum(salary + 1) from aggMVCalcAggFun where deptno > 10 group by deptno order by deptno;"
 
     sql """set enable_stats=true;"""
-    explain {
-        sql("select * from aggMVCalcAggFun order by empid;")
-        contains "(aggMVCalcAggFun)"
-    }
-    explain {
-        sql("select deptno, sum(salary + 1) from aggMVCalcAggFun where deptno > 10 group by deptno;")
-        notContains "(aggMVCalcAggFunMv)"
-    }
+    mv_rewrite_fail("select * from aggMVCalcAggFun order by empid;", "aggMVCalcAggFunMv")\
+
+    mv_rewrite_fail("select deptno, sum(salary + 1) from aggMVCalcAggFun where deptno > 10 group by deptno;", "aggMVCalcAggFunMv")
 }

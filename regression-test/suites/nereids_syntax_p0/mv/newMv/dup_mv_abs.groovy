@@ -50,70 +50,34 @@ suite ("dup_mv_abs") {
 
     order_qt_select_star "select * from dup_mv_abs order by k1;"
 
-    explain {
-        sql("select k1,abs(k2) from dup_mv_abs order by k1;")
-        contains "(k12a)"
-    }
+    mv_rewrite_success("select k1,abs(k2) from dup_mv_abs order by k1;", "k12a")
     order_qt_select_mv "select k1,abs(k2) from dup_mv_abs order by k1;"
 
-    explain {
-        sql("select abs(k2) from dup_mv_abs order by k1;")
-        contains "(k12a)"
-    }
+    mv_rewrite_success("select abs(k2) from dup_mv_abs order by k1;", "k12a")
     order_qt_select_mv_sub "select abs(k2) from dup_mv_abs order by k1;"
 
-    explain {
-        sql("select abs(k2)+1 from dup_mv_abs order by k1;")
-        contains "(k12a)"
-    }
+    mv_rewrite_success("select abs(k2)+1 from dup_mv_abs order by k1;", "k12a")
     order_qt_select_mv_sub_add "select abs(k2)+1 from dup_mv_abs order by k1;"
 
-    explain {
-        sql("select sum(abs(k2)) from dup_mv_abs group by k1 order by k1;")
-        contains "(k12a)"
-    }
+    mv_rewrite_success("select sum(abs(k2)) from dup_mv_abs group by k1 order by k1;", "k12a")
     order_qt_select_group_mv "select sum(abs(k2)) from dup_mv_abs group by k1 order by k1;"
 
-    explain {
-        sql("select sum(abs(k2)+1) from dup_mv_abs group by k1 order by k1;")
-        contains "(k12a)"
-    }
+    mv_rewrite_success("select sum(abs(k2)+1) from dup_mv_abs group by k1 order by k1;", "k12a")
     order_qt_select_group_mv_add "select sum(abs(k2)+1) from dup_mv_abs group by k1 order by k1;"
 
-    explain {
-        sql("select sum(abs(k2)) from dup_mv_abs group by k3;")
-        contains "(dup_mv_abs)"
-    }
+    mv_rewrite_fail("select sum(abs(k2)) from dup_mv_abs group by k3;", "k12a")
     order_qt_select_group_mv_not "select sum(abs(k2)) from dup_mv_abs group by k3 order by k3;"
 
     sql """set enable_stats=true;"""
-    explain {
-        sql("select k1,abs(k2) from dup_mv_abs order by k1;")
-        contains "(k12a)"
-    }
+    mv_rewrite_success("select k1,abs(k2) from dup_mv_abs order by k1;", "k12a")
 
-    explain {
-        sql("select abs(k2) from dup_mv_abs order by k1;")
-        contains "(k12a)"
-    }
+    mv_rewrite_success("select abs(k2) from dup_mv_abs order by k1;", "k12a")
 
-    explain {
-        sql("select abs(k2)+1 from dup_mv_abs order by k1;")
-        contains "(k12a)"
-    }
+    mv_rewrite_success("select abs(k2)+1 from dup_mv_abs order by k1;", "k12a")
 
-    explain {
-        sql("select sum(abs(k2)) from dup_mv_abs group by k1 order by k1;")
-        contains "(k12a)"
-    }
+    mv_rewrite_success("select sum(abs(k2)) from dup_mv_abs group by k1 order by k1;", "k12a")
 
-    explain {
-        sql("select sum(abs(k2)+1) from dup_mv_abs group by k1 order by k1;")
-        contains "(k12a)"
-    }
+    mv_rewrite_success("select sum(abs(k2)+1) from dup_mv_abs group by k1 order by k1;", "k12a")
 
-    explain {
-        sql("select sum(abs(k2)) from dup_mv_abs group by k3;")
-        contains "(dup_mv_abs)"
-    }
+    mv_rewrite_fail("select sum(abs(k2)) from dup_mv_abs group by k3;", "k12a")
 }

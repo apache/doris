@@ -46,48 +46,24 @@ suite ("sum_devide_count") {
     sql """analyze table d_table with sync;"""
     sql """set enable_stats=false;"""
 
-    explain {
-        sql("select k1,k4,sum(k2)/count(k2) from d_table group by k1,k4 order by k1,k4;")
-        contains "(kavg)"
-    }
+    mv_rewrite_success("select k1,k4,sum(k2)/count(k2) from d_table group by k1,k4 order by k1,k4;", "kavg")
     qt_select_mv "select k1,k4,sum(k2)/count(k2) from d_table group by k1,k4 order by k1,k4;"
 
-    explain {
-        sql("select k1,sum(k2)/count(k2) from d_table group by k1 order by k1;")
-        contains "(kavg)"
-    }
+    mv_rewrite_success("select k1,sum(k2)/count(k2) from d_table group by k1 order by k1;", "kavg")
     qt_select_mv "select k1,sum(k2)/count(k2) from d_table group by k1 order by k1;"
 
-    explain {
-        sql("select k4,sum(k2)/count(k2) from d_table group by k4 order by k4;")
-        contains "(kavg)"
-    }
+    mv_rewrite_success("select k4,sum(k2)/count(k2) from d_table group by k4 order by k4;", "kavg")
     qt_select_mv "select k4,sum(k2)/count(k2) from d_table group by k4 order by k4;"
 
-    explain {
-        sql("select sum(k2)/count(k2) from d_table;")
-        contains "(kavg)"
-    }
+    mv_rewrite_success("select sum(k2)/count(k2) from d_table;", "kavg")
     qt_select_mv "select sum(k2)/count(k2) from d_table;"
 
     sql """set enable_stats=true;"""
-    explain {
-        sql("select k1,k4,sum(k2)/count(k2) from d_table group by k1,k4 order by k1,k4;")
-        contains "(kavg)"
-    }
+    mv_rewrite_success("select k1,k4,sum(k2)/count(k2) from d_table group by k1,k4 order by k1,k4;", "kavg")
 
-    explain {
-        sql("select k1,sum(k2)/count(k2) from d_table group by k1 order by k1;")
-        contains "(kavg)"
-    }
+    mv_rewrite_success("select k1,sum(k2)/count(k2) from d_table group by k1 order by k1;", "kavg")
 
-    explain {
-        sql("select k4,sum(k2)/count(k2) from d_table group by k4 order by k4;")
-        contains "(kavg)"
-    }
+    mv_rewrite_success("select k4,sum(k2)/count(k2) from d_table group by k4 order by k4;", "kavg")
 
-    explain {
-        sql("select sum(k2)/count(k2) from d_table;")
-        contains "(kavg)"
-    }
+    mv_rewrite_success("select sum(k2)/count(k2) from d_table;", "kavg")
 }

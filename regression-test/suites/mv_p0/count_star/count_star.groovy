@@ -49,50 +49,23 @@ suite ("count_star") {
     
     qt_select_star "select * from d_table order by k1,k2,k3,k4;"
 
-    explain {
-        sql("select k1,k4,count(*) from d_table group by k1,k4;")
-        contains "(kstar)"
-    }
+    mv_rewrite_success("select k1,k4,count(*) from d_table group by k1,k4;", "kstar")
     qt_select_mv "select k1,k4,count(*) from d_table group by k1,k4 order by 1,2;"
 
-    explain {
-        sql("select k1,k4,count(*) from d_table where k1=1 group by k1,k4;")
-        contains "(kstar)"
-    }
+    mv_rewrite_success("select k1,k4,count(*) from d_table where k1=1 group by k1,k4;", "kstar")
     qt_select_mv "select k1,k4,count(*) from d_table where k1=1 group by k1,k4 order by 1,2;"
 
-    explain {
-        sql("select k1,k4,count(*) from d_table where k3=1 group by k1,k4;")
-        contains "(d_table)"
-    }
+    mv_rewrite_fail("select k1,k4,count(*) from d_table where k3=1 group by k1,k4;", "kstar")
     qt_select_mv "select k1,k4,count(*) from d_table where k3=1 group by k1,k4 order by 1,2;"
 
     qt_select_mv "select count(*) from d_table;"
 
-    explain {
-        sql("select count(*) from d_table where k3=1;")
-        contains "(d_table)"
-    }
+    mv_rewrite_fail("select count(*) from d_table where k3=1;", "kstar")
     qt_select_mv "select count(*) from d_table where k3=1;"
 
     sql """set enable_stats=true;"""
-    explain {
-        sql("select k1,k4,count(*) from d_table group by k1,k4;")
-        contains "(kstar)"
-    }
-
-    explain {
-        sql("select k1,k4,count(*) from d_table where k1=1 group by k1,k4;")
-        contains "(kstar)"
-    }
-
-    explain {
-        sql("select k1,k4,count(*) from d_table where k3=1 group by k1,k4;")
-        contains "(d_table)"
-    }
-
-    explain {
-        sql("select count(*) from d_table where k3=1;")
-        contains "(d_table)"
-    }
+    mv_rewrite_success("select k1,k4,count(*) from d_table group by k1,k4;", "kstar")
+    mv_rewrite_success("select k1,k4,count(*) from d_table where k1=1 group by k1,k4;", "kstar")
+    mv_rewrite_fail("select k1,k4,count(*) from d_table where k3=1 group by k1,k4;", "kstar")
+    mv_rewrite_fail("select count(*) from d_table where k3=1;", "kstar")
 }

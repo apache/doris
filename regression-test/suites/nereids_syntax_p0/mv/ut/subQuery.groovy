@@ -47,10 +47,7 @@ suite ("subQuery") {
     sql "analyze table subQuery with sync;"
     sql """set enable_stats=false;"""
 
-    explain {
-        sql("select * from subQuery order by empid;")
-        contains "(subQuery)"
-    }
+    mv_rewrite_fail("select * from subQuery order by empid;", "subQuery_mv")
     order_qt_select_star "select * from subQuery order by empid;"
 
     /*
@@ -64,8 +61,5 @@ suite ("subQuery") {
 
      sql """set enable_stats=true;"""
 
-     explain {
-        sql("select * from subQuery order by empid;")
-        contains "(subQuery)"
-    }
+    mv_rewrite_fail("select * from subQuery order by empid;", "subQuery_mv")
 }

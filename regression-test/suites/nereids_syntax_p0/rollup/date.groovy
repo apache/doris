@@ -53,39 +53,21 @@ suite("date", "rollup") {
     sql "analyze table ${tbName1} with sync;"
     sql """set enable_stats=false;"""
 
-    explain{
-        sql("SELECT store_id, max(sale_date1) FROM ${tbName1} GROUP BY store_id")
-        contains("(amt_max1)")
-    }
-    explain{
-        sql("SELECT store_id, max(sale_datetime1) FROM ${tbName1} GROUP BY store_id")
-        contains("(amt_max2)")
-    }
-    explain{
-        sql("SELECT store_id, max(sale_datetime2) FROM ${tbName1} GROUP BY store_id")
-        contains("(amt_max3)")
-    }
-    explain{
-        sql("SELECT store_id, max(sale_datetime3) FROM ${tbName1} GROUP BY store_id")
-        contains("(amt_max4)")
-    }
+    mv_rewrite_success("SELECT store_id, max(sale_date1) FROM ${tbName1} GROUP BY store_id", "amt_max1")
+
+    mv_rewrite_success("SELECT store_id, max(sale_datetime1) FROM ${tbName1} GROUP BY store_id", "amt_max2")
+
+    mv_rewrite_success("SELECT store_id, max(sale_datetime2) FROM ${tbName1} GROUP BY store_id", "amt_max3")
+
+    mv_rewrite_success("SELECT store_id, max(sale_datetime3) FROM ${tbName1} GROUP BY store_id", "amt_max4")
     sql """set enable_stats=true;"""
-    explain{
-        sql("SELECT store_id, max(sale_date1) FROM ${tbName1} GROUP BY store_id")
-        contains("(amt_max1)")
-    }
-    explain{
-        sql("SELECT store_id, max(sale_datetime1) FROM ${tbName1} GROUP BY store_id")
-        contains("(amt_max2)")
-    }
-    explain{
-        sql("SELECT store_id, max(sale_datetime2) FROM ${tbName1} GROUP BY store_id")
-        contains("(amt_max3)")
-    }
-    explain{
-        sql("SELECT store_id, max(sale_datetime3) FROM ${tbName1} GROUP BY store_id")
-        contains("(amt_max4)")
-    }
+    mv_rewrite_success("SELECT store_id, max(sale_date1) FROM ${tbName1} GROUP BY store_id", "amt_max1")
+
+    mv_rewrite_success("SELECT store_id, max(sale_datetime1) FROM ${tbName1} GROUP BY store_id", "amt_max2")
+
+    mv_rewrite_success("SELECT store_id, max(sale_datetime2) FROM ${tbName1} GROUP BY store_id", "amt_max3")
+
+    mv_rewrite_success("SELECT store_id, max(sale_datetime3) FROM ${tbName1} GROUP BY store_id", "amt_max4")
 
     qt_sql """ SELECT store_id, max(sale_date1) FROM ${tbName1} GROUP BY store_id """
     qt_sql """ SELECT store_id, max(sale_datetime1) FROM ${tbName1} GROUP BY store_id """
