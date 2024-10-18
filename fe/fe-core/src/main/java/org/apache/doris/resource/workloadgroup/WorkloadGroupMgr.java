@@ -71,6 +71,10 @@ public class WorkloadGroupMgr extends MasterDaemon implements Writable, GsonPost
 
     public static final Long DEFAULT_GROUP_ID = 1L;
 
+    public static final String INTERNAL_GROUP_NAME = "_internal_group";
+
+    public static final Long INTERNAL_GROUP_ID = 2L;
+
     public static final ImmutableList<String> WORKLOAD_GROUP_PROC_NODE_TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("Id").add("Name").add(WorkloadGroup.CPU_SHARE).add(WorkloadGroup.MEMORY_LIMIT)
             .add(WorkloadGroup.ENABLE_MEMORY_OVERCOMMIT)
@@ -375,6 +379,22 @@ public class WorkloadGroupMgr extends MasterDaemon implements Writable, GsonPost
         LOG.info("Create workload group success: {}", workloadGroup);
     }
 
+    public void createInternalWorkloadGroup() {
+        Map<String, String> properties = Maps.newHashMap();
+        properties.put("cpu_share", "1024");
+        WorkloadGroup wg = new WorkloadGroup(INTERNAL_GROUP_ID, INTERNAL_GROUP_NAME, properties);
+        writeLock();
+        try {
+            if (!idToWorkloadGroup.containsKey(wg.getId())) {
+                nameToWorkloadGroup.put(wg.getName(), wg);
+                idToWorkloadGroup.put(wg.getId(), wg);
+                Env.getCurrentEnv().getEditLog().logCreateWorkloadGroup(wg);
+            }
+        } finally {
+            writeUnlock();
+        }
+    }
+
     // NOTE: used for checking sum value of 100%  for cpu_hard_limit and memory_limit
     //  when create/alter workload group with same tag.
     //  when oldWg is null it means caller is an alter stmt.
@@ -422,6 +442,9 @@ public class WorkloadGroupMgr extends MasterDaemon implements Writable, GsonPost
         if (properties.size() == 0) {
             throw new DdlException("alter workload group should contain at least one property");
         }
+        if (INTERNAL_GROUP_NAME.equalsIgnoreCase(workloadGroupName) && properties.containsKey(WorkloadGroup.TAG)) {
+            throw new DdlException("not support alter internal workload group's tag");
+        }
         WorkloadGroup newWorkloadGroup;
         writeLock();
         try {
@@ -446,8 +469,8 @@ public class WorkloadGroupMgr extends MasterDaemon implements Writable, GsonPost
 
     public void dropWorkloadGroup(DropWorkloadGroupStmt stmt) throws DdlException {
         String workloadGroupName = stmt.getWorkloadGroupName();
-        if (DEFAULT_GROUP_NAME.equals(workloadGroupName)) {
-            throw new DdlException("Dropping default workload group " + workloadGroupName + " is not allowed");
+        if (DEFAULT_GROUP_NAME.equals(workloadGroupName) || INTERNAL_GROUP_NAME.equals(workloadGroupName)) {
+            throw new DdlException("Dropping workload group " + workloadGroupName + " is not allowed");
         }
 
         // if a workload group exists in user property, it should not be dropped
@@ -512,6 +535,15 @@ public class WorkloadGroupMgr extends MasterDaemon implements Writable, GsonPost
         readLock();
         try {
             return nameToWorkloadGroup.containsKey(workloadGroupName);
+        } finally {
+            readUnlock();
+        }
+    }
+
+    public boolean isWorkloadGroupExistsById(long wgId) {
+        readLock();
+        try {
+            return idToWorkloadGroup.containsKey(wgId);
         } finally {
             readUnlock();
         }
