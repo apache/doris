@@ -24,7 +24,8 @@
 #include "util/debug_points.h"
 
 namespace doris::segment_v2 {
-Status compact_column(int64_t index_id, std::vector<lucene::store::Directory*>& src_index_dirs,
+Status compact_column(int64_t index_id,
+                      std::vector<std::unique_ptr<DorisCompoundReader>>& src_index_dirs,
                       std::vector<lucene::store::Directory*>& dest_index_dirs,
                       std::string_view tmp_path,
                       const std::vector<std::vector<std::pair<uint32_t, uint32_t>>>& trans_vec,
@@ -48,7 +49,11 @@ Status compact_column(int64_t index_id, std::vector<lucene::store::Directory*>& 
                                                            true /* closeDirOnShutdown */);
 
     DCHECK_EQ(src_index_dirs.size(), trans_vec.size());
-    index_writer->indexCompaction(src_index_dirs, dest_index_dirs, trans_vec,
+    std::vector<lucene::store::Directory*> tmp_src_index_dirs(src_index_dirs.size());
+    for (size_t i = 0; i < tmp_src_index_dirs.size(); ++i) {
+        tmp_src_index_dirs[i] = src_index_dirs[i].get();
+    }
+    index_writer->indexCompaction(tmp_src_index_dirs, dest_index_dirs, trans_vec,
                                   dest_segment_num_rows);
 
     index_writer->close();
@@ -57,12 +62,6 @@ Status compact_column(int64_t index_id, std::vector<lucene::store::Directory*>& 
     // when index_writer is destroyed, if closeDir is set, dir will be close
     // _CLDECDELETE(dir) will try to ref_cnt--, when it decreases to 1, dir will be destroyed.
     _CLDECDELETE(dir)
-    for (auto* d : src_index_dirs) {
-        if (d != nullptr) {
-            d->close();
-            _CLDELETE(d);
-        }
-    }
     for (auto* d : dest_index_dirs) {
         if (d != nullptr) {
             // NOTE: DO NOT close dest dir here, because it will be closed when dest index writer finalize.
