@@ -112,9 +112,10 @@ struct RidAndPos {
 
 class FixedReadPlan {
 public:
+    bool empty() const;
     void prepare_to_read(const RowLocation& row_location, size_t pos);
     Status read_columns_by_plan(const TabletSchema& tablet_schema,
-                                const std::vector<uint32_t> cids_to_read,
+                                const std::vector<uint32_t>& cids_to_read,
                                 const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
                                 vectorized::Block& block, std::map<uint32_t, uint32_t>* read_index,
                                 const signed char* __restrict delete_signs = nullptr) const;

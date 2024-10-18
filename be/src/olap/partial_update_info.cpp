@@ -265,6 +265,10 @@ void PartialUpdateInfo::_generate_default_values_for_missing_cids(
     CHECK_EQ(missing_cids.size(), default_values.size());
 }
 
+bool FixedReadPlan::empty() const {
+    return plan.empty();
+}
+
 void FixedReadPlan::prepare_to_read(const RowLocation& row_location, size_t pos) {
     plan[row_location.rowset_id][row_location.segment_id].emplace_back(row_location.row_id, pos);
 }
@@ -272,7 +276,7 @@ void FixedReadPlan::prepare_to_read(const RowLocation& row_location, size_t pos)
 // read columns by read plan
 // read_index: ori_pos-> block_idx
 Status FixedReadPlan::read_columns_by_plan(
-        const TabletSchema& tablet_schema, const std::vector<uint32_t> cids_to_read,
+        const TabletSchema& tablet_schema, const std::vector<uint32_t>& cids_to_read,
         const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset, vectorized::Block& block,
         std::map<uint32_t, uint32_t>* read_index,
         const signed char* __restrict delete_signs) const {
