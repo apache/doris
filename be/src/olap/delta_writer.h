@@ -104,6 +104,10 @@ protected:
     WriteRequest _req;
     std::unique_ptr<BaseRowsetBuilder> _rowset_builder;
     std::shared_ptr<MemTableWriter> _memtable_writer;
+    // load channel(memtable not on sink) may submit flush task to workload group's flush pool,
+    // but load channel may not register a query ctx which means workload group may be deconstruct when submit flush task.
+    // so we hold workload group's shared_ptr here to guarantee flush pool not be destroyed when load channel running.
+    std::shared_ptr<WorkloadGroup> _wg_sptr {nullptr};
 
     // total rows num written by DeltaWriter
     std::atomic<int64_t> _total_received_rows = 0;
