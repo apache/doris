@@ -117,6 +117,28 @@ suite("test_json_load_and_function", "p0") {
 
     qt_select "SELECT * FROM ${testTable} where id in (32, 33, 34) ORDER BY id"
 
+    // insert into invalid json rows with enable_insert_strict=true
+    // expect excepiton and no rows not changed
+    sql """ set enable_insert_strict = true """
+
+    // deal with tail charactor is not valid json
+    try {
+        sql """INSERT INTO ${testTable} VALUES(26, '{"a": true} "x"')"""
+    } catch(Exception ex) {
+       logger.info("""INSERT INTO ${testTable} invalid json failed: """ + ex)
+    }
+    try {
+        sql """INSERT INTO ${testTable} VALUES(26, '[1]x')"""
+    } catch(Exception ex) {
+       logger.info("""INSERT INTO ${testTable} invalid json failed: """ + ex)
+    }
+    try {
+        sql """INSERT INTO ${testTable} VALUES(26, '{"a":"b"}#')"""
+    } catch(Exception ex) {
+       logger.info("""INSERT INTO ${testTable} invalid json failed: """ + ex)
+    }
+
+
     qt_select "SELECT * FROM ${testTable} ORDER BY id"
 
     // json_extract
