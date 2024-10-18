@@ -140,6 +140,7 @@ extern BvarLatencyRecorderWithTag g_bvar_ms_get_tablet;
 extern BvarLatencyRecorderWithTag g_bvar_ms_prepare_rowset;
 extern BvarLatencyRecorderWithTag g_bvar_ms_commit_rowset;
 extern BvarLatencyRecorderWithTag g_bvar_ms_update_tmp_rowset;
+extern BvarLatencyRecorderWithTag g_bvar_ms_get_tmp_rowset;
 extern BvarLatencyRecorderWithTag g_bvar_ms_get_rowset;
 extern BvarLatencyRecorderWithTag g_bvar_ms_drop_index;
 extern BvarLatencyRecorderWithTag g_bvar_ms_prepare_index;

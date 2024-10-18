@@ -65,6 +65,7 @@ public:
         TabletReader::ReadSource read_source;
         int64_t limit;
         bool aggregation;
+        std::vector<int64_t> sub_txn_ids;
     };
 
     NewOlapScanner(pipeline::ScanLocalStateBase* parent, Params&& params);
@@ -93,6 +94,7 @@ private:
     [[nodiscard]] Status _init_variant_columns();
 
     std::vector<OlapScanRange*> _key_ranges;
+    std::vector<int64_t> _sub_txn_ids;
 
     TabletReader::ReaderParams _tablet_reader_params;
     std::unique_ptr<TabletReader> _tablet_reader;
