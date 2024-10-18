@@ -66,8 +66,6 @@ suite("join_pull_up_union") {
       "replication_allocation" = "tag.location.default: 1"
     );
     """
-
-
     sql """INSERT INTO table_a (id, name, value) VALUES
     (1, 'Alice', 'Value_A1'),
     (2, 'Bob', 'Value_A2'),
@@ -314,4 +312,118 @@ suite("join_pull_up_union") {
     UNION ALL
     SELECT a.id, a.name, c.value, 'C' AS source FROM table_a a JOIN table_c c ON a.id = c.id where a.value = 1) t
     """
+
+    sql """drop table if exists test_like1"""
+    sql """CREATE TABLE `test_like1` (
+    `a` INT NULL,
+    `b` VARCHAR(10) NULL,
+    `c` INT NULL,
+    `d` INT NULL
+    ) ENGINE=OLAP
+    DUPLICATE KEY(`a`, `b`)
+    DISTRIBUTED BY RANDOM BUCKETS AUTO
+    PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+    );"""
+    sql """drop table if exists test_like2"""
+    sql """CREATE TABLE `test_like2` (
+    `a` INT NULL,
+    `b` VARCHAR(10) NULL,
+    `c` INT NULL,
+    `d` INT NULL
+    ) ENGINE=OLAP
+    DUPLICATE KEY(`a`, `b`)
+    DISTRIBUTED BY RANDOM BUCKETS AUTO
+    PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+    );"""
+    sql """drop table if exists test_like3"""
+    sql """CREATE TABLE `test_like3` (
+    `a` INT NULL,
+    `b` VARCHAR(10) NULL,
+    `c` INT NULL,
+    `d` INT NULL
+    ) ENGINE=OLAP
+    DUPLICATE KEY(`a`, `b`)
+    DISTRIBUTED BY RANDOM BUCKETS AUTO
+    PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+    );"""
+    sql "drop table if exists test_like4"
+    sql """create table test_like4 (a bigint, b varchar(10), c int, d int) ENGINE=OLAP
+    DUPLICATE KEY(`a`, `b`)
+    DISTRIBUTED BY RANDOM BUCKETS AUTO
+    PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+    );"""
+    sql "insert into test_like1 values(100,'d2',3,5),(0,'d2',3,5),(null,null,9,3),(33,'d2',2,5),(null,'d2',3,55),(78,null,9,3),(12,null,9,3);"
+    sql "insert into test_like2 values(10,'d2',2,2),(0,'d2',2,2),(100,'d2',3,null),(null,null,9,3),(78,'d2',23,5),(33,'d2',23,5);"
+    sql "insert into test_like3 values(1,'d2',2,2),(33,'d2',99,5),(33,'d2',23,6),(33,'d2',3,5);"
+    sql "insert into test_like4 values(11,'d2',3,5),(1,'d2',3,5),(79,null,9,3),(33,'d2',2,5),(null,'d2',3,55),(78,null,9,3),(12,null,9,3);"
+
+    qt_expr """select c1,c2 from 
+    (select t2.a+1 c1,t2.c+2 c2 from test_like1 t1 join test_like2 t2 on t1.a=t2.a union ALL
+    select t3.a+1,t1.a+2 from test_like1 t1 join test_like3 t3 on t1.a=t3.a) t order by 1,2"""
+    qt_const """select c1,c2 from
+    (select t2.a+1 c1,2 c2 from test_like1 t1 join test_like2 t2 on t1.a=t2.a union ALL
+    select t3.a+1,3 from test_like1 t1 join test_like3 t3 on t1.a=t3.a) t order by 1,2"""
+
+    qt_multi_condition """select c1,c2 from (
+    select t2.a+1 c1,2 c2 from test_like1 t1 join test_like2 t2 on t1.c=t2.d AND t1.c=t2.d union ALL
+    select t3.a+1,3 from test_like1 t1 join test_like3 t3 on t1.c=t3.d AND t1.c=t3.d) t order by 1,2"""
+
+    qt_multi_condition2 """select c1,c2 from (
+    select t2.a+1 c1 ,2 c2 from test_like1 t1 join test_like2 t2 on t1.c=t2.d AND t1.c=t2.c union ALL
+    select t3.a+1,3 from test_like1 t1 join test_like3 t3 on t1.c=t3.d AND t1.c=t3.c) t order by 1,2"""
+
+    qt_multi_differenct_count_condition """select c1,c2 from (
+    select t2.a+1 c1,2 c2 from test_like1 t1 join test_like2 t2 on t1.a=t2.a AND t1.a=t2.c union ALL
+    select t3.a+1 c3,3 c4 from test_like1 t1 join test_like3 t3 on t1.a=t3.c) t order by 1,2"""
+    qt_no_common_side_project """select c1,c2 from (
+    select t2.a+1 c1,t2.c+2 c2 from test_like1 t1 join test_like2 t2 on t1.a=t2.a union ALL
+    select t3.a+1,t3.a+2 from test_like1 t1 join test_like3 t3 on t1.a=t3.a) t order by 1,2"""
+
+    qt_common_slot_differnt """select c1,c2 from (
+    select t2.a+1 c1,t2.c+2 c2 from test_like1 t1 join test_like2 t2 on t1.a+1=t2.a union ALL
+    select t3.a+1,t3.c+2 from test_like1 t1 join test_like3 t3 on t1.a=t3.a) t order by 1,2"""
+
+    qt_other_expr_differnt """select c1,c2 from (
+    select t2.a+1 c1,t2.c+2 c2 from test_like1 t1 join test_like2 t2 on t1.a=t2.a union ALL
+    select t3.a+1,t3.c+100 from test_like1 t1 join test_like3 t3 on t1.a=t3.a) t order by 1,2"""
+
+    qt_2_same_tables """select c1,c2 from (
+    select t1.a c1,1 c2 from test_like1 t1 inner join test_like2 t2 on t1.a=t2.a
+    union ALL
+    select t1.a,t2.a from test_like1 t1  inner join test_like2 t2 on t1.a=t2.a) t order by 1,2"""
+
+    qt_simple_column """select c1,c2 from (
+    select t1.a c1,t2.a c2 from test_like1 t1 inner join test_like2 t2 on t1.a=t2.a
+    union ALL
+    select t1.a,t2.a from test_like1 t1  inner join test_like2 t2 on t1.a=t2.a) t order by 1,2"""
+
+    qt_func_column """select c1,c2 from (
+    select t1.a+1 c1,length(t2.b) c2 from test_like1 t1 inner join test_like2 t2 on t1.a=t2.a
+    union ALL
+    select t1.a+1,length(t2.b)+1 from test_like1 t1  inner join test_like3 t2 on t1.a=t2.a) t order by 1,2"""
+
+    qt_other_join_slot_differnt """select c1 from (
+    select t1.a+1 c1 from test_like1 t1 inner join test_like2 t2 on t1.a=t2.c
+    union ALL
+    select t1.a+1 from test_like1 t1  inner join test_like3 t2 on t1.a=t2.a) t order by 1"""
+
+    qt_join_common_slot_has_expr """select c1 from (
+    select t1.a+1 c1 from test_like1 t1 inner join test_like2 t2 on t1.a+1=t2.a
+    union ALL
+    select t1.a+1 from test_like1 t1  inner join test_like2 t2 on t1.a+1=t2.a) t order by 1"""
+
+    qt_can_not_transform """select c1,c2 from (
+    select t2.c c1,t1.a c2 from test_like1 t1 inner join test_like2 t2 on t1.a=t2.a
+    union ALL
+    select t1.a,t2.c from test_like1 t1  inner join test_like2 t2 on t1.a=t2.a) t order by 1,2"""
+
+    qt_other_side_condition_slot_has_expr_do_transform """
+    select c1 from (
+    select t1.a+1 c1 from test_like4 t1 inner join test_like2 t2 on t1.a=t2.a+2
+    union ALL
+    select t1.a+1 from test_like4 t1  inner join test_like3 t2 on t1.a=t2.a+1) t order by 1"""
 }
