@@ -404,8 +404,8 @@ Status VerticalSegmentWriter::_probe_key_for_mow(
 
     // 3. In flexible partial update, we may delete the existing rows before if there exists
     //    insert after delete in one load. In this case, the insert should also be treated
-    //    as newly inserted rows
-    // TODO(bobhan1): handle sequence column here
+    //    as newly inserted rows, note that the sequence column value is filled in
+    //    BlockAggregator::aggregate_for_insert_after_delete() if this row doesn't specify the sequence column
     if ((have_delete_sign && !_tablet_schema->has_sequence_col()) ||
         (_opts.rowset_ctx->partial_update_info->is_flexible_partial_update() &&
          _mow_context->delete_bitmap->contains(
@@ -663,6 +663,7 @@ Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(
     const std::vector<RowsetSharedPtr>& specified_rowsets = _mow_context->rowset_ptrs;
     std::vector<std::unique_ptr<SegmentCacheHandle>> segment_caches(specified_rowsets.size());
 
+    // 1. aggregate duplicate rows in block
     RETURN_IF_ERROR(_block_aggregator.aggregate_for_flexible_partial_update(
             const_cast<vectorized::Block*>(data.block), data.num_rows, specified_rowsets,
             segment_caches));
@@ -671,13 +672,13 @@ Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(
         _olap_data_convertor->clear_source_content();
     }
 
-    // 1. encode key columns
-    // we can only encode sort key columns currently becasue all non-key columns in flexible partial update
+    // 2. encode primary key columns
+    // we can only encode primary key columns currently becasue all non-primary columns in flexible partial update
     // can have missing cells
     std::vector<vectorized::IOlapColumnDataAccessor*> key_columns {};
     RETURN_IF_ERROR(_block_aggregator.convert_pk_columns(const_cast<vectorized::Block*>(data.block),
                                                          data.row_pos, data.num_rows, key_columns));
-    // 2. encode sequence column
+    // 3. encode sequence column
     // We encode the seguence column even thought it may have invalid values in some rows because we need to
     // encode the value of sequence column in key for rows that have a valid value in sequence column during
     // lookup_raw_key. We will encode the sequence column again at the end of this method. At that time, we have
@@ -686,12 +687,10 @@ Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(
     RETURN_IF_ERROR(_block_aggregator.convert_seq_column(const_cast<vectorized::Block*>(data.block),
                                                          data.row_pos, data.num_rows, seq_column));
 
-    auto get_skip_bitmaps = [&skip_bitmap_col_idx](const vectorized::Block* block) {
-        return &(assert_cast<vectorized::ColumnBitmap*>(
-                         block->get_by_position(skip_bitmap_col_idx).column->assume_mutable().get())
-                         ->get_data());
-    };
-    std::vector<BitmapValue>* skip_bitmaps = get_skip_bitmaps(data.block);
+    std::vector<BitmapValue>* skip_bitmaps = &(
+            assert_cast<vectorized::ColumnBitmap*>(
+                    data.block->get_by_position(skip_bitmap_col_idx).column->assume_mutable().get())
+                    ->get_data());
     const auto* delete_signs =
             BaseTablet::get_delete_sign_column_data(*data.block, data.row_pos + data.num_rows);
     DCHECK(delete_signs != nullptr);
@@ -700,7 +699,7 @@ Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(
         full_block.replace_by_position(cid, data.block->get_by_position(cid).column);
     }
 
-    // 5. write primary key columns data
+    // 4. write primary key columns data
     for (std::size_t cid {0}; cid < _tablet_schema->num_key_columns(); cid++) {
         const auto& column = key_columns[cid];
         DCHECK(_column_writers[cid]->get_next_rowid() == _num_rows_written);
@@ -709,7 +708,7 @@ Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(
         DCHECK(_column_writers[cid]->get_next_rowid() == _num_rows_written + data.num_rows);
     }
 
-    // 6. genreate read plan
+    // 5. genreate read plan
     FlexibleReadPlan read_plan {_tablet_schema->has_row_store_for_all_columns()};
     PartialUpdateStats stats;
     RETURN_IF_ERROR(_generate_flexible_read_plan(
@@ -725,7 +724,7 @@ Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(
 
     VLOG_DEBUG << fmt::format("before fill_non_primary_key_columns: block:\n{}",
                               data.block->dump_data());
-    // 7. read according plan to fill full_block
+    // 6. read according plan to fill full_block
     RETURN_IF_ERROR(read_plan.fill_non_primary_key_columns(
             _opts.rowset_ctx, _rsid_to_rowset, *_tablet_schema, full_block,
             use_default_or_null_flag, has_default_or_nullable, segment_start_pos, data.row_pos,
@@ -734,10 +733,10 @@ Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(
     // TODO(bobhan1): should we replace the skip bitmap column with empty bitmaps to reduce storage occupation?
     // this column is not needed in read path for merge-on-write table
 
-    // 8. fill row store column
+    // 7. fill row store column
     _serialize_block_to_row_column(full_block);
 
-    // 9. encode and write all non-primary key columns(including sequence column if exists)
+    // 8. encode and write all non-primary key columns(including sequence column if exists)
     for (auto cid = _tablet_schema->num_key_columns(); cid < _tablet_schema->num_columns(); cid++) {
         RETURN_IF_ERROR(_olap_data_convertor->set_source_content_with_specifid_column(
                 full_block.get_by_position(cid), data.row_pos, data.num_rows, cid));
@@ -768,7 +767,7 @@ Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(
                 _num_rows_written, data.row_pos, _primary_key_index_builder->num_rows());
     }
 
-    // 10. build primary key index
+    // 9. build primary key index
     RETURN_IF_ERROR(_generate_primary_key_index(_key_coders, key_columns, seq_column, data.num_rows,
                                                 false));
 
