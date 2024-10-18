@@ -23,18 +23,24 @@ import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.common.AnalysisException;
 
+import com.google.common.collect.Lists;
 import com.google.common.collect.Range;
+import com.google.common.collect.RangeMap;
+import com.google.common.collect.Sets;
+import com.google.common.collect.TreeRangeMap;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.Collection;
+import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Set;
 
 public class PartitionPruneV2ForShortCircuitPlan extends PartitionPrunerV2Base {
     private static final Logger LOG = LogManager.getLogger(PartitionPruneV2ForShortCircuitPlan.class);
     // map to record literal range to find specific partition
-    private RangeMap<LiteralExpr, Long> partitionRangeMapByLiteral = new RangeMap<>();
+    private RangeMap<ColumnBound, List<Long>> partitionRangeMap = TreeRangeMap.create();
     // last timestamp partitionRangeMapByLiteral updated
     private long lastPartitionRangeMapUpdateTimestampMs = 0;
 
@@ -42,19 +48,36 @@ public class PartitionPruneV2ForShortCircuitPlan extends PartitionPrunerV2Base {
         super();
     }
 
+    public static <C extends Comparable<C>, V> Set<V>
+            getOverlappingRangeValues(RangeMap<C, List<V>> partRangeMap, Set<Range<C>> ranges) {
+        Set<V> partitionIds = Sets.newHashSet();
+        for (Range<C> range : ranges) {
+            Map<Range<C>, List<V>> overlappingRanges = partRangeMap.subRangeMap(range).asMapOfRanges();
+            for (Map.Entry<Range<C>, List<V>> entry : overlappingRanges.entrySet()) {
+                partitionIds.addAll(entry.getValue());
+            }
+        }
+        return partitionIds;
+    }
+
+    public RangeMap<ColumnBound, List<Long>> getPartitionColValue2PartitionID() {
+        return partitionRangeMap;
+    }
+
     public boolean update(Map<Long, PartitionItem> keyItemMap) {
         // interval to update partitionRangeMapByLiteral
         long partitionRangeMapUpdateIntervalS = 10;
         if (System.currentTimeMillis() - lastPartitionRangeMapUpdateTimestampMs
                     > partitionRangeMapUpdateIntervalS * 1000) {
-            partitionRangeMapByLiteral = new RangeMap<>();
+            partitionRangeMap = TreeRangeMap.create();
             // recalculate map
             for (Entry<Long, PartitionItem> entry : keyItemMap.entrySet()) {
                 Range<PartitionKey> range = entry.getValue().getItems();
                 LiteralExpr partitionLowerBound = (LiteralExpr) range.lowerEndpoint().getKeys().get(0);
                 LiteralExpr partitionUpperBound = (LiteralExpr) range.upperEndpoint().getKeys().get(0);
-                Range<LiteralExpr> partitionRange = Range.closedOpen(partitionLowerBound, partitionUpperBound);
-                partitionRangeMapByLiteral.put(partitionRange, entry.getKey());
+                Range<ColumnBound> partitionRange =
+                        Range.closedOpen(ColumnBound.of(partitionLowerBound), ColumnBound.of(partitionUpperBound));
+                partitionRangeMap.put(partitionRange, Lists.newArrayList(entry.getKey()));
             }
             if (LOG.isDebugEnabled()) {
                 LOG.debug("update partitionRangeMapByLiteral");
@@ -65,9 +88,13 @@ public class PartitionPruneV2ForShortCircuitPlan extends PartitionPrunerV2Base {
         return false;
     }
 
-    public Collection<Long> prune(LiteralExpr lowerBound, LiteralExpr upperBound) throws AnalysisException {
-        Range<LiteralExpr> filterRangeValue = Range.closed(lowerBound, upperBound);
-        return partitionRangeMapByLiteral.getOverlappingRangeValues(filterRangeValue);
+    public Collection<Long> prune(Set<Range<ColumnBound>> partitionColumnRange,
+                                  String partitionColName,
+                                  Map<String, RangeMap<ColumnBound, List<Long>>> partitionCol2PartitionID) {
+        Set<Long> overlappingRangeValues = getOverlappingRangeValues(partitionRangeMap, partitionColumnRange);
+        partitionCol2PartitionID.putIfAbsent(
+                        partitionColName, partitionRangeMap);
+        return overlappingRangeValues;
     }
 
     @Override
