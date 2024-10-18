@@ -84,7 +84,6 @@
 
 namespace doris {
 class RuntimeState;
-class ORCCacheFileInputStream;
 
 namespace io {
 struct IOContext;
@@ -115,13 +114,11 @@ static constexpr int decimal_scale_for_hive11 = 10;
     M(TypeIndex::Float64, Float64, orc::DoubleVectorBatch)
 
 void ORCFileInputStream::read(void* buf, uint64_t length, uint64_t offset) {
-    read_impl(reinterpret_cast<char*>(buf), length, offset);
-}
-void ORCFileInputStream::read_impl(char* out, uint64_t length, uint64_t offset) {
     _statistics->fs_read_calls++;
     _statistics->fs_read_bytes += length;
     SCOPED_RAW_TIMER(&_statistics->fs_read_time);
     uint64_t has_read = 0;
+    char* out = reinterpret_cast<char*>(buf);
     while (has_read < length) {
         if (UNLIKELY(_io_ctx && _io_ctx->should_stop)) {
             throw orc::ParseError("stop");
@@ -861,6 +858,58 @@ Status OrcReader::set_fill_columns(
         _lazy_read_ctx.can_lazy_read = false;
     }
 
+    _row_reader_options.range(_range_start_offset, _range_size);
+    _row_reader_options.setTimezoneName(_ctz == "CST" ? "Asia/Shanghai" : _ctz);
+    _row_reader_options.include(_read_cols);
+    _row_reader_options.setEnableLazyDecoding(true);
+
+    uint64_t number_of_stripes = _reader->getNumberOfStripes();
+    auto allStripesNeeded = _reader->getNeedReadStripes(_row_reader_options);
+
+    int64_t range_end_offset = _range_start_offset + _range_size;
+
+    // 三个参数  todo
+    int orc_tiny_stripe_threshold = 8L * 1024L * 1024L;
+    int orc_once_max_read_size = 8L * 1024L * 1024L;
+    int orc_max_merge_distance = 1L * 1024L * 1024L;
+
+    bool all_tiny_stripes = true;
+    std::vector<io::PrefetchRange> tiny_stripe_ranges;
+
+    for (uint64_t i = 0; i < number_of_stripes; i++) {
+        std::unique_ptr<orc::StripeInformation> strip_info = _reader->getStripe(i);
+        uint64_t strip_start_offset = strip_info->getOffset();
+        uint64_t strip_end_offset = strip_start_offset + strip_info->getLength();
+
+        if (strip_start_offset >= range_end_offset || strip_end_offset < _range_start_offset ||
+            !allStripesNeeded[i]) {
+            continue;
+        }
+        if (strip_info->getLength() > orc_tiny_stripe_threshold) {
+            all_tiny_stripes = false;
+            break;
+        }
+
+        tiny_stripe_ranges.emplace_back(strip_start_offset, strip_end_offset);
+    }
+    if (all_tiny_stripes && number_of_stripes > 0) {
+        std::vector<io::PrefetchRange> prefetch_merge_ranges =
+                io::PrefetchRange::mergeAdjacentSeqRanges(
+                        tiny_stripe_ranges, orc_max_merge_distance, orc_once_max_read_size);
+
+        auto range_finder =
+                std::make_shared<io::LinearProbeRangeFinder>(std::move(prefetch_merge_ranges));
+
+        auto* orcInputStreamPtr = static_cast<ORCFileInputStream*>(_reader->getStream());
+        orcInputStreamPtr->set_all_tiny_stripes();
+        auto& orc_file_reader = orcInputStreamPtr->get_file_reader();
+        orc_file_reader->collect_profile_before_close();
+        auto orc_inner_reader = orcInputStreamPtr->get_inner_reader();
+        orc_file_reader = std::make_shared<io::RangeCacheFileReader>(_profile, orc_inner_reader,
+                                                                     range_finder);
+        _lazy_read_ctx.can_lazy_read = false;
+    }
+
     if (!_lazy_read_ctx.can_lazy_read) {
         for (auto& kv : _lazy_read_ctx.predicate_partition_columns) {
             _lazy_read_ctx.partition_columns.emplace(kv.first, kv.second);
@@ -871,17 +920,12 @@ Status OrcReader::set_fill_columns(
     }
 
     _fill_all_columns = true;
-
-    // create orc row reader
     try {
-        _row_reader_options.range(_range_start_offset, _range_size);
-        _row_reader_options.setTimezoneName(_ctz == "CST" ? "Asia/Shanghai" : _ctz);
-        _row_reader_options.include(_read_cols);
+        // create orc row reader
         if (_lazy_read_ctx.can_lazy_read) {
             _row_reader_options.filter(_lazy_read_ctx.predicate_orc_columns);
             _orc_filter = std::unique_ptr<ORCFilterImpl>(new ORCFilterImpl(this));
         }
-        _row_reader_options.setEnableLazyDecoding(true);
         if (!_lazy_read_ctx.conjuncts.empty()) {
             _string_dict_filter = std::make_unique<StringDictFilterImpl>(this);
         }
@@ -893,75 +937,6 @@ Status OrcReader::set_fill_columns(
         RETURN_IF_ERROR(_init_select_types(selected_type, idx));
 
         _remaining_rows = _row_reader->getNumberOfRows();
-
-        //        vector<bool> select_column = _row_reader->getSelectedColumns();
-        uint64_t number_of_stripes = _reader->getNumberOfStripes();
-        auto allStripesNeeded = _row_reader->getAllStripesNeeded();
-
-        std::vector<io::PrefetchRange> prefetch_ranges;
-
-        int64_t range_end_offset = _range_start_offset + _range_size;
-
-        // 三个参数  todo
-        int tiny_stripe_size = 4096 * 5;
-        int big_io_size = tiny_stripe_size * 5;
-        int big_hole = big_io_size / 3 * 2;
-
-        bool all_tiny_stripe = true;
-        for (uint64_t i = 0; i < number_of_stripes; i++) {
-            std::unique_ptr<orc::StripeInformation> strip_info = _reader->getStripe(i);
-            uint64_t strip_start_offset = strip_info->getOffset();
-            uint64_t strip_end_offset = strip_start_offset + strip_info->getLength();
-
-            if (strip_start_offset > range_end_offset || strip_end_offset < _range_start_offset) {
-                continue;
-            }
-            if (strip_info->getLength() > tiny_stripe_size) {
-                all_tiny_stripe = false;
-                break;
-            }
-            strip_info->getFooterLength();
-        }
-        all_tiny_stripe = 1; // force use cache xxx todo: fix
-
-        if (all_tiny_stripe) {
-            std::vector<io::PrefetchRange> ranges;
-
-            uint64_t max_range_size = big_io_size;
-            for (uint64_t i = 0; i < number_of_stripes; i++) {
-                std::unique_ptr<orc::StripeInformation> strip_info = _reader->getStripe(i);
-                uint64_t strip_start_offset = strip_info->getOffset();
-                uint64_t strip_end_offset = strip_start_offset + strip_info->getLength();
-
-                if (strip_start_offset >= range_end_offset ||
-                    strip_end_offset < _range_start_offset || !allStripesNeeded[i]) {
-                    continue;
-                }
-                if (ranges.empty()) {
-                    ranges.emplace_back(strip_start_offset, strip_end_offset);
-                } else if (strip_end_offset > ranges.back().start_offset +
-                                                      big_io_size // big io, will read a big block
-                           || strip_start_offset >
-                                      ranges.back().end_offset +
-                                              big_hole //big hole,will many read useless bytes
-                ) {                                    // not merge
-                    ranges.emplace_back(strip_start_offset, strip_end_offset);
-                } else { // merge
-                    ranges.back().end_offset = strip_end_offset;
-                }
-            }
-            orc::InputStream* inputStreamPtr = _reader->getStream();
-            auto* orcInputStreamPtr = static_cast<ORCFileInputStream*>(inputStreamPtr);
-
-            for (auto x : ranges) {
-                max_range_size = max(max_range_size, x.end_offset - x.start_offset);
-            }
-            auto buf = std::make_unique<char[]>(max_range_size); //todo: try catch bad_alloc ???
-
-            auto cache_stream = std::make_unique<ORCCacheFileInputStream>(
-                    *orcInputStreamPtr, std::move(ranges), std::move(buf));
-            _reader->setStream(std::move(cache_stream));
-        }
 
     } catch (std::exception& e) {
         std::string _err_msg = e.what();
@@ -2487,6 +2462,9 @@ MutableColumnPtr OrcReader::_convert_dict_column_to_string_column(
 void ORCFileInputStream::beforeReadStripe(
         std::unique_ptr<orc::StripeInformation> current_strip_information,
         std::vector<bool> selected_columns) {
+    if (_is_all_tiny_stripes) {
+        return;
+    }
     if (_file_reader != nullptr) {
         _file_reader->collect_profile_before_close();
     }
@@ -2537,48 +2515,4 @@ void OrcReader::_execute_filter_position_delete_rowids(IColumn::Filter& filter) 
     }
 }
 
-void ORCCacheFileInputStream::read(void* buf, uint64_t length, uint64_t offset) {
-    _orc_cache_statistics.request_io++;
-    _orc_cache_statistics.request_bytes += length;
-    SCOPED_RAW_TIMER(&_orc_cache_statistics.request_time);
-
-    if (_current_ranges == -1 || _prefetch_ranges[_current_ranges].end_offset <= offset)
-            [[unlikely]] {
-        read_range_to_cache();
-    }
-    // Because of apache-orc seq read,
-    // so I think just check  `_prefetch_ranges[_current_ranges].end_offset > offset` is ok.
-    // To be more absolute, I don’t even think this check is needed here.
-    int64_t buffer_offset = offset - _prefetch_ranges[_current_ranges].start_offset;
-    memcpy_inlined(buf, _buf.get() + buffer_offset, length);
-
-    //    if (_current_ranges != -1 && _current_ranges < _prefetch_ranges.size()) [[likely]] {
-    //        if (_prefetch_ranges[_current_ranges].end_offset <= offset) [[unlikely]] {
-    //            read_range_to_cache();
-    //        }
-    //        // Because of apache-orc seq read,
-    //        // so I think just check  `_prefetch_ranges[_current_ranges].end_offset > offset` is ok.
-    //        // To be more absolute, I don’t even think this check is needed here.
-    //        int64_t buffer_offset = offset - _prefetch_ranges[_current_ranges].start_offset;
-    //        memcpy_inlined(buf, _buf.get() + buffer_offset, length);
-    //    } else {
-    //        // not in cache and not read to cache.
-    //        _orc_cache_statistics.miss_cache_io ++;
-    //        _orc_cache_statistics.miss_cache_bytes += length;
-    //        SCOPED_RAW_TIMER(&_orc_cache_statistics.read_miss_cache_time);
-    //        read_impl(reinterpret_cast<char*>(buf),length,offset);
-    //    }
-}
-void ORCCacheFileInputStream::beforeReadStripe(
-        std::unique_ptr<orc::StripeInformation> current_strip_information,
-        std::vector<bool> selected_columns) {
-    if (_current_ranges == -1) {
-        read_range_to_cache();
-        return;
-    }
-    uint64_t current_strip_offset = current_strip_information->getOffset();
-    if (current_strip_offset >= _prefetch_ranges[_current_ranges].end_offset) {
-        read_range_to_cache();
-    }
-}
 } // namespace doris::vectorized
