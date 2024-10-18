@@ -177,9 +177,8 @@ private:
                               PartialUpdateStats& stats);
     Status _partial_update_preconditions_check(size_t row_pos, bool is_flexible_update);
     Status _append_block_with_partial_content(RowsInBlock& data, vectorized::Block& full_block);
-    Status _filter_block_for_flexible_partial_update(RowsInBlock& data,
-                                                     vectorized::MutableColumnPtr filter_column,
-                                                     int duplicate_rows, std::string col_name);
+    Status _filter_block(RowsInBlock& data, vectorized::MutableColumnPtr filter_column,
+                         int duplicate_rows, std::string col_name);
     Status _append_block_with_flexible_partial_content(RowsInBlock& data,
                                                        vectorized::Block& full_block);
     Status _generate_encoded_default_seq_value(const TabletSchema& tablet_schema,
@@ -204,8 +203,7 @@ private:
     Status _merge_rows_for_insert_after_delete(
             RowsInBlock& data, std::vector<BitmapValue>* skip_bitmaps,
             const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns,
-            vectorized::IOlapColumnDataAccessor* seq_column, const signed char* delete_signs,
-            const std::vector<RowsetSharedPtr>& specified_rowsets,
+            const signed char* delete_signs, const std::vector<RowsetSharedPtr>& specified_rowsets,
             std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches);
     Status _append_block_with_variant_subcolumns(RowsInBlock& data);
     Status _generate_key_index(
