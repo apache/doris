@@ -192,6 +192,14 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
+        DBUG_EXECUTE_IF("array_func.array_contains", {
+            auto req_id = DebugPoints::instance()->get_debug_param_or_default<int32_t>(
+                    "array_func.array_contains", "req_id", 0);
+            return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                    "{} has already execute inverted index req_id {} , should not execute expr "
+                    "with rows: {}",
+                    get_name(), req_id, input_rows_count);
+        });
         return _execute_dispatch(block, arguments, result, input_rows_count);
     }
 
