@@ -84,6 +84,7 @@
 
 namespace doris {
 class RuntimeState;
+class ORCCacheFileInputStream;
 
 namespace io {
 struct IOContext;
@@ -114,11 +115,13 @@ static constexpr int decimal_scale_for_hive11 = 10;
     M(TypeIndex::Float64, Float64, orc::DoubleVectorBatch)
 
 void ORCFileInputStream::read(void* buf, uint64_t length, uint64_t offset) {
+    read_impl(reinterpret_cast<char*>(buf), length, offset);
+}
+void ORCFileInputStream::read_impl(char* out, uint64_t length, uint64_t offset) {
     _statistics->fs_read_calls++;
     _statistics->fs_read_bytes += length;
     SCOPED_RAW_TIMER(&_statistics->fs_read_time);
     uint64_t has_read = 0;
-    char* out = reinterpret_cast<char*>(buf);
     while (has_read < length) {
         if (UNLIKELY(_io_ctx && _io_ctx->should_stop)) {
             throw orc::ParseError("stop");
@@ -890,6 +893,76 @@ Status OrcReader::set_fill_columns(
         RETURN_IF_ERROR(_init_select_types(selected_type, idx));
 
         _remaining_rows = _row_reader->getNumberOfRows();
+
+        //        vector<bool> select_column = _row_reader->getSelectedColumns();
+        uint64_t number_of_stripes = _reader->getNumberOfStripes();
+        auto allStripesNeeded = _row_reader->getAllStripesNeeded();
+
+        std::vector<io::PrefetchRange> prefetch_ranges;
+
+        int64_t range_end_offset = _range_start_offset + _range_size;
+
+        // 三个参数  todo
+        int tiny_stripe_size = 4096 * 5;
+        int big_io_size = tiny_stripe_size * 5;
+        int big_hole = big_io_size / 3 * 2;
+
+        bool all_tiny_stripe = true;
+        for (uint64_t i = 0; i < number_of_stripes; i++) {
+            std::unique_ptr<orc::StripeInformation> strip_info = _reader->getStripe(i);
+            uint64_t strip_start_offset = strip_info->getOffset();
+            uint64_t strip_end_offset = strip_start_offset + strip_info->getLength();
+
+            if (strip_start_offset > range_end_offset || strip_end_offset < _range_start_offset) {
+                continue;
+            }
+            if (strip_info->getLength() > tiny_stripe_size) {
+                all_tiny_stripe = false;
+                break;
+            }
+            strip_info->getFooterLength();
+        }
+        all_tiny_stripe = 1; // force use cache xxx todo: fix
+
+        if (all_tiny_stripe) {
+            std::vector<io::PrefetchRange> ranges;
+
+            uint64_t max_range_size = big_io_size;
+            for (uint64_t i = 0; i < number_of_stripes; i++) {
+                std::unique_ptr<orc::StripeInformation> strip_info = _reader->getStripe(i);
+                uint64_t strip_start_offset = strip_info->getOffset();
+                uint64_t strip_end_offset = strip_start_offset + strip_info->getLength();
+
+                if (strip_start_offset >= range_end_offset ||
+                    strip_end_offset < _range_start_offset) {
+                    //|| !allStripesNeeded[i]
+                    continue;
+                }
+                if (ranges.empty()) {
+                    ranges.emplace_back(strip_start_offset, strip_end_offset);
+                } else if (strip_end_offset > ranges.back().start_offset +
+                                                      big_io_size // big io, will read a big block
+                           || strip_start_offset >
+                                      ranges.back().end_offset +
+                                              big_hole //big hole,will many read useless bytes
+                ) {                                    // not merge
+                    ranges.emplace_back(strip_start_offset, strip_end_offset);
+                } else { // merge
+                    ranges.back().end_offset = strip_end_offset;
+                }
+            }
+            orc::InputStream* inputStreamPtr = _reader->getStream();
+            auto* orcInputStreamPtr = static_cast<ORCFileInputStream*>(inputStreamPtr);
+
+            for (auto x : ranges) {
+                max_range_size = max(max_range_size, x.end_offset - x.start_offset);
+            }
+            auto buf = std::make_unique<char[]>(max_range_size); //todo: try catch bad_alloc ???
+
+            auto cache_stream = std::make_unique<ORCCacheFileInputStream>(
+                    *orcInputStreamPtr, std::move(ranges), std::move(buf));
+            _reader->setStream(std::move(cache_stream));
+        }
 
     } catch (std::exception& e) {
         std::string _err_msg = e.what();
@@ -2459,4 +2532,36 @@ void OrcReader::_execute_filter_position_delete_rowids(IColumn::Filter& filter) 
     }
 }
 
+void ORCCacheFileInputStream::read(void* buf, uint64_t length, uint64_t offset) {
+    _orc_cache_statistics.request_io++;
+    _orc_cache_statistics.request_bytes += length;
+    SCOPED_RAW_TIMER(&_orc_cache_statistics.request_time);
+
+    if (_current_ranges != -1 && _current_ranges < _prefetch_ranges.size() &&
+        _prefetch_ranges[_current_ranges].end_offset > offset) [[likely]] {
+        // Because of apache-orc seq read,
+        // so I think just check  `_prefetch_ranges[_current_ranges].end_offset > offset` is ok.
+        // To be more absolute, I don’t even think this check is needed here.
+        int64_t buffer_offset = offset - _prefetch_ranges[_current_ranges].start_offset;
+        memcpy_inlined(buf, _buf.get() + buffer_offset, length);
+    } else {
+        // not in cache.
+        _orc_cache_statistics.miss_cache_io++;
+        _orc_cache_statistics.miss_cache_bytes += length;
+        SCOPED_RAW_TIMER(&_orc_cache_statistics.read_miss_cache_time);
+        read_impl(reinterpret_cast<char*>(buf), length, offset);
+    }
+}
+void ORCCacheFileInputStream::beforeReadStripe(
+        std::unique_ptr<orc::StripeInformation> current_strip_information,
+        std::vector<bool> selected_columns) {
+    if (_current_ranges == -1) {
+        read_range_to_cache();
+        return;
+    }
+    uint64_t current_strip_offset = current_strip_information->getOffset();
+    if (current_strip_offset >= _prefetch_ranges[_current_ranges].end_offset) {
+        read_range_to_cache();
+    }
+}
 } // namespace doris::vectorized
