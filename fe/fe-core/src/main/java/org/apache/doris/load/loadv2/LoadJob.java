@@ -602,7 +602,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         }
     }
 
-    private void checkAuth(String command) throws DdlException {
+    public void checkAuth(String command) throws DdlException {
         if (authorizationInfo == null) {
             // use the old method to check priv
             checkAuthWithoutAuthInfo(command);
@@ -754,8 +754,6 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
     public List<Comparable> getShowInfo() throws DdlException {
         readLock();
         try {
-            // check auth
-            checkAuth("SHOW LOAD");
             List<Comparable> jobInfo = Lists.newArrayList();
             // jobId
             jobInfo.add(id);
