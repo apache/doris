@@ -325,7 +325,7 @@ TEST_F(ThreadMemTrackerMgrTest, NestedReserveMemory) {
             MemTrackerLimiter::Type::OTHER, "UT-NestedReserveMemory");
 
     int64_t size2 = 4 * 1024 * 1024;
-    int64_t size3 = size2 * 1024;
+    int64_t size3 = size2 * 2;
 
     thread_context->attach_task(TUniqueId(), t, workload_group);
     auto st = thread_context->try_reserve_memory(size3);
