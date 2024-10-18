@@ -94,13 +94,13 @@ ColumnPtr wrap_in_nullable(const ColumnPtr& src, const Block& block, const Colum
     return ColumnNullable::create(src_not_nullable, result_null_map_column);
 }
 
-bool have_null_column(const Block& block, const ColumnNumbers& args) {
+bool has_null_column(const Block& block, const ColumnNumbers& args) {
     return std::ranges::any_of(args, [&block](const auto& elem) {
         return block.get_by_position(elem).type->is_nullable();
     });
 }
 
-bool have_null_column(const ColumnsWithTypeAndName& args) {
+bool has_null_column(const ColumnsWithTypeAndName& args) {
     return std::ranges::any_of(args, [](const auto& elem) { return elem.type->is_nullable(); });
 }
 
@@ -202,7 +202,7 @@ Status PreparedFunctionImpl::default_implementation_for_nulls(
         return Status::OK();
     }
 
-    if (have_null_column(block, args)) {
+    if (has_null_column(block, args)) {
         bool need_to_default = need_replace_null_data_to_default();
         if (context) {
             need_to_default &= context->check_overflow_for_decimal();
@@ -269,7 +269,7 @@ DataTypePtr FunctionBuilderImpl::get_return_type_without_low_cardinality(
     check_number_of_arguments(arguments.size());
 
     if (!arguments.empty() && use_default_implementation_for_nulls()) {
-        if (have_null_column(arguments)) {
+        if (has_null_column(arguments)) {
             ColumnNumbers numbers(arguments.size());
             std::iota(numbers.begin(), numbers.end(), 0);
             auto [nested_block, _] =
