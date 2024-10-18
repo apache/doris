@@ -385,7 +385,13 @@ Status VTabletWriterV2::_select_streams(int64_t tablet_id, int64_t partition_id,
         VLOG_DEBUG << fmt::format("_select_streams P{} I{} T{}", partition_id, index_id, tablet_id);
         _tablets_for_node[node_id].emplace(tablet_id, tablet);
         auto stream = _load_stream_map->at(node_id)->select_one_stream();
+        if (stream == nullptr) {
+            continue;
+        }
         streams.emplace_back(std::move(stream));
+    }
+    if (streams.empty()) {
+        return Status::InternalError("no streams selected");
     }
     Status st;
     for (auto& stream : streams) {
@@ -450,9 +456,10 @@ Status VTabletWriterV2::write(RuntimeState* state, Block& input_block) {
 
 Status VTabletWriterV2::_write_memtable(std::shared_ptr<vectorized::Block> block, int64_t tablet_id,
                                         const Rows& rows) {
+    auto st = Status::OK();
     auto delta_writer = _delta_writer_for_tablet->get_or_create(tablet_id, [&]() {
         std::vector<std::shared_ptr<LoadStreamStub>> streams;
-        auto st = _select_streams(tablet_id, rows.partition_id, rows.index_id, streams);
+        st = _select_streams(tablet_id, rows.partition_id, rows.index_id, streams);
         if (!st.ok()) [[unlikely]] {
             LOG(WARNING) << "select stream failed, " << st << ", load_id=" << print_id(_load_id);
             return std::unique_ptr<DeltaWriterV2>(nullptr);
@@ -480,7 +487,8 @@ Status VTabletWriterV2::_write_memtable(std::shared_ptr<vectorized::Block> block
         }
         DBUG_EXECUTE_IF("VTabletWriterV2._write_memtable.index_not_found",
                         { index_not_found = true; });
-        if (index_not_found) {
+        if (index_not_found) [[unlikely]] {
+            st = Status::InternalError("no index {} in schema", rows.index_id);
             LOG(WARNING) << "index " << rows.index_id
                          << " not found in schema, load_id=" << print_id(_load_id);
             return std::unique_ptr<DeltaWriterV2>(nullptr);
@@ -489,15 +497,15 @@ Status VTabletWriterV2::_write_memtable(std::shared_ptr<vectorized::Block> block
     });
     if (delta_writer == nullptr) {
         LOG(WARNING) << "failed to open DeltaWriter for tablet " << tablet_id
-                     << ", load_id=" << print_id(_load_id);
-        return Status::InternalError("failed to open DeltaWriter for tablet {}", tablet_id);
+                     << ", load_id=" << print_id(_load_id) << ", err: " << st;
+        return Status::InternalError("failed to open DeltaWriter {}: {}", tablet_id, st.msg());
     }
     {
         SCOPED_TIMER(_wait_mem_limit_timer);
         ExecEnv::GetInstance()->memtable_memory_limiter()->handle_memtable_flush();
     }
     SCOPED_TIMER(_write_memtable_timer);
-    auto st = delta_writer->write(block.get(), rows.row_idxes);
+    st = delta_writer->write(block.get(), rows.row_idxes);
     return st;
 }
 
