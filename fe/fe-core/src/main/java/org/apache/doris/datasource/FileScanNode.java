@@ -81,7 +81,7 @@ public abstract class FileScanNode extends ExternalScanNode {
         initFileSplitSize();
     }
 
-    private void initFileSplitSize() {
+    protected void initFileSplitSize() {
         this.fileSplitSize = ConnectContext.get().getSessionVariable().getFileSplitSize();
         this.isSplitSizeSetBySession = this.fileSplitSize > 0;
         if (this.fileSplitSize <= 0) {
