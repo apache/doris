@@ -165,6 +165,7 @@ public class AuditLoader extends Plugin implements AuditPlugin {
         logBuffer.append(event.sqlDigest).append("\t");
         logBuffer.append(event.peakMemoryBytes).append("\t");
         logBuffer.append(event.workloadGroup).append("\t");
+        logBuffer.append(event.cloudClusterName).append("\t");
         // already trim the query in org.apache.doris.qe.AuditLogHelper#logAuditLog
         String stmt = event.stmt;
         if (LOG.isDebugEnabled()) {
