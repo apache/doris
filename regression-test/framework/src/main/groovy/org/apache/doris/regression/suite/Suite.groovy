@@ -1472,6 +1472,13 @@ class Suite implements GroovyInterceptable {
         }
     }
 
+    def mv_rewrite_fail = { query_sql, mv_name ->
+        explain {
+            sql("${query_sql}")
+            notContains("${mv_name}(${mv_name})")
+        }
+    }
+
     def check_mv_rewrite_fail = { db, mv_sql, query_sql, mv_name ->
 
         sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name}"""
