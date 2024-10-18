@@ -143,7 +143,7 @@ Status RuntimePredicate::init(PrimitiveType type, bool nulls_first, bool is_asc,
 Status RuntimePredicate::update(const Field& value) {
     std::unique_lock<std::shared_mutex> wlock(_rwlock);
     // skip null value
-    if (value.is_null() || !_inited || !_tablet_schema) {
+    if (value.is_null() || !_inited) {
         return Status::OK();
     }
 
@@ -159,7 +159,9 @@ Status RuntimePredicate::update(const Field& value) {
         }
     }
 
-    if (!updated) {
+    _has_value = true;
+
+    if (!updated || !_tablet_schema) {
         return Status::OK();
     }
 
