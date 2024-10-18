@@ -395,7 +395,7 @@ Status BlockSerializer<Parent>::next_serialized_block(Block* block, PBlock* dest
         }
     }
 
-    if (_mutable_block->rows() >= _batch_size || eos) {
+    if (_mutable_block->bytes() >= config::exchg_max_remote_bytes || eos) {
         if (!_is_local) {
             RETURN_IF_ERROR(serialize_block(dest, num_receivers));
         }
