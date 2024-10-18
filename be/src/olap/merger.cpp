@@ -67,10 +67,15 @@ Status Merger::vmerge_rowsets(BaseTabletSPtr tablet, ReaderType reader_type,
     reader_params.tablet = tablet;
     reader_params.reader_type = reader_type;
 
+    bool has_delete_predicate = false;
     TabletReader::ReadSource read_source;
     read_source.rs_splits.reserve(src_rowset_readers.size());
     for (const RowsetReaderSharedPtr& rs_reader : src_rowset_readers) {
         read_source.rs_splits.emplace_back(rs_reader);
+        auto& rs_meta = rs_reader->rowset()->rowset_meta();
+        if (rs_meta->has_delete_predicate()) {
+            has_delete_predicate = true;
+        }
     }
     read_source.fill_delete_predicates();
     reader_params.set_read_source(std::move(read_source));
@@ -91,6 +96,12 @@ Status Merger::vmerge_rowsets(BaseTabletSPtr tablet, ReaderType reader_type,
 
     if (stats_output && stats_output->rowid_conversion) {
         reader_params.record_rowids = true;
+        if (has_delete_predicate && !reader_params.delete_bitmap) {
+            // if this is a mow table and source rs has delete predicate, use delete bitmap filter data in segment.
+            // otherwise, the delete bitmap maybe permanently retained in metadata
+            // TODO only value delete predicate need this logic
+            reader_params.delete_bitmap = &tablet->tablet_meta()->delete_bitmap();
+        }
     }
 
     reader_params.return_columns.resize(cur_tablet_schema.num_columns());
@@ -249,11 +260,16 @@ Status Merger::vertical_compact_one_group(
     reader_params.key_group_cluster_key_idxes = key_group_cluster_key_idxes;
     reader_params.tablet = tablet;
     reader_params.reader_type = reader_type;
+    bool has_delete_predicate = false;
 
     TabletReader::ReadSource read_source;
     read_source.rs_splits.reserve(src_rowset_readers.size());
     for (const RowsetReaderSharedPtr& rs_reader : src_rowset_readers) {
         read_source.rs_splits.emplace_back(rs_reader);
+        auto& rs_meta = rs_reader->rowset()->rowset_meta();
+        if (rs_meta->has_delete_predicate()) {
+            has_delete_predicate = true;
+        }
     }
     read_source.fill_delete_predicates();
     reader_params.set_read_source(std::move(read_source));
@@ -274,6 +290,12 @@ Status Merger::vertical_compact_one_group(
 
     if (is_key && stats_output && stats_output->rowid_conversion) {
         reader_params.record_rowids = true;
+        if (has_delete_predicate && !reader_params.delete_bitmap) {
+            // if this is a mow table and source rs has delete predicate, use delete bitmap filter data in segment.
+            // otherwise, the delete bitmap maybe permanently retained in metadata.
+            // TODO only value delete predicate need this logic
+            reader_params.delete_bitmap = &tablet->tablet_meta()->delete_bitmap();
+        }
     }
 
     reader_params.return_columns = column_group;
