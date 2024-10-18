@@ -488,7 +488,6 @@ Status BaseTablet::lookup_row_key(const Slice& encoded_key, TabletSchema* latest
         }
         auto& segments = segment_caches[i]->get_segments();
         DCHECK_EQ(segments.size(), num_segments);
-
         for (auto id : picked_segments) {
             Status s = segments[id]->lookup_row_key(encoded_key, schema, with_seq_col, with_rowid,
                                                     &loc, encoded_seq_value);
