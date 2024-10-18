@@ -40,6 +40,7 @@ import org.apache.doris.datasource.jdbc.client.JdbcClient;
 import org.apache.doris.datasource.jdbc.client.JdbcClientConfig;
 import org.apache.doris.datasource.operations.ExternalMetadataOps;
 import org.apache.doris.datasource.property.constants.HMSProperties;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
@@ -172,6 +173,12 @@ public class HiveMetadataOps implements ExternalMetadataOps {
         }
         try {
             Map<String, String> props = stmt.getProperties();
+            // set default owner
+            if (!props.containsKey("owner")) {
+                if (ConnectContext.get() != null) {
+                    props.put("owner", ConnectContext.get().getUserIdentity().getUser());
+                }
+            }
             String fileFormat = props.getOrDefault(FILE_FORMAT_KEY, Config.hive_default_file_format);
             Map<String, String> ddlProps = new HashMap<>();
             for (Map.Entry<String, String> entry : props.entrySet()) {
