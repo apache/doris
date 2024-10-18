@@ -869,5 +869,33 @@ Result<io::FileReaderSPtr> DelegateReader::create_file_reader(
                 return reader;
             });
 }
+
+Status CachingFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_read,
+                                       const IOContext* io_ctx) {
+    if (offset < _cache_position) {
+        throw std::invalid_argument("Read request is before _cache.");
+    }
+    size_t req_size = result.size;
+    if (offset >= _cache_position + _cache_length) {
+        DiskRange newCacheRange = _region_finder->getRangeFor(offset);
+        _cache_position = newCacheRange.getOffset();
+        _cache_length = newCacheRange.getLength();
+        _cache = std::make_unique<OwnedSlice>(newCacheRange.getLength());
+        RETURN_IF_ERROR(
+                _reader->read_at(newCacheRange.getOffset(), _cache->slice(), bytes_read, io_ctx));
+        DCHECK(newCacheRange.getLength() == *bytes_read);
+    }
+    if (offset + req_size > _cache_position + _cache_length) {
+        throw std::invalid_argument("Read request partially overlaps _cache.");
+    }
+    memcpy(result.data, _cache->data() + static_cast<size_t>(offset - _cache_position), req_size);
+    *bytes_read = req_size;
+    return Status::OK();
+    //    static_cast<void>(_cache_position);
+    //    static_cast<void>(_cache_length);
+    //    RETURN_IF_ERROR(_reader->read_at(offset, result, bytes_read, io_ctx));
+    //    return Status::OK();
+}
+
 } // namespace io
 } // namespace doris

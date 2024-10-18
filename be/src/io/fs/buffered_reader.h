@@ -523,5 +523,125 @@ private:
     size_t _max_buf_size;
 };
 
+class DiskRange {
+public:
+    DiskRange(int64_t offset, int64_t length) : offset(offset), length(length) {}
+
+    int64_t getOffset() const { return offset; }
+    int64_t getLength() const { return length; }
+    int64_t getEnd() const { return offset + length; }
+
+    DiskRange span(const DiskRange& other) const {
+        int64_t newOffset = std::min(offset, other.offset);
+        int64_t newEnd = std::max(getEnd(), other.getEnd());
+        return DiskRange(newOffset, newEnd - newOffset);
+    }
+
+    bool contains(const DiskRange& other) const {
+        return other.offset >= offset && other.getEnd() <= getEnd();
+    }
+
+    static std::vector<DiskRange> mergeAdjacentDiskRanges(const std::vector<DiskRange>& diskRanges,
+                                                          int64_t maxMergeDistanceBytes,
+                                                          int64_t maxReadSizeBytes) {
+        if (diskRanges.empty()) {
+            return {};
+        }
+
+        // Sort ranges by offset
+        std::vector<DiskRange> ranges = diskRanges;
+        std::sort(ranges.begin(), ranges.end(), [](const DiskRange& a, const DiskRange& b) {
+            return a.getOffset() < b.getOffset();
+        });
+
+        // Merge overlapping ranges
+        std::vector<DiskRange> result;
+        DiskRange last = ranges[0];
+        for (size_t i = 1; i < ranges.size(); ++i) {
+            DiskRange current = ranges[i];
+            DiskRange merged = last.span(current);
+            if (merged.getLength() <= maxReadSizeBytes &&
+                last.getEnd() + maxMergeDistanceBytes >= current.getOffset()) {
+                last = merged;
+            } else {
+                result.push_back(last);
+                last = current;
+            }
+        }
+        result.push_back(last);
+
+        return result;
+    }
+
+private:
+    int64_t offset;
+    int64_t length;
+};
+
+class RegionFinder {
+public:
+    virtual ~RegionFinder() = default;
+    virtual DiskRange getRangeFor(int64_t desiredOffset) = 0;
+};
+
+class CachingFileReader : public io::FileReader {
+public:
+    CachingFileReader(RuntimeProfile* profile, io::FileReaderSPtr reader,
+                      std::shared_ptr<RegionFinder> region_finder)
+            : _profile(profile),
+              _reader(std::move(reader)),
+              _region_finder(region_finder),
+              _cache_position(0),
+              _cache_length(0),
+              _cache() {
+        _size = _reader->size();
+    }
+
+    ~CachingFileReader() override {}
+
+    Status close() override {
+        if (!_closed) {
+            _closed = true;
+        }
+        return Status::OK();
+    }
+
+    const io::Path& path() const override { return _reader->path(); }
+
+    size_t size() const override { return _size; }
+
+    bool closed() const override { return _closed; }
+
+protected:
+    Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
+                        const IOContext* io_ctx) override;
+
+    void _collect_profile_before_close() override {
+        if (_profile != nullptr) {
+            //            COUNTER_UPDATE(_copy_time, _statistics.copy_time);
+            //            COUNTER_UPDATE(_read_time, _statistics.read_time);
+            //            COUNTER_UPDATE(_request_io, _statistics.request_io);
+            //            COUNTER_UPDATE(_merged_io, _statistics.merged_io);
+            //            COUNTER_UPDATE(_request_bytes, _statistics.request_bytes);
+            //            COUNTER_UPDATE(_merged_bytes, _statistics.merged_bytes);
+            //            COUNTER_UPDATE(_apply_bytes, _statistics.apply_bytes);
+            if (_reader != nullptr) {
+                _reader->collect_profile_before_close();
+            }
+        }
+    }
+
+private:
+    RuntimeProfile* _profile = nullptr;
+    io::FileReaderSPtr _reader;
+    std::shared_ptr<RegionFinder> _region_finder;
+    int64_t _cache_position;
+    int _cache_length;
+    std::unique_ptr<OwnedSlice> _cache;
+
+    size_t _size;
+    bool _closed = false;
+};
+
 } // namespace io
 } // namespace doris

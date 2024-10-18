@@ -96,11 +96,6 @@ namespace doris::vectorized {
 // TODO: we need to determine it by test.
 static constexpr uint32_t MAX_DICT_CODE_PREDICATE_TO_REWRITE = std::numeric_limits<uint32_t>::max();
 static constexpr char EMPTY_STRING_FOR_OVERFLOW[ColumnString::MAX_STRINGS_OVERFLOW_SIZE] = "";
-// Because HIVE 0.11 & 0.12 does not support precision and scale for decimal
-// The decimal type of orc file produced by HIVE 0.11 & 0.12 are DECIMAL(0,0)
-// We should set a default precision and scale for these orc files.
-static constexpr int decimal_precision_for_hive11 = BeConsts::MAX_DECIMAL128_PRECISION;
-static constexpr int decimal_scale_for_hive11 = 10;
 
 #define FOR_FLAT_ORC_COLUMNS(M)                            \
     M(TypeIndex::Int8, Int8, orc::LongVectorBatch)         \
@@ -891,6 +886,55 @@ Status OrcReader::set_fill_columns(
 
         _remaining_rows = _row_reader->getNumberOfRows();
 
+        vector<bool> select_column = _row_reader->getSelectedColumns();
+        uint64_t number_of_stripes = _reader->getNumberOfStripes();
+
+        std::vector<io::DiskRange> scratch_disk_ranges;
+
+        _is_tiny_stripes_range = true;
+        for (uint64_t i = 0; i < number_of_stripes; i++) {
+            std::unique_ptr<orc::StripeInformation> strip_info = _reader->getStripe(i);
+            uint64_t strip_start_offset = strip_info->getOffset();
+            uint64_t strip_end_offset = strip_start_offset + strip_info->getLength();
+
+            if (strip_end_offset < _range_start_offset) {
+                continue;
+            }
+            if (strip_info->getLength() > 8L * 1024L * 1024L) {
+                _is_tiny_stripes_range = false;
+                break;
+            }
+        }
+
+        if (_is_tiny_stripes_range) {
+            std::vector<io::DiskRange> scratchDiskRanges;
+            for (uint64_t i = 0; i < number_of_stripes; i++) {
+                std::unique_ptr<orc::StripeInformation> strip_info = _reader->getStripe(i);
+                uint64_t strip_start_offset = strip_info->getOffset();
+                uint64_t strip_end_offset = strip_start_offset + strip_info->getLength();
+
+                if (strip_end_offset < _range_start_offset) {
+                    continue;
+                }
+                scratchDiskRanges.emplace_back(strip_start_offset, strip_info->getLength());
+            }
+
+            size_t maxMergeDistanceBytes = 1L * 1024L * 1024L;
+            size_t maxReadSizeBytes = 8L * 1024L * 1024L;
+            std::vector<io::DiskRange> disk_ranges = io::DiskRange::mergeAdjacentDiskRanges(
+                    scratchDiskRanges, maxMergeDistanceBytes, maxReadSizeBytes);
+
+            orc::InputStream* inputStreamPtr = _reader->getStream();
+            auto* orcInputStreamPtr = static_cast<ORCFileInputStream*>(inputStreamPtr);
+
+            orcInputStreamPtr->_file_reader->collect_profile_before_close();
+
+            orcInputStreamPtr->_file_reader.reset(new io::CachingFileReader(
+                    orcInputStreamPtr->_profile, orcInputStreamPtr->_inner_reader,
+                    std::make_shared<LinearProbeRangeFinder>(std::move(disk_ranges))));
+            //            }
+        }
+
     } catch (std::exception& e) {
         std::string _err_msg = e.what();
         // ignore stop exception
@@ -1055,10 +1099,6 @@ TypeDescriptor OrcReader::convert_to_doris_type(const orc::Type* orc_type) {
     case orc::TypeKind::TIMESTAMP:
         return TypeDescriptor(PrimitiveType::TYPE_DATETIMEV2);
     case orc::TypeKind::DECIMAL:
-        if (orc_type->getPrecision() == 0) {
-            return TypeDescriptor::create_decimalv3_type(decimal_precision_for_hive11,
-                                                         decimal_scale_for_hive11);
-        }
         return TypeDescriptor::create_decimalv3_type(orc_type->getPrecision(),
                                                      orc_type->getScale());
     case orc::TypeKind::DATE:
@@ -1149,9 +1189,8 @@ Status OrcReader::_decode_string_non_dict_encoded_column(const std::string& col_
         if (cvb->hasNulls) {
             for (int i = 0; i < num_values; ++i) {
                 if (cvb->notNull[i]) {
-                    size_t length = trim_right(cvb->data[i], cvb->length[i]);
-                    string_values.emplace_back((length > 0) ? cvb->data[i] : empty_string.data(),
-                                               length);
+                    string_values.emplace_back(cvb->data[i],
+                                               trim_right(cvb->data[i], cvb->length[i]));
                 } else {
                     // Orc doesn't fill null values in new batch, but the former batch has been release.
                     // Other types like int/long/timestamp... are flat types without pointer in them,
@@ -1161,26 +1200,21 @@ Status OrcReader::_decode_string_non_dict_encoded_column(const std::string& col_
             }
         } else {
             for (int i = 0; i < num_values; ++i) {
-                size_t length = trim_right(cvb->data[i], cvb->length[i]);
-                string_values.emplace_back((length > 0) ? cvb->data[i] : empty_string.data(),
-                                           length);
+                string_values.emplace_back(cvb->data[i], trim_right(cvb->data[i], cvb->length[i]));
             }
         }
     } else {
         if (cvb->hasNulls) {
             for (int i = 0; i < num_values; ++i) {
                 if (cvb->notNull[i]) {
-                    string_values.emplace_back(
-                            (cvb->length[i] > 0) ? cvb->data[i] : empty_string.data(),
-                            cvb->length[i]);
+                    string_values.emplace_back(cvb->data[i], cvb->length[i]);
                 } else {
                     string_values.emplace_back(empty_string.data(), 0);
                 }
             }
         } else {
             for (int i = 0; i < num_values; ++i) {
-                string_values.emplace_back(
-                        (cvb->length[i] > 0) ? cvb->data[i] : empty_string.data(), cvb->length[i]);
+                string_values.emplace_back(cvb->data[i], cvb->length[i]);
             }
         }
     }
@@ -1219,8 +1253,7 @@ Status OrcReader::_decode_string_dict_encoded_column(const std::string& col_name
                     if (length > max_value_length) {
                         max_value_length = length;
                     }
-                    string_values.emplace_back((length > 0) ? val_ptr : EMPTY_STRING_FOR_OVERFLOW,
-                                               length);
+                    string_values.emplace_back(val_ptr, length);
                 } else {
                     // Orc doesn't fill null values in new batch, but the former batch has been release.
                     // Other types like int/long/timestamp... are flat types without pointer in them,
@@ -1243,8 +1276,7 @@ Status OrcReader::_decode_string_dict_encoded_column(const std::string& col_name
                 if (length > max_value_length) {
                     max_value_length = length;
                 }
-                string_values.emplace_back((length > 0) ? val_ptr : EMPTY_STRING_FOR_OVERFLOW,
-                                           length);
+                string_values.emplace_back(val_ptr, length);
             }
         }
     } else {
@@ -1263,8 +1295,7 @@ Status OrcReader::_decode_string_dict_encoded_column(const std::string& col_name
                     if (length > max_value_length) {
                         max_value_length = length;
                     }
-                    string_values.emplace_back((length > 0) ? val_ptr : EMPTY_STRING_FOR_OVERFLOW,
-                                               length);
+                    string_values.emplace_back(val_ptr, length);
                 } else {
                     string_values.emplace_back(EMPTY_STRING_FOR_OVERFLOW, 0);
                 }
@@ -1283,8 +1314,7 @@ Status OrcReader::_decode_string_dict_encoded_column(const std::string& col_name
                 if (length > max_value_length) {
                     max_value_length = length;
                 }
-                string_values.emplace_back((length > 0) ? val_ptr : EMPTY_STRING_FOR_OVERFLOW,
-                                           length);
+                string_values.emplace_back(val_ptr, length);
             }
         }
     }
@@ -2073,6 +2103,7 @@ Status OrcReader::on_string_dicts_loaded(
         orc::StringDictionary* dict = file_column_name_to_dict_map_iter->second;
 
         std::vector<StringRef> dict_values;
+        std::unordered_map<StringRef, int64_t> dict_value_to_code;
         size_t max_value_length = 0;
         uint64_t dictionaryCount = dict->dictionaryOffset.size() - 1;
         if (dictionaryCount == 0) {
@@ -2087,11 +2118,12 @@ Status OrcReader::on_string_dicts_loaded(
             char* val_ptr;
             int64_t length;
             dict->getValueByIndex(i, val_ptr, length);
-            StringRef dict_value((length > 0) ? val_ptr : "", length);
+            StringRef dict_value(val_ptr, length);
             if (length > max_value_length) {
                 max_value_length = length;
             }
             dict_values.emplace_back(dict_value);
+            dict_value_to_code[dict_value] = i;
         }
         dict_value_column->insert_many_strings_overflow(&dict_values[0], dict_values.size(),
                                                         max_value_length);
@@ -2130,37 +2162,31 @@ Status OrcReader::on_string_dicts_loaded(
             ++index;
         }
 
-        // 2.2 Execute conjuncts.
+        // 2.2 Execute conjuncts and filter block.
+        std::vector<uint32_t> columns_to_filter(1, dict_pos);
+        int column_to_keep = temp_block.columns();
         if (dict_pos != 0) {
             // VExprContext.execute has an optimization, the filtering is executed when block->rows() > 0
             // The following process may be tricky and time-consuming, but we have no other way.
             temp_block.get_by_position(0).column->assume_mutable()->resize(dict_value_column_size);
         }
-        IColumn::Filter result_filter(temp_block.rows(), 1);
-        bool can_filter_all;
-        RETURN_IF_ERROR(VExprContext::execute_conjuncts(ctxs, nullptr, &temp_block, &result_filter,
-                                                        &can_filter_all));
+        RETURN_IF_CATCH_EXCEPTION(RETURN_IF_ERROR(VExprContext::execute_conjuncts_and_filter_block(
+                ctxs, &temp_block, columns_to_filter, column_to_keep)));
         if (dict_pos != 0) {
             // We have to clean the first column to insert right data.
             temp_block.get_by_position(0).column->assume_mutable()->clear();
         }
 
-        // If can_filter_all = true, can filter this stripe.
-        if (can_filter_all) {
+        // Check some conditions.
+        ColumnPtr& dict_column = temp_block.get_by_position(dict_pos).column;
+        // If dict_column->size() == 0, can filter this stripe.
+        if (dict_column->size() == 0) {
             *is_stripe_filtered = true;
             return Status::OK();
         }
 
-        // 3. Get dict codes.
-        std::vector<int32_t> dict_codes;
-        for (size_t i = 0; i < result_filter.size(); ++i) {
-            if (result_filter[i]) {
-                dict_codes.emplace_back(i);
-            }
-        }
-
         // About Performance: if dict_column size is too large, it will generate a large IN filter.
-        if (dict_codes.size() > MAX_DICT_CODE_PREDICATE_TO_REWRITE) {
+        if (dict_column->size() > MAX_DICT_CODE_PREDICATE_TO_REWRITE) {
             it = _dict_filter_cols.erase(it);
             for (auto& ctx : ctxs) {
                 _non_dict_filter_conjuncts.emplace_back(ctx);
@@ -2168,9 +2194,26 @@ Status OrcReader::on_string_dicts_loaded(
             continue;
         }
 
+        // 3. Get dict codes.
+        std::vector<int32_t> dict_codes;
+        if (dict_column->is_nullable()) {
+            const ColumnNullable* nullable_column =
+                    static_cast<const ColumnNullable*>(dict_column.get());
+            const ColumnString* nested_column = static_cast<const ColumnString*>(
+                    nullable_column->get_nested_column_ptr().get());
+            for (int i = 0; i < nested_column->size(); ++i) {
+                StringRef dict_value = nested_column->get_data_at(i);
+                dict_codes.emplace_back(dict_value_to_code[dict_value]);
+            }
+        } else {
+            for (int i = 0; i < dict_column->size(); ++i) {
+                StringRef dict_value = dict_column->get_data_at(i);
+                dict_codes.emplace_back(dict_value_to_code[dict_value]);
+            }
+        }
+
         // 4. Rewrite conjuncts.
-        RETURN_IF_ERROR(_rewrite_dict_conjuncts(
-                dict_codes, slot_id, temp_block.get_by_position(dict_pos).column->is_nullable()));
+        RETURN_IF_ERROR(_rewrite_dict_conjuncts(dict_codes, slot_id, dict_column->is_nullable()));
         ++it;
     }
     return Status::OK();
@@ -2347,8 +2390,7 @@ MutableColumnPtr OrcReader::_convert_dict_column_to_string_column(
                     if (length > max_value_length) {
                         max_value_length = length;
                     }
-                    string_values.emplace_back((length > 0) ? val_ptr : EMPTY_STRING_FOR_OVERFLOW,
-                                               length);
+                    string_values.emplace_back(val_ptr, length);
                 } else {
                     // Orc doesn't fill null values in new batch, but the former batch has been release.
                     // Other types like int/long/timestamp... are flat types without pointer in them,
@@ -2366,8 +2408,7 @@ MutableColumnPtr OrcReader::_convert_dict_column_to_string_column(
                 if (length > max_value_length) {
                     max_value_length = length;
                 }
-                string_values.emplace_back((length > 0) ? val_ptr : EMPTY_STRING_FOR_OVERFLOW,
-                                           length);
+                string_values.emplace_back(val_ptr, length);
             }
         }
     } else {
@@ -2382,8 +2423,7 @@ MutableColumnPtr OrcReader::_convert_dict_column_to_string_column(
                     if (length > max_value_length) {
                         max_value_length = length;
                     }
-                    string_values.emplace_back((length > 0) ? val_ptr : EMPTY_STRING_FOR_OVERFLOW,
-                                               length);
+                    string_values.emplace_back(val_ptr, length);
                 } else {
                     string_values.emplace_back(EMPTY_STRING_FOR_OVERFLOW, 0);
                 }
@@ -2397,8 +2437,7 @@ MutableColumnPtr OrcReader::_convert_dict_column_to_string_column(
                 if (length > max_value_length) {
                     max_value_length = length;
                 }
-                string_values.emplace_back((length > 0) ? val_ptr : EMPTY_STRING_FOR_OVERFLOW,
-                                           length);
+                string_values.emplace_back(val_ptr, length);
             }
         }
     }
@@ -2407,36 +2446,39 @@ MutableColumnPtr OrcReader::_convert_dict_column_to_string_column(
 }
 
 void ORCFileInputStream::beforeReadStripe(
+        if (_is_tiny_stripes_range) {
         std::unique_ptr<orc::StripeInformation> current_strip_information,
         std::vector<bool> selected_columns) {
-    if (_file_reader != nullptr) {
-        _file_reader->collect_profile_before_close();
-    }
-    // Generate prefetch ranges, build stripe file reader.
-    uint64_t offset = current_strip_information->getOffset();
-    std::vector<io::PrefetchRange> prefetch_ranges;
-    size_t total_io_size = 0;
-    for (uint64_t stream_id = 0; stream_id < current_strip_information->getNumberOfStreams();
-         ++stream_id) {
-        std::unique_ptr<orc::StreamInformation> stream =
-                current_strip_information->getStreamInformation(stream_id);
-        uint32_t columnId = stream->getColumnId();
-        uint64_t length = stream->getLength();
-        if (selected_columns[columnId]) {
-            total_io_size += length;
-            doris::io::PrefetchRange prefetch_range = {offset, offset + length};
-            prefetch_ranges.emplace_back(std::move(prefetch_range));
+            if (_file_reader != nullptr) {
+                _file_reader->collect_profile_before_close();
+            }
+            // Generate prefetch ranges, build stripe file reader.
+            uint64_t offset = current_strip_information->getOffset();
+            std::vector<io::PrefetchRange> prefetch_ranges;
+            size_t total_io_size = 0;
+            for (uint64_t stream_id = 0;
+                 stream_id < current_strip_information->getNumberOfStreams(); ++stream_id) {
+                std::unique_ptr<orc::StreamInformation> stream =
+                        current_strip_information->getStreamInformation(stream_id);
+                uint32_t columnId = stream->getColumnId();
+                uint64_t length = stream->getLength();
+                if (selected_columns[columnId]) {
+                    total_io_size += length;
+                    doris::io::PrefetchRange prefetch_range = {offset, offset + length};
+                    prefetch_ranges.emplace_back(std::move(prefetch_range));
+                }
+                offset += length;
+            }
+            size_t num_columns = std::count_if(selected_columns.begin(), selected_columns.end(),
+                                               [](bool selected) { return selected; });
+            if (total_io_size / num_columns < io::MergeRangeFileReader::SMALL_IO) {
+                // The underlying page reader will prefetch data in column.
+                _file_reader.reset(
+                        new io::MergeRangeFileReader(_profile, _inner_reader, prefetch_ranges));
+            } else {
+                _file_reader = _inner_reader;
+            }
         }
-        offset += length;
-    }
-    size_t num_columns = std::count_if(selected_columns.begin(), selected_columns.end(),
-                                       [](bool selected) { return selected; });
-    if (total_io_size / num_columns < io::MergeRangeFileReader::SMALL_IO) {
-        // The underlying page reader will prefetch data in column.
-        _file_reader.reset(new io::MergeRangeFileReader(_profile, _inner_reader, prefetch_ranges));
-    } else {
-        _file_reader = _inner_reader;
-    }
 }
 
 void ORCFileInputStream::_collect_profile_before_close() {
