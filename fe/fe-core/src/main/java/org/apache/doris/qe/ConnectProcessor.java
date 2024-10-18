@@ -723,16 +723,16 @@ public abstract class ConnectProcessor {
         result.setStatus(ctx.getState().toString());
         if (ctx.getState().getStateType() == MysqlStateType.OK) {
             result.setStatusCode(0);
-            if (request.isSetTxnLoadInfo()) {
-                TransactionEntry transactionEntry = ConnectContext.get().getTxnEntry();
-                // null if this is a commit or rollback command
-                if (transactionEntry != null) {
-                    result.setTxnLoadInfo(transactionEntry.getTxnInfoInMaster());
-                }
-            }
         } else {
             result.setStatusCode(ctx.getState().getErrorCode().getCode());
             result.setErrMessage(ctx.getState().getErrorMessage());
+        }
+        if (request.isSetTxnLoadInfo()) {
+            TransactionEntry transactionEntry = ConnectContext.get().getTxnEntry();
+            // null if this is a commit or rollback command
+            if (transactionEntry != null) {
+                result.setTxnLoadInfo(transactionEntry.getTxnInfoInMaster());
+            }
         }
         if (executor != null) {
             if (executor.getProxyShowResultSet() != null) {
