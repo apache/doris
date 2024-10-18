@@ -39,9 +39,14 @@ suite ("test_dup_mv_repeat") {
 
     createMV ("create materialized view dbviwe as select dt,s,sum(n) as n from db1 group by dt,s;")
 
-    explain {
-        sql("SELECT s AS s, sum(n) / count(DISTINCT dt) AS n FROM  db1 GROUP BY  GROUPING SETS((s)) order by 1;")
-        contains "(dbviwe)"
-    }
+    sql "analyze table db1 with sync;"
+    sql """set enable_stats=false;"""
+
+    mv_rewrite_success("SELECT s AS s, sum(n) / count(DISTINCT dt) AS n FROM  db1 GROUP BY  GROUPING SETS((s)) order by 1;",
+            "dbviwe")
     qt_select_mv "SELECT s AS s, sum(n) / count(DISTINCT dt) AS n FROM  db1 GROUP BY  GROUPING SETS((s)) order by 1;"
+
+    sql """set enable_stats=true;"""
+    mv_rewrite_success("SELECT s AS s, sum(n) / count(DISTINCT dt) AS n FROM  db1 GROUP BY  GROUPING SETS((s)) order by 1;",
+            "dbviwe")
 }

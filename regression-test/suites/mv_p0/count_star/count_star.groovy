@@ -43,35 +43,29 @@ suite ("count_star") {
     sql "insert into d_table select -4,-4,-4,'d';"
     sql "insert into d_table select 3,2,null,'c';"
     sql "insert into d_table values(2,1,1,'a'),(2,1,1,'a');"
+
+    sql "analyze table d_table with sync;"
+    sql """set enable_stats=false;"""
+    
     qt_select_star "select * from d_table order by k1,k2,k3,k4;"
 
-    explain {
-        sql("select k1,k4,count(*) from d_table group by k1,k4;")
-        contains "(kstar)"
-    }
+    mv_rewrite_success("select k1,k4,count(*) from d_table group by k1,k4;", "kstar")
     qt_select_mv "select k1,k4,count(*) from d_table group by k1,k4 order by 1,2;"
 
-    explain {
-        sql("select k1,k4,count(*) from d_table where k1=1 group by k1,k4;")
-        contains "(kstar)"
-    }
+    mv_rewrite_success("select k1,k4,count(*) from d_table where k1=1 group by k1,k4;", "kstar")
     qt_select_mv "select k1,k4,count(*) from d_table where k1=1 group by k1,k4 order by 1,2;"
 
-    explain {
-        sql("select k1,k4,count(*) from d_table where k3=1 group by k1,k4;")
-        contains "(d_table)"
-    }
+    mv_rewrite_fail("select k1,k4,count(*) from d_table where k3=1 group by k1,k4;", "kstar")
     qt_select_mv "select k1,k4,count(*) from d_table where k3=1 group by k1,k4 order by 1,2;"
 
-    explain {
-        sql("select count(*) from d_table;")
-        contains "(kstar)"
-    }
     qt_select_mv "select count(*) from d_table;"
 
-    explain {
-        sql("select count(*) from d_table where k3=1;")
-        contains "(d_table)"
-    }
+    mv_rewrite_fail("select count(*) from d_table where k3=1;", "kstar")
     qt_select_mv "select count(*) from d_table where k3=1;"
+
+    sql """set enable_stats=true;"""
+    mv_rewrite_success("select k1,k4,count(*) from d_table group by k1,k4;", "kstar")
+    mv_rewrite_success("select k1,k4,count(*) from d_table where k1=1 group by k1,k4;", "kstar")
+    mv_rewrite_fail("select k1,k4,count(*) from d_table where k3=1 group by k1,k4;", "kstar")
+    mv_rewrite_fail("select count(*) from d_table where k3=1;", "kstar")
 }

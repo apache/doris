@@ -101,20 +101,6 @@ suite("nested_materialized_view") {
     sql "set runtime_filter_mode=OFF"
     sql "SET enable_materialized_view_nest_rewrite = true"
 
-    def create_mtmv = { db_name, mv_name, mv_sql ->
-        sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name}"""
-        sql"""
-        CREATE MATERIALIZED VIEW ${mv_name}
-        BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL
-        DISTRIBUTED BY RANDOM BUCKETS 2
-        PROPERTIES ('replication_num' = '1')
-        AS ${mv_sql}
-        """
-
-        def job_name = getJobName(db_name, mv_name);
-        waitingMTMVTaskFinished(job_name)
-    }
-
     sql """
     drop table if exists orders
     """
@@ -132,7 +118,6 @@ suite("nested_materialized_view") {
       o_comment        VARCHAR(79) NOT NULL
     )
     DUPLICATE KEY(o_orderkey, o_custkey)
-    PARTITION BY RANGE(o_orderdate) (PARTITION `day_2` VALUES LESS THAN ('2023-12-30'))
     DISTRIBUTED BY HASH(o_orderkey) BUCKETS 3
     PROPERTIES (
       "replication_num" = "1"
@@ -163,7 +148,6 @@ suite("nested_materialized_view") {
       l_comment      VARCHAR(44) NOT NULL
     )
     DUPLICATE KEY(l_orderkey, l_partkey, l_suppkey, l_linenumber)
-    PARTITION BY RANGE(l_shipdate) (PARTITION `day_1` VALUES LESS THAN ('2023-12-30'))
     DISTRIBUTED BY HASH(l_orderkey) BUCKETS 3
     PROPERTIES (
       "replication_num" = "1"
@@ -251,8 +235,8 @@ suite("nested_materialized_view") {
             where o_orderstatus = 'o'
             """
     order_qt_query1_0_before "${query1_0}"
-    create_mtmv(db, "mv1_0_inner_mv", mv1_0_inner_mv)
-    check_mv_rewrite_success(db, mv1_0, query1_0, "mv1_0")
+    create_async_mv(db, "mv1_0_inner_mv", mv1_0_inner_mv)
+    async_mv_rewrite_success(db, mv1_0, query1_0, "mv1_0")
     order_qt_query1_0_after "${query1_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_0_inner_mv"""
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_0"""
@@ -261,18 +245,15 @@ suite("nested_materialized_view") {
     sql "SET enable_materialized_view_nest_rewrite = false"
 
     order_qt_query1_1_before "${query1_0}"
-    create_mtmv(db, "mv1_0_inner_mv", mv1_0_inner_mv)
-    check_mv_rewrite_fail(db, mv1_0, query1_0, "mv1_0")
+    create_async_mv(db, "mv1_0_inner_mv", mv1_0_inner_mv)
+    async_mv_rewrite_fail(db, mv1_0, query1_0, "mv1_0")
 
-    explain {
-        sql("${query1_0}")
-        contains("mv1_0_inner_mv(mv1_0_inner_mv)")
-    }
+    mv_rewrite_success(query1_0, "mv1_0_inner_mv")
     order_qt_query1_1_after "${query1_0}"
 
 
     // complex nest mv rewrite
-    create_mtmv(db, "mv1_a", """
+    create_async_mv(db, "mv1_a", """
     select
         lo_custkey,
         lo_partkey,
@@ -290,7 +271,7 @@ suite("nested_materialized_view") {
         lo_orderkey,
         lo_orderdate;""")
 
-    create_mtmv(db, "mv2_a", """
+    create_async_mv(db, "mv2_a", """
     select
         lo_custkey,
         lo_orderdate,
@@ -305,7 +286,7 @@ suite("nested_materialized_view") {
         lo_custkey,
         lo_orderdate;""")
 
-    create_mtmv(db, "mv4_a", """
+    create_async_mv(db, "mv4_a", """
     select
         lo_partkey,
         lo_orderdate,
@@ -320,7 +301,7 @@ suite("nested_materialized_view") {
         lo_partkey,
         lo_orderdate;""")
 
-    create_mtmv(db, "mv_all_6_a", """
+    create_async_mv(db, "mv_all_6_a", """
     select
   '测试1' as nm,
   '测试2' as t_nm,
@@ -345,7 +326,7 @@ from
   and t6.d_sellingseason = 'Spring';
     """)
 
-    create_mtmv(db, "mv1_b", """
+    create_async_mv(db, "mv1_b", """
 select
         lo_custkey,
         lo_partkey,
@@ -363,7 +344,7 @@ select
         lo_orderkey,
         lo_orderdate;""")
 
-    create_mtmv(db, "mv2_b", """
+    create_async_mv(db, "mv2_b", """
     select
         lo_custkey,
         lo_orderdate,
@@ -378,7 +359,7 @@ select
         lo_custkey,
         lo_orderdate;""")
 
-    create_mtmv(db, "mv4_b", """
+    create_async_mv(db, "mv4_b", """
     select
         lo_partkey,
         lo_orderdate,
@@ -393,7 +374,7 @@ select
         lo_partkey,
         lo_orderdate;""")
 
-    create_mtmv(db, "mv_all_6_b", """
+    create_async_mv(db, "mv_all_6_b", """
     select
   '测试1' as nm,
   '测试2' as t_nm,
@@ -419,7 +400,7 @@ from
     """)
 
 
-    create_mtmv(db, "mv1_c", """
+    create_async_mv(db, "mv1_c", """
     select
         lo_custkey,
         lo_partkey,
@@ -437,7 +418,7 @@ from
         lo_orderkey,
         lo_orderdate;""")
 
-    create_mtmv(db, "mv2_c", """
+    create_async_mv(db, "mv2_c", """
     select
         lo_custkey,
         lo_orderdate,
@@ -452,7 +433,7 @@ from
         lo_custkey,
         lo_orderdate;""")
 
-    create_mtmv(db, "mv4_c", """
+    create_async_mv(db, "mv4_c", """
     select
         lo_partkey,
         lo_orderdate,
@@ -467,7 +448,7 @@ from
         lo_partkey,
         lo_orderdate;""")
 
-    create_mtmv(db, "mv_all_6_c", """
+    create_async_mv(db, "mv_all_6_c", """
     select
   '测试1' as nm,
   '测试2' as t_nm,
@@ -493,7 +474,7 @@ from
     """)
 
 
-    create_mtmv(db, "mv1_d", """
+    create_async_mv(db, "mv1_d", """
     select
         lo_custkey,
         lo_partkey,
@@ -511,7 +492,7 @@ from
         lo_orderkey,
         lo_orderdate;""")
 
-    create_mtmv(db, "mv2_d", """
+    create_async_mv(db, "mv2_d", """
     select
         lo_custkey,
         lo_orderdate,
@@ -526,7 +507,7 @@ from
         lo_custkey,
         lo_orderdate;""")
 
-    create_mtmv(db, "mv4_d", """
+    create_async_mv(db, "mv4_d", """
     select
         lo_partkey,
         lo_orderdate,
@@ -541,7 +522,7 @@ from
         lo_partkey,
         lo_orderdate;""")
 
-    create_mtmv(db, "mv_all_6_d", """
+    create_async_mv(db, "mv_all_6_d", """
   select
   '测试1' as nm,
   '测试2' as t_nm,
@@ -916,13 +897,7 @@ select * from (
 
     sql "SET enable_materialized_view_rewrite= true"
     sql "SET enable_materialized_view_nest_rewrite = true"
-    explain {
-        sql("${query2_0}")
-        check {result ->
-            result.contains("mv_all_6_a(mv_all_6_a)") && result.contains("mv_all_6_b(mv_all_6_b)")
-            && result.contains("mv_all_6_c(mv_all_6_c)") && result.contains("mv_all_6_d(mv_all_6_d)")
-        }
-    }
+    mv_rewrite_all_success(query2_0, ["mv_all_6_a", "mv_all_6_b", "mv_all_6_c", "mv_all_6_d"])
     // Compare result when before and after mv rewrite
     compare_res(query2_0)
 }

@@ -39,15 +39,19 @@ suite ("bitmapUnionIn") {
 
     sql """insert into bitmapUnionIn values("2020-01-01",1,"a",2);"""
 
-    explain {
-        sql("select * from bitmapUnionIn order by time_col;")
-        contains "(bitmapUnionIn)"
-    }
+    sql "analyze table bitmapUnionIn with sync;"
+    sql """set enable_stats=false;"""
+
+    mv_rewrite_fail("select * from bitmapUnionIn order by time_col;", "bitmapUnionIn_mv")
     order_qt_select_star "select * from bitmapUnionIn order by time_col,tag_id;"
 
-    explain {
-        sql("select user_id, bitmap_union_count(to_bitmap(tag_id)) a from bitmapUnionIn group by user_id having a>1 order by a;")
-        contains "(bitmapUnionIn_mv)"
-    }
+    mv_rewrite_success("select user_id, bitmap_union_count(to_bitmap(tag_id)) a from bitmapUnionIn group by user_id having a>1 order by a;",
+            "bitmapUnionIn_mv")
     order_qt_select_mv "select user_id, bitmap_union_count(to_bitmap(tag_id)) a from bitmapUnionIn group by user_id having a>1 order by a;"
+
+    sql """set enable_stats=true;"""
+    mv_rewrite_fail("select * from bitmapUnionIn order by time_col;", "bitmapUnionIn_mv")
+
+    mv_rewrite_success("select user_id, bitmap_union_count(to_bitmap(tag_id)) a from bitmapUnionIn group by user_id having a>1 order by a;",
+            "bitmapUnionIn_mv")
 }

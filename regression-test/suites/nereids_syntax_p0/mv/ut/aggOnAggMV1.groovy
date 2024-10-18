@@ -44,18 +44,17 @@ suite ("aggOnAggMV1") {
 
     sql """insert into aggOnAggMV1 values("2020-01-01",1,"a",1,1,1);"""
 
-    explain {
-        sql("select * from aggOnAggMV1 order by empid;")
-        contains "(aggOnAggMV1)"
-    }
+    sql "analyze table aggOnAggMV1 with sync;"
+    sql """set enable_stats=false;"""
+
+    mv_rewrite_fail("select * from aggOnAggMV1 order by empid;", "aggOnAggMV1_mv")
     order_qt_select_star "select * from aggOnAggMV1 order by empid;"
 
-
-    explain {
-        sql("select sum(salary), deptno from aggOnAggMV1 group by deptno order by deptno;")
-        contains "(aggOnAggMV1_mv)"
-    }
+    mv_rewrite_success("select sum(salary), deptno from aggOnAggMV1 group by deptno order by deptno;", "aggOnAggMV1_mv")
     order_qt_select_mv "select sum(salary), deptno from aggOnAggMV1 group by deptno order by deptno;"
 
+    sql """set enable_stats=true;"""
+    mv_rewrite_fail("select * from aggOnAggMV1 order by empid;", "aggOnAggMV1_mv")
 
+    mv_rewrite_success("select sum(salary), deptno from aggOnAggMV1 group by deptno order by deptno;", "aggOnAggMV1_mv")
 }

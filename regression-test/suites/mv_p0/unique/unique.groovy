@@ -58,10 +58,10 @@ suite ("unique") {
 
     createMV("create materialized view k31l42 as select k3,length(k1),k2 from u_table;")
     sql "insert into u_table select 300,-3,null,'c';"
-    explain {
-        sql("select k3,length(k1),k2 from u_table order by 1,2,3;")
-        contains "(k31l42)"
-    }
+
+    sql """analyze table u_table with sync;"""
+    sql """set enable_stats=false;"""
+    mv_rewrite_success("select k3,length(k1),k2 from u_table order by 1,2,3;", "k31l42")
     qt_select "select k3,length(k1),k2 from u_table order by 1,2,3;"
 
 
@@ -71,6 +71,9 @@ suite ("unique") {
     }
 
     qt_select_star "select * from u_table order by k1;"
+
+    sql """set enable_stats=true;"""
+    mv_rewrite_success("select k3,length(k1),k2 from u_table order by 1,2,3;", "k31l42")
 
     // todo: support match query
 }

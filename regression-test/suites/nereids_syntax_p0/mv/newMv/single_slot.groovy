@@ -44,6 +44,9 @@ suite ("single_slot") {
     sql "SET experimental_enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
 
+    sql "analyze table single_slot with sync;"
+    sql """set enable_stats=false;"""
+
 
     order_qt_select_star "select * from single_slot order by k1;"
 
@@ -51,5 +54,9 @@ suite ("single_slot") {
         sql("select abs(k1)+1 t,sum(abs(k2+1)) from single_slot group by t order by t;")
         contains "(k1ap2spa)"
     }
+    mv_rewrite_success("select abs(k1)+1 t,sum(abs(k2+1)) from single_slot group by t order by t;", "k1ap2spa")
     order_qt_select_mv "select abs(k1)+1 t,sum(abs(k2+1)) from single_slot group by t order by t;"
+
+    sql """set enable_stats=true;"""
+    mv_rewrite_success("select abs(k1)+1 t,sum(abs(k2+1)) from single_slot group by t order by t;", "k1ap2spa")
 }
