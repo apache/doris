@@ -245,7 +245,7 @@ suite("test_es_query", "p0,external,es,external_docker,external_docker_es") {
 
             List<List<String>> tables6N = sql """show tables"""
             boolean notContainHide = true
-            tables6N.forEach {
+            tables6N.forEach { it ->
                 if (it[0] == ".hide"){
                     notContainHide = false
                 }
@@ -255,7 +255,7 @@ suite("test_es_query", "p0,external,es,external_docker,external_docker_es") {
             sql """switch es6_hide"""
             List<List<String>> tables6Y = sql """show tables"""
             boolean containHide = false
-            tables6Y.forEach {
+            tables6Y.forEach { it ->
                 if (it[0] == ".hide"){
                     containHide = true
                 }
@@ -300,7 +300,7 @@ suite("test_es_query", "p0,external,es,external_docker,external_docker_es") {
 
             List<List<String>> tables7N = sql """show tables"""
             boolean notContainHide7 = true
-            tables7N.forEach {
+            tables7N.forEach { it ->
                 if (it[0] == ".hide"){
                     notContainHide7 = false
                 }
@@ -310,7 +310,7 @@ suite("test_es_query", "p0,external,es,external_docker,external_docker_es") {
             sql """switch es7_hide"""
             List<List<String>> tables7Y = sql """show tables"""
             boolean containeHide7 = false
-            tables7Y.forEach {
+            tables7Y.forEach { it ->
                 if (it[0] == (".hide")){
                     containeHide7 = true
                 }
