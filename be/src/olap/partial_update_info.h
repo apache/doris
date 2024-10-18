@@ -208,6 +208,15 @@ public:
                         vectorized::MutableColumnPtr filter_column, int duplicate_rows,
                         std::string col_name);
 
+    Status convert_pk_columns(vectorized::Block* block, size_t row_pos, size_t num_rows,
+                              std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns);
+    Status convert_seq_column(vectorized::Block* block, size_t row_pos, size_t num_rows,
+                              vectorized::IOlapColumnDataAccessor*& seq_column);
+    Status aggregate_for_flexible_partial_update(
+            vectorized::Block* block, size_t num_rows,
+            const std::vector<RowsetSharedPtr>& specified_rowsets,
+            std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches);
+
 private:
     segment_v2::VerticalSegmentWriter& _writer;
     TabletSchema& _tablet_schema;
