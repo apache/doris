@@ -40,6 +40,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.HashBasedTable;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.LinkedListMultimap;
 import com.google.common.collect.ListMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -130,8 +131,8 @@ public class TabletInvertedIndex {
     public void tabletReport(long backendId, Map<Long, TTablet> backendTablets,
                              Map<Long, Long> backendPartitionsVersion,
                              final HashMap<Long, TStorageMedium> storageMediumMap,
-                             ListMultimap<Long, Long> tabletSyncMap,
-                             ListMultimap<Long, Long> tabletDeleteFromMeta,
+                             Map<Long, ListMultimap<Long, Long>> tabletSyncMap,
+                             Map<Long, ListMultimap<Long, Long>> tabletDeleteFromMeta,
                              Set<Long> tabletFoundInMeta,
                              ListMultimap<TStorageMedium, Long> tabletMigrationMap,
                              Map<Long, Long> partitionVersionSyncMap,
@@ -145,6 +146,8 @@ public class TabletInvertedIndex {
         long feTabletNum = 0;
         long stamp = readLock();
         long start = System.currentTimeMillis();
+        long[] tabletSyncNum = {0};
+        long[] tabletDeleteFromMetaNum = {0};
         try {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("begin to do tablet diff with backend[{}]. num: {}", backendId, backendTablets.size());
@@ -194,7 +197,13 @@ public class TabletInvertedIndex {
                             if (needSync(replica, backendTabletInfo)) {
                                 // need sync
                                 synchronized (tabletSyncMap) {
-                                    tabletSyncMap.put(tabletMeta.getDbId(), tabletId);
+                                    ListMultimap<Long, Long> dbTablets = tabletSyncMap.get(tabletMeta.getDbId());
+                                    if (dbTablets == null) {
+                                        dbTablets = LinkedListMultimap.create();
+                                        tabletSyncMap.put(tabletMeta.getDbId(), dbTablets);
+                                    }
+                                    dbTablets.put(tabletMeta.getTableId(), tabletId);
+                                    tabletSyncNum[0]++;
                                 }
                             }
 
@@ -281,7 +290,13 @@ public class TabletInvertedIndex {
                                 LOG.debug("backend[{}] does not report tablet[{}-{}]", backendId, tabletId, tabletMeta);
                             }
                             synchronized (tabletDeleteFromMeta) {
-                                tabletDeleteFromMeta.put(tabletMeta.getDbId(), tabletId);
+                                ListMultimap<Long, Long> dbTablets = tabletDeleteFromMeta.get(tabletMeta.getDbId());
+                                if (dbTablets == null) {
+                                    dbTablets = LinkedListMultimap.create();
+                                    tabletDeleteFromMeta.put(tabletMeta.getDbId(), dbTablets);
+                                }
+                                dbTablets.put(tabletMeta.getTableId(), tabletId);
+                                tabletDeleteFromMetaNum[0]++;
                             }
                         }
                     });
@@ -306,8 +321,8 @@ public class TabletInvertedIndex {
                         + " metaDel: {}. foundInMeta: {}. migration: {}. backend partition num: {}, backend need "
                         + "update: {}. found invalid transactions {}. found republish "
                         + "transactions {}. tabletToUpdate: {}. need recovery: {}. cost: {} ms",
-                backendId, feTabletNum, backendTablets.size(), tabletSyncMap.size(),
-                tabletDeleteFromMeta.size(), tabletFoundInMeta.size(), tabletMigrationMap.size(),
+                backendId, feTabletNum, backendTablets.size(), tabletSyncNum[0],
+                tabletDeleteFromMetaNum[0], tabletFoundInMeta.size(), tabletMigrationMap.size(),
                 backendPartitionsVersion.size(), partitionVersionSyncMap.size(),
                 transactionsToClear.size(), transactionsToPublish.size(), tabletToUpdate.size(),
                 tabletRecoveryMap.size(), (end - start));

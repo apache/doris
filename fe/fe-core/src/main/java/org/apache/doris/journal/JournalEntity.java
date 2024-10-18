@@ -344,6 +344,7 @@ public class JournalEntity implements Writable {
                 isRead = true;
                 break;
             }
+            case OperationType.OP_MODIFY_REPLICA:
             case OperationType.OP_ADD_REPLICA:
             case OperationType.OP_UPDATE_REPLICA:
             case OperationType.OP_DELETE_REPLICA:

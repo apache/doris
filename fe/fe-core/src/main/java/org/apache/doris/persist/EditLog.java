@@ -395,11 +395,13 @@ public class EditLog {
                     deleteHandler.replayDelete(info, env);
                     break;
                 }
+                // deprecated, use OP_MODIFY_REPLICA instead
                 case OperationType.OP_ADD_REPLICA: {
                     ReplicaPersistInfo info = (ReplicaPersistInfo) journal.getData();
                     env.replayAddReplica(info);
                     break;
                 }
+                // deprecated, use OP_MODIFY_REPLICA instead
                 case OperationType.OP_UPDATE_REPLICA: {
                     ReplicaPersistInfo info = (ReplicaPersistInfo) journal.getData();
                     env.replayUpdateReplica(info);
@@ -410,9 +412,15 @@ public class EditLog {
                     ((CloudEnv) env).getCacheHotspotMgr().replayCloudWarmUpJob(cloudWarmUpJob);
                     break;
                 }
+                // deprecated, use OP_MODIFY_REPLICA instead
                 case OperationType.OP_DELETE_REPLICA: {
                     ReplicaPersistInfo info = (ReplicaPersistInfo) journal.getData();
                     env.replayDeleteReplica(info);
+                    break;
+                }
+                case OperationType.OP_MODIFY_REPLICA: {
+                    ReplicaPersistInfo info = (ReplicaPersistInfo) journal.getData();
+                    env.replayModifyReplica(info);
                     break;
                 }
                 case OperationType.OP_ADD_BACKEND: {
@@ -1269,14 +1277,22 @@ public class EditLog {
     }
 
     // NOTICE: No guarantee atomicity of entries
-    private <T extends Writable> void logEdit(short op, List<T> entries) throws IOException {
+    private <T extends Writable> void logEdit(short op, List<T> entries) {
+        if (entries.isEmpty()) {
+            return;
+        }
         int itemNum = Math.max(1, Math.min(Config.batch_edit_log_max_item_num, entries.size()));
         JournalBatch batch = new JournalBatch(itemNum);
         long batchCount = 0;
         for (T entry : entries) {
             if (batch.getJournalEntities().size() >= Config.batch_edit_log_max_item_num
                     || batch.getSize() >= Config.batch_edit_log_max_byte_size) {
-                journal.write(batch);
+                try {
+                    journal.write(batch);
+                } catch (Throwable t) {
+                    LOG.error("Fatal Error : write stream Exception", t);
+                    System.exit(-1);
+                }
                 batch = new JournalBatch(itemNum);
 
                 // take a rest
@@ -1291,10 +1307,21 @@ public class EditLog {
                     }
                 }
             }
-            batch.addJournal(op, entry);
+            try {
+                batch.addJournal(op, entry);
+            } catch (Throwable t) {
+                LOG.error("Fatal Error : edit log batch add entry failed", t);
+                System.exit(-1);
+            }
+
         }
         if (!batch.getJournalEntities().isEmpty()) {
-            journal.write(batch);
+            try {
+                journal.write(batch);
+            } catch (Throwable t) {
+                LOG.error("Fatal Error : write stream Exception", t);
+                System.exit(-1);
+            }
         }
     }
 
@@ -1500,16 +1527,16 @@ public class EditLog {
         logEdit(OperationType.OP_FINISH_DELETE, info);
     }
 
-    public void logAddReplica(ReplicaPersistInfo info) {
-        logEdit(OperationType.OP_ADD_REPLICA, info);
+    public void logModifyReplica(ReplicaPersistInfo info) {
+        logEdit(OperationType.OP_MODIFY_REPLICA, info);
     }
 
-    public void logUpdateReplica(ReplicaPersistInfo info) {
-        logEdit(OperationType.OP_UPDATE_REPLICA, info);
-    }
-
-    public void logDeleteReplica(ReplicaPersistInfo info) {
-        logEdit(OperationType.OP_DELETE_REPLICA, info);
+    public void logModifyReplicas(List<ReplicaPersistInfo> replicas) {
+        long start = System.currentTimeMillis();
+        logEdit(OperationType.OP_MODIFY_REPLICA, replicas);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("log modify {} replicas. cost: {} ms", replicas.size(), (System.currentTimeMillis() - start));
+        }
     }
 
     public void logTimestamp(Timestamp stamp) {
@@ -1612,7 +1639,7 @@ public class EditLog {
         logEdit(OperationType.OP_EXPORT_CREATE, job);
     }
 
-    public void logUpdateCloudReplicas(List<UpdateCloudReplicaInfo> infos) throws IOException {
+    public void logUpdateCloudReplicas(List<UpdateCloudReplicaInfo> infos) {
         long start = System.currentTimeMillis();
         logEdit(OperationType.OP_UPDATE_CLOUD_REPLICA, infos);
         if (LOG.isDebugEnabled()) {
@@ -1726,11 +1753,6 @@ public class EditLog {
 
     public void logDropEncryptKey(EncryptKeySearchDesc desc) {
         logEdit(OperationType.OP_DROP_ENCRYPTKEY, desc);
-    }
-
-    @Deprecated
-    public void logBackendTabletsInfo(BackendTabletsInfo backendTabletsInfo) {
-        logEdit(OperationType.OP_BACKEND_TABLETS_INFO, backendTabletsInfo);
     }
 
     public void logBackendReplicasInfo(BackendReplicasInfo backendReplicasInfo) {
