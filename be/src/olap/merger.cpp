@@ -243,7 +243,7 @@ Status Merger::vertical_compact_one_group(
         CompactionSampleInfo* sample_info) {
     // build tablet reader
     VLOG_NOTICE << "vertical compact one group, max_rows_per_segment=" << max_rows_per_segment;
-    vectorized::VerticalBlockReader reader(row_source_buf);
+    vectorized::VerticalBlockReader reader(row_source_buf, true);
     TabletReader::ReaderParams reader_params;
     reader_params.is_key_column_group = is_key;
     reader_params.key_group_cluster_key_idxes = key_group_cluster_key_idxes;
