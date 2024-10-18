@@ -39,9 +39,14 @@ suite("test_mysql_jdbc_catalog_no_pool", "p0,external,mysql,external_docker,exte
         );"""
 
         sql """ switch ${catalog_name} """
-
         sql """use doris_test;"""
+
         qt_mysql_all_types """select * from all_types order by tinyint_u;"""
+
+        sql """refresh catalog ${catalog_name}"""
+
+        qt_mysql_all_types_refresh """select * from all_types order by tinyint_u;"""
+
         sql """ drop catalog if exists ${catalog_name} """
     }
 }

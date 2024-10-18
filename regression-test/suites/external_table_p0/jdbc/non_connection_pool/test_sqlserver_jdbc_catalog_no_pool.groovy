@@ -42,6 +42,11 @@ suite("test_sqlserver_jdbc_catalog", "p0,external,sqlserver,external_docker,exte
         sql """ use ${ex_db_name} """
 
         order_qt_all_type """ select * from all_type order by id; """
+
+        sql """refresh catalog ${catalog_name}"""
+
+        order_qt_all_type_refresh """ select * from all_type order by id; """
+
         sql """ drop catalog if exists ${catalog_name} """
     }
 }

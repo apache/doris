@@ -46,6 +46,10 @@ suite("test_pg_jdbc_catalog_no_pool", "p0,external,pg,external_docker,external_d
         // test select all types
         order_qt_select_all_types """select * from ${test_all_types}; """
 
+        sql """refresh catalog ${catalog_name}"""
+
+        order_qt_select_all_types_refresh """select * from ${test_all_types}; """
+
         sql """ drop catalog if exists ${catalog_name} """
     }
 }

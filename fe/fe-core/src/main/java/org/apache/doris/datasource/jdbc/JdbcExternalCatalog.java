@@ -117,6 +117,20 @@ public class JdbcExternalCatalog extends ExternalCatalog {
     }
 
     @Override
+    public void tryModifyCatalogProps(Map<String, String> props) {
+        // It is forbidden to modify the enable_connection_pool attribute and driver_url attribute of jdbc catalog
+        if (props.containsKey(JdbcResource.ENABLE_CONNECTION_POOL)) {
+            throw new IllegalArgumentException("Can not modify enable_connection_pool property of jdbc catalog,"
+                    + "please re-create the catalog");
+        }
+        if (props.containsKey(JdbcResource.DRIVER_URL)) {
+            throw new IllegalArgumentException("Can not modify driver_url property of jdbc catalog"
+                    + "please re-create the catalog");
+        }
+        super.tryModifyCatalogProps(props);
+    }
+
+    @Override
     public void onRefresh(boolean invalidCache) {
         super.onRefresh(invalidCache);
         if (jdbcClient != null) {
@@ -124,10 +138,10 @@ public class JdbcExternalCatalog extends ExternalCatalog {
         }
     }
 
-    // @Override
-    // public void onRefreshCache(boolean invalidCache) {
-    //     // onRefresh(invalidCache);
-    // }
+    @Override
+    public void onRefreshCache(boolean invalidCache) {
+        onRefresh(invalidCache);
+    }
 
     @Override
     public void onClose() {

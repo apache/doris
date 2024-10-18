@@ -47,6 +47,10 @@ suite("test_oracle_jdbc_catalog_no_pool", "p0,external,oracle,external_docker,ex
         // test select all types
         order_qt_select_all_types """select * from ${test_all_types}; """
 
+        sql """refresh catalog ${catalog_name}"""
+
+        order_qt_select_all_types_refresh """select * from ${test_all_types}; """
+
         sql """drop catalog if exists ${catalog_name} """
 
         // test for ojdbc6
@@ -62,6 +66,10 @@ suite("test_oracle_jdbc_catalog_no_pool", "p0,external,oracle,external_docker,ex
         );"""
         sql """ use oracle_ojdbc6_no_pool.DORIS_TEST; """
         qt_query_ojdbc6_all_types """ select * from oracle_ojdbc6_no_pool.DORIS_TEST.TEST_ALL_TYPES order by 1; """
+
+        sql """refresh catalog oracle_ojdbc6_no_pool;"""
+
+        qt_query_ojdbc6_all_types_refresh """ select * from oracle_ojdbc6_no_pool.DORIS_TEST.TEST_ALL_TYPES order by 1; """
 
         sql """drop catalog if exists oracle_ojdbc6_no_pool; """
 

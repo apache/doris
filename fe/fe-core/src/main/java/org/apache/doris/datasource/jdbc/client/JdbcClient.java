@@ -163,8 +163,7 @@ public abstract class JdbcClient {
     private void initializeClassLoader(JdbcClientConfig config) {
         try {
             URL[] urls = {new URL(JdbcResource.getFullDriverUrl(config.getDriverUrl()))};
-            ClassLoader parent = getClass().getClassLoader();
-            this.classLoader = URLClassLoader.newInstance(urls, parent);
+            this.classLoader = URLClassLoader.newInstance(urls);
         } catch (MalformedURLException e) {
             throw new RuntimeException("Error loading JDBC driver.", e);
         }
@@ -207,7 +206,11 @@ public abstract class JdbcClient {
             Connection connection = driverInstance.connect(SecurityChecker.getInstance().getSafeJdbcUrl(jdbcUrl), info);
 
             if (connection == null) {
-                throw new JdbcClientException("Failed to establish connection. Driver returned null.");
+                throw new SQLException("Failed to establish a connection. The JDBC driver returned null. "
+                        + "Please check if the JDBC URL is correct: "
+                        + jdbcUrl
+                        + ". Ensure that the URL format and parameters are valid for the driver: "
+                        + driverInstance.getClass().getName());
             }
 
             return connection;

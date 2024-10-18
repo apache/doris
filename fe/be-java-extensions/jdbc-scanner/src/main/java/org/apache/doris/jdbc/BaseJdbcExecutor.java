@@ -333,14 +333,8 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
                         }
                     }
                 }
-
-                long start = System.currentTimeMillis();
                 conn = hikariDataSource.getConnection();
-                LOG.info("get connection with pool [" + (config.getJdbcUrl() + config.getJdbcUser()) + "] cost: " + (
-                        System.currentTimeMillis() - start)
-                        + " ms");
             } else {
-                long start = System.currentTimeMillis();
                 Class<?> driverClass = Class.forName(config.getJdbcDriverClass(), true, classLoader);
                 Driver driverInstance = (Driver) driverClass.getDeclaredConstructor().newInstance();
 
@@ -349,13 +343,12 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
                 info.put("password", config.getJdbcPassword());
 
                 conn = driverInstance.connect(SecurityChecker.getInstance().getSafeJdbcUrl(config.getJdbcUrl()), info);
-
-                LOG.info("get connection without pool [" + (config.getJdbcUrl() + config.getJdbcUser()) + "] cost: " + (
-                        System.currentTimeMillis() - start)
-                        + " ms");
-
                 if (conn == null) {
-                    throw new JdbcExecutorException("Failed to establish connection. Driver returned null.");
+                    throw new SQLException("Failed to establish a connection. The JDBC driver returned null. "
+                            + "Please check if the JDBC URL is correct: "
+                            + config.getJdbcUrl()
+                            + ". Ensure that the URL format and parameters are valid for the driver: "
+                            + driverInstance.getClass().getName());
                 }
             }
 

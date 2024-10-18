@@ -41,6 +41,11 @@ suite("test_clickhouse_jdbc_catalog_no_pool", "p0,external,clickhouse,external_d
         sql """ use ${ex_db_name} """
 
         order_qt_type  """ select * from type order by k1; """
+
+        sql """refresh catalog ${catalog_name}"""
+
+        order_qt_type_refresh """ select * from type order by k1; """
+
         sql """ drop catalog if exists ${catalog_name} """
     }
 }
