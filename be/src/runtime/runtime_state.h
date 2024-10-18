@@ -392,6 +392,10 @@ public:
         return _query_options.__isset.skip_delete_bitmap && _query_options.skip_delete_bitmap;
     }
 
+    bool query_mow_in_mor() const {
+        return _query_options.__isset.query_mow_in_mor && _query_options.query_mow_in_mor;
+    }
+
     bool skip_missing_version() const {
         return _query_options.__isset.skip_missing_version && _query_options.skip_missing_version;
     }

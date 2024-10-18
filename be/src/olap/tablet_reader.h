@@ -148,6 +148,7 @@ public:
         std::vector<RowSetSplits> rs_splits;
         // For unique key table with merge-on-write
         DeleteBitmap* delete_bitmap = nullptr;
+        bool query_mow_in_mor = false;
 
         // return_columns is init from query schema
         std::vector<uint32_t> return_columns;

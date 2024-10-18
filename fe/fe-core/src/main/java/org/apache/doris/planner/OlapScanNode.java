@@ -1805,7 +1805,8 @@ public class OlapScanNode extends ScanNode {
             Expr conjunct = new BinaryPredicate(BinaryPredicate.Operator.EQ, deleteSignSlot, new IntLiteral(0));
             conjunct.analyze(analyzer);
             conjuncts.add(conjunct);
-            if (!olapTable.getEnableUniqueKeyMergeOnWrite()) {
+            if (!olapTable.getEnableUniqueKeyMergeOnWrite() || ConnectContext.get()
+                    .getSessionVariable().queryMowInMor) {
                 closePreAggregation(Column.DELETE_SIGN + " is used as conjuncts.");
             }
         }

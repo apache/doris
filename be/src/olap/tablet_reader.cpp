@@ -207,8 +207,12 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
         }
         if (_tablet_schema->keys_type() == UNIQUE_KEYS &&
             _tablet->enable_unique_key_merge_on_write()) {
-            // unique keys with merge on write, no need to merge sort keys in rowset
-            need_ordered_result = false;
+            if (read_params.query_mow_in_mor) {
+                need_ordered_result = true;
+            } else {
+                // unique keys with merge on write, no need to merge sort keys in rowset
+                need_ordered_result = false;
+            }
         }
         if (_aggregation) {
             // compute engine will aggregate rows with the same key,
@@ -252,6 +256,7 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
     _reader_context.is_unique = tablet()->keys_type() == UNIQUE_KEYS;
     _reader_context.merged_rows = &_merged_rows;
     _reader_context.delete_bitmap = read_params.delete_bitmap;
+    _reader_context.query_mow_in_mor = read_params.query_mow_in_mor;
     _reader_context.enable_unique_key_merge_on_write = tablet()->enable_unique_key_merge_on_write();
     _reader_context.record_rowids = read_params.record_rowids;
     _reader_context.is_key_column_group = read_params.is_key_column_group;
