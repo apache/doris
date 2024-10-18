@@ -50,6 +50,7 @@ void register_aggregate_function_approx_count_distinct(AggregateFunctionSimpleFa
 void register_aggregate_function_group_concat(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_percentile(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_window_funnel(AggregateFunctionSimpleFactory& factory);
+void register_aggregate_function_window_funnel_old(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_retention(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_percentile_approx(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_orthogonal_bitmap(AggregateFunctionSimpleFactory& factory);
@@ -57,8 +58,6 @@ void register_aggregate_function_collect_list(AggregateFunctionSimpleFactory& fa
 void register_aggregate_function_sequence_match(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_avg_weighted(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_histogram(AggregateFunctionSimpleFactory& factory);
-void register_aggregate_function_count_old(AggregateFunctionSimpleFactory& factory);
-void register_aggregate_function_sum_old(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_map_agg(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_bitmap_agg(AggregateFunctionSimpleFactory& factory);
 
@@ -72,8 +71,6 @@ AggregateFunctionSimpleFactory& AggregateFunctionSimpleFactory::instance() {
         register_aggregate_function_max_by(instance);
         register_aggregate_function_avg(instance);
         register_aggregate_function_count(instance);
-        register_aggregate_function_count_old(instance);
-        register_aggregate_function_sum_old(instance);
         register_aggregate_function_uniq(instance);
         register_aggregate_function_bit(instance);
         register_aggregate_function_bitmap(instance);
@@ -89,6 +86,7 @@ AggregateFunctionSimpleFactory& AggregateFunctionSimpleFactory::instance() {
         register_aggregate_function_percentile(instance);
         register_aggregate_function_percentile_approx(instance);
         register_aggregate_function_window_funnel(instance);
+        register_aggregate_function_window_funnel_old(instance);
         register_aggregate_function_retention(instance);
         register_aggregate_function_orthogonal_bitmap(instance);
         register_aggregate_function_collect_list(instance);
