@@ -858,6 +858,62 @@ Status OrcReader::set_fill_columns(
         _lazy_read_ctx.can_lazy_read = false;
     }
 
+    _row_reader_options.range(_range_start_offset, _range_size);
+    _row_reader_options.setTimezoneName(_ctz == "CST" ? "Asia/Shanghai" : _ctz);
+    _row_reader_options.include(_read_cols);
+    _row_reader_options.setEnableLazyDecoding(true);
+
+    uint64_t number_of_stripes = _reader->getNumberOfStripes();
+    auto allStripesNeeded = _reader->getNeedReadStripes(_row_reader_options);
+
+    int64_t range_end_offset = _range_start_offset + _range_size;
+
+    int64_t orc_tiny_stripe_threshold = 8L * 1024L * 1024L;
+    int64_t orc_once_max_read_size = 8L * 1024L * 1024L;
+    int64_t orc_max_merge_distance = 1L * 1024L * 1024L;
+
+    if (_state != nullptr) {
+        orc_tiny_stripe_threshold = _state->query_options().orc_tiny_stripe_threshold;
+        orc_once_max_read_size = _state->query_options().orc_once_max_read_size;
+        orc_max_merge_distance = _state->query_options().orc_max_merge_distance;
+    }
+
+    bool all_tiny_stripes = true;
+    std::vector<io::PrefetchRange> tiny_stripe_ranges;
+
+    for (uint64_t i = 0; i < number_of_stripes; i++) {
+        std::unique_ptr<orc::StripeInformation> strip_info = _reader->getStripe(i);
+        uint64_t strip_start_offset = strip_info->getOffset();
+        uint64_t strip_end_offset = strip_start_offset + strip_info->getLength();
+
+        if (strip_start_offset >= range_end_offset || strip_end_offset < _range_start_offset ||
+            !allStripesNeeded[i]) {
+            continue;
+        }
+        if (strip_info->getLength() > orc_tiny_stripe_threshold) {
+            all_tiny_stripes = false;
+            break;
+        }
+
+        tiny_stripe_ranges.emplace_back(strip_start_offset, strip_end_offset);
+    }
+    if (all_tiny_stripes && number_of_stripes > 0) {
+        std::vector<io::PrefetchRange> prefetch_merge_ranges =
+                io::PrefetchRange::mergeAdjacentSeqRanges(
+                        tiny_stripe_ranges, orc_max_merge_distance, orc_once_max_read_size);
+        auto range_finder =
+                std::make_shared<io::LinearProbeRangeFinder>(std::move(prefetch_merge_ranges));
+
+        auto* orcInputStreamPtr = static_cast<ORCFileInputStream*>(_reader->getStream());
+        orcInputStreamPtr->set_all_tiny_stripes();
+        auto& orc_file_reader = orcInputStreamPtr->get_file_reader();
+        orc_file_reader->collect_profile_before_close();
+        auto orc_inner_reader = orcInputStreamPtr->get_inner_reader();
+        orc_file_reader = std::make_shared<io::RangeCacheFileReader>(_profile, orc_inner_reader,
+                                                                     range_finder);
+        _lazy_read_ctx.can_lazy_read = false;
+    }
+
     if (!_lazy_read_ctx.can_lazy_read) {
         for (auto& kv : _lazy_read_ctx.predicate_partition_columns) {
             _lazy_read_ctx.partition_columns.emplace(kv.first, kv.second);
@@ -868,17 +924,12 @@ Status OrcReader::set_fill_columns(
     }
 
     _fill_all_columns = true;
-
-    // create orc row reader
     try {
-        _row_reader_options.range(_range_start_offset, _range_size);
-        _row_reader_options.setTimezoneName(_ctz == "CST" ? "Asia/Shanghai" : _ctz);
-        _row_reader_options.include(_read_cols);
+        // create orc row reader
         if (_lazy_read_ctx.can_lazy_read) {
             _row_reader_options.filter(_lazy_read_ctx.predicate_orc_columns);
             _orc_filter = std::unique_ptr<ORCFilterImpl>(new ORCFilterImpl(this));
         }
-        _row_reader_options.setEnableLazyDecoding(true);
         if (!_lazy_read_ctx.conjuncts.empty()) {
             _string_dict_filter = std::make_unique<StringDictFilterImpl>(this);
         }
@@ -2409,6 +2460,9 @@ MutableColumnPtr OrcReader::_convert_dict_column_to_string_column(
 void ORCFileInputStream::beforeReadStripe(
         std::unique_ptr<orc::StripeInformation> current_strip_information,
         std::vector<bool> selected_columns) {
+    if (_is_all_tiny_stripes) {
+        return;
+    }
     if (_file_reader != nullptr) {
         _file_reader->collect_profile_before_close();
     }
