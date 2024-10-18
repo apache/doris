@@ -447,7 +447,12 @@ protected:
                     int64_t c1 = j * rows_per_segment + n;
                     // There are 500 rows of data overlap between rowsets
                     if (i > 0) {
-                        c1 += i * num_segments * rows_per_segment - 500;
+                        if (is_overlap) {
+                            // There are 500 rows of data overlap between rowsets
+                            c1 -= 500;
+                        } else {
+                            ++c1;
+                        }
                     }
                     if (is_overlap && j > 0) {
                         // There are 10 rows of data overlap between segments
