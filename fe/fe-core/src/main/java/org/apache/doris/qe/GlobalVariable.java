@@ -35,6 +35,7 @@ public final class GlobalVariable {
 
     public static final int VARIABLE_VERSION_0 = 0;
     public static final int VARIABLE_VERSION_100 = 100;
+    public static final int VARIABLE_VERSION_101 = 101;
     public static final int VARIABLE_VERSION_200 = 200;
     public static final int VARIABLE_VERSION_300 = 300;
     public static final int CURRENT_VARIABLE_VERSION = VARIABLE_VERSION_300;
