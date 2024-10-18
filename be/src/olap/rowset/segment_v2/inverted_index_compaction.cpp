@@ -40,8 +40,9 @@ Status compact_column(int64_t index_id, std::vector<lucene::store::Directory*>& 
                     "debug point: index compaction error");
         }
     })
-    lucene::store::Directory* dir =
-            DorisFSDirectoryFactory::getDirectory(io::global_local_filesystem(), tmp_path.data());
+    bool can_use_ram_dir = true;
+    lucene::store::Directory* dir = DorisFSDirectoryFactory::getDirectory(
+            io::global_local_filesystem(), tmp_path.data(), can_use_ram_dir);
     lucene::analysis::SimpleAnalyzer<char> analyzer;
     auto* index_writer = _CLNEW lucene::index::IndexWriter(dir, &analyzer, true /* create */,
                                                            true /* closeDirOnShutdown */);
@@ -70,8 +71,10 @@ Status compact_column(int64_t index_id, std::vector<lucene::store::Directory*>& 
         }
     }
 
-    // delete temporary segment_path
-    std::ignore = io::global_local_filesystem()->delete_directory(tmp_path.data());
+    // delete temporary segment_path, only when inverted_index_ram_dir_enable is false
+    if (!config::inverted_index_ram_dir_enable) {
+        std::ignore = io::global_local_filesystem()->delete_directory(tmp_path.data());
+    }
     return Status::OK();
 }
 } // namespace doris::segment_v2
