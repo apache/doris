@@ -313,7 +313,8 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
                             ds.setKeepaliveTime(config.getConnectionPoolMaxLifeTime() / 5L); // default 6 min
                         }
                         hikariDataSource = ds;
-                        JdbcDataSource.getDataSource().putSource(hikariDataSourceKey, hikariDataSource);
+                        JdbcDataSource.getDataSource().putSource(config.getCatalogId(),
+                                hikariDataSourceKey, hikariDataSource);
                         LOG.info("JdbcClient set"
                                 + " ConnectionPoolMinSize = " + config.getConnectionPoolMinSize()
                                 + ", ConnectionPoolMaxSize = " + config.getConnectionPoolMaxSize()
