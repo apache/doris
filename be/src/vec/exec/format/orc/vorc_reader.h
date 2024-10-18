@@ -34,6 +34,7 @@
 #include "common/status.h"
 #include "exec/olap_common.h"
 #include "io/file_factory.h"
+#include "io/fs/buffered_reader.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_reader_writer_fwd.h"
 #include "olap/olap_common.h"
@@ -587,6 +588,7 @@ private:
     std::unique_ptr<orc::Reader> _reader;
     std::unique_ptr<orc::RowReader> _row_reader;
     std::unique_ptr<ORCFilterImpl> _orc_filter;
+    orc::ReaderOptions _reader_options;
     orc::RowReaderOptions _row_reader_options;
 
     std::shared_ptr<io::FileSystem> _file_system;
@@ -642,7 +644,11 @@ public:
               _io_ctx(io_ctx),
               _profile(profile) {}
 
-    ~ORCFileInputStream() override = default;
+    ~ORCFileInputStream() override {
+        if (_file_reader != nullptr) {
+            _file_reader->collect_profile_before_close();
+        }
+    }
 
     uint64_t getLength() const override { return _file_reader->size(); }
 
@@ -655,11 +661,23 @@ public:
     void beforeReadStripe(std::unique_ptr<orc::StripeInformation> current_strip_information,
                           std::vector<bool> selected_columns) override;
 
+    void setPreFetchRanges(std::vector<io::PrefetchRange> prefetch_ranges, size_t total_io_size) {
+        // !prefetch_ranges.empty() To prevent the entire orc file  be filtered.
+        if (!prefetch_ranges.empty() &&
+            total_io_size / prefetch_ranges.size() < io::MergeRangeFileReader::SMALL_IO) {
+            // The underlying page reader will prefetch data in column.
+            _file_reader.reset(
+                    new io::MergeRangeFileReader(_profile, _inner_reader, prefetch_ranges));
+        } else {
+            _file_reader = _inner_reader;
+        }
+    }
+
 protected:
     void _collect_profile_at_runtime() override {};
     void _collect_profile_before_close() override;
 
-private:
+public:
     const std::string& _file_name;
     io::FileReaderSPtr _inner_reader;
     io::FileReaderSPtr _file_reader;
@@ -667,6 +685,49 @@ private:
     OrcReader::Statistics* _statistics = nullptr;
     const io::IOContext* _io_ctx = nullptr;
     RuntimeProfile* _profile = nullptr;
+    bool _is_tiny_stripes_range = false;
+};
+
+class LinearProbeRangeFinder : public io::RegionFinder {
+public:
+    LinearProbeRangeFinder(std::vector<io::DiskRange> diskRanges)
+            : diskRanges(std::move(diskRanges)), index(0) {}
+
+    io::DiskRange getRangeFor(int64_t desiredOffset) override {
+        while (index < diskRanges.size()) {
+            io::DiskRange& range = diskRanges[index];
+            if (range.getEnd() > desiredOffset) {
+                if (range.getOffset() > desiredOffset) {
+                    throw std::invalid_argument("Invalid desiredOffset");
+                }
+                return range;
+            }
+            ++index;
+        }
+        throw std::invalid_argument("Invalid desiredOffset");
+    }
+
+    static std::shared_ptr<LinearProbeRangeFinder> createTinyStripesRangeFinder(
+            const std::vector<orc::StripeInformation>& stripes, size_t maxMergeDistance,
+            size_t tinyStripeThreshold) {
+        if (stripes.empty()) {
+            return std::make_shared<LinearProbeRangeFinder>(std::vector<io::DiskRange>());
+        }
+
+        std::vector<io::DiskRange> scratchDiskRanges;
+        for (const auto& stripe : stripes) {
+            scratchDiskRanges.emplace_back(stripe.getOffset(), stripe.getLength());
+        }
+
+        std::vector<io::DiskRange> diskRanges = io::DiskRange::mergeAdjacentDiskRanges(
+                scratchDiskRanges, maxMergeDistance, tinyStripeThreshold);
+
+        return std::make_shared<LinearProbeRangeFinder>(diskRanges);
+    }
+
+private:
+    std::vector<io::DiskRange> diskRanges;
+    size_t index;
 };
 
 } // namespace doris::vectorized
