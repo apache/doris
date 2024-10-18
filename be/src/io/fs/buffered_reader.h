@@ -53,6 +53,121 @@ struct PrefetchRange {
             : start_offset(start_offset), end_offset(end_offset) {}
 
     PrefetchRange() : start_offset(0), end_offset(0) {}
+
+    PrefetchRange span(const PrefetchRange& other) const {
+        return {std::min(start_offset, other.end_offset), std::max(start_offset, other.end_offset)};
+    }
+    PrefetchRange seq_span(const PrefetchRange& other) const {
+        return {start_offset, other.end_offset};
+    }
+
+    //Range needs to be sorted.
+    static std::vector<PrefetchRange> mergeAdjacentSeqRanges(
+            const std::vector<PrefetchRange>& seq_ranges, int64_t max_merge_distance_bytes,
+            int64_t max_read_size_bytes) {
+        if (seq_ranges.empty()) {
+            return {};
+        }
+        // Merge overlapping ranges
+        std::vector<PrefetchRange> result;
+        PrefetchRange last = seq_ranges.front();
+        for (size_t i = 1; i < seq_ranges.size(); ++i) {
+            PrefetchRange current = seq_ranges[i];
+            PrefetchRange merged = last.seq_span(current);
+            if (merged.end_offset <= max_read_size_bytes + merged.start_offset &&
+                last.end_offset + max_merge_distance_bytes >= current.start_offset) {
+                last = merged;
+            } else {
+                result.push_back(last);
+                last = current;
+            }
+        }
+        result.push_back(last);
+        return result;
+    }
+};
+
+class RangeFinder {
+public:
+    virtual ~RangeFinder() = default;
+    virtual Status get_range_for(int64_t desiredOffset, io::PrefetchRange& result_range) = 0;
+    virtual size_t get_max_range_size() const = 0;
+};
+
+class LinearProbeRangeFinder : public RangeFinder {
+public:
+    LinearProbeRangeFinder(std::vector<io::PrefetchRange>&& ranges) : _ranges(std::move(ranges)) {}
+
+    Status get_range_for(int64_t desiredOffset, io::PrefetchRange& result_range) override;
+
+    size_t get_max_range_size() const override {
+        size_t max_range_size = 0;
+        for (const auto& range : _ranges) {
+            max_range_size = std::max(max_range_size, range.end_offset - range.start_offset);
+        }
+        return max_range_size;
+    }
+
+    ~LinearProbeRangeFinder() override = default;
+
+private:
+    std::vector<io::PrefetchRange> _ranges;
+    size_t index {0};
+};
+
+class RangeCacheFileReader : public io::FileReader {
+    struct RangeCacheReaderStatistics {
+        int64_t request_io = 0;
+        int64_t request_bytes = 0;
+        int64_t request_time = 0;
+        int64_t read_to_cache_time = 0;
+        int64_t cache_refresh_count = 0;
+        int64_t read_to_cache_bytes = 0;
+    };
+
+public:
+    RangeCacheFileReader(RuntimeProfile* profile, io::FileReaderSPtr inner_reader,
+                         std::shared_ptr<RangeFinder> range_finder);
+
+    ~RangeCacheFileReader() override = default;
+
+    Status close() override {
+        if (!_closed) {
+            _closed = true;
+        }
+        return Status::OK();
+    }
+
+    const io::Path& path() const override { return _inner_reader->path(); }
+
+    size_t size() const override { return _size; }
+
+    bool closed() const override { return _closed; }
+
+protected:
+    Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
+                        const IOContext* io_ctx) override;
+
+    void _collect_profile_before_close() override;
+
+private:
+    RuntimeProfile* _profile = nullptr;
+    io::FileReaderSPtr _inner_reader;
+    std::shared_ptr<RangeFinder> _range_finder;
+
+    std::unique_ptr<char[]> _cache;
+    size_t _current_start_offset;
+
+    size_t _size;
+    bool _closed = false;
+
+    RuntimeProfile::Counter* _request_io = nullptr;
+    RuntimeProfile::Counter* _request_bytes = nullptr;
+    RuntimeProfile::Counter* _request_time = nullptr;
+    RuntimeProfile::Counter* _read_to_cache_time = nullptr;
+    RuntimeProfile::Counter* _cache_refresh_count = nullptr;
+    RuntimeProfile::Counter* _read_to_cache_bytes = nullptr;
+    RangeCacheReaderStatistics _cache_statistics;
 };
 
 /**
