@@ -547,7 +547,7 @@ suite("txn_insert") {
                     PROPERTIES (
                 """ + (i == 2 ? "\"function_column.sequence_col\"='score', " : "") +
                         """
-                        "enable_unique_key_merge_on_write" = "false",
+                        "enable_unique_key_merge_on_write" = "true",
                         "replication_num" = "1"
                     );
                 """
@@ -726,7 +726,7 @@ suite("txn_insert") {
                     UNIQUE KEY(`id`)
                     DISTRIBUTED BY HASH(`id`) BUCKETS 1
                     PROPERTIES (
-                        "enable_unique_key_merge_on_write" = "false",
+                        "enable_unique_key_merge_on_write" = "true",
                         "enable_mow_light_delete" = "false",
                         "replication_num" = "1"
                     );

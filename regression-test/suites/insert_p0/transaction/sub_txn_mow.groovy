@@ -16,9 +16,10 @@
 // under the License.
 
 suite("sub_txn_mow") {
-    logger.info("mow tables with sub txn visible is not supported")
-    return
-
+    if (isCloudMode()) {
+        logger.info("txn load for mow tables is not supported in cloud mode")
+        return
+    }
     sql """ set enable_query_in_transaction_load = true """
     // case 1
     def table_txn = "sub_txn_mow"
