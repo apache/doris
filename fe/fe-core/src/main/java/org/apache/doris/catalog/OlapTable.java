@@ -343,6 +343,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         return indexes.getIndexIds();
     }
 
+    @Override
     public TableIndexes getTableIndexes() {
         return indexes;
     }

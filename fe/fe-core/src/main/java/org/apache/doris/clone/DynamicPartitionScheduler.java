@@ -651,7 +651,8 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                         clearCreatePartitionFailedMsg(olapTable.getId());
                     } catch (Exception e) {
                         recordCreatePartitionFailedMsg(db.getFullName(), tableName, e.getMessage(), olapTable.getId());
-                        LOG.warn("has error", e);
+                        LOG.warn("db [{}-{}], table [{}-{}]'s dynamic partition has error",
+                                db.getId(), db.getName(), olapTable.getId(), olapTable.getName(), e);
                         if (executeFirstTime) {
                             throw new DdlException(e.getMessage());
                         }

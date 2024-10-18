@@ -2387,6 +2387,11 @@ public class Config extends ConfigBase {
             "Whether to enable binlog feature"})
     public static boolean enable_feature_binlog = false;
 
+    @ConfField(mutable = false, description = {
+            "是否默认为 Database/Table 启用binlog特性",
+            "Whether to enable binlog feature for Database/Table by default"})
+    public static boolean force_enable_feature_binlog = false;
+
     @ConfField(mutable = false, masterOnly = false, varType = VariableAnnotation.EXPERIMENTAL, description = {
         "设置 binlog 消息最字节长度",
         "Set the maximum byte length of binlog message"})
@@ -2812,9 +2817,6 @@ public class Config extends ConfigBase {
             "是否在每个请求开始之前打印一遍请求内容, 主要是query语句",
             "Should the request content be logged before each request starts, specifically the query statements"})
     public static boolean enable_print_request_before_execution = false;
-
-    @ConfField(mutable = true)
-    public static boolean enable_cooldown_replica_affinity = true;
 
     @ConfField
     public static String spilled_profile_storage_path = System.getenv("LOG_DIR") + File.separator + "profile";

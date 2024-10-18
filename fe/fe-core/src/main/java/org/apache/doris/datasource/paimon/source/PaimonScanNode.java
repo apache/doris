@@ -111,6 +111,10 @@ public class PaimonScanNode extends FileQueryScanNode {
         super.doInitialize();
         source = new PaimonSource(desc);
         Preconditions.checkNotNull(source);
+    }
+
+    @Override
+    protected void convertPredicate() {
         PaimonPredicateConverter paimonPredicateConverter = new PaimonPredicateConverter(
                 source.getPaimonTable().rowType());
         predicates = paimonPredicateConverter.convertToPaimonExpr(conjuncts);
