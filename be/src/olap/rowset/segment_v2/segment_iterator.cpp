@@ -1989,8 +1989,11 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
     if (UNLIKELY(!_lazy_inited)) {
         RETURN_IF_ERROR(_lazy_init());
         _lazy_inited = true;
+        uint32_t nrows_reserve_limit = _row_bitmap.cardinality() < _opts.block_row_max
+                                               ? _row_bitmap.cardinality()
+                                               : _opts.block_row_max;
         if (_lazy_materialization_read || _opts.record_rowids || _is_need_expr_eval) {
-            _block_rowids.resize(_opts.block_row_max);
+            _block_rowids.resize(nrows_reserve_limit);
         }
         _current_return_columns.resize(_schema->columns().size());
         _converted_column_ids.resize(_schema->columns().size(), 0);
@@ -2013,7 +2016,7 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
                                 storage_column_type->is_nullable(), _opts.io_ctx.reader_type));
                 _current_return_columns[cid]->set_rowset_segment_id(
                         {_segment->rowset_id(), _segment->id()});
-                _current_return_columns[cid]->reserve(_opts.block_row_max);
+                _current_return_columns[cid]->reserve(nrows_reserve_limit);
             } else if (i >= block->columns()) {
                 // if i >= block->columns means the column and not the pred_column means `column i` is
                 // a delete condition column. but the column is not effective in the segment. so we just
@@ -2024,7 +2027,7 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
                 // TODO: skip read the not effective delete column to speed up segment read.
                 _current_return_columns[cid] =
                         Schema::get_data_type_ptr(*column_desc)->create_column();
-                _current_return_columns[cid]->reserve(_opts.block_row_max);
+                _current_return_columns[cid]->reserve(nrows_reserve_limit);
             }
         }
 
