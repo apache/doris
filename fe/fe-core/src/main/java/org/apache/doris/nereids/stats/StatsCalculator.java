@@ -825,9 +825,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                 cache = getColumnStatistic(table, colName, idxId);
             }
             ColumnStatisticBuilder colStatsBuilder = new ColumnStatisticBuilder(cache);
-            if (cache.avgSizeByte <= 0) {
-                colStatsBuilder.setAvgSizeByte(slotReference.getColumn().get().getType().getSlotSize());
-            }
+            colStatsBuilder.normalizeAvgSizeByte(slotReference);
             if (!cache.isUnKnown) {
                 rowCount = Math.max(rowCount, cache.count + deltaRowCount);
             } else {
