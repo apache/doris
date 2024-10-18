@@ -60,7 +60,7 @@ suite("test_string_dict_filter", "p0,external,hive,external_docker,external_dock
         select * from ( select COALESCE(o_orderpriority, 'null') AS o_orderpriority from test_string_dict_filter_parquet ) as A where o_orderpriority = 'null';
         """
         qt_q15 """
-        select * from ( select (case when o_orderpriority is null then 'null' else o_orderpriority end) case_col from test_string_dict_filter_parquet ) x where case_col = 'null';
+        select count(o_orderpriority) from ( select (case when o_orderpriority = 'x' then '1' else '0' end) as o_orderpriority from test_string_dict_filter_parquet ) as A where o_orderpriority = '0';
         """
     }
     def q_orc = {
@@ -107,7 +107,7 @@ suite("test_string_dict_filter", "p0,external,hive,external_docker,external_dock
         select * from ( select COALESCE(o_orderpriority, 'null') AS o_orderpriority from test_string_dict_filter_orc ) as A where o_orderpriority = 'null';
         """
         qt_q15 """
-        select * from ( select (case when o_orderpriority is null then 'null' else o_orderpriority end) case_col from test_string_dict_filter_orc ) x where case_col = 'null';
+        select count(o_orderpriority) from ( select (case when o_orderpriority = 'x' then '1' else '0' end) as o_orderpriority from test_string_dict_filter_orc ) as A where o_orderpriority = '0';
         """
     }
     String enabled = context.config.otherConfigs.get("enableHiveTest")
