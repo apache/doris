@@ -176,7 +176,7 @@ public class HiveMetadataOps implements ExternalMetadataOps {
             // set default owner
             if (!props.containsKey("owner")) {
                 if (ConnectContext.get() != null) {
-                    props.put("owner", ConnectContext.get().getUserIdentity().getUser());
+                    props.put("owner", ConnectContext.get().getUserIdentity().getQualifiedUser());
                 }
             }
             String fileFormat = props.getOrDefault(FILE_FORMAT_KEY, Config.hive_default_file_format);
