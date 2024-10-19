@@ -1851,7 +1851,6 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
         streamvbyte
         ali_sdk
         base64
-        dragonbox
         brotli
     )
     if [[ "$(uname -s)" == 'Darwin' ]]; then
