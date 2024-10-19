@@ -38,7 +38,6 @@ suite("union_all_compensate") {
     ) 
      DISTRIBUTED BY HASH (`data_date`, `slot_id`) BUCKETS 10 
      PROPERTIES (
-      "file_cache_ttl_seconds" = "0", 
       "is_being_synced" = "false", 
       "storage_medium" = "hdd", "storage_format" = "V2", 
       "inverted_index_storage_format" = "V2", 
@@ -66,7 +65,7 @@ suite("union_all_compensate") {
     ) 
      DISTRIBUTED BY HASH (`data_date`, `slot_id`) BUCKETS 10 
      PROPERTIES (
-      "file_cache_ttl_seconds" = "0", "is_being_synced" = "false", 
+      "is_being_synced" = "false", 
       "storage_medium" = "hdd", "storage_format" = "V2", 
       "inverted_index_storage_format" = "V2", 
       "light_schema_change" = "true", "disable_auto_compaction" = "false", 
