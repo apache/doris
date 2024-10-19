@@ -41,6 +41,8 @@ struct TMasterInfo {
     9: optional list<TFrontendInfo> frontend_infos
     10: optional string meta_service_endpoint;
     11: optional string cloud_unique_id;
+    12: optional string last_auth_token;
+    13: optional string curr_auth_token;
 }
 
 struct TBackendInfo {

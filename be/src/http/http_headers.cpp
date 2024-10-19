@@ -94,5 +94,6 @@ const char* HttpHeaders::WEBSOCKET_PROTOCOL = "WebSocket-Protocol";
 const char* HttpHeaders::WWW_AUTHENTICATE = "WWW-Authenticate";
 
 const std::string HttpHeaders::JsonType = "application/json";
+const std::string HttpHeaders::AUTH_TOKEN = "Auth-Token";
 
 } // namespace doris

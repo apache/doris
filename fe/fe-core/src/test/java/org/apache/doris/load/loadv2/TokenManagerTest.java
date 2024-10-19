@@ -17,6 +17,7 @@
 
 package org.apache.doris.load.loadv2;
 
+import org.apache.doris.catalog.TokenManager;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
 
