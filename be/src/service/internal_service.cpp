@@ -1684,17 +1684,11 @@ void PInternalServiceImpl::hand_shake(google::protobuf::RpcController* controlle
                                       const PHandShakeRequest* request,
                                       PHandShakeResponse* response,
                                       google::protobuf::Closure* done) {
-    bool ret = _light_work_pool.try_offer([request, response, done]() {
-        brpc::ClosureGuard closure_guard(done);
-        if (request->has_hello()) {
-            response->set_hello(request->hello());
-        }
-        response->mutable_status()->set_status_code(0);
-    });
-    if (!ret) {
-        offer_failed(response, done, _light_work_pool);
-        return;
+    brpc::ClosureGuard closure_guard(done);
+    if (request->has_hello()) {
+        response->set_hello(request->hello());
     }
+    response->mutable_status()->set_status_code(0);
 }
 
 constexpr char HttpProtocol[] = "http://";
