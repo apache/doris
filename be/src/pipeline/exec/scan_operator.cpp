@@ -1064,6 +1064,13 @@ Status ScanLocalState<Derived>::_init_profile() {
 
     _peak_running_scanner =
             _scanner_profile->AddHighWaterMarkCounter("PeakRunningScanner", TUnit::UNIT);
+
+    // Rows read from storage.
+    // Include the rows read from doris page cache.
+    _scan_rows = ADD_COUNTER(_runtime_profile, "ScanRows", TUnit::UNIT);
+    // Size of data that read from storage.
+    // Does not include rows that are cached by doris page cache.
+    _scan_bytes = ADD_COUNTER(_runtime_profile, "ScanBytes", TUnit::BYTES);
     return Status::OK();
 }
 
