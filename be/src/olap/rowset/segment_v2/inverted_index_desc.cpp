@@ -71,30 +71,26 @@ std::string InvertedIndexDescriptor::get_index_file_cache_key(std::string_view i
     return fmt::format("{}_{}{}", index_path_prefix, index_id, suffix);
 }
 
-IndexFileNameFragment InvertedIndexDescriptor::decompose_index_file_name(
+IndexFileNameFragment InvertedIndexDescriptor::decompose_local_index_file_name(
         const std::string& index_file_name) {
     DCHECK(index_file_name.ends_with(index_suffix));
     IndexFileNameFragment file_name_fragment;
     try {
-        size_t underscore_pos = index_file_name.find_first_of('_');
-        // {seg_id}{index_suffix}
+        size_t underscore_pos = index_file_name.find('_');
         if (underscore_pos == std::string::npos) {
-            file_name_fragment.rowset_id = "";
-            file_name_fragment.seg_id = std::stoi(index_file_name);
-            file_name_fragment.index_suffix = index_suffix;
-            return file_name_fragment;
+            return {};
         }
 
         // {rowset_id}_{seg_id}{index_suffix}
-        file_name_fragment.rowset_id = index_file_name.substr(0, underscore_pos);
+        file_name_fragment.rowset_id = std::string_view(index_file_name.data(), underscore_pos);
         file_name_fragment.seg_id = std::stoi(index_file_name.substr(underscore_pos + 1));
 
-        size_t pos2 = index_file_name.find_first_of('_', underscore_pos + 1);
-        if (pos2 == std::string::npos) {
+        size_t suffix_start_pos = index_file_name.find('_', underscore_pos + 1);
+        if (suffix_start_pos == std::string::npos) {
             file_name_fragment.index_suffix = index_suffix;
         } else {
             file_name_fragment.index_suffix =
-                    index_file_name.substr(pos2); // "such as _30293@path.idx"
+                    std::string_view(index_file_name.data() + suffix_start_pos); // "such as _30293@path.idx"
         }
 
         return file_name_fragment;
@@ -106,7 +102,7 @@ IndexFileNameFragment InvertedIndexDescriptor::decompose_index_file_name(
 std::string InvertedIndexDescriptor::snapshot_index_file_name(const std::string& index_file_name) {
     DCHECK(index_file_name.ends_with(index_suffix));
     return fmt::format("{}{}", index_file_name.substr(0, index_file_name.size() - 4),
-                       ".binglog-index");
+                       ".binlog-index");
 }
 
 } // namespace doris::segment_v2

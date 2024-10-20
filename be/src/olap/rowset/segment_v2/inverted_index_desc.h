@@ -55,14 +55,11 @@ public:
 
     // local index file path:
     //   {storage_dir}/data/{shard_id}/{tablet_id}/{schema_hash}/{rowset_id}_{seg_id}{index_suffix}
-    // remote version 0:
-    //   {DATA_PREFIX}/{tablet_id}/{rowsetid}_{seg_id}{index_suffix}
-    // remote version 1:
-    //   {DATA_PREFIX}/{shard_fn(tablet_id)}/{tablet_id}/{rowsetid}/{seg_id}{index_suffix}
     // InvertedIndexStorageFormatV1: index_suffix = _{index_id}@{suffix}.idx
     // InvertedIndexStorageFormatV1: index_suffix = .idx
     // if index file name is valid, seg_id = -1
-    static IndexFileNameFragment decompose_index_file_name(const std::string& index_file_name);
+    static IndexFileNameFragment decompose_local_index_file_name(
+            const std::string& index_file_name);
 
     // param: {file_name}.idx
     // return: {file_name}.binlog-index

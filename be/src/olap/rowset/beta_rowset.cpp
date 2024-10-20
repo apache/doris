@@ -300,7 +300,7 @@ Status BetaRowset::link_files_to(const std::string& dir, RowsetId new_rowset_id,
     } else {
         for (const auto& file : inverted_index_files.value()) {
             const auto& file_name_fragment =
-                    InvertedIndexDescriptor::decompose_index_file_name(file.file_name);
+                    InvertedIndexDescriptor::decompose_local_index_file_name(file.file_name);
             if (file_name_fragment.seg_id == -1) {
                 status = Status::InvalidArgument("invalid inverted index file name: {}",
                                                  file.file_name);
@@ -355,7 +355,7 @@ Status BetaRowset::copy_files_to(const std::string& dir, const RowsetId& new_row
     const auto& inverted_index_files = DORIS_TRY(list_inverted_index_files());
     for (const auto& file : inverted_index_files) {
         const auto& file_name_fragment =
-                InvertedIndexDescriptor::decompose_index_file_name(file.file_name);
+                InvertedIndexDescriptor::decompose_local_index_file_name(file.file_name);
         if (file_name_fragment.seg_id == -1) {
             return Status::InvalidArgument("invalid inverted index file name: {}", file.file_name);
         }
@@ -408,7 +408,7 @@ Status BetaRowset::upload_to(const StorageResource& dest_fs, const RowsetId& new
         local_paths.emplace_back(local_idx_path);
 
         const auto& file_name_fragment =
-                InvertedIndexDescriptor::decompose_index_file_name(file.file_name);
+                InvertedIndexDescriptor::decompose_local_index_file_name(file.file_name);
         if (file_name_fragment.seg_id == -1) {
             DorisMetrics::instance()->upload_fail_count->increment(1);
             return Status::InvalidArgument(
