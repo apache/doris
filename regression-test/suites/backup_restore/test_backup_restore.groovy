@@ -79,7 +79,7 @@ suite("test_backup_restore", "backup_restore") {
     // backup of temp table should not support
     sql """ 
         create temporary table test_temp_table_backup PROPERTIES (
-            'replication_num' = '1', 'light_schema_change' = 'true', 'bloom_filter_columns' = 'add_date'
+            'replication_num' = '1'
         ) 
         as select * from ${dbName}.${tableName};
         """
