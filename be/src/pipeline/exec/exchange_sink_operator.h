@@ -60,6 +60,8 @@ public:
         _finish_dependency =
                 std::make_shared<Dependency>(parent->operator_id(), parent->node_id(),
                                              parent->get_name() + "_FINISH_DEPENDENCY", true);
+        _queue_dependency = Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
+                                                      "ExchangeSinkQueueDependency", true);
     }
 
     std::vector<Dependency*> dependencies() const override {
@@ -127,7 +129,7 @@ private:
     friend class vectorized::PipChannel;
     friend class vectorized::BlockSerializer<ExchangeSinkLocalState>;
 
-    std::unique_ptr<ExchangeSinkBuffer> _sink_buffer = nullptr;
+    std::shared_ptr<ExchangeSinkBuffer> _sink_buffer = nullptr;
     RuntimeProfile::Counter* _serialize_batch_timer = nullptr;
     RuntimeProfile::Counter* _compress_timer = nullptr;
     RuntimeProfile::Counter* _brpc_send_timer = nullptr;
@@ -238,8 +240,12 @@ private:
                                      int num_channels,
                                      std::vector<std::vector<uint32_t>>& channel2rows,
                                      vectorized::Block* block, bool eos);
+
+    void create_buffer();
+
     RuntimeState* _state = nullptr;
 
+    std::shared_ptr<ExchangeSinkBuffer> _sink_buffer = nullptr;
     const std::vector<TExpr> _texprs;
 
     const RowDescriptor& _row_desc;
