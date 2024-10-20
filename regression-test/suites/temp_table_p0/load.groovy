@@ -139,20 +139,20 @@ suite('load', 'p0,restart_fe,docker') {
 
     sql "begin"
     sql "insert into t_test_temp_table2 select * from t_test_table_with_data"
-    sql "insert into t_test_temp_table1 select * from t_test_table_with_data"
+    sql "insert into t_test_temp_table3 select * from t_test_table_with_data"
     sql "rollback"
     select_result11 = sql "select * from t_test_temp_table2"
     assertEquals(select_result11.size(), 2)
-    select_result11 = sql "select * from t_test_temp_table1"
+    select_result11 = sql "select * from t_test_temp_table3"
     assertEquals(select_result11.size(), 0)
 
     sql "begin"
     sql "insert into t_test_temp_table2 select * from t_test_table_with_data"
-    sql "insert into t_test_temp_table1 select * from t_test_table_with_data"
+    sql "insert into t_test_temp_table3 select * from t_test_table_with_data"
     sql "commit"
     select_result11 = sql "select * from t_test_temp_table2"
     assertEquals(select_result11.size(), 5)
-    select_result11 = sql "select * from t_test_temp_table1"
+    select_result11 = sql "select * from t_test_temp_table3"
     assertEquals(select_result11.size(), 3)
 
     sql "insert overwrite table t_test_temp_table2 select * from t_test_table_with_data"
@@ -165,6 +165,9 @@ suite('load', 'p0,restart_fe,docker') {
     assertEquals(select_result3.size(), 0)
     sql "truncate table t_test_temp_table1"
     select_result3 = sql "select * from t_test_temp_table1"
+    assertEquals(select_result3.size(), 0)
+    sql "truncate table t_test_temp_table3"
+    select_result3 = sql "select * from t_test_temp_table3"
     assertEquals(select_result3.size(), 0)
 
     def show_data = sql "show data"
