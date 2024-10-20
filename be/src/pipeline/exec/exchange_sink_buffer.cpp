@@ -123,6 +123,7 @@ void ExchangeSinkBuffer::construct_request(TUniqueId fragment_instance_id) {
     if (_instance_to_package_queue_mutex.count(low_id)) {
         return;
     }
+    _eof_channels++;
     _instance_to_package_queue_mutex[low_id] = std::make_unique<std::mutex>();
     _instance_to_seq[low_id] = 0;
     _instance_to_package_queue[low_id] = std::queue<TransmitInfo, std::list<TransmitInfo>>();
@@ -380,7 +381,8 @@ void ExchangeSinkBuffer::_failed(InstanceLoId id, const std::string& err) {
 void ExchangeSinkBuffer::_set_receiver_eof(InstanceLoId id) {
     std::unique_lock<std::mutex> lock(*_instance_to_package_queue_mutex[id]);
     _instance_to_receiver_eof[id] = true;
-    _turn_off_channel(id);
+    bool all_channels_eof = _eof_channels.fetch_sub(1) == 1;
+    _turn_off_channel(id, all_channels_eof);
     std::queue<BroadcastTransmitInfo, std::list<BroadcastTransmitInfo>>& broadcast_q =
             _instance_to_broadcast_package_queue[id];
     for (; !broadcast_q.empty(); broadcast_q.pop()) {
