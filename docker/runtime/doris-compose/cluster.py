@@ -16,6 +16,8 @@
 # under the License.
 
 import filelock
+import getpass
+import hashlib
 import jsonpickle
 import os
 import os.path
@@ -23,7 +25,10 @@ import utils
 
 DOCKER_DORIS_PATH = "/opt/apache-doris"
 LOCAL_DORIS_PATH = os.getenv("LOCAL_DORIS_PATH", "/tmp/doris")
-DORIS_SUBNET_START = int(os.getenv("DORIS_SUBNET_START", 128))
+
+# an integer between 128 and 191, generally no need to set
+DORIS_SUBNET_START = os.getenv("DORIS_SUBNET_START")
+
 LOCAL_RESOURCE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                    "resource")
 DOCKER_RESOURCE_PATH = os.path.join(DOCKER_DORIS_PATH, "resource")
@@ -93,11 +98,39 @@ def gen_subnet_prefix16():
         except:
             pass
 
-    for i in range(DORIS_SUBNET_START, 192):
-        for j in range(256):
-            subnet = "{}.{}".format(i, j)
-            if not used_subnet.get(subnet, False):
-                return subnet
+    subnet_begin = 128
+    subnet_end = 192
+
+    subnet_part_1 = None
+    subnet_part_2 = None
+    if DORIS_SUBNET_START:
+        subnet_part_1 = int(DORIS_SUBNET_START)
+        subnet_part_2 = 0
+    else:
+        m = hashlib.md5()
+        m.update(getpass.getuser().encode("utf-8"))
+        hash_val = int(m.hexdigest(), 16)
+        # want subnet part ii to be a small num, just less than 100, so don't use 256 here.
+        small_width = 100
+        slot_num = (subnet_end - subnet_begin) * small_width
+        idx = hash_val % slot_num
+        if idx < 0:
+            idx += slot_num
+        subnet_part_1 = subnet_begin + int(idx / small_width)
+        subnet_part_2 = idx % small_width
+
+    intervals = [
+        [(subnet_part_1, subnet_part_1 + 1), (subnet_part_2, 256)],
+        [(subnet_part_1 + 1, subnet_end), (0, 256)],
+        [(subnet_begin, subnet_part_1), (0, 256)],
+        [(subnet_part_1, subnet_part_1 + 1), (0, subnet_part_2)],
+    ]
+    for interval in intervals:
+        for i in range(interval[0][0], interval[0][1]):
+            for j in range(interval[1][0], interval[1][1]):
+                subnet = "{}.{}".format(i, j)
+                if not used_subnet.get(subnet, False):
+                    return subnet
 
     raise Exception("Failed to gen subnet")
 
