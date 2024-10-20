@@ -502,7 +502,8 @@ public class NativeInsertStmt extends InsertStmt {
                 }
 
                 if (!haveInputSeqCol && !isPartialUpdate && !isFromDeleteOrUpdateStmt
-                        && !analyzer.getContext().getSessionVariable().isEnableUniqueKeyPartialUpdate()) {
+                        && !analyzer.getContext().getSessionVariable().isEnableUniqueKeyPartialUpdate()
+                        && analyzer.getContext().getSessionVariable().isRequireSequenceInInsert()) {
                     if (!seqColInTable.isPresent() || seqColInTable.get().getDefaultValue() == null
                             || !seqColInTable.get().getDefaultValue()
                             .equalsIgnoreCase(DefaultValue.CURRENT_TIMESTAMP)) {
