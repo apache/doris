@@ -773,7 +773,8 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                 Optional<Statistics> optStats = cascadesContext.getStatementContext()
                         .getStatistics(olap.getRelationId());
                 if (optStats.isPresent()) {
-                    double actualRowCount = catalogRelation.getTable().getRowCountForNereids();
+                    double actualRowCount = catalogRelation
+                        .getTable().getRowCountForNereids();
                     if (actualRowCount > optStats.get().getRowCount()) {
                         return optStats.get();
                     }
