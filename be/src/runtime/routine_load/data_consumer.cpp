@@ -261,12 +261,13 @@ Status KafkaDataConsumer::group_consume(BlockingQueue<RdKafka::Message*>* queue,
             }
             [[fallthrough]];
         case RdKafka::ERR__PARTITION_EOF: {
-            LOG(INFO) << "consumer meet partition eof: " << _id
-                      << " partition offset: " << msg->offset();
+            VLOG_NOTICE << "consumer meet partition eof: " << _id
+                        << " partition offset: " << msg->offset();
             _consuming_partition_ids.erase(msg->partition());
             if (!queue->blocking_put(msg.get())) {
                 done = true;
             } else if (_consuming_partition_ids.size() <= 0) {
+                LOG(INFO) << "all partitions meet eof: " << _id;
                 msg.release();
                 done = true;
             } else {
