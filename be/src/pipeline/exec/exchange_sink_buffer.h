@@ -245,7 +245,8 @@ private:
     int64_t get_sum_rpc_time();
 
     std::atomic<int> _total_queue_size = 0;
-    std::atomic_int64_t _running_sink;
+    std::atomic_int64_t _running_sink = 0;
+    std::atomic_int64_t _eof_channels = 0;
     std::atomic_bool _is_all_eos = false;
 
     std::mutex _dep_lock;
