@@ -81,18 +81,24 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
     _part_type = p._part_type;
     std::map<int64_t, int64_t> fragment_id_to_channel_index;
     for (int i = 0; i < p._dests.size(); ++i) {
-        const auto& fragment_instance_id = p._dests[i].fragment_instance_id;
-        if (fragment_id_to_channel_index.find(fragment_instance_id.lo) ==
+        const auto& dest_fragment_instance_id = p._dests[i].fragment_instance_id;
+        if (fragment_id_to_channel_index.find(dest_fragment_instance_id.lo) ==
             fragment_id_to_channel_index.end()) {
             channel_shared_ptrs.emplace_back(
                     new vectorized::PipChannel(this, p._row_desc, p._dests[i].brpc_server,
-                                               fragment_instance_id, p._dest_node_id));
-            fragment_id_to_channel_index.emplace(fragment_instance_id.lo,
+                                               dest_fragment_instance_id, p._dest_node_id));
+            fragment_id_to_channel_index.emplace(dest_fragment_instance_id.lo,
                                                  channel_shared_ptrs.size() - 1);
             channels.push_back(channel_shared_ptrs.back().get());
         } else {
             channel_shared_ptrs.emplace_back(
-                    channel_shared_ptrs[fragment_id_to_channel_index[fragment_instance_id.lo]]);
+                    channel_shared_ptrs
+                            [fragment_id_to_channel_index[dest_fragment_instance_id.lo]]);
+            // Multiple BUCKETs may be sent to the same instance, so the channel will be reused.
+            // Currently, this situation only occurs with BUCKET_SHUFFLE_HASH_PARTITIONED.
+            if (_part_type == TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED) {
+                channels.push_back(channel_shared_ptrs.back().get());
+            }
         }
     }
 
@@ -133,8 +139,7 @@ Status ExchangeSinkLocalState::open(RuntimeState* state) {
     id.set_lo(_state->query_id().lo);
 
     if (!only_local_exchange) {
-        _sink_buffer = std::make_unique<ExchangeSinkBuffer>(id, p._dest_node_id, _sender_id,
-                                                            _state->be_number(), state, this);
+        _sink_buffer = std::make_unique<ExchangeSinkBuffer>(id, p._dest_node_id, p.state(), this);
         register_channels(_sink_buffer.get());
         _queue_dependency = Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
                                                       "ExchangeSinkQueueDependency", true);
@@ -173,9 +178,9 @@ Status ExchangeSinkLocalState::open(RuntimeState* state) {
         _profile->add_info_string("Partitioner",
                                   fmt::format("Crc32HashPartitioner({})", _partition_count));
     } else if (_part_type == TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED) {
-        _partition_count = channel_shared_ptrs.size();
+        _partition_count = channels.size();
         _partitioner.reset(new vectorized::Crc32HashPartitioner<vectorized::ShuffleChannelIds>(
-                channel_shared_ptrs.size()));
+                channels.size()));
         RETURN_IF_ERROR(_partitioner->init(p._texprs));
         RETURN_IF_ERROR(_partitioner->prepare(state, p._row_desc));
         _profile->add_info_string("Partitioner",
@@ -480,15 +485,11 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
         for (const auto& channel : local_state.channels) {
             old_channel_mem_usage += channel->mem_usage();
         }
-        if (_part_type == TPartitionType::HASH_PARTITIONED) {
-            RETURN_IF_ERROR(channel_add_rows(
-                    state, local_state.channels, local_state._partition_count,
-                    local_state._partitioner->get_channel_ids().get<uint32_t>(), rows, block, eos));
-        } else {
-            RETURN_IF_ERROR(channel_add_rows(
-                    state, local_state.channel_shared_ptrs, local_state._partition_count,
-                    local_state._partitioner->get_channel_ids().get<uint32_t>(), rows, block, eos));
-        }
+
+        RETURN_IF_ERROR(channel_add_rows(
+                state, local_state.channels, local_state._partition_count,
+                local_state._partitioner->get_channel_ids().get<uint32_t>(), rows, block, eos));
+
         int64_t new_channel_mem_usage = 0;
         for (const auto& channel : local_state.channels) {
             new_channel_mem_usage += channel->mem_usage();
@@ -642,8 +643,9 @@ void ExchangeSinkLocalState::register_channels(pipeline::ExchangeSinkBuffer* buf
     }
 }
 
-template <typename Channels, typename HashValueType>
-Status ExchangeSinkOperatorX::channel_add_rows(RuntimeState* state, Channels& channels,
+template <typename HashValueType>
+Status ExchangeSinkOperatorX::channel_add_rows(RuntimeState* state,
+                                               std::vector<vectorized::PipChannel*>& channels,
                                                int num_channels,
                                                const HashValueType* __restrict channel_ids,
                                                int rows, vectorized::Block* block, bool eos) {
@@ -658,9 +660,8 @@ Status ExchangeSinkOperatorX::channel_add_rows(RuntimeState* state, Channels& ch
     return Status::OK();
 }
 
-template <typename Channels>
 Status ExchangeSinkOperatorX::channel_add_rows_with_idx(
-        RuntimeState* state, Channels& channels, int num_channels,
+        RuntimeState* state, std::vector<vectorized::PipChannel*>& channels, int num_channels,
         std::vector<std::vector<uint32_t>>& channel2rows, vectorized::Block* block, bool eos) {
     Status status = Status::OK();
     for (int i = 0; i < num_channels; ++i) {
