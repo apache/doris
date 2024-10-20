@@ -322,11 +322,7 @@ public:
     // send _mutable_block
     Status send_current_block(bool eos, Status exec_status) override;
 
-    void register_exchange_buffer(pipeline::ExchangeSinkBuffer* buffer) {
-        _buffer = buffer;
-        _buffer->register_sink(
-                Channel<pipeline::ExchangeSinkLocalState>::_dest_fragment_instance_id);
-    }
+    void register_exchange_buffer(pipeline::ExchangeSinkBuffer* buffer) { _buffer = buffer; }
 
     std::shared_ptr<pipeline::ExchangeSendCallback<PTransmitDataResult>> get_send_callback(
             InstanceLoId id, bool eos, int64_t start_rpc_time) {
