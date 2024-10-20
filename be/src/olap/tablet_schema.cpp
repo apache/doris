@@ -1356,10 +1356,7 @@ bool TabletSchema::has_inverted_index(const TabletColumn& col) const {
     int32_t col_unique_id = col.is_extracted_column() ? col.parent_unique_id() : col.unique_id();
     const std::string& suffix_path =
             col.has_path_info() ? escape_for_path_name(col.path_info_ptr()->get_path()) : "";
-    if (inverted_index(col_unique_id, suffix_path)) {
-        return true;
-    }
-    return false;
+    return inverted_index(col_unique_id, suffix_path);
 }
 
 const TabletIndex* TabletSchema::inverted_index(int32_t col_unique_id,

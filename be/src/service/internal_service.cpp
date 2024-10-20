@@ -1823,8 +1823,9 @@ void PInternalServiceImpl::request_slave_tablet_pull_rowset(
             std::string remote_file_url =
                     construct_url(get_host_port(host, http_port), token, remote_file_path);
 
-            const auto& file_name_fragment = InvertedIndexDescriptor::decompose_local_index_file_name(
-                    index_file.index_file_name());
+            const auto& file_name_fragment =
+                    InvertedIndexDescriptor::decompose_local_index_file_name(
+                            index_file.index_file_name());
             if (file_name_fragment.seg_id == -1) {
                 LOG(WARNING)
                         << "failed to pull rowset for slave replica, inverted index file is valid "

@@ -89,8 +89,8 @@ IndexFileNameFragment InvertedIndexDescriptor::decompose_local_index_file_name(
         if (suffix_start_pos == std::string::npos) {
             file_name_fragment.index_suffix = index_suffix;
         } else {
-            file_name_fragment.index_suffix =
-                    std::string_view(index_file_name.data() + suffix_start_pos); // "such as _30293@path.idx"
+            file_name_fragment.index_suffix = std::string_view(
+                    index_file_name.data() + suffix_start_pos); // "such as _30293@path.idx"
         }
 
         return file_name_fragment;
