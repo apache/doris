@@ -272,12 +272,6 @@ public class StreamLoadPlanner {
         descTable.computeStatAndMemLayout();
 
         int timeout = taskInfo.getTimeout();
-        if (taskInfo instanceof RoutineLoadJob) {
-            // For routine load, make the timeout fo plan fragment larger than MaxIntervalS config.
-            // So that the execution won't be killed before consuming finished.
-            timeout *= 2;
-        }
-
         final boolean enableMemtableOnSinkNode =
                 destTable.getTableProperty().getUseSchemaLightChange()
                 ? taskInfo.isMemtableOnSinkNode() : false;
