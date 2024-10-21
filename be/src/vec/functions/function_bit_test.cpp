@@ -112,6 +112,11 @@ public:
         for (int i = 0; i < input_rows_count; ++i) {
             auto first_value = first_column_data[index_check_const(i, is_consts[0])];
             auto second_value = second_column_data[index_check_const(i, is_consts[1])];
+            // the pos is invalid, set result = 0
+            if (second_value < 0 || second_value >= sizeof(T) * 8) {
+                res_data[i] = 0;
+                continue;
+            }
             res_data[i] = ((first_value >> second_value) & 1);
         }
     }
@@ -128,6 +133,11 @@ public:
                 const auto& arg_column_data =
                         assert_cast<const ColumnVector<T>&>(*argument_columns[col].get())
                                 .get_data();
+                // the pos is invalid, set result = 0
+                if (arg_column_data[i] < 0 || arg_column_data[i] >= sizeof(T) * 8) {
+                    res_data[i] = 0;
+                    break;
+                }
                 // if one of pos & result is 0, could set res = 0, and return directly.
                 if (!((first_value >> arg_column_data[i]) & 1)) {
                     res_data[i] = 0;
