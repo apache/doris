@@ -20,6 +20,7 @@
 #include <gen_cpp/olap_file.pb.h>
 #include <gen_cpp/types.pb.h>
 #include <stddef.h>
+#include <unistd.h>
 
 #include <algorithm>
 #include <iterator>
@@ -91,23 +92,14 @@ Status Merger::vmerge_rowsets(BaseTabletSPtr tablet, ReaderType reader_type,
 
     if (stats_output && stats_output->rowid_conversion) {
         reader_params.record_rowids = true;
+        reader_params.rowid_conversion = stats_output->rowid_conversion;
+        stats_output->rowid_conversion->set_dst_rowset_id(dst_rowset_writer->rowset_id());
     }
 
     reader_params.return_columns.resize(cur_tablet_schema.num_columns());
     std::iota(reader_params.return_columns.begin(), reader_params.return_columns.end(), 0);
     reader_params.origin_return_columns = &reader_params.return_columns;
     RETURN_IF_ERROR(reader.init(reader_params));
-
-    if (reader_params.record_rowids) {
-        stats_output->rowid_conversion->set_dst_rowset_id(dst_rowset_writer->rowset_id());
-        // init segment rowid map for rowid conversion
-        std::vector<uint32_t> segment_num_rows;
-        for (auto& rs_split : reader_params.rs_splits) {
-            RETURN_IF_ERROR(rs_split.rs_reader->get_segment_num_rows(&segment_num_rows));
-            stats_output->rowid_conversion->init_segment_map(
-                    rs_split.rs_reader->rowset()->rowset_id(), segment_num_rows);
-        }
-    }
 
     vectorized::Block block = cur_tablet_schema.create_block(reader_params.return_columns);
     size_t output_rows = 0;
@@ -274,23 +266,14 @@ Status Merger::vertical_compact_one_group(
 
     if (is_key && stats_output && stats_output->rowid_conversion) {
         reader_params.record_rowids = true;
+        reader_params.rowid_conversion = stats_output->rowid_conversion;
+        stats_output->rowid_conversion->set_dst_rowset_id(dst_rowset_writer->rowset_id());
     }
 
     reader_params.return_columns = column_group;
     reader_params.origin_return_columns = &reader_params.return_columns;
     reader_params.batch_size = batch_size;
     RETURN_IF_ERROR(reader.init(reader_params, sample_info));
-
-    if (reader_params.record_rowids) {
-        stats_output->rowid_conversion->set_dst_rowset_id(dst_rowset_writer->rowset_id());
-        // init segment rowid map for rowid conversion
-        std::vector<uint32_t> segment_num_rows;
-        for (auto& rs_split : reader_params.rs_splits) {
-            RETURN_IF_ERROR(rs_split.rs_reader->get_segment_num_rows(&segment_num_rows));
-            stats_output->rowid_conversion->init_segment_map(
-                    rs_split.rs_reader->rowset()->rowset_id(), segment_num_rows);
-        }
-    }
 
     vectorized::Block block = tablet_schema.create_block(reader_params.return_columns);
     size_t output_rows = 0;
