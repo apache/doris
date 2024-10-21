@@ -642,6 +642,15 @@ public class SessionVariable implements Serializable, Writable {
                                     "adaptive_pipeline_task_serial_read_on_limit";
     public static final String REQUIRE_SEQUENCE_IN_INSERT = "require_sequence_in_insert";
 
+<<<<<<< HEAD
+=======
+    public static final String ENABLE_PHRASE_QUERY_SEQUENYIAL_OPT = "enable_phrase_query_sequential_opt";
+
+    public static final String ENABLE_COOLDOWN_REPLICA_AFFINITY =
+            "enable_cooldown_replica_affinity";
+    public static final String SKIP_CHECKING_ACID_VERSION_FILE = "skip_checking_acid_version_file";
+
+>>>>>>> f46946eef2 ([Configuration](transactional-hive) Add `skip_checking_acid_version_file` session var to skip checking acid version file in some hive envs. (#42111))
     /**
      * If set false, user couldn't submit analyze SQL and FE won't allocate any related resources.
      */
@@ -2110,6 +2119,12 @@ public class SessionVariable implements Serializable, Writable {
                     + " column requires a sequence column to be provided for each row"
     })
     public boolean requireSequenceInInsert = true;
+
+    @VariableMgr.VarAttr(name = SKIP_CHECKING_ACID_VERSION_FILE, needForward = true, description = {
+            "跳过检查 transactional hive 版本文件 '_orc_acid_version.'",
+            "Skip checking transactional hive version file '_orc_acid_version.'"
+    })
+    public boolean skipCheckingAcidVersionFile = false;
 
     public void setEnableEsParallelScroll(boolean enableESParallelScroll) {
         this.enableESParallelScroll = enableESParallelScroll;
