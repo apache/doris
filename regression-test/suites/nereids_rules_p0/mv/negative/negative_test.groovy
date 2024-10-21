@@ -259,7 +259,7 @@ suite("negative_partition_mv_rewrite") {
             bitmap_union(to_bitmap(case when o_shippriority > 2 and o_orderkey IN (2) then o_custkey else null end)) as cnt_2
             from orders_1
         """
-    mv_rewrite_success(query_sql, mv_name)
+    mv_rewrite_fail(query_sql, mv_name)
 
     // query partial rewriting
     mtmv_sql = """

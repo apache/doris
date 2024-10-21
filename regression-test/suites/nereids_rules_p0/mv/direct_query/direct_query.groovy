@@ -146,7 +146,7 @@ suite("direct_query_mv") {
             group by L_LINENUMBER;
             """)
     // mv2 use mv1, though query not use mv1 directly, mv2 should part in rewrite and shoule be chosen
-    check_mv_rewrite_success(db,
+    async_mv_rewrite_success(db,
             """
             select L_LINENUMBER, count(O_CUSTKEY)
             from mv1_0

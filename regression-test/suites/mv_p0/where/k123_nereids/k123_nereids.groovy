@@ -80,7 +80,7 @@ suite ("k123p_nereids") {
 
     qt_select_mv_constant """select bitmap_empty() from d_table where true;"""
 
-    mv_rewrite_success("select k2 from d_table where k1=1 and (k1>2 or k1 < 0) order by k2;", "kwh1")
+    mv_rewrite_fail("select k2 from d_table where k1=1 and (k1>2 or k1 < 0) order by k2;", "kwh1")
     
     qt_select_mv "select k2 from d_table where k1=1 and (k1>2 or k1 < 0) order by k2;"
 
