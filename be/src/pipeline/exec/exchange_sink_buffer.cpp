@@ -238,7 +238,13 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
         // If we have data to shuffle which is not broadcasted
         auto& request = q.front();
         is_empty = false;
-        auto& brpc_request = _instance_to_request[id];
+        auto brpc_request = std::make_shared<PTransmitDataParams>();
+        PUniqueId finst_id;
+        finst_id.set_hi(request.channel->_dest_fragment_instance_id.hi);
+        finst_id.set_lo(request.channel->_dest_fragment_instance_id.lo);
+        brpc_request->mutable_finst_id()->CopyFrom(finst_id);
+        brpc_request->mutable_query_id()->CopyFrom(_query_id);
+        brpc_request->set_node_id(_dest_node_id);
         brpc_request->set_eos(request.eos);
         brpc_request->set_packet_seq(_instance_to_seq[id]++);
         brpc_request->set_sender_id(request.channel->sender_id());
@@ -311,7 +317,13 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
         is_empty = false;
         // If we have data to shuffle which is broadcasted
         auto& request = broadcast_q.front();
-        auto& brpc_request = _instance_to_request[id];
+        auto brpc_request = std::make_shared<PTransmitDataParams>();
+        PUniqueId finst_id;
+        finst_id.set_hi(request.channel->_dest_fragment_instance_id.hi);
+        finst_id.set_lo(request.channel->_dest_fragment_instance_id.lo);
+        brpc_request->mutable_finst_id()->CopyFrom(finst_id);
+        brpc_request->mutable_query_id()->CopyFrom(_query_id);
+        brpc_request->set_node_id(_dest_node_id);
         brpc_request->set_eos(request.eos);
         brpc_request->set_packet_seq(_instance_to_seq[id]++);
         brpc_request->set_sender_id(request.channel->sender_id());
