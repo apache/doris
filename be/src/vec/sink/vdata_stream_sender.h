@@ -98,13 +98,6 @@ private:
     const int _batch_size;
 };
 
-struct ShuffleChannelIds {
-    template <typename HashValueType>
-    HashValueType operator()(HashValueType l, size_t r) {
-        return l % r;
-    }
-};
-
 template <typename Parent>
 class Channel {
 public:
