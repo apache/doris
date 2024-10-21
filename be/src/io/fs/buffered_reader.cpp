@@ -777,8 +777,12 @@ BufferedFileStreamReader::BufferedFileStreamReader(io::FileReaderSPtr file, uint
 
 Status BufferedFileStreamReader::read_bytes(const uint8_t** buf, uint64_t offset,
                                             const size_t bytes_to_read, const IOContext* io_ctx) {
-    if (offset < _file_start_offset || offset >= _file_end_offset) {
-        return Status::IOError("Out-of-bounds Access");
+    if (offset < _file_start_offset || offset >= _file_end_offset ||
+        offset + bytes_to_read > _file_end_offset) {
+        return Status::IOError(
+                "Out-of-bounds Access: offset={}, bytes_to_read={}, file_start={}, "
+                "file_end={}",
+                offset, bytes_to_read, _file_start_offset, _file_end_offset);
     }
     int64_t end_offset = offset + bytes_to_read;
     if (_buf_start_offset <= offset && _buf_end_offset >= end_offset) {
