@@ -692,8 +692,7 @@ void WorkloadGroupMgr::update_queries_limit(WorkloadGroupPtr wg, bool enable_har
             query_ctx->set_expected_mem_limit(expected_query_weighted_mem_limit);
         }
     }
-    LOG(INFO) << debug_msg;
-    //LOG_EVERY_T(INFO, 60) << debug_msg;
+    LOG_EVERY_T(INFO, 60) << debug_msg;
 }
 
 void WorkloadGroupMgr::stop() {

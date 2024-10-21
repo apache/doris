@@ -412,6 +412,11 @@ Status PartitionedHashJoinSinkLocalState::revoke_memory(
 }
 
 Status PartitionedHashJoinSinkLocalState::_finish_spilling() {
+    bool expected = false;
+    if (!_spilling_finished.compare_exchange_strong(expected, true)) {
+        return Status::OK();
+    }
+
     for (auto& stream : _shared_state->spilled_streams) {
         if (stream) {
             RETURN_IF_ERROR(stream->spill_eof());

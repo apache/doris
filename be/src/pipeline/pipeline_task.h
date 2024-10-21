@@ -247,6 +247,9 @@ public:
     }
 
     bool wake_up_by_downstream() const { return _wake_up_by_downstream; }
+    Dependency* get_memory_sufficient_dependency() const {
+        return _memory_sufficient_dependency.get();
+    }
 
 private:
     friend class RuntimeFilterDependency;
@@ -329,7 +332,7 @@ private:
     Dependency* _execution_dep = nullptr;
 
     std::atomic<bool> _wake_up_by_downstream = false;
-    Dependency* _memory_sufficient_dependency = nullptr;
+    std::unique_ptr<Dependency> _memory_sufficient_dependency;
 
     std::atomic<bool> _finalized {false};
     std::mutex _dependency_lock;

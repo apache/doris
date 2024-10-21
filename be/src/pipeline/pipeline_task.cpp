@@ -17,6 +17,7 @@
 
 #include "pipeline_task.h"
 
+#include <fmt/core.h>
 #include <fmt/format.h>
 #include <gen_cpp/Metrics_types.h>
 #include <glog/logging.h>
@@ -71,15 +72,18 @@ PipelineTask::PipelineTask(
           _sink(pipeline->sink_shared_pointer()),
           _le_state_map(std::move(le_state_map)),
           _task_idx(task_idx),
-          _execution_dep(state->get_query_ctx()->get_execution_dependency()),
-          _memory_sufficient_dependency(
-                  state->get_query_ctx()->get_memory_sufficient_dependency()) {
+          _execution_dep(state->get_query_ctx()->get_execution_dependency()) {
     _pipeline_task_watcher.start();
 
     auto shared_state = _sink->create_shared_state();
     if (shared_state) {
         _sink_shared_state = shared_state;
     }
+
+    const auto dependency_name =
+            fmt::format("MemorySufficientDependency_{}_{}", _sink->node_id(), task_id);
+    _memory_sufficient_dependency =
+            pipeline::Dependency::create_unique(-1, -1, dependency_name, true);
 }
 
 Status PipelineTask::prepare(const TPipelineInstanceParams& local_params, const TDataSink& tsink,
@@ -324,6 +328,12 @@ Status PipelineTask::execute(bool* eos) {
     SCOPED_ATTACH_TASK(_state);
     _eos = _sink->is_finished(_state) || _eos || _wake_up_by_downstream;
     *eos = _eos;
+
+    // If `_wake_up_by_downstream` is true, the pending block will not be sank.
+    if (_wake_up_by_downstream) {
+        _pending_block.reset();
+    }
+
     if (_eos && !_pending_block) {
         // If task is waken up by finish dependency, `_eos` is set to true by last execution, and we should return here.
         return Status::OK();
@@ -397,26 +407,22 @@ Status PipelineTask::execute(bool* eos) {
         // Every loop should check if memory is not enough.
         // _state->get_query_ctx()->update_low_memory_mode();
 
-        // `_dry_run` means sink operator need no more data
-        // `_sink->is_finished(_state)` means sink operator should be finished
-        int64_t reserve_size = 0;
-        bool has_enough_memory = true;
-        if (_dry_run || _sink->is_finished(_state)) {
-            *eos = true;
-            _eos = true;
-        } else if (_pending_block) [[unlikely]] {
+        if (_pending_block) [[unlikely]] {
             LOG(INFO) << "query: " << print_id(query_id)
                       << " has pending block, size: " << _pending_block->allocated_bytes();
             _block = std::move(_pending_block);
             block = _block.get();
+        }
+        // `_dry_run` means sink operator need no more data
+        // `_sink->is_finished(_state)` means sink operator should be finished
+        else if (_dry_run || _sink->is_finished(_state)) {
+            *eos = true;
+            _eos = true;
         } else {
             SCOPED_TIMER(_get_block_timer);
             DEFER_RELEASE_RESERVED();
             _get_block_counter->update(1);
-            // size_t sink_reserve_size = _sink->get_reserve_mem_size(_state);
-            // sink_reserve_size =
-            //         std::max(sink_reserve_size, _state->minimum_operator_memory_required_bytes());
-            reserve_size = _root->get_reserve_mem_size(_state);
+            const auto reserve_size = _root->get_reserve_mem_size(_state);
             _root->reset_reserve_mem_size(_state);
 
             auto workload_group = _state->get_query_ctx()->workload_group();
@@ -435,19 +441,14 @@ Status PipelineTask::execute(bool* eos) {
                               << ", debug info: " << GlobalMemoryArbitrator::process_mem_log_str();
 
                     _state->get_query_ctx()->update_paused_reason(st);
-                    // _state->get_query_ctx()->set_low_memory_mode();
-                    bool is_high_wartermark = false;
-                    bool is_low_wartermark = false;
-                    workload_group->check_mem_used(&is_low_wartermark, &is_high_wartermark);
-                    if (is_low_wartermark || is_high_wartermark) {
-                        ExecEnv::GetInstance()->workload_group_mgr()->add_paused_query(
-                                _state->get_query_ctx()->shared_from_this(), reserve_size);
-                        continue;
-                    }
-                    has_enough_memory = false;
+                    _state->get_query_ctx()->set_low_memory_mode();
+                    ExecEnv::GetInstance()->workload_group_mgr()->add_paused_query(
+                            _state->get_query_ctx()->shared_from_this(), reserve_size);
+                    continue;
                 }
             }
 
+            DCHECK_EQ(_pending_block.get(), nullptr);
             RETURN_IF_ERROR(_root->get_block_after_projects(_state, block, eos));
         }
 
@@ -456,9 +457,10 @@ Status PipelineTask::execute(bool* eos) {
             Status status = Status::OK();
             DEFER_RELEASE_RESERVED();
             COUNTER_UPDATE(_memory_reserve_times, 1);
-            size_t sink_reserve_size = _sink->get_reserve_mem_size(_state, *eos);
+            const auto sink_reserve_size = _sink->get_reserve_mem_size(_state, *eos);
             status = thread_context()->try_reserve_memory(sink_reserve_size);
             if (!status.ok()) {
+                COUNTER_UPDATE(_memory_reserve_failed_times, 1);
                 LOG(INFO) << "query: " << print_id(query_id) << ", try to reserve: "
                           << PrettyPrinter::print(sink_reserve_size, TUnit::BYTES)
                           << ", sink name: " << _sink->get_name()
@@ -466,11 +468,12 @@ Status PipelineTask::execute(bool* eos) {
                           << ", failed: " << status.to_string()
                           << ", debug info: " << GlobalMemoryArbitrator::process_mem_log_str();
                 _state->get_query_ctx()->update_paused_reason(status);
-                _memory_sufficient_dependency->block();
+                _state->get_query_ctx()->set_low_memory_mode();
                 ExecEnv::GetInstance()->workload_group_mgr()->add_paused_query(
                         _state->get_query_ctx()->shared_from_this(), sink_reserve_size);
+                DCHECK_EQ(_pending_block.get(), nullptr);
                 _pending_block = std::move(_block);
-                _block = vectorized::Block::create_unique();
+                _block = vectorized::Block::create_unique(_pending_block->clone_empty());
                 _eos = *eos;
                 *eos = false;
                 continue;
@@ -493,17 +496,6 @@ Status PipelineTask::execute(bool* eos) {
                 _task_profile->add_info_string("TaskState", "Finished");
                 return Status::OK();
             }
-        }
-
-        if (!has_enough_memory) {
-            COUNTER_UPDATE(_yield_counts, 1);
-
-            LOG(INFO) << "query: " << print_id(query_id) << ", task: " << (void*)this
-                      << ", insufficient memory. reserve_size: "
-                      << PrettyPrinter::print(reserve_size, TUnit::BYTES);
-            ExecEnv::GetInstance()->workload_group_mgr()->add_paused_query(
-                    _state->get_query_ctx()->shared_from_this(), reserve_size);
-            break;
         }
     }
 

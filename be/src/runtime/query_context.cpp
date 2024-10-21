@@ -89,8 +89,6 @@ QueryContext::QueryContext(TUniqueId query_id, ExecEnv* exec_env,
     _query_watcher.start();
     _shared_hash_table_controller.reset(new vectorized::SharedHashTableController());
     _execution_dependency = pipeline::Dependency::create_unique(-1, -1, "ExecutionDependency");
-    _memory_sufficient_dependency =
-            pipeline::Dependency::create_unique(-1, -1, "MemorySufficientDependency", true);
 
     _runtime_filter_mgr = std::make_unique<RuntimeFilterMgr>(
             TUniqueId(), RuntimeFilterParamsContext::create(this), query_mem_tracker);
@@ -199,7 +197,6 @@ QueryContext::~QueryContext() {
     }
     _runtime_filter_mgr.reset();
     _execution_dependency.reset();
-    _memory_sufficient_dependency.reset();
     _shared_hash_table_controller.reset();
     _runtime_predicates.clear();
     file_scan_range_params_map.clear();
@@ -236,11 +233,17 @@ void QueryContext::set_memory_sufficient(bool sufficient) {
             _paused_timer.stop();
             _paused_period_secs += _paused_timer.elapsed_time() / (1000L * 1000L * 1000L);
         }
-        _memory_sufficient_dependency->set_ready();
     } else {
-        _memory_sufficient_dependency->block();
         _paused_timer.start();
         ++_paused_count;
+    }
+
+    for (auto&& [fragment_id, fragment_wptr] : _fragment_id_to_pipeline_ctx) {
+        auto fragment_ctx = fragment_wptr.lock();
+        if (!fragment_ctx) {
+            continue;
+        }
+        fragment_ctx->set_memory_sufficient(sufficient);
     }
 }
 
@@ -527,15 +530,13 @@ std::vector<pipeline::PipelineTask*> QueryContext::get_revocable_tasks() const {
 std::string QueryContext::debug_string() {
     std::lock_guard l(_paused_mutex);
     return fmt::format(
-            "QueryId={}, Memory [Used={}, Limit={}, Peak={}], "
-            "Spill[RunningSpillTaskCnt={}, TotalPausedPeriodSecs={}, "
-            "MemorySufficient={}, LatestPausedReason={}]",
+            "QueryId={}, Memory [Used={}, Limit={}, Peak={}], Spill[RunningSpillTaskCnt={}, "
+            "TotalPausedPeriodSecs={}, LatestPausedReason={}]",
             print_id(_query_id),
             PrettyPrinter::print(query_mem_tracker->consumption(), TUnit::BYTES),
             PrettyPrinter::print(query_mem_tracker->limit(), TUnit::BYTES),
             PrettyPrinter::print(query_mem_tracker->peak_consumption(), TUnit::BYTES),
-            _revoking_tasks_count, _paused_period_secs, _memory_sufficient_dependency->ready(),
-            _paused_reason.to_string());
+            _revoking_tasks_count, _paused_period_secs, _paused_reason.to_string());
 }
 
 std::unordered_map<int, std::vector<std::shared_ptr<TRuntimeProfileTree>>>
