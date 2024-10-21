@@ -256,7 +256,7 @@ private:
                         continue;
                     }
                 }
-                auto& mapped = ctx.lazy_emplace(key_getter, j, creator, creator_for_null_key);
+                auto& mapped = *ctx.lazy_emplace(key_getter, j, creator, creator_for_null_key);
                 mapped++;
                 dst_values[j] = mapped;
             }

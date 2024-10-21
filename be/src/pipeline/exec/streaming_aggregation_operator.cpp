@@ -499,8 +499,8 @@ Status StreamingAggLocalState::_merge_with_serialized_key(vectorized::Block* blo
 }
 
 Status StreamingAggLocalState::_init_hash_method(const vectorized::VExprContextSPtrs& probe_exprs) {
-    RETURN_IF_ERROR(init_agg_hash_method(
-            _agg_data.get(), probe_exprs,
+    RETURN_IF_ERROR(init_hash_method<AggregatedDataVariants>(
+            _agg_data.get(), get_data_types(probe_exprs),
             Base::_parent->template cast<StreamingAggOperatorX>()._is_first_phase));
     return Status::OK();
 }
@@ -1114,8 +1114,8 @@ void StreamingAggLocalState::_emplace_into_hash_table(vectorized::AggregateDataP
 
                            SCOPED_TIMER(_hash_table_emplace_timer);
                            for (size_t i = 0; i < num_rows; ++i) {
-                               places[i] = agg_method.lazy_emplace(state, i, creator,
-                                                                   creator_for_null_key);
+                               places[i] = *agg_method.lazy_emplace(state, i, creator,
+                                                                    creator_for_null_key);
                            }
 
                            COUNTER_UPDATE(_hash_table_input_counter, num_rows);

@@ -22,6 +22,7 @@
 
 #include <memory>
 #include <span>
+#include <type_traits>
 
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column_string.h"
@@ -36,6 +37,21 @@
 namespace doris::vectorized {
 
 using Sizes = std::vector<size_t>;
+
+inline bool has_nullable_key(const std::vector<DataTypePtr>& data_types) {
+    return std::ranges::any_of(data_types.begin(), data_types.end(),
+                               [](auto t) { return t->is_nullable(); });
+}
+
+inline Sizes get_key_sizes(const std::vector<DataTypePtr>& data_types) {
+    Sizes key_sizes;
+    for (const auto& data_type : data_types) {
+        key_sizes.emplace_back(data_type->get_maximum_size_of_value_in_memory() -
+                               data_type->is_nullable());
+    }
+    return key_sizes;
+}
+
 namespace ColumnsHashing {
 
 /// For the case when there is one numeric key.
@@ -119,22 +135,29 @@ struct HashMethodSingleLowNullableColumn : public SingleColumnMethod {
               key_column(assert_cast<const ColumnNullable*>(key_columns_nullable[0])) {}
 
     template <typename Data, typename Func, typename CreatorForNull, typename KeyHolder>
-        requires has_mapped
-    ALWAYS_INLINE Mapped& lazy_emplace_key(Data& data, size_t row, KeyHolder&& key,
+    ALWAYS_INLINE Mapped* lazy_emplace_key(Data& data, size_t row, KeyHolder&& key,
                                            size_t hash_value, Func&& f,
                                            CreatorForNull&& null_creator) {
         if (key_column->is_null_at(row)) {
             bool has_null_key = data.has_null_key_data();
             data.has_null_key_data() = true;
-            if (!has_null_key) {
-                std::forward<CreatorForNull>(null_creator)(
-                        data.template get_null_key_data<Mapped>());
+
+            if constexpr (std::is_same_v<Mapped, void>) {
+                if (!has_null_key) {
+                    std::forward<CreatorForNull>(null_creator)();
+                }
+                return nullptr;
+            } else {
+                if (!has_null_key) {
+                    std::forward<CreatorForNull>(null_creator)(
+                            data.template get_null_key_data<Mapped>());
+                }
+                return &data.template get_null_key_data<Mapped>();
             }
-            return data.template get_null_key_data<Mapped>();
         }
         typename Data::LookupResult it;
         data.lazy_emplace(std::forward<KeyHolder>(key), it, hash_value, std::forward<Func>(f));
-        return *lookup_result_get_mapped(it);
+        return lookup_result_get_mapped(it);
     }
 
     template <typename Data, typename Key>

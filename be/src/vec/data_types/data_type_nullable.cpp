@@ -244,12 +244,6 @@ Field DataTypeNullable::get_default() const {
     return Null();
 }
 
-size_t DataTypeNullable::get_size_of_value_in_memory() const {
-    throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                           "Value of type {} in memory is not of fixed size.", get_name());
-    return 0;
-}
-
 bool DataTypeNullable::equals(const IDataType& rhs) const {
     return rhs.is_nullable() &&
            nested_data_type->equals(*static_cast<const DataTypeNullable&>(rhs).nested_data_type);

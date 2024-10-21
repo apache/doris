@@ -59,10 +59,9 @@ static constexpr int STREAMING_HT_MIN_REDUCTION_SIZE =
 DistinctStreamingAggLocalState::DistinctStreamingAggLocalState(RuntimeState* state,
                                                                OperatorXBase* parent)
         : PipelineXLocalState<FakeSharedState>(state, parent),
-          dummy_mapped_data(std::make_shared<char>('A')),
           batch_size(state->batch_size()),
           _agg_arena_pool(std::make_unique<vectorized::Arena>()),
-          _agg_data(std::make_unique<AggregatedDataVariants>()),
+          _agg_data(std::make_unique<DistinctDataVariants>()),
           _agg_profile_arena(std::make_unique<vectorized::Arena>()),
           _child_block(vectorized::Block::create_unique()),
           _aggregated_block(vectorized::Block::create_unique()) {}
@@ -95,12 +94,8 @@ Status DistinctStreamingAggLocalState::open(RuntimeState* state) {
         RETURN_IF_ERROR(p._probe_expr_ctxs[i]->clone(state, _probe_expr_ctxs[i]));
     }
 
-    if (_probe_expr_ctxs.empty()) {
-        _agg_data->without_key = reinterpret_cast<vectorized::AggregateDataPtr>(
-                _agg_profile_arena->alloc(p._total_size_of_aggregate_states));
-    } else {
-        RETURN_IF_ERROR(_init_hash_method(_probe_expr_ctxs));
-    }
+    DCHECK_EQ(p._total_size_of_aggregate_states, 0);
+    RETURN_IF_ERROR(_init_hash_method(_probe_expr_ctxs));
     return Status::OK();
 }
 
@@ -171,8 +166,8 @@ bool DistinctStreamingAggLocalState::_should_expand_preagg_hash_tables() {
 
 Status DistinctStreamingAggLocalState::_init_hash_method(
         const vectorized::VExprContextSPtrs& probe_exprs) {
-    RETURN_IF_ERROR(init_agg_hash_method(
-            _agg_data.get(), probe_exprs,
+    RETURN_IF_ERROR(init_hash_method<DistinctDataVariants>(
+            _agg_data.get(), get_data_types(probe_exprs),
             Base::_parent->template cast<DistinctStreamingAggOperatorX>()._is_first_phase));
     return Status::OK();
 }
@@ -303,13 +298,10 @@ void DistinctStreamingAggLocalState::_emplace_into_hash_table_to_distinct(
                         size_t row = 0;
                         auto creator = [&](const auto& ctor, auto& key, auto& origin) {
                             HashMethodType::try_presis_key(key, origin, _arena);
-                            ctor(key, dummy_mapped_data.get());
+                            ctor(key);
                             distinct_row.push_back(row);
                         };
-                        auto creator_for_null_key = [&](auto& mapped) {
-                            mapped = dummy_mapped_data.get();
-                            distinct_row.push_back(row);
-                        };
+                        auto creator_for_null_key = [&]() { distinct_row.push_back(row); };
 
                         SCOPED_TIMER(_hash_table_emplace_timer);
                         for (; row < num_rows; ++row) {

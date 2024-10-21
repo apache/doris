@@ -311,7 +311,7 @@ Status HashJoinProbeOperatorX::pull(doris::RuntimeState* state, vectorized::Bloc
                         st = Status::InternalError("uninited hash table probe");
                     }
                 },
-                *local_state._shared_state->hash_table_variants,
+                local_state._shared_state->hash_table_variants->method_variant,
                 *local_state._process_hashtable_ctx_variants,
                 vectorized::make_bool_variant(local_state._need_null_map_for_probe),
                 vectorized::make_bool_variant(local_state._shared_state->probe_ignore_null));
@@ -332,7 +332,7 @@ Status HashJoinProbeOperatorX::pull(doris::RuntimeState* state, vectorized::Bloc
                             st = Status::InternalError("uninited hash table probe");
                         }
                     },
-                    *local_state._shared_state->hash_table_variants,
+                    local_state._shared_state->hash_table_variants->method_variant,
                     *local_state._process_hashtable_ctx_variants);
         } else {
             *eos = true;

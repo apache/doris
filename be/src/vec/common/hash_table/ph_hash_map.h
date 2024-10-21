@@ -22,7 +22,6 @@
 #include <boost/noncopyable.hpp>
 #include <span>
 
-#include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/common/hash_table/hash.h"
 #include "vec/common/hash_table/phmap_fwd_decl.h"
 
