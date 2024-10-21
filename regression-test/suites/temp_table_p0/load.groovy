@@ -45,7 +45,7 @@ suite('load', 'p0,restart_fe,docker') {
           `name` varchar(32),
           gender varchar(512)
         ) ENGINE=OLAP
-        UNIQUE KEY(`id`)
+        DUPLICATE KEY(`id`)
         DISTRIBUTED BY HASH(`id`) BUCKETS 1
         PROPERTIES (
         "replication_allocation" = "tag.location.default: 1"
