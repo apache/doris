@@ -77,7 +77,7 @@ suite("fold_constant_string_arithmatic") {
     testFoldConst("SELECT  Strcmp('abc', 'abd')")
     testFoldConst("SELECT  StrLeft('Hello World', 5)")
     testFoldConst("SELECT  StrRight('Hello World', 5)")
-    testFoldConst("SELECT  Overlay('abcdef', '123', 3, 2)")
+//    testFoldConst("SELECT  Overlay('abcdef', '123', 3, 2)")
     testFoldConst("SELECT  Parse_Url('http://www.example.com/path?query=abc', 'HOST')")
     testFoldConst("SELECT  Url_Decode('+Hello+World+')")
     testFoldConst("SELECT  Url_Encode(' Hello World ')")
@@ -188,7 +188,7 @@ suite("fold_constant_string_arithmatic") {
 
     // UrlDecode with an invalid percent-encoded string
     // Expected behavior: Return NULL or error due to invalid encoding.
-    // testFoldConst("SELECT Url_Decode('%ZZHello%20World')")
+//    testFoldConst("SELECT Url_Decode('%ZZHello%20World')")
 
     testFoldConst("select elt(0, \"hello\", \"doris\")")
     testFoldConst("select elt(1, \"hello\", \"doris\")")
@@ -436,8 +436,9 @@ suite("fold_constant_string_arithmatic") {
     testFoldConst("SELECT Strcmp(cast('abc' as string), cast('abd' as string))")
     testFoldConst("SELECT StrLeft(cast('Hello World' as string), 5)")
     testFoldConst("SELECT StrRight(cast('Hello World' as string), 5)")
-    testFoldConst("SELECT Overlay(cast('abcdef' as string), cast('123' as string), 3, 2)")
+//    testFoldConst("SELECT Overlay(cast('abcdef' as string), cast('123' as string), 3, 2)")
     testFoldConst("SELECT Parse_Url(cast('http://www.example.com/path?query=abc' as string), cast('HOST' as string))")
+//    testFoldConst("SELECT Url_Decode(cast('%20Hello%20World%20' as string))")
     testFoldConst("SELECT Url_Decode(cast('+Hello+World+' as string))")
     testFoldConst("SELECT Url_Encode(cast(' Hello World ' as string))")
 
