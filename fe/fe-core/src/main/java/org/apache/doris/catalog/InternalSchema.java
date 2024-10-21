@@ -152,6 +152,8 @@ public class InternalSchema {
         AUDIT_SCHEMA.add(
                 new ColumnDef("workload_group", TypeDef.create(PrimitiveType.STRING), ColumnNullableType.NULLABLE));
         AUDIT_SCHEMA.add(new ColumnDef("stmt", TypeDef.create(PrimitiveType.STRING), ColumnNullableType.NULLABLE));
+        AUDIT_SCHEMA.add(new ColumnDef("cloudClusterName", TypeDef.create(PrimitiveType.STRING),
+                ColumnNullableType.NULLABLE));
     }
 
     // Get copied schema for statistic table
