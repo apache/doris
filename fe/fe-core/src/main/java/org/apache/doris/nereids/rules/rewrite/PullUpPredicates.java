@@ -17,6 +17,9 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
+import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
@@ -74,9 +77,11 @@ public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void
 
     Map<Plan, ImmutableSet<Expression>> cache = new IdentityHashMap<>();
     private final boolean getAllPredicates;
+    private final ExpressionRewriteContext rewriteContext;
 
-    public PullUpPredicates(boolean all) {
+    public PullUpPredicates(boolean all, CascadesContext cascadesContext) {
         getAllPredicates = all;
+        rewriteContext = new ExpressionRewriteContext(cascadesContext);
     }
 
     @Override
@@ -297,6 +302,7 @@ public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void
                         for (Slot slot : expressionSlotMap.get(cmp.left())) {
                             Expression genPredicates = TypeCoercionUtils.processComparisonPredicate(
                                      (ComparisonPredicate) cmp.withChildren(slot, cmp.right()));
+                            genPredicates = FoldConstantRuleOnFE.evaluate(genPredicates, rewriteContext);
                             pullPredicates.add(genPredicates);
                         }
                     }
