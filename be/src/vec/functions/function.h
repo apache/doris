@@ -76,8 +76,8 @@ concept HasGetVariadicArgumentTypesImpl = requires(T t) {
     { t.get_variadic_argument_types_impl() } -> std::same_as<DataTypes>;
 };
 
-bool have_null_column(const Block& block, const ColumnNumbers& args);
-bool have_null_column(const ColumnsWithTypeAndName& args);
+bool has_null_column(const Block& block, const ColumnNumbers& args);
+bool has_null_column(const ColumnsWithTypeAndName& args);
 
 /// The simplest executable object.
 /// Motivation:
