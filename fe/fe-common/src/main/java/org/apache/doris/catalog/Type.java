@@ -429,6 +429,10 @@ public abstract class Type {
         return isScalarType(PrimitiveType.TIMEV2);
     }
 
+    public boolean isTimeLikeType() {
+        return isTimeV2() || isTime();
+    }
+
     public boolean isWildcardDecimal() {
         return false;
     }
