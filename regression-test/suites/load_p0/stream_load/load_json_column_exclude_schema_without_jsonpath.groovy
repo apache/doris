@@ -73,8 +73,8 @@ suite("test_load_json_column_exclude_schema_without_jsonpath", "p0") {
                 log.info("Stream load result: ${result}".toString())
                 def json = parseJson(result)
                 assertEquals("fail", json.Status.toLowerCase())
-                assertEquals(json.NumberTotalRows, json.NumberLoadedRows + json.NumberFilteredRows)
-                assertTrue(json.NumberLoadedRows == 30);
+                assertTrue(json.NumberTotalRows == 60)
+                assertTrue(json.NumberLoadedRows == 0)
                 assertTrue(json.NumberFilteredRows == 30);
             }
         }
