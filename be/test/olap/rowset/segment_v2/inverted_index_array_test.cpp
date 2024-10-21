@@ -110,7 +110,7 @@ public:
         paths.emplace_back(kTestDir, 1024);
         auto tmp_file_dirs = std::make_unique<segment_v2::TmpFileDirs>(paths);
         st = tmp_file_dirs->init();
-        if (!st.OK()) {
+        if (!st.ok()) {
             std::cout << "init tmp file dirs error:" << st.to_string() << std::endl;
             return;
         }
