@@ -25,6 +25,7 @@ import org.apache.doris.backup.BackupJobInfo.BackupPartitionInfo;
 import org.apache.doris.backup.BackupJobInfo.BackupTabletInfo;
 import org.apache.doris.backup.RestoreFileMapping.IdChain;
 import org.apache.doris.backup.Status.ErrCode;
+import org.apache.doris.catalog.AutoIncrementGenerator;
 import org.apache.doris.catalog.BinlogConfig;
 import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.catalog.Database;
@@ -76,6 +77,7 @@ import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTask;
 import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.AgentTaskQueue;
+import org.apache.doris.task.ClearAutoIncCacheTask;
 import org.apache.doris.task.CreateReplicaTask;
 import org.apache.doris.task.DirMoveTask;
 import org.apache.doris.task.DownloadTask;
@@ -110,6 +112,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
@@ -657,6 +660,8 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
 
         // Check and prepare meta objects.
         AgentBatchTask batchTask = new AgentBatchTask();
+
+        Map<Long, AutoIncrementGenerator> involvedAutoIncInfos = Maps.newHashMap();
         db.readLock();
         try {
             for (Map.Entry<String, BackupOlapTableInfo> olapTableEntry : jobInfo.backupOlapTableObjects.entrySet()) {
@@ -700,6 +705,29 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                             status = new Status(ErrCode.COMMON_ERROR, "Table "
                                     + alias + " already exist but with different schema");
                             return;
+                        }
+
+                        if (localOlapTbl.hasAutoIncCol() != remoteOlapTbl.hasAutoIncCol()) {
+                            String alias = jobInfo.getAliasByOriginNameIfSet(tableName);
+                            String localTblHint = (localOlapTbl.hasAutoIncCol() ? "has" : "doesn't have");
+                            String remoteTblHint = (remoteOlapTbl.hasAutoIncCol() ? "has" : "doesn't have");
+                            LOG.warn("Table {} already exists but with different schema, local table {} auto-increment"
+                                    + " column but remote table {}", alias, localTblHint, remoteTblHint);
+                            status = new Status(ErrCode.COMMON_ERROR, String.format("Table %s already exists but with"
+                                    + " different schema, local table %s auto-increment column but remote table %s",
+                                            alias, localTblHint, remoteTblHint));
+                            return;
+                        }
+
+                        if (localOlapTbl.hasAutoIncCol()) {
+                            String alias = jobInfo.getAliasByOriginNameIfSet(tableName);
+                            AutoIncrementGenerator remoteAutoIncGen = remoteOlapTbl.getAutoIncrementGenerator();
+                            if (remoteAutoIncGen == null) {
+                                status = new Status(ErrCode.COMMON_ERROR, "remote table " + alias
+                                        + " doesn't have AutoIncrementGenerator.");
+                                return;
+                            }
+                            involvedAutoIncInfos.put(localOlapTbl.getId(), remoteAutoIncGen);
                         }
 
                         // Table with same name and has same schema. Check partition
@@ -963,6 +991,10 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
             ok = true;
         }
 
+        if (ok && !involvedAutoIncInfos.isEmpty()) {
+            ok = clearAutoIncCache(involvedAutoIncInfos.keySet());
+        }
+
         if (ok) {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("finished to create all restored replicas. {}", this);
@@ -1000,6 +1032,18 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                     localTbl.writeUnlock();
                 }
 
+            }
+
+            // reset autoIncrementGenerator for involved tables
+            for (Map.Entry<Long, AutoIncrementGenerator> entry : involvedAutoIncInfos.entrySet()) {
+                OlapTable localTbl = (OlapTable) db.getTableNullable(entry.getKey());
+                AutoIncrementGenerator autoIncrementGenerator = entry.getValue();
+                localTbl.writeLock();
+                try {
+                    localTbl.setAutoIncrementGenerator(autoIncrementGenerator);
+                } finally {
+                    localTbl.writeUnlock();
+                }
             }
 
             // add restored tables
@@ -1503,6 +1547,20 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
             } finally {
                 tbl.writeUnlock();
             }
+        }
+
+        // reset autoIncrementGenerator for involved tables
+        for (String tableName : jobInfo.backupOlapTableObjects.keySet()) {
+            OlapTable localTbl = (OlapTable) db.getTableNullable(tableName);
+            if (localTbl == null) {
+                continue;
+            }
+            OlapTable remoteTbl = (OlapTable) backupMeta.getTable(tableName);
+            AutoIncrementGenerator autoIncrementGenerator = remoteTbl.getAutoIncrementGenerator();
+            if (autoIncrementGenerator == null) {
+                continue;
+            }
+            localTbl.setAutoIncrementGenerator(autoIncrementGenerator);
         }
 
         // restored partitions
@@ -2479,6 +2537,56 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                 }
             } finally {
                 tbl.writeUnlock();
+            }
+        }
+    }
+
+    public boolean clearAutoIncCache(Set<Long> autoIncInvolvedTables) {
+        Map<Long, List<Long>> invovedTables = Maps.newHashMap();
+        List<Long> tableIds = Lists.newArrayList();
+        for (long tableId : autoIncInvolvedTables) {
+            tableIds.add(tableId);
+        }
+        invovedTables.put(dbId, tableIds);
+        int tryCnt = 0;
+        while (true) {
+            if (tryCnt++ > 3) {
+                LOG.warn("failed to clear auto inc cache for restore job[label={}],"
+                        + "try cnt {} reaches maximum retry count", label, tryCnt);
+                return false;
+            }
+
+            List<Long> aliveBackendIds = Env.getCurrentSystemInfo().getAllBackendIds(true);
+            AgentBatchTask clearAutoIncCacheBatchTask = new AgentBatchTask();
+            try {
+                for (long backendId : aliveBackendIds) {
+                    ClearAutoIncCacheTask task = new ClearAutoIncCacheTask(backendId, invovedTables);
+                    clearAutoIncCacheBatchTask.addTask(task);
+                    AgentTaskQueue.addTask(task);
+                }
+                CountDownLatch clearAutoIncCacheLatch = new CountDownLatch(clearAutoIncCacheBatchTask.getTaskNum());
+                for (AgentTask task : clearAutoIncCacheBatchTask.getAllTasks()) {
+                    ((ClearAutoIncCacheTask) task).setLatch(clearAutoIncCacheLatch);
+                }
+
+                long timeout = 3000;
+                LOG.info("begin to send clear auto-increment cache tasks to BE for restore. total {} tasks."
+                        + " timeout: {}ms", clearAutoIncCacheBatchTask.getTaskNum(), timeout);
+                AgentTaskExecutor.submit(clearAutoIncCacheBatchTask);
+                boolean ok = clearAutoIncCacheLatch.await(timeout, TimeUnit.MILLISECONDS);
+                if (ok) {
+                    return true;
+                }
+            } catch (Exception e) {
+                LOG.warn("failed to clear auto inc cache for restore job[label={}], try cnt {}, execption {}",
+                        label, tryCnt, e);
+            }
+
+            AgentTaskQueue.removeBatchTask(clearAutoIncCacheBatchTask, TTaskType.CLEAR_AUTO_INC_CACHE);
+            try {
+                Thread.sleep(3000);
+            } catch (InterruptedException ie) {
+                LOG.warn("Thread sleep is interrupted");
             }
         }
     }
