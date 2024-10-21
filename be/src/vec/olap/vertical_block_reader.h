@@ -47,8 +47,8 @@ class RowSourcesBuffer;
 
 class VerticalBlockReader final : public TabletReader {
 public:
-    VerticalBlockReader(RowSourcesBuffer* row_sources_buffer)
-            : _row_sources_buffer(row_sources_buffer) {
+    VerticalBlockReader(RowSourcesBuffer* row_sources_buffer, bool is_compaction = false)
+            : _row_sources_buffer(row_sources_buffer), _is_compaction(is_compaction) {
         _id = nextId++;
     }
 
@@ -103,6 +103,7 @@ private:
     Status (VerticalBlockReader::*_next_block_func)(Block* block, bool* eof) = nullptr;
 
     RowSourcesBuffer* _row_sources_buffer;
+    bool _is_compaction;
     ColumnPtr _delete_filter_column;
 
     // for agg mode

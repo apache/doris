@@ -293,6 +293,9 @@ struct OlapReaderStatistics {
 
     // total read bytes in memory
     int64_t bytes_read = 0;
+    int64_t cache_bytes_read = 0;
+    int64_t local_bytes_read = 0;
+    int64_t s3_bytes_read = 0;
 
     int64_t block_fetch_ns = 0; // time of rowset reader's `next_batch()` call
     int64_t block_load_ns = 0;
