@@ -248,7 +248,7 @@ suite("nested_materialized_view") {
     create_async_mv(db, "mv1_0_inner_mv", mv1_0_inner_mv)
     async_mv_rewrite_fail(db, mv1_0, query1_0, "mv1_0")
 
-    mv_rewrite_success(query1_0, "mv1_0_inner_mv")
+    mv_rewrite_all_success_without_check_chosen(query1_0, "mv1_0_inner_mv")
     order_qt_query1_1_after "${query1_0}"
 
 

@@ -39,7 +39,6 @@ suite ("multi_slot_k1p2ap3ps") {
     createMV ("create materialized view k1p2ap3ps as select k1+1,sum(abs(k2+2)+k3+3) from d_table group by k1+1;")
 
     sql "insert into d_table select -4,-4,-4,'d';"
-    sql "insert into d_table select -4,-4,-4,'d';"
 
     sql "analyze table d_table with sync;"
     sql """set enable_stats=false;"""
