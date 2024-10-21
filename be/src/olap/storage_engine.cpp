@@ -633,7 +633,7 @@ DataDir* StorageEngine::get_store(const std::string& path) {
 
 static bool too_many_disks_are_failed(uint32_t unused_num, uint32_t total_num) {
     return ((total_num == 0) ||
-            (unused_num * 100 / total_num > config::max_percentage_of_error_disk));
+            (unused_num * 100 / total_num >= config::max_percentage_of_error_disk));
 }
 
 void StorageEngine::_exit_if_too_many_disks_are_failed() {
