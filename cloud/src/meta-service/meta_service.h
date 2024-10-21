@@ -298,6 +298,9 @@ public:
                                                               const std::string& cloud_unique_id,
                                                               InstanceInfoPB* instance);
 
+    MetaServiceResponseStatus fix_tablet_stats(std::string cloud_unique_id_str,
+                                               std::string table_id_str);
+
 private:
     std::pair<MetaServiceCode, std::string> alter_instance(
             const AlterInstanceRequest* request,
