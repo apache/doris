@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.memo;
 
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -38,6 +39,7 @@ class RankTest extends TestWithFeService {
 
     @Test
     void test() throws Exception {
+        FeConstants.runningUnitTest = true;
         createDatabase("test");
         HyperGraphBuilder hyperGraphBuilder = new HyperGraphBuilder(Sets.newHashSet(JoinType.INNER_JOIN));
         hyperGraphBuilder.init(0, 1, 2);
