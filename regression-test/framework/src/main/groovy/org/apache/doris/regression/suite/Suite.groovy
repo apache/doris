@@ -1680,7 +1680,7 @@ class Suite implements GroovyInterceptable {
         if (!sync_cbo_rewrite) {
             explain {
                 sql("${query_sql}")
-                nonContains("(${mv_name})")
+                notContains("(${mv_name})")
             }
             return
         }
