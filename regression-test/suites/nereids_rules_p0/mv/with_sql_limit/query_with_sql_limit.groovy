@@ -193,7 +193,7 @@ suite("query_with_sql_limit") {
               3;
             """
     order_qt_query1_0_before "${query1_0}"
-    async_mv_rewrite_success(db, mv1_0, query1_0, "mv1_0")
+    check_mv_rewrite_success(db, mv1_0, query1_0, "mv1_0")
     order_qt_query1_0_after "${query1_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_0"""
     // Reset default
@@ -252,7 +252,7 @@ suite("query_with_sql_limit") {
               3;
             """
     order_qt_query2_0_before "${query2_0}"
-    async_mv_rewrite_success(db, mv2_0, query2_0, "mv2_0")
+    check_mv_rewrite_success(db, mv2_0, query2_0, "mv2_0")
     order_qt_query2_0_after "${query2_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv2_0"""
     // Reset default value
@@ -312,7 +312,7 @@ suite("query_with_sql_limit") {
               3;
             """
     order_qt_query3_0_before "${query3_0}"
-    async_mv_rewrite_success(db, mv3_0, query3_0, "mv3_0")
+    check_mv_rewrite_success(db, mv3_0, query3_0, "mv3_0")
     order_qt_query3_0_after "${query3_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv3_0"""
     // Reset default value
