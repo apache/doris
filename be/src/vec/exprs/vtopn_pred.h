@@ -71,7 +71,7 @@ public:
 
         _function = SimpleFunctionFactory::instance().get_function(
                 _predicate->is_asc() ? "le" : "ge", argument_template, _data_type,
-                state->be_exec_version());
+                {.enable_decimal256 = state->enable_decimal256()}, state->be_exec_version());
         if (!_function) {
             return Status::InternalError("get function failed");
         }

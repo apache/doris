@@ -27,6 +27,7 @@
 #include <memory>
 
 #include "common/status.h"
+#include "runtime/runtime_state.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
@@ -117,7 +118,8 @@ public:
         });
 
         auto func_if = SimpleFunctionFactory::instance().get_function(
-                "if", if_columns, block.get_by_position(result).type);
+                "if", if_columns, block.get_by_position(result).type,
+                {.enable_decimal256 = context->state()->enable_decimal256()});
         RETURN_IF_ERROR(func_if->execute(context, temporary_block, {0, 1, 2}, 3, input_rows_count));
         block.get_by_position(result).column = temporary_block.get_by_position(3).column;
         return Status::OK();

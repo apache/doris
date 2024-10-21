@@ -73,8 +73,9 @@ Status VInPredicate::prepare(RuntimeState* state, const RowDescriptor& desc,
     if (is_struct(arg_type) || is_array(arg_type) || is_map(arg_type)) {
         real_function_name = "collection_" + real_function_name;
     }
-    _function = SimpleFunctionFactory::instance().get_function(real_function_name,
-                                                               argument_template, _data_type);
+    _function = SimpleFunctionFactory::instance().get_function(
+            real_function_name, argument_template, _data_type,
+            {.enable_decimal256 = state->enable_decimal256()});
     if (_function == nullptr) {
         return Status::NotSupported("Function {} is not implemented", real_function_name);
     }
