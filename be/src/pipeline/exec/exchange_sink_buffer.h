@@ -22,9 +22,9 @@
 #include <gen_cpp/internal_service.pb.h>
 #include <gen_cpp/types.pb.h>
 #include <parallel_hashmap/phmap.h>
-#include <stdint.h>
 
 #include <atomic>
+#include <cstdint>
 #include <list>
 #include <memory>
 #include <mutex>
@@ -53,7 +53,7 @@ class ExchangeSinkLocalState;
 namespace vectorized {
 class PipChannel;
 
-// We use BroadcastPBlockHolder to hold a broadcasted PBlock. For broadcast shuffle, one PBlock
+// We use BroadcastPBlockHolder to hold a broadcast PBlock. For broadcast shuffle, one PBlock
 // will be shared between different channel, so we have to use a ref count to mark if this
 // PBlock is available for next serialization.
 class BroadcastPBlockHolderMemLimiter;
@@ -82,8 +82,6 @@ class BroadcastPBlockHolderMemLimiter
     ENABLE_FACTORY_CREATOR(BroadcastPBlockHolderMemLimiter);
 
 public:
-    BroadcastPBlockHolderMemLimiter() = delete;
-
     BroadcastPBlockHolderMemLimiter(std::shared_ptr<pipeline::Dependency>& broadcast_dependency) {
         _broadcast_dependency = broadcast_dependency;
     }
