@@ -140,6 +140,17 @@ Result<std::string> Rowset::segment_path(int64_t seg_id) {
     });
 }
 
+Result<std::string> Rowset::rowset_dir() {
+    if (is_local()) {
+        return _tablet_path;
+    }
+
+    return _rowset_meta->remote_storage_resource().transform([=, this](auto&& storage_resource) {
+        return storage_resource->remote_rowset_path(_rowset_meta->tablet_id(),
+                                                    _rowset_meta->rowset_id().to_string());
+    });
+}
+
 Status check_version_continuity(const std::vector<RowsetSharedPtr>& rowsets) {
     if (rowsets.size() < 2) {
         return Status::OK();
