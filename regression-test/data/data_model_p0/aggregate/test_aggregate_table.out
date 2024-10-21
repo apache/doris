@@ -46,3 +46,9 @@ datetimev2_value_min_2	datetime(6)	Yes	false	\N	MIN
 datetimev2_value_replace_2	datetime(6)	Yes	false	\N	REPLACE
 datetimev2_value_replace_if_not_null_2	datetime(6)	Yes	false	\N	REPLACE_IF_NOT_NULL
 
+-- !string_agg_table_with_null --
+-100	0	-82	true	2024-02-16T04:37:37	-1.299962421904282E9	hi
+-100	1	-82	true	2024-02-16T04:37:37	-1.299962421904282E9	\N
+-100	1	1	true	2024-02-16T04:37:37	1.399962421904282E9	doris
+-100	1	92	true	2024-02-16T04:37:37	2.34234230324234E7	NULL
+
