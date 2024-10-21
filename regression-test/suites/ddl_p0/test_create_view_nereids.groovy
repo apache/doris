@@ -267,16 +267,43 @@ suite("test_create_view_nereids") {
     qt_test_create_view_from_view_sql "show create view test_view_from_view"
 
     // test backquote in name
+    try {
+        sql "create view test_backquote_in_view_define(`ab``c`, c2) as select a,b from mal_test_view;"
+    } catch (Exception e) {
+        assertTrue(e.getMessage().contains("Incorrect column name 'ab`c'"))
+    }
 
     sql "drop view if exists test_backquote_in_view_define;"
-    sql "create view test_backquote_in_view_define(`ab``c`, c2) as select a,b from mal_test_view;"
-    qt_test_backquote_in_view_define "select * from test_backquote_in_view_define order by `ab``c`, c2;"
+    sql "create view test_backquote_in_view_define(`abc`, c2) as select a,b from mal_test_view;"
+    qt_test_backquote_in_view_define "select * from test_backquote_in_view_define order by abc, c2;"
     qt_test_backquote_in_view_define_sql "show create view test_backquote_in_view_define;"
 
     sql "drop view if exists test_backquote_in_table_alias;"
     sql "create view test_backquote_in_table_alias(c1, c2) as  select * from (select a,b from mal_test_view) `ab``c`;"
     qt_test_backquote_in_table_alias "select * from test_backquote_in_table_alias order by c1, c2;"
     qt_test_backquote_in_table_alias_sql "show create view test_backquote_in_table_alias;"
+
+    // test invalid column name
+    sql """set enable_unicode_name_support = true;"""
+    sql "drop view if exists test_invalid_column_name_in_table;"
+    try {
+        // create view should fail if contains invalid column name
+        sql "create view test_invalid_column_name_in_table as select a as '(第一列)',b from mal_test_view;"
+    } catch (Exception e) {
+        assertTrue(e.getMessage().contains("Incorrect column name '(第一列)'"))
+    }
+
+    sql "create view test_invalid_column_name_in_table as select a ,b from mal_test_view;"
+    order_qt_test_invalid_column_name_in_table "select * from test_invalid_column_name_in_table"
+    order_qt_test_invalid_column_name_in_table_define_sql "show create view test_invalid_column_name_in_table;"
+
+    try {
+        // alter view should fail if contains invalid column name
+        sql "alter view test_invalid_column_name_in_table as select a as '(第一列)',b from mal_test_view;"
+    } catch (Exception e) {
+        assertTrue(e.getMessage().contains("Incorrect column name '(第一列)'"))
+    }
+    sql """set enable_unicode_name_support = false;"""
 
     sql "drop table if exists create_view_table1"
     sql """CREATE TABLE create_view_table1 (
