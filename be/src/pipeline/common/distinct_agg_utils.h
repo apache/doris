@@ -87,9 +87,6 @@ struct DistinctDataVariants
                               vectorized::DataWithNullKey> {
     template <bool nullable>
     void init(const std::vector<vectorized::DataTypePtr>& data_types, HashKeyType type) {
-        method_variant
-                .emplace<vectorized::MethodKeysFixed<DistinctData<vectorized::UInt64>, nullable>>(
-                        get_key_sizes(data_types));
         switch (type) {
         case HashKeyType::serialized:
             method_variant.emplace<vectorized::MethodSerialized<DistinctDataWithStringKey>>();

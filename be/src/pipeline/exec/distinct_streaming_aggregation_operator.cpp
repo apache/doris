@@ -301,9 +301,7 @@ void DistinctStreamingAggLocalState::_emplace_into_hash_table_to_distinct(
                             ctor(key);
                             distinct_row.push_back(row);
                         };
-                        auto creator_for_null_key = [&]() {
-                            distinct_row.push_back(row);
-                        };
+                        auto creator_for_null_key = [&]() { distinct_row.push_back(row); };
 
                         SCOPED_TIMER(_hash_table_emplace_timer);
                         for (; row < num_rows; ++row) {
