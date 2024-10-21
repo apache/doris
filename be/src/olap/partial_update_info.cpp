@@ -576,9 +576,14 @@ Status FlexibleReadPlan::fill_non_primary_key_columns_for_column_store(
             DCHECK(cid != tablet_schema.version_col_idx());
             DCHECK(!tablet_column.is_row_store_column());
 
-            auto delete_sign_pos = read_index[tablet_schema.delete_sign_idx()][segment_pos];
-            if (use_default || (delete_sign_column_data != nullptr &&
-                                delete_sign_column_data[delete_sign_pos] != 0)) {
+            bool should_use_default = use_default;
+            if (!should_use_default && delete_sign_column_data != nullptr) {
+                auto it = read_index[tablet_schema.delete_sign_idx()].find(segment_pos);
+                if (it != read_index[tablet_schema.delete_sign_idx()].end()) {
+                    should_use_default = (delete_sign_column_data[it->second] != 0);
+                }
+            }
+            if (should_use_default) {
                 if (tablet_column.has_default_value()) {
                     new_col->insert_from(default_value_col, 0);
                 } else if (tablet_column.is_nullable()) {
