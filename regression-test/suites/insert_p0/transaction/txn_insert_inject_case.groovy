@@ -233,4 +233,22 @@ suite("txn_insert_inject_case", "nonConcurrent") {
         }
         assertEquals(7, rowCount)
     }
+
+    // check the limit of sub transaction num
+    try {
+        sql """ admin set frontend config('max_sub_transactions_in_transaction_load' = '4') """
+        sql """begin"""
+        sql """insert into ${table}_0 select * from ${table}_1;"""
+        sql """insert into ${table}_0 select * from ${table}_1;"""
+        sql """insert into ${table}_0 select * from ${table}_1;"""
+        sql """insert into ${table}_0 select * from ${table}_1;"""
+        sql """insert into ${table}_0 select * from ${table}_1;"""
+        assertTrue(false, "should not reach here")
+    } catch (Exception e) {
+        logger.info("failed", e)
+        sql """rollback"""
+        assertTrue(e.getMessage().contains("Transaction load can not have more than"))
+    } finally {
+        sql """ admin set frontend config('max_sub_transactions_in_transaction_load' = '50') """
+    }
 }
