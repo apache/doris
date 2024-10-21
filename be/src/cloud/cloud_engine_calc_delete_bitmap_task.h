@@ -67,6 +67,12 @@ public:
     void add_error_tablet_id(int64_t tablet_id, const Status& err);
     void add_succ_tablet_id(int64_t tablet_id);
 
+    Status get_delete_bitmap_lock(std::vector<int64_t>& tablet_id_vec, int64_t transaction_id,
+                                  int64_t& lock_index);
+
+    Status remove_delete_bitmap_lock(std::vector<int64_t>& tablet_id_vec, int64_t transaction_id,
+                                     int64_t& lock_index);
+
 private:
     CloudStorageEngine& _engine;
     const TCalcDeleteBitmapRequest& _cal_delete_bitmap_req;

@@ -93,13 +93,16 @@ public:
     Status update_tablet_schema(int64_t tablet_id, const TabletSchema& tablet_schema);
 
     Status update_delete_bitmap(const CloudTablet& tablet, int64_t lock_id, int64_t initiator,
-                                DeleteBitmap* delete_bitmap);
+                                DeleteBitmap* delete_bitmap, bool is_load = false);
 
     Status update_delete_bitmap_without_lock(const CloudTablet& tablet,
                                              DeleteBitmap* delete_bitmap);
 
     Status get_delete_bitmap_update_lock(const CloudTablet& tablet, int64_t lock_id,
                                          int64_t initiator);
+
+    Status remove_delete_bitmap_update_lock(const CloudTablet& tablet, int64_t lock_id,
+                                            int64_t initiator);
 
     Status remove_old_version_delete_bitmap(
             int64_t tablet_id,

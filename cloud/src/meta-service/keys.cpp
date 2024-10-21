@@ -295,7 +295,7 @@ void meta_delete_bitmap_update_lock_key(const MetaDeleteBitmapUpdateLockInfo& in
                                         std::string* out) {
     encode_prefix(in, out);                               // 0x01 "meta" ${instance_id}
     encode_bytes(META_KEY_INFIX_DELETE_BITMAP_LOCK, out); // "delete_bitmap_lock"
-    encode_int64(std::get<1>(in), out);                   // table_id
+    encode_int64(std::get<1>(in), out);                   // table_id or tablet_id
     encode_int64(std::get<2>(in), out);                   // partition_id
 }
 
