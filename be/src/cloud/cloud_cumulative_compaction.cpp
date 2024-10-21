@@ -54,8 +54,8 @@ Status CloudCumulativeCompaction::prepare_compact() {
         (!config::enable_new_tablet_do_compaction ||
          static_cast<CloudTablet*>(_tablet.get())->alter_version() == -1)) {
         Status res = Status::InternalError("invalid tablet state. tablet_id={}", _tablet->tablet_id());
-        cloud_tablet()->set_last_cumulative_compaction_failure_time(UnixMillis());
-        cloud_tablet()->set_last_cumulative_compaction_status(res.to_string());
+        cloud_tablet()->set_last_cumu_compaction_failure_time(UnixMillis());
+        cloud_tablet()->set_last_cumu_compaction_status(res.to_string());
         return res;
     }
 
