@@ -176,29 +176,33 @@ public class StorageVaultMgr {
 
     @VisibleForTesting
     public void setDefaultStorageVault(SetDefaultStorageVaultStmt stmt) throws DdlException {
+        setDefaultStorageVault(stmt.getStorageVaultName());
+    }
+
+    public void setDefaultStorageVault(String vaultName) throws DdlException {
         Cloud.AlterObjStoreInfoRequest.Builder builder = Cloud.AlterObjStoreInfoRequest.newBuilder();
         Cloud.StorageVaultPB.Builder vaultBuilder = Cloud.StorageVaultPB.newBuilder();
-        vaultBuilder.setName(stmt.getStorageVaultName());
+        vaultBuilder.setName(vaultName);
         builder.setVault(vaultBuilder.build());
         builder.setOp(Operation.SET_DEFAULT_VAULT);
         String vaultId;
-        LOG.info("try to set vault {} as default vault", stmt.getStorageVaultName());
+        LOG.info("try to set vault {} as default vault", vaultName);
         try {
             Cloud.AlterObjStoreInfoResponse resp =
                     MetaServiceProxy.getInstance().alterStorageVault(builder.build());
             if (resp.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
                 LOG.warn("failed to set default storage vault response: {}, vault name {}",
-                        resp, stmt.getStorageVaultName());
+                        resp, vaultName);
                 throw new DdlException(resp.getStatus().getMsg());
             }
             vaultId = resp.getStorageVaultId();
         } catch (RpcException e) {
             LOG.warn("failed to set default storage vault due to RpcException: {}, vault name {}",
-                    e, stmt.getStorageVaultName());
+                    e, vaultName);
             throw new DdlException(e.getMessage());
         }
-        LOG.info("succeed to set {} as default vault, vault id {}", stmt.getStorageVaultName(), vaultId);
-        setDefaultStorageVault(Pair.of(stmt.getStorageVaultName(), vaultId));
+        LOG.info("succeed to set {} as default vault, vault id {}", vaultName, vaultId);
+        setDefaultStorageVault(Pair.of(vaultName, vaultId));
     }
 
     public void unsetDefaultStorageVault() throws DdlException {
