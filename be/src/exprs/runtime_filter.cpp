@@ -1283,16 +1283,17 @@ void IRuntimeFilter::set_filter_timer(std::shared_ptr<pipeline::RuntimeFilterTim
     _filter_timer.push_back(timer);
 }
 
-void IRuntimeFilter::set_dependency(std::shared_ptr<pipeline::Dependency> dependency) {
+void IRuntimeFilter::set_finish_dependency(
+        const std::shared_ptr<pipeline::CountedFinishDependency>& dependency) {
     _dependency = dependency;
-    ((pipeline::CountedFinishDependency*)_dependency.get())->add();
+    _dependency->add();
     CHECK(_dependency);
 }
 
 void IRuntimeFilter::set_synced_size(uint64_t global_size) {
     _synced_size = global_size;
     if (_dependency) {
-        ((pipeline::CountedFinishDependency*)_dependency.get())->sub();
+        _dependency->sub();
     }
 }
 

@@ -69,6 +69,7 @@ struct RuntimeFilterContextSPtr;
 
 namespace pipeline {
 class RuntimeFilterTimer;
+class CountedFinishDependency;
 } // namespace pipeline
 
 enum class RuntimeFilterType {
@@ -352,7 +353,8 @@ public:
 
     void set_synced_size(uint64_t global_size);
 
-    void set_dependency(std::shared_ptr<pipeline::Dependency> dependency);
+    void set_finish_dependency(
+            const std::shared_ptr<pipeline::CountedFinishDependency>& dependency);
 
     int64_t get_synced_size() const { return _synced_size; }
 
@@ -422,7 +424,7 @@ protected:
     std::vector<std::shared_ptr<pipeline::RuntimeFilterTimer>> _filter_timer;
 
     int64_t _synced_size = -1;
-    std::shared_ptr<pipeline::Dependency> _dependency;
+    std::shared_ptr<pipeline::CountedFinishDependency> _dependency;
 };
 
 // avoid expose RuntimePredicateWrapper
