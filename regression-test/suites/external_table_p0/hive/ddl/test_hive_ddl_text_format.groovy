@@ -39,21 +39,76 @@ suite("test_hive_ddl_text_format", "p0,external,hive,external_docker,external_do
         logger.info("switched to catalog " + catalog_name)
         sql """use `default`;"""
 
-        sql """ drop table if exists tb_text """
+        sql """ drop table if exists text_table_default_properties """
         sql """
-        create table tb_text (
+        create table text_table_default_properties (
             id int,
-            `name` string
+            `name` string,
+            tags array<string>,
+            attributes map<string, string>
+        ) PROPERTIES (
+            'file_format'='text'
+        );
+        """
+        sql """
+        INSERT INTO text_table_default_properties VALUES
+            (1, 'Alice', array('tag1', 'tag2'), map('key1', 'value1', 'key2', 'value2')),
+            (2, 'Bob', array('tagA', 'tagB'), map('keyA', 'valueA', 'keyB', 'valueB')),
+            (3, 'Charlie', NULL, map('keyC', 'valueC', 'keyD', 'valueD'));
+        """
+        order_qt_default_properties """ select * from text_table_default_properties """
+
+        // sql """ drop table if exists text_table_standard_properties """
+        // sql """
+        // create table text_table_standard_properties (
+        //     id int,
+        //     `name` string,
+        //     tags array<string>,
+        //     attributes map<string, string>
+        // ) PROPERTIES (
+        //     'compression'='plain',
+        //     'file_format'='text',
+        //     'field.delim'='\1',
+        //     'collection.delim'='\2',
+        //     'mapkey.delim'='\3',
+        //     'escape.delim'= '\\',
+        //     'serialization.null.format'='\\N',
+        //     'line.delim'='\n'
+        // );
+        // """
+        // sql """
+        // INSERT INTO text_table_standard_properties VALUES
+        //     (1, 'Alice', array('tag1', 'tag2'), map('key1', 'value1', 'key2', 'value2')),
+        //     (2, 'Bob', array('tagA', 'tagB'), map('keyA', 'valueA', 'keyB', 'valueB')),
+        //     (3, 'Charlie', NULL, map('keyC', 'valueC', 'keyD', 'valueD'));
+        // """
+        // order_qt_standard_properties """ select * from text_table_standard_properties """
+
+        sql """ drop table if exists text_table_different_properties """
+        sql """
+        create table text_table_different_properties (
+            id int,
+            `name` string,
+            tags array<string>,
+            attributes map<string, string>
         ) PROPERTIES (
             'compression'='gzip',
             'file_format'='text',
-            'field.delim'='\t',
-            'line.delim'='\n',
-            'collection.delim'=';',
+            'field.delim'='a',
+            'line.delim'='b',
+            'collection.delim'=',',
             'mapkey.delim'=':',
-            'serialization.null.format'='\\N'
+            'escape.delim'='|',
+            'serialization.null.format'='null'
         );
         """
+        sql """
+        INSERT INTO text_table_different_properties VALUES
+            (1, 'Alice', array('tag1', 'tag2'), map('key1', 'value1', 'key2', 'value2')),
+            (2, 'Bob', array('tagA', 'tagB'), map('keyA', 'valueA', 'keyB', 'valueB')),
+            (3, 'Charlie', NULL, map('keyC', 'valueC', 'keyD', 'valueD'));
+        """
+        order_qt_different_properties """ select * from text_table_different_properties """
 
         String serde = "'org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe'"
         String input_format = "'org.apache.hadoop.mapred.TextInputFormat'"
@@ -63,7 +118,7 @@ suite("test_hive_ddl_text_format", "p0,external,hive,external_docker,external_do
         String line_delim = "'line.delim'"
         String mapkey_delim = "'mapkey.delim'"
 
-        def create_tbl_res = sql """ show create table tb_text """
+        def create_tbl_res = sql """ show create table text_table_standard_properties """
         String res = create_tbl_res.toString()
         logger.info("${res}")
         assertTrue(res.containsIgnoreCase("${serde}"))
@@ -73,6 +128,6 @@ suite("test_hive_ddl_text_format", "p0,external,hive,external_docker,external_do
         assertTrue(res.containsIgnoreCase("${filed_delim}"))
         assertTrue(res.containsIgnoreCase("${filed_delim}"))
         assertTrue(res.containsIgnoreCase("${line_delim}"))
-        assertTrue(res.containsIgnoreCase("${mapkey_delim}"))
+        assertTrue(res.containsIgnoreCase("${mapkey_delim}")) 
     }
 }
