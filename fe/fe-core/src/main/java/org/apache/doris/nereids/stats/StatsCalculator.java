@@ -860,12 +860,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         // rows newly updated after last analyze
         long deltaRowCount = computeDeltaRowCount(catalogRelation);
         double rowCount = getTableRowCount(catalogRelation);
-        if (rowCount == -1) {
-            rowCount = 1;
-        }
-        if (FeConstants.runningUnitTest && rowCount == 0) {
-            rowCount = 1;
-        }
+        rowCount = Math.max(1, rowCount);
         boolean hasUnknownCol = false;
         long idxId = -1;
         if (catalogRelation instanceof OlapScan) {
@@ -897,6 +892,8 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             ColumnStatisticBuilder colStatsBuilder = new ColumnStatisticBuilder(cache);
             colStatsBuilder.normalizeAvgSizeByte(slotReference);
             if (!cache.isUnKnown) {
+                rowCount = Math.max(rowCount, cache.count + deltaRowCount);
+            } else {
                 hasUnknownCol = true;
             }
             if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().enableStats) {
