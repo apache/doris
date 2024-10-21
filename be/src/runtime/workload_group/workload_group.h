@@ -198,7 +198,18 @@ public:
     }
     int64_t get_remote_scan_bytes_per_second();
 
+    void create_cgroup_cpu_ctl();
+
+    CgroupCpuCtl* get_cgroup_cpu_ctl_ptr();
+
+    void set_need_create_query_thread_pool(bool args);
+
 private:
+    void create_cgroup_cpu_ctl_no_lock();
+    void upsert_cgroup_cpu_ctl_no_lock(WorkloadGroupInfo* wg_info);
+    void upsert_thread_pool_no_lock(WorkloadGroupInfo* wg_info, ExecEnv* exec_env,
+                                    CgroupCpuCtl* cg_cpu_ctl_ptr);
+
     mutable std::shared_mutex _mutex; // lock _name, _version, _cpu_share, _memory_limit
     const uint64_t _id;
     std::string _name;
@@ -237,6 +248,9 @@ private:
 
     std::map<std::string, std::shared_ptr<IOThrottle>> _scan_io_throttle_map;
     std::shared_ptr<IOThrottle> _remote_scan_io_throttle {nullptr};
+
+    // for some background workload, it doesn't need to create query thread pool
+    bool _need_create_query_thread_pool {true};
 
     // bvar metric
     std::unique_ptr<bvar::Status<int64_t>> _mem_used_status;
