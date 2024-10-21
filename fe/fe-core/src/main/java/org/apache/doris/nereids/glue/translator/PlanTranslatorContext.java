@@ -34,6 +34,7 @@ import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEProducer;
@@ -77,6 +78,10 @@ public class PlanTranslatorContext {
      * index from Nereids' slot to legacy slot.
      */
     private final Map<ExprId, SlotRef> exprIdToSlotRef = Maps.newHashMap();
+
+    private final Map<Plan, Map<ExprId, SlotRef>> clonePlanToExprIdToSlotRefMap = Maps.newHashMap();
+
+    private Map<ExprId, SlotRef> cloneExprIdToSlot = null;
 
     /**
      * Inverted index from legacy slot to Nereids' slot.
@@ -216,6 +221,14 @@ public class PlanTranslatorContext {
         slotIdToExprId.put(slotRef.getDesc().getId(), exprId);
     }
 
+    public void addPlanToExprIdSlotRefMap(Plan plan) {
+        Map<ExprId, SlotRef> cloneExprIdToSlotRef = Maps.newHashMap();
+        for (Map.Entry<ExprId, SlotRef> entry : exprIdToSlotRef.entrySet()) {
+            cloneExprIdToSlotRef.put(entry.getKey(), (SlotRef) entry.getValue().clone());
+        }
+        clonePlanToExprIdToSlotRefMap.put(plan, cloneExprIdToSlotRef);
+    }
+
     public void addExprIdColumnRefPair(ExprId exprId, ColumnRefExpr columnRefExpr) {
         exprIdToColumnRef.put(exprId, columnRefExpr);
     }
@@ -234,6 +247,22 @@ public class PlanTranslatorContext {
 
     public SlotRef findSlotRef(ExprId exprId) {
         return exprIdToSlotRef.get(exprId);
+    }
+
+    public SlotRef findCloneSlotRef(ExprId exprId) {
+        return cloneExprIdToSlot.get(exprId);
+    }
+
+    public boolean findExprIdToSlotRefFromMap(Plan plan) {
+        return (cloneExprIdToSlot = clonePlanToExprIdToSlotRefMap.get(plan)) != null;
+    }
+
+    public Map<ExprId, SlotRef> getCloneExprIdToSlot() {
+        return cloneExprIdToSlot;
+    }
+
+    public void resetCloneExprIdToSlot() {
+        cloneExprIdToSlot = null;
     }
 
     public ColumnRefExpr findColumnRef(ExprId exprId) {
