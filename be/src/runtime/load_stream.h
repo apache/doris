@@ -54,12 +54,14 @@ public:
     Status add_segment(const PStreamHeader& header, butil::IOBuf* data);
     void add_num_segments(int64_t num_segments) { _num_segments += num_segments; }
     void disable_num_segments_check() { _check_num_segments = false; }
-    Status close();
+    void close_async();
+    Status close_wait();
     int64_t id() const { return _id; }
 
     friend std::ostream& operator<<(std::ostream& ostr, const TabletStream& tablet_stream);
 
 private:
+    void _close();
     int64_t _id;
     LoadStreamWriterSharedPtr _load_stream_writer;
     std::vector<std::unique_ptr<ThreadPoolToken>> _flush_tokens;
@@ -71,9 +73,14 @@ private:
     Status _status;
     PUniqueId _load_id;
     int64_t _txn_id;
+    std::atomic<bool> _closing = false;
+    bool _closed = false;
+    std::mutex _close_lock;
+    std::condition_variable _close_cv;
     RuntimeProfile* _profile = nullptr;
     RuntimeProfile::Counter* _append_data_timer = nullptr;
     RuntimeProfile::Counter* _add_segment_timer = nullptr;
+    RuntimeProfile::Counter* _close_timer = nullptr;
     RuntimeProfile::Counter* _close_wait_timer = nullptr;
     LoadStreamMgr* _load_stream_mgr = nullptr;
 };
