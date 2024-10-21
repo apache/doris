@@ -234,9 +234,13 @@ public class MTMVPartitionCheckUtilTest {
     }
 
     @Test
-    public void testCompareAutpPartition() throws AnalysisException {
+    public void testCompareAutoPartition() throws AnalysisException {
         new Expectations() {
             {
+                relatedPartitionInfo.enableAutomaticPartition();
+                minTimes = 0;
+                result = true;
+
                 partitionExprUtil.getFunctionIntervalInfo(originalExprs, (PartitionType) any);
                 minTimes = 0;
                 result = partitionExprUtil.new FunctionIntervalInfo("datetrunc", "week", 1);
@@ -251,7 +255,7 @@ public class MTMVPartitionCheckUtilTest {
     }
 
     @Test
-    public void testCompareAutpPartitionNotEqual() throws AnalysisException {
+    public void testCompareAutoPartitionNotEqual() throws AnalysisException {
         new Expectations() {
             {
                 partitionExprUtil.getFunctionIntervalInfo(originalExprs, (PartitionType) any);
