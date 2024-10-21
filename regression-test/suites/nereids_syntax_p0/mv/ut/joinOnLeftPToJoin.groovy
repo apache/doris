@@ -54,10 +54,16 @@ suite ("joinOnLeftPToJoin") {
     createMV("create materialized view joinOnLeftPToJoin_1_mv as select deptno, max(cost) from joinOnLeftPToJoin_1 group by deptno;")
     sleep(3000)
 
-    explain {
-        sql("select * from (select deptno , sum(salary) from joinOnLeftPToJoin group by deptno) A join (select deptno, max(cost) from joinOnLeftPToJoin_1 group by deptno ) B on A.deptno = B.deptno;")
-        contains "(joinOnLeftPToJoin_mv)"
-        contains "(joinOnLeftPToJoin_1_mv)"
-    }
+    sql "analyze table joinOnLeftPToJoin with sync;"
+    sql "analyze table joinOnLeftPToJoin_1 with sync;"
+    sql """set enable_stats=false;"""
+
+    mv_rewrite_all_success("select * from (select deptno , sum(salary) from joinOnLeftPToJoin group by deptno) A join (select deptno, max(cost) from joinOnLeftPToJoin_1 group by deptno ) B on A.deptno = B.deptno;",
+    ["joinOnLeftPToJoin_mv", "joinOnLeftPToJoin_1_mv"])
+
     order_qt_select_mv "select * from (select deptno , sum(salary) from joinOnLeftPToJoin group by deptno) A join (select deptno, max(cost) from joinOnLeftPToJoin_1 group by deptno ) B on A.deptno = B.deptno order by A.deptno;"
+
+    sql """set enable_stats=true;"""
+    mv_rewrite_all_success("select * from (select deptno , sum(salary) from joinOnLeftPToJoin group by deptno) A join (select deptno, max(cost) from joinOnLeftPToJoin_1 group by deptno ) B on A.deptno = B.deptno;",
+            ["joinOnLeftPToJoin_mv", "joinOnLeftPToJoin_1_mv"])
 }

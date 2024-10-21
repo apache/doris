@@ -78,10 +78,14 @@ suite("agg") {
     qt_sql "DESC ${tbName} ALL;"
     sql "insert into ${tbName} values(1, 1, 'test1', 100,100,100);"
     sql "insert into ${tbName} values(2, 1, 'test2', 100,100,100);"
-    explain {
-        sql("SELECT citycode,SUM(pv) FROM ${tbName} GROUP BY citycode")
-        contains("(rollup_city)")
-    }
+
+    sql "analyze table ${tbName} with sync;"
+    sql """set enable_stats=false;"""
+
+    mv_rewrite_success("SELECT citycode,SUM(pv) FROM ${tbName} GROUP BY citycode", "rollup_city")
+    sql """set enable_stats=true;"""
+    mv_rewrite_success("SELECT citycode,SUM(pv) FROM ${tbName} GROUP BY citycode", "rollup_city")
+
     qt_sql "SELECT citycode,SUM(pv) FROM ${tbName} GROUP BY citycode"
     sql "ALTER TABLE ${tbName} DROP ROLLUP rollup_city;"
     sql "DROP TABLE ${tbName} FORCE;"

@@ -41,27 +41,27 @@ suite ("test_doc_e4") {
 
     sql "insert into d_table select 3,-3,null,'2022-02-20';"
 
-    explain {
-        sql("select abs(k1)+k2+1,sum(abs(k2+2)+k3+3) from d_table group by abs(k1)+k2+1 order by 1,2;")
-        contains "(k1a2p2ap3ps)"
-    }
+    sql """analyze table d_table with sync;"""
+    sql """set enable_stats=false;"""
+
+    mv_rewrite_success("select abs(k1)+k2+1,sum(abs(k2+2)+k3+3) from d_table group by abs(k1)+k2+1 order by 1,2;", "k1a2p2ap3ps")
     qt_select_mv "select abs(k1)+k2+1,sum(abs(k2+2)+k3+3) from d_table group by abs(k1)+k2+1 order by 1,2;"
 
-    explain {
-        sql("select bin(abs(k1)+k2+1),sum(abs(k2+2)+k3+3) from d_table group by bin(abs(k1)+k2+1);")
-        contains "(k1a2p2ap3ps)"
-    }
+    mv_rewrite_success("select bin(abs(k1)+k2+1),sum(abs(k2+2)+k3+3) from d_table group by bin(abs(k1)+k2+1);", "k1a2p2ap3ps")
     qt_select_mv "select bin(abs(k1)+k2+1),sum(abs(k2+2)+k3+3) from d_table group by bin(abs(k1)+k2+1) order by 1,2;"
 
-    explain {
-        sql("select year(k4),month(k4) from d_table;")
-        contains "(d_table)"
-    }
+    mv_rewrite_all_fail("select year(k4),month(k4) from d_table;", ["k1a2p2ap3ps", "kymd"])
     qt_select_mv "select year(k4),month(k4) from d_table order by 1,2;"
 
-    explain {
-        sql("select year(k4)+month(k4) from d_table where year(k4) = 2020;")
-        contains "(kymd)"
-    }
+    mv_rewrite_success("select year(k4)+month(k4) from d_table where year(k4) = 2020;", "kymd")
     qt_select_mv "select year(k4)+month(k4) from d_table where year(k4) = 2020 order by 1;"
+
+    sql """set enable_stats=true;"""
+    mv_rewrite_success("select abs(k1)+k2+1,sum(abs(k2+2)+k3+3) from d_table group by abs(k1)+k2+1 order by 1,2;", "k1a2p2ap3ps")
+
+    mv_rewrite_success("select bin(abs(k1)+k2+1),sum(abs(k2+2)+k3+3) from d_table group by bin(abs(k1)+k2+1);", "k1a2p2ap3ps")
+
+    mv_rewrite_all_fail("select year(k4),month(k4) from d_table;", ["k1a2p2ap3ps", "kymd"])
+
+    mv_rewrite_success("select year(k4)+month(k4) from d_table where year(k4) = 2020;", "kymd")
 }

@@ -44,10 +44,10 @@ suite ("subQuery") {
 
     sql """insert into subQuery values("2020-01-01",1,"a",1,1,1);"""
 
-    explain {
-        sql("select * from subQuery order by empid;")
-        contains "(subQuery)"
-    }
+    sql "analyze table subQuery with sync;"
+    sql """set enable_stats=false;"""
+
+    mv_rewrite_fail("select * from subQuery order by empid;", "subQuery_mv")
     order_qt_select_star "select * from subQuery order by empid;"
 
     /*
@@ -58,4 +58,8 @@ suite ("subQuery") {
     }
     qt_select_mv "select empid, deptno, salary from subQuery e1 where empid = (select max(empid) from subQuery where deptno = e1.deptno) order by deptno;"
      */
+
+     sql """set enable_stats=true;"""
+
+    mv_rewrite_fail("select * from subQuery order by empid;", "subQuery_mv")
 }

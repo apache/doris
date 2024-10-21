@@ -40,7 +40,6 @@ suite("partition_mv_rewrite_dimension_2_6") {
     ) ENGINE=OLAP
     DUPLICATE KEY(`o_orderkey`, `o_custkey`)
     COMMENT 'OLAP'
-    auto partition by range (date_trunc(`o_orderdate`, 'day')) ()
     DISTRIBUTED BY HASH(`o_orderkey`) BUCKETS 96
     PROPERTIES (
     "replication_allocation" = "tag.location.default: 1"
@@ -70,7 +69,6 @@ suite("partition_mv_rewrite_dimension_2_6") {
     ) ENGINE=OLAP
     DUPLICATE KEY(l_orderkey, l_linenumber, l_partkey, l_suppkey )
     COMMENT 'OLAP'
-    auto partition by range (date_trunc(`l_shipdate`, 'day')) ()
     DISTRIBUTED BY HASH(`l_orderkey`) BUCKETS 96
     PROPERTIES (
     "replication_allocation" = "tag.location.default: 1"
@@ -130,47 +128,6 @@ suite("partition_mv_rewrite_dimension_2_6") {
     sql """analyze table lineitem_2_6 with sync;"""
     sql """analyze table partsupp_2_6 with sync;"""
 
-    def create_mv_lineitem = { mv_name, mv_sql ->
-        sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name};"""
-        sql """DROP TABLE IF EXISTS ${mv_name}"""
-        sql"""
-        CREATE MATERIALIZED VIEW ${mv_name} 
-        BUILD IMMEDIATE REFRESH AUTO ON MANUAL 
-        partition by(l_shipdate) 
-        DISTRIBUTED BY RANDOM BUCKETS 2 
-        PROPERTIES ('replication_num' = '1')  
-        AS  
-        ${mv_sql}
-        """
-    }
-
-    def create_mv_orders = { mv_name, mv_sql ->
-        sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name};"""
-        sql """DROP TABLE IF EXISTS ${mv_name}"""
-        sql"""
-        CREATE MATERIALIZED VIEW ${mv_name} 
-        BUILD IMMEDIATE REFRESH AUTO ON MANUAL 
-        partition by(o_orderdate) 
-        DISTRIBUTED BY RANDOM BUCKETS 2 
-        PROPERTIES ('replication_num' = '1') 
-        AS  
-        ${mv_sql}
-        """
-    }
-
-    def create_all_mv = { mv_name, mv_sql ->
-        sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name};"""
-        sql """DROP TABLE IF EXISTS ${mv_name}"""
-        sql"""
-        CREATE MATERIALIZED VIEW ${mv_name} 
-        BUILD IMMEDIATE REFRESH AUTO ON MANUAL 
-        DISTRIBUTED BY RANDOM BUCKETS 2 
-        PROPERTIES ('replication_num' = '1') 
-        AS  
-        ${mv_sql}
-        """
-    }
-
     def compare_res = { def stmt ->
         sql "SET enable_materialized_view_rewrite=false"
         def origin_res = sql stmt
@@ -196,7 +153,7 @@ suite("partition_mv_rewrite_dimension_2_6") {
 //        on lineitem_2_6.l_orderkey = orders_2_6.o_orderkey
 //        where l_shipdate >= "2023-10-17"
 //        group by l_shipdate, o_orderdate, l_partkey, l_suppkey"""
-//    create_mv_lineitem(mv_name_1, mv_stmt_1)
+//    create_async_mv(db, mv_name_1, mv_stmt_1)
 //    def job_name_1 = getJobName(db, mv_name_1)
 //    waitingMTMVTaskFinished(job_name_1)
 //
@@ -218,7 +175,7 @@ suite("partition_mv_rewrite_dimension_2_6") {
 //        on lineitem_2_6.l_orderkey = orders_2_6.o_orderkey
 //        where l_shipdate >= "2023-10-17"
 //        group by l_shipdate, o_orderdate, l_partkey, l_suppkey"""
-//    create_mv_lineitem(mv_name_2, mv_stmt_2)
+//    create_async_mv(db, mv_name_2, mv_stmt_2)
 //    def job_name_2 = getJobName(db, mv_name_2)
 //    waitingMTMVTaskFinished(job_name_2)
 //
@@ -242,7 +199,7 @@ suite("partition_mv_rewrite_dimension_2_6") {
 //        left join lineitem_2_6
 //        on lineitem_2_6.l_orderkey = orders_2_6.o_orderkey
 //        where  o_custkey > 1 + 1"""
-//    create_mv_lineitem(mv_name_3, mv_stmt_3)
+//    create_async_mv(db, mv_name_3, mv_stmt_3)
 //    def job_name_3 = getJobName(db, mv_name_3)
 //    waitingMTMVTaskFinished(job_name_3)
 //
@@ -264,7 +221,7 @@ suite("partition_mv_rewrite_dimension_2_6") {
 //        from lineitem_2_6
 //        where l_shipdate >= "2023-10-17"
 //        group by l_shipdate, l_partkey, l_orderkey"""
-//    create_mv_lineitem(mv_name_4, mv_stmt_4)
+//    create_async_mv(db, mv_name_4, mv_stmt_4)
 //    def job_name_4 = getJobName(db, mv_name_4)
 //    waitingMTMVTaskFinished(job_name_4)
 //
@@ -286,7 +243,7 @@ suite("partition_mv_rewrite_dimension_2_6") {
         from lineitem_2_6 
         where l_shipdate >= "2023-10-17"
         group by l_shipdate, l_partkey, l_orderkey"""
-    create_mv_lineitem(mv_name_5, mv_stmt_5)
+    create_async_mv(db, mv_name_5, mv_stmt_5)
     def job_name_5 = getJobName(db, mv_name_5)
     waitingMTMVTaskFinished(job_name_5)
 
@@ -296,10 +253,7 @@ suite("partition_mv_rewrite_dimension_2_6") {
         on t.l_orderkey = orders_2_6.o_orderkey 
         where l_shipdate >= "2023-10-17" and l_partkey  > 1 + 1 
         group by t.l_shipdate, o_orderdate, t.l_partkey"""
-    explain {
-        sql("${sql_stmt_5}")
-        contains "${mv_name_5}(${mv_name_5})"
-    }
+    mv_rewrite_success(sql_stmt_5, mv_name_5)
     compare_res(sql_stmt_5 + " order by 1,2,3")
     sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name_5};"""
 
@@ -309,7 +263,7 @@ suite("partition_mv_rewrite_dimension_2_6") {
         from lineitem_2_6
         where l_partkey  > 1 + 1
         group by l_shipdate, l_partkey, l_orderkey"""
-    create_mv_lineitem(mv_name_6, mv_stmt_6)
+    create_async_mv(db, mv_name_6, mv_stmt_6)
     def job_name_6 = getJobName(db, mv_name_6)
     waitingMTMVTaskFinished(job_name_6)
 
@@ -319,10 +273,7 @@ suite("partition_mv_rewrite_dimension_2_6") {
         on t.l_orderkey = orders_2_6.o_orderkey
         where  l_partkey  > (-3) + 5
         group by t.l_shipdate, o_orderdate, t.l_partkey"""
-    explain {
-        sql("${sql_stmt_6}")
-        contains "${mv_name_6}(${mv_name_6})"
-    }
+    mv_rewrite_success(sql_stmt_6, mv_name_6)
     compare_res(sql_stmt_6 + " order by 1,2,3")
     sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name_6};"""
 
@@ -335,7 +286,7 @@ suite("partition_mv_rewrite_dimension_2_6") {
 //        left join orders_2_6
 //        on lineitem_2_6.l_orderkey = orders_2_6.o_orderkey
 //        where l_shipdate >= '2023-10-17'"""
-//    create_mv_lineitem(mv_name_7, mv_stmt_7)
+//    create_async_mv(db, mv_name_7, mv_stmt_7)
 //    def job_name_7 = getJobName(db, mv_name_7)
 //    waitingMTMVTaskFinished(job_name_7)
 //
@@ -358,7 +309,7 @@ suite("partition_mv_rewrite_dimension_2_6") {
 //        left join orders_2_6
 //        on lineitem_2_6.l_orderkey = orders_2_6.o_orderkey
 //        where l_shipdate >= "2023-10-17" and o_custkey > 1 + 1"""
-//    create_mv_lineitem(mv_name_8, mv_stmt_8)
+//    create_async_mv(db, mv_name_8, mv_stmt_8)
 //    def job_name_8 = getJobName(db, mv_name_8)
 //    waitingMTMVTaskFinished(job_name_8)
 //
@@ -383,7 +334,7 @@ suite("partition_mv_rewrite_dimension_2_6") {
             left join lineitem_2_6 
             on lineitem_2_6.l_orderkey = orders_2_6.o_orderkey 
             where  o_custkey > 1 + 1"""
-    create_mv_orders(mv_name_9, mv_stmt_9)
+    create_async_mv(db, mv_name_9, mv_stmt_9)
     def job_name_9 = getJobName(db, mv_name_9)
     waitingMTMVTaskFinished(job_name_9)
 
@@ -394,10 +345,7 @@ suite("partition_mv_rewrite_dimension_2_6") {
             left join lineitem_2_6 
             on lineitem_2_6.l_orderkey = orders_2_6.o_orderkey 
             where  o_custkey > (-3) + 5 and o_orderdate >= '2023-10-17'  """
-    explain {
-        sql("${sql_stmt_9}")
-        contains "${mv_name_9}(${mv_name_9})"
-    }
+    mv_rewrite_success(sql_stmt_9, mv_name_9)
     compare_res(sql_stmt_9 + " order by 1,2,3,4,5,6")
     sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name_9};"""
 

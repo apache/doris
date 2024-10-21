@@ -163,15 +163,12 @@ suite ("partition_curd_union_rewrite") {
     waitingMTMVTaskFinished(getJobName(db, mv_name))
 
     // All partition is valid, test query and rewrite by materialized view
-    explain {
-        sql("${all_partition_sql}")
-        contains("${mv_name}(${mv_name})")
-    }
+    mv_rewrite_success(all_partition_sql, mv_name, true,
+            is_partition_statistics_ready(db, ["lineitem", "orders", mv_name]))
     compare_res(all_partition_sql + order_by_stmt)
-    explain {
-        sql("${partition_sql}")
-        contains("${mv_name}(${mv_name})")
-    }
+
+    mv_rewrite_success(partition_sql, mv_name, true,
+            is_partition_statistics_ready(db, ["lineitem", "orders", mv_name]))
     compare_res(partition_sql + order_by_stmt)
 
     /*

@@ -39,11 +39,6 @@ suite("null_unsafe_equals") {
       O_COMMENT        VARCHAR(79) NULL
     )
     DUPLICATE KEY(o_orderkey, o_custkey)
-    PARTITION BY RANGE(o_orderdate) (
-    PARTITION `day_2` VALUES LESS THAN ('2023-12-9'),
-    PARTITION `day_3` VALUES LESS THAN ("2023-12-11"),
-    PARTITION `day_4` VALUES LESS THAN ("2023-12-30")
-    )
     DISTRIBUTED BY HASH(o_orderkey) BUCKETS 3
     PROPERTIES (
       "replication_num" = "1"
@@ -79,7 +74,7 @@ suite("null_unsafe_equals") {
             o_orderstatus, o_comment;
             """
     order_qt_query1_0_before "${query1_0}"
-    check_mv_rewrite_success(db, mv1_0, query1_0, "mv1_0")
+    async_mv_rewrite_success(db, mv1_0, query1_0, "mv1_0")
     order_qt_query1_0_after "${query1_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_0"""
 }

@@ -64,14 +64,19 @@ suite ("null_insert") {
         time 10000 // limit inflight 10s
     }
 
-    explain {
-        sql("""SELECT date, vid, os, ver, ip_country, hll_union(hll_hash(uid))
+    sql "analyze table test with sync;"
+    sql """set enable_stats=false;"""
+
+    mv_rewrite_success("""SELECT date, vid, os, ver, ip_country, hll_union(hll_hash(uid))
                 FROM test
-                GROUP BY date,vid,os,ver,ip_country;""")
-        contains "(mv_test)"
-    }
+                GROUP BY date,vid,os,ver,ip_country;""", "mv_test")
 
     qt_select_mv """SELECT date, vid, os, ver, ip_country, hll_union(hll_hash(uid))
                     FROM test
                     GROUP BY date,vid,os,ver,ip_country;"""
+
+    sql """set enable_stats=true;"""
+    mv_rewrite_success("""SELECT date, vid, os, ver, ip_country, hll_union(hll_hash(uid))
+                FROM test
+                GROUP BY date,vid,os,ver,ip_country;""", "mv_test")
 }
