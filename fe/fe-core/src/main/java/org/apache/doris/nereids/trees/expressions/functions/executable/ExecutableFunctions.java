@@ -26,7 +26,9 @@ import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.FloatLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.LargeIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 
@@ -91,13 +93,19 @@ public class ExecutableFunctions {
         return new DoubleLiteral(Math.acos(literal.getValue()));
     }
 
-    @ExecFunction(name = "append_trailing_if_char_absent", argTypes = {"VARCHAR", "VARCHAR"}, returnType = "VARCHAR")
-    public static Expression appendTrailingIfCharAbsent(VarcharLiteral literal, VarcharLiteral chr) {
-        if (literal.getValue().length() != 1) {
-            return null;
+    /**
+     * append_trailing_char_if_absent function
+     */
+    @ExecFunction(name = "append_trailing_char_if_absent", argTypes = {"VARCHAR", "VARCHAR"}, returnType = "VARCHAR")
+    public static Expression appendTrailingIfCharAbsent(StringLikeLiteral literal, StringLikeLiteral chr) {
+        if (chr.getStringValue().length() != 1) {
+            return new NullLiteral(literal.getDataType());
         }
-        return literal.getValue().endsWith(chr.getValue()) ? literal
-                : new VarcharLiteral(literal.getValue() + chr.getValue());
+        if (literal.getStringValue().endsWith(chr.getStringValue())) {
+            return literal;
+        } else {
+            return new VarcharLiteral(literal.getStringValue() + chr.getStringValue());
+        }
     }
 
     @ExecFunction(name = "e", argTypes = {}, returnType = "DOUBLE")
