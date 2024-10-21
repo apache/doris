@@ -45,18 +45,27 @@ BaseCompaction::~BaseCompaction() = default;
 
 Status BaseCompaction::prepare_compact() {
     if (!tablet()->init_succeeded()) {
-        return Status::Error<INVALID_ARGUMENT, false>("_tablet init failed");
+        Status res = Status::Error<INVALID_ARGUMENT, false>("_tablet init failed");
+        tablet()->set_last_base_compaction_failure_time(UnixMillis());
+        tablet()->set_last_base_compaction_status(res.to_string());
+        return res;
     }
 
     std::unique_lock<std::mutex> lock(tablet()->get_base_compaction_lock(), std::try_to_lock);
     if (!lock.owns_lock()) {
-        return Status::Error<TRY_LOCK_FAILED, false>(
+        Status res = Status::Error<TRY_LOCK_FAILED, false>(
                 "another base compaction is running. tablet={}", _tablet->tablet_id());
+        tablet()->set_last_base_compaction_failure_time(UnixMillis());
+        tablet()->set_last_base_compaction_status(res.to_string());
+        return res;
     }
 
     // 1. pick rowsets to compact
     Status res = pick_rowsets_to_compact();
     tablet()->set_last_base_compaction_status(res.to_string());
+    if (!res.ok()) {
+        tablet()->set_last_base_compaction_failure_time(UnixMillis());
+    }
     RETURN_IF_ERROR(res);
     COUNTER_UPDATE(_input_rowsets_counter, _input_rowsets.size());
 
@@ -72,14 +81,20 @@ Status BaseCompaction::execute_compact() {
 #endif
     std::unique_lock<std::mutex> lock(tablet()->get_base_compaction_lock(), std::try_to_lock);
     if (!lock.owns_lock()) {
-        return Status::Error<TRY_LOCK_FAILED, false>(
+        Status res = Status::Error<TRY_LOCK_FAILED, false>(
                 "another base compaction is running. tablet={}", _tablet->tablet_id());
+        tablet()->set_last_base_compaction_failure_time(UnixMillis());
+        tablet()->set_last_base_compaction_status(res.to_string());
+        return res;
     }
 
     SCOPED_ATTACH_TASK(_mem_tracker);
 
     Status res = CompactionMixin::execute_compact();
     tablet()->set_last_base_compaction_status(res.to_string());
+    if (!res.ok()) {
+        tablet()->set_last_base_compaction_failure_time(UnixMillis());
+    }
     RETURN_IF_ERROR(res);
 
     DCHECK_EQ(_state, CompactionState::SUCCESS);

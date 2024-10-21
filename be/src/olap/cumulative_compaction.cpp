@@ -80,13 +80,19 @@ CumulativeCompaction::~CumulativeCompaction() = default;
 
 Status CumulativeCompaction::prepare_compact() {
     if (!tablet()->init_succeeded()) {
-        return Status::Error<CUMULATIVE_INVALID_PARAMETERS, false>("_tablet init failed");
+        Status res = Status::Error<CUMULATIVE_INVALID_PARAMETERS, false>("_tablet init failed");
+        tablet()->set_last_cumu_compaction_failure_time(UnixMillis());
+        tablet()->set_last_cumu_compaction_status(res.to_string());
+        return res;
     }
 
     std::unique_lock<std::mutex> lock(tablet()->get_cumulative_compaction_lock(), std::try_to_lock);
     if (!lock.owns_lock()) {
-        return Status::Error<TRY_LOCK_FAILED, false>(
+        Status res = Status::Error<TRY_LOCK_FAILED, false>(
                 "The tablet is under cumulative compaction. tablet={}", _tablet->tablet_id());
+        tablet()->set_last_cumu_compaction_failure_time(UnixMillis());
+        tablet()->set_last_cumu_compaction_status(res.to_string());
+        return res;
     }
 
     tablet()->calculate_cumulative_point();
@@ -95,6 +101,9 @@ Status CumulativeCompaction::prepare_compact() {
 
     Status res = pick_rowsets_to_compact();
     tablet()->set_last_cumu_compaction_status(res.to_string());
+    if (!res.ok()) {
+        tablet()->set_last_cumu_compaction_failure_time(UnixMillis());
+    }
     RETURN_IF_ERROR(res);
     
     COUNTER_UPDATE(_input_rowsets_counter, _input_rowsets.size());
@@ -106,14 +115,20 @@ Status CumulativeCompaction::prepare_compact() {
 Status CumulativeCompaction::execute_compact() {
     std::unique_lock<std::mutex> lock(tablet()->get_cumulative_compaction_lock(), std::try_to_lock);
     if (!lock.owns_lock()) {
-        return Status::Error<TRY_LOCK_FAILED, false>(
+        Status res = Status::Error<TRY_LOCK_FAILED, false>(
                 "The tablet is under cumulative compaction. tablet={}", _tablet->tablet_id());
+        tablet()->set_last_cumu_compaction_failure_time(UnixMillis());
+        tablet()->set_last_cumu_compaction_status(res.to_string());
+        return res;
     }
 
     SCOPED_ATTACH_TASK(_mem_tracker);
 
     Status res = CompactionMixin::execute_compact();
     tablet()->set_last_cumu_compaction_status(res.to_string());
+    if (!res.ok()) {
+        tablet()->set_last_cumu_compaction_failure_time(UnixMillis());
+    }
     RETURN_IF_ERROR(res);
 
     DCHECK_EQ(_state, CompactionState::SUCCESS);

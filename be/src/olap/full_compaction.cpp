@@ -52,7 +52,10 @@ FullCompaction::~FullCompaction() {
 
 Status FullCompaction::prepare_compact() {
     if (!tablet()->init_succeeded()) {
-        return Status::Error<INVALID_ARGUMENT, false>("Full compaction init failed");
+        Status res = Status::Error<INVALID_ARGUMENT, false>("Full compaction init failed");
+        tablet()->set_last_full_compaction_failure_time(UnixMillis());
+        tablet()->set_last_full_compaction_status(res.to_string());
+        return res;
     }
 
     std::unique_lock base_lock(tablet()->get_base_compaction_lock());
@@ -62,6 +65,9 @@ Status FullCompaction::prepare_compact() {
     // 1. pick rowsets to compact
     Status res = pick_rowsets_to_compact();
     tablet()->set_last_full_compaction_status(res.to_string());
+    if (!res.ok()) {
+        tablet()->set_last_full_compaction_failure_time(UnixMillis());
+    }
     RETURN_IF_ERROR(res);
 
     tablet()->set_last_full_compaction_status(Status::OK().to_string());
@@ -76,6 +82,9 @@ Status FullCompaction::execute_compact() {
 
     Status res = CompactionMixin::execute_compact();
     tablet()->set_last_full_compaction_status(res.to_string());
+    if (!res.ok()) {
+        tablet()->set_last_full_compaction_failure_time(UnixMillis());
+    }
     RETURN_IF_ERROR(res);
 
     tablet()->cumulative_compaction_policy()->update_compaction_level(tablet(), _input_rowsets,
