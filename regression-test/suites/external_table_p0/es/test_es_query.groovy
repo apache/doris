@@ -213,6 +213,7 @@ suite("test_es_query", "p0,external,es,external_docker,external_docker_es") {
             order_qt_sql_5_25 """select test6 from test1;"""
             order_qt_sql_5_26 """select test6 from test2;"""
             order_qt_sql_5_27 """select * from composite_type_array order by name;"""
+            order_qt_sql_5_28 """select * from test3_20231005;"""
 
             sql """switch test_es_query_es6"""
             // order_qt_sql_6_01 """show tables"""
@@ -242,6 +243,7 @@ suite("test_es_query", "p0,external,es,external_docker,external_docker_es") {
             order_qt_sql_6_25 """select test6 from test1;"""
             order_qt_sql_6_26 """select test6 from test2;"""
             order_qt_sql_6_27 """select * from composite_type_array order by name;"""
+            order_qt_sql_6_28 """select * from test3_20231005;"""
 
             List<List<String>> tables6N = sql """show tables"""
             boolean notContainHide = true
