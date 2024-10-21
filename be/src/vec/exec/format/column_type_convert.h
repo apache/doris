@@ -432,9 +432,9 @@ class TimeV2Converter : public ColumnTypeConverter {
         for (int i = 0; i < rows; ++i) {
             const auto& src_value = reinterpret_cast<const SrcCppType&>(src_data[i]);
             auto& dst_value = reinterpret_cast<DstCppType&>(data[start_idx + i]);
-            dst_value.set_time(src_value.year(), src_value.month(), src_value.day(),
-                               src_value.hour(), src_value.minute(), src_value.second(),
-                               src_value.microsecond());
+            dst_value.unchecked_set_time(src_value.year(), src_value.month(), src_value.day(),
+                                         src_value.hour(), src_value.minute(), src_value.second(),
+                                         src_value.microsecond());
         }
 
         return Status::OK();

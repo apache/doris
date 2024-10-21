@@ -105,7 +105,7 @@ TEST_F(VWindowFunnelTest, testSerialize) {
     auto column_timestamp = ColumnVector<Int64>::create();
     for (int i = 0; i < NUM_CONDS; i++) {
         VecDateTimeValue time_value;
-        time_value.set_time(2022, 2, 28, 0, 0, i);
+        time_value.unchecked_set_time(2022, 2, 28, 0, 0, i);
         column_timestamp->insert_data((char*)&time_value, 0);
     }
     auto column_event1 = ColumnVector<UInt8>::create();
@@ -178,7 +178,7 @@ TEST_F(VWindowFunnelTest, testMax4SortedNoMerge) {
     auto column_timestamp = ColumnVector<Int64>::create();
     for (int i = 0; i < NUM_CONDS; i++) {
         VecDateTimeValue time_value;
-        time_value.set_time(2022, 2, 28, 0, 0, i);
+        time_value.unchecked_set_time(2022, 2, 28, 0, 0, i);
         column_timestamp->insert_data((char*)&time_value, 0);
     }
     auto column_event1 = ColumnVector<UInt8>::create();
@@ -239,7 +239,7 @@ TEST_F(VWindowFunnelTest, testMax4SortedMerge) {
     auto column_timestamp = ColumnVector<Int64>::create();
     for (int i = 0; i < NUM_CONDS; i++) {
         VecDateTimeValue time_value;
-        time_value.set_time(2022, 2, 28, 0, 0, i);
+        time_value.unchecked_set_time(2022, 2, 28, 0, 0, i);
         column_timestamp->insert_data((char*)&time_value, 0);
     }
     auto column_event1 = ColumnVector<UInt8>::create();
@@ -306,7 +306,7 @@ TEST_F(VWindowFunnelTest, testMax4ReverseSortedNoMerge) {
     auto column_timestamp = ColumnVector<Int64>::create();
     for (int i = 0; i < NUM_CONDS; i++) {
         VecDateTimeValue time_value;
-        time_value.set_time(2022, 2, 28, 0, 0, NUM_CONDS - i);
+        time_value.unchecked_set_time(2022, 2, 28, 0, 0, NUM_CONDS - i);
         column_timestamp->insert_data((char*)&time_value, 0);
     }
     auto column_event1 = ColumnVector<UInt8>::create();
@@ -368,7 +368,7 @@ TEST_F(VWindowFunnelTest, testMax4ReverseSortedMerge) {
     auto column_timestamp = ColumnVector<Int64>::create();
     for (int i = 0; i < NUM_CONDS; i++) {
         VecDateTimeValue time_value;
-        time_value.set_time(2022, 2, 28, 0, 0, NUM_CONDS - i);
+        time_value.unchecked_set_time(2022, 2, 28, 0, 0, NUM_CONDS - i);
         column_timestamp->insert_data((char*)&time_value, 0);
     }
     auto column_event1 = ColumnVector<UInt8>::create();
