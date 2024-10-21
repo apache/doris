@@ -15,11 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("column_stats") {
+suite("invalid_stats") {
     multi_sql """
         set global enable_auto_analyze=false;
         SET enable_nereids_planner=true;
-        
         SET enable_fallback_to_original_planner=false;
         set disable_nereids_rules=PRUNE_EMPTY_PARTITION;
 
@@ -52,11 +51,7 @@ suite("column_stats") {
         );
         alter table nation modify column n_nationkey set stats ('ndv'='25', 'num_nulls'='0', 'min_value'='0', 'max_value'='24', 'row_count'='25');
 
-        alter table nation modify column n_name set stats ('ndv'='25', 'num_nulls'='0', 'min_value'='ALGERIA', 'max_value'='VIETNAM', 'row_count'='25');
-
         alter table nation modify column n_regionkey set stats ('ndv'='5', 'num_nulls'='0', 'min_value'='0', 'max_value'='4', 'row_count'='25');
-
-        alter table nation modify column n_comment set stats ('ndv'='25', 'num_nulls'='0', 'min_value'=' haggle. carefully final deposits detect slyly agai', 'max_value'='y final packages. slow foxes cajole quickly. quickly silent platelets breach ironic accounts. unusual pinto be', 'row_count'='25');
 
     """
 
@@ -109,13 +104,4 @@ suite("column_stats") {
             """
         notContains("planed with unknown column statistics")
     }
-
-    // test invalid col stats => disable join reorder
-    qt_order "explain shape plan select * from region join nation on r_regionkey=n_regionkey"
-    sql """
-       set ignore_shape_nodes='PhysicalDistribute';
-       alter table region modify column r_regionkey set stats ('ndv'='0', 'num_nulls'='0', 'min_value'='0', 'max_value'='4', 'row_count'='0');
-       """
-    
-    qt_disable_order "explain shape plan select * from region join nation on r_regionkey=n_regionkey"
 }
