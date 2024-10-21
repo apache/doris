@@ -2243,7 +2243,6 @@ MetaServiceResponseStatus MetaServiceImpl::fix_tablet_stats(std::string cloud_un
             return st;
         }
         while (it->has_next()) {
-            sub_txn_id++;
             auto [k, v] = it->next();
             auto k1 = k;
             k1.remove_prefix(1);
@@ -2251,6 +2250,8 @@ MetaServiceResponseStatus MetaServiceImpl::fix_tablet_stats(std::string cloud_un
             decode_key(&k1, &out);
             // 0x01 "stats" ${instance_id} "tablet" ${table_id} ${index_id} ${partition_id} ${tablet_id} -> TabletStatsPB
             if (out.size() == 7) {
+                sub_txn_id++;
+                // =======================================================
                 // phase 1: read tablet's rowsets data and accumulate them
                 auto tablet_id = std::get<int64_t>(std::get<0>(out[6]));
                 TabletStatsPB tablet_stat;
@@ -2260,6 +2261,7 @@ MetaServiceResponseStatus MetaServiceImpl::fix_tablet_stats(std::string cloud_un
                         "tabletPB, tabletPB info: {}",
                         sub_txn_id, tablet_id, tablet_stat.DebugString());
 
+                // =======================================================
                 // phase 2: read tablet's rowsets data and accumulate them
                 GetRowsetResponse resp;
                 internal_get_rowset(txn.get(), start, end, instance_id, tablet_id, code, msg,
@@ -2279,49 +2281,107 @@ MetaServiceResponseStatus MetaServiceImpl::fix_tablet_stats(std::string cloud_un
                             sub_txn_id, tablet_id, total_disk_size, rs_meta.DebugString());
                 }
 
+                // =======================================================
                 // phase 3: set new data to tabletPB and write it back
                 tablet_stat.set_data_size(total_disk_size);
-                std::string key;
-                std::string val;
-                key = stats_tablet_key({instance_id, table_id, tablet_stat.idx().index_id(),
-                                        tablet_stat.idx().partition_id(),
-                                        tablet_stat.idx().tablet_id()});
-                if (!tablet_stat.SerializeToString(&val)) {
+                std::string tablet_stat_key;
+                std::string tablet_stat_value;
+                tablet_stat_key = stats_tablet_key(
+                        {instance_id, table_id, tablet_stat.idx().index_id(),
+                         tablet_stat.idx().partition_id(), tablet_stat.idx().tablet_id()});
+                if (!tablet_stat.SerializeToString(&tablet_stat_value)) {
                     st.set_code(MetaServiceCode::PROTOBUF_SERIALIZE_ERR);
                     st.set_msg("failed to serialize tablet stat");
                     return st;
                 }
-                txn->put(key, val);
+                txn->put(tablet_stat_key, tablet_stat_value);
                 LOG(INFO) << fmt::format(
                         "[Sub txn id{}, Tablet id {} fix tablet stats phase 3]: write new "
                         "tabletPB, tabletPB info: {}",
                         sub_txn_id, tablet_id, tablet_stat.DebugString());
 
-                // 0x01 "stats" ${instance_id} "tablet" ${table_id} ${index_id} ${partition_id} ${tablet_id} "data_size"   -> int64
+                // =======================================================
+                // 0x01 "stats" ${instance_id} "tablet" ${table_id} ${index_id} ${partition_id} ${tablet_id} "data_size" -> int64
                 // phase 4: set tablet stats data_size = 0
-                std::string data_size_key;
+                std::string tablet_stat_data_size_key;
                 stats_tablet_data_size_key(
                         {instance_id, table_id, tablet_stat.idx().index_id(),
                          tablet_stat.idx().partition_id(), tablet_stat.idx().tablet_id()},
-                        &data_size_key);
+                        &tablet_stat_data_size_key);
                 // set tablet stats data size = 0
-                int64_t data_size = 0;
-                std::string data_size_value(sizeof(data_size), '\0');
-                memcpy(data_size_value.data(), &data_size, sizeof(data_size));
-                txn->put(data_size_key, data_size_value);
+                int64_t tablet_stat_data_size = 0;
+                std::string tablet_stat_data_size_value(sizeof(tablet_stat_data_size), '\0');
+                memcpy(tablet_stat_data_size_value.data(), &tablet_stat_data_size,
+                       sizeof(tablet_stat_data_size));
+                txn->put(tablet_stat_data_size_key, tablet_stat_data_size_value);
                 LOG(INFO) << fmt::format(
                         "[Sub txn id {} Tablet id {} fix tablet stats phase 4]: set tablet stats "
                         "data size = 0, data size : {}",
-                        sub_txn_id, tablet_id, data_size_value);
+                        sub_txn_id, tablet_id, tablet_stat_data_size_value);
 
-                // phase ?: get tabletPB and tablet data size to check correctness
-                key = stats_tablet_key({instance_id, table_id, tablet_stat.idx().index_id(),
-                                        tablet_stat.idx().partition_id(),
-                                        tablet_stat.idx().tablet_id()});
+                // =======================================================
+                // phase 5: get tabletPB to check correctness
+                err = txn->get(tablet_stat_key, &tablet_stat_value, true);
+                if (err != TxnErrorCode::TXN_OK) {
+                    code = cast_as<ErrCategory::READ>(err);
+                    LOG(INFO) << fmt::format(
+                            "[Sub txn id {} Tablet id {} fix tablet stats phase 5]: get tablet "
+                            "stats failed, err {}",
+                            sub_txn_id, tablet_id, err);
+                }
+                TabletStatsPB tablet_stat_check;
+                tablet_stat_check.ParseFromArray(tablet_stat_value.data(),
+                                                 tablet_stat_value.size());
+                LOG(INFO) << fmt::format(
+                        "[Sub txn id {} Tablet id {} fix tablet stats phase 5]: check correctness "
+                        "get tabletPB {}",
+                        sub_txn_id, tablet_id, tablet_stat_check.DebugString());
+                if (tablet_stat_check.DebugString() != tablet_stat.DebugString()) {
+                    LOG(WARNING) << fmt::format(
+                            "[Sub txn id {} Tablet id {} fix tablet stats phase 5]: check "
+                            "correctness get tabletPB failed, tablet_stat {}, tablet_stat_check {}",
+                            sub_txn_id, tablet_id, tablet_stat.DebugString(),
+                            tablet_stat_check.DebugString());
+                }
 
-                err = txn->get(key, &data_size_value, true);
-                tablet_stat.ParseFromArray(data_size_value.data(), data_size_value.size());
-                LOG(INFO) << fmt::format("get tabletPB {}", tablet_stat.DebugString());
+                // =======================================================
+                // phase 6: get tablet data size to check correctness
+                err = txn->get(tablet_stat_data_size_key, &tablet_stat_data_size_value, true);
+                if (err != TxnErrorCode::TXN_OK) {
+                    code = cast_as<ErrCategory::READ>(err);
+                    LOG(INFO) << fmt::format(
+                            "[Sub txn id {} Tablet id {} fix tablet stats phase 6]: get tablet "
+                            "stats data size failed, err {}",
+                            sub_txn_id, tablet_id, err);
+                }
+                int64_t tablet_stat_data_size_check;
+
+                if (tablet_stat_data_size_value.size() != sizeof(tablet_stat_data_size_check))
+                        [[unlikely]] {
+                    LOG(WARNING)
+                            << "[Sub txn id " << sub_txn_id << " Tablet id " << tablet_id
+                            << " fix tablet stats phase 6]: malformed tablet stats value v.size="
+                            << tablet_stat_data_size_value.size()
+                            << " value=" << hex(tablet_stat_data_size_value);
+                }
+                std::memcpy(&tablet_stat_data_size_check, tablet_stat_data_size_value.data(),
+                            sizeof(tablet_stat_data_size_check));
+                if constexpr (std::endian::native == std::endian::big) {
+                    tablet_stat_data_size_check = bswap_64(tablet_stat_data_size_check);
+                }
+                LOG(INFO) << fmt::format(
+                        "[Sub txn id {} Tablet id {} fix tablet stats phase 6]: check correctness "
+                        "get tablet stat data size {}",
+                        sub_txn_id, tablet_id, tablet_stat_data_size_check);
+                if (tablet_stat_data_size_check != tablet_stat_data_size) {
+                    LOG(WARNING) << fmt::format(
+                            "[Sub txn id {} Tablet id {} fix tablet stats phase 6]: check "
+                            "correctness get tablet stat data size failed, tablet_stat_data_size "
+                            "{}, "
+                            "tablet_stat_data_size_check {}",
+                            sub_txn_id, tablet_id, tablet_stat_data_size,
+                            tablet_stat_data_size_check);
+                }
             }
             if (sub_txn_id % 50 == 0) {
                 err = txn->commit();
