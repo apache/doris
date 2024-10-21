@@ -214,8 +214,8 @@ Status PartitionSortSinkOperatorX::_emplace_into_hash_table(
                         SCOPED_TIMER(local_state._emplace_key_timer);
                         int row = num_rows;
                         for (row = row - 1; row >= 0 && !local_state._is_need_passthrough; --row) {
-                            auto& mapped = agg_method.lazy_emplace(state, row, creator,
-                                                                   creator_for_null_key);
+                            auto& mapped = *agg_method.lazy_emplace(state, row, creator,
+                                                                    creator_for_null_key);
                             mapped->add_row_idx(row);
                             local_state._sorted_partition_input_rows++;
                             local_state._is_need_passthrough =

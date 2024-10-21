@@ -20,11 +20,11 @@
 
 #pragma once
 
-#include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/hash_table/ph_hash_map.h"
+#include "vec/common/hash_table/ph_hash_set.h"
 
 namespace doris::vectorized {
 
@@ -80,8 +80,7 @@ public:
     using Cache = LastElementCache<Value, consecutive_keys_optimization>;
 
     template <typename Data, typename Func, typename CreatorForNull, typename KeyHolder>
-        requires has_mapped
-    ALWAYS_INLINE Mapped& lazy_emplace_key(Data& data, size_t row, KeyHolder&& key,
+    ALWAYS_INLINE Mapped* lazy_emplace_key(Data& data, size_t row, KeyHolder&& key,
                                            size_t hash_value, Func&& f,
                                            CreatorForNull&& null_creator) {
         return lazy_emplace_impl(std::forward<KeyHolder>(key), hash_value, data,
@@ -108,13 +107,12 @@ protected:
     }
 
     template <typename Data, typename KeyHolder, typename Func>
-        requires has_mapped
-    ALWAYS_INLINE Mapped& lazy_emplace_impl(KeyHolder& key_holder, size_t hash_value, Data& data,
+    ALWAYS_INLINE Mapped* lazy_emplace_impl(KeyHolder& key_holder, size_t hash_value, Data& data,
                                             Func&& f) {
         typename Data::LookupResult it;
         data.lazy_emplace(key_holder, it, hash_value, std::forward<Func>(f));
 
-        return *lookup_result_get_mapped(it);
+        return lookup_result_get_mapped(it);
     }
 
     template <typename Data, typename Key>
