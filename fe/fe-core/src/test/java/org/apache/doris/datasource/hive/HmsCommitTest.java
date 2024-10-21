@@ -147,7 +147,7 @@ public class HmsCommitTest {
                 tblProperties, fileFormat, "");
         hmsClient.createTable(tableMetadata, true);
         Table tbl = hmsClient.getTable(dbName, tbWithPartition);
-        Assert.assertEquals(UserIdentity.ADMIN.getUser(), tbl.getParameters().get("owner"));
+        Assert.assertEquals(UserIdentity.ADMIN.getQualifiedUser(), tbl.getParameters().get("owner"));
 
         // create table for tbWithoutPartition
         HiveTableMetadata tableMetadata2 = new HiveTableMetadata(
