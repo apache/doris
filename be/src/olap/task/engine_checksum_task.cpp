@@ -93,7 +93,7 @@ Status EngineChecksumTask::_compute_checksum() {
     }
     size_t input_size = 0;
     for (const auto& rowset : input_rowsets) {
-        input_size += rowset->data_disk_size();
+        input_size += rowset->total_disk_size();
     }
 
     auto res = reader.init(reader_params);
