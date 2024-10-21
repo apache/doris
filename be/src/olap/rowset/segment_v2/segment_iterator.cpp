@@ -1989,11 +1989,11 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
     if (UNLIKELY(!_lazy_inited)) {
         RETURN_IF_ERROR(_lazy_init());
         _lazy_inited = true;
-        uint32_t nrows_reserve_limit = _row_bitmap.cardinality() < _opts.block_row_max
-                                               ? _row_bitmap.cardinality()
-                                               : _opts.block_row_max;
+        // If the row bitmap size is smaller than block_row_max, there's no need to reserve that many column rows.
+        auto nrows_reserve_limit =
+                std::min(_row_bitmap.cardinality(), uint64_t(_opts.block_row_max));
         if (_lazy_materialization_read || _opts.record_rowids || _is_need_expr_eval) {
-            _block_rowids.resize(nrows_reserve_limit);
+            _block_rowids.resize(_opts.block_row_max);
         }
         _current_return_columns.resize(_schema->columns().size());
         _converted_column_ids.resize(_schema->columns().size(), 0);
