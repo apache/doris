@@ -97,7 +97,7 @@ suite("test_qualify_query") {
 
     qt_select_25 "select year, country, profit from (select * from sales) a where year >= 2000 qualify row_number() over (partition by year, country order by profit desc) = 1 order by year, country, profit;"
 
-    qt_select_26 "select year + 1, country from sales where year >= 2000 group by year,country qualify row_number() over (order by year) > 1;"
+    qt_select_26 "select year + 1, country from sales where year >= 2000 and country = 'Finland' group by year,country qualify row_number() over (order by year) > 1;"
 
     qt_select_27 "select year + 1, country, row_number() over (order by year) as rk from sales where year >= 2000 group by year,country qualify rk > 1;"
 

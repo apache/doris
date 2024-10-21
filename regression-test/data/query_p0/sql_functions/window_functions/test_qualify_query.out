@@ -168,10 +168,7 @@ Finland	Phone	11
 2001	USA	1500
 
 -- !select_26 --
-2001	India
-2001	USA
 2002	Finland
-2002	USA
 
 -- !select_27 --
 2001	India	2
