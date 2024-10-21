@@ -93,6 +93,8 @@ public class JdbcExternalCatalog extends ExternalCatalog {
         JdbcResource.checkBooleanProperty(JdbcResource.CONNECTION_POOL_KEEP_ALIVE,
                 String.valueOf(isConnectionPoolKeepAlive()));
         JdbcResource.checkBooleanProperty(JdbcResource.TEST_CONNECTION, String.valueOf(isTestConnection()));
+        JdbcResource.checkBooleanProperty(JdbcResource.ENABLE_CONNECTION_POOL,
+                String.valueOf(isEnableConnectionPool()));
         JdbcResource.checkDatabaseListProperties(getOnlySpecifiedDatabase(), getIncludeDatabaseMap(),
                 getExcludeDatabaseMap());
         JdbcResource.checkConnectionPoolProperties(getConnectionPoolMinSize(), getConnectionPoolMaxSize(),
@@ -112,6 +114,27 @@ public class JdbcExternalCatalog extends ExternalCatalog {
             throw new IllegalArgumentException("Jdbc catalog property lower_case_table_names is not supported,"
                     + " please use lower_case_meta_names instead.");
         }
+        if (catalogProperty.getOrDefault(JdbcResource.ENABLE_CONNECTION_POOL, "").isEmpty()) {
+            // If not setting enable_connection_pool in replay logic,
+            // set default value true to be compatible with older version.
+            catalogProperty.addProperty(JdbcResource.ENABLE_CONNECTION_POOL,
+                    isReplay ? "true" : String.valueOf(JdbcResource
+                            .getDefaultPropertyValue(JdbcResource.ENABLE_CONNECTION_POOL)));
+        }
+    }
+
+    @Override
+    public void tryModifyCatalogProps(Map<String, String> props) {
+        // It is forbidden to modify the enable_connection_pool attribute and driver_url attribute of jdbc catalog
+        if (props.containsKey(JdbcResource.ENABLE_CONNECTION_POOL)) {
+            throw new IllegalArgumentException("Can not modify enable_connection_pool property of jdbc catalog,"
+                    + "please re-create the catalog");
+        }
+        if (props.containsKey(JdbcResource.DRIVER_URL)) {
+            throw new IllegalArgumentException("Can not modify driver_url property of jdbc catalog"
+                    + "please re-create the catalog");
+        }
+        super.tryModifyCatalogProps(props);
     }
 
     @Override
@@ -222,6 +245,11 @@ public class JdbcExternalCatalog extends ExternalCatalog {
                 .getDefaultPropertyValue(JdbcResource.TEST_CONNECTION)));
     }
 
+    public boolean isEnableConnectionPool() {
+        return Boolean.parseBoolean(catalogProperty.getOrDefault(JdbcResource.ENABLE_CONNECTION_POOL, JdbcResource
+                .getDefaultPropertyValue(JdbcResource.ENABLE_CONNECTION_POOL)));
+    }
+
     @Override
     protected void initLocalObjectsImpl() {
         JdbcClientConfig jdbcClientConfig = new JdbcClientConfig()
@@ -240,7 +268,8 @@ public class JdbcExternalCatalog extends ExternalCatalog {
                 .setConnectionPoolMaxSize(getConnectionPoolMaxSize())
                 .setConnectionPoolMaxLifeTime(getConnectionPoolMaxLifeTime())
                 .setConnectionPoolMaxWaitTime(getConnectionPoolMaxWaitTime())
-                .setConnectionPoolKeepAlive(isConnectionPoolKeepAlive());
+                .setConnectionPoolKeepAlive(isConnectionPoolKeepAlive())
+                .setEnableConnectionPool(isEnableConnectionPool());
 
         jdbcClient = JdbcClient.createJdbcClient(jdbcClientConfig);
     }
@@ -320,6 +349,7 @@ public class JdbcExternalCatalog extends ExternalCatalog {
         jdbcTable.setConnectionPoolMaxLifeTime(this.getConnectionPoolMaxLifeTime());
         jdbcTable.setConnectionPoolMaxWaitTime(this.getConnectionPoolMaxWaitTime());
         jdbcTable.setConnectionPoolKeepAlive(this.isConnectionPoolKeepAlive());
+        jdbcTable.setEnableConnectionPool(this.isEnableConnectionPool());
     }
 
     private void testJdbcConnection() throws DdlException {

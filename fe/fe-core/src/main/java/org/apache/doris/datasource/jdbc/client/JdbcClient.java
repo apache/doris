@@ -39,6 +39,7 @@ import java.net.URL;
 import java.net.URLClassLoader;
 import java.sql.Connection;
 import java.sql.DatabaseMetaData;
+import java.sql.Driver;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
@@ -48,6 +49,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Properties;
 import java.util.Set;
 import java.util.function.Consumer;
 
@@ -60,7 +62,11 @@ public abstract class JdbcClient {
     private String catalogName;
     protected String dbType;
     protected String jdbcUser;
+    protected String jdbcUrl;
+    protected String jdbcPassword;
+    protected String jdbcDriverClass;
     protected ClassLoader classLoader = null;
+    protected boolean enableConnectionPool;
     protected HikariDataSource dataSource = null;
     protected boolean isOnlySpecifiedDatabase;
     protected boolean isLowerCaseMetaNames;
@@ -103,6 +109,9 @@ public abstract class JdbcClient {
         System.setProperty("com.zaxxer.hikari.useWeakReferences", "true");
         this.catalogName = jdbcClientConfig.getCatalog();
         this.jdbcUser = jdbcClientConfig.getUser();
+        this.jdbcPassword = jdbcClientConfig.getPassword();
+        this.jdbcUrl = jdbcClientConfig.getJdbcUrl();
+        this.jdbcDriverClass = jdbcClientConfig.getDriverClass();
         this.isOnlySpecifiedDatabase = Boolean.parseBoolean(jdbcClientConfig.getOnlySpecifiedDatabase());
         this.isLowerCaseMetaNames = Boolean.parseBoolean(jdbcClientConfig.getIsLowerCaseMetaNames());
         this.metaNamesMapping = jdbcClientConfig.getMetaNamesMapping();
@@ -110,10 +119,12 @@ public abstract class JdbcClient {
                 Optional.ofNullable(jdbcClientConfig.getIncludeDatabaseMap()).orElse(Collections.emptyMap());
         this.excludeDatabaseMap =
                 Optional.ofNullable(jdbcClientConfig.getExcludeDatabaseMap()).orElse(Collections.emptyMap());
-        String jdbcUrl = jdbcClientConfig.getJdbcUrl();
+        this.enableConnectionPool = jdbcClientConfig.isEnableConnectionPool();
         this.dbType = parseDbType(jdbcUrl);
         initializeClassLoader(jdbcClientConfig);
-        initializeDataSource(jdbcClientConfig);
+        if (enableConnectionPool) {
+            initializeDataSource(jdbcClientConfig);
+        }
         this.jdbcLowerCaseMetaMatching = new JdbcIdentifierMapping(isLowerCaseMetaNames, metaNamesMapping, this);
     }
 
@@ -168,15 +179,57 @@ public abstract class JdbcClient {
     }
 
     public void closeClient() {
-        dataSource.close();
+        if (enableConnectionPool && dataSource != null) {
+            dataSource.close();
+        }
     }
 
     public Connection getConnection() throws JdbcClientException {
+        if (enableConnectionPool) {
+            return getConnectionWithPool();
+        } else {
+            return getConnectionWithoutPool();
+        }
+    }
+
+    private Connection getConnectionWithoutPool() throws JdbcClientException {
         ClassLoader oldClassLoader = Thread.currentThread().getContextClassLoader();
-        Connection conn;
         try {
             Thread.currentThread().setContextClassLoader(this.classLoader);
-            conn = dataSource.getConnection();
+
+            Class<?> driverClass = Class.forName(jdbcDriverClass, true, this.classLoader);
+            Driver driverInstance = (Driver) driverClass.getDeclaredConstructor().newInstance();
+
+            Properties info = new Properties();
+            info.put("user", jdbcUser);
+            info.put("password", jdbcPassword);
+
+            Connection connection = driverInstance.connect(SecurityChecker.getInstance().getSafeJdbcUrl(jdbcUrl), info);
+
+            if (connection == null) {
+                throw new SQLException("Failed to establish a connection. The JDBC driver returned null. "
+                        + "Please check if the JDBC URL is correct: "
+                        + jdbcUrl
+                        + ". Ensure that the URL format and parameters are valid for the driver: "
+                        + driverInstance.getClass().getName());
+            }
+
+            return connection;
+        } catch (Exception e) {
+            String errorMessage = String.format("Can not connect to jdbc due to error: %s, Catalog name: %s",
+                    e.getMessage(), this.getCatalogName());
+            throw new JdbcClientException(errorMessage, e);
+        } finally {
+            Thread.currentThread().setContextClassLoader(oldClassLoader);
+        }
+    }
+
+
+    private Connection getConnectionWithPool() throws JdbcClientException {
+        ClassLoader oldClassLoader = Thread.currentThread().getContextClassLoader();
+        try {
+            Thread.currentThread().setContextClassLoader(this.classLoader);
+            return dataSource.getConnection();
         } catch (Exception e) {
             String errorMessage = String.format(
                     "Catalog `%s` can not connect to jdbc due to error: %s",
@@ -185,7 +238,6 @@ public abstract class JdbcClient {
         } finally {
             Thread.currentThread().setContextClassLoader(oldClassLoader);
         }
-        return conn;
     }
 
     public void close(AutoCloseable... closeables) {
