@@ -22,6 +22,7 @@
 #include <string>
 #include <vector>
 
+#include "inverted_index_compound_reader.h"
 #include "io/fs/file_system.h"
 
 namespace doris {
@@ -30,7 +31,8 @@ namespace segment_v2 {
 class InvertedIndexFileWriter;
 class InvertedIndexFileReader;
 
-Status compact_column(int64_t index_id, std::vector<lucene::store::Directory*>& src_index_dirs,
+Status compact_column(int64_t index_id,
+                      std::vector<std::unique_ptr<DorisCompoundReader>>& src_index_dirs,
                       std::vector<lucene::store::Directory*>& dest_index_dirs,
                       const io::FileSystemSPtr& fs, std::string tmp_path,
                       std::vector<std::vector<std::pair<uint32_t, uint32_t>>> trans_vec,
