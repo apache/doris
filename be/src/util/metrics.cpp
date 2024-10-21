@@ -275,8 +275,14 @@ MetricRegistry::~MetricRegistry() {}
 std::shared_ptr<MetricEntity> MetricRegistry::register_entity(const std::string& name,
                                                               const Labels& labels,
                                                               MetricEntityType type) {
-    std::shared_ptr<MetricEntity> entity = std::make_shared<MetricEntity>(type, name, labels);
     std::lock_guard<std::mutex> l(_lock);
+    return register_entity_unlocked(name, labels, type);
+}
+
+std::shared_ptr<MetricEntity> MetricRegistry::register_entity_unlocked(const std::string& name,
+                                                                       const Labels& labels,
+                                                                       MetricEntityType type) {
+    std::shared_ptr<MetricEntity> entity = std::make_shared<MetricEntity>(type, name, labels);
     auto inserted_entity = _entities.insert(std::make_pair(entity, 1));
     if (!inserted_entity.second) {
         // If exist, increase the registered count
