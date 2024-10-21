@@ -24,6 +24,7 @@ import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.DebugPointUtil;
@@ -104,6 +105,10 @@ public abstract class AlterJobV2 implements Writable {
     // save failed task after retry three times, tablet -> backends
     @SerializedName(value = "failedTabletBackends")
     protected Map<Long, List<Long>> failedTabletBackends = Maps.newHashMap();
+
+    // used for delete decommission tablet
+    @SerializedName(value = "deleteTabletWatermarkTxnId")
+    protected long deleteTabletWatermarkTxnId = -1;
 
     public AlterJobV2(String rawSql, long jobId, JobType jobType, long dbId, long tableId, String tableName,
                       long timeoutMs) {
@@ -318,5 +323,13 @@ public abstract class AlterJobV2 implements Writable {
 
     public String toJson() {
         return GsonUtils.GSON.toJson(this);
+    }
+
+    protected void assignDeleteTabletWatermarkTxnId() {
+        try {
+            this.deleteTabletWatermarkTxnId = Env.getCurrentGlobalTransactionMgr().getNextTransactionId();
+        } catch (UserException e) {
+            LOG.warn("get next transaction id failed");
+        }
     }
 }
