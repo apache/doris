@@ -218,8 +218,7 @@ Status SegmentWriter::_create_column_writer(uint32_t cid, const TabletColumn& co
     if (_opts.write_type == DataWriteType::TYPE_DIRECT && schema->skip_write_index_on_load()) {
         skip_inverted_index = true;
     }
-    if (!skip_inverted_index) {
-        const auto& inverted_index = schema->inverted_index(column);
+    if (const auto& inverted_index = schema->inverted_index(column); inverted_index && !skip_inverted_index) {
         opts.inverted_index = inverted_index;
         opts.need_inverted_index = true;
         opts.inverted_index_file_writer = _inverted_index_file_writer.get();
