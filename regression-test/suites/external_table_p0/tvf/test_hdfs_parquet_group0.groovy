@@ -104,13 +104,10 @@ suite("test_hdfs_parquet_group0","external,hive,tvf,external_docker") {
 
 
             uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_parquet/group0/large_string_map.brotli.parquet"
-            test {
-                sql """ select * from HDFS(
+            order_qt_test_11 """ select count(arr) from HDFS(
                         "uri" = "${uri}",
                         "hadoop.username" = "${hdfsUserName}",
-                        "format" = "parquet") limit 10; """
-                exception "unknown compression type(4)"
-            }
+                        "format" = "parquet"); """
 
 
             uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_parquet/group0/non_hadoop_lz4_compressed.parquet"

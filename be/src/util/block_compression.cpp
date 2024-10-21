@@ -28,24 +28,23 @@
         defined(__i386) || defined(_M_IX86)
 #include <libdeflate.h>
 #endif
+#include <brotli/decode.h>
 #include <glog/log_severity.h>
 #include <glog/logging.h>
-#include <limits.h>
 #include <lz4/lz4.h>
 #include <lz4/lz4frame.h>
 #include <lz4/lz4hc.h>
 #include <snappy/snappy-sinksource.h>
 #include <snappy/snappy.h>
-#include <stdint.h>
 #include <zconf.h>
 #include <zlib.h>
 #include <zstd.h>
 #include <zstd_errors.h>
 
 #include <algorithm>
+#include <cstdint>
 #include <limits>
 #include <mutex>
-#include <new>
 #include <ostream>
 
 #include "common/config.h"
@@ -53,9 +52,7 @@
 #include "exec/decompressor.h"
 #include "gutil/endian.h"
 #include "gutil/strings/substitute.h"
-#include "orc/OrcFile.hh"
 #include "runtime/thread_context.h"
-#include "util/bit_util.h"
 #include "util/defer_op.h"
 #include "util/faststring.h"
 
@@ -73,8 +70,6 @@ uint64_t lzoDecompress(const char* inputAddress, const char* inputLimit, char* o
 } // namespace orc
 
 namespace doris {
-
-using strings::Substitute;
 
 // exception safe
 Status BlockCompressionCodec::compress(const std::vector<Slice>& inputs, size_t uncompressed_size,
@@ -1492,6 +1487,31 @@ public:
     }
 };
 
+class BrotliBlockCompression final : public BlockCompressionCodec {
+public:
+    static BrotliBlockCompression* instance() {
+        static BrotliBlockCompression s_instance;
+        return &s_instance;
+    }
+
+    Status compress(const Slice& input, faststring* output) override {
+        return Status::InvalidArgument("not impl brotli compress.");
+    }
+
+    size_t max_compressed_len(size_t len) override { return 0; };
+
+    Status decompress(const Slice& input, Slice* output) override {
+        // The size of output buffer is always equal to the umcompressed length.
+        BrotliDecoderResult result = BrotliDecoderDecompress(
+                input.get_size(), reinterpret_cast<const uint8_t*>(input.get_data()), &output->size,
+                reinterpret_cast<uint8_t*>(output->data));
+        if (result != BROTLI_DECODER_RESULT_SUCCESS) {
+            return Status::InternalError("Brotli decompression failed, result={}", result);
+        }
+        return Status::OK();
+    }
+};
+
 Status get_block_compression_codec(segment_v2::CompressionTypePB type,
                                    BlockCompressionCodec** codec) {
     switch (type) {
@@ -1581,6 +1601,9 @@ Status get_block_compression_codec(tparquet::CompressionCodec::type parquet_code
         break;
     case tparquet::CompressionCodec::LZO:
         *codec = LzoBlockCompression::instance();
+        break;
+    case tparquet::CompressionCodec::BROTLI:
+        *codec = BrotliBlockCompression::instance();
         break;
     default:
         return Status::InternalError("unknown compression type({})", parquet_codec);
