@@ -1225,24 +1225,34 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
                 replica.setFurtherRepairWatermarkTxnTd(-1);
             }
 
-            ReplicaPersistInfo info = ReplicaPersistInfo.createForClone(dbId, tblId, partitionId, indexId,
-                    tabletId, destBackendId, replica.getId(),
-                    reportedTablet.getVersion(),
-                    reportedTablet.getSchemaHash(),
-                    reportedTablet.getDataSize(),
-                    reportedTablet.getRemoteDataSize(),
-                    reportedTablet.getRowCount(),
-                    replica.getLastFailedVersion(),
-                    replica.getLastSuccessVersion());
-
+            ReplicaPersistInfo info = null;
             if (replica.getState() == ReplicaState.CLONE) {
                 replica.setState(ReplicaState.NORMAL);
-                Env.getCurrentEnv().getEditLog().logAddReplica(info);
+                info = ReplicaPersistInfo.createForAdd(dbId, tblId, partitionId, indexId,
+                        tabletId, destBackendId, replica.getId(),
+                        reportedTablet.getVersion(),
+                        reportedTablet.getSchemaHash(),
+                        reportedTablet.getDataSize(),
+                        reportedTablet.getRemoteDataSize(),
+                        reportedTablet.getRowCount(),
+                        replica.getLastFailedVersion(),
+                        replica.getLastSuccessVersion());
             } else {
                 // if in VERSION_INCOMPLETE, replica is not newly created, thus the state is not CLONE
                 // so we keep it state unchanged, and log update replica
-                Env.getCurrentEnv().getEditLog().logUpdateReplica(info);
+                info = ReplicaPersistInfo.createForUpdate(dbId, tblId, partitionId, indexId,
+                        tabletId, destBackendId, replica.getId(),
+                        reportedTablet.getVersion(),
+                        reportedTablet.getSchemaHash(),
+                        reportedTablet.getDataSize(),
+                        reportedTablet.getRemoteDataSize(),
+                        reportedTablet.getRowCount(),
+                        replica.getLastFailedVersion(),
+                        replica.getLastSuccessVersion(),
+                        replica.isBad());
             }
+
+            Env.getCurrentEnv().getEditLog().logModifyReplica(info);
 
             state = State.FINISHED;
             LOG.info("clone finished: {}, replica {}, replica old version {}, need further repair {}, is catchup {}",

@@ -34,20 +34,21 @@ public class ReplicaPersistInfo implements Writable, GsonPostProcessable {
 
     public enum ReplicaOperationType {
         ADD(0),
-        CROND_DELETE(1),
+        CROND_DELETE(1), //Deprecated
         DELETE(2),
-        CLONE(3),
-        LOAD(4),
-        ROLLUP(5),
-        SCHEMA_CHANGE(6),
-        CLEAR_ROLLUPINFO(7),
+        CLONE(3),   //Deprecated
+        LOAD(4),    //Deprecated
+        ROLLUP(5),  //Deprecated
+        SCHEMA_CHANGE(6), //Deprecated
+        CLEAR_ROLLUPINFO(7), //Deprecated
         // this default op is used for upgrate to femeta_45, add default op to solve this scenario
         // the old image and old persist log does not have op field, so the op field is null when upgrate to fe meta 45
         // then fe will dump image and want to write op type to image,
         // op type is null and then throw null pointer exception
         // add the default op, when read from image and op type == null ,set op type to default op to skip the exception
-        DEFAULT_OP(8),
-        TABLET_INFO(9);
+        DEFAULT_OP(8),   //Deprecated
+        TABLET_INFO(9),  //Deprecated
+        UPDATE(10);
 
         @SerializedName("v")
         private final int value;
@@ -61,30 +62,12 @@ public class ReplicaPersistInfo implements Writable, GsonPostProcessable {
         }
 
         public static ReplicaOperationType findByValue(int value) {
-            switch (value) {
-                case 0:
-                    return ADD;
-                case 1:
-                    return CROND_DELETE;
-                case 2:
-                    return DELETE;
-                case 3:
-                    return CLONE;
-                case 4:
-                    return LOAD;
-                case 5:
-                    return ROLLUP;
-                case 6:
-                    return SCHEMA_CHANGE;
-                case 7:
-                    return CLEAR_ROLLUPINFO;
-                case 8:
-                    return DEFAULT_OP;
-                case 9:
-                    return TABLET_INFO;
-                default:
-                    return null;
+            for (ReplicaOperationType type : ReplicaOperationType.values()) {
+                if (type.getValue() == value) {
+                    return type;
+                }
             }
+            return null;
         }
     }
 
@@ -131,6 +114,9 @@ public class ReplicaPersistInfo implements Writable, GsonPostProcessable {
     @SerializedName("lsvh")
     private long lastSuccessVersionHash = 0L;
 
+    @SerializedName("bad")
+    private boolean isBad = false;
+
     public static ReplicaPersistInfo createForAdd(long dbId, long tableId, long partitionId, long indexId,
             long tabletId, long backendId, long replicaId, long version,
             int schemaHash, long dataSize, long remoteDataSize, long rowCount,
@@ -140,22 +126,10 @@ public class ReplicaPersistInfo implements Writable, GsonPostProcessable {
         return new ReplicaPersistInfo(ReplicaOperationType.ADD,
                 dbId, tableId, partitionId, indexId, tabletId, backendId,
                 replicaId, version, schemaHash, dataSize, remoteDataSize, rowCount,
-                lastFailedVersion, lastSuccessVersion);
+                lastFailedVersion, lastSuccessVersion, false);
     }
 
     /*
-     * this for delete stmt operation
-     */
-    public static ReplicaPersistInfo createForCondDelete(long indexId, long tabletId, long replicaId, long version,
-            int schemaHash, long dataSize, long remoteDataSize, long rowCount,
-            long lastFailedVersion, long lastSuccessVersion) {
-
-        return new ReplicaPersistInfo(ReplicaOperationType.CROND_DELETE,
-                -1L, -1L, -1L, indexId, tabletId, -1L,
-                replicaId, version, schemaHash, dataSize, remoteDataSize, rowCount,
-                lastFailedVersion, lastSuccessVersion);
-    }
-
     /*
      * this for remove replica from meta
      */
@@ -163,64 +137,19 @@ public class ReplicaPersistInfo implements Writable, GsonPostProcessable {
             long tabletId, long backendId) {
         return new ReplicaPersistInfo(ReplicaOperationType.DELETE,
                 dbId, tableId, partitionId, indexId, tabletId, backendId,
-                -1L, -1L, -1, -1L, -1L, -1L, -1L, -1L);
+                -1L, -1L, -1, -1L, -1L, -1L, -1L, -1L, false);
     }
 
-    public static ReplicaPersistInfo createForClone(long dbId, long tableId, long partitionId, long indexId,
+    public static ReplicaPersistInfo createForUpdate(long dbId, long tableId, long partitionId, long indexId,
             long tabletId, long backendId, long replicaId, long version,
             int schemaHash, long dataSize, long remoteDataSize, long rowCount,
-            long lastFailedVersion, long lastSuccessVersion) {
+            long lastFailedVersion, long lastSuccessVersion, boolean isBad) {
 
-        return new ReplicaPersistInfo(ReplicaOperationType.CLONE,
+        return new ReplicaPersistInfo(ReplicaOperationType.UPDATE,
                 dbId, tableId, partitionId, indexId, tabletId, backendId, replicaId,
                 version, schemaHash, dataSize, remoteDataSize, rowCount,
-                lastFailedVersion, lastSuccessVersion);
+                lastFailedVersion, lastSuccessVersion, isBad);
     }
-
-    // for original batch load, the last success version = version, last success version hash = version hash
-    // last failed version = -1
-    public static ReplicaPersistInfo createForLoad(long tableId, long partitionId, long indexId, long tabletId,
-            long replicaId, long version, int schemaHash, long dataSize, long remoteDataSize, long rowCount) {
-
-        return new ReplicaPersistInfo(ReplicaOperationType.LOAD,
-                -1L, tableId, partitionId, indexId, tabletId, -1L,
-                replicaId, version, schemaHash, dataSize, remoteDataSize,
-                rowCount, -1L, version);
-    }
-
-    public static ReplicaPersistInfo createForRollup(long indexId, long tabletId, long backendId, long version,
-            int schemaHash, long dataSize, long remoteDataSize, long rowCount,
-            long lastFailedVersion, long lastSuccessVersion) {
-
-        return new ReplicaPersistInfo(ReplicaOperationType.ROLLUP,
-                -1L, -1L, -1L, indexId, tabletId, backendId, -1L,
-                version, schemaHash, dataSize, remoteDataSize, rowCount,
-                lastFailedVersion, lastSuccessVersion);
-    }
-
-    public static ReplicaPersistInfo createForSchemaChange(long partitionId, long indexId, long tabletId,
-            long backendId, long version,
-            int schemaHash, long dataSize, long remoteDataSize, long rowCount,
-            long lastFailedVersion,
-            long lastSuccessVersion) {
-
-        return new ReplicaPersistInfo(ReplicaOperationType.SCHEMA_CHANGE,
-                -1L, -1L, partitionId, indexId, tabletId, backendId, -1L, version,
-                schemaHash, dataSize, remoteDataSize, rowCount, lastFailedVersion,
-                lastSuccessVersion);
-    }
-
-    public static ReplicaPersistInfo createForClearRollupInfo(long dbId, long tableId, long partitionId, long indexId) {
-        return new ReplicaPersistInfo(ReplicaOperationType.CLEAR_ROLLUPINFO,
-                dbId, tableId, partitionId, indexId, -1L, -1L, -1L, -1L, -1, -1L, -1L, -1L, -1L, -1L);
-    }
-
-    public static ReplicaPersistInfo createForReport(long dbId, long tblId, long partitionId, long indexId,
-            long tabletId, long backendId, long replicaId) {
-        return new ReplicaPersistInfo(ReplicaOperationType.TABLET_INFO, dbId, tblId, partitionId,
-                indexId, tabletId, backendId, replicaId, -1L, -1, -1L, -1L, -1L, -1L, -1L);
-    }
-
 
     private ReplicaPersistInfo() {
     }
@@ -228,7 +157,7 @@ public class ReplicaPersistInfo implements Writable, GsonPostProcessable {
     private ReplicaPersistInfo(ReplicaOperationType opType, long dbId, long tableId, long partitionId,
             long indexId, long tabletId, long backendId, long replicaId, long version,
             int schemaHash, long dataSize, long remoteDataSize, long rowCount, long lastFailedVersion,
-            long lastSuccessVersion) {
+            long lastSuccessVersion, boolean isBad) {
         this.opType = opType;
         this.dbId = dbId;
         this.tableId = tableId;
@@ -245,6 +174,7 @@ public class ReplicaPersistInfo implements Writable, GsonPostProcessable {
 
         this.lastFailedVersion = lastFailedVersion;
         this.lastSuccessVersion = lastSuccessVersion;
+        this.isBad = isBad;
     }
 
     public ReplicaOperationType getOpType() {
@@ -305,6 +235,10 @@ public class ReplicaPersistInfo implements Writable, GsonPostProcessable {
 
     public long getLastSuccessVersion() {
         return lastSuccessVersion;
+    }
+
+    public boolean isBad() {
+        return isBad;
     }
 
     public static ReplicaPersistInfo read(DataInput in) throws IOException {
