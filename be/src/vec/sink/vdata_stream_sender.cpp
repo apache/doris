@@ -175,21 +175,6 @@ Status PipChannel::send_current_block(bool eos, Status exec_status) {
 }
 
 template <typename Parent>
-Status Channel<Parent>::send_current_block(bool eos, Status exec_status) {
-    // FIXME: Now, local exchange will cause the performance problem is in a multi-threaded scenario
-    // so this feature is turned off here by default. We need to re-examine this logic
-    if (is_local()) {
-        return send_local_block(exec_status, eos);
-    }
-    if (eos) {
-        RETURN_IF_ERROR(_serializer.serialize_block(_ch_cur_pb_block, 1));
-    }
-    RETURN_IF_ERROR(send_remote_block(_ch_cur_pb_block, eos, exec_status));
-    ch_roll_pb_block();
-    return Status::OK();
-}
-
-template <typename Parent>
 Status Channel<Parent>::send_local_block(Status exec_status, bool eos) {
     SCOPED_TIMER(_parent->local_send_timer());
     Block block = _serializer.get_block()->to_block();
@@ -229,71 +214,6 @@ Status Channel<Parent>::send_local_block(Block* block, bool can_be_moved) {
 }
 
 template <typename Parent>
-Status Channel<Parent>::send_remote_block(PBlock* block, bool eos, Status exec_status) {
-    if constexpr (!std::is_same_v<pipeline::ResultFileSinkLocalState, Parent>) {
-        COUNTER_UPDATE(_parent->blocks_sent_counter(), 1);
-    }
-    SCOPED_TIMER(_parent->brpc_send_timer());
-
-    if (_send_remote_block_callback == nullptr) {
-        _send_remote_block_callback = DummyBrpcCallback<PTransmitDataResult>::create_shared();
-    } else {
-        RETURN_IF_ERROR(_wait_last_brpc());
-        _send_remote_block_callback->cntl_->Reset();
-    }
-    VLOG_ROW << "Channel<Parent>::send_batch() instance_id=" << print_id(_fragment_instance_id)
-             << " dest_node=" << _dest_node_id << " to_host=" << _brpc_dest_addr.hostname
-             << " _packet_seq=" << _packet_seq << " row_desc=" << _row_desc.debug_string();
-
-    _brpc_request->set_eos(eos);
-    if (!exec_status.ok()) {
-        exec_status.to_protobuf(_brpc_request->mutable_exec_status());
-    }
-    if (block != nullptr && !block->column_metas().empty()) {
-        _brpc_request->set_allocated_block(block);
-    }
-    _brpc_request->set_packet_seq(_packet_seq++);
-
-    _send_remote_block_callback->cntl_->set_timeout_ms(_brpc_timeout_ms);
-    if (config::exchange_sink_ignore_eovercrowded) {
-        _send_remote_block_callback->cntl_->ignore_eovercrowded();
-    }
-
-    {
-        auto send_remote_block_closure =
-                AutoReleaseClosure<PTransmitDataParams, DummyBrpcCallback<PTransmitDataResult>>::
-                        create_unique(_brpc_request, _send_remote_block_callback);
-        if (enable_http_send_block(*_brpc_request)) {
-            RETURN_IF_ERROR(transmit_block_httpv2(
-                    _state->exec_env(), std::move(send_remote_block_closure), _brpc_dest_addr));
-        } else {
-            transmit_blockv2(*_brpc_stub, std::move(send_remote_block_closure));
-        }
-    }
-
-    if (block != nullptr) {
-        static_cast<void>(_brpc_request->release_block());
-    }
-    return Status::OK();
-}
-
-template <typename Parent>
-Status Channel<Parent>::add_rows(Block* block, const std::vector<uint32_t>& rows, bool eos) {
-    if (_fragment_instance_id.lo == -1) {
-        return Status::OK();
-    }
-
-    bool serialized = false;
-    RETURN_IF_ERROR(
-            _serializer.next_serialized_block(block, _ch_cur_pb_block, 1, &serialized, eos, &rows));
-    if (serialized) {
-        RETURN_IF_ERROR(send_current_block(false, Status::OK()));
-    }
-
-    return Status::OK();
-}
-
-template <typename Parent>
 Status Channel<Parent>::close_wait(RuntimeState* state) {
     if (_need_close) {
         Status st = _wait_last_brpc();
@@ -309,8 +229,7 @@ Status Channel<Parent>::close_wait(RuntimeState* state) {
     return Status::OK();
 }
 
-template <typename Parent>
-Status Channel<Parent>::close_internal(Status exec_status) {
+Status PipChannel::close_internal(Status exec_status) {
     if (!_need_close) {
         return Status::OK();
     }
@@ -343,8 +262,7 @@ Status Channel<Parent>::close_internal(Status exec_status) {
     }
 }
 
-template <typename Parent>
-Status Channel<Parent>::close(RuntimeState* state, Status exec_status) {
+Status PipChannel::close(RuntimeState* state, Status exec_status) {
     if (_closed) {
         return Status::OK();
     }
