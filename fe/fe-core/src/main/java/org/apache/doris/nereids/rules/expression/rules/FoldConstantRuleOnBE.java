@@ -268,7 +268,6 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
 
     private static Map<String, Expression> evalOnBE(Map<String, Map<String, TExpr>> paramMap,
             Map<String, Expression> constMap, ConnectContext context) {
-
         Map<String, Expression> resultMap = new HashMap<>();
         try {
             List<Long> backendIds = Env.getCurrentSystemInfo().getAllBackendIds(true);
@@ -300,7 +299,14 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
 
             Future<PConstantExprResult> future = BackendServiceProxy.getInstance().foldConstantExpr(brpcAddress,
                     tParams);
+            long beFoldStartTime = 0L;
+            if (context.getSessionVariable().enableProfile()) {
+                beFoldStartTime = TimeUtils.getStartTimeMs();
+            }
             PConstantExprResult result = future.get(5, TimeUnit.SECONDS);
+            if (context.getExecutor() != null && context.getSessionVariable().enableProfile()) {
+                context.getExecutor().getSummaryProfile().sumBeFoldTime(TimeUtils.getStartTimeMs() - beFoldStartTime);
+            }
 
             if (result.getStatus().getStatusCode() == 0) {
                 for (Entry<String, InternalService.PExprResultMap> e : result.getExprResultMapMap().entrySet()) {
