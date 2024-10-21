@@ -711,7 +711,8 @@ public class StmtExecutor {
                     if (logicalPlan instanceof InsertIntoTableCommand) {
                         profileType = ProfileType.LOAD;
                     }
-                    if (context.getCommand() == MysqlCommand.COM_STMT_PREPARE) {
+                    if (context.getCommand() == MysqlCommand.COM_STMT_PREPARE
+                            || context.getCommand() == MysqlCommand.COM_STMT_EXECUTE) {
                         throw new UserException("Forward master command is not supported for prepare statement");
                     }
                     if (isProxy) {
@@ -987,7 +988,8 @@ public class StmtExecutor {
                             profileType = ProfileType.LOAD;
                         }
                     }
-                    if (context.getCommand() == MysqlCommand.COM_STMT_PREPARE) {
+                    if (context.getCommand() == MysqlCommand.COM_STMT_PREPARE
+                                || context.getCommand() == MysqlCommand.COM_STMT_EXECUTE) {
                         throw new UserException("Forward master command is not supported for prepare statement");
                     }
                     if (isProxy) {
@@ -1800,6 +1802,14 @@ public class StmtExecutor {
             handleExplainStmt(explainString, false);
             LOG.info("Query {} finished", DebugUtil.printId(context.queryId));
             return;
+        }
+
+        if (parsedStmt instanceof LogicalPlanAdapter) {
+            LogicalPlanAdapter logicalPlanAdapter = (LogicalPlanAdapter) parsedStmt;
+            LogicalPlan logicalPlan = logicalPlanAdapter.getLogicalPlan();
+            if (logicalPlan instanceof org.apache.doris.nereids.trees.plans.algebra.SqlCache) {
+                isCached = true;
+            }
         }
 
         // handle selects that fe can do without be, so we can make sql tools happy, especially the setup step.

@@ -503,12 +503,14 @@ public class TransactionEntry {
         this.transactionId = txnLoadInfo.getTxnId();
         this.timeoutTimestamp = txnLoadInfo.getTimeoutTimestamp();
         this.allSubTxnNum = txnLoadInfo.getAllSubTxnNum();
-        for (TSubTxnInfo subTxnInfo : txnLoadInfo.getSubTxnInfos()) {
-            TableIf table = database.getTableOrDdlException(subTxnInfo.getTableId());
-            subTransactionStates.add(
-                    new SubTransactionState(subTxnInfo.getSubTxnId(), (Table) table,
-                            subTxnInfo.getTabletCommitInfos(),
-                            SubTransactionState.getSubTransactionType(subTxnInfo.getSubTxnType())));
+        if (txnLoadInfo.isSetSubTxnInfos()) {
+            for (TSubTxnInfo subTxnInfo : txnLoadInfo.getSubTxnInfos()) {
+                TableIf table = database.getTableOrDdlException(subTxnInfo.getTableId());
+                subTransactionStates.add(
+                        new SubTransactionState(subTxnInfo.getSubTxnId(), (Table) table,
+                                subTxnInfo.getTabletCommitInfos(),
+                                SubTransactionState.getSubTransactionType(subTxnInfo.getSubTxnType())));
+            }
         }
     }
 

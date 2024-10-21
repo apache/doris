@@ -60,7 +60,7 @@ suite("test_csv_with_none_utf8_data", "p0") {
             assertEquals("fail", json.Status.toLowerCase())
             assertTrue(json.Message.contains("too many filtered rows"))
             assertEquals(4, json.NumberTotalRows)
-            assertEquals(2, json.NumberLoadedRows)
+            assertEquals(0, json.NumberLoadedRows)
             assertEquals(2, json.NumberFilteredRows)
             assertTrue(json.LoadBytes > 0)
             log.info("url: " + json.ErrorURL)

@@ -33,6 +33,7 @@ class Block;
 } // namespace vectorized
 
 namespace pipeline {
+#include "common/compile_check_begin.h"
 class MultiCastDataStreamer;
 class MultiCastDataStreamerSourceOperatorX;
 
@@ -137,3 +138,4 @@ private:
 
 } // namespace pipeline
 } // namespace doris
+#include "common/compile_check_end.h"

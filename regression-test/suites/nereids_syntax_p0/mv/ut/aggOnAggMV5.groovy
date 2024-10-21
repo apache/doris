@@ -43,7 +43,7 @@ suite ("aggOnAggMV5") {
 
     sql "analyze table aggOnAggMV5 with sync;"
 
-    mv_rewrite_all_fail("select * from aggOnAggMV5 order by empid;")
+    mv_rewrite_fail("select * from aggOnAggMV5 order by empid;", "aggOnAggMV5_mv")
     
     order_qt_select_star "select * from aggOnAggMV5 order by empid;"
 

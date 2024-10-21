@@ -46,26 +46,14 @@ suite ("test_base") {
     sql "analyze table dwd with sync;"
     sql """set enable_stats=false;"""
 
-    explain {
-        sql("SELECT created_at, id  FROM dwd where created_at = '2020-09-09 00:00:00' order by 1, 2;")
-        contains "(dwd_mv)"
-    }
+    mv_rewrite_success("SELECT created_at, id  FROM dwd where created_at = '2020-09-09 00:00:00' order by 1, 2;", "dwd_mv")
     qt_select_mv "SELECT created_at, id FROM dwd order by 1, 2;"
 
-    explain {
-        sql("SELECT id,created_at  FROM dwd where id is not null order by 1, 2;")
-        contains "(dwd)"
-    }
+    mv_rewrite_success("SELECT id,created_at  FROM dwd where id is not null order by 1, 2;", "dwd_mv")
     qt_select_mv "SELECT id,created_at FROM dwd order by 1, 2;"
 
     sql """set enable_stats=true;"""
-    explain {
-        sql("SELECT created_at, id  FROM dwd where created_at = '2020-09-09 00:00:00' order by 1, 2;")
-        contains "(dwd_mv)"
-    }
+    mv_rewrite_success("SELECT created_at, id  FROM dwd where created_at = '2020-09-09 00:00:00' order by 1, 2;", "dwd_mv")
 
-    explain {
-        sql("SELECT id,created_at  FROM dwd where id is not null order by 1, 2;")
-        contains "(dwd)"
-    }
+    mv_rewrite_success("SELECT id,created_at  FROM dwd where id is not null order by 1, 2;", "dwd_mv")
 }

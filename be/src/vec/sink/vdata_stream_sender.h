@@ -98,13 +98,6 @@ private:
     const int _batch_size;
 };
 
-struct ShuffleChannelIds {
-    template <typename HashValueType>
-    HashValueType operator()(HashValueType l, size_t r) {
-        return l % r;
-    }
-};
-
 template <typename Parent>
 class Channel {
 public:
@@ -138,30 +131,9 @@ public:
     Status init(RuntimeState* state);
     Status open(RuntimeState* state);
 
-    // Asynchronously sends a row batch.
-    // Returns the status of the most recently finished transmit_data
-    // rpc (or OK if there wasn't one that hasn't been reported yet).
-    // if batch is nullptr, send the eof packet
-    virtual Status send_remote_block(PBlock* block, bool eos = false,
-                                     Status exec_status = Status::OK());
-
-    virtual Status send_broadcast_block(std::shared_ptr<BroadcastPBlockHolder>& block,
-                                        bool eos = false) {
-        return Status::InternalError("Send BroadcastPBlockHolder is not allowed!");
-    }
-
-    virtual Status add_rows(Block* block, const std::vector<uint32_t>& row, bool eos);
-
-    virtual Status send_current_block(bool eos, Status exec_status);
-
     Status send_local_block(Status exec_status, bool eos = false);
 
     Status send_local_block(Block* block, bool can_be_moved);
-    // Flush buffered rows and close channel. This function don't wait the response
-    // of close operation, client should call close_wait() to finish channel's close.
-    // We split one close operation into two phases in order to make multiple channels
-    // can run parallel.
-    Status close(RuntimeState* state, Status exec_status);
 
     // Get close wait's response, to finish channel close operation.
     Status close_wait(RuntimeState* state);
@@ -213,8 +185,6 @@ protected:
         _receiver_status = Status::create(_send_remote_block_callback->response_->status());
         return _receiver_status;
     }
-
-    Status close_internal(Status exec_status);
 
     Parent* _parent = nullptr;
 
@@ -288,17 +258,23 @@ public:
         Channel<pipeline::ExchangeSinkLocalState>::_ch_cur_pb_block = new PBlock();
     }
 
+    // Flush buffered rows and close channel. This function don't wait the response
+    // of close operation, client should call close_wait() to finish channel's close.
+    // We split one close operation into two phases in order to make multiple channels
+    // can run parallel.
+    Status close(RuntimeState* state, Status exec_status);
+
+    Status close_internal(Status exec_status);
+
     // Asynchronously sends a block
     // Returns the status of the most recently finished transmit_data
     // rpc (or OK if there wasn't one that hasn't been reported yet).
     // if batch is nullptr, send the eof packet
-    Status send_remote_block(PBlock* block, bool eos = false,
-                             Status exec_status = Status::OK()) override;
+    Status send_remote_block(PBlock* block, bool eos = false, Status exec_status = Status::OK());
 
-    Status send_broadcast_block(std::shared_ptr<BroadcastPBlockHolder>& block,
-                                bool eos = false) override;
+    Status send_broadcast_block(std::shared_ptr<BroadcastPBlockHolder>& block, bool eos = false);
 
-    Status add_rows(Block* block, const std::vector<uint32_t>& rows, bool eos) override {
+    Status add_rows(Block* block, const std::vector<uint32_t>& rows, bool eos) {
         if (Channel<pipeline::ExchangeSinkLocalState>::_fragment_instance_id.lo == -1) {
             return Status::OK();
         }
@@ -317,7 +293,7 @@ public:
     }
 
     // send _mutable_block
-    Status send_current_block(bool eos, Status exec_status) override;
+    Status send_current_block(bool eos, Status exec_status);
 
     void register_exchange_buffer(pipeline::ExchangeSinkBuffer* buffer) {
         _buffer = buffer;

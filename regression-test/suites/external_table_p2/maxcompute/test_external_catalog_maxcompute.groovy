@@ -320,8 +320,8 @@
 suite("test_external_catalog_maxcompute", "p2,external,maxcompute,external_remote,external_remote_maxcompute") {
     String enabled = context.config.otherConfigs.get("enableMaxComputeTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
-        String ak = context.config.otherConfigs.get("aliYunAk")
-        String sk = context.config.otherConfigs.get("aliYunSk");
+        String ak = context.config.otherConfigs.get("ak")
+        String sk = context.config.otherConfigs.get("sk");
         String mc_db = "mc_datalake"
         String mc_catalog_name = "test_external_mc_catalog"
 

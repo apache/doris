@@ -25,7 +25,7 @@ suite("test_hive_parquet_alter_column", "p0,external,hive,external_docker,extern
     for (String hivePrefix : ["hive2", "hive3"]) {
         String extHiveHmsHost = context.config.otherConfigs.get("externalEnvIp")
         String extHiveHmsPort = context.config.otherConfigs.get(hivePrefix + "HmsPort")
-        String catalog_name = "${hivePrefix}_test_hive_partition_column_analyze"
+        String catalog_name = "${hivePrefix}_test_hive_parquet_alter_column"
         sql """drop catalog if exists ${catalog_name};"""
         sql """
             create catalog if not exists ${catalog_name} properties (
