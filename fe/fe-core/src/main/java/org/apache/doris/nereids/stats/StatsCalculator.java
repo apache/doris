@@ -774,7 +774,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                         .getStatistics(olap.getRelationId());
                 if (optStats.isPresent()) {
                     double actualRowCount = catalogRelation
-                        .getTable().getRowCountForNereids();
+                            .getTable().getRowCountForNereids();
                     if (actualRowCount > optStats.get().getRowCount()) {
                         return optStats.get();
                     }
