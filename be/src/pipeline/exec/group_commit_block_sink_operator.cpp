@@ -46,8 +46,6 @@ Status GroupCommitBlockSinkLocalState::open(RuntimeState* state) {
     _vpartition = std::make_unique<doris::VOlapTablePartitionParam>(p._schema, p._partition);
     RETURN_IF_ERROR(_vpartition->init());
     _state = state;
-    // profile must add to state's object pool
-    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
 
     _block_convertor = std::make_unique<vectorized::OlapTableBlockConvertor>(p._output_tuple_desc);
     _block_convertor->init_autoinc_info(p._schema->db_id(), p._schema->table_id(),
@@ -276,7 +274,6 @@ Status GroupCommitBlockSinkOperatorX::sink(RuntimeState* state, vectorized::Bloc
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)input_block->rows());
-    SCOPED_CONSUME_MEM_TRACKER(local_state._mem_tracker.get());
     if (!local_state._load_block_queue) {
         RETURN_IF_ERROR(local_state._initialize_load_queue());
     }
