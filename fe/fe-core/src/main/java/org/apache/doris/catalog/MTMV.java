@@ -28,6 +28,7 @@ import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.job.common.TaskStatus;
 import org.apache.doris.job.extensions.mtmv.MTMVTask;
+import org.apache.doris.mtmv.EnvInfo;
 import org.apache.doris.mtmv.MTMVCache;
 import org.apache.doris.mtmv.MTMVJobInfo;
 import org.apache.doris.mtmv.MTMVJobManager;
@@ -73,6 +74,9 @@ public class MTMV extends OlapTable {
     private String querySql;
     @SerializedName("s")
     private MTMVStatus status;
+    @Deprecated
+    @SerializedName("ei")
+    private EnvInfo envInfo;
     @SerializedName("ji")
     private MTMVJobInfo jobInfo;
     @SerializedName("mp")
@@ -138,6 +142,10 @@ public class MTMV extends OlapTable {
         } finally {
             readMvUnlock();
         }
+    }
+
+    public EnvInfo getEnvInfo() {
+        return envInfo;
     }
 
     public MTMVJobInfo getJobInfo() {
@@ -498,6 +506,7 @@ public class MTMV extends OlapTable {
         refreshInfo = materializedView.refreshInfo;
         querySql = materializedView.querySql;
         status = materializedView.status;
+        envInfo = materializedView.envInfo;
         jobInfo = materializedView.jobInfo;
         mvProperties = materializedView.mvProperties;
         relation = materializedView.relation;

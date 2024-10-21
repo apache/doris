@@ -19,10 +19,12 @@ package org.apache.doris.mtmv;
 
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
+import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
@@ -65,7 +67,32 @@ public class MTMVPlanUtil {
             ctx.getSessionVariable().setWorkloadGroup(workloadGroup.get());
         }
         ctx.setStartTime();
+        // Set db&catalog to be used when creating materialized views to avoid SQL statements not writing the full path
+        // After https://github.com/apache/doris/pull/36543,
+        // After 1, this logic is no longer needed. This is to be compatible with older versions
+        setCatalogAndDb(ctx, mtmv);
         return ctx;
+    }
+
+    private static void setCatalogAndDb(ConnectContext ctx, MTMV mtmv) {
+        EnvInfo envInfo = mtmv.getEnvInfo();
+        if (envInfo == null) {
+            return;
+        }
+        // switch catalog;
+        CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(envInfo.getCtlId());
+        // if catalog not exist, it may not have any impact, so there is no error and it will be returned directly
+        if (catalog == null) {
+            return;
+        }
+        ctx.changeDefaultCatalog(catalog.getName());
+        // use db
+        Optional<? extends DatabaseIf<? extends TableIf>> databaseIf = catalog.getDb(envInfo.getDbId());
+        // if db not exist, it may not have any impact, so there is no error and it will be returned directly
+        if (!databaseIf.isPresent()) {
+            return;
+        }
+        ctx.setDatabase(databaseIf.get().getFullName());
     }
 
     public static MTMVRelation generateMTMVRelation(MTMV mtmv, ConnectContext ctx) {
