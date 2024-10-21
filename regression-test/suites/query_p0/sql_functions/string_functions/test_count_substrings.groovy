@@ -21,15 +21,16 @@ suite("test_count_substrings") {
     qt_select2 "select count_substrings('a12bc23de345f',NULL);"
     qt_select3 "select count_substrings(NULL, 'a12bc23de345f');"
     qt_select4 "select count_substrings('a12bc23de345f','2');"
+    qt_select5 "select count_substrings('a1你你c我你3我d你3你5你','你');"
 
     sql """DROP TABLE IF EXISTS test_count_substrings"""
     sql """ 
             CREATE TABLE IF NOT EXISTS test_count_substrings (
               `k1` int(11) NULL COMMENT "",
-              `s1` varchar(20) NULL COMMENT "",
-              `s2` varchar(20) NOT NULL COMMENT "",
-              `p1` varchar(20) NULL COMMENT "",
-              `p2` varchar(20) NOT NULL COMMENT ""
+              `s1` varchar(30) NULL COMMENT "",
+              `s2` varchar(30) NOT NULL COMMENT "",
+              `p1` varchar(30) NULL COMMENT "",
+              `p2` varchar(30) NOT NULL COMMENT ""
             ) ENGINE=OLAP
             DUPLICATE KEY(`k1`)
             DISTRIBUTED BY HASH(`k1`) BUCKETS 1
@@ -57,6 +58,7 @@ suite("test_count_substrings") {
     sql """ INSERT INTO test_count_substrings VALUES(10, NULL, '','asd','asd') """
     sql """ INSERT INTO test_count_substrings VALUES(11, 'a,b,c,12345', 'a,b,c,12345','5','5') """
     sql """ INSERT INTO test_count_substrings VALUES(12, 'a,b,c,12345', 'a,b,c,12345','a','a') """
+    sql """ INSERT INTO test_count_substrings VALUES(13, 'a,你,你,1我2你4我5', 'a你,你,1我2你4我5','你','我') """
 
     // null and not_null combine
     qt_select5_null_null "select s1,p1,count_substrings(s1, p1) from test_count_substrings order by k1;"

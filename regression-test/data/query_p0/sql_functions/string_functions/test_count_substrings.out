@@ -11,6 +11,9 @@
 -- !select4 --
 2
 
+-- !select5 --
+6
+
 -- !select4_empty --
 
 -- !select5_empty --
@@ -32,6 +35,7 @@ a,b,c,	\N	\N
 \N	asd	\N
 a,b,c,12345	5	1
 a,b,c,12345	a	1
+a,你,你,1我2你4我5	你	3
 
 -- !select6_null_not --
 abcde		0
@@ -46,6 +50,7 @@ a,b,c,		0
 \N	asd	\N
 a,b,c,12345	5	1
 a,b,c,12345	a	1
+a,你,你,1我2你4我5	我	2
 
 -- !select7_not_null --
 abcde		0
@@ -60,6 +65,7 @@ a,b,c	\N	\N
 	asd	0
 a,b,c,12345	5	1
 a,b,c,12345	a	1
+a你,你,1我2你4我5	你	3
 
 -- !select8_not_not --
 abcde		0
@@ -74,6 +80,7 @@ a,b,c		0
 	asd	0
 a,b,c,12345	5	1
 a,b,c,12345	a	1
+a你,你,1我2你4我5	我	2
 
 -- !select9_null_const --
 abcde	a	1
@@ -88,6 +95,7 @@ a,b,c,	a	1
 \N	a	\N
 a,b,c,12345	a	1
 a,b,c,12345	a	1
+a,你,你,1我2你4我5	a	1
 
 -- !select10_not_null_const --
 abcde	a	1
@@ -102,6 +110,7 @@ a,b,c	a	1
 	a	0
 a,b,c,12345	a	1
 a,b,c,12345	a	1
+a你,你,1我2你4我5	a	1
 
 -- !select11_const_null --
 a		0
@@ -116,6 +125,7 @@ a	\N	\N
 a	asd	0
 a	5	0
 a	a	1
+a	你	0
 
 -- !select12_const_not_null --
 a		0
@@ -130,4 +140,5 @@ a		0
 a	asd	0
 a	5	0
 a	a	1
+a	我	0
 
