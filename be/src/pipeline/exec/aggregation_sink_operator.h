@@ -23,7 +23,7 @@
 #include "runtime/exec_env.h"
 
 namespace doris::pipeline {
-
+#include "common/compile_check_begin.h"
 class AggSinkOperatorX;
 
 class AggSinkLocalState : public PipelineXSinkLocalState<AggSharedState> {
@@ -209,3 +209,4 @@ protected:
 };
 
 } // namespace doris::pipeline
+#include "common/compile_check_end.h"

@@ -19,6 +19,7 @@
 
 #include <memory>
 
+#include "common/cast_set.h"
 #include "common/exception.h"
 #include "pipeline/exec/operator.h"
 #include "vec/columns/column_filter_helper.h"
@@ -29,7 +30,7 @@ class RuntimeState;
 } // namespace doris
 
 namespace doris::pipeline {
-
+#include "common/compile_check_begin.h"
 NestedLoopJoinProbeLocalState::NestedLoopJoinProbeLocalState(RuntimeState* state,
                                                              OperatorXBase* parent)
         : JoinProbeLocalState<NestedLoopJoinSharedState, NestedLoopJoinProbeLocalState>(state,
@@ -129,6 +130,8 @@ Status NestedLoopJoinProbeLocalState::generate_join_block_data(RuntimeState* sta
 
     if (!_matched_rows_done && !_need_more_input_data) {
         // We should try to join rows if there still are some rows from probe side.
+        // _probe_offset_stack and _build_offset_stack use u16 for storage
+        // because on the FE side, it is guaranteed that the batch size will not exceed 65535 (the maximum value for u16).s
         while (_join_block.rows() < state->batch_size()) {
             while (_current_build_pos == _shared_state->build_blocks.size() ||
                    _left_block_pos == _child_block->rows()) {
@@ -140,7 +143,8 @@ Status NestedLoopJoinProbeLocalState::generate_join_block_data(RuntimeState* sta
                 _reset_with_next_probe_row();
                 if (_left_block_pos < _child_block->rows()) {
                     if constexpr (set_probe_side_flag) {
-                        _probe_offset_stack.push(_join_block.rows());
+                        _probe_offset_stack.push(
+                                cast_set<uint16_t, size_t, false>(_join_block.rows()));
                     }
                 } else {
                     if (_shared_state->left_side_eos) {
@@ -159,7 +163,7 @@ Status NestedLoopJoinProbeLocalState::generate_join_block_data(RuntimeState* sta
 
             const auto& now_process_build_block = _shared_state->build_blocks[_current_build_pos++];
             if constexpr (set_build_side_flag) {
-                _build_offset_stack.push(_join_block.rows());
+                _build_offset_stack.push(cast_set<uint16_t, size_t, false>(_join_block.rows()));
             }
             _process_left_child_block(_join_block, now_process_build_block);
         }
@@ -202,8 +206,8 @@ Status NestedLoopJoinProbeLocalState::generate_join_block_data(RuntimeState* sta
 }
 
 void NestedLoopJoinProbeLocalState::_resize_fill_tuple_is_null_column(size_t new_size,
-                                                                      int left_flag,
-                                                                      int right_flag) {
+                                                                      uint8_t left_flag,
+                                                                      uint8_t right_flag) {
     auto& p = _parent->cast<NestedLoopJoinProbeOperatorX>();
     if (p._is_outer_join) {
         reinterpret_cast<vectorized::ColumnUInt8*>(_tuple_is_null_left_flag_column.get())
@@ -237,7 +241,7 @@ void NestedLoopJoinProbeLocalState::_finalize_current_phase(vectorized::Block& b
 
             std::vector<uint32_t> selector(num_rows);
             size_t selector_idx = 0;
-            for (size_t j = 0; j < num_rows; j++) {
+            for (uint32_t j = 0; j < num_rows; j++) {
                 if constexpr (IsSemi) {
                     if (cur_visited_flags[j]) {
                         selector[selector_idx++] = j;
@@ -375,7 +379,7 @@ void NestedLoopJoinProbeLocalState::_process_left_child_block(
         vectorized::Block& block, const vectorized::Block& now_process_build_block) const {
     auto& p = _parent->cast<NestedLoopJoinProbeOperatorX>();
     auto dst_columns = block.mutate_columns();
-    const int max_added_rows = now_process_build_block.rows();
+    const size_t max_added_rows = now_process_build_block.rows();
     for (size_t i = 0; i < p._num_probe_side_columns; ++i) {
         const vectorized::ColumnWithTypeAndName& src_column = _child_block->get_by_position(i);
         if (!src_column.column->is_nullable() && dst_columns[i]->is_nullable()) {

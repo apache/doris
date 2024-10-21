@@ -26,7 +26,7 @@ namespace doris {
 class RuntimeState;
 
 namespace pipeline {
-
+#include "common/compile_check_begin.h"
 class HashJoinProbeLocalState;
 
 using HashTableCtxVariants =
@@ -194,3 +194,4 @@ private:
 
 } // namespace pipeline
 } // namespace doris
+#include "common/compile_check_end.h"

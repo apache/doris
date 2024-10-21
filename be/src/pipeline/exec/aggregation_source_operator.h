@@ -25,7 +25,7 @@ namespace doris {
 class RuntimeState;
 
 namespace pipeline {
-
+#include "common/compile_check_begin.h"
 class AggSourceOperatorX;
 
 class AggLocalState final : public PipelineXLocalState<AggSharedState> {
@@ -122,3 +122,4 @@ private:
 
 } // namespace pipeline
 } // namespace doris
+#include "common/compile_check_end.h"

@@ -24,7 +24,7 @@
 #include "vec/core/materialize_block.h"
 
 namespace doris::pipeline {
-
+#include "common/compile_check_begin.h"
 MultiCastDataStreamSourceLocalState::MultiCastDataStreamSourceLocalState(RuntimeState* state,
                                                                          OperatorXBase* parent)
         : Base(state, parent),

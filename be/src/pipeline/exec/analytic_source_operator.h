@@ -26,7 +26,7 @@ namespace doris {
 class RuntimeState;
 
 namespace pipeline {
-
+#include "common/compile_check_begin.h"
 enum AnalyticFnScope { PARTITION, RANGE, ROWS };
 
 class AnalyticSourceOperatorX;
@@ -156,3 +156,4 @@ private:
 
 } // namespace pipeline
 } // namespace doris
+#include "common/compile_check_end.h"

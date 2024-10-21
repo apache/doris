@@ -247,7 +247,7 @@ public:
 
     // Default column size = -1 means clear all column in block
     // Else clear column [0, column_size) delete column [column_size, data.size)
-    void clear_column_data(int column_size = -1) noexcept;
+    void clear_column_data(int64_t column_size = -1) noexcept;
 
     bool mem_reuse() { return !data.empty(); }
 
