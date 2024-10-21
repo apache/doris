@@ -244,7 +244,7 @@ class SuiteContext implements Closeable {
     public <T> T connect(String user, String password, String url, Closure<T> actionSupplier) {
         def originConnection = threadLocalConn.get()
         try {
-            log.info("Create new connection for user '${user}'")
+            log.info("Create new connection for user '${user}' url: ${url}")
             return DriverManager.getConnection(url, user, password).withCloseable { newConn ->
                 def newConnInfo = new ConnectionInfo()
                 newConnInfo.conn = newConn
