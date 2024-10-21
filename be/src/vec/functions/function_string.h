@@ -22,9 +22,9 @@
 #include <algorithm>
 #include <array>
 #include <boost/iterator/iterator_facade.hpp>
+#include <boost/locale.hpp>
 #include <climits>
 #include <cmath>
-#include <codecvt>
 #include <cstddef>
 #include <cstdlib>
 #include <cstring>
@@ -389,7 +389,7 @@ public:
     String get_name() const override { return name; }
     size_t get_number_of_arguments() const override { return 0; }
     bool is_variadic() const override { return true; }
-
+    bool use_default_implementation_for_nulls() const override { return false; }
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         return std::make_shared<DataTypeString>();
     }
@@ -397,23 +397,36 @@ public:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
         size_t argument_size = arguments.size();
-        if (argument_size < 2) {
-            return Status::InvalidArgument(
-                    "auto_partition_name must contains at least two arguments");
-        }
+        auto const_null_map = ColumnUInt8::create(input_rows_count, 0);
+        auto null_map = ColumnUInt8::create(input_rows_count, 0);
         std::vector<const ColumnString::Chars*> chars_list(argument_size);
         std::vector<const ColumnString::Offsets*> offsets_list(argument_size);
         std::vector<bool> is_const_args(argument_size);
+        std::vector<const ColumnUInt8::Container*> null_list(argument_size);
+        std::vector<ColumnPtr> argument_null_columns(argument_size);
 
+        std::vector<ColumnPtr> argument_columns(argument_size);
         for (int i = 0; i < argument_size; ++i) {
+            argument_columns[i] =
+                    block.get_by_position(arguments[i]).column->convert_to_full_column_if_const();
+            if (const auto* nullable =
+                        check_and_get_column<const ColumnNullable>(*argument_columns[i])) {
+                null_list[i] = &nullable->get_null_map_data();
+                argument_null_columns[i] = nullable->get_null_map_column_ptr();
+                argument_columns[i] = nullable->get_nested_column_ptr();
+            } else {
+                null_list[i] = &const_null_map->get_data();
+            }
+
             const auto& [col, is_const] =
                     unpack_if_const(block.get_by_position(arguments[i]).column);
 
-            const auto* col_str = assert_cast<const ColumnString*>(col.get());
+            const auto* col_str = assert_cast<const ColumnString*>(argument_columns[i].get());
             chars_list[i] = &col_str->get_chars();
             offsets_list[i] = &col_str->get_offsets();
             is_const_args[i] = is_const;
         }
+
         auto res = ColumnString::create();
         auto& res_data = res->get_chars();
         auto& res_offset = res->get_offsets();
@@ -422,9 +435,9 @@ public:
         const char* partition_type = chars_list[0]->raw_data();
         // partition type is list|range
         if (std::strncmp(partition_type, "list", 4) == 0) {
-            return _auto_partition_type_of_list(chars_list, offsets_list, is_const_args, res_data,
-                                                res_offset, input_rows_count, argument_size, block,
-                                                result, res);
+            return _auto_partition_type_of_list(chars_list, offsets_list, is_const_args, null_list,
+                                                res_data, res_offset, input_rows_count,
+                                                argument_size, block, result, res);
         } else {
             return _auto_partition_type_of_range(chars_list, offsets_list, is_const_args, res_data,
                                                  res_offset, input_rows_count, argument_size, block,
@@ -435,8 +448,7 @@ public:
 
 private:
     std::u16string _string_to_u16string(const std::string& str) const {
-        std::wstring_convert<std::codecvt_utf8_utf16<char16_t>, char16_t> convert;
-        return convert.from_bytes(str);
+        return boost::locale::conv::utf_to_utf<char16_t>(str);
     }
 
     std::string _string_to_unicode(const std::u16string& s) const {
@@ -472,8 +484,9 @@ private:
     }
     Status _auto_partition_type_of_list(std::vector<const ColumnString::Chars*>& chars_list,
                                         std::vector<const ColumnString::Offsets*>& offsets_list,
-                                        std::vector<bool>& is_const_args, auto& res_data,
-                                        auto& res_offset, size_t input_rows_count,
+                                        std::vector<bool>& is_const_args,
+                                        const std::vector<const ColumnUInt8::Container*>& null_list,
+                                        auto& res_data, auto& res_offset, size_t input_rows_count,
                                         size_t argument_size, Block& block, size_t result,
                                         auto& res) const {
         int curr_len = 0;
@@ -484,16 +497,21 @@ private:
             for (int col = 1; col < argument_size; col++) {
                 const auto& current_offsets = *offsets_list[col];
                 const auto& current_chars = *chars_list[col];
+                const auto& current_nullmap = *null_list[col];
 
-                auto idx = index_check_const(row, is_const_args[col]);
-                int size = current_offsets[idx] - current_offsets[idx - 1];
-                const char* raw_chars =
-                        reinterpret_cast<const char*>(&current_chars[current_offsets[idx - 1]]);
+                if (current_nullmap[row]) {
+                    res_p += 'X';
+                } else {
+                    auto idx = index_check_const(row, is_const_args[col]);
 
-                // convert string to u16string in order to convert to unicode strings
-                const std::string raw_str(raw_chars, size);
-                auto u16string = _string_to_u16string(raw_str);
-                res_p += _string_to_unicode(u16string) + std::to_string(u16string.size());
+                    int size = current_offsets[idx] - current_offsets[idx - 1];
+                    const char* raw_chars =
+                            reinterpret_cast<const char*>(&current_chars[current_offsets[idx - 1]]);
+                    // convert string to u16string in order to convert to unicode strings
+                    const std::string raw_str(raw_chars, size);
+                    auto u16string = _string_to_u16string(raw_str);
+                    res_p += _string_to_unicode(u16string) + std::to_string(u16string.size());
+                }
             }
 
             // check the name of length
@@ -1677,14 +1695,13 @@ public:
         }
 
         fmt::memory_buffer buffer;
-        buffer.reserve(strcol_chars.size());
+        buffer.resize(strcol_chars.size());
         size_t buffer_len = 0;
 
         for (size_t i = 0; i < input_rows_count; ++i) {
             if constexpr (!pad_const) {
                 pad_index.clear();
             }
-            buffer.clear();
             const auto len = col_len_data[index_check_const<len_const>(i)];
             if (len < 0) {
                 // return NULL when input length is invalid number
@@ -1703,7 +1720,7 @@ public:
                                 (const char*)str_data, (const char*)str_data + str_len, len);
                 // If iterate_char_len equals len, it indicates that the str length is greater than or equal to len
                 if (iterate_char_len == len) {
-                    buffer.reserve(buffer_len + iterate_byte_len);
+                    buffer.resize(buffer_len + iterate_byte_len);
                     memcpy(buffer.data() + buffer_len, str_data, iterate_byte_len);
                     buffer_len += iterate_byte_len;
                     res_offsets[i] = buffer_len;
@@ -1727,7 +1744,7 @@ public:
                 const size_t pad_remainder_len = pad_index[(len - str_char_size) % pad_char_size];
                 const size_t new_capacity = str_len + size_t(pad_times + 1) * pad_len;
                 ColumnString::check_chars_length(buffer_len + new_capacity, i);
-                buffer.reserve(buffer_len + new_capacity);
+                buffer.resize(buffer_len + new_capacity);
                 if constexpr (!Impl::is_lpad) {
                     memcpy(buffer.data() + buffer_len, str_data, str_len);
                     buffer_len += str_len;

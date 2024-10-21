@@ -19,11 +19,15 @@ package org.apache.doris.statistics;
 
 import org.apache.doris.catalog.OlapTable;
 
+import com.google.common.collect.Lists;
+import mockit.Mock;
+import mockit.MockUp;
 import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.HashSet;
+import java.util.List;
 
 class TableStatsMetaTest {
 
@@ -34,5 +38,34 @@ class TableStatsMetaTest {
                 .setJobColumns(new HashSet<>()).setColName("col1").build();
         tableStatsMeta.update(jobInfo, table);
         Assertions.assertEquals(4, tableStatsMeta.rowCount);
+    }
+
+    @Test
+    void testClearStaleIndexRowCount() {
+        TableStatsMeta meta = new TableStatsMeta();
+        meta.addIndexRowForTest(1, 1);
+        meta.addIndexRowForTest(2, 2);
+        meta.addIndexRowForTest(3, 3);
+        Assertions.assertEquals(1, meta.getRowCount(1));
+        Assertions.assertEquals(2, meta.getRowCount(2));
+        Assertions.assertEquals(3, meta.getRowCount(3));
+        Assertions.assertEquals(-1, meta.getRowCount(4));
+
+        new MockUp<OlapTable>() {
+            @Mock
+            public List<Long> getIndexIdList() {
+                List<Long> result = Lists.newArrayList();
+                result.add(1L);
+                return result;
+            }
+        };
+
+        OlapTable table = new OlapTable();
+
+        meta.clearStaleIndexRowCount(table);
+        Assertions.assertEquals(1, meta.getRowCount(1));
+        Assertions.assertEquals(-1, meta.getRowCount(2));
+        Assertions.assertEquals(-1, meta.getRowCount(3));
+        Assertions.assertEquals(-1, meta.getRowCount(4));
     }
 }

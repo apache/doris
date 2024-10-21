@@ -23,7 +23,7 @@
 #include "pipeline/exec/partitioned_hash_join_probe_operator.h"
 
 namespace doris::pipeline {
-
+#include "common/compile_check_begin.h"
 template <typename SharedStateArg, typename Derived>
 Status JoinProbeLocalState<SharedStateArg, Derived>::init(RuntimeState* state,
                                                           LocalStateInfo& info) {

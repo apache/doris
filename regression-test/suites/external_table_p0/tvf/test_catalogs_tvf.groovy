@@ -18,12 +18,12 @@
 suite("test_catalogs_tvf","p0,external,tvf,external_docker") {
     List<List<Object>> table =  sql """ select * from catalogs(); """
     assertTrue(table.size() > 0)
-    assertEquals(5, table[0].size)
+    assertEquals(5, table[0].size())
 
     
     table = sql """ select CatalogId,CatalogName from catalogs();"""
     assertTrue(table.size() > 0)
-    assertTrue(table[0].size == 2)
+    assertTrue(table[0].size() == 2)
 
 
     table = sql """ select * from catalogs() where CatalogId=0;"""
@@ -76,4 +76,68 @@ suite("test_catalogs_tvf","p0,external,tvf,external_docker") {
         // check exception
         exception "catalogs table-valued-function does not support any params"
     }
+
+    sql """ drop catalog if exists catalog_tvf_test_dlf """ 
+
+    sql """ 
+        CREATE CATALOG catalog_tvf_test_dlf PROPERTIES (
+        "type"="hms",
+        "hive.metastore.type" = "dlf",
+        "dlf.proxy.mode" = "DLF_ONLY",
+        "dlf.endpoint" = "dlf-vpc.cn-beijing.aliyuncs.com",
+        "dlf.region" = "cn-beijing",
+        "dlf.uid" = "123456789",
+        "dlf.catalog.id" = "987654321",
+        "dlf.access_key" = "AAAAAAAAAAAAAAAAAAAAAA",
+        "dlf.secret_key" = "BBBBBBBBBBBBBBBBBBBBBB"
+        );"""
+    
+    order_qt_test_10 """ select  CatalogName,CatalogType,Property,Value from catalogs() where CatalogName = "catalog_tvf_test_dlf" and   Property= "dlf.catalog.id" """ 
+    order_qt_test_11 """ select  CatalogName,CatalogType,Property,Value from catalogs() where CatalogName = "catalog_tvf_test_dlf" and   Property= "dlf.secret_key" """ 
+    order_qt_test_12 """ select  CatalogName,CatalogType,Property,Value from catalogs() where CatalogName = "catalog_tvf_test_dlf" and   Property= "dlf.access_key" """ 
+    order_qt_test_13 """ select  CatalogName,CatalogType,Property,Value from catalogs() where CatalogName = "catalog_tvf_test_dlf" and   Property= "dlf.uid" """ 
+    order_qt_test_14 """ select  CatalogName,CatalogType,Property,Value from catalogs() where CatalogName = "catalog_tvf_test_dlf" and   Property= "type" """ 
+
+
+    def user = 'catalog_user_test'
+    def pwd = 'C123_567p'
+    try_sql("DROP USER ${user}")
+
+    sql """CREATE USER '${user}' IDENTIFIED BY '${pwd}'"""
+    sql """GRANT SELECT_PRIV on `internal`.``.`` to '${user}'"""
+
+
+
+    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+        sql """ switch internal """
+        order_qt_test_15 """ select  CatalogName,CatalogType,Property,Value from catalogs() where CatalogName = "catalog_tvf_test_dlf" and   Property= "type" """ 
+        order_qt_test_16 """ select  CatalogName,CatalogType,Property,Value from catalogs()  """ 
+    }
+
+    sql """GRANT SELECT_PRIV on `catalog_tvf_test_dlf`.``.`` to '${user}'"""
+
+
+    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+        sql """ switch internal """
+
+        order_qt_test_17 """ select  CatalogName,CatalogType,Property,Value from catalogs() where CatalogName = "catalog_tvf_test_dlf" and   Property= "dlf.secret_key" """ 
+        order_qt_test_18 """ select  CatalogName,CatalogType,Property,Value from catalogs() where CatalogName = "catalog_tvf_test_dlf" and   Property= "dlf.access_key" """ 
+        order_qt_test_19 """ select  CatalogName,CatalogType,Property,Value from catalogs() where CatalogName = "catalog_tvf_test_dlf" and   Property= "dlf.uid" """ 
+        order_qt_test_20 """ select  CatalogName,CatalogType,Property,Value from catalogs() where CatalogName = "catalog_tvf_test_dlf" and   Property= "type" """ 
+    }
+
+    sql """REVOKE SELECT_PRIV on `catalog_tvf_test_dlf`.``.`` FROM '${user}'"""
+
+
+    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+        sql """ switch internal """
+
+        order_qt_test_21 """ select  CatalogName,CatalogType,Property,Value from catalogs() where CatalogName = "catalog_tvf_test_dlf" and   Property= "dlf.secret_key" """ 
+        order_qt_test_22 """ select  CatalogName,CatalogType,Property,Value from catalogs() where CatalogName = "catalog_tvf_test_dlf" and   Property= "dlf.access_key" """ 
+        order_qt_test_23 """ select  CatalogName,CatalogType,Property,Value from catalogs() where CatalogName = "catalog_tvf_test_dlf" and   Property= "dlf.uid" """ 
+        order_qt_test_24 """ select  CatalogName,CatalogType,Property,Value from catalogs() where CatalogName = "catalog_tvf_test_dlf" and   Property= "type" """ 
+    }
+    
+
+    
 }

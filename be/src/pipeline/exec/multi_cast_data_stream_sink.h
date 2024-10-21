@@ -42,15 +42,15 @@ class MultiCastDataStreamSinkOperatorX final
     using Base = DataSinkOperatorX<MultiCastDataStreamSinkLocalState>;
 
 public:
-    MultiCastDataStreamSinkOperatorX(int sink_id, std::vector<int>& sources,
-                                     const int cast_sender_count, ObjectPool* pool,
+    MultiCastDataStreamSinkOperatorX(int sink_id, std::vector<int>& sources, ObjectPool* pool,
                                      const TMultiCastDataStreamSink& sink,
                                      const RowDescriptor& row_desc)
             : Base(sink_id, -1, sources),
               _pool(pool),
               _row_desc(row_desc),
-              _cast_sender_count(cast_sender_count),
-              _sink(sink) {}
+              _cast_sender_count(sources.size()),
+              _sink(sink),
+              _num_dests(sources.size()) {}
     ~MultiCastDataStreamSinkOperatorX() override = default;
 
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
@@ -60,14 +60,19 @@ public:
     std::shared_ptr<BasicSharedState> create_shared_state() const override;
 
     const TMultiCastDataStreamSink& sink_node() { return _sink; }
+    bool count_down_destination() override {
+        DCHECK_GT(_num_dests, 0);
+        return _num_dests.fetch_sub(1) == 1;
+    }
 
 private:
     friend class MultiCastDataStreamSinkLocalState;
     ObjectPool* _pool;
     RowDescriptor _row_desc;
-    const int _cast_sender_count;
+    const size_t _cast_sender_count;
     const TMultiCastDataStreamSink& _sink;
     friend class MultiCastDataStreamSinkLocalState;
+    std::atomic<size_t> _num_dests;
 };
 
 } // namespace doris::pipeline

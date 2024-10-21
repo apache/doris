@@ -163,7 +163,9 @@ Status PushHandler::_do_streaming_ingestion(TabletSharedPtr tablet, const TPushR
     // check if version number exceed limit
     if (tablet->exceed_version_limit(config::max_tablet_version_num)) {
         return Status::Status::Error<TOO_MANY_VERSION>(
-                "failed to push data. version count: {}, exceed limit: {}, tablet: {}",
+                "failed to push data. version count: {}, exceed limit: {}, tablet: {}. Please "
+                "reduce the frequency of loading data or adjust the max_tablet_version_num in "
+                "be.conf to a larger value.",
                 tablet->version_count(), config::max_tablet_version_num, tablet->tablet_id());
     }
 
@@ -172,7 +174,8 @@ Status PushHandler::_do_streaming_ingestion(TabletSharedPtr tablet, const TPushR
         config::tablet_meta_serialize_size_limit) {
         return Status::Error<TOO_MANY_VERSION>(
                 "failed to init rowset builder. meta serialize size : {}, exceed limit: {}, "
-                "tablet: {}",
+                "tablet: {}. Please reduce the frequency of loading data or adjust the "
+                "max_tablet_version_num in be.conf to a larger value.",
                 tablet->avg_rs_meta_serialize_size() * version_count,
                 config::tablet_meta_serialize_size_limit, tablet->tablet_id());
     }

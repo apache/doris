@@ -40,6 +40,7 @@ import org.apache.doris.datasource.maxcompute.MaxComputeExternalCatalog;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalTable;
 import org.apache.doris.datasource.maxcompute.source.MaxComputeSplit.SplitType;
 import org.apache.doris.datasource.property.constants.MCProperties;
+import org.apache.doris.nereids.util.DateUtils;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
@@ -64,6 +65,10 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.ObjectOutputStream;
 import java.io.Serializable;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Collections;
@@ -77,6 +82,7 @@ public class MaxComputeScanNode extends FileQueryScanNode {
 
     private final MaxComputeExternalTable table;
     TableBatchReadSession tableBatchReadSession;
+    private Predicate filterPredicate;
 
     public MaxComputeScanNode(PlanNodeId id, TupleDescriptor desc, boolean needCheckColumnPriv) {
         this(id, desc, "MCScanNode", StatisticalType.MAX_COMPUTE_SCAN_NODE, needCheckColumnPriv);
@@ -110,8 +116,6 @@ public class MaxComputeScanNode extends FileQueryScanNode {
     }
 
     void createTableBatchReadSession() throws UserException {
-        Predicate filterPredicate = convertPredicate();
-
         List<String> requiredPartitionColumns = new ArrayList<>();
         List<String> orderedRequiredDataColumns = new ArrayList<>();
 
@@ -159,9 +163,10 @@ public class MaxComputeScanNode extends FileQueryScanNode {
 
     }
 
-    protected Predicate convertPredicate() {
+    @Override
+    protected void convertPredicate() {
         if (conjuncts.isEmpty()) {
-            return Predicate.NO_PREDICATE;
+            this.filterPredicate = Predicate.NO_PREDICATE;
         }
 
         List<Predicate> odpsPredicates = new ArrayList<>();
@@ -169,15 +174,15 @@ public class MaxComputeScanNode extends FileQueryScanNode {
             try {
                 odpsPredicates.add(convertExprToOdpsPredicate(dorisPredicate));
             } catch (AnalysisException e) {
-                Log.info("Failed to convert predicate " + dorisPredicate);
-                Log.info("Reason: " + e.getMessage());
+                Log.warn("Failed to convert predicate " + dorisPredicate.toString() + "Reason: "
+                        + e.getMessage());
             }
         }
 
         if (odpsPredicates.isEmpty()) {
-            return Predicate.NO_PREDICATE;
+            this.filterPredicate = Predicate.NO_PREDICATE;
         } else if (odpsPredicates.size() == 1) {
-            return odpsPredicates.get(0);
+            this.filterPredicate = odpsPredicates.get(0);
         } else {
             com.aliyun.odps.table.optimizer.predicate.CompoundPredicate
                     filterPredicate = new com.aliyun.odps.table.optimizer.predicate.CompoundPredicate(
@@ -186,7 +191,7 @@ public class MaxComputeScanNode extends FileQueryScanNode {
             for (Predicate odpsPredicate : odpsPredicates) {
                 filterPredicate.addPredicate(odpsPredicate);
             }
-            return filterPredicate;
+            this.filterPredicate = filterPredicate;
         }
     }
 
@@ -222,9 +227,6 @@ public class MaxComputeScanNode extends FileQueryScanNode {
         } else if (expr instanceof InPredicate) {
 
             InPredicate inPredicate = (InPredicate) expr;
-            if (inPredicate.getChildren().size() > 2) {
-                throw new AnalysisException("InPredicate must contain at most 1 children");
-            }
             com.aliyun.odps.table.optimizer.predicate.InPredicate.Operator odpsOp =
                     inPredicate.isNotIn()
                             ? com.aliyun.odps.table.optimizer.predicate.InPredicate.Operator.IN
@@ -366,7 +368,9 @@ public class MaxComputeScanNode extends FileQueryScanNode {
             case DATETIME: {
                 DateLiteral dateLiteral = (DateLiteral) literalExpr;
                 ScalarType dstType = ScalarType.createDatetimeV2Type(3);
-                return  " \"" + dateLiteral.getStringValue(dstType) + "\" ";
+
+                return  " \"" + convertDateTimezone(dateLiteral.getStringValue(dstType),
+                                    ((MaxComputeExternalCatalog) table.getCatalog()).getProjectDateTimeZone()) + "\" ";
             }
             case TIMESTAMP_NTZ: {
                 DateLiteral dateLiteral = (DateLiteral) literalExpr;
@@ -379,6 +383,23 @@ public class MaxComputeScanNode extends FileQueryScanNode {
         }
         throw new AnalysisException("Do not support convert odps type [" + odpsType + "] to odps values.");
     }
+
+
+    public static String convertDateTimezone(String dateTimeStr, ZoneId toZone) {
+        if (DateUtils.getTimeZone().equals(toZone)) {
+            return dateTimeStr;
+        }
+
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS");
+        LocalDateTime localDateTime = LocalDateTime.parse(dateTimeStr, formatter);
+
+        ZonedDateTime sourceZonedDateTime = localDateTime.atZone(DateUtils.getTimeZone());
+        ZonedDateTime targetZonedDateTime = sourceZonedDateTime.withZoneSameInstant(toZone);
+
+        return targetZonedDateTime.format(formatter);
+    }
+
+
 
     @Override
     public TFileFormatType getFileFormatType() {

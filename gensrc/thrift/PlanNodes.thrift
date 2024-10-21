@@ -258,6 +258,7 @@ struct TFileTextScanRangeParams {
     4: optional string mapkv_delimiter;
     5: optional i8 enclose;
     6: optional i8 escape;
+    7: optional string null_format;
 }
 
 struct TFileScanSlotInfo {
@@ -308,6 +309,7 @@ struct TIcebergFileDesc {
     // Deprecated
     5: optional Exprs.TExpr file_select_conjunct;
     6: optional string original_file_path;
+    7: optional i64 row_count;
 }
 
 struct TPaimonDeletionFileDesc {
@@ -443,6 +445,8 @@ struct TFileScanRangeParams {
     20: optional list<Exprs.TExpr> pre_filter_exprs_list
     21: optional Types.TUniqueId load_id
     22: optional TTextSerdeType  text_serde_type 
+    // used by flexible partial update
+    23: optional string sequence_map_col
 }
 
 struct TFileRangeDesc {

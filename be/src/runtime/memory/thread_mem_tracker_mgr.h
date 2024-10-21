@@ -111,7 +111,7 @@ public:
         return fmt::format(
                 "ThreadMemTrackerMgr debug, _untracked_mem:{}, "
                 "_limiter_tracker:<{}>, _consumer_tracker_stack:<{}>",
-                std::to_string(_untracked_mem), _limiter_tracker->log_usage(),
+                std::to_string(_untracked_mem), _limiter_tracker->make_profile_str(),
                 fmt::to_string(consumer_tracker_buf));
     }
 

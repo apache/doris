@@ -32,7 +32,7 @@ class ExecNode;
 class RuntimeState;
 
 namespace pipeline {
-
+#include "common/compile_check_begin.h"
 class DistinctStreamingAggOperatorX;
 
 class DistinctStreamingAggLocalState final : public PipelineXLocalState<FakeSharedState> {
@@ -105,7 +105,7 @@ public:
 
     DataDistribution required_data_distribution() const override {
         if (_needs_finalize || (!_probe_expr_ctxs.empty() && !_is_streaming_preagg)) {
-            return _is_colocate && _require_bucket_distribution && !_followed_by_shuffled_join
+            return _is_colocate && _require_bucket_distribution && !_followed_by_shuffled_operator
                            ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE, _partition_exprs)
                            : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
         }
@@ -140,3 +140,4 @@ private:
 
 } // namespace pipeline
 } // namespace doris
+#include "common/compile_check_end.h"

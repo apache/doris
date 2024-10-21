@@ -315,12 +315,12 @@ select * from mc_all_types;
 suite("test_max_compute_all_type", "p2,external,maxcompute,external_remote,external_remote_maxcompute") {
     String enabled = context.config.otherConfigs.get("enableMaxComputeTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
-        String ak = context.config.otherConfigs.get("aliYunAk")
-        String sk = context.config.otherConfigs.get("aliYunSk")
+        String ak = context.config.otherConfigs.get("ak")
+        String sk = context.config.otherConfigs.get("sk")
         String mc_catalog_name = "test_max_compute_all_type"
         sql """drop catalog if exists ${mc_catalog_name} """
         
-        String defaultProject = "jz_datalake" 
+        String defaultProject = "mc_datalake" 
         sql """
         CREATE CATALOG IF NOT EXISTS ${mc_catalog_name} PROPERTIES (
                 "type" = "max_compute",
@@ -412,6 +412,8 @@ suite("test_max_compute_all_type", "p2,external,maxcompute,external_remote,exter
 
 
 
+        sql """ set time_zone = "Asia/Shanghai" """ 
+
         qt_test_52 """ select id,datetime_col from ${table_name}   order by id """
         qt_test_53 """ select id,datetime_col from ${table_name} where  datetime_col  != "2024-03-25 12:00:00" order by id """
         qt_test_54 """ select id,datetime_col from ${table_name} where  datetime_col  = "2024-03-25 12:00:00" order by id """
@@ -419,7 +421,16 @@ suite("test_max_compute_all_type", "p2,external,maxcompute,external_remote,exter
         qt_test_56 """ select id,datetime_col from ${table_name} where  datetime_col  < "2024-03-25 12:00:00" order by id """
         qt_test_57 """ select id,datetime_col from ${table_name} where  datetime_col  <= "2024-03-25 12:00:00" order by id """
 
+        sql """ set time_zone = "UTC" """ 
 
+        qt_test_2_52 """ select id,datetime_col from ${table_name}   order by id """
+        qt_test_2_53 """ select id,datetime_col from ${table_name} where  datetime_col  != "2024-03-25 04:00:00" order by id """
+        qt_test_2_54 """ select id,datetime_col from ${table_name} where  datetime_col  = "2024-03-25 04:00:00" order by id """
+        qt_test_2_55 """ select id,datetime_col from ${table_name} where  datetime_col  > "2024-03-25 04:00:00" order by id """
+        qt_test_2_56 """ select id,datetime_col from ${table_name} where  datetime_col  < "2024-03-25 04:00:00" order by id """
+        qt_test_2_57 """ select id,datetime_col from ${table_name} where  datetime_col  <= "2024-03-25 04:00:00" order by id """
+
+        sql """ set time_zone = "Asia/Shanghai" """ 
 
         qt_test_58 """ select id,timestamp_ntz_col2 from ${table_name}   order by id """
         qt_test_59 """ select id,timestamp_ntz_col2 from ${table_name} where  timestamp_ntz_col2  != "2024-03-25 12:00:00.123456" order by id """

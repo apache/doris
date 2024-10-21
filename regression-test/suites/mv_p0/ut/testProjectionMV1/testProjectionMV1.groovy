@@ -46,48 +46,28 @@ suite ("testProjectionMV1") {
     sql "analyze table emps with sync;"
     sql """set enable_stats=false;"""
 
-    explain {
-        sql("select * from emps order by empid;")
-        contains "(emps)"
-    }
+    mv_rewrite_fail("select * from emps order by empid;", "emps_mv")
     qt_select_star "select * from emps order by empid;"
 
-
-    explain {
-        sql("select empid, deptno from emps where deptno > 0 order by empid;")
-        contains "(emps_mv)"
-    }
+    mv_rewrite_success("select empid, deptno from emps where deptno > 0 order by empid;", "emps_mv")
     qt_select_mv "select empid, deptno from emps order by empid;"
 
-    explain {
-        sql("select empid, sum(deptno) from emps where deptno > 0 group by empid order by empid;")
-        contains "(emps_mv)"
-    }
+    mv_rewrite_success("select empid, sum(deptno) from emps where deptno > 0 group by empid order by empid;",
+            "emps_mv")
     qt_select_mv "select empid, sum(deptno) from emps group by empid order by empid;"
 
-    explain {
-        sql("select deptno, sum(empid) from emps where deptno > 0 group by deptno order by deptno;")
-        contains "(emps_mv)"
-    }
+    mv_rewrite_success("select deptno, sum(empid) from emps where deptno > 0 group by deptno order by deptno;",
+            "emps_mv")
     qt_select_mv "select deptno, sum(empid) from emps group by deptno order by deptno;"
 
     sql """set enable_stats=true;"""
-    explain {
-        sql("select * from emps order by empid;")
-        contains "(emps)"
-    }
-    explain {
-        sql("select empid, deptno from emps where deptno > 0 order by empid;")
-        contains "(emps_mv)"
-    }
+    mv_rewrite_fail("select * from emps order by empid;", "emps_mv")
 
-    explain {
-        sql("select empid, sum(deptno) from emps where deptno > 0 group by empid order by empid;")
-        contains "(emps_mv)"
-    }
+    mv_rewrite_success("select empid, deptno from emps where deptno > 0 order by empid;", "emps_mv")
 
-    explain {
-        sql("select deptno, sum(empid) from emps where deptno > 0 group by deptno order by deptno;")
-        contains "(emps_mv)"
-    }
+    mv_rewrite_success("select empid, sum(deptno) from emps where deptno > 0 group by empid order by empid;",
+            "emps_mv")
+
+    mv_rewrite_success("select deptno, sum(empid) from emps where deptno > 0 group by deptno order by deptno;",
+            "emps_mv")
 }

@@ -48,8 +48,7 @@ public:
 
     virtual Status open(RuntimeState* state) = 0;
 
-    virtual Status do_partitioning(RuntimeState* state, Block* block,
-                                   MemTracker* mem_tracker) const = 0;
+    virtual Status do_partitioning(RuntimeState* state, Block* block) const = 0;
 
     virtual ChannelField get_channel_ids() const = 0;
 
@@ -75,8 +74,7 @@ public:
 
     Status open(RuntimeState* state) override { return VExpr::open(_partition_expr_ctxs, state); }
 
-    Status do_partitioning(RuntimeState* state, Block* block,
-                           MemTracker* mem_tracker) const override;
+    Status do_partitioning(RuntimeState* state, Block* block) const override;
 
     ChannelField get_channel_ids() const override {
         return {_hash_vals.data(), sizeof(HashValueType)};

@@ -79,7 +79,7 @@ private:
         if (!predicate.target_is_slot(_parent->node_id())) {
             return false;
         }
-        return _is_key_column(predicate.get_col_name(_parent->node_id())) || _storage_no_merge();
+        return _is_key_column(predicate.get_col_name(_parent->node_id()));
     }
 
     Status _init_scanners(std::list<vectorized::VScannerSPtr>* scanners) override;
@@ -110,7 +110,6 @@ private:
     RuntimeProfile::Counter* _read_compressed_counter = nullptr;
     RuntimeProfile::Counter* _decompressor_timer = nullptr;
     RuntimeProfile::Counter* _read_uncompressed_counter = nullptr;
-    RuntimeProfile::Counter* _raw_rows_counter = nullptr;
 
     RuntimeProfile::Counter* _rows_vec_cond_filtered_counter = nullptr;
     RuntimeProfile::Counter* _rows_short_circuit_cond_filtered_counter = nullptr;

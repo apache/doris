@@ -1190,16 +1190,7 @@ public class Coordinator implements CoordInterface {
                 throw new RpcException(null, copyStatus.getErrorMsg());
             } else {
                 String errMsg = copyStatus.getErrorMsg();
-                LOG.warn("query failed: {}", errMsg);
-
-                // hide host info exclude localhost
-                if (errMsg.contains("localhost")) {
-                    throw new UserException(errMsg);
-                }
-                int hostIndex = errMsg.indexOf("host");
-                if (hostIndex != -1) {
-                    errMsg = errMsg.substring(0, hostIndex);
-                }
+                LOG.warn("Query {} failed: {}", DebugUtil.printId(queryId), errMsg);
                 throw new UserException(errMsg);
             }
         }
@@ -1298,16 +1289,19 @@ public class Coordinator implements CoordInterface {
         lock();
         try {
             if (!queryStatus.ok()) {
-                // Print an error stack here to know why send cancel again.
-                LOG.warn("Query {} already in abnormal status {}, but received cancel again,"
-                        + "so that send cancel to BE again",
-                        DebugUtil.printId(queryId), queryStatus.toString(),
-                        new Exception("cancel failed"));
+                if (LOG.isDebugEnabled()) {
+                    // Print an error stack here to know why send cancel again.
+                    LOG.debug("Query {} already in abnormal status {}, but received cancel again,"
+                            + "so that send cancel to BE again",
+                            DebugUtil.printId(queryId), queryStatus.toString(),
+                            new Exception("cancel failed"));
+                }
             } else {
                 queryStatus.updateStatus(cancelReason.getErrorCode(), cancelReason.getErrorMsg());
+                LOG.warn("Cancel execution of query {}, this is a outside invoke, cancelReason {}",
+                        DebugUtil.printId(queryId), cancelReason.toString());
             }
-            LOG.warn("Cancel execution of query {}, this is a outside invoke, cancelReason {}",
-                    DebugUtil.printId(queryId), cancelReason.toString());
+
             cancelInternal(cancelReason);
         } finally {
             unlock();
@@ -2003,7 +1997,8 @@ public class Coordinator implements CoordInterface {
                 List<FRuntimeFilterTargetParam> targetFragments = ridToTargetParam.computeIfAbsent(rid,
                         k -> new ArrayList<>());
                 for (final FInstanceExecParam instance : params.instanceExecParams) {
-                    targetFragments.add(new FRuntimeFilterTargetParam(instance.instanceId, toBrpcHost(instance.host)));
+                    targetFragments.add(new FRuntimeFilterTargetParam(instance.fragment().getFragmentId().asInt(),
+                            toBrpcHost(instance.host)));
                 }
             }
 
@@ -3026,10 +3021,9 @@ public class Coordinator implements CoordInterface {
             }
 
             if (this.hasCancelled || this.cancelInProcess) {
-                LOG.info("Frangment has already been cancelled. Query {} backend: {}",
-                        DebugUtil.printId(queryId), idToBackend.get(beId));
                 return;
             }
+
             try {
                 try {
                     ListenableFuture<InternalService.PCancelPlanFragmentResult> cancelResult =
@@ -3047,8 +3041,6 @@ public class Coordinator implements CoordInterface {
                                             DebugUtil.printId(queryId), idToBackend.get(beId), status.toString());
                                 }
                             }
-                            LOG.warn("Failed to cancel query {} backend: {} reason: {}",
-                                    DebugUtil.printId(queryId), idToBackend.get(beId), "without status");
                         }
 
                         public void onFailure(Throwable t) {
@@ -3190,8 +3182,8 @@ public class Coordinator implements CoordInterface {
                             for (FRuntimeFilterTargetParam targetParam : fParams) {
                                 if (targetParamsV2.containsKey(targetParam.targetFragmentInstanceAddr)) {
                                     targetParamsV2.get(targetParam.targetFragmentInstanceAddr)
-                                            .target_fragment_instance_ids
-                                            .add(targetParam.targetFragmentInstanceId);
+                                            .target_fragment_ids
+                                            .add(targetParam.targetFragmentId);
                                 } else {
                                     targetParamsV2.put(targetParam.targetFragmentInstanceAddr,
                                             new TRuntimeFilterTargetParamsV2());
@@ -3199,11 +3191,15 @@ public class Coordinator implements CoordInterface {
                                             .target_fragment_instance_addr
                                             = targetParam.targetFragmentInstanceAddr;
                                     targetParamsV2.get(targetParam.targetFragmentInstanceAddr)
-                                            .target_fragment_instance_ids
+                                            .target_fragment_ids
                                             = new ArrayList<>();
                                     targetParamsV2.get(targetParam.targetFragmentInstanceAddr)
+                                            .target_fragment_ids
+                                            .add(targetParam.targetFragmentId);
+                                    // `target_fragment_instance_ids` is a required field
+                                    targetParamsV2.get(targetParam.targetFragmentInstanceAddr)
                                             .target_fragment_instance_ids
-                                            .add(targetParam.targetFragmentInstanceId);
+                                            = new ArrayList<>();
                                 }
                             }
 
@@ -3212,7 +3208,8 @@ public class Coordinator implements CoordInterface {
                         } else {
                             List<TRuntimeFilterTargetParams> targetParams = Lists.newArrayList();
                             for (FRuntimeFilterTargetParam targetParam : fParams) {
-                                targetParams.add(new TRuntimeFilterTargetParams(targetParam.targetFragmentInstanceId,
+                                // Instance id make no sense if this runtime filter doesn't have remote targets.
+                                targetParams.add(new TRuntimeFilterTargetParams(new TUniqueId(),
                                         targetParam.targetFragmentInstanceAddr));
                             }
                             localParams.runtime_filter_params.putToRidToTargetParam(rf.getFilterId().asInt(),
@@ -3382,12 +3379,12 @@ public class Coordinator implements CoordInterface {
 
     // Runtime filter target fragment instance param
     static class FRuntimeFilterTargetParam {
-        public TUniqueId targetFragmentInstanceId;
+        public int targetFragmentId;
 
         public TNetworkAddress targetFragmentInstanceAddr;
 
-        public FRuntimeFilterTargetParam(TUniqueId id, TNetworkAddress host) {
-            this.targetFragmentInstanceId = id;
+        public FRuntimeFilterTargetParam(int id, TNetworkAddress host) {
+            this.targetFragmentId = id;
             this.targetFragmentInstanceAddr = host;
         }
     }

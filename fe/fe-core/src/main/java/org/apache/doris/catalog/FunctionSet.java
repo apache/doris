@@ -230,6 +230,7 @@ public class FunctionSet<T> {
     public static final String COLLECT_LIST = "collect_list";
     public static final String COLLECT_SET = "collect_set";
     public static final String HISTOGRAM = "histogram";
+    public static final String LINEAR_HISTOGRAM = "linear_histogram";
     public static final String HIST = "hist";
     public static final String MAP_AGG = "map_agg";
 
@@ -631,6 +632,10 @@ public class FunctionSet<T> {
 
     public static final String RETENTION = "retention";
 
+    public static final String REGR_INTERCEPT = "regr_intercept";
+
+    public static final String REGR_SLOPE = "regr_slope";
+
     public static final String SEQUENCE_MATCH = "sequence_match";
 
     public static final String SEQUENCE_COUNT = "sequence_count";
@@ -663,6 +668,25 @@ public class FunctionSet<T> {
                 null, null,
                 "",
                 null, false, true, true, true));
+
+        // regr_intercept
+        addBuiltin(AggregateFunction.createBuiltin(FunctionSet.REGR_INTERCEPT,
+                Lists.newArrayList(Type.DOUBLE, Type.DOUBLE), Type.DOUBLE, Type.DOUBLE,
+                "",
+                "",
+                "",
+                null, null,
+                "",
+                null, false, false, false, true));
+        // regr_slope
+        addBuiltin(AggregateFunction.createBuiltin(FunctionSet.REGR_SLOPE,
+                Lists.newArrayList(Type.DOUBLE, Type.DOUBLE), Type.DOUBLE, Type.DOUBLE,
+                "",
+                "",
+                "",
+                null, null,
+                "",
+                null, false, false, false, true));
 
         // count(array/map/struct)
         for (Type complexType : Lists.newArrayList(Type.ARRAY, Type.MAP, Type.GENERIC_STRUCT)) {
@@ -1523,6 +1547,14 @@ public class FunctionSet<T> {
                     "", "", "", "", "", true, false, true, true));
             addBuiltin(AggregateFunction.createBuiltin(HISTOGRAM, Lists.newArrayList(t, Type.DOUBLE, Type.INT),
                     Type.VARCHAR, t,
+                    "", "", "", "", "", true, false, true, true));
+
+            // linear histogram
+            addBuiltin(AggregateFunction.createBuiltin(LINEAR_HISTOGRAM,
+                    Lists.<Type>newArrayList(t, Type.DOUBLE), Type.VARCHAR, t,
+                    "", "", "", "", "", true, false, true, true));
+            addBuiltin(AggregateFunction.createBuiltin(LINEAR_HISTOGRAM,
+                    Lists.<Type>newArrayList(t, Type.DOUBLE, Type.DOUBLE), Type.VARCHAR, t,
                     "", "", "", "", "", true, false, true, true));
 
             // group array

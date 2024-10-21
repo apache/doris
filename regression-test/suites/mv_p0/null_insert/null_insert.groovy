@@ -67,22 +67,16 @@ suite ("null_insert") {
     sql "analyze table test with sync;"
     sql """set enable_stats=false;"""
 
-    explain {
-        sql("""SELECT date, vid, os, ver, ip_country, hll_union(hll_hash(uid))
+    mv_rewrite_success("""SELECT date, vid, os, ver, ip_country, hll_union(hll_hash(uid))
                 FROM test
-                GROUP BY date,vid,os,ver,ip_country;""")
-        contains "(mv_test)"
-    }
+                GROUP BY date,vid,os,ver,ip_country;""", "mv_test")
 
     qt_select_mv """SELECT date, vid, os, ver, ip_country, hll_union(hll_hash(uid))
                     FROM test
                     GROUP BY date,vid,os,ver,ip_country;"""
 
     sql """set enable_stats=true;"""
-    explain {
-        sql("""SELECT date, vid, os, ver, ip_country, hll_union(hll_hash(uid))
+    mv_rewrite_success("""SELECT date, vid, os, ver, ip_country, hll_union(hll_hash(uid))
                 FROM test
-                GROUP BY date,vid,os,ver,ip_country;""")
-        contains "(mv_test)"
-    }
+                GROUP BY date,vid,os,ver,ip_country;""", "mv_test")
 }

@@ -69,7 +69,6 @@ RuntimeState::RuntimeState(const TPlanFragmentExecParams& fragment_exec_params,
           _num_print_error_rows(0),
           _num_bytes_load_total(0),
           _num_finished_scan_range(0),
-          _normal_row_number(0),
           _error_row_number(0),
           _query_ctx(ctx) {
     Status status =
@@ -110,7 +109,6 @@ RuntimeState::RuntimeState(const TUniqueId& instance_id, const TUniqueId& query_
           _num_print_error_rows(0),
           _num_bytes_load_total(0),
           _num_finished_scan_range(0),
-          _normal_row_number(0),
           _error_row_number(0),
           _query_ctx(ctx) {
     [[maybe_unused]] auto status = init(instance_id, query_options, query_globals, exec_env);
@@ -143,7 +141,6 @@ RuntimeState::RuntimeState(pipeline::PipelineFragmentContext*, const TUniqueId& 
           _num_print_error_rows(0),
           _num_bytes_load_total(0),
           _num_finished_scan_range(0),
-          _normal_row_number(0),
           _error_row_number(0),
           _query_ctx(ctx) {
     [[maybe_unused]] auto status = init(instance_id, query_options, query_globals, exec_env);
@@ -174,7 +171,6 @@ RuntimeState::RuntimeState(const TUniqueId& query_id, int32_t fragment_id,
           _num_print_error_rows(0),
           _num_bytes_load_total(0),
           _num_finished_scan_range(0),
-          _normal_row_number(0),
           _error_row_number(0),
           _query_ctx(ctx) {
     // TODO: do we really need instance id?
@@ -434,6 +430,7 @@ Status RuntimeState::append_error_msg_to_file(std::function<std::string()> line,
 }
 
 std::string RuntimeState::get_error_log_file_path() {
+    std::lock_guard<std::mutex> l(_s3_error_log_file_lock);
     if (_s3_error_fs && _error_log_file && _error_log_file->is_open()) {
         // close error log file
         _error_log_file->close();

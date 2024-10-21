@@ -204,6 +204,7 @@ public class PropertyAnalyzer {
     // For the detail design, see the [DISP-018](https://cwiki.apache.org/confluence/
     // display/DORIS/DSIP-018%3A+Support+Merge-On-Write+implementation+for+UNIQUE+KEY+data+model)
     public static final String ENABLE_UNIQUE_KEY_MERGE_ON_WRITE = "enable_unique_key_merge_on_write";
+    public static final String ENABLE_UNIQUE_KEY_SKIP_BITMAP_COLUMN = "enable_unique_key_skip_bitmap_column";
     private static final Logger LOG = LogManager.getLogger(PropertyAnalyzer.class);
     public static final String COMMA_SEPARATOR = ",";
     private static final double MAX_FPP = 0.05;
@@ -1474,6 +1475,24 @@ public class PropertyAnalyzer {
         throw new AnalysisException(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE + " must be `true` or `false`");
     }
 
+    public static boolean analyzeUniqueKeySkipBitmapColumn(Map<String, String> properties) throws AnalysisException {
+        if (properties == null || properties.isEmpty()) {
+            return false;
+        }
+        String value = properties.get(PropertyAnalyzer.ENABLE_UNIQUE_KEY_SKIP_BITMAP_COLUMN);
+        if (value == null) {
+            return false;
+        }
+        properties.remove(PropertyAnalyzer.ENABLE_UNIQUE_KEY_SKIP_BITMAP_COLUMN);
+        if (value.equals("true")) {
+            return true;
+        } else if (value.equals("false")) {
+            return false;
+        }
+        throw new AnalysisException(PropertyAnalyzer.ENABLE_UNIQUE_KEY_SKIP_BITMAP_COLUMN
+                + " must be `true` or `false`");
+    }
+
     public static boolean analyzeEnableDeleteOnDeletePredicate(Map<String, String> properties,
             boolean enableUniqueKeyMergeOnWrite)
             throws AnalysisException {
@@ -1663,6 +1682,14 @@ public class PropertyAnalyzer {
     public static Map<String, String> enableUniqueKeyMergeOnWriteIfNotExists(Map<String, String> properties) {
         if (properties != null && properties.get(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE) == null) {
             properties.put(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE, "true");
+        }
+        return properties;
+    }
+
+    public static Map<String, String> addEnableUniqueKeySkipBitmapPropertyIfNotExists(Map<String, String> properties) {
+        if (properties != null && !properties.containsKey(PropertyAnalyzer.ENABLE_UNIQUE_KEY_SKIP_BITMAP_COLUMN)) {
+            properties.put(PropertyAnalyzer.ENABLE_UNIQUE_KEY_SKIP_BITMAP_COLUMN,
+                    Boolean.toString(Config.enable_skip_bitmap_column_by_default));
         }
         return properties;
     }

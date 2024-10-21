@@ -59,7 +59,6 @@ Status OlapScanLocalState::_init_profile() {
     _block_fetch_timer = ADD_TIMER(_scanner_profile, "BlockFetchTime");
     _delete_bitmap_get_agg_timer = ADD_TIMER(_scanner_profile, "DeleteBitmapGetAggTime");
     _sync_rowset_timer = ADD_TIMER(_scanner_profile, "SyncRowsetTime");
-    _raw_rows_counter = ADD_COUNTER(_segment_profile, "RawRowsRead", TUnit::UNIT);
     _block_convert_timer = ADD_TIMER(_scanner_profile, "BlockConvertTime");
     _block_init_timer = ADD_TIMER(_segment_profile, "BlockInitTime");
     _block_init_seek_timer = ADD_TIMER(_segment_profile, "BlockInitSeekTime");
@@ -164,16 +163,13 @@ Status OlapScanLocalState::_process_conjuncts(RuntimeState* state) {
 }
 
 bool OlapScanLocalState::_is_key_column(const std::string& key_name) {
-    auto& p = _parent->cast<OlapScanOperatorX>();
     // all column in dup_keys table or unique_keys with merge on write table olap scan node threat
     // as key column
-    if (p._olap_scan_node.keyType == TKeysType::DUP_KEYS ||
-        (p._olap_scan_node.keyType == TKeysType::UNIQUE_KEYS &&
-         p._olap_scan_node.__isset.enable_unique_key_merge_on_write &&
-         p._olap_scan_node.enable_unique_key_merge_on_write)) {
+    if (_storage_no_merge()) {
         return true;
     }
 
+    auto& p = _parent->cast<OlapScanOperatorX>();
     auto res = std::find(p._olap_scan_node.key_column_name.begin(),
                          p._olap_scan_node.key_column_name.end(), key_name);
     return res != p._olap_scan_node.key_column_name.end();

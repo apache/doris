@@ -761,6 +761,7 @@ struct TStreamLoadPutRequest {
     54: optional bool group_commit // deprecated
     55: optional i32 stream_per_node;
     56: optional string group_commit_mode
+    57: optional Types.TUniqueKeyUpdateMode unique_key_update_mode
 
     // For cloud
     1000: optional string cloud_cluster
@@ -1187,6 +1188,7 @@ enum TBinlogType {
   TRUNCATE_TABLE = 13,
   RENAME_TABLE = 14,
   RENAME_COLUMN = 15,
+  MODIFY_COMMENT = 16,
 }
 
 struct TBinlog {

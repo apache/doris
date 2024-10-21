@@ -51,7 +51,6 @@ ProcessHashTableProbe<JoinOpType>::ProcessHashTableProbe(HashJoinProbeLocalState
           _left_output_slot_flags(parent->left_output_slot_flags()),
           _right_output_slot_flags(parent->right_output_slot_flags()),
           _has_null_in_build_side(parent->has_null_in_build_side()),
-          _rows_returned_counter(parent->_rows_returned_counter),
           _search_hashtable_timer(parent->_search_hashtable_timer),
           _init_probe_side_timer(parent->_init_probe_side_timer),
           _build_side_output_timer(parent->_build_side_output_timer),
@@ -177,8 +176,10 @@ typename HashTableType::State ProcessHashTableProbe<JoinOpType>::_init_probe_sid
                                             false, hash_table_ctx.hash_table->get_bucket_size());
         hash_table_ctx.hash_table->pre_build_idxs(hash_table_ctx.bucket_nums,
                                                   need_judge_null ? null_map : nullptr);
-        COUNTER_SET(_parent->_probe_arena_memory_usage,
-                    (int64_t)hash_table_ctx.serialized_keys_size(false));
+        int64_t arena_memory_usage = hash_table_ctx.serialized_keys_size(false);
+        COUNTER_SET(_parent->_probe_arena_memory_usage, arena_memory_usage);
+        COUNTER_UPDATE(_parent->_memory_used_counter, arena_memory_usage);
+        COUNTER_SET(_parent->_peak_memory_usage_counter, _parent->_memory_used_counter->value());
     }
 
     return typename HashTableType::State(_parent->_probe_columns);
@@ -640,9 +641,13 @@ Status ProcessHashTableProbe<JoinOpType>::process_data_in_hashtable(
                     mcol.size(), _right_col_len, _right_col_idx);
         }
         for (size_t j = 0; j < _right_col_len; ++j) {
-            const auto& column = *_build_block->safe_get_by_position(j).column;
-            mcol[j + _right_col_idx]->insert_indices_from(column, _build_indexs.data(),
-                                                          _build_indexs.data() + block_size);
+            if (_right_output_slot_flags->at(j)) {
+                const auto& column = *_build_block->safe_get_by_position(j).column;
+                mcol[j + _right_col_idx]->insert_indices_from(column, _build_indexs.data(),
+                                                              _build_indexs.data() + block_size);
+            } else {
+                mcol[j + _right_col_idx]->resize(block_size);
+            }
         }
 
         // just resize the left table column in case with other conjunct to make block size is not zero

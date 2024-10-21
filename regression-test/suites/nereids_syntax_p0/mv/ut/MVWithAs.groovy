@@ -31,6 +31,10 @@ suite ("MVWithAs") {
         """
 
     sql """insert into MVWithAs values("2020-01-01",1,"a",1);"""
+    sql """insert into MVWithAs values("2020-01-01",1,"a",1);"""
+    sql """insert into MVWithAs values("2020-01-01",1,"a",1);"""
+    sql """insert into MVWithAs values("2020-01-02",2,"b",2);"""
+    sql """insert into MVWithAs values("2020-01-02",2,"b",2);"""
     sql """insert into MVWithAs values("2020-01-02",2,"b",2);"""
 
     createMV("create materialized view MVWithAs_mv as select user_id, count(tag_id) from MVWithAs group by user_id;")
@@ -42,25 +46,14 @@ suite ("MVWithAs") {
     sql "analyze table MVWithAs with sync;"
     sql """set enable_stats=false;"""
 
-    explain {
-        sql("select * from MVWithAs order by time_col;")
-        contains "(MVWithAs)"
-    }
+    mv_rewrite_fail("select * from MVWithAs order by time_col;", "MVWithAs_mv")
     order_qt_select_star "select * from MVWithAs order by time_col;"
 
-    explain {
-        sql("select count(tag_id) from MVWithAs t;")
-        contains "(MVWithAs_mv)"
-    }
+    mv_rewrite_success("select count(tag_id) from MVWithAs t;", "MVWithAs_mv")
     order_qt_select_mv "select count(tag_id) from MVWithAs t;"
 
     sql """set enable_stats=true;"""
-    explain {
-        sql("select * from MVWithAs order by time_col;")
-        contains "(MVWithAs)"
-    }
-    explain {
-        sql("select count(tag_id) from MVWithAs t;")
-        contains "(MVWithAs_mv)"
-    }
+    mv_rewrite_fail("select * from MVWithAs order by time_col;", "MVWithAs_mv")
+
+    mv_rewrite_success("select count(tag_id) from MVWithAs t;", "MVWithAs_mv")
 }

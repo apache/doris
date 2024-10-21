@@ -18,7 +18,7 @@
 import org.apache.doris.regression.suite.ClusterOptions
 import groovy.json.JsonSlurper
 
-suite('test_sql_mode_node_mgr', 'docker,p1') {
+suite('test_sql_mode_node_mgr', 'multi_cluster,docker,p1') {
     if (!isCloudMode()) {
         return;
     }
