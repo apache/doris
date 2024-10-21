@@ -29,6 +29,7 @@
 #include "vec/core/block.h"
 
 namespace doris::pipeline {
+#include "common/compile_check_begin.h"
 
 class Dependency;
 
@@ -109,3 +110,5 @@ private:
 };
 
 } // namespace doris::pipeline
+
+#include "common/compile_check_end.h"

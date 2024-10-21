@@ -22,6 +22,7 @@
 #include "operator.h"
 
 namespace doris::pipeline {
+#include "common/compile_check_begin.h"
 
 class SelectOperatorX;
 class SelectLocalState final : public PipelineXLocalState<FakeSharedState> {
@@ -56,3 +57,5 @@ public:
 };
 
 } // namespace doris::pipeline
+
+#include "common/compile_check_end.h"

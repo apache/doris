@@ -24,6 +24,7 @@
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/cloud_tablet.h"
 #include "cloud/config.h"
+#include "common/cast_set.h"
 #include "olap/parallel_scanner_builder.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet_manager.h"
@@ -40,6 +41,7 @@
 #include "vec/functions/in.h"
 
 namespace doris::pipeline {
+#include "common/compile_check_begin.h"
 
 Status OlapScanLocalState::_init_profile() {
     RETURN_IF_ERROR(ScanLocalState<OlapScanLocalState>::_init_profile());
@@ -365,7 +367,9 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* s
         int ranges_per_scanner =
                 std::max(1, (int)ranges->size() /
                                     std::min(scanners_per_tablet, size_based_scanners_per_tablet));
-        int num_ranges = ranges->size();
+
+        int num_ranges =
+                cast_set<int>(ranges->size()); // The number of ranges will not be very large.
         for (int i = 0; i < num_ranges;) {
             std::vector<doris::OlapScanRange*> scanner_ranges;
             scanner_ranges.push_back((*ranges)[i].get());

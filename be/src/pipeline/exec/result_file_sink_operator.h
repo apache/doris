@@ -21,6 +21,7 @@
 #include "vec/sink/writer/vfile_result_writer.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 template <typename Parent>
 class BlockSerializer;
 template <typename Parent>
@@ -112,3 +113,5 @@ private:
 };
 
 } // namespace doris::pipeline
+
+#include "common/compile_check_end.h"

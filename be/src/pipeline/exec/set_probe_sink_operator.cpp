@@ -25,6 +25,7 @@
 #include "vec/common/hash_table/hash_table_set_probe.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class RuntimeState;
 
 namespace vectorized {
@@ -208,8 +209,10 @@ void SetProbeSinkOperatorX<is_intersect>::_refresh_hash_table(
                     bool is_need_shrink =
                             arg.hash_table->should_be_shrink(valid_element_in_hash_tbl);
                     if (is_intersect || is_need_shrink) {
-                        tmp_hash_table->init_buf_size(size_t(
-                                valid_element_in_hash_tbl / arg.hash_table->get_factor() + 1));
+                        tmp_hash_table->init_buf_size(
+                                size_t(static_cast<double>(valid_element_in_hash_tbl) /
+                                               arg.hash_table->get_factor() +
+                                       1));
                     }
 
                     arg.init_iterator();

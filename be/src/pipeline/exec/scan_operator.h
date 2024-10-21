@@ -35,8 +35,9 @@
 #include "vec/utils/util.hpp"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 class ScannerDelegate;
-}
+} // namespace doris::vectorized
 
 namespace doris::pipeline {
 
@@ -442,3 +443,5 @@ protected:
 };
 
 } // namespace doris::pipeline
+
+#include "common/compile_check_end.h"

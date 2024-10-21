@@ -23,6 +23,7 @@
 #include "vec/sink/writer/vjdbc_table_writer.h"
 
 namespace doris::pipeline {
+#include "common/compile_check_begin.h"
 
 class JdbcTableSinkOperatorX;
 class JdbcTableSinkLocalState final
@@ -60,3 +61,5 @@ private:
 };
 
 } // namespace doris::pipeline
+
+#include "common/compile_check_end.h"

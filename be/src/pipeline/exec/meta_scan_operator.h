@@ -26,6 +26,7 @@
 #include "pipeline/exec/scan_operator.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 namespace vectorized {
 class NewOlapScanner;
@@ -66,3 +67,5 @@ private:
 };
 
 } // namespace doris::pipeline
+
+#include "common/compile_check_end.h"

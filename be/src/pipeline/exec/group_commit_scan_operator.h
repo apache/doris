@@ -27,6 +27,7 @@
 #include "runtime/group_commit_mgr.h"
 
 namespace doris::pipeline {
+#include "common/compile_check_begin.h"
 
 class GroupCommitOperatorX;
 class GroupCommitLocalState final : public ScanLocalState<GroupCommitLocalState> {
@@ -61,3 +62,5 @@ protected:
 };
 
 } // namespace doris::pipeline
+
+#include "common/compile_check_end.h"

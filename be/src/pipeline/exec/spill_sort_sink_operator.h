@@ -21,6 +21,7 @@
 #include "sort_sink_operator.h"
 
 namespace doris::pipeline {
+#include "common/compile_check_begin.h"
 class SpillSortSinkLocalState;
 class SpillSortSinkOperatorX;
 
@@ -96,3 +97,4 @@ private:
     std::unique_ptr<SortSinkOperatorX> _sort_sink_operator;
 };
 } // namespace doris::pipeline
+#include "common/compile_check_end.h"
