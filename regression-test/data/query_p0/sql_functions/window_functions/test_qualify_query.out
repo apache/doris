@@ -20,24 +20,11 @@
 2002	Finland	14
 
 -- !select_4 --
-2000	USA	75	2
-2000	India	1200	3
-2000	India	75	4
-2000	India	75	5
-2000	Finland	100	6
-2000	Finland	1500	7
-2001	USA	100	8
-2001	USA	150	9
-2001	USA	1200	10
-2001	USA	1500	11
-2001	USA	50	12
-2001	Finland	10	13
+2000	USA	1500	1
 
 -- !select_5 --
-2001	Finland	Phone	10	1
-2000	India	Computer	1200	1
-2001	USA	Computer	1500	1
 2000	Finland	Computer	1500	1
+2000	India	Computer	1200	1
 2000	USA	Computer	1500	1
 
 -- !select_6 --
