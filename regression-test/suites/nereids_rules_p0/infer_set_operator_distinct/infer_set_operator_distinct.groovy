@@ -22,7 +22,6 @@ suite("infer_set_operator_distinct") {
     sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
     sql "set enable_parallel_result_sink=false;"
 
-
     sql """
         DROP TABLE IF EXISTS t1;
     """
