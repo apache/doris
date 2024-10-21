@@ -249,7 +249,7 @@ suite("test_hdfs_orc_group0_orc_files","external,hive,tvf,external_docker") {
             order_qt_test_38 """ select * from HDFS(
                         "uri" = "${uri}",
                         "hadoop.username" = "${hdfsUserName}",
-                        "format" = "orc") order by _col0 DESC limit 100; """
+                        "format" = "orc") order by _col0 DESC, _col1  DESC limit 98; """
 
             uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_orc/group0/orc-file-no-timezone.orc"
             order_qt_test_41 """ select * from HDFS(
