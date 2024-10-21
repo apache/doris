@@ -115,7 +115,6 @@ public:
 
     DataDir* data_dir() const { return _data_dir; }
     int64_t replica_id() const { return _tablet_meta->replica_id(); }
-    TabletUid tablet_uid() const { return _tablet_meta->tablet_uid(); }
 
     const std::string& tablet_path() const { return _tablet_path; }
 
@@ -278,8 +277,6 @@ public:
     void delete_all_files();
 
     void check_tablet_path_exists();
-
-    TabletInfo get_tablet_info() const;
 
     std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_cumulative_compaction();
     std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_base_compaction();

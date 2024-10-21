@@ -71,6 +71,8 @@ public:
     void build_all_report_tablets_info(std::map<TTabletId, TTablet>* tablets_info,
                                        uint64_t* tablet_num);
 
+    void obtain_specific_quantity_tablets(std::vector<TabletInfo>& tablets_info, int64_t num);
+
 private:
     CloudStorageEngine& _engine;
 

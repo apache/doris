@@ -403,4 +403,19 @@ void CloudTabletMgr::build_all_report_tablets_info(std::map<TTabletId, TTablet>*
               << " exceed drop time limit count=" << tablets_info->size();
 }
 
+void CloudTabletMgr::obtain_specific_quantity_tablets(std::vector<TabletInfo>& tablets_info,
+                                                      int64_t num) {
+    auto weak_tablets = get_weak_tablets();
+    for (auto& weak_tablet : weak_tablets) {
+        auto t = weak_tablet.lock();
+        if (t == nullptr) {
+            continue;
+        }
+        if (tablets_info.size() >= num) {
+            return;
+        }
+        tablets_info.push_back(t->get_tablet_info());
+    }
+}
+
 } // namespace doris
