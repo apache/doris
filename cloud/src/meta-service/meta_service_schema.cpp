@@ -292,11 +292,20 @@ void write_schema_dict(MetaServiceCode& code, std::string& msg, const std::strin
         }
         // Limit the size of dict value
         if (dict_val.size() > config::schema_dict_kv_size_limit) {
-            code = MetaServiceCode::KV_TXN_COMMIT_ERR;
+            code = MetaServiceCode::INVALID_ARGUMENT;
             ss << "Failed to write dictionary for saving, txn_id=" << rowset_meta->txn_id()
                << ", reached the limited size threshold of SchemaDictKeyList "
                << config::schema_dict_kv_size_limit;
             msg = ss.str();
+            return;
+        }
+        // Limit the count of dict keys
+        if (dict.column_dict_size() > config::schema_dict_key_count_limit) {
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            ss << "Reached max column size limit " << config::schema_dict_key_count_limit
+               << ", txn_id=" << rowset_meta->txn_id();
+            msg = ss.str();
+            return;
         }
         // splitting large values (>90*1000) into multiple KVs
         cloud::put(txn, dict_key, dict_val, 0);

@@ -524,7 +524,8 @@ Status CloudMetaMgr::sync_tablet_rowsets(CloudTablet* tablet, bool warmup_delta_
                     existed_rowset->rowset_id().to_string() == cloud_rs_meta_pb.rowset_id_v2()) {
                     continue; // Same rowset, skip it
                 }
-                RowsetMetaPB meta_pb = cloud_rowset_meta_to_doris(cloud_rs_meta_pb);
+                RowsetMetaPB meta_pb = cloud_rowset_meta_to_doris(
+                        cloud_rs_meta_pb, resp.has_schema_dict() ? &resp.schema_dict() : nullptr);
                 auto rs_meta = std::make_shared<RowsetMeta>();
                 rs_meta->init_from_pb(meta_pb);
                 RowsetSharedPtr rowset;

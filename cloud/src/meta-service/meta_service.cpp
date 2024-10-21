@@ -1587,9 +1587,25 @@ void MetaServiceImpl::get_rowset(::google::protobuf::RpcController* controller,
         }
 
         if (need_read_schema_dict) {
-            read_schema_from_dict(code, msg, instance_id, idx.index_id(), txn.get(),
-                                  response->mutable_rowset_meta());
-            if (code != MetaServiceCode::OK) return;
+            std::string column_dict_key =
+                    meta_schema_pb_dictionary_key({instance_id, idx.index_id()});
+            ValueBuf dict_val;
+            err = cloud::get(txn.get(), column_dict_key, &dict_val);
+            if (err != TxnErrorCode::TXN_OK && err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
+                code = cast_as<ErrCategory::READ>(err);
+                ss << "internal error, failed to get dict ret=" << err;
+                msg = ss.str();
+                return;
+            }
+            if (err == TxnErrorCode::TXN_OK && !dict_val.to_pb(response->mutable_schema_dict()))
+                    [[unlikely]] {
+                code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+                msg = "failed to parse SchemaCloudDictionary";
+                return;
+            }
+            LOG(INFO) << "Get schema_dict, column size="
+                      << response->schema_dict().column_dict_size()
+                      << ", index size=" << response->schema_dict().index_dict_size();
         }
         TEST_SYNC_POINT_CALLBACK("get_rowset::finish", &response);
         break;
