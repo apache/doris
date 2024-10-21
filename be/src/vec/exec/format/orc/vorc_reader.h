@@ -587,7 +587,6 @@ private:
     std::unique_ptr<orc::Reader> _reader;
     std::unique_ptr<orc::RowReader> _row_reader;
     std::unique_ptr<ORCFilterImpl> _orc_filter;
-    orc::ReaderOptions _reader_options;
     orc::RowReaderOptions _row_reader_options;
 
     std::shared_ptr<io::FileSystem> _file_system;

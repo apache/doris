@@ -41,11 +41,11 @@ suite("test_hdfs_orc_group1_orc_files","external,hive,tvf,external_docker") {
 
             // Doris cannot read this ORC file because of a NOT_IMPLEMENT error.
 
-            // uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_orc/group1/orc-file-11-format.orc"
-            // order_qt_test_2 """ select * from HDFS(
-            //             "uri" = "${uri}",
-            //             "hadoop.username" = "${hdfsUserName}",
-            //             "format" = "orc"); """
+            uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_orc/group1/orc-file-11-format.orc"
+            order_qt_test_2 """ select decimal1 from HDFS(
+                        "uri" = "${uri}",
+                        "hadoop.username" = "${hdfsUserName}",
+                        "format" = "orc") limit 5; """
 
 
             uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_orc/group1/orc_split_elim.orc"
