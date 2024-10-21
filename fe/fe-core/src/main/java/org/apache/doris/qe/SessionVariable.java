@@ -670,6 +670,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_COOLDOWN_REPLICA_AFFINITY =
             "enable_cooldown_replica_affinity";
+    public static final String SKIP_CHECKING_ACID_VERSION_FILE = "skip_checking_acid_version_file";
+
     /**
      * If set false, user couldn't submit analyze SQL and FE won't allocate any related resources.
      */
@@ -2199,6 +2201,12 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_COOLDOWN_REPLICA_AFFINITY, needForward = true)
     public boolean enableCooldownReplicaAffinity = true;
+
+    @VariableMgr.VarAttr(name = SKIP_CHECKING_ACID_VERSION_FILE, description = {
+            "跳过检查 transactional hive 版本文件 '_orc_acid_version.'",
+            "Skip checking transactional hive version file '_orc_acid_version.'"
+    })
+    public boolean skipCheckingAcidVersionFile = false;
 
     public void setEnableEsParallelScroll(boolean enableESParallelScroll) {
         this.enableESParallelScroll = enableESParallelScroll;
