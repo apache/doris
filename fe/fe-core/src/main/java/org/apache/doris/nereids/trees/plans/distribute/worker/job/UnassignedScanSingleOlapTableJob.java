@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.distribute.worker.job;
 
+import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.trees.plans.distribute.worker.DistributedPlanWorker;
 import org.apache.doris.nereids.trees.plans.distribute.worker.DistributedPlanWorkerManager;
 import org.apache.doris.nereids.trees.plans.distribute.worker.ScanWorkerSelector;
@@ -37,10 +38,10 @@ public class UnassignedScanSingleOlapTableJob extends AbstractUnassignedScanJob 
     private final ScanWorkerSelector scanWorkerSelector;
 
     public UnassignedScanSingleOlapTableJob(
-            PlanFragment fragment, OlapScanNode olapScanNode,
+            NereidsPlanner planner, PlanFragment fragment, OlapScanNode olapScanNode,
             ListMultimap<ExchangeNode, UnassignedJob> exchangeToChildJob,
             ScanWorkerSelector scanWorkerSelector) {
-        super(fragment, ImmutableList.of(olapScanNode), exchangeToChildJob);
+        super(planner, fragment, ImmutableList.of(olapScanNode), exchangeToChildJob);
         this.scanWorkerSelector = Objects.requireNonNull(
                 scanWorkerSelector, "scanWorkerSelector cat not be null");
         this.olapScanNode = olapScanNode;
@@ -57,7 +58,9 @@ public class UnassignedScanSingleOlapTableJob extends AbstractUnassignedScanJob 
         //    BackendWorker("172.0.0.2"):
         //          olapScanNode1: ScanRanges([tablet_10005, tablet_10006, tablet_10007, tablet_10008, tablet_10009])
         // }
-        return scanWorkerSelector.selectReplicaAndWorkerWithoutBucket(olapScanNode);
+        return scanWorkerSelector.selectReplicaAndWorkerWithoutBucket(
+                olapScanNode, planner.getCascadesContext().getConnectContext()
+        );
     }
 
     @Override

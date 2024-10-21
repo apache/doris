@@ -667,7 +667,7 @@ public class MetadataGenerator {
                 trow.addToColumnValue(new TCell().setLongVal(-1));
             }
 
-            List<TPipelineWorkloadGroup> tgroupList = queryInfo.getCoord().gettWorkloadGroups();
+            List<TPipelineWorkloadGroup> tgroupList = queryInfo.getCoord().getTWorkloadGroups();
             if (tgroupList != null && tgroupList.size() == 1) {
                 trow.addToColumnValue(new TCell().setLongVal(tgroupList.get(0).id));
             } else {
