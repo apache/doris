@@ -80,35 +80,57 @@ CumulativeCompaction::~CumulativeCompaction() = default;
 
 Status CumulativeCompaction::prepare_compact() {
     if (!tablet()->init_succeeded()) {
-        return Status::Error<CUMULATIVE_INVALID_PARAMETERS, false>("_tablet init failed");
+        Status res = Status::Error<CUMULATIVE_INVALID_PARAMETERS, false>("_tablet init failed");
+        tablet()->set_last_cumu_compaction_failure_time(UnixMillis());
+        tablet()->set_last_cumu_compaction_status(res.to_string());
+        return res;
     }
 
     std::unique_lock<std::mutex> lock(tablet()->get_cumulative_compaction_lock(), std::try_to_lock);
     if (!lock.owns_lock()) {
-        return Status::Error<TRY_LOCK_FAILED, false>(
+        Status res = Status::Error<TRY_LOCK_FAILED, false>(
                 "The tablet is under cumulative compaction. tablet={}", _tablet->tablet_id());
+        tablet()->set_last_cumu_compaction_failure_time(UnixMillis());
+        tablet()->set_last_cumu_compaction_status(res.to_string());
+        return res;
     }
 
     tablet()->calculate_cumulative_point();
     VLOG_CRITICAL << "after calculate, current cumulative point is "
                   << tablet()->cumulative_layer_point() << ", tablet=" << _tablet->tablet_id();
 
-    RETURN_IF_ERROR(pick_rowsets_to_compact());
+    Status res = pick_rowsets_to_compact();
+    tablet()->set_last_cumu_compaction_status(res.to_string());
+    if (!res.ok()) {
+        tablet()->set_last_cumu_compaction_failure_time(UnixMillis());
+    }
+    RETURN_IF_ERROR(res);
+    
     COUNTER_UPDATE(_input_rowsets_counter, _input_rowsets.size());
 
+    tablet()->set_last_cumu_compaction_status(Status::OK().to_string());
     return Status::OK();
 }
 
 Status CumulativeCompaction::execute_compact() {
     std::unique_lock<std::mutex> lock(tablet()->get_cumulative_compaction_lock(), std::try_to_lock);
     if (!lock.owns_lock()) {
-        return Status::Error<TRY_LOCK_FAILED, false>(
+        Status res = Status::Error<TRY_LOCK_FAILED, false>(
                 "The tablet is under cumulative compaction. tablet={}", _tablet->tablet_id());
+        tablet()->set_last_cumu_compaction_failure_time(UnixMillis());
+        tablet()->set_last_cumu_compaction_status(res.to_string());
+        return res;
     }
 
     SCOPED_ATTACH_TASK(_mem_tracker);
 
-    RETURN_IF_ERROR(CompactionMixin::execute_compact());
+    Status res = CompactionMixin::execute_compact();
+    tablet()->set_last_cumu_compaction_status(res.to_string());
+    if (!res.ok()) {
+        tablet()->set_last_cumu_compaction_failure_time(UnixMillis());
+    }
+    RETURN_IF_ERROR(res);
+
     DCHECK_EQ(_state, CompactionState::SUCCESS);
     if (tablet()->tablet_meta()->time_series_compaction_level_threshold() >= 2) {
         tablet()->cumulative_compaction_policy()->update_compaction_level(tablet(), _input_rowsets,
@@ -127,6 +149,7 @@ Status CumulativeCompaction::execute_compact() {
     DorisMetrics::instance()->cumulative_compaction_deltas_total->increment(_input_rowsets.size());
     DorisMetrics::instance()->cumulative_compaction_bytes_total->increment(_input_rowsets_size);
 
+    tablet()->set_last_cumu_compaction_status(Status::OK().to_string());
     return Status::OK();
 }
 
