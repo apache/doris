@@ -67,6 +67,7 @@ protected:
 
     friend class PartitionedHashJoinSinkOperatorX;
 
+    std::atomic<bool> _spilling_finished {false};
     vectorized::Block _pending_block;
 
     bool _child_eos {false};
