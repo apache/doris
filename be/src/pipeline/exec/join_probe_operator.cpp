@@ -220,6 +220,7 @@ JoinProbeOperatorX<LocalStateType>::JoinProbeOperatorX(ObjectPool* pool, const T
                                      : true)
 
           ) {
+    Base::_is_serial_operator = tnode.__isset.is_serial_operator && tnode.is_serial_operator;
     if (tnode.__isset.hash_join_node) {
         _intermediate_row_desc.reset(new RowDescriptor(
                 descs, tnode.hash_join_node.vintermediate_tuple_id_list,

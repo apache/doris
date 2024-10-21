@@ -51,7 +51,7 @@ public:
     }
 
     // Add operators for pipelineX
-    Status add_operator(OperatorPtr& op);
+    Status add_operator(OperatorPtr& op, const int parallelism);
     // prepare operators for pipelineX
     Status prepare(RuntimeState* state);
 
@@ -71,28 +71,7 @@ public:
         return idx == ExchangeType::HASH_SHUFFLE || idx == ExchangeType::BUCKET_HASH_SHUFFLE;
     }
 
-    bool need_to_local_exchange(const DataDistribution target_data_distribution) const {
-        if (target_data_distribution.distribution_type != ExchangeType::BUCKET_HASH_SHUFFLE &&
-            target_data_distribution.distribution_type != ExchangeType::HASH_SHUFFLE) {
-            return true;
-        } else if (_operators.front()->ignore_data_hash_distribution()) {
-            if (_data_distribution.distribution_type ==
-                        target_data_distribution.distribution_type &&
-                (_data_distribution.partition_exprs.empty() ||
-                 target_data_distribution.partition_exprs.empty())) {
-                return true;
-            }
-            return _data_distribution.distribution_type !=
-                           target_data_distribution.distribution_type &&
-                   !(is_hash_exchange(_data_distribution.distribution_type) &&
-                     is_hash_exchange(target_data_distribution.distribution_type));
-        } else {
-            return _data_distribution.distribution_type !=
-                           target_data_distribution.distribution_type &&
-                   !(is_hash_exchange(_data_distribution.distribution_type) &&
-                     is_hash_exchange(target_data_distribution.distribution_type));
-        }
-    }
+    bool need_to_local_exchange(const DataDistribution target_data_distribution) const;
     void init_data_distribution() {
         set_data_distribution(_operators.front()->required_data_distribution());
     }

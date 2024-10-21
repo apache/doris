@@ -341,6 +341,7 @@ public class PlanFragment extends TreeNode<PlanFragment> {
         // TODO chenhao , calculated by cost
         result.setMinReservationBytes(0);
         result.setInitialReservationTotalClaims(0);
+        result.setUseSerialSource(useSerialSource(ConnectContext.get()));
         return result;
     }
 
@@ -501,5 +502,15 @@ public class PlanFragment extends TreeNode<PlanFragment> {
 
     public boolean hasNullAwareLeftAntiJoin() {
         return planRoot.isNullAwareLeftAntiJoin();
+    }
+
+    public boolean useSerialSource(ConnectContext context) {
+        return context != null
+                && context.getSessionVariable().isIgnoreStorageDataDistribution()
+                && !hasNullAwareLeftAntiJoin()
+                // If input data partition is UNPARTITIONED and sink is DataStreamSink and root node is not a serial
+                // operator, we use local exchange to improve parallelism
+                && getDataPartition() == DataPartition.UNPARTITIONED && !children.isEmpty()
+                && sink instanceof DataStreamSink && !planRoot.isSerialOperator();
     }
 }
