@@ -94,6 +94,8 @@ public abstract class ExternalDatabase<T extends ExternalTable>
 
     private MetaCache<T> metaCache;
 
+    private boolean mappingsInitialized = false;
+
     /**
      * Create external database.
      *
@@ -120,6 +122,7 @@ public abstract class ExternalDatabase<T extends ExternalTable>
 
     public void setUnInitialized(boolean invalidCache) {
         this.initialized = false;
+        this.mappingsInitialized = false;
         this.invalidCacheInInit = invalidCache;
         if (extCatalog.getUseMetaCache().isPresent()) {
             if (extCatalog.getUseMetaCache().get() && metaCache != null) {
@@ -172,6 +175,10 @@ public abstract class ExternalDatabase<T extends ExternalTable>
                 init();
             }
             initialized = true;
+        }
+        if (!mappingsInitialized) {
+            extCatalog.buildTableMapping(null, name);
+            mappingsInitialized = true;
         }
     }
 
