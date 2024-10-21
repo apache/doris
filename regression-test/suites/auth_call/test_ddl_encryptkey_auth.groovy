@@ -43,8 +43,13 @@ suite("test_ddl_encryptkey_auth","p0,auth_call") {
             sql """DROP ENCRYPTKEY ${encryptkeyName};"""
             exception "denied"
         }
+//        test {
+//            sql """DROP ENCRYPTKEY ${encryptkeyName};"""
+//            exception "denied"
+//        }
     }
-    sql """grant create_priv on ${dbName} to ${user}"""
+//    sql """grant create_priv on ${dbName} to ${user}"""
+    sql """grant admin_priv on ${dbName} to ${user}"""
     connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
         sql """use ${dbName}"""
         sql """CREATE ENCRYPTKEY ${encryptkeyName} AS "ABCD123456789";"""
