@@ -63,6 +63,7 @@ import com.google.common.collect.Sets;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.IdentityHashMap;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -263,8 +264,8 @@ public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void
     public ImmutableSet<Expression> visitLogicalProject(LogicalProject<? extends Plan> project, Void context) {
         return cacheOrElse(project, () -> {
             ImmutableSet<Expression> childPredicates = project.child().accept(this, context);
-            Set<Expression> allPredicates = Sets.newLinkedHashSet(childPredicates);
-            for (Entry<Slot, Expression> kv : project.getAliasToProducer().entrySet()) {
+            Set<Expression> allPredicates = Sets.newLinkedHashSet();
+            for (Entry<Slot, Expression> kv : generateMap(project.getProjects()).entrySet()) {
                 Slot k = kv.getKey();
                 Expression v = kv.getValue();
                 for (Expression childPredicate : childPredicates) {
@@ -405,5 +406,17 @@ public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void
         } else {
             return new EqualTo(expr.toSlot(), expr.child(0));
         }
+    }
+
+    private Map<Slot, Expression> generateMap(List<NamedExpression> namedExpressions) {
+        Map<Slot, Expression> replaceMap = new LinkedHashMap<>(namedExpressions.size());
+        for (NamedExpression namedExpression : namedExpressions) {
+            if (namedExpression instanceof Alias) {
+                replaceMap.putIfAbsent(namedExpression.toSlot(), namedExpression.child(0));
+            } else if (namedExpression instanceof SlotReference) {
+                replaceMap.putIfAbsent((Slot) namedExpression, namedExpression);
+            }
+        }
+        return replaceMap;
     }
 }
