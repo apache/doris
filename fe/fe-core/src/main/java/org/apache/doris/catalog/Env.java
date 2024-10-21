@@ -1599,6 +1599,47 @@ public class Env {
                 // Set initial root password if master FE first time launch.
                 auth.setInitialRootPassword(Config.initial_root_password);
             } else {
+                int currentVariableVersion = VariableMgr.newSessionVariable().variableVersion;
+                if (currentVariableVersion == 0) {
+                    // update from 2.0.15 or below to 2.0.16 or higher
+                    if (VariableMgr.newSessionVariable().nereidsTimeoutSecond == 5) {
+                        VariableMgr.refreshDefaultSessionVariables("update variable version",
+                                SessionVariable.NEREIDS_TIMEOUT_SECOND, "30");
+                    }
+                }
+                if (currentVariableVersion < SessionVariable.VARIABLE_VERSION_100) {
+                    // update from 2.1.6 or below to 2.1.7 or higher
+                    VariableMgr.refreshDefaultSessionVariables("update variable version",
+                            SessionVariable.ENABLE_NEREIDS_DML,
+                            String.valueOf(true));
+                    VariableMgr.refreshDefaultSessionVariables("update variable version",
+                            SessionVariable.ENABLE_NEREIDS_DML_WITH_PIPELINE,
+                            String.valueOf(true));
+                    VariableMgr.refreshDefaultSessionVariables("update variable version",
+                            SessionVariable.ENABLE_NEREIDS_PLANNER,
+                            String.valueOf(true));
+                    VariableMgr.refreshDefaultSessionVariables("update variable version",
+                            SessionVariable.ENABLE_FALLBACK_TO_ORIGINAL_PLANNER,
+                            String.valueOf(true));
+                    VariableMgr.refreshDefaultSessionVariables("update variable version",
+                            SessionVariable.ENABLE_PIPELINE_X_ENGINE,
+                            String.valueOf(true));
+                }
+                if (currentVariableVersion < SessionVariable.VARIABLE_VERSION_200) {
+                    // update from 3.0.2 or below to 3.0.3 or higher
+                    VariableMgr.refreshDefaultSessionVariables("update variable version",
+                            SessionVariable.ENABLE_FALLBACK_TO_ORIGINAL_PLANNER,
+                            String.valueOf(false));
+                }
+                if (currentVariableVersion < SessionVariable.VARIABLE_VERSION_300) {
+                    // update to master
+                    // do nothing
+                }
+                if (currentVariableVersion < SessionVariable.CURRENT_VARIABLE_VERSION) {
+                    VariableMgr.refreshDefaultSessionVariables("update variable version",
+                            SessionVariable.VARIABLE_VERSION,
+                            String.valueOf(SessionVariable.CURRENT_VARIABLE_VERSION));
+                }
                 if (journalVersion <= FeMetaVersion.VERSION_114) {
                     // if journal version is less than 114, which means it is upgraded from version before 2.0.
                     // When upgrading from 1.2 to 2.0,

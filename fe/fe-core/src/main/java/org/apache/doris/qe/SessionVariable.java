@@ -82,6 +82,14 @@ import java.util.concurrent.TimeUnit;
 public class SessionVariable implements Serializable, Writable {
     public static final Logger LOG = LogManager.getLogger(SessionVariable.class);
 
+
+    public static final int VARIABLE_VERSION_0 = 0;
+    public static final int VARIABLE_VERSION_100 = 100;
+    public static final int VARIABLE_VERSION_200 = 200;
+    public static final int VARIABLE_VERSION_300 = 300;
+    public static final int CURRENT_VARIABLE_VERSION = VARIABLE_VERSION_300;
+    public static final String VARIABLE_VERSION = "variable_version";
+
     public static final String EXEC_MEM_LIMIT = "exec_mem_limit";
     public static final String LOCAL_EXCHANGE_FREE_BLOCKS_LIMIT = "local_exchange_free_blocks_limit";
     public static final String SCAN_QUEUE_MEM_LIMIT = "scan_queue_mem_limit";
@@ -671,6 +679,9 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_COOLDOWN_REPLICA_AFFINITY =
             "enable_cooldown_replica_affinity";
     public static final String SKIP_CHECKING_ACID_VERSION_FILE = "skip_checking_acid_version_file";
+
+    @VariableMgr.VarAttr(name = VARIABLE_VERSION, flag = VariableMgr.INVISIBLE | VariableMgr.READ_ONLY)
+    public int variableVersion = CURRENT_VARIABLE_VERSION;
 
     /**
      * If set false, user couldn't submit analyze SQL and FE won't allocate any related resources.
@@ -1478,7 +1489,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_NEREIDS_TIMEOUT, needForward = true)
     public boolean enableNereidsTimeout = true;
 
-    @VariableMgr.VarAttr(name = "nereids_timeout_second", needForward = true)
+    @VariableMgr.VarAttr(name = NEREIDS_TIMEOUT_SECOND, needForward = true)
     public int nereidsTimeoutSecond = 30;
 
     @VariableMgr.VarAttr(name = ENABLE_PUSH_DOWN_NO_GROUP_AGG)
@@ -3873,13 +3884,16 @@ public class SessionVariable implements Serializable, Writable {
 
     public void readFromJson(String json) throws IOException {
         JSONObject root = (JSONObject) JSONValue.parse(json);
+        boolean hasVariableVersion = root.containsKey(VARIABLE_VERSION);
         try {
             for (Field field : SessionVariable.class.getDeclaredFields()) {
                 VarAttr attr = field.getAnnotation(VarAttr.class);
                 if (attr == null) {
                     continue;
                 }
-
+                if (attr.name().equals(VARIABLE_VERSION) && !hasVariableVersion) {
+                    field.set(this, 0);
+                }
                 if (!root.containsKey(attr.name())) {
                     continue;
                 }

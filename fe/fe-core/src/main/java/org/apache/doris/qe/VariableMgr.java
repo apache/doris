@@ -728,9 +728,13 @@ public class VariableMgr {
         rlock.lock();
         try {
             for (Map.Entry<String, VarContext> entry : ctxByDisplayVarName.entrySet()) {
-                // not show removed variables
                 VarAttr varAttr = entry.getValue().getField().getAnnotation(VarAttr.class);
+                // not show removed variables
                 if (VariableAnnotation.REMOVED.equals(varAttr.varType())) {
+                    continue;
+                }
+                // not show invisible variables
+                if ((VariableMgr.INVISIBLE & varAttr.flag()) != 0) {
                     continue;
                 }
                 // Filter variable not match to the regex.
