@@ -155,6 +155,8 @@ void create_tablet_callback(StorageEngine& engine, const TAgentTaskRequest& req)
 
 void drop_tablet_callback(StorageEngine& engine, const TAgentTaskRequest& req);
 
+void drop_tablet_callback(CloudStorageEngine& engine, const TAgentTaskRequest& req);
+
 void clear_transaction_task_callback(StorageEngine& engine, const TAgentTaskRequest& req);
 
 void push_callback(StorageEngine& engine, const TAgentTaskRequest& req);
@@ -187,6 +189,8 @@ void report_disk_callback(StorageEngine& engine, const TMasterInfo& master_info)
 void report_disk_callback(CloudStorageEngine& engine, const TMasterInfo& master_info);
 
 void report_tablet_callback(StorageEngine& engine, const TMasterInfo& master_info);
+
+void report_tablet_callback(CloudStorageEngine& engine, const TMasterInfo& master_info);
 
 void calc_delete_bitmap_callback(CloudStorageEngine& engine, const TAgentTaskRequest& req);
 

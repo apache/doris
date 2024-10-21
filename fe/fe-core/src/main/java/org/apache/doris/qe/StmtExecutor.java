@@ -2569,7 +2569,7 @@ public class StmtExecutor {
                 List<Long> tabletIdList = new ArrayList<Long>();
                 Set<Long> beTabletIds = ((CloudEnv) Env.getCurrentEnv())
                                            .getCloudTabletRebalancer()
-                                           .getSnapshotTabletsByBeId(backend.getId());
+                                           .getSnapshotTabletsInPrimaryByBeId(backend.getId());
                 allTabletIds.forEach(tabletId -> {
                     if (beTabletIds.contains(tabletId)) {
                         tabletIdList.add(tabletId);
