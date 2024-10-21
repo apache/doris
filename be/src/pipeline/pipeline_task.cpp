@@ -17,6 +17,7 @@
 
 #include "pipeline_task.h"
 
+#include <fmt/core.h>
 #include <fmt/format.h>
 #include <gen_cpp/Metrics_types.h>
 #include <glog/logging.h>
@@ -71,15 +72,18 @@ PipelineTask::PipelineTask(
           _sink(pipeline->sink_shared_pointer()),
           _le_state_map(std::move(le_state_map)),
           _task_idx(task_idx),
-          _execution_dep(state->get_query_ctx()->get_execution_dependency()),
-          _memory_sufficient_dependency(
-                  state->get_query_ctx()->get_memory_sufficient_dependency()) {
+          _execution_dep(state->get_query_ctx()->get_execution_dependency()) {
     _pipeline_task_watcher.start();
 
     auto shared_state = _sink->create_shared_state();
     if (shared_state) {
         _sink_shared_state = shared_state;
     }
+
+    const auto dependency_name =
+            fmt::format("MemorySufficientDependency_{}_{}", _sink->node_id(), task_id);
+    _memory_sufficient_dependency =
+            pipeline::Dependency::create_unique(-1, -1, dependency_name, true);
 }
 
 Status PipelineTask::prepare(const TPipelineInstanceParams& local_params, const TDataSink& tsink,
@@ -429,8 +433,6 @@ Status PipelineTask::execute(bool* eos) {
 
                     _state->get_query_ctx()->update_paused_reason(st);
                     _state->get_query_ctx()->set_low_memory_mode();
-
-                    _memory_sufficient_dependency->block();
                     ExecEnv::GetInstance()->workload_group_mgr()->add_paused_query(
                             _state->get_query_ctx()->shared_from_this(), reserve_size);
                     continue;
@@ -458,7 +460,6 @@ Status PipelineTask::execute(bool* eos) {
                           << ", debug info: " << GlobalMemoryArbitrator::process_mem_log_str();
                 _state->get_query_ctx()->update_paused_reason(status);
                 _state->get_query_ctx()->set_low_memory_mode();
-                _memory_sufficient_dependency->block();
                 ExecEnv::GetInstance()->workload_group_mgr()->add_paused_query(
                         _state->get_query_ctx()->shared_from_this(), sink_reserve_size);
                 DCHECK_EQ(_pending_block.get(), nullptr);

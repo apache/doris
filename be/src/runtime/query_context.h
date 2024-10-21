@@ -184,10 +184,6 @@ public:
 
     pipeline::Dependency* get_execution_dependency() { return _execution_dependency.get(); }
 
-    pipeline::Dependency* get_memory_sufficient_dependency() {
-        return _memory_sufficient_dependency.get();
-    }
-
     std::vector<pipeline::PipelineTask*> get_revocable_tasks() const;
 
     Status revoke_memory();
@@ -402,7 +398,6 @@ private:
     vectorized::SimplifiedScanScheduler* _remote_scan_task_scheduler = nullptr;
     std::unique_ptr<pipeline::Dependency> _execution_dependency;
 
-    std::unique_ptr<pipeline::Dependency> _memory_sufficient_dependency;
     std::vector<std::weak_ptr<pipeline::PipelineTask>> _pipeline_tasks;
 
     std::shared_ptr<QueryStatistics> _cpu_statistics = nullptr;
