@@ -5841,7 +5841,7 @@ public class Env {
         if (configtoThreads.get(key) != null) {
             try {
                 configtoThreads.get(key).get().setInterval(Config.getField(key).getLong(null) * 1000L);
-                configtoThreads.get(key).get().interrupt();
+                // shouldn't interrupt to make possible bdbje writing safe.
                 LOG.info("set config " + key + " to " + value);
             } catch (IllegalAccessException e) {
                 LOG.warn("set config " + key + " failed: " + e.getMessage());
