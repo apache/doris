@@ -294,7 +294,7 @@ Status PartitionedHashJoinSinkLocalState::revoke_memory(RuntimeState* state) {
                         return Status::OK();
                     }();
 
-                    if (!status.OK()) {
+                    if (!status.ok()) {
                         std::unique_lock<std::mutex> lock(_spill_lock);
                         _dependency->set_ready();
                         _spill_status_ok = false;
