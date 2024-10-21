@@ -299,9 +299,12 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
 
             Future<PConstantExprResult> future = BackendServiceProxy.getInstance().foldConstantExpr(brpcAddress,
                     tParams);
-            long beFoldStartTime = TimeUtils.getStartTimeMs();
+            long beFoldStartTime = 0L;
+            if (context.getSessionVariable().enableProfile()) {
+                beFoldStartTime = TimeUtils.getStartTimeMs();
+            }
             PConstantExprResult result = future.get(5, TimeUnit.SECONDS);
-            if (context.getExecutor() != null) {
+            if (context.getExecutor() != null && context.getSessionVariable().enableProfile()) {
                 context.getExecutor().getSummaryProfile().sumBeFoldTime(TimeUtils.getStartTimeMs() - beFoldStartTime);
             }
 

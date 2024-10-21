@@ -820,6 +820,29 @@ suite("parse_sql_from_sql_cache") {
                     assertTrue(profileString.contains("Is  Cached:  Yes"))
                 }
             }
+        }),
+        extraThread("is_cache_profile", {
+            createTestTable "test_use_plan_cache24"
+
+            // after partition changed 10s, the sql cache can be used
+            sleep(10000)
+
+            sql "set enable_nereids_planner=true"
+            sql "set enable_fallback_to_original_planner=false"
+            sql "set enable_sql_cache=true"
+
+            int randomInt = Math.random() * 2000000000
+            profile("sql_cache_24_${randomInt}") {
+                run {
+                    sql "/* sql_cache_24_${randomInt} */ select ${randomInt} from test_use_plan_cache23"
+                }
+
+                check { profileString, exception ->
+                    log.info(profileString)
+                    assertTrue(profileString.contains("Nereids  GarbageCollect  Time"))
+                    assertTrue(profileString.contains("Nereids  BeFoldConst  Time"))
+                }
+            }
         })
     ).get()
 }
