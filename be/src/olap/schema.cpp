@@ -117,11 +117,7 @@ void Schema::_init(const std::vector<const Field*>& cols, const std::vector<Colu
     _schema_size = offset;
 }
 
-Schema::~Schema() {
-    for (auto col : _cols) {
-        delete col;
-    }
-}
+Schema::~Schema() = default;
 
 vectorized::DataTypePtr Schema::get_data_type_ptr(const Field& field) {
     return vectorized::DataTypeFactory::instance().create_data_type(field);

@@ -147,11 +147,11 @@ public:
                                                                     bool is_nullable,
                                                                     const ReaderType reader_type);
 
-    const std::vector<Field*>& columns() const { return _cols; }
+    const std::vector<FieldSPtr>& columns() const { return _cols; }
 
-    const Field* column(ColumnId cid) const { return _cols[cid]; }
+    const Field* column(ColumnId cid) const { return _cols[cid].get(); }
 
-    Field* mutable_column(ColumnId cid) const { return _cols[cid]; }
+    Field* mutable_column(ColumnId cid) const { return _cols[cid].get(); }
 
     size_t num_key_columns() const { return _num_key_columns; }
     size_t schema_size() const { return _schema_size; }
@@ -196,7 +196,7 @@ private:
     std::vector<int32_t> _unique_ids;
     // NOTE: Both _cols[cid] and _col_offsets[cid] can only be accessed when the cid is
     // contained in _col_ids
-    std::vector<Field*> _cols;
+    std::vector<FieldSPtr> _cols;
     // The value of each item indicates the starting offset of the corresponding column in
     // current row. e.g. _col_offsets[idx] is the offset of _cols[idx] (idx must in _col_ids)
     std::vector<size_t> _col_offsets;
