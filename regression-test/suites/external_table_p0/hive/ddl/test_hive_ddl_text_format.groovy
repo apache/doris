@@ -58,31 +58,32 @@ suite("test_hive_ddl_text_format", "p0,external,hive,external_docker,external_do
         """
         order_qt_default_properties """ select * from text_table_default_properties """
 
-        // sql """ drop table if exists text_table_standard_properties """
-        // sql """
-        // create table text_table_standard_properties (
-        //     id int,
-        //     `name` string,
-        //     tags array<string>,
-        //     attributes map<string, string>
-        // ) PROPERTIES (
-        //     'compression'='plain',
-        //     'file_format'='text',
-        //     'field.delim'='\1',
-        //     'collection.delim'='\2',
-        //     'mapkey.delim'='\3',
-        //     'escape.delim'= '\\',
-        //     'serialization.null.format'='\\N',
-        //     'line.delim'='\n'
-        // );
-        // """
-        // sql """
-        // INSERT INTO text_table_standard_properties VALUES
-        //     (1, 'Alice', array('tag1', 'tag2'), map('key1', 'value1', 'key2', 'value2')),
-        //     (2, 'Bob', array('tagA', 'tagB'), map('keyA', 'valueA', 'keyB', 'valueB')),
-        //     (3, 'Charlie', NULL, map('keyC', 'valueC', 'keyD', 'valueD'));
-        // """
-        // order_qt_standard_properties """ select * from text_table_standard_properties """
+        sql """ drop table if exists text_table_standard_properties """
+        // Escape characters need to be considered in groovy scripts
+        sql """
+        create table text_table_standard_properties (
+            id int,
+            `name` string,
+            tags array<string>,
+            attributes map<string, string>
+        ) PROPERTIES (
+            'compression'='plain',
+            'file_format'='text',
+            'field.delim'='\\1',
+            'line.delim'='\\n',
+            'collection.delim'='\\2',
+            'mapkey.delim'='\\3',
+            'escape.delim'= '\\\\',
+            'serialization.null.format'='\\\\N'
+        );
+        """
+        sql """
+        INSERT INTO text_table_standard_properties VALUES
+            (1, 'Alice', array('tag1', 'tag2'), map('key1', 'value1', 'key2', 'value2')),
+            (2, 'Bob', array('tagA', 'tagB'), map('keyA', 'valueA', 'keyB', 'valueB')),
+            (3, 'Charlie', NULL, map('keyC', 'valueC', 'keyD', 'valueD'));
+        """
+        order_qt_standard_properties """ select * from text_table_standard_properties """
 
         sql """ drop table if exists text_table_different_properties """
         sql """
@@ -94,8 +95,8 @@ suite("test_hive_ddl_text_format", "p0,external,hive,external_docker,external_do
         ) PROPERTIES (
             'compression'='gzip',
             'file_format'='text',
-            'field.delim'='a',
-            'line.delim'='b',
+            'field.delim'='A',
+            'line.delim'='\\4',
             'collection.delim'=',',
             'mapkey.delim'=':',
             'escape.delim'='|',
@@ -117,6 +118,9 @@ suite("test_hive_ddl_text_format", "p0,external,hive,external_docker,external_do
         String filed_delim = "'field.delim'"
         String line_delim = "'line.delim'"
         String mapkey_delim = "'mapkey.delim'"
+        String collection_delim = "'collection.delim'"
+        String escape_delim = "'escape.delim'"
+        String serialization_null_format = "'serialization.null.format'"
 
         def create_tbl_res = sql """ show create table text_table_standard_properties """
         String res = create_tbl_res.toString()
@@ -128,6 +132,9 @@ suite("test_hive_ddl_text_format", "p0,external,hive,external_docker,external_do
         assertTrue(res.containsIgnoreCase("${filed_delim}"))
         assertTrue(res.containsIgnoreCase("${filed_delim}"))
         assertTrue(res.containsIgnoreCase("${line_delim}"))
-        assertTrue(res.containsIgnoreCase("${mapkey_delim}")) 
+        assertTrue(res.containsIgnoreCase("${mapkey_delim}"))
+        assertTrue(res.containsIgnoreCase("${collection_delim}"))
+        assertTrue(res.containsIgnoreCase("${escape_delim}"))
+        assertTrue(res.containsIgnoreCase("${serialization_null_format}"))
     }
 }
