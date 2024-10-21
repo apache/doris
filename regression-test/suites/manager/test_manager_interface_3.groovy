@@ -424,7 +424,7 @@ suite('test_manager_interface_3',"p0") {
                 x ++
             }
         }
-        assertTrue(x == 20)
+        assertTrue(x == 21)
 
         connect(user=user, password="${pwd}", url=url) { 
             result = sql """ show resources """
