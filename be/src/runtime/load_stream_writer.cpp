@@ -201,11 +201,12 @@ Status LoadStreamWriter::add_segment(uint32_t segid, const SegmentStatistics& st
     }
 
     DBUG_EXECUTE_IF("LoadStreamWriter.add_segment.size_not_match", { segment_file_size++; });
-    if (segment_file_size + inverted_file_size != stat.data_size) {
+    if (segment_file_size != stat.data_size || inverted_file_size != stat.index_size) {
         return Status::Corruption(
                 "add_segment failed, segment stat {} does not match, file size={}, inverted file "
-                "size={}, stat.data_size={}, tablet id={}",
-                segid, segment_file_size, inverted_file_size, stat.data_size, _req.tablet_id);
+                "size={}, stat.data_size={}, stat.index_size={}, tablet id={}",
+                segid, segment_file_size, inverted_file_size, stat.data_size, stat.index_size,
+                _req.tablet_id);
     }
 
     return _rowset_writer->add_segment(segid, stat, flush_schema);
