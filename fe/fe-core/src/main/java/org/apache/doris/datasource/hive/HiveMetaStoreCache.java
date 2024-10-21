@@ -744,7 +744,7 @@ public class HiveMetaStoreCache {
     }
 
     public List<FileCacheValue> getFilesByTransaction(List<HivePartition> partitions, ValidWriteIdList validWriteIds,
-            boolean isFullAcid, long tableId, String bindBrokerName) {
+            boolean isFullAcid, boolean skipCheckingAcidVersionFile, long tableId, String bindBrokerName) {
         List<FileCacheValue> fileCacheValues = Lists.newArrayList();
         String remoteUser = jobConf.get(AuthenticationConfig.HADOOP_USER_NAME);
         try {
@@ -778,25 +778,27 @@ public class HiveMetaStoreCache {
                     if (baseOrDeltaPath == null) {
                         return Collections.emptyList();
                     }
-                    String acidVersionPath = new Path(baseOrDeltaPath, "_orc_acid_version").toUri().toString();
-                    RemoteFileSystem fs = Env.getCurrentEnv().getExtMetaCacheMgr().getFsCache().getRemoteFileSystem(
-                            new FileSystemCache.FileSystemCacheKey(
-                                    LocationPath.getFSIdentity(baseOrDeltaPath.toUri().toString(),
-                                            bindBrokerName),
-                                            catalog.getCatalogProperty().getProperties(),
-                                            bindBrokerName, jobConf));
-                    Status status = fs.exists(acidVersionPath);
-                    if (status != Status.OK) {
-                        if (status.getErrCode() == ErrCode.NOT_FOUND) {
-                            acidVersion = 0;
-                        } else {
-                            throw new Exception(String.format("Failed to check remote path {} exists.",
-                                    acidVersionPath));
+                    if (!skipCheckingAcidVersionFile) {
+                        String acidVersionPath = new Path(baseOrDeltaPath, "_orc_acid_version").toUri().toString();
+                        RemoteFileSystem fs = Env.getCurrentEnv().getExtMetaCacheMgr().getFsCache().getRemoteFileSystem(
+                                new FileSystemCache.FileSystemCacheKey(
+                                        LocationPath.getFSIdentity(baseOrDeltaPath.toUri().toString(),
+                                                bindBrokerName),
+                                        catalog.getCatalogProperty().getProperties(),
+                                        bindBrokerName, jobConf));
+                        Status status = fs.exists(acidVersionPath);
+                        if (status != Status.OK) {
+                            if (status.getErrCode() == ErrCode.NOT_FOUND) {
+                                acidVersion = 0;
+                            } else {
+                                throw new Exception(String.format("Failed to check remote path {} exists.",
+                                        acidVersionPath));
+                            }
                         }
-                    }
-                    if (acidVersion == 0 && !directory.getCurrentDirectories().isEmpty()) {
-                        throw new Exception(
-                                "Hive 2.x versioned full-acid tables need to run major compaction.");
+                        if (acidVersion == 0 && !directory.getCurrentDirectories().isEmpty()) {
+                            throw new Exception(
+                                    "Hive 2.x versioned full-acid tables need to run major compaction.");
+                        }
                     }
                 }
 

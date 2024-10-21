@@ -91,6 +91,8 @@ public class HiveScanNode extends FileQueryScanNode {
     private final Semaphore splittersOnFlight = new Semaphore(NUM_SPLITTERS_ON_FLIGHT);
     private final AtomicInteger numSplitsPerPartition = new AtomicInteger(NUM_SPLITS_PER_PARTITION);
 
+    private boolean skipCheckingAcidVersionFile = false;
+
     /**
      * * External file scan node for Query Hive table
      * needCheckColumnPriv: Some of ExternalFileScanNode do not need to check column priv
@@ -118,6 +120,7 @@ public class HiveScanNode extends FileQueryScanNode {
             this.hiveTransaction = new HiveTransaction(DebugUtil.printId(ConnectContext.get().queryId()),
                     ConnectContext.get().getQualifiedUser(), hmsTable, hmsTable.isFullAcidTable());
             Env.getCurrentHiveTransactionMgr().register(hiveTransaction);
+            skipCheckingAcidVersionFile = ConnectContext.get().getSessionVariable().skipCheckingAcidVersionFile;
         }
     }
 
@@ -374,7 +377,7 @@ public class HiveScanNode extends FileQueryScanNode {
         ValidWriteIdList validWriteIds = hiveTransaction.getValidWriteIds(
                 ((HMSExternalCatalog) hmsTable.getCatalog()).getClient());
         return cache.getFilesByTransaction(partitions, validWriteIds,
-            hiveTransaction.isFullAcid(), hmsTable.getId(), bindBrokerName);
+            hiveTransaction.isFullAcid(), skipCheckingAcidVersionFile, hmsTable.getId(), bindBrokerName);
     }
 
     @Override
