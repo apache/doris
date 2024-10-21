@@ -52,13 +52,26 @@ CloudFullCompaction::~CloudFullCompaction() = default;
 
 Status CloudFullCompaction::prepare_compact() {
     if (_tablet->tablet_state() != TABLET_RUNNING) {
-        return Status::InternalError("invalid tablet state. tablet_id={}", _tablet->tablet_id());
+        Status res = Status::InternalError("invalid tablet state. tablet_id={}", _tablet->tablet_id());
+        cloud_tablet()->set_last_full_compaction_failure_time(UnixMillis());
+        cloud_tablet()->set_last_full_compaction_status(res.to_string());
+        return res;
     }
 
     // always sync latest rowset for full compaction
-    RETURN_IF_ERROR(cloud_tablet()->sync_rowsets());
+    Status res = cloud_tablet()->sync_rowsets();
+    cloud_tablet()->set_last_full_compaction_status(res.to_string());
+    if (!res.ok()) {
+        cloud_tablet()->set_last_full_compaction_failure_time(UnixMillis());
+    }
+    RETURN_IF_ERROR(res);
 
-    RETURN_IF_ERROR(pick_rowsets_to_compact());
+    res = pick_rowsets_to_compact();
+    cloud_tablet()->set_last_full_compaction_status(res.to_string());
+    if (!res.ok()) {
+        cloud_tablet()->set_last_full_compaction_failure_time(UnixMillis());
+    }
+    RETURN_IF_ERROR(res);
 
     // prepare compaction job
     cloud::TabletJobInfoPB job;
@@ -84,7 +97,9 @@ Status CloudFullCompaction::prepare_compact() {
     compaction_job->add_input_versions(_input_rowsets.back()->end_version());
     cloud::StartTabletJobResponse resp;
     auto st = _engine.meta_mgr().prepare_tablet_job(job, &resp);
+    cloud_tablet()->set_last_full_compaction_status(st.to_string());
     if (!st.ok()) {
+        cloud_tablet()->set_last_full_compaction_failure_time(UnixMillis());
         if (resp.status().code() == cloud::STALE_TABLET_CACHE) {
             // set last_sync_time to 0 to force sync tablet next time
             cloud_tablet()->last_sync_time_s = 0;
@@ -107,6 +122,7 @@ Status CloudFullCompaction::prepare_compact() {
             .tag("input_rows", _input_row_num)
             .tag("input_segments", _input_segments)
             .tag("input_data_size", _input_rowsets_size);
+    cloud_tablet()->set_last_full_compaction_status(st.to_string());
     return st;
 }
 
@@ -150,7 +166,9 @@ Status CloudFullCompaction::execute_compact() {
     using namespace std::chrono;
     auto start = steady_clock::now();
     auto res = CloudCompactionMixin::execute_compact();
+    cloud_tablet()->set_last_full_compaction_status(res.to_string());
     if (!res.ok()) {
+        cloud_tablet()->set_last_full_compaction_failure_time(UnixMillis());
         LOG(WARNING) << "fail to do " << compaction_name() << ". res=" << res
                      << ", tablet=" << _tablet->tablet_id()
                      << ", output_version=" << _output_version;
@@ -173,6 +191,8 @@ Status CloudFullCompaction::execute_compact() {
     DorisMetrics::instance()->full_compaction_bytes_total->increment(_input_rowsets_size);
     full_output_size << _output_rowset->data_disk_size();
 
+    cloud_tablet()->set_last_full_compaction_success_time(UnixMillis());
+    cloud_tablet()->set_last_full_compaction_status(Status::OK().to_string());
     return Status::OK();
 }
 

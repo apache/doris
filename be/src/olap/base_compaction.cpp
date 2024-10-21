@@ -99,10 +99,10 @@ Status BaseCompaction::execute_compact() {
 
     DCHECK_EQ(_state, CompactionState::SUCCESS);
 
-    tablet()->set_last_base_compaction_success_time(UnixMillis());
     DorisMetrics::instance()->base_compaction_deltas_total->increment(_input_rowsets.size());
     DorisMetrics::instance()->base_compaction_bytes_total->increment(_input_rowsets_size);
 
+    tablet()->set_last_base_compaction_success_time(UnixMillis());
     tablet()->set_last_base_compaction_status(Status::OK().to_string());
     return Status::OK();
 }
