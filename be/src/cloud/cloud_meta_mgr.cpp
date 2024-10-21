@@ -880,6 +880,7 @@ Status CloudMetaMgr::abort_txn(const StreamLoadContext& ctx) {
     AbortTxnRequest req;
     AbortTxnResponse res;
     req.set_cloud_unique_id(config::cloud_unique_id);
+    req.set_reason(std::string(ctx.status.msg().substr(0, 1024)));
     if (ctx.db_id > 0 && !ctx.label.empty()) {
         req.set_db_id(ctx.db_id);
         req.set_label(ctx.label);
