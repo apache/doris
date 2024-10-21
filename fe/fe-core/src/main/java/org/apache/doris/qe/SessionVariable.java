@@ -630,7 +630,7 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String QUERY_SLOT_COUNT = "query_slot_count";
 
-    public static final String ENABLE_QUERY_SLOT_HARD_LIMIT = "enable_query_slot_hard_limit";
+    public static final String ENABLE_MEM_OVERCOMMIT = "enable_mem_overcommit";
 
     public static final String MAX_COLUMN_READER_NUM = "max_column_reader_num";
 
@@ -811,10 +811,10 @@ public class SessionVariable implements Serializable, Writable {
         }
     }
 
-    @VariableMgr.VarAttr(name = ENABLE_QUERY_SLOT_HARD_LIMIT, needForward = true, description = {
-            "是否通过硬限的方式来计算每个Slot的内存资源",
-            "Whether to calculate the memory resources of each Slot by hard limit"})
-    public boolean enableQuerySlotHardLimit = false;
+    @VariableMgr.VarAttr(name = ENABLE_MEM_OVERCOMMIT, needForward = true, description = {
+            "是否通过硬限的方式来计算每个Query的内存资源",
+            "Whether to calculate the memory resources of each query by hard limit"})
+    public boolean enableMemOvercommit = false;
 
     @VariableMgr.VarAttr(name = MAX_COLUMN_READER_NUM)
     public int maxColumnReaderNum = 20000;
@@ -3829,7 +3829,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setHiveOrcUseColumnNames(hiveOrcUseColumnNames);
         tResult.setHiveParquetUseColumnNames(hiveParquetUseColumnNames);
         tResult.setQuerySlotCount(wgQuerySlotCount);
-        tResult.setEnableQuerySlotHardLimit(enableQuerySlotHardLimit);
+        tResult.setEnableMemOvercommit(enableMemOvercommit);
 
         tResult.setKeepCarriageReturn(keepCarriageReturn);
 

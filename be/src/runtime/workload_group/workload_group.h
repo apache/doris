@@ -80,14 +80,18 @@ public:
 
     int64_t total_mem_used() const { return _total_mem_used; }
 
+    int64_t load_mem_used() const { return _load_buffer_size; }
+
+    void enable_load_buffer_limit(bool enable_limit) { _enable_load_buffer_limit = enable_limit; }
+
+    bool enable_load_buffer_limit() const { return _enable_load_buffer_limit; }
+
     void set_weighted_memory_limit(int64_t weighted_memory_limit) {
         _weighted_memory_limit = weighted_memory_limit;
     }
 
     // make memory snapshots and refresh total memory used at the same time.
-    int64_t make_memory_tracker_snapshots(
-            std::list<std::shared_ptr<MemTrackerLimiter>>* tracker_snapshots);
-    // call make_memory_tracker_snapshots, so also refresh total memory used.
+    int64_t refresh_memory_usage();
     int64_t memory_used();
 
     void do_sweep();
@@ -118,20 +122,6 @@ public:
         *is_high_wartermark = (realtime_total_mem_used >
                                ((double)_memory_limit *
                                 _spill_high_watermark.load(std::memory_order_relaxed) / 100));
-    }
-
-    void update_load_mem_usage(int64_t active_bytes, int64_t queue_bytes, int64_t flush_bytes) {
-        std::unique_lock<std::shared_mutex> wlock(_mutex);
-        _active_mem_usage = active_bytes;
-        _queue_mem_usage = queue_bytes;
-        _flush_mem_usage = flush_bytes;
-    }
-
-    void get_load_mem_usage(int64_t* active_bytes, int64_t* queue_bytes, int64_t* flush_bytes) {
-        std::shared_lock<std::shared_mutex> r_lock(_mutex);
-        *active_bytes += _active_mem_usage;
-        *queue_bytes += _queue_mem_usage;
-        *flush_bytes += _flush_mem_usage;
     }
 
     std::string debug_string() const;
@@ -211,11 +201,9 @@ public:
     }
     int64_t get_remote_scan_bytes_per_second();
 
-    int64_t load_buffer_limit() { return _load_buffer_limit; }
+    int64_t load_buffer_limit() { return _memory_limit * _load_buffer_ratio / 100; }
 
-    bool has_changed_to_hard_limit() const { return _has_changed_hard_limit; }
-
-    void change_to_hard_limit(bool to_hard_limit) { _has_changed_hard_limit = to_hard_limit; }
+    int64_t free_overcommited_memory(int64_t need_free_mem, RuntimeProfile* profile);
 
 private:
     mutable std::shared_mutex _mutex; // lock _name, _version, _cpu_share, _memory_limit
@@ -226,19 +214,14 @@ private:
     // For example, load memtable, write to parquet.
     // If the wg's memory reached high water mark, then the load buffer
     // will be restricted to this limit.
-    int64_t _load_buffer_limit;
-    std::atomic<bool> _has_changed_hard_limit = false;
-
-    // memory used by load memtable
-    int64_t _active_mem_usage = 0;
-    int64_t _queue_mem_usage = 0;
-    int64_t _flush_mem_usage = 0;
+    int64_t _load_buffer_ratio = 0;
+    std::atomic<bool> _enable_load_buffer_limit = false;
 
     // `weighted_memory_limit` less than or equal to _memory_limit, calculate after exclude public memory.
     // more detailed description in `refresh_wg_weighted_memory_limit`.
-    std::atomic<int64_t> _weighted_memory_limit {0}; //
-    // last value of make_memory_tracker_snapshots, refresh every time make_memory_tracker_snapshots is called.
+    std::atomic<int64_t> _weighted_memory_limit {0};
     std::atomic_int64_t _total_mem_used = 0; // bytes
+    std::atomic_int64_t _load_buffer_size = 0;
     std::atomic_int64_t _wg_refresh_interval_memory_growth;
     bool _enable_memory_overcommit;
     std::atomic<uint64_t> _cpu_share;
@@ -296,6 +279,7 @@ struct WorkloadGroupInfo {
     const int read_bytes_per_second = -1;
     const int remote_read_bytes_per_second = -1;
     const int total_query_slot_count = 0;
+    const int load_buffer_ratio = 0;
     // log cgroup cpu info
     uint64_t cgroup_cpu_shares = 0;
     int cgroup_cpu_hard_limit = 0;

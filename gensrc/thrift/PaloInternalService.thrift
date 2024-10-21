@@ -352,7 +352,7 @@ struct TQueryOptions {
   // The minimum memory that an operator required to run.
   137: optional i32 minimum_operator_memory_required_kb = 1024;
 
-  138: optional bool enable_query_slot_hard_limit = false;
+  138: optional bool enable_mem_overcommit = false;
   139: optional i32 query_slot_count = 0;
 
   // For cloud, to control if the content would be written into file cache

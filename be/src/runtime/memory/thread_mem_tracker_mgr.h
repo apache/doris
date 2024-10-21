@@ -288,9 +288,9 @@ inline doris::Status ThreadMemTrackerMgr::try_reserve(int64_t size) {
     auto wg_ptr = _wg_wptr.lock();
     // For wg with overcommit, the limit will only task affect when memory > soft limit
     // wg mgr will change wg's hard limit property.
-    if (wg_ptr != nullptr && wg_ptr->enable_memory_overcommit() &&
-        !wg_ptr->has_changed_to_hard_limit()) {
+    if (wg_ptr != nullptr && wg_ptr->enable_memory_overcommit()) {
         // Only do a check here, do not real reserve. If we could reserve it, it is better, but the logic is too complicated.
+        // TODO: implement reserve process memory in the future.
         if (!doris::GlobalMemoryArbitrator::try_reserve_process_memory(size)) {
             return doris::Status::Error<ErrorCode::PROCESS_MEMORY_EXCEEDED>(
                     "reserve memory failed, size: {}, because {}",
@@ -301,6 +301,7 @@ inline doris::Status ThreadMemTrackerMgr::try_reserve(int64_t size) {
             return Status::OK();
         }
     }
+    // TODO: if the query is hard limit, should also reserve query
     if (!_limiter_tracker->try_reserve(size)) {
         auto err_msg = fmt::format(
                 "reserve memory failed, size: {}, because query memory exceeded, memory tracker "

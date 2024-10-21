@@ -257,6 +257,21 @@ void MemTrackerLimiter::clean_tracker_limiter_group() {
 #endif
 }
 
+void MemTrackerLimiter::update_load_buffer_size() {
+    std::lock_guard l(_load_buffer_lock);
+    int64_t total_buf_size = 0;
+    for (auto memtable_tracker = _load_buffers.begin(); memtable_tracker != _load_buffers.end();) {
+        auto m = memtable_tracker->lock();
+        if (m == nullptr) {
+            memtable_tracker = _load_buffers.erase(memtable_tracker);
+        } else {
+            total_buf_size += m->consumption();
+            ++memtable_tracker;
+        }
+    }
+    _load_buffer_size = total_buf_size;
+}
+
 void MemTrackerLimiter::make_type_trackers_profile(RuntimeProfile* profile,
                                                    MemTrackerLimiter::Type type) {
     if (type == Type::GLOBAL) {
