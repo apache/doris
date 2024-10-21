@@ -454,6 +454,7 @@ void convert_from_decimals(RealTo* dst, const RealFrom* src, UInt32 precicion_fr
                            const typename ToDataType::FieldType& max_result, size_t size) {
     using FromFieldType = typename FromDataType::FieldType;
     using ToFieldType = typename ToDataType::FieldType;
+    using OrigToFieldType = typename OrigToDataType::FieldType;
     using MaxFieldType = std::conditional_t<(sizeof(FromFieldType) > sizeof(ToFieldType)),
                                             FromFieldType, ToFieldType>;
 
@@ -462,7 +463,9 @@ void convert_from_decimals(RealTo* dst, const RealFrom* src, UInt32 precicion_fr
     FromDataType from_data_type(precicion_from, scale_from);
     for (size_t i = 0; i < size; i++) {
         auto tmp = static_cast<MaxFieldType>(src[i]).value / multiplier.value;
-        if constexpr (narrow_integral) {
+        if constexpr (std::is_same_v<uint8_t, OrigToFieldType>) {
+            tmp = static_cast<bool>(tmp);
+        } else if constexpr (narrow_integral) {
             if (tmp < min_result.value || tmp > max_result.value) {
                 THROW_DECIMAL_CONVERT_OVERFLOW_EXCEPTION(from_data_type.to_string(src[i]),
                                                          from_data_type.get_name(),
