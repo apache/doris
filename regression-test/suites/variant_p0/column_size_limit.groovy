@@ -30,8 +30,8 @@ suite("regression_test_variant_column_limit"){
     """
     def jsonBuilder = new JsonBuilder()
     def root = jsonBuilder {
-        // Generate 2049 fields
-        (1..2049).each { fieldNumber ->
+        // Generate 4097 fields
+        (1..4097).each { fieldNumber ->
             "field$fieldNumber" fieldNumber
         }
     }
