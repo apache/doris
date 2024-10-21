@@ -20,7 +20,8 @@
 #include "process_hash_table_probe_impl.h"
 
 namespace doris::pipeline {
+#include "common/compile_check_begin.h"
 
 INSTANTIATION_FOR(TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN);
 
-}
+} // namespace doris::pipeline

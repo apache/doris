@@ -28,6 +28,7 @@
 #include "vec/runtime/partitioner.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class RuntimeState;
 
 namespace pipeline {
@@ -60,7 +61,7 @@ protected:
 
     friend class PartitionedHashJoinSinkOperatorX;
 
-    std::atomic_int _spilling_streams_count {0};
+    std::atomic_int64_t _spilling_streams_count {0};
     std::atomic<bool> _spill_status_ok {true};
     std::mutex _spill_lock;
 
@@ -153,3 +154,4 @@ private:
 
 } // namespace pipeline
 } // namespace doris
+#include "common/compile_check_end.h"
