@@ -171,10 +171,7 @@ Finland	Phone	11
 2002	Finland
 
 -- !select_27 --
-2001	India	2
-2001	USA	3
-2002	Finland	4
-2002	USA	5
+2002	Finland	2
 
 -- !select_28 --
 2001	India	1350
@@ -182,19 +179,13 @@ Finland	Phone	11
 2002	USA	3000
 
 -- !select_29 --
-2002	USA
-2001	USA
-2001	India
-2001	Finland
+2002	Finland
 
 -- !select_30 --
 2001	Finland	1
 
 -- !select_31 --
-2001	India
 2001	USA
-2002	Finland
-2002	USA
 
 -- !select_32 --
 2000	India
