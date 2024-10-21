@@ -65,6 +65,8 @@ suite("test_hive_ddl_text_format", "p0,external,hive,external_docker,external_do
             """
             order_qt_default_properties """ select * from text_table_default_properties """
 
+            order_qt_hive_docker_default_properties""" select * from text_table_default_properties """
+
             sql """ drop table if exists text_table_standard_properties """
             // Escape characters need to be considered in groovy scripts
             sql """
@@ -91,6 +93,7 @@ suite("test_hive_ddl_text_format", "p0,external,hive,external_docker,external_do
                 (3, 'Charlie', NULL, map('keyC', 'valueC', 'keyD', 'valueD'));
             """
             order_qt_standard_properties """ select * from text_table_standard_properties """
+            order_qt_hive_docker_standard_properties """ select * from text_table_standard_properties order by id; """
 
             sql """ drop table if exists text_table_different_properties """
             sql """
@@ -117,6 +120,7 @@ suite("test_hive_ddl_text_format", "p0,external,hive,external_docker,external_do
                 (3, 'Charlie', NULL, map('keyC', 'valueC', 'keyD', 'valueD'));
             """
             order_qt_different_properties """ select * from text_table_different_properties """
+            order_qt_hive_docker_different_properties """ select * from text_table_different_properties order by id; """
 
             String serde = "'org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe'"
             String input_format = "'org.apache.hadoop.mapred.TextInputFormat'"
