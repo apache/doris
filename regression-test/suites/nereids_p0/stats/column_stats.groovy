@@ -112,8 +112,10 @@ suite("column_stats") {
 
     // test invalid col stats => disable join reorder
     qt_order "explain shape plan select * from region join nation on r_regionkey=n_regionkey"
-
-    sql "alter table region modify column r_regionkey set stats ('ndv'='0', 'num_nulls'='0', 'min_value'='0', 'max_value'='4', 'row_count'='0');"
+    sql """
+       set ignore_shape_nodes='PhysicalDistribute';
+       alter table region modify column r_regionkey set stats ('ndv'='0', 'num_nulls'='0', 'min_value'='0', 'max_value'='4', 'row_count'='0');
+       """
     
     qt_disable_order "explain shape plan select * from region join nation on r_regionkey=n_regionkey"
 }
