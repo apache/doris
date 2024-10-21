@@ -31,6 +31,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.HiveTable;
 import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionItem;
@@ -77,6 +78,7 @@ import java.util.Set;
 
 // 1. create etl job config and write it into jobconfig.json file
 // 2. submit spark etl job
+@Deprecated
 public class SparkLoadPendingTask extends LoadTask {
     private static final Logger LOG = LogManager.getLogger(SparkLoadPendingTask.class);
 
@@ -245,7 +247,9 @@ public class SparkLoadPendingTask extends LoadTask {
 
         for (Map.Entry<Long, List<Column>> entry : table.getIndexIdToSchema().entrySet()) {
             long indexId = entry.getKey();
-            int schemaHash = table.getSchemaHashByIndexId(indexId);
+            MaterializedIndexMeta indexMeta = table.getIndexMetaByIndexId(indexId);
+            int schemaHash = indexMeta.getSchemaHash();
+            int schemaVersion = indexMeta.getSchemaVersion();
 
             boolean changeAggType = table.getKeysTypeByIndexId(indexId).equals(KeysType.UNIQUE_KEYS)
                     && table.getTableProperty().getEnableUniqueKeyMergeOnWrite();
@@ -287,7 +291,7 @@ public class SparkLoadPendingTask extends LoadTask {
             // is base index
             boolean isBaseIndex = indexId == table.getBaseIndexId() ? true : false;
 
-            etlIndexes.add(new EtlIndex(indexId, etlColumns, schemaHash, indexType, isBaseIndex));
+            etlIndexes.add(new EtlIndex(indexId, etlColumns, schemaHash, indexType, isBaseIndex, schemaVersion));
         }
 
         return etlIndexes;
