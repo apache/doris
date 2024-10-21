@@ -34,6 +34,7 @@ namespace doris {
 class DataDir;
 class MemTable;
 class RowsetWriter;
+class WorkloadGroup;
 
 // the statistic of a certain flush handler.
 // use atomic because it may be updated by multi threads
@@ -59,7 +60,8 @@ class FlushToken : public std::enable_shared_from_this<FlushToken> {
     ENABLE_FACTORY_CREATOR(FlushToken);
 
 public:
-    FlushToken(ThreadPool* thread_pool) : _flush_status(Status::OK()), _thread_pool(thread_pool) {}
+    FlushToken(ThreadPool* thread_pool, std::shared_ptr<WorkloadGroup> wg_sptr)
+            : _flush_status(Status::OK()), _thread_pool(thread_pool), _wg_wptr(wg_sptr) {}
 
     Status submit(std::shared_ptr<MemTable> mem_table);
 
@@ -83,6 +85,8 @@ private:
     void _shutdown_flush_token() { _shutdown.store(true); }
     bool _is_shutdown() { return _shutdown.load(); }
     void _wait_running_task_finish();
+
+    std::shared_ptr<WorkloadGroup> workload_group_sptr();
 
 private:
     friend class MemtableFlushTask;
@@ -108,6 +112,8 @@ private:
 
     std::mutex _mutex;
     std::condition_variable _cond;
+
+    std::weak_ptr<WorkloadGroup> _wg_wptr;
 };
 
 // MemTableFlushExecutor is responsible for flushing memtables to disk.
@@ -133,11 +139,8 @@ public:
     void init(int num_disk);
 
     Status create_flush_token(std::shared_ptr<FlushToken>& flush_token,
-                              std::shared_ptr<RowsetWriter> rowset_writer, bool is_high_priority);
-
-    Status create_flush_token(std::shared_ptr<FlushToken>& flush_token,
-                              std::shared_ptr<RowsetWriter> rowset_writer,
-                              ThreadPool* wg_flush_pool_ptr);
+                              std::shared_ptr<RowsetWriter> rowset_writer, bool is_high_priority,
+                              std::shared_ptr<WorkloadGroup> wg_sptr);
 
 private:
     void _register_metrics();

@@ -198,6 +198,17 @@ public:
     }
     int64_t get_remote_scan_bytes_per_second();
 
+    CgroupCpuCtl* get_cgroup_cpu_ctl_ptr() {
+        std::shared_lock<std::shared_mutex> rlock(_task_sched_lock);
+        return _cgroup_cpu_ctl.get();
+    }
+
+    ThreadPool* get_memtable_flush_pool_ptr() {
+        // no lock here because this is called by memtable flush,
+        // to avoid lock competition with the workload thread pool's update
+        return _memtable_flush_pool.get();
+    }
+
 private:
     mutable std::shared_mutex _mutex; // lock _name, _version, _cpu_share, _memory_limit
     const uint64_t _id;
