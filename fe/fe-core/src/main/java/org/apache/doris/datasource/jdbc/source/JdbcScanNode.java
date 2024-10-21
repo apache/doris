@@ -139,11 +139,6 @@ public class JdbcScanNode extends ExternalScanNode {
     private List<Expr> collectConjunctsToPushDown(List<Expr> conjunctsList, List<String> errors) {
         List<Expr> pushDownConjuncts = new ArrayList<>();
         for (Expr p : conjunctsList) {
-            if (ConnectContext.get() != null && !ConnectContext.get().getSessionVariable().jdbcCastExprPushdown) {
-                if (containsCastExpr(p)) {
-                    continue;
-                }
-            }
             if (shouldPushDownConjunct(jdbcType, p)) {
                 List<Expr> individualConjuncts = p.getConjuncts();
                 for (Expr individualConjunct : individualConjuncts) {
@@ -314,11 +309,20 @@ public class JdbcScanNode extends ExternalScanNode {
     private static boolean shouldPushDownConjunct(TOdbcTableType tableType, Expr expr) {
         // Prevent pushing down expressions with NullLiteral to Oracle
         if (ConnectContext.get() != null
-                && !ConnectContext.get().getSessionVariable().jdbcOracleNullPredicatePushdown
+                && !ConnectContext.get().getSessionVariable().enableJdbcOracleNullPredicatePushDown
                 && containsNullLiteral(expr)
                 && tableType.equals(TOdbcTableType.ORACLE)) {
             return false;
         }
+
+        // Prevent pushing down cast expressions if ConnectContext is null or cast pushdown is disabled
+        if (ConnectContext.get() == null || !ConnectContext.get()
+                .getSessionVariable().enableJdbcCastPredicatePushDown) {
+            if (containsCastExpr(expr)) {
+                return false;
+            }
+        }
+
         if (containsFunctionCallExpr(expr)) {
             if (tableType.equals(TOdbcTableType.MYSQL) || tableType.equals(TOdbcTableType.CLICKHOUSE)
                     || tableType.equals(TOdbcTableType.ORACLE)) {

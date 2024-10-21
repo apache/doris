@@ -93,7 +93,7 @@ suite("test_jdbc_catalog_push_cast", "p0,external,mysql,external_docker,external
             contains("QUERY: SELECT `id`, `int_c`, `date_c`, `datetime_c` FROM `doris_test`.`test_cast` WHERE ((`id` = 1))")
         }
 
-        sql "set jdbc_cast_expr_pushdown = true;"
+        sql "set enable_jdbc_cast_predicate_push_down = true;"
 
         explain {
             sql("select * from test_cast where cast(datetime_c as datetime) = cast('2022-01-01 00:00:01' as datetime);")
