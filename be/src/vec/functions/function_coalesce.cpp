@@ -88,7 +88,7 @@ public:
                     {nullptr, make_nullable(result_type), ""}};
             func_is_not_null = SimpleFunctionFactory::instance().get_function(
                     "is_not_null_pred", is_not_null_col, std::make_shared<DataTypeUInt8>(),
-                    context->state()->enable_decimal256());
+                    {.enable_decimal256 = context->state()->enable_decimal256()});
         }
         DCHECK_GE(arguments.size(), 1);
         DataTypePtr result_type = block.get_by_position(result).type;

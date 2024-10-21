@@ -83,7 +83,8 @@ Status VMatchPredicate::prepare(RuntimeState* state, const RowDescriptor& desc,
     }
 
     _function = SimpleFunctionFactory::instance().get_function(
-            _fn.name.function_name, argument_template, _data_type, state->enable_decimal256());
+            _fn.name.function_name, argument_template, _data_type,
+            {.enable_decimal256 = state->enable_decimal256()});
     if (_function == nullptr) {
         std::string type_str;
         for (auto arg : argument_template) {

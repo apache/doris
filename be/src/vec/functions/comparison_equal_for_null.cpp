@@ -183,7 +183,7 @@ public:
 
             auto func_eq = SimpleFunctionFactory::instance().get_function(
                     "eq", eq_columns, return_type,
-                    context ? context->state()->enable_decimal256() : false);
+                    {.enable_decimal256 = context ? context->state()->enable_decimal256() : false});
             DCHECK(func_eq) << fmt::format("Left type {} right type {} return type {}",
                                            col_left.type->get_name(), col_right.type->get_name(),
                                            return_type->get_name());
@@ -223,7 +223,7 @@ public:
                     ColumnWithTypeAndName {col_right.column, col_right.type, ""}};
             auto func_eq = SimpleFunctionFactory::instance().get_function(
                     "eq", eq_columns, return_type,
-                    context ? context->state()->enable_decimal256() : false);
+                    {.enable_decimal256 = context ? context->state()->enable_decimal256() : false});
             DCHECK(func_eq);
 
             Block temporary_block(eq_columns);
