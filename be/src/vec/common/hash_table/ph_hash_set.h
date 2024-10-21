@@ -17,10 +17,7 @@
 
 #pragma once
 
-#include <parallel_hashmap/phmap.h>
-
 #include <boost/noncopyable.hpp>
-#include <span>
 
 #include "vec/common/hash_table/hash.h"
 #include "vec/common/hash_table/phmap_fwd_decl.h"
