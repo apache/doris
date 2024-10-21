@@ -319,6 +319,7 @@ public:
     int32_t connection_pool_max_wait_time() const { return _connection_pool_max_wait_time; }
     int32_t connection_pool_max_life_time() const { return _connection_pool_max_life_time; }
     bool connection_pool_keep_alive() const { return _connection_pool_keep_alive; }
+    bool enable_connection_pool() const { return _enable_connection_pool; }
 
 private:
     int64_t _jdbc_catalog_id;
@@ -335,6 +336,7 @@ private:
     int32_t _connection_pool_max_wait_time;
     int32_t _connection_pool_max_life_time;
     bool _connection_pool_keep_alive;
+    bool _enable_connection_pool;
 };
 
 class TupleDescriptor {
