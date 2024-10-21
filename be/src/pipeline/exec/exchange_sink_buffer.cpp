@@ -232,9 +232,12 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
         return Status::OK();
     }
 
-    if (!q.empty()) {
+    bool is_empty = true;
+
+    while (!q.empty()) {
         // If we have data to shuffle which is not broadcasted
         auto& request = q.front();
+        is_empty = false;
         auto& brpc_request = _instance_to_request[id];
         brpc_request->set_eos(request.eos);
         brpc_request->set_packet_seq(_instance_to_seq[id]++);
@@ -302,7 +305,10 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
                 dep->set_ready();
             }
         }
-    } else if (!broadcast_q.empty()) {
+    }
+
+    while (!broadcast_q.empty()) {
+        is_empty = false;
         // If we have data to shuffle which is broadcasted
         auto& request = broadcast_q.front();
         auto& brpc_request = _instance_to_request[id];
@@ -364,10 +370,10 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
             static_cast<void>(brpc_request->release_block());
         }
         broadcast_q.pop();
-    } else {
+    }
+    if (is_empty) {
         _turn_off_channel(id);
     }
-
     return Status::OK();
 }
 

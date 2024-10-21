@@ -221,6 +221,7 @@ Status Channel<Parent>::send_local_block(Block* block, bool can_be_moved) {
     }
 }
 
+template <typename Parent>
 Status Channel<Parent>::close_wait(RuntimeState* state) {
     if (_need_close) {
         Status st = _wait_last_brpc();
