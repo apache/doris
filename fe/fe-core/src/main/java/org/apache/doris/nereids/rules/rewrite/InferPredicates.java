@@ -62,9 +62,9 @@ import java.util.Set;
  * </pre>
  */
 public class InferPredicates extends DefaultPlanRewriter<JobContext> implements CustomRewriter {
-    private final PullUpPredicates pullUpPredicates = new PullUpPredicates(false);
+    private PullUpPredicates pullUpPredicates;
     // The role of pullUpAllPredicates is to prevent inference of redundant predicates
-    private final PullUpPredicates pullUpAllPredicates = new PullUpPredicates(true);
+    private PullUpPredicates pullUpAllPredicates;
 
     @Override
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
@@ -73,6 +73,8 @@ public class InferPredicates extends DefaultPlanRewriter<JobContext> implements 
         if (connectContext != null && connectContext.getCommand() == MysqlCommand.COM_STMT_PREPARE) {
             return plan;
         }
+        pullUpPredicates = new PullUpPredicates(false, jobContext.getCascadesContext());
+        pullUpAllPredicates = new PullUpPredicates(true, jobContext.getCascadesContext());
         return plan.accept(this, jobContext);
     }
 
