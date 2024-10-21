@@ -47,6 +47,7 @@ import org.apache.doris.nereids.types.DecimalV3Type;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -659,5 +660,48 @@ public class NereidsParserTest extends ParserTestBase {
         NereidsParser nereidsParser = new NereidsParser();
         String sql = "create role a comment 'create user'";
         nereidsParser.parseSingle(sql);
+    }
+
+    @Test
+    public void testQualify() {
+        NereidsParser nereidsParser = new NereidsParser();
+
+        List<String> sqls = new ArrayList<>();
+        sqls.add("select year, country, profit, row_number() over (order by year) as rk from (select * from sales) a where year >= 2000 qualify rk > 1");
+        sqls.add("select year, country, profit from (select * from sales) a where year >= 2000 qualify row_number() over (order by year) > 1");
+        sqls.add("select year, country, profit from (select * from sales) a where year >= 2000 qualify rank() over (order by year) > 1");
+        sqls.add("select year, country, profit from (select * from sales) a where year >= 2000 qualify dense_rank() over (order by year) > 1");
+
+        sqls.add("select country, sum(profit) as total, row_number() over (order by country) as rk from sales where year >= 2000 group by country having sum(profit) > 100 qualify rk = 1");
+        sqls.add("select country, sum(profit) as total from sales where year >= 2000 group by country having sum(profit) > 100 qualify row_number() over (order by country) = 1");
+        sqls.add("select country, sum(profit) as total from sales where year >= 2000 group by country having sum(profit) > 100 qualify rank() over (order by country) = 1");
+        sqls.add("select country, sum(profit) as total from sales where year >= 2000 group by country having sum(profit) > 100 qualify dense_rank() over (order by country) = 1");
+
+        sqls.add("select country, sum(profit) as total, row_number() over (order by country) as rk from sales where year >= 2000 group by country qualify rk = 1");
+        sqls.add("select country, sum(profit) as total from sales where year >= 2000 group by country qualify row_number() over (order by country) = 1");
+        sqls.add("select country, sum(profit) as total from sales where year >= 2000 group by country qualify rank() over (order by country) = 1");
+        sqls.add("select country, sum(profit) as total from sales where year >= 2000 group by country qualify dense_rank() over (order by country) = 1");
+
+        sqls.add("select year, country, product, profit, row_number() over (partition by year, country order by profit desc) as rk from sales where year >= 2000 qualify rk = 1 order by profit");
+        sqls.add("select year, country, product, profit from sales where year >= 2000 qualify row_number() over (partition by year, country order by profit desc) = 1 order by profit");
+        sqls.add("select year, country, product, profit from sales where year >= 2000 qualify rank() over (partition by year, country order by profit desc) = 1 order by profit");
+        sqls.add("select year, country, product, profit from sales where year >= 2000 qualify dense_rank() over (partition by year, country order by profit desc) = 1 order by profit");
+
+        sqls.add("select year, country, profit, row_number() over (partition by year, country order by profit desc) as rk from (select * from sales) a where year >= 2000 having profit > 200 qualify rk = 1");
+        sqls.add("select year, country, profit from (select * from sales) a where year >= 2000 having profit > 200 qualify row_number() over (partition by year, country order by profit desc) = 1");
+        sqls.add("select year, country, profit from (select * from sales) a where year >= 2000 having profit > 200 qualify rank() over (partition by year, country order by profit desc) = 1");
+        sqls.add("select year, country, profit from (select * from sales) a where year >= 2000 having profit > 200 qualify dense_rank() over (partition by year, country order by profit desc) = 1");
+
+        sqls.add("select distinct year, row_number() over (order by year) as rk from sales group by year qualify rk = 1");
+        sqls.add("select distinct year from sales group by year qualify row_number() over (order by year) = 1");
+        sqls.add("select distinct year from sales group by year qualify rank() over (order by year) = 1");
+        sqls.add("select distinct year from sales group by year qualify dense_rank() over (order by year) = 1");
+
+        sqls.add("select year, country, profit from (select year, country, profit from (select year, country, profit, row_number() over (partition by year, country order by profit desc) as rk from (select * from sales) a where year >= 2000 having profit > 200) t where rk = 1) a where year >= 2000 qualify row_number() over (order by profit) = 1");
+        sqls.add("select year, country, profit from (select year, country, profit from (select * from sales) a where year >= 2000 having profit > 200 qualify row_number() over (partition by year, country order by profit desc) = 1) a qualify row_number() over (order by profit) = 1");
+
+        for (String sql : sqls) {
+            nereidsParser.parseSingle(sql);
+        }
     }
 }
