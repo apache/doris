@@ -119,9 +119,23 @@ public class Daemon extends Thread {
             }
 
             try {
-                Thread.sleep(intervalMs);
+                long oldInterval = intervalMs;
+                long remainingInterval = oldInterval;
+                while (remainingInterval > 5000L) {
+                    // if it changed. let it know at most 10 seconds. and 5 second per wakeup is acceptable.
+                    if (intervalMs != oldInterval) { // changed
+                        break;
+                    }
+
+                    Thread.sleep(5000L);
+                    remainingInterval -= 5000L;
+                }
+                if (remainingInterval <= 5000L) {
+                    Thread.sleep(remainingInterval);
+                }
             } catch (InterruptedException e) {
-                LOG.info("InterruptedException: ", e);
+                // the daemon thread should NOT be interrupted. or meet bdbje writing, it will be disaster.
+                LOG.warn("InterruptedException: ", e);
             }
         }
 
