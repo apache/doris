@@ -135,6 +135,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Cos;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Cosh;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CosineDistance;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CountEqual;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.CountSubstring;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Crc32;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateMap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateNamedStruct;
@@ -944,6 +945,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitCountEqual(CountEqual countequal, C context) {
         return visitScalarFunction(countequal, context);
+    }
+
+    default R visitCountSubstring(CountSubstring countSubstring, C context) {
+        return visitScalarFunction(countSubstring, context);
     }
 
     default R visitCurrentCatalog(CurrentCatalog currentCatalog, C context) {
