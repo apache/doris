@@ -863,6 +863,9 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         if (rowCount == -1) {
             rowCount = 1;
         }
+        if (FeConstants.runningUnitTest && rowCount == 0) {
+            rowCount = 1;
+        }
         boolean hasUnknownCol = false;
         long idxId = -1;
         if (catalogRelation instanceof OlapScan) {
