@@ -29,7 +29,7 @@ namespace doris {
 class RuntimeState;
 
 namespace pipeline {
-
+#include "common/compile_check_begin.h"
 Status CacheSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
     SCOPED_TIMER(exec_time_counter());
