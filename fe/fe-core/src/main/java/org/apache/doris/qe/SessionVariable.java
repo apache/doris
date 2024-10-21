@@ -470,11 +470,11 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_ORC_LAZY_MAT = "enable_orc_lazy_materialization";
 
-    public static final String ORC_TINY_STRIPE_THRESHOLD = "orc_tiny_stripe_threshold";
+    public static final String ORC_TINY_STRIPE_THRESHOLD_BYTES = "orc_tiny_stripe_threshold_bytes";
 
-    public static final String ORC_ONCE_MAX_READ_SIZE = "orc_once_max_read_size";
+    public static final String ORC_ONCE_MAX_READ_BYTES = "orc_once_max_read_bytes";
 
-    public static final String ORC_MAX_MERGE_DISTANCE = "orc_max_merge_distance";
+    public static final String ORC_MAX_MERGE_DISTANCE_BYTES = "orc_max_merge_distance_bytes";
 
     public static final String ENABLE_PARQUET_FILTER_BY_MIN_MAX = "enable_parquet_filter_by_min_max";
 
@@ -1726,7 +1726,7 @@ public class SessionVariable implements Serializable, Writable {
 
 
     @VariableMgr.VarAttr(
-            name = ORC_TINY_STRIPE_THRESHOLD,
+            name = ORC_TINY_STRIPE_THRESHOLD_BYTES,
             description = {"在orc文件中如果一个stripe的字节大小小于`orc_tiny_stripe_threshold`,"
                     + "我们认为该stripe为 tiny stripe。对于多个连续的tiny stripe我们会进行读取优化，即一次性读多个tiny stripe."
                     + "如果你不想使用该优化，可以将该值设置为0。默认为 8M。",
@@ -1736,12 +1736,12 @@ public class SessionVariable implements Serializable, Writable {
                             + "If you do not want to use this optimization, you can set this value to 0."
                             + "The default is 8M."},
             needForward = true,
-            setter = "setOrcTinyStripeThreshold")
-    public long orcTinyStripeThreshold  = 8L * 1024L * 1024L;
+            setter = "setOrcTinyStripeThresholdBytes")
+    public long orcTinyStripeThresholdBytes  = 8L * 1024L * 1024L;
 
 
     @VariableMgr.VarAttr(
-            name = ORC_ONCE_MAX_READ_SIZE,
+            name = ORC_ONCE_MAX_READ_BYTES,
             description = {"在使用tiny stripe读取优化的时候，会对多个tiny stripe合并成一次IO，"
                     + "该参数用来控制每次IO请求的最大字节大小。你不应该将值设置的小于`orc_tiny_stripe_threshold`。默认为 8M。",
                     "When using tiny stripe read optimization, multiple tiny stripes will be merged into one IO."
@@ -1749,20 +1749,20 @@ public class SessionVariable implements Serializable, Writable {
                             + "You should not set the value less than `orc_tiny_stripe_threshold`."
                             + "The default is 8M."},
             needForward = true,
-            setter = "setOrcOnceMaxReadSize")
-    public long orcOnceMaxReadSize = 8L * 1024L * 1024L;
+            setter = "setOrcOnceMaxReadBytes")
+    public long orcOnceMaxReadBytes = 8L * 1024L * 1024L;
 
 
     @VariableMgr.VarAttr(
-            name = ORC_MAX_MERGE_DISTANCE,
+            name = ORC_MAX_MERGE_DISTANCE_BYTES,
             description = {"在使用tiny stripe读取优化的时候，由于tiny stripe并不一定连续。"
                     + "当两个tiny stripe之间距离大于该参数时，我们不会将其合并成一次IO。默认为 1M。",
                     "When using tiny stripe read optimization, since tiny stripes are not necessarily continuous,"
                             + "when the distance between two tiny stripes is greater than this parameter,"
                             + "we will not merge them into one IO. The default value is 1M."},
             needForward = true,
-            setter = "setOrcMaxMergeDistance")
-    public long orcMaxMergeDistance = 1024L * 1024L;
+            setter = "setOrcMaxMergeDistanceBytes")
+    public long orcMaxMergeDistanceBytes = 1024L * 1024L;
 
 
     @VariableMgr.VarAttr(
@@ -2845,19 +2845,19 @@ public class SessionVariable implements Serializable, Writable {
         this.parallelExecInstanceNum = val;
     }
 
-    public void setOrcTinyStripeThreshold(String value) throws Exception {
-        long val = checkFieldLongValue(ORC_TINY_STRIPE_THRESHOLD, 0, value);
-        this.orcTinyStripeThreshold = val;
+    public void setOrcTinyStripeThresholdBytes(String value) throws Exception {
+        long val = checkFieldLongValue(ORC_TINY_STRIPE_THRESHOLD_BYTES, 0, value);
+        this.orcTinyStripeThresholdBytes = val;
     }
 
-    public void setOrcOnceMaxReadSize(String value)  throws Exception {
-        long val = checkFieldLongValue(ORC_ONCE_MAX_READ_SIZE, 0, value);
-        this.orcOnceMaxReadSize = val;
+    public void setOrcOnceMaxReadBytes(String value)  throws Exception {
+        long val = checkFieldLongValue(ORC_ONCE_MAX_READ_BYTES, 0, value);
+        this.orcOnceMaxReadBytes = val;
     }
 
-    public void setOrcMaxMergeDistance(String value)  throws Exception {
-        long val = checkFieldLongValue(ORC_MAX_MERGE_DISTANCE, 0, value);
-        this.orcMaxMergeDistance = val;
+    public void setOrcMaxMergeDistanceBytes(String value)  throws Exception {
+        long val = checkFieldLongValue(ORC_MAX_MERGE_DISTANCE_BYTES, 0, value);
+        this.orcMaxMergeDistanceBytes = val;
     }
 
     private long checkFieldLongValue(String variableName, long minValue, String value) throws Exception {
@@ -3940,9 +3940,9 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setEnablePhraseQuerySequentialOpt(enablePhraseQuerySequentialOpt);
         tResult.setEnableAutoCreateWhenOverwrite(enableAutoCreateWhenOverwrite);
 
-        tResult.setOrcTinyStripeThreshold(orcTinyStripeThreshold);
-        tResult.setOrcMaxMergeDistance(orcMaxMergeDistance);
-        tResult.setOrcOnceMaxReadSize(orcOnceMaxReadSize);
+        tResult.setOrcTinyStripeThresholdBytes(orcTinyStripeThresholdBytes);
+        tResult.setOrcMaxMergeDistanceBytes(orcMaxMergeDistanceBytes);
+        tResult.setOrcOnceMaxReadBytes(orcOnceMaxReadBytes);
 
         return tResult;
     }

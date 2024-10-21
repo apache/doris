@@ -870,12 +870,12 @@ Result<io::FileReaderSPtr> DelegateReader::create_file_reader(
             });
 }
 
-Status LinearProbeRangeFinder::get_range_for(int64_t desiredOffset,
+Status LinearProbeRangeFinder::get_range_for(int64_t desired_offset,
                                              io::PrefetchRange& result_range) {
     while (index < _ranges.size()) {
         io::PrefetchRange& range = _ranges[index];
-        if (range.end_offset > desiredOffset) {
-            if (range.start_offset > desiredOffset) [[unlikely]] {
+        if (range.end_offset > desired_offset) {
+            if (range.start_offset > desired_offset) [[unlikely]] {
                 return Status::InvalidArgument("Invalid desiredOffset");
             }
             result_range = range;
@@ -944,7 +944,7 @@ Status RangeCacheFileReader::read_at_impl(size_t offset, Slice result, size_t* b
         }
 
         int64_t buffer_offset = offset - _current_start_offset;
-        memcpy(result.data, _cache.get() + buffer_offset, request_size); //todo inline.
+        memcpy(result.data, _cache.get() + buffer_offset, request_size);
         *bytes_read = request_size;
 
         return Status::OK();
@@ -953,6 +953,7 @@ Status RangeCacheFileReader::read_at_impl(size_t offset, Slice result, size_t* b
                                      offset);
         //                RETURN_IF_ERROR(_inner_reader->read_at(offset, result , bytes_read, io_ctx));
         //                return Status::OK();
+        // think return error is ok,otherwise it will cover up the error.
     }
 }
 
