@@ -187,12 +187,6 @@ public class PrepareStmt extends StatementBase {
                 // will be reanalyzed
                 selectStmt.reset();
             }
-            // use session var to decide whether to use full prepared or let user client handle to do fail over
-            if (preparedType != PreparedType.FULL_PREPARED
-                    && !ConnectContext.get().getSessionVariable().enableServeSidePreparedStatement) {
-                throw new UserException("Failed to prepare statement"
-                                + "try to set enable_server_side_prepared_statement = true");
-            }
         } else if (inner instanceof NativeInsertStmt) {
             LabelName label = ((NativeInsertStmt) inner).getLoadLabel();
             if (label == null || Strings.isNullOrEmpty(label.getLabelName())) {
@@ -201,6 +195,12 @@ public class PrepareStmt extends StatementBase {
             } else {
                 throw new UserException("Only support prepare InsertStmt without label now");
             }
+        }
+        // use session var to decide whether to use full prepared or let user client handle to do fail over
+        if (preparedType != PreparedType.FULL_PREPARED
+                && !ConnectContext.get().getSessionVariable().enableServeSidePreparedStatement) {
+            throw new UserException("Failed to prepare statement"
+                            + " try to set enable_server_side_prepared_statement = true");
         }
         preparedType = PreparedType.STATEMENT;
         LOG.debug("using STATEMENT prepared");

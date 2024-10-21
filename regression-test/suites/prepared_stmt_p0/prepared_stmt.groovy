@@ -246,5 +246,9 @@ suite("test_prepared_stmt", "nonConcurrent") {
         result = stmt_read.execute()
         logger.info("connection_id: ${result}")
         // qe_select16 stmt_read
+
+        sql """set enable_server_side_prepared_statement = false"""
+        def stmt_insert = prepareStatement "insert into mytable1 values(?, ?, ?, ?)"  
+        assertEquals(stmt_insert.class, com.mysql.cj.jdbc.ClientPreparedStatement);
     }
 }
