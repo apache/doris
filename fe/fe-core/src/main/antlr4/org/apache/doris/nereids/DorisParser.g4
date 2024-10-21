@@ -166,10 +166,26 @@ supportedCreateStatement
         properties=propertyClause?
         (BROKER extProperties=propertyClause)?
         (AS query)?                                                       #createTable
+    | CREATE (TEMPORARY)? TABLE (IF NOT EXISTS)? name=multipartIdentifier
+        ((ctasCols=identifierList)? | (LEFT_PAREN columnDefs (COMMA indexDefs)? COMMA? RIGHT_PAREN))
+        (ENGINE EQ engine=identifier)?
+        ((AGGREGATE | UNIQUE | DUPLICATE) KEY keys=identifierList
+        (CLUSTER BY clusterKeys=identifierList)?)?
+        (COMMENT STRING_LITERAL)?
+        (partition=partitionTable)?
+        (DISTRIBUTED BY (HASH hashKeys=identifierList | RANDOM)
+        (BUCKETS (INTEGER_VALUE | autoBucket=AUTO))?)?
+        (ROLLUP LEFT_PAREN rollupDefs RIGHT_PAREN)?
+        properties=propertyClause?
+        (BROKER extProperties=propertyClause)?
+        (AS query)?                                                       #createTable
     | CREATE (OR REPLACE)? VIEW (IF NOT EXISTS)? name=multipartIdentifier
         (LEFT_PAREN cols=simpleColumnDefs RIGHT_PAREN)?
         (COMMENT STRING_LITERAL)? AS query                                #createView
     | CREATE (EXTERNAL)? TABLE (IF NOT EXISTS)? name=multipartIdentifier
+        LIKE existedTable=multipartIdentifier
+        (WITH ROLLUP (rollupNames=identifierList)?)?                      #createTableLike
+    | CREATE (TEMPORARY)? TABLE (IF NOT EXISTS)? name=multipartIdentifier
         LIKE existedTable=multipartIdentifier
         (WITH ROLLUP (rollupNames=identifierList)?)?                      #createTableLike
     | CREATE ROW POLICY (IF NOT EXISTS)? name=identifier
