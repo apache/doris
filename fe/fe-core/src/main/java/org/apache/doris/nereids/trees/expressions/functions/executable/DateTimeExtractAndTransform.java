@@ -216,22 +216,22 @@ public class DateTimeExtractAndTransform {
      */
     @ExecFunction(name = "dayofyear")
     public static Expression dayOfYear(DateLiteral date) {
-        return new SmallIntLiteral((short) date.toJavaDateType().getDayOfYear());
+        return new SmallIntLiteral((short) date.getDayOfYear());
     }
 
     @ExecFunction(name = "dayofyear")
     public static Expression dayOfYear(DateTimeLiteral date) {
-        return new SmallIntLiteral((short) date.toJavaDateType().getDayOfYear());
+        return new SmallIntLiteral((short) date.getDayOfYear());
     }
 
     @ExecFunction(name = "dayofyear")
     public static Expression dayOfYear(DateV2Literal date) {
-        return new SmallIntLiteral((short) date.toJavaDateType().getDayOfYear());
+        return new SmallIntLiteral((short) date.getDayOfYear());
     }
 
     @ExecFunction(name = "dayofyear")
     public static Expression dayOfYear(DateTimeV2Literal date) {
-        return new SmallIntLiteral((short) date.toJavaDateType().getDayOfYear());
+        return new SmallIntLiteral((short) date.getDayOfYear());
     }
 
     /**
@@ -262,22 +262,22 @@ public class DateTimeExtractAndTransform {
      */
     @ExecFunction(name = "dayofweek")
     public static Expression dayOfWeek(DateLiteral date) {
-        return new TinyIntLiteral((byte) (date.toJavaDateType().getDayOfWeek().getValue() % 7 + 1));
+        return new TinyIntLiteral((byte) (date.getDayOfWeek() % 7 + 1));
     }
 
     @ExecFunction(name = "dayofweek")
     public static Expression dayOfWeek(DateTimeLiteral date) {
-        return new TinyIntLiteral((byte) (date.toJavaDateType().getDayOfWeek().getValue() % 7 + 1));
+        return new TinyIntLiteral((byte) (date.getDayOfWeek() % 7 + 1));
     }
 
     @ExecFunction(name = "dayofweek")
     public static Expression dayOfWeek(DateV2Literal date) {
-        return new TinyIntLiteral((byte) (date.toJavaDateType().getDayOfWeek().getValue() % 7 + 1));
+        return new TinyIntLiteral((byte) (date.getDayOfWeek() % 7 + 1));
     }
 
     @ExecFunction(name = "dayofweek")
     public static Expression dayOfWeek(DateTimeV2Literal date) {
-        return new TinyIntLiteral((byte) (date.toJavaDateType().getDayOfWeek().getValue() % 7 + 1));
+        return new TinyIntLiteral((byte) (date.getDayOfWeek() % 7 + 1));
     }
 
     private static int distanceToFirstDayOfWeek(LocalDateTime dateTime) {
