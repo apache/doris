@@ -53,6 +53,7 @@ import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.RangeUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.meta.MetaContext;
 import org.apache.doris.persist.PartitionPersistInfo;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.thrift.TStorageMedium;
@@ -804,6 +805,48 @@ public class DynamicPartitionScheduler extends MasterDaemon {
             }
         }
         initialize = true;
+    }
+
+    // specialized schedule logic. split sleep to many small pieces. so if interval changed, it won't take too much
+    // time to aware.
+    @Override
+    public void run() {
+        if (metaContext != null) {
+            metaContext.setThreadLocalInfo();
+        }
+
+        while (!isStop.get()) {
+            try {
+                runOneCycle();
+            } catch (Throwable e) {
+                LOG.error("daemon thread got exception. name: {}", getName(), e);
+            }
+
+            try {
+                long oldInterval = intervalMs;
+                long remainingInterval = oldInterval;
+                while (remainingInterval > 5000L) {
+                    // if it changed. let it know at most 10 seconds. and 5 second per wakeup is acceptable.
+                    if (intervalMs != oldInterval) { // changed
+                        break;
+                    }
+
+                    Thread.sleep(5000L);
+                    remainingInterval -= 5000L;
+                }
+                if (remainingInterval <= 5000L) {
+                    Thread.sleep(remainingInterval);
+                }
+            } catch (InterruptedException e) {
+                // This thread should NEVER be interrupted. or meet bdbje writing, it will be disaster.
+                LOG.fatal("InterruptedException: ", e);
+            }
+        }
+
+        if (metaContext != null) {
+            MetaContext.remove();
+        }
+        LOG.error("daemon thread exits. name=" + this.getName());
     }
 
     @Override
