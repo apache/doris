@@ -81,35 +81,40 @@ struct JoinDataVariants {
             break;
         case HashKeyType::int8_key:
             if (nullable) {
-                method_variant.emplace<I64FixedKeyHashTableContext<nullable>>();
+                method_variant.emplace<I64FixedKeyHashTableContext<nullable>>(
+                        get_key_sizes(data_types));
             } else {
                 method_variant.emplace<I8HashTableContext>();
             }
             break;
         case HashKeyType::int16_key:
             if (nullable) {
-                method_variant.emplace<I64FixedKeyHashTableContext<nullable>>();
+                method_variant.emplace<I64FixedKeyHashTableContext<nullable>>(
+                        get_key_sizes(data_types));
             } else {
                 method_variant.emplace<I16HashTableContext>();
             }
             break;
         case HashKeyType::int32_key:
             if (nullable) {
-                method_variant.emplace<I64FixedKeyHashTableContext<nullable>>();
+                method_variant.emplace<I64FixedKeyHashTableContext<nullable>>(
+                        get_key_sizes(data_types));
             } else {
                 method_variant.emplace<I32HashTableContext>();
             }
             break;
         case HashKeyType::int64_key:
             if (nullable) {
-                method_variant.emplace<I128FixedKeyHashTableContext<nullable>>();
+                method_variant.emplace<I128FixedKeyHashTableContext<nullable>>(
+                        get_key_sizes(data_types));
             } else {
                 method_variant.emplace<I64HashTableContext>();
             }
             break;
         case HashKeyType::int128_key:
             if (nullable) {
-                method_variant.emplace<I136FixedKeyHashTableContext<nullable>>();
+                method_variant.emplace<I136FixedKeyHashTableContext<nullable>>(
+                        get_key_sizes(data_types));
             } else {
                 method_variant.emplace<I128HashTableContext>();
             }
