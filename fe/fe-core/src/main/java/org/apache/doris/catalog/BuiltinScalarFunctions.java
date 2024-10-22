@@ -77,6 +77,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.BitCount;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitLength;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitShiftLeft;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitShiftRight;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.BitTest;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapAnd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapAndCount;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapAndNot;
@@ -557,6 +558,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(BitmapXorCount.class, "bitmap_xor_count"),
             scalar(BitShiftLeft.class, "bit_shift_left"),
             scalar(BitShiftRight.class, "bit_shift_right"),
+            scalar(BitTest.class, "bit_test", "bit_test_all"),
             scalar(Cardinality.class, "array_size", "cardinality", "size"),
             scalar(Cbrt.class, "cbrt"),
             scalar(Ceil.class, "ceil", "ceiling"),
