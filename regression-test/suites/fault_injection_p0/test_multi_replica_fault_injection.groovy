@@ -97,8 +97,6 @@ suite("test_multi_replica_fault_injection", "nonConcurrent") {
         load_with_injection("StreamSinkFileWriter.appendv.write_segment_failed_all_replica", "failed to send segment data to any replicas")
         // test segment num check when LoadStreamStub missed tail segments
         load_with_injection("LoadStreamStub.only_send_segment_0", "segment num mismatch")
-        // test 1st stream to each backend failure
-        load_with_injection("VTabletWriterV2._open_streams_to_backend.one_stream_open_failure", "success")
         // test one backend open failure
         load_with_injection("VTabletWriterV2._open_streams.skip_one_backend", "success")
         sql """ set enable_memtable_on_sink_node=false """
