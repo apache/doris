@@ -161,7 +161,7 @@ public class AgentBatchTask implements Runnable {
             if (backend == null || !backend.isAlive()) {
                 continue;
             }
-            List<AgentTask> tasks = this.backendIdToTasks.get(backendId).subList(0, Config.schedule_batch_size);
+            List<AgentTask> tasks = this.backendIdToTasks.get(backendId);
 
             try {
                 // create AgentClient
@@ -189,7 +189,6 @@ public class AgentBatchTask implements Runnable {
             } catch (Exception e) {
                 for (AgentTask task : tasks) {
                     task.failed();
-                    AgentTaskQueue.remove(task, );
                 }
                 LOG.warn("task exec error. backend[{}]", backendId, e);
             } finally {
