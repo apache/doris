@@ -16,7 +16,7 @@ PhysicalResultSink
 --------------------------filter((store_sales.ss_net_profit <= 25000.00) and (store_sales.ss_net_profit >= 0.00) and (store_sales.ss_sales_price <= 200.00) and (store_sales.ss_sales_price >= 50.00))
 ----------------------------PhysicalOlapScan[store_sales] apply RFs: RF0 RF1 RF2 RF3
 ------------------------PhysicalProject
---------------------------filter(((((customer_demographics.cd_marital_status = 'S') AND (customer_demographics.cd_education_status = 'Secondary')) OR ((customer_demographics.cd_marital_status = 'M') AND (customer_demographics.cd_education_status = '2 yr Degree'))) OR ((customer_demographics.cd_marital_status = 'D') AND (customer_demographics.cd_education_status = 'Advanced Degree'))))
+--------------------------filter(((((customer_demographics.cd_marital_status = 'S') AND (customer_demographics.cd_education_status = 'Secondary')) OR ((customer_demographics.cd_marital_status = 'M') AND (customer_demographics.cd_education_status = '2 yr Degree'))) OR ((customer_demographics.cd_marital_status = 'D') AND (customer_demographics.cd_education_status = 'Advanced Degree'))) and cd_education_status IN ('2 yr Degree', 'Advanced Degree', 'Secondary') and cd_marital_status IN ('D', 'M', 'S'))
 ----------------------------PhysicalOlapScan[customer_demographics]
 --------------------PhysicalProject
 ----------------------filter((customer_address.ca_country = 'United States') and ca_state IN ('CO', 'GA', 'KS', 'MD', 'MN', 'NC', 'ND', 'NY', 'SD'))

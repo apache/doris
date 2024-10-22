@@ -96,12 +96,6 @@ public class HeartbeatMgr extends MasterDaemon {
         long flags = heartbeatFlags.getHeartbeatFlags();
         tMasterInfo.setHeartbeatFlags(flags);
         if (Config.isCloudMode()) {
-            // Set cloud_instance_id and meta_service_endpoint even if there are empty
-            // Be can knowns that fe is working in cloud mode.
-            // Set the cloud instance ID for cloud deployment identification
-            if (!Strings.isNullOrEmpty(Config.cloud_instance_id)) {
-                tMasterInfo.setCloudInstanceId(Config.cloud_instance_id);
-            }
             // Set the endpoint for the metadata service in cloud mode
             tMasterInfo.setMetaServiceEndpoint(Config.meta_service_endpoint);
         }
@@ -256,6 +250,10 @@ public class HeartbeatMgr extends MasterDaemon {
                 copiedMasterInfo.setHeartbeatFlags(flags);
                 copiedMasterInfo.setBackendId(backendId);
                 copiedMasterInfo.setFrontendInfos(feInfos);
+                if (Config.isCloudMode()) {
+                    String cloudUniqueId = backend.getTagMap().get(Tag.CLOUD_UNIQUE_ID);
+                    copiedMasterInfo.setCloudUniqueId(cloudUniqueId);
+                }
                 THeartbeatResult result;
                 if (!FeConstants.runningUnitTest) {
                     client = ClientPool.backendHeartbeatPool.borrowObject(beAddr);

@@ -110,6 +110,7 @@ QueryContext::QueryContext(TUniqueId query_id, ExecEnv* exec_env,
     clock_gettime(CLOCK_MONOTONIC, &this->_query_arrival_timestamp);
     register_memory_statistics();
     register_cpu_statistics();
+    DorisMetrics::instance()->query_ctx_cnt->increment(1);
 }
 
 void QueryContext::_init_query_mem_tracker() {
@@ -149,7 +150,7 @@ QueryContext::~QueryContext() {
     std::string mem_tracker_msg;
     if (query_mem_tracker->peak_consumption() != 0) {
         mem_tracker_msg = fmt::format(
-                ", deregister query/load memory tracker, queryId={}, Limit={}, CurrUsed={}, "
+                "deregister query/load memory tracker, queryId={}, Limit={}, CurrUsed={}, "
                 "PeakUsed={}",
                 print_id(_query_id), MemCounter::print_bytes(query_mem_tracker->limit()),
                 MemCounter::print_bytes(query_mem_tracker->consumption()),
@@ -158,8 +159,6 @@ QueryContext::~QueryContext() {
     uint64_t group_id = 0;
     if (_workload_group) {
         group_id = _workload_group->id(); // before remove
-        _workload_group->remove_mem_tracker_limiter(query_mem_tracker);
-        _workload_group->remove_query(_query_id);
     }
 
     _exec_env->runtime_query_statistics_mgr()->set_query_finished(print_id(_query_id));
@@ -198,7 +197,7 @@ QueryContext::~QueryContext() {
     _merge_controller_handler.reset();
 
     _exec_env->spill_stream_mgr()->async_cleanup_query(_query_id);
-
+    DorisMetrics::instance()->query_ctx_cnt->increment(-1);
     LOG_INFO("Query {} deconstructed, {}", print_id(this->_query_id), mem_tracker_msg);
 }
 
@@ -368,9 +367,6 @@ void QueryContext::add_fragment_profile(
 
 void QueryContext::_report_query_profile() {
     std::lock_guard<std::mutex> lg(_profile_mutex);
-    LOG_INFO(
-            "Pipeline x query context, register query profile, query {}, fragment profile count {}",
-            print_id(_query_id), _profile_map.size());
 
     for (auto& [fragment_id, fragment_profile] : _profile_map) {
         std::shared_ptr<TRuntimeProfileTree> load_channel_profile = nullptr;

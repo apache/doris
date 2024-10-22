@@ -41,16 +41,14 @@ suite ("test_dup_mv_expr_priority") {
     sql """analyze table table_ngrambf with sync;"""
     sql """set enable_stats=false;"""
 
-    explain {
-        sql("""select  element_at(split_by_string(username,"_"),1) ,element_at(split_by_string(username,"_"),2) ,element_at(split_by_string(username,"_"),3)  ,siteid,citycode from table_ngrambf order by citycode;""")
-        contains "(test_mv_1)"
-    }
+    mv_rewrite_success("""select  element_at(split_by_string(username,"_"),1) ,element_at(split_by_string(username,"_"),2) ,element_at(split_by_string(username,"_"),3)  ,siteid,citycode from table_ngrambf order by citycode;""",
+    "test_mv_1")
+
     qt_select_mv """select  element_at(split_by_string(username,"_"),1) ,element_at(split_by_string(username,"_"),2) ,element_at(split_by_string(username,"_"),3)  ,siteid,citycode from table_ngrambf order by citycode;"""
 
     sql """set enable_stats=true;"""
-    explain {
-        sql("""select  element_at(split_by_string(username,"_"),1) ,element_at(split_by_string(username,"_"),2) ,element_at(split_by_string(username,"_"),3)  ,siteid,citycode from table_ngrambf order by citycode;""")
-        contains "(test_mv_1)"
-    }
+    mv_rewrite_success("""select  element_at(split_by_string(username,"_"),1) ,element_at(split_by_string(username,"_"),2) ,element_at(split_by_string(username,"_"),3)  ,siteid,citycode from table_ngrambf order by citycode;""",
+            "test_mv_1")
+
 
 }

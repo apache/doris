@@ -158,7 +158,8 @@ public class BaseViewInfo {
     protected void createFinalCols(List<Slot> outputs) throws org.apache.doris.common.AnalysisException {
         if (simpleColumnDefinitions.isEmpty()) {
             for (Slot output : outputs) {
-                Column column = new Column(output.getName(), output.getDataType().toCatalogDataType());
+                Column column = new Column(output.getName(), output.getDataType().toCatalogDataType(),
+                        output.nullable());
                 finalCols.add(column);
             }
         } else {
@@ -167,7 +168,7 @@ public class BaseViewInfo {
             }
             for (int i = 0; i < simpleColumnDefinitions.size(); ++i) {
                 Column column = new Column(simpleColumnDefinitions.get(i).getName(),
-                        outputs.get(i).getDataType().toCatalogDataType());
+                        outputs.get(i).getDataType().toCatalogDataType(), outputs.get(i).nullable());
                 column.setComment(simpleColumnDefinitions.get(i).getComment());
                 finalCols.add(column);
             }

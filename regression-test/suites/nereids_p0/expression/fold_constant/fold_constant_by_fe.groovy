@@ -163,4 +163,6 @@ suite("test_fold_constant_by_fe") {
     res = sql """explain select "12" like '%123%'"""
     assertTrue(res.contains("like"))
 
+    testFoldConst("select DATE_SUB(CURRENT_DATE(), INTERVAL 1 DAY) + INTERVAL 3600 SECOND")
+
 }

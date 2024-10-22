@@ -19,7 +19,6 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 
@@ -118,9 +117,6 @@ public class KeysDesc implements Writable {
     }
 
     private void analyzeClusterKeys(List<ColumnDef> cols) throws AnalysisException {
-        if (Config.isCloudMode()) {
-            throw new AnalysisException("Cluster key is not supported in cloud mode");
-        }
         if (type != KeysType.UNIQUE_KEYS) {
             throw new AnalysisException("Cluster keys only support unique keys table");
         }

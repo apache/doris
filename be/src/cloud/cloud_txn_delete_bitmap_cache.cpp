@@ -72,9 +72,18 @@ Status CloudTxnDeleteBitmapCache::get_tablet_txn_info(
         *publish_status = iter->second.publish_status;
         *previous_publish_info = iter->second.publish_info;
     }
-    RETURN_IF_ERROR(
-            get_delete_bitmap(transaction_id, tablet_id, delete_bitmap, rowset_ids, nullptr));
-    return Status::OK();
+
+    auto st = get_delete_bitmap(transaction_id, tablet_id, delete_bitmap, rowset_ids, nullptr);
+
+    if (st.is<ErrorCode::NOT_FOUND>()) {
+        // Because of the rowset_ids become empty, all delete bitmap
+        // will be recalculate in CalcDeleteBitmapTask
+        if (delete_bitmap != nullptr) {
+            *delete_bitmap = std::make_shared<DeleteBitmap>(tablet_id);
+        }
+        return Status::OK();
+    }
+    return st;
 }
 
 Status CloudTxnDeleteBitmapCache::get_delete_bitmap(
@@ -95,6 +104,13 @@ Status CloudTxnDeleteBitmapCache::get_delete_bitmap(
     CacheKey key(key_str);
     Cache::Handle* handle = lookup(key);
 
+    DBUG_EXECUTE_IF("CloudTxnDeleteBitmapCache::get_delete_bitmap.cache_miss", {
+        handle = nullptr;
+        LOG(INFO) << "CloudTxnDeleteBitmapCache::get_delete_bitmap.cache_miss, make cache missed "
+                     "when get delete bitmap, txn_id:"
+                  << transaction_id << ", tablet_id: " << tablet_id;
+    });
+
     DeleteBitmapCacheValue* val =
             handle == nullptr ? nullptr : reinterpret_cast<DeleteBitmapCacheValue*>(value(handle));
     if (val) {
@@ -109,9 +125,9 @@ Status CloudTxnDeleteBitmapCache::get_delete_bitmap(
         LOG_INFO("cache missed when get delete bitmap")
                 .tag("txn_id", transaction_id)
                 .tag("tablet_id", tablet_id);
-        // Because of the rowset_ids become empty, all delete bitmap
-        // will be recalculate in CalcDeleteBitmapTask
-        *delete_bitmap = std::make_shared<DeleteBitmap>(tablet_id);
+        return Status::Error<ErrorCode::NOT_FOUND, false>(
+                "cache missed when get delete bitmap, tablet_id={}, transaction_id={}", tablet_id,
+                transaction_id);
     }
     return Status::OK();
 }

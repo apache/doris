@@ -119,7 +119,7 @@ public class JdbcExternalTable extends ExternalTable {
         params.put("tblName", name);
         switch (((JdbcExternalCatalog) catalog).getDatabaseTypeName()) {
             case JdbcResource.MYSQL:
-                try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext(false, false)) {
+                try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext(false)) {
                     StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
                     String sql = stringSubstitutor.replace(MYSQL_ROW_COUNT_SQL);
                     StmtExecutor stmtExecutor = new StmtExecutor(r.connectContext, sql);

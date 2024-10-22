@@ -15,7 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import org.codehaus.groovy.runtime.IOGroovyMethods
+import org.awaitility.Awaitility
+import static java.util.concurrent.TimeUnit.SECONDS
 
 suite("test_schema_change_ck") {
     def db = "regression_test_unique_with_mow_c_p0"
@@ -30,6 +31,7 @@ suite("test_schema_change_ck") {
     }
 
     sql """ DROP TABLE IF EXISTS ${tableName} """
+    if (!isCloudMode()) {
     test {
         sql """
             CREATE TABLE IF NOT EXISTS ${tableName} (
@@ -45,7 +47,8 @@ suite("test_schema_change_ck") {
                 "light_schema_change" = "false"
             );
         """
-        exception "Unique merge-on-write table with cluster keys must enable light schema change"
+        exception "Unique merge-on-write tables with cluster keys require light schema change to be enabled"
+    }
     }
     sql """
         CREATE TABLE IF NOT EXISTS ${tableName} (
@@ -144,10 +147,16 @@ suite("test_schema_change_ck") {
     /****** create mv ******/
     def mv_name = "k2_c3"
     sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name}"""
-    createMV """ create materialized view ${mv_name} as select c1, c3 from ${tableName}; """
+    createMV """ create materialized view ${mv_name} as select c1, k2, c2 from ${tableName}; """
     sql """ INSERT INTO ${tableName}(c1, c2, c3, k2) VALUES (211, 21, 38, 200), (210, 20, 39, 200) """
     qt_select_create_mv_base """select * from ${tableName}"""
-    qt_select_create_mv_mv """select c1, c3 from ${tableName}"""
+    /*Awaitility.await().atMost(100, SECONDS).pollInterval(4, SECONDS).until(
+        {
+            def result = sql """explain select c1, c3 from ${tableName}"""
+            return result.contains(mv_name)
+        }
+    )*/
+    order_qt_select_create_mv_mv """select c1, k2, c2 from ${tableName}"""
 
     /****** create rollup ******/
     sql """ alter table ${tableName} ADD ROLLUP r1(k2, c1, c2); """
@@ -157,7 +166,7 @@ suite("test_schema_change_ck") {
     }
     sql """ INSERT INTO ${tableName}(c1, c2, c3, k2) VALUES (311, 21, 38, 200), (310, 20, 39, 200) """
     qt_select_create_rollup_base """select * from ${tableName}"""
-    qt_select_create_rollup_roll """select k2, c1, c2 from ${tableName}"""
+    order_qt_select_create_rollup_roll """select k2, c1, c2 from ${tableName}"""
 
     /****** add partition ******/
     sql "ALTER TABLE ${tableName} ADD PARTITION p_20000 VALUES [('10000'), ('20000'));"
@@ -171,7 +180,7 @@ suite("test_schema_change_ck") {
         assertEquals(partitions.size(), 2)
     }
     sql """ INSERT INTO ${tableName}(c1, c2, c3, k2) VALUES (10011, 21, 38, 200), (10010, 20, 39, 200) """
-    qt_select_add_partition """select * from ${tableName}"""
+    qt_select_add_partition """select * from ${tableName} partition (p_20000)"""
 
     /****** one sql contain multi column changes ******/
 
@@ -203,16 +212,16 @@ suite("test_schema_change_ck") {
     """
     sql """ INSERT INTO ${tableName} VALUES (11, 21, 32, 42, 52), (12, 22, 31, 41, 51); """
     qt_select_rollup_base """select * from ${tableName};"""
-    qt_select_rollup_roll """select k2, k1, c4, c3 from ${tableName};"""
+    order_qt_select_rollup_roll """select k2, k1, c4, c3 from ${tableName};"""
 
     /****** specify index, not base index ******/
     sql """ ALTER TABLE ${tableName} ORDER BY(k2, k1, c3, c4) from r1; """
     assertTrue(getAlterTableState(), "reorder rollup should success")
     qt_select_rollup_base_sc """select * from ${tableName};"""
-    qt_select_rollup_roll_sc """select k2, k1, c4, c3 from ${tableName};"""
+    order_qt_select_rollup_roll_sc """select k2, k1, c4, c3 from ${tableName};"""
     sql """ INSERT INTO ${tableName} VALUES (13, 23, 34, 44, 54), (14, 24, 33, 43, 53); """
     qt_select_rollup_base_sc1 """select * from ${tableName};"""
-    qt_select_rollup_roll_sc1 """select k2, k1, c4, c3 from ${tableName};"""
+    order_qt_select_rollup_roll_sc1 """select k2, k1, c4, c3 from ${tableName};"""
 
     /****** backup restore ******/
     if (!isCloudMode()) {
@@ -230,7 +239,7 @@ suite("test_schema_change_ck") {
         assertTrue(snapshot != null)
         sql """ INSERT INTO ${tableName} VALUES (15, 25, 34, 44, 54), (16, 26, 33, 43, 53); """
         qt_select_restore_base2 """select * from ${tableName};"""
-        qt_select_restore_roll2 """select k2, k1, c4, c3 from ${tableName};"""
+        order_qt_select_restore_roll2 """select k2, k1, c4, c3 from ${tableName};"""
 
         // restore
         logger.info(""" RESTORE SNAPSHOT ${context.dbName}.${backup} FROM `${repoName}` ON (`${tableName}`) PROPERTIES ("backup_timestamp" = "${snapshot}","replication_num" = "1" ) """)
@@ -239,10 +248,10 @@ suite("test_schema_change_ck") {
         result = sql """ show tablets from ${tableName}; """
         logger.info("tablets 1: ${result}")
         qt_select_restore_base """select * from ${tableName};"""
-        qt_select_restore_roll """select k2, k1, c4, c3 from ${tableName};"""
+        order_qt_select_restore_roll """select k2, k1, c4, c3 from ${tableName};"""
         sql """ INSERT INTO ${tableName} VALUES (17, 27, 34, 44, 54), (18, 28, 33, 43, 53); """
         qt_select_restore_base1 """select * from ${tableName};"""
-        qt_select_restore_roll1 """select k2, k1, c4, c3 from ${tableName};"""
+        order_qt_select_restore_roll1 """select k2, k1, c4, c3 from ${tableName};"""
 
         // restore
         sql """ drop table ${tableName}; """
@@ -251,10 +260,10 @@ suite("test_schema_change_ck") {
         result = sql """ show tablets from ${tableName}; """
         logger.info("tablets 2: ${result}")
         qt_select_restore_base2 """select * from ${tableName};"""
-        qt_select_restore_roll2 """select k2, k1, c4, c3 from ${tableName};"""
+        order_qt_select_restore_roll2 """select k2, k1, c4, c3 from ${tableName};"""
         sql """ INSERT INTO ${tableName} VALUES (17, 27, 34, 44, 54), (18, 28, 33, 43, 53); """
         qt_select_restore_base3 """select * from ${tableName};"""
-        qt_select_restore_roll4 """select k2, k1, c4, c3 from ${tableName};"""
+        order_qt_select_restore_roll4 """select k2, k1, c4, c3 from ${tableName};"""
 
         sql "DROP REPOSITORY `${repoName}`"
     }

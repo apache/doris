@@ -68,4 +68,8 @@ suite("normalize_window_nullable_agg") {
 //    qt_window_funnel """select window_funnel(3600 * 3, 'default', t.xwhen, t.xwhat = 1, t.xwhat = 2 ) over (order by xwhat rows
 //    between 2 preceding and 1 preceding) AS level from windowfunnel_test_normalize_window t;"""
     qt_sequence_match "SELECT sequence_match('(?1)(?2)', xwhen, xwhat = 1, xwhat = 3) over (order by xwhat rows between 2 preceding and 1 preceding) FROM windowfunnel_test_normalize_window;"
+    test {
+        sql "select group_concat(xwho order by xwhat) over(partition by xwhen) from windowfunnel_test_normalize_window;"
+        exception "order by is not supported"
+    }
 }

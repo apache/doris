@@ -797,8 +797,7 @@ std::vector<TabletSharedPtr> TabletManager::find_best_tablets_to_compaction(
         }
         auto cumulative_compaction_policy = all_cumulative_compaction_policies.at(
                 tablet_ptr->tablet_meta()->compaction_policy());
-        uint32_t current_compaction_score =
-                tablet_ptr->calc_compaction_score(compaction_type, cumulative_compaction_policy);
+        uint32_t current_compaction_score = tablet_ptr->calc_compaction_score();
         if (current_compaction_score < 5) {
             tablet_ptr->set_skip_compaction(true, compaction_type, UnixSeconds());
         }
@@ -806,14 +805,22 @@ std::vector<TabletSharedPtr> TabletManager::find_best_tablets_to_compaction(
         // tablet should do single compaction
         if (current_compaction_score > single_compact_highest_score &&
             tablet_ptr->should_fetch_from_peer()) {
-            single_compact_highest_score = current_compaction_score;
-            best_single_compact_tablet = tablet_ptr;
+            bool ret = tablet_ptr->suitable_for_compaction(compaction_type,
+                                                           cumulative_compaction_policy);
+            if (ret) {
+                single_compact_highest_score = current_compaction_score;
+                best_single_compact_tablet = tablet_ptr;
+            }
         }
 
         // tablet should do cumu or base compaction
         if (current_compaction_score > highest_score && !tablet_ptr->should_fetch_from_peer()) {
-            highest_score = current_compaction_score;
-            best_tablet = tablet_ptr;
+            bool ret = tablet_ptr->suitable_for_compaction(compaction_type,
+                                                           cumulative_compaction_policy);
+            if (ret) {
+                highest_score = current_compaction_score;
+                best_tablet = tablet_ptr;
+            }
         }
     };
 
@@ -972,6 +979,7 @@ Status TabletManager::load_tablet_from_dir(DataDir* store, TTabletId tablet_id,
         if (binlog_meta_filesize > 0) {
             contain_binlog = true;
             RETURN_IF_ERROR(read_pb(binlog_metas_file, &rowset_binlog_metas_pb));
+            VLOG_DEBUG << "load rowset binlog metas from file. file_path=" << binlog_metas_file;
         }
         RETURN_IF_ERROR(io::global_local_filesystem()->delete_file(binlog_metas_file));
     }

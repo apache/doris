@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.common.Config;
-import org.apache.doris.nereids.analyzer.PlaceholderExpression;
 import org.apache.doris.nereids.analyzer.Unbound;
 import org.apache.doris.nereids.analyzer.UnboundVariable;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -335,7 +334,6 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
                 || this instanceof Lambda
                 || this instanceof MaxValue
                 || this instanceof OrderExpression
-                || this instanceof PlaceholderExpression
                 || this instanceof Properties
                 || this instanceof SubqueryExpr
                 || this instanceof UnboundVariable

@@ -87,10 +87,10 @@ Status StreamingAggLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
     SCOPED_TIMER(Base::exec_time_counter());
     SCOPED_TIMER(Base::_init_timer);
-    _hash_table_memory_usage = ADD_CHILD_COUNTER_WITH_LEVEL(Base::profile(), "HashTable",
-                                                            TUnit::BYTES, "MemoryUsage", 1);
+    _hash_table_memory_usage =
+            ADD_COUNTER_WITH_LEVEL(Base::profile(), "MemoryUsageHashTable", TUnit::BYTES, 1);
     _serialize_key_arena_memory_usage = Base::profile()->AddHighWaterMarkCounter(
-            "SerializeKeyArena", TUnit::BYTES, "MemoryUsage", 1);
+            "MemoryUsageSerializeKeyArena", TUnit::BYTES, "", 1);
 
     _build_timer = ADD_TIMER(Base::profile(), "BuildTime");
     _build_table_convert_timer = ADD_TIMER(Base::profile(), "BuildConvertToPartitionedTime");
@@ -357,10 +357,10 @@ Status StreamingAggLocalState::_merge_without_key(vectorized::Block* block) {
 }
 
 void StreamingAggLocalState::_update_memusage_without_key() {
-    auto arena_memory_usage = _agg_arena_pool->size() - _mem_usage_record.used_in_arena;
-    Base::_mem_tracker->consume(arena_memory_usage);
-    _serialize_key_arena_memory_usage->add(arena_memory_usage);
-    _mem_usage_record.used_in_arena = _agg_arena_pool->size();
+    int64_t arena_memory_usage = _agg_arena_pool->size();
+    COUNTER_SET(_memory_used_counter, arena_memory_usage);
+    COUNTER_SET(_peak_memory_usage_counter, arena_memory_usage);
+    COUNTER_SET(_serialize_key_arena_memory_usage, arena_memory_usage);
 }
 
 Status StreamingAggLocalState::_execute_with_serialized_key(vectorized::Block* block) {
@@ -372,28 +372,25 @@ Status StreamingAggLocalState::_execute_with_serialized_key(vectorized::Block* b
 }
 
 void StreamingAggLocalState::_update_memusage_with_serialized_key() {
-    std::visit(
-            vectorized::Overload {
-                    [&](std::monostate& arg) -> void {
-                        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "uninited hash table");
-                    },
-                    [&](auto& agg_method) -> void {
-                        auto& data = *agg_method.hash_table;
-                        auto arena_memory_usage = _agg_arena_pool->size() +
-                                                  _aggregate_data_container->memory_usage() -
-                                                  _mem_usage_record.used_in_arena;
-                        Base::_mem_tracker->consume(arena_memory_usage);
-                        Base::_mem_tracker->consume(data.get_buffer_size_in_bytes() -
-                                                    _mem_usage_record.used_in_state);
-                        _serialize_key_arena_memory_usage->add(arena_memory_usage);
-                        COUNTER_UPDATE(
-                                _hash_table_memory_usage,
-                                data.get_buffer_size_in_bytes() - _mem_usage_record.used_in_state);
-                        _mem_usage_record.used_in_state = data.get_buffer_size_in_bytes();
-                        _mem_usage_record.used_in_arena =
-                                _agg_arena_pool->size() + _aggregate_data_container->memory_usage();
-                    }},
-            _agg_data->method_variant);
+    std::visit(vectorized::Overload {
+                       [&](std::monostate& arg) -> void {
+                           throw doris::Exception(ErrorCode::INTERNAL_ERROR, "uninited hash table");
+                       },
+                       [&](auto& agg_method) -> void {
+                           auto& data = *agg_method.hash_table;
+                           int64_t arena_memory_usage = _agg_arena_pool->size() +
+                                                        _aggregate_data_container->memory_usage();
+                           int64_t hash_table_memory_usage = data.get_buffer_size_in_bytes();
+
+                           COUNTER_SET(_memory_used_counter,
+                                       arena_memory_usage + hash_table_memory_usage);
+                           COUNTER_SET(_peak_memory_usage_counter,
+                                       arena_memory_usage + hash_table_memory_usage);
+
+                           COUNTER_SET(_serialize_key_arena_memory_usage, arena_memory_usage);
+                           COUNTER_SET(_hash_table_memory_usage, hash_table_memory_usage);
+                       }},
+               _agg_data->method_variant);
 }
 
 template <bool limit>
@@ -515,7 +512,6 @@ Status StreamingAggLocalState::do_pre_agg(vectorized::Block* input_block,
     // pre stream agg need use _num_row_return to decide whether to do pre stream agg
     _cur_num_rows_returned += output_block->rows();
     _make_nullable_output_key(output_block);
-    //    COUNTER_SET(_rows_returned_counter, _num_rows_returned);
     _executor->update_memusage(this);
     return Status::OK();
 }
@@ -1255,7 +1251,6 @@ Status StreamingAggLocalState::close(RuntimeState* state) {
 
     std::vector<char> tmp_deserialize_buffer;
     _deserialize_buffer.swap(tmp_deserialize_buffer);
-    Base::_mem_tracker->release(_mem_usage_record.used_in_state + _mem_usage_record.used_in_arena);
 
     /// _hash_table_size_counter may be null if prepare failed.
     if (_hash_table_size_counter) {

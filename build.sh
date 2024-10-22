@@ -885,6 +885,9 @@ if [[ ${BUILD_CLOUD} -eq 1 ]]; then
     cp -r -p "${DORIS_HOME}/cloud/output" "${DORIS_HOME}/output/ms"
 fi
 
+mkdir -p "${DORIS_HOME}/output/tools"
+cp -r -p tools/fdb "${DORIS_HOME}/output/tools"
+
 echo "***************************************"
 echo "Successfully build Doris"
 echo "***************************************"

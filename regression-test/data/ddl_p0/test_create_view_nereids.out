@@ -363,3 +363,13 @@ test_having	CREATE VIEW `test_having` AS select sum(`internal`.`regression_test_
 -- !complicated_view1_sql --
 test_view_complicated	CREATE VIEW `test_view_complicated` AS SELECT `internal`.`regression_test_ddl_p0`.`t`.`id`, `internal`.`regression_test_ddl_p0`.`t`.`value3`, `t`.`row_num` FROM (\n        SELECT `internal`.`regression_test_ddl_p0`.`t1`.`id`, `internal`.`regression_test_ddl_p0`.`tt`.`value3`, ROW_NUMBER() OVER (PARTITION BY `internal`.`regression_test_ddl_p0`.`t1`.`id` ORDER BY `internal`.`regression_test_ddl_p0`.`tt`.`value3` DESC) as `row_num`\n    FROM (SELECT `internal`.`regression_test_ddl_p0`.`create_view_table1`.`id` FROM `internal`.`regression_test_ddl_p0`.`create_view_table1` GROUP BY `internal`.`regression_test_ddl_p0`.`create_view_table1`.`id`) `t1`\n    FULL OUTER JOIN (SELECT `internal`.`regression_test_ddl_p0`.`create_view_table2`.`value3`, `internal`.`regression_test_ddl_p0`.`create_view_table2`.`id`, MAX(`internal`.`regression_test_ddl_p0`.`create_view_table2`.`value4`) FROM `internal`.`regression_test_ddl_p0`.`create_view_table2` GROUP BY `internal`.`regression_test_ddl_p0`.`create_view_table2`.`value3`, `internal`.`regression_test_ddl_p0`.`create_view_table2`.`id`) `tt`\n    ON `internal`.`regression_test_ddl_p0`.`tt`.`id` = `internal`.`regression_test_ddl_p0`.`t1`.`id`\n    ORDER BY `internal`.`regression_test_ddl_p0`.`t1`.`id`\n    ) `t`\n    WHERE `internal`.`regression_test_ddl_p0`.`t`.`value3` < 280 AND (`internal`.`regression_test_ddl_p0`.`t`.`id` < 3 or `internal`.`regression_test_ddl_p0`.`t`.`id` >8);	utf8mb4	utf8mb4_0900_bin
 
+-- !nullable --
+1	小区A	10	1	2024-09-01T09:00	2024-09-01T10:00
+2	小区B	11	1	2024-09-01T09:00	2024-09-01T10:00
+3	小区C	\N	1	2024-09-01T09:00	2024-09-01T10:00
+
+-- !nullable_view_with_cols --
+1	小区A	10	1	2024-09-01T09:00	2024-09-01T10:00
+2	小区B	11	1	2024-09-01T09:00	2024-09-01T10:00
+3	小区C	\N	1	2024-09-01T09:00	2024-09-01T10:00
+

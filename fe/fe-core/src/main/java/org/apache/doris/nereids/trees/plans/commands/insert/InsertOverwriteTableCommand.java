@@ -28,6 +28,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.InternalDatabaseUtil;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.insertoverwrite.InsertOverwriteManager;
 import org.apache.doris.insertoverwrite.InsertOverwriteUtil;
 import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -60,11 +61,14 @@ import com.google.common.collect.Lists;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.awaitility.Awaitility;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * insert into select command implementation
@@ -81,6 +85,8 @@ public class InsertOverwriteTableCommand extends Command implements ForwardWithS
     private LogicalPlan logicalQuery;
     private Optional<String> labelName;
     private final Optional<LogicalPlan> cte;
+    private AtomicBoolean isCancelled = new AtomicBoolean(false);
+    private AtomicBoolean isRunning = new AtomicBoolean(false);
 
     /**
      * constructor
@@ -157,35 +163,88 @@ public class InsertOverwriteTableCommand extends Command implements ForwardWithS
             // Do not create temp partition on FE
             partitionNames = new ArrayList<>();
         }
+        InsertOverwriteManager insertOverwriteManager = Env.getCurrentEnv().getInsertOverwriteManager();
+        insertOverwriteManager.recordRunningTableOrException(targetTable.getDatabase(), targetTable);
+        isRunning.set(true);
         long taskId = 0;
         try {
             if (isAutoDetectOverwrite()) {
                 // taskId here is a group id. it contains all replace tasks made and registered in rpc process.
-                taskId = Env.getCurrentEnv().getInsertOverwriteManager().registerTaskGroup();
+                taskId = insertOverwriteManager.registerTaskGroup();
                 // When inserting, BE will call to replace partition by FrontendService. FE will register new temp
                 // partitions and return. for transactional, the replacement will really occur when insert successed,
                 // i.e. `insertInto` finished. then we call taskGroupSuccess to make replacement.
                 insertInto(ctx, executor, taskId);
-                Env.getCurrentEnv().getInsertOverwriteManager().taskGroupSuccess(taskId, (OlapTable) targetTable);
+                insertOverwriteManager.taskGroupSuccess(taskId, (OlapTable) targetTable);
             } else {
                 List<String> tempPartitionNames = InsertOverwriteUtil.generateTempPartitionNames(partitionNames);
-                taskId = Env.getCurrentEnv().getInsertOverwriteManager()
+                if (isCancelled.get()) {
+                    LOG.info("insert overwrite is cancelled before registerTask, queryId: {}",
+                            ctx.getQueryIdentifier());
+                    return;
+                }
+                taskId = insertOverwriteManager
                         .registerTask(targetTable.getDatabase().getId(), targetTable.getId(), tempPartitionNames);
+                if (isCancelled.get()) {
+                    LOG.info("insert overwrite is cancelled before addTempPartitions, queryId: {}",
+                            ctx.getQueryIdentifier());
+                    // not need deal temp partition
+                    insertOverwriteManager.taskSuccess(taskId);
+                    return;
+                }
                 InsertOverwriteUtil.addTempPartitions(targetTable, partitionNames, tempPartitionNames);
+                if (isCancelled.get()) {
+                    LOG.info("insert overwrite is cancelled before insertInto, queryId: {}", ctx.getQueryIdentifier());
+                    insertOverwriteManager.taskFail(taskId);
+                    return;
+                }
                 insertInto(ctx, executor, tempPartitionNames);
+                if (isCancelled.get()) {
+                    LOG.info("insert overwrite is cancelled before replacePartition, queryId: {}",
+                            ctx.getQueryIdentifier());
+                    insertOverwriteManager.taskFail(taskId);
+                    return;
+                }
                 InsertOverwriteUtil.replacePartition(targetTable, partitionNames, tempPartitionNames);
-                Env.getCurrentEnv().getInsertOverwriteManager().taskSuccess(taskId);
+                if (isCancelled.get()) {
+                    LOG.info("insert overwrite is cancelled before taskSuccess, do nothing, queryId: {}",
+                            ctx.getQueryIdentifier());
+                }
+                insertOverwriteManager.taskSuccess(taskId);
             }
         } catch (Exception e) {
             LOG.warn("insert into overwrite failed with task(or group) id " + taskId);
             if (isAutoDetectOverwrite()) {
-                Env.getCurrentEnv().getInsertOverwriteManager().taskGroupFail(taskId);
+                insertOverwriteManager.taskGroupFail(taskId);
             } else {
-                Env.getCurrentEnv().getInsertOverwriteManager().taskFail(taskId);
+                insertOverwriteManager.taskFail(taskId);
             }
             throw e;
         } finally {
             ConnectContext.get().setSkipAuth(false);
+            insertOverwriteManager
+                    .dropRunningRecord(targetTable.getDatabase().getId(), targetTable.getId());
+            isRunning.set(false);
+        }
+    }
+
+    /**
+     * cancel insert overwrite
+     */
+    public void cancel() {
+        this.isCancelled.set(true);
+    }
+
+    /**
+     * wait insert overwrite not running
+     */
+    public void waitNotRunning() {
+        long waitMaxTimeSecond = 10L;
+        try {
+            Awaitility.await().atMost(waitMaxTimeSecond, TimeUnit.SECONDS).untilFalse(isRunning);
+        } catch (Exception e) {
+            LOG.warn("waiting time exceeds {} second, stop wait, labelName: {}", waitMaxTimeSecond,
+                    labelName.isPresent() ? labelName.get() : "", e);
         }
     }
 

@@ -44,6 +44,7 @@ import java.net.MalformedURLException;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.URLDecoder;
+import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -113,7 +114,7 @@ public class StringArithmetic {
      */
     @ExecFunction(name = "length")
     public static Expression lengthVarchar(StringLikeLiteral first) {
-        return new IntegerLiteral(first.getValue().length());
+        return new IntegerLiteral(first.getValue().getBytes(StandardCharsets.UTF_8).length);
     }
 
     /**
@@ -148,6 +149,27 @@ public class StringArithmetic {
             } while (!afterReplace.equals(result));
         }
         return result;
+    }
+
+    private static String trimInImpl(String first, String second, boolean left, boolean right) {
+        StringBuilder result = new StringBuilder(first);
+
+        if (left) {
+            int start = 0;
+            while (start < result.length() && second.indexOf(result.charAt(start)) != -1) {
+                start++;
+            }
+            result.delete(0, start);
+        }
+        if (right) {
+            int end = result.length();
+            while (end > 0 && second.indexOf(result.charAt(end - 1)) != -1) {
+                end--;
+            }
+            result.delete(end, result.length());
+        }
+
+        return result.toString();
     }
 
     /**
@@ -196,6 +218,54 @@ public class StringArithmetic {
     @ExecFunction(name = "rtrim")
     public static Expression rtrimVarcharVarchar(StringLikeLiteral first, StringLikeLiteral second) {
         return castStringLikeLiteral(first, trimImpl(first.getValue(), second.getValue(), false, true));
+    }
+
+    /**
+     * Executable arithmetic functions Trim_In
+     */
+    @ExecFunction(name = "trim_in")
+    public static Expression trimInVarchar(StringLikeLiteral first) {
+        return castStringLikeLiteral(first, trimInImpl(first.getValue(), " ", true, true));
+    }
+
+    /**
+     * Executable arithmetic functions Trim_In
+     */
+    @ExecFunction(name = "trim_in")
+    public static Expression trimInVarcharVarchar(StringLikeLiteral first, StringLikeLiteral second) {
+        return castStringLikeLiteral(first, trimInImpl(first.getValue(), second.getValue(), true, true));
+    }
+
+    /**
+     * Executable arithmetic functions ltrim_in
+     */
+    @ExecFunction(name = "ltrim_in")
+    public static Expression ltrimInVarchar(StringLikeLiteral first) {
+        return castStringLikeLiteral(first, trimInImpl(first.getValue(), " ", true, false));
+    }
+
+    /**
+     * Executable arithmetic functions ltrim_in
+     */
+    @ExecFunction(name = "ltrim_in")
+    public static Expression ltrimInVarcharVarchar(StringLikeLiteral first, StringLikeLiteral second) {
+        return castStringLikeLiteral(first, trimInImpl(first.getValue(), second.getValue(), true, false));
+    }
+
+    /**
+     * Executable arithmetic functions rtrim_in
+     */
+    @ExecFunction(name = "rtrim_in")
+    public static Expression rtrimInVarchar(StringLikeLiteral first) {
+        return castStringLikeLiteral(first, trimInImpl(first.getValue(), " ", false, true));
+    }
+
+    /**
+     * Executable arithmetic functions rtrim_in
+     */
+    @ExecFunction(name = "rtrim_in")
+    public static Expression rtrimInVarcharVarchar(StringLikeLiteral first, StringLikeLiteral second) {
+        return castStringLikeLiteral(first, trimInImpl(first.getValue(), second.getValue(), false, true));
     }
 
     /**
@@ -611,7 +681,7 @@ public class StringArithmetic {
                     return castStringLikeLiteral(first, "");
                 }
             }
-            return new NullLiteral();
+            return new NullLiteral(first.getDataType());
         } else if (number.getValue() < 0) {
             StringBuilder result = new StringBuilder(parts[Math.abs(number.getValue()) - 1]);
             return castStringLikeLiteral(first, result.reverse().toString());
@@ -784,6 +854,18 @@ public class StringArithmetic {
     public static Expression urlDecode(StringLikeLiteral first) {
         try {
             return castStringLikeLiteral(first, URLDecoder.decode(first.getValue(), StandardCharsets.UTF_8.name()));
+        } catch (UnsupportedEncodingException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    /**
+     * Executable arithmetic functions urlencode
+     */
+    @ExecFunction(name = "url_encode")
+    public static Expression urlEncode(StringLikeLiteral first) {
+        try {
+            return castStringLikeLiteral(first, URLEncoder.encode(first.getValue(), StandardCharsets.UTF_8.name()));
         } catch (UnsupportedEncodingException e) {
             throw new RuntimeException(e);
         }

@@ -24,6 +24,8 @@
 
 #include <variant>
 
+#include "olap/rowset/segment_v2/inverted_index_query_type.h"
+
 CL_NS_USE(index)
 CL_NS_USE(search)
 
@@ -76,11 +78,11 @@ private:
     int32_t _match_width = -1;
 };
 
-using PhraseQueryPtr = std::unique_ptr<CL_NS(search)::PhraseQuery>;
 // ExactPhraseMatcher: x match_phrase 'aaa bbb'
 // PhraseQueryPtr: x match_phrase 'aaa bbb ~2', support slop
 // OrderedSloppyPhraseMatcher: x match_phrase 'aaa bbb ~2+', ensuring that the words appear in the specified order.
-using Matcher = std::variant<ExactPhraseMatcher, OrderedSloppyPhraseMatcher, PhraseQueryPtr>;
+using PhraseQueryPtr = std::unique_ptr<CL_NS(search)::PhraseQuery>;
+using Matcher = std::variant<ExactPhraseMatcher, OrderedSloppyPhraseMatcher>;
 
 class PhraseQuery : public Query {
 public:
@@ -103,6 +105,10 @@ private:
 
 public:
     static void parser_slop(std::string& query, InvertedIndexQueryInfo& query_info);
+    static void parser_info(std::string& query, const std::string& field_name,
+                            InvertedIndexQueryType query_type,
+                            const std::map<std::string, std::string>& properties,
+                            InvertedIndexQueryInfo& query_info, bool sequential_opt);
 
 private:
     std::shared_ptr<lucene::search::IndexSearcher> _searcher;
@@ -117,7 +123,9 @@ private:
     std::vector<TermDocs*> _term_docs;
 
     int32_t _slop = 0;
-    Matcher _matcher;
+    std::vector<std::vector<std::string>> _additional_terms;
+    PhraseQueryPtr _phrase_query = nullptr;
+    std::vector<Matcher> _matchers;
 };
 
 } // namespace doris::segment_v2

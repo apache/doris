@@ -45,9 +45,11 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DataQualityException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.DuplicatedRequestException;
+import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
@@ -656,21 +658,50 @@ public class SparkLoadJob extends BulkLoadJob {
     }
 
     private void tryCommitJob() throws UserException {
-        LOG.info(new LogBuilder(LogKey.LOAD_JOB, id).add("txn_id", transactionId)
-                .add("msg", "Load job try to commit txn").build());
-        Database db = getDb();
-        List<Table> tableList = db.getTablesOnIdOrderOrThrowException(
-                Lists.newArrayList(tableToLoadPartitions.keySet()));
-        MetaLockUtils.writeLockTablesOrMetaException(tableList);
-        try {
-            Env.getCurrentGlobalTransactionMgr().commitTransaction(
-                    dbId, tableList, transactionId, commitInfos,
-                    new LoadJobFinalOperation(id, loadingStatus, progress, loadStartTimestamp,
-                                              finishTimestamp, state, failMsg));
-        } catch (TabletQuorumFailedException e) {
-            // retry in next loop
-        } finally {
-            MetaLockUtils.writeUnlockTables(tableList);
+        int retryTimes = 0;
+        while (true) {
+            Database db = getDb();
+            List<Table> tableList = db.getTablesOnIdOrderOrThrowException(
+                    Lists.newArrayList(tableToLoadPartitions.keySet()));
+            if (Config.isCloudMode()) {
+                MetaLockUtils.commitLockTables(tableList);
+            } else {
+                MetaLockUtils.writeLockTablesOrMetaException(tableList);
+            }
+            try {
+                LOG.info(new LogBuilder(LogKey.LOAD_JOB, id).add("txn_id", transactionId)
+                        .add("msg", "Load job try to commit txn").build());
+                Env.getCurrentGlobalTransactionMgr().commitTransaction(
+                        dbId, tableList, transactionId, commitInfos,
+                        new LoadJobFinalOperation(id, loadingStatus, progress, loadStartTimestamp,
+                                finishTimestamp, state, failMsg));
+                return;
+            } catch (TabletQuorumFailedException e) {
+                // retry in next loop
+                return;
+            } catch (UserException e) {
+                LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
+                        .add("txn_id", transactionId)
+                        .add("database_id", dbId)
+                        .add("retry_times", retryTimes)
+                        .add("error_msg", "Failed to commit txn with error:" + e.getMessage())
+                        .build(), e);
+                if (e.getErrorCode() == InternalErrorCode.DELETE_BITMAP_LOCK_ERR) {
+                    retryTimes++;
+                    if (retryTimes >= Config.mow_calculate_delete_bitmap_retry_times) {
+                        LOG.warn("cancelJob {} because up to max retry time, exception {}", id, e);
+                        throw e;
+                    }
+                } else {
+                    throw e;
+                }
+            } finally {
+                if (Config.isCloudMode()) {
+                    MetaLockUtils.commitUnlockTables(tableList);
+                } else {
+                    MetaLockUtils.writeUnlockTables(tableList);
+                }
+            }
         }
     }
 

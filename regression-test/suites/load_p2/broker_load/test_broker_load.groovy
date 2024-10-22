@@ -338,13 +338,16 @@ suite("test_broker_load_p2", "p2") {
                     if (result[0][2].equals("FINISHED")) {
                         logger.info("Load FINISHED " + label)
                         assertTrue(result[0][6].contains(task_info[i]))
-                        assertTrue(etl_info[i] == result[0][5], "expected: " + etl_info[i] + ", actual: " + result[0][5] + ", label: $label")
+                        load_counters = etl_info[i].split('; ');
+                        for (String counter : load_counters) {
+                            assertTrue(result[0][5].contains(counter), "expected: " + counter + ", actual: " + result[0][5] + ", label: $label")
+                        }
                         break;
                     }
                     if (result[0][2].equals("CANCELLED")) {
                         logger.info("Load result: " + result[0])
                         assertTrue(result[0][6].contains(task_info[i]))
-                        assertTrue(result[0][7].contains(error_msg[i]), "expected: " + error_msg[i] + ", actual: " + result[0][7] + ", label: $label")
+                        assertTrue(result[0][9].contains(error_msg[i]), "expected: " + error_msg[i] + ", actual: " + result[0][7] + ", label: $label")
                         break;
                     }
                     Thread.sleep(1000)

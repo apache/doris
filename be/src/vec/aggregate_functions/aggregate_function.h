@@ -170,9 +170,6 @@ public:
     virtual void deserialize_and_merge_from_column(AggregateDataPtr __restrict place,
                                                    const IColumn& column, Arena* arena) const = 0;
 
-    /// Returns true if a function requires Arena to handle own states (see add(), merge(), deserialize()).
-    virtual bool allocates_memory_in_arena() const { return false; }
-
     /// Inserts results into a column.
     virtual void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const = 0;
 

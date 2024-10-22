@@ -340,4 +340,39 @@ public class TimeUtils {
                 parts.length > 3 ? String.format(" %02d:%02d:%02d", Integer.parseInt(parts[3]),
                         Integer.parseInt(parts[4]), Integer.parseInt(parts[5])) : "");
     }
+
+
+    // Refer to be/src/vec/runtime/vdatetime_value.h
+    public static long convertToDateTimeV2(
+            int year, int month, int day, int hour, int minute, int second, int microsecond) {
+        return (long) microsecond | (long) second << 20 | (long) minute << 26 | (long) hour << 32
+                | (long) day << 37 | (long) month << 42 | (long) year << 46;
+    }
+
+    // Refer to be/src/vec/runtime/vdatetime_value.h
+    public static long convertToDateV2(
+            int year, int month, int day) {
+        return (long) day | (long) month << 5 | (long) year << 9;
+    }
+
+    public static long convertStringToDateTimeV2(String dateTimeStr, int scale) {
+        String format = "yyyy-MM-dd HH:mm:ss";
+        if (scale > 0) {
+            format += ".";
+            for (int i = 0; i < scale; i++) {
+                format += "S";
+            }
+        }
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern(format);
+        LocalDateTime dateTime = TimeUtils.formatDateTimeAndFullZero(dateTimeStr, formatter);
+        return convertToDateTimeV2(dateTime.getYear(), dateTime.getMonthValue(), dateTime.getDayOfMonth(),
+                dateTime.getHour(), dateTime.getMinute(), dateTime.getSecond(), dateTime.getNano() / 1000);
+    }
+
+    public static long convertStringToDateV2(String dateStr) {
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd");
+        LocalDateTime dateTime = TimeUtils.formatDateTimeAndFullZero(dateStr, formatter);
+        return convertToDateV2(dateTime.getYear(), dateTime.getMonthValue(), dateTime.getDayOfMonth());
+    }
 }
+

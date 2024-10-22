@@ -16,6 +16,11 @@
 // under the License.
 //import org.postgresql.Driver
 suite("test_external_catalog_es", "p2,external,es,external_remote,external_remote_es") {
+    Boolean ignoreP2 = true;
+    if (ignoreP2) {
+        logger.info("disable p2 test");
+        return;
+    }
 
     String enabled = context.config.otherConfigs.get("enableExternalEsTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {

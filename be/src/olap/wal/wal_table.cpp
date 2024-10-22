@@ -91,8 +91,8 @@ Status WalTable::_relay_wal_one_by_one() {
         auto msg = st.msg();
         if (st.ok() || st.is<ErrorCode::PUBLISH_TIMEOUT>() || st.is<ErrorCode::NOT_FOUND>() ||
             st.is<ErrorCode::DATA_QUALITY_ERROR>() ||
-            (msg.find("LabelAlreadyUsedException") != msg.npos &&
-             (msg.find("[COMMITTED]") != msg.npos || msg.find("[VISIBLE]") != msg.npos))) {
+            (msg.find("has already been used") != msg.npos &&
+             (msg.find("COMMITTED") != msg.npos || msg.find("VISIBLE") != msg.npos))) {
             LOG(INFO) << "succeed to replay wal=" << wal_info->get_wal_path()
                       << ", st=" << st.to_string();
             // delete wal

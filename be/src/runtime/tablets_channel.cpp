@@ -446,7 +446,7 @@ void BaseTabletsChannel::refresh_profile() {
     {
         std::lock_guard<SpinLock> l(_tablet_writers_lock);
         for (auto&& [tablet_id, writer] : _tablet_writers) {
-            int64_t write_mem = writer->mem_consumption(MemType::WRITE);
+            int64_t write_mem = writer->mem_consumption(MemType::WRITE_FINISHED);
             write_mem_usage += write_mem;
             int64_t flush_mem = writer->mem_consumption(MemType::FLUSH);
             flush_mem_usage += flush_mem;

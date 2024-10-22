@@ -44,8 +44,8 @@ import org.apache.doris.catalog.RandomDistributionInfo;
 import org.apache.doris.catalog.RangePartitionItem;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Tablet;
+import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -76,6 +76,7 @@ import org.apache.doris.thrift.TPaloNodesInfo;
 import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TTabletLocation;
 import org.apache.doris.thrift.TUniqueId;
+import org.apache.doris.thrift.TUniqueKeyUpdateMode;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.HashMultimap;
@@ -106,7 +107,7 @@ public class OlapTableSink extends DataSink {
     // specified partition ids.
     private List<Long> partitionIds;
     // partial update input columns
-    private boolean isPartialUpdate = false;
+    private TUniqueKeyUpdateMode uniqueKeyUpdateMode = TUniqueKeyUpdateMode.UPSERT;
     private HashSet<String> partialUpdateInputColumns;
 
     // set after init called
@@ -179,8 +180,17 @@ public class OlapTableSink extends DataSink {
     }
 
     public void setPartialUpdateInputColumns(boolean isPartialUpdate, HashSet<String> columns) {
-        this.isPartialUpdate = isPartialUpdate;
-        this.partialUpdateInputColumns = columns;
+        if (isPartialUpdate) {
+            this.uniqueKeyUpdateMode = TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS;
+            this.partialUpdateInputColumns = columns;
+        }
+    }
+
+    public void setPartialUpdateInfo(TUniqueKeyUpdateMode uniqueKeyUpdateMode, HashSet<String> columns) {
+        this.uniqueKeyUpdateMode = uniqueKeyUpdateMode;
+        if (uniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS) {
+            this.partialUpdateInputColumns = columns;
+        }
     }
 
     public void updateLoadId(TUniqueId newLoadId) {
@@ -238,7 +248,15 @@ public class OlapTableSink extends DataSink {
         }
         strBuilder.append(prefix + "  TUPLE ID: " + tupleDescriptor.getId() + "\n");
         strBuilder.append(prefix + "  " + DataPartition.RANDOM.getExplainString(explainLevel));
+        boolean isPartialUpdate = uniqueKeyUpdateMode != TUniqueKeyUpdateMode.UPSERT;
         strBuilder.append(prefix + "  IS_PARTIAL_UPDATE: " + isPartialUpdate);
+        if (isPartialUpdate) {
+            if (uniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS) {
+                strBuilder.append(prefix + "  PARTIAL_UPDATE_MODE: UPDATE_FIXED_COLUMNS");
+            } else {
+                strBuilder.append(prefix + "  PARTIAL_UPDATE_MODE: UPDATE_FLEXIBLE_COLUMNS");
+            }
+        }
         return strBuilder.toString();
     }
 
@@ -312,8 +330,16 @@ public class OlapTableSink extends DataSink {
             indexSchema.setIndexesDesc(indexDesc);
             schemaParam.addToIndexes(indexSchema);
         }
-        schemaParam.setIsPartialUpdate(isPartialUpdate);
-        if (isPartialUpdate) {
+        // for backward compatibility
+        schemaParam.setIsPartialUpdate(uniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS);
+        schemaParam.setUniqueKeyUpdateMode(uniqueKeyUpdateMode);
+        if (uniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS && table.getSequenceMapCol() != null) {
+            Column seqMapCol = table.getFullSchema().stream()
+                    .filter(col -> col.getName().equalsIgnoreCase(table.getSequenceMapCol()))
+                    .findFirst().get();
+            schemaParam.setSequenceMapColUniqueId(seqMapCol.getUniqueId());
+        }
+        if (uniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS) {
             for (String s : partialUpdateInputColumns) {
                 schemaParam.addToPartialUpdateInputColumns(s);
             }
@@ -638,15 +664,15 @@ public class OlapTableSink extends DataSink {
                 // we should ensure the replica backend is alive
                 // otherwise, there will be a 'unknown node id, id=xxx' error for stream load
                 for (Tablet tablet : index.getTablets()) {
-                    Multimap<Long, Long> bePathsMap = tablet.getNormalReplicaBackendPathMap();
-                    if (bePathsMap.keySet().size() < loadRequiredReplicaNum) {
-                        String errMsg = "tablet " + tablet.getId() + " alive replica num " + bePathsMap.keySet().size()
-                                + " < load required replica num " + loadRequiredReplicaNum
-                                + ", alive backends: [" + StringUtils.join(bePathsMap.keySet(), ",") + "]"
-                                + ", detail: " + tablet.getDetailsStatusForQuery(visibleVersion);
-                        if (Config.isCloudMode()) {
-                            errMsg += ConnectContext.cloudNoBackendsReason();
-                        } else {
+                    String errMsg = "";
+                    Multimap<Long, Long> bePathsMap = HashMultimap.create();
+                    try {
+                        bePathsMap = tablet.getNormalReplicaBackendPathMap();
+                        if (bePathsMap.keySet().size() < loadRequiredReplicaNum) {
+                            errMsg = "tablet " + tablet.getId() + " alive replica num " + bePathsMap.keySet().size()
+                                    + " < load required replica num " + loadRequiredReplicaNum
+                                    + ", alive backends: [" + StringUtils.join(bePathsMap.keySet(), ",") + "]"
+                                    + ", detail: " + tablet.getDetailsStatusForQuery(visibleVersion);
                             long now = System.currentTimeMillis();
                             long lastLoadFailedTime = tablet.getLastLoadFailedTime();
                             tablet.setLastLoadFailedTime(now);
@@ -654,8 +680,12 @@ public class OlapTableSink extends DataSink {
                                 Env.getCurrentEnv().getTabletScheduler().tryAddRepairTablet(
                                         tablet, dbId, table, partition, index, 0);
                             }
+                            throw new UserException(InternalErrorCode.REPLICA_FEW_ERR, errMsg);
                         }
-                        throw new UserException(InternalErrorCode.REPLICA_FEW_ERR, errMsg);
+                    } catch (ComputeGroupException e) {
+                        LOG.warn("failed to get replica backend path for tablet " + tablet.getId(), e);
+                        errMsg += e.toString();
+                        throw new UserException(InternalErrorCode.INTERNAL_ERR, errMsg);
                     }
 
                     debugWriteRandomChooseSink(tablet, visibleVersion, bePathsMap);

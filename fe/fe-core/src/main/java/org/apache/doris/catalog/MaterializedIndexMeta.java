@@ -18,6 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.Analyzer;
+import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SlotRef;
@@ -211,6 +212,24 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
                     column.setDefineExpr(entry.getValue());
                     match = true;
                     break;
+                }
+            }
+
+            boolean isCastSlot =
+                    entry.getValue() instanceof CastExpr && entry.getValue().getChild(0) instanceof SlotRef;
+
+            // Compatibility code for older versions of mv
+            // old version:
+            // goods_number -> mva_SUM__CAST(`goods_number` AS BIGINT)
+            // new version:
+            // goods_number -> mva_SUM__CAST(`goods_number` AS bigint)
+            if (isCastSlot && !match) {
+                for (Column column : schema) {
+                    if (column.getName().equalsIgnoreCase(entry.getKey())) {
+                        column.setDefineExpr(entry.getValue());
+                        match = true;
+                        break;
+                    }
                 }
             }
 

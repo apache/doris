@@ -58,10 +58,10 @@ PhysicalResultSink
 ----filter((infer_intersect_except1.a > 0))
 ------PhysicalOlapScan[infer_intersect_except1]
 ----PhysicalIntersect
-------filter((infer_intersect_except3.a = 1) and (infer_intersect_except3.b = 'abc'))
---------PhysicalOlapScan[infer_intersect_except3]
 ------filter((infer_intersect_except2.b > 'ab'))
 --------PhysicalOlapScan[infer_intersect_except2]
+------filter((infer_intersect_except3.a = 1) and (infer_intersect_except3.b = 'abc'))
+--------PhysicalOlapScan[infer_intersect_except3]
 
 -- !except_and_intersect_except_predicate_to_right --
 PhysicalResultSink

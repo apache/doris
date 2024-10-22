@@ -257,9 +257,10 @@ public class ProfileManager extends MasterDaemon {
             client = ClientPool.backendPool.borrowObject(targetBackend);
         } catch (Exception e) {
             LOG.warn("Fetch a agent client failed, address: {}", targetBackend.toString());
+            ClientPool.backendPool.invalidateObject(targetBackend, client);
             return resp;
         }
-
+        boolean ok = true;
         try {
             TGetRealtimeExecStatusRequest req = new TGetRealtimeExecStatusRequest();
             req.setId(queryID);
@@ -267,9 +268,13 @@ public class ProfileManager extends MasterDaemon {
         } catch (TException e) {
             LOG.warn("Got exception when getRealtimeExecStatus, query {} backend {}",
                     DebugUtil.printId(queryID), targetBackend.toString(), e);
-            ClientPool.backendPool.invalidateObject(targetBackend, client);
+            ok = false;
         } finally {
-            ClientPool.backendPool.returnObject(targetBackend, client);
+            if (ok) {
+                ClientPool.backendPool.returnObject(targetBackend, client);
+            } else {
+                ClientPool.backendPool.invalidateObject(targetBackend, client);
+            }
         }
 
         if (!resp.isSetStatus()) {
@@ -687,7 +692,7 @@ public class ProfileManager extends MasterDaemon {
                     for (ExecutionProfile executionProfile : profileElement.profile.getExecutionProfiles()) {
                         this.queryIdToExecutionProfiles.remove(executionProfile.getQueryId());
                     }
-                    profileElement.profile.releaseExecutionProfile();
+                    profileElement.profile.releaseMemory();
                 }
             } finally {
                 writeLock.unlock();
