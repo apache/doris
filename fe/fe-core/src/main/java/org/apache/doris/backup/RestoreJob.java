@@ -963,7 +963,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
             ok = true;
         }
 
-        if (ok) {
+        if (ok && latch.getStatus().ok()) {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("finished to create all restored replicas. {}", this);
             }
@@ -1027,8 +1027,13 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                     .map(item -> "(backendId = " + item.getKey() + ", tabletId = "  + item.getValue() + ")")
                     .collect(Collectors.toList());
             String idStr = Joiner.on(", ").join(subList);
-            status = new Status(ErrCode.COMMON_ERROR,
-                    "Failed to create replicas for restore. unfinished marks: " + idStr);
+            String reason = "TIMEDOUT";
+            if (!latch.getStatus().ok()) {
+                reason = latch.getStatus().getErrorMsg();
+            }
+            String errMsg = String.format(
+                    "Failed to create replicas for restore: %s, unfinished marks: %s", reason, idStr);
+            status = new Status(ErrCode.COMMON_ERROR, errMsg);
             return;
         }
         LOG.info("finished to prepare meta. {}", this);
