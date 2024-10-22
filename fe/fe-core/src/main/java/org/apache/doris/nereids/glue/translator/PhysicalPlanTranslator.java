@@ -649,7 +649,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         EsScanNode esScanNode = new EsScanNode(context.nextPlanNodeId(), tupleDescriptor,
                 table instanceof EsExternalTable);
         esScanNode.setNereidsId(esScan.getId());
-        esScanNode.addConjuncts(translateToLegacyConjuncts(esScan.getConjuncts()));
         Utils.execWithUncheckedException(esScanNode::init);
         context.addScanNode(esScanNode);
         context.getRuntimeTranslator().ifPresent(
@@ -690,7 +689,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             ScanNode scanNode,
             ExternalTable table, TupleDescriptor tupleDescriptor) {
         scanNode.setNereidsId(fileScan.getId());
-        scanNode.addConjuncts(translateToLegacyConjuncts(fileScan.getConjuncts()));
         scanNode.setPushDownAggNoGrouping(context.getRelationPushAggOp(fileScan.getRelationId()));
 
         TableName tableName = new TableName(null, "", "");
@@ -724,7 +722,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         JdbcScanNode jdbcScanNode = new JdbcScanNode(context.nextPlanNodeId(), tupleDescriptor,
                 table instanceof JdbcExternalTable);
         jdbcScanNode.setNereidsId(jdbcScan.getId());
-        jdbcScanNode.addConjuncts(translateToLegacyConjuncts(jdbcScan.getConjuncts()));
         Utils.execWithUncheckedException(jdbcScanNode::init);
         context.addScanNode(jdbcScanNode);
         context.getRuntimeTranslator().ifPresent(
@@ -747,7 +744,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         OdbcScanNode odbcScanNode = new OdbcScanNode(context.nextPlanNodeId(), tupleDescriptor,
                 (OdbcTable) table);
         odbcScanNode.setNereidsId(odbcScan.getId());
-        odbcScanNode.addConjuncts(translateToLegacyConjuncts(odbcScan.getConjuncts()));
         Utils.execWithUncheckedException(odbcScanNode::init);
         context.addScanNode(odbcScanNode);
         context.getRuntimeTranslator().ifPresent(
