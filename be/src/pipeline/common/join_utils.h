@@ -113,6 +113,13 @@ struct JoinDataVariants {
                 method_variant.emplace<I128HashTableContext>();
             }
             break;
+        case HashKeyType::int256_key:
+            if (nullable) {
+                method_variant.emplace<SerializedHashTableContext>();
+            } else {
+                method_variant.emplace<I256HashTableContext>();
+            }
+            break;
         case HashKeyType::string_key:
             method_variant.emplace<MethodOneString>();
             break;

@@ -143,6 +143,7 @@ using PartitionedMethodVariants = std::variant<
         vectorized::MethodOneNumber<vectorized::UInt32, PartitionDataWithUInt32Key>,
         vectorized::MethodOneNumber<vectorized::UInt64, PartitionDataWithUInt64Key>,
         vectorized::MethodOneNumber<vectorized::UInt128, PartitionDataWithUInt128Key>,
+        vectorized::MethodOneNumber<vectorized::UInt256, PartitionDataWithUInt256Key>,
         vectorized::MethodSingleNullableColumn<vectorized::MethodOneNumber<
                 vectorized::UInt8, vectorized::DataWithNullKey<PartitionDataWithUInt8Key>>>,
         vectorized::MethodSingleNullableColumn<vectorized::MethodOneNumber<
@@ -153,6 +154,8 @@ using PartitionedMethodVariants = std::variant<
                 vectorized::UInt64, vectorized::DataWithNullKey<PartitionDataWithUInt64Key>>>,
         vectorized::MethodSingleNullableColumn<vectorized::MethodOneNumber<
                 vectorized::UInt128, vectorized::DataWithNullKey<PartitionDataWithUInt128Key>>>,
+        vectorized::MethodSingleNullableColumn<vectorized::MethodOneNumber<
+                vectorized::UInt256, vectorized::DataWithNullKey<PartitionDataWithUInt256Key>>>,
         vectorized::MethodKeysFixed<PartitionDataWithUInt64Key, false>,
         vectorized::MethodKeysFixed<PartitionDataWithUInt64Key, true>,
         vectorized::MethodKeysFixed<PartitionDataWithUInt128Key, false>,
@@ -197,6 +200,10 @@ struct PartitionedHashMapVariants
         }
         case HashKeyType::int128_key: {
             emplace_single<vectorized::UInt128, PartitionDataWithUInt128Key, nullable>();
+            break;
+        }
+        case HashKeyType::int256_key: {
+            emplace_single<vectorized::UInt256, PartitionDataWithUInt256Key, nullable>();
             break;
         }
         case HashKeyType::string_key: {

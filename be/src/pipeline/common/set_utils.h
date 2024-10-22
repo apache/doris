@@ -80,6 +80,9 @@ struct SetDataVariants {
         case HashKeyType::int128_key:
             method_variant.emplace<SetPrimaryTypeHashTableContext<vectorized::UInt128>>();
             break;
+        case HashKeyType::int256_key:
+            method_variant.emplace<SetPrimaryTypeHashTableContext<vectorized::UInt256>>();
+            break;
         case HashKeyType::string_key:
             method_variant.emplace<SetMethodOneString>();
             break;

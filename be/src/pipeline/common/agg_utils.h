@@ -28,21 +28,14 @@
 
 namespace doris {
 
+template <typename T>
+using AggData = PHHashMap<T, vectorized::AggregateDataPtr, HashCRC32<T>>;
+template <typename T>
+using AggDataNullable = vectorized::DataWithNullKey<AggData<T>>;
+
 using AggregatedDataWithoutKey = vectorized::AggregateDataPtr;
 using AggregatedDataWithStringKey = PHHashMap<StringRef, vectorized::AggregateDataPtr>;
 using AggregatedDataWithShortStringKey = StringHashMap<vectorized::AggregateDataPtr>;
-using AggregatedDataWithUInt8Key = PHHashMap<vectorized::UInt8, vectorized::AggregateDataPtr>;
-using AggregatedDataWithUInt16Key = PHHashMap<vectorized::UInt16, vectorized::AggregateDataPtr>;
-using AggregatedDataWithUInt32Key =
-        PHHashMap<vectorized::UInt32, vectorized::AggregateDataPtr, HashCRC32<vectorized::UInt32>>;
-using AggregatedDataWithUInt64Key =
-        PHHashMap<vectorized::UInt64, vectorized::AggregateDataPtr, HashCRC32<vectorized::UInt64>>;
-using AggregatedDataWithUInt128Key = PHHashMap<vectorized::UInt128, vectorized::AggregateDataPtr,
-                                               HashCRC32<vectorized::UInt128>>;
-using AggregatedDataWithUInt256Key = PHHashMap<vectorized::UInt256, vectorized::AggregateDataPtr,
-                                               HashCRC32<vectorized::UInt256>>;
-using AggregatedDataWithUInt136Key = PHHashMap<vectorized::UInt136, vectorized::AggregateDataPtr,
-                                               HashCRC32<vectorized::UInt136>>;
 
 using AggregatedDataWithUInt32KeyPhase2 =
         PHHashMap<vectorized::UInt32, vectorized::AggregateDataPtr,
@@ -50,72 +43,51 @@ using AggregatedDataWithUInt32KeyPhase2 =
 using AggregatedDataWithUInt64KeyPhase2 =
         PHHashMap<vectorized::UInt64, vectorized::AggregateDataPtr,
                   HashMixWrapper<vectorized::UInt64>>;
-using AggregatedDataWithUInt128KeyPhase2 =
-        PHHashMap<vectorized::UInt128, vectorized::AggregateDataPtr,
-                  HashMixWrapper<vectorized::UInt128>>;
-using AggregatedDataWithUInt256KeyPhase2 =
-        PHHashMap<vectorized::UInt256, vectorized::AggregateDataPtr,
-                  HashMixWrapper<vectorized::UInt256>>;
 
-using AggregatedDataWithUInt136KeyPhase2 =
-        PHHashMap<vectorized::UInt136, vectorized::AggregateDataPtr,
-                  HashMixWrapper<vectorized::UInt136>>;
-
-using AggregatedDataWithNullableUInt8Key = vectorized::DataWithNullKey<AggregatedDataWithUInt8Key>;
-using AggregatedDataWithNullableUInt16Key =
-        vectorized::DataWithNullKey<AggregatedDataWithUInt16Key>;
-using AggregatedDataWithNullableUInt32Key =
-        vectorized::DataWithNullKey<AggregatedDataWithUInt32Key>;
-using AggregatedDataWithNullableUInt64Key =
-        vectorized::DataWithNullKey<AggregatedDataWithUInt64Key>;
 using AggregatedDataWithNullableUInt32KeyPhase2 =
         vectorized::DataWithNullKey<AggregatedDataWithUInt32KeyPhase2>;
 using AggregatedDataWithNullableUInt64KeyPhase2 =
         vectorized::DataWithNullKey<AggregatedDataWithUInt64KeyPhase2>;
 using AggregatedDataWithNullableShortStringKey =
         vectorized::DataWithNullKey<AggregatedDataWithShortStringKey>;
-using AggregatedDataWithNullableUInt128Key =
-        vectorized::DataWithNullKey<AggregatedDataWithUInt128Key>;
-using AggregatedDataWithNullableUInt128KeyPhase2 =
-        vectorized::DataWithNullKey<AggregatedDataWithUInt128KeyPhase2>;
 
 using AggregatedMethodVariants = std::variant<
         std::monostate, vectorized::MethodSerialized<AggregatedDataWithStringKey>,
-        vectorized::MethodOneNumber<vectorized::UInt8, AggregatedDataWithUInt8Key>,
-        vectorized::MethodOneNumber<vectorized::UInt16, AggregatedDataWithUInt16Key>,
-        vectorized::MethodOneNumber<vectorized::UInt32, AggregatedDataWithUInt32Key>,
-        vectorized::MethodOneNumber<vectorized::UInt64, AggregatedDataWithUInt64Key>,
+        vectorized::MethodOneNumber<vectorized::UInt8, AggData<vectorized::UInt8>>,
+        vectorized::MethodOneNumber<vectorized::UInt16, AggData<vectorized::UInt16>>,
+        vectorized::MethodOneNumber<vectorized::UInt32, AggData<vectorized::UInt32>>,
+        vectorized::MethodOneNumber<vectorized::UInt64, AggData<vectorized::UInt64>>,
         vectorized::MethodStringNoCache<AggregatedDataWithShortStringKey>,
-        vectorized::MethodOneNumber<vectorized::UInt128, AggregatedDataWithUInt128Key>,
+        vectorized::MethodOneNumber<vectorized::UInt128, AggData<vectorized::UInt128>>,
+        vectorized::MethodOneNumber<vectorized::UInt256, AggData<vectorized::UInt256>>,
         vectorized::MethodOneNumber<vectorized::UInt32, AggregatedDataWithUInt32KeyPhase2>,
         vectorized::MethodOneNumber<vectorized::UInt64, AggregatedDataWithUInt64KeyPhase2>,
-        vectorized::MethodOneNumber<vectorized::UInt128, AggregatedDataWithUInt128KeyPhase2>,
         vectorized::MethodSingleNullableColumn<
-                vectorized::MethodOneNumber<vectorized::UInt8, AggregatedDataWithNullableUInt8Key>>,
+                vectorized::MethodOneNumber<vectorized::UInt8, AggDataNullable<vectorized::UInt8>>>,
         vectorized::MethodSingleNullableColumn<vectorized::MethodOneNumber<
-                vectorized::UInt16, AggregatedDataWithNullableUInt16Key>>,
+                vectorized::UInt16, AggDataNullable<vectorized::UInt16>>>,
         vectorized::MethodSingleNullableColumn<vectorized::MethodOneNumber<
-                vectorized::UInt32, AggregatedDataWithNullableUInt32Key>>,
+                vectorized::UInt32, AggDataNullable<vectorized::UInt32>>>,
         vectorized::MethodSingleNullableColumn<vectorized::MethodOneNumber<
-                vectorized::UInt64, AggregatedDataWithNullableUInt64Key>>,
+                vectorized::UInt64, AggDataNullable<vectorized::UInt64>>>,
         vectorized::MethodSingleNullableColumn<vectorized::MethodOneNumber<
                 vectorized::UInt32, AggregatedDataWithNullableUInt32KeyPhase2>>,
         vectorized::MethodSingleNullableColumn<vectorized::MethodOneNumber<
                 vectorized::UInt64, AggregatedDataWithNullableUInt64KeyPhase2>>,
         vectorized::MethodSingleNullableColumn<vectorized::MethodOneNumber<
-                vectorized::UInt128, AggregatedDataWithNullableUInt128Key>>,
+                vectorized::UInt128, AggDataNullable<vectorized::UInt128>>>,
         vectorized::MethodSingleNullableColumn<vectorized::MethodOneNumber<
-                vectorized::UInt128, AggregatedDataWithNullableUInt128KeyPhase2>>,
+                vectorized::UInt256, AggDataNullable<vectorized::UInt256>>>,
         vectorized::MethodSingleNullableColumn<
                 vectorized::MethodStringNoCache<AggregatedDataWithNullableShortStringKey>>,
-        vectorized::MethodKeysFixed<AggregatedDataWithUInt64Key, false>,
-        vectorized::MethodKeysFixed<AggregatedDataWithUInt64Key, true>,
-        vectorized::MethodKeysFixed<AggregatedDataWithUInt128Key, false>,
-        vectorized::MethodKeysFixed<AggregatedDataWithUInt128Key, true>,
-        vectorized::MethodKeysFixed<AggregatedDataWithUInt256Key, false>,
-        vectorized::MethodKeysFixed<AggregatedDataWithUInt256Key, true>,
-        vectorized::MethodKeysFixed<AggregatedDataWithUInt136Key, false>,
-        vectorized::MethodKeysFixed<AggregatedDataWithUInt136Key, true>>;
+        vectorized::MethodKeysFixed<AggData<vectorized::UInt64>, false>,
+        vectorized::MethodKeysFixed<AggData<vectorized::UInt64>, true>,
+        vectorized::MethodKeysFixed<AggData<vectorized::UInt128>, false>,
+        vectorized::MethodKeysFixed<AggData<vectorized::UInt128>, true>,
+        vectorized::MethodKeysFixed<AggData<vectorized::UInt256>, false>,
+        vectorized::MethodKeysFixed<AggData<vectorized::UInt256>, true>,
+        vectorized::MethodKeysFixed<AggData<vectorized::UInt136>, false>,
+        vectorized::MethodKeysFixed<AggData<vectorized::UInt136>, true>>;
 
 struct AggregatedDataVariants
         : public DataVariants<AggregatedMethodVariants, vectorized::MethodSingleNullableColumn,
@@ -132,28 +104,28 @@ struct AggregatedDataVariants
             method_variant.emplace<vectorized::MethodSerialized<AggregatedDataWithStringKey>>();
             break;
         case HashKeyType::int8_key:
-            emplace_single<vectorized::UInt8, AggregatedDataWithUInt8Key, nullable>();
+            emplace_single<vectorized::UInt8, AggData<vectorized::UInt8>, nullable>();
             break;
         case HashKeyType::int16_key:
-            emplace_single<vectorized::UInt16, AggregatedDataWithUInt16Key, nullable>();
+            emplace_single<vectorized::UInt16, AggData<vectorized::UInt16>, nullable>();
             break;
         case HashKeyType::int32_key:
-            emplace_single<vectorized::UInt32, AggregatedDataWithUInt32Key, nullable>();
+            emplace_single<vectorized::UInt32, AggData<vectorized::UInt32>, nullable>();
             break;
         case HashKeyType::int32_key_phase2:
             emplace_single<vectorized::UInt32, AggregatedDataWithUInt32KeyPhase2, nullable>();
             break;
         case HashKeyType::int64_key:
-            emplace_single<vectorized::UInt64, AggregatedDataWithUInt64Key, nullable>();
+            emplace_single<vectorized::UInt64, AggData<vectorized::UInt64>, nullable>();
             break;
         case HashKeyType::int64_key_phase2:
             emplace_single<vectorized::UInt64, AggregatedDataWithUInt64KeyPhase2, nullable>();
             break;
         case HashKeyType::int128_key:
-            emplace_single<vectorized::UInt128, AggregatedDataWithUInt128Key, nullable>();
+            emplace_single<vectorized::UInt128, AggData<vectorized::UInt128>, nullable>();
             break;
-        case HashKeyType::int128_key_phase2:
-            emplace_single<vectorized::UInt128, AggregatedDataWithUInt128KeyPhase2, nullable>();
+        case HashKeyType::int256_key:
+            emplace_single<vectorized::UInt256, AggData<vectorized::UInt256>, nullable>();
             break;
         case HashKeyType::string_key:
             if (nullable) {
@@ -167,22 +139,22 @@ struct AggregatedDataVariants
             break;
         case HashKeyType::fixed64:
             method_variant
-                    .emplace<vectorized::MethodKeysFixed<AggregatedDataWithUInt64Key, nullable>>(
+                    .emplace<vectorized::MethodKeysFixed<AggData<vectorized::UInt64>, nullable>>(
                             get_key_sizes(data_types));
             break;
         case HashKeyType::fixed128:
             method_variant
-                    .emplace<vectorized::MethodKeysFixed<AggregatedDataWithUInt128Key, nullable>>(
+                    .emplace<vectorized::MethodKeysFixed<AggData<vectorized::UInt128>, nullable>>(
                             get_key_sizes(data_types));
             break;
         case HashKeyType::fixed136:
             method_variant
-                    .emplace<vectorized::MethodKeysFixed<AggregatedDataWithUInt136Key, nullable>>(
+                    .emplace<vectorized::MethodKeysFixed<AggData<vectorized::UInt136>, nullable>>(
                             get_key_sizes(data_types));
             break;
         case HashKeyType::fixed256:
             method_variant
-                    .emplace<vectorized::MethodKeysFixed<AggregatedDataWithUInt256Key, nullable>>(
+                    .emplace<vectorized::MethodKeysFixed<AggData<vectorized::UInt256>, nullable>>(
                             get_key_sizes(data_types));
             break;
         default:

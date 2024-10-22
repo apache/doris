@@ -34,7 +34,7 @@ enum class HashKeyType {
     int64_key,
     int64_key_phase2,
     int128_key,
-    int128_key_phase2,
+    int256_key,
     string_key,
     fixed64,
     fixed128,
@@ -51,9 +51,6 @@ inline HashKeyType get_hash_key_type_with_phase(HashKeyType t, bool phase2) {
     }
     if (t == HashKeyType::int64_key) {
         return HashKeyType::int64_key_phase2;
-    }
-    if (t == HashKeyType::int128_key) {
-        return HashKeyType::int128_key_phase2;
     }
     return t;
 }
@@ -121,7 +118,7 @@ inline HashKeyType get_hash_key_type(const std::vector<vectorized::DataTypePtr>&
     } else if (size == sizeof(vectorized::UInt128)) {
         return HashKeyType::int128_key;
     } else if (size == sizeof(vectorized::UInt256)) {
-        return HashKeyType::serialized;
+        return HashKeyType::int256_key;
     } else {
         throw Exception(ErrorCode::INTERNAL_ERROR, "meet invalid type size, size={}, type={}", size,
                         data_types[0]->get_name());

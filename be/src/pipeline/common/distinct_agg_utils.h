@@ -47,9 +47,9 @@ using DistinctMethodVariants = std::variant<
         vectorized::MethodOneNumber<vectorized::UInt64, DistinctData<vectorized::UInt64>>,
         vectorized::MethodStringNoCache<DistinctDataWithShortStringKey>,
         vectorized::MethodOneNumber<vectorized::UInt128, DistinctData<vectorized::UInt128>>,
+        vectorized::MethodOneNumber<vectorized::UInt256, DistinctData<vectorized::UInt256>>,
         vectorized::MethodOneNumber<vectorized::UInt32, DistinctDataPhase2<vectorized::UInt32>>,
         vectorized::MethodOneNumber<vectorized::UInt64, DistinctDataPhase2<vectorized::UInt64>>,
-        vectorized::MethodOneNumber<vectorized::UInt128, DistinctDataPhase2<vectorized::UInt128>>,
         vectorized::MethodSingleNullableColumn<vectorized::MethodOneNumber<
                 vectorized::UInt8, vectorized::DataWithNullKey<DistinctData<vectorized::UInt8>>>>,
         vectorized::MethodSingleNullableColumn<vectorized::MethodOneNumber<
@@ -68,8 +68,8 @@ using DistinctMethodVariants = std::variant<
                 vectorized::UInt128,
                 vectorized::DataWithNullKey<DistinctData<vectorized::UInt128>>>>,
         vectorized::MethodSingleNullableColumn<vectorized::MethodOneNumber<
-                vectorized::UInt128,
-                vectorized::DataWithNullKey<DistinctDataPhase2<vectorized::UInt128>>>>,
+                vectorized::UInt256,
+                vectorized::DataWithNullKey<DistinctData<vectorized::UInt256>>>>,
         vectorized::MethodSingleNullableColumn<vectorized::MethodStringNoCache<
                 vectorized::DataWithNullKey<DistinctDataWithShortStringKey>>>,
         vectorized::MethodKeysFixed<DistinctData<vectorized::UInt64>, false>,
@@ -112,9 +112,8 @@ struct DistinctDataVariants
         case HashKeyType::int128_key:
             emplace_single<vectorized::UInt128, DistinctData<vectorized::UInt128>, nullable>();
             break;
-        case HashKeyType::int128_key_phase2:
-            emplace_single<vectorized::UInt128, DistinctDataPhase2<vectorized::UInt128>,
-                           nullable>();
+        case HashKeyType::int256_key:
+            emplace_single<vectorized::UInt256, DistinctData<vectorized::UInt256>, nullable>();
             break;
         case HashKeyType::string_key:
             if (nullable) {
