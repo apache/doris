@@ -44,33 +44,33 @@ BaseCompaction::BaseCompaction(StorageEngine& engine, const TabletSharedPtr& tab
 BaseCompaction::~BaseCompaction() = default;
 
 Status BaseCompaction::prepare_compact() {
+    Status st;
+    Defer defer_set_st([&] {
+        tablet()->set_last_base_compaction_status(st.to_string());
+        if (!st.ok()) {
+            tablet()->set_last_base_compaction_failure_time(UnixMillis());
+        }
+    });
+
     if (!tablet()->init_succeeded()) {
-        Status res = Status::Error<INVALID_ARGUMENT, false>("_tablet init failed");
-        tablet()->set_last_base_compaction_failure_time(UnixMillis());
-        tablet()->set_last_base_compaction_status(res.to_string());
-        return res;
+        st = Status::Error<INVALID_ARGUMENT, false>("_tablet init failed");
+        return st;
     }
 
     std::unique_lock<std::mutex> lock(tablet()->get_base_compaction_lock(), std::try_to_lock);
     if (!lock.owns_lock()) {
-        Status res = Status::Error<TRY_LOCK_FAILED, false>(
+        st = Status::Error<TRY_LOCK_FAILED, false>(
                 "another base compaction is running. tablet={}", _tablet->tablet_id());
-        tablet()->set_last_base_compaction_failure_time(UnixMillis());
-        tablet()->set_last_base_compaction_status(res.to_string());
-        return res;
+        return st;
     }
 
     // 1. pick rowsets to compact
-    Status res = pick_rowsets_to_compact();
-    tablet()->set_last_base_compaction_status(res.to_string());
-    if (!res.ok()) {
-        tablet()->set_last_base_compaction_failure_time(UnixMillis());
-    }
-    RETURN_IF_ERROR(res);
+    st = pick_rowsets_to_compact();
+    RETURN_IF_ERROR(st);
     COUNTER_UPDATE(_input_rowsets_counter, _input_rowsets.size());
 
-    tablet()->set_last_base_compaction_status(Status::OK().to_string());
-    return Status::OK();
+    st = Status::OK();
+    return st;
 }
 
 Status BaseCompaction::execute_compact() {
@@ -79,32 +79,35 @@ Status BaseCompaction::execute_compact() {
         Thread::set_idle_sched();
     }
 #endif
+    Status st;
+    Defer defer_set_st([&] {
+        tablet()->set_last_base_compaction_status(st.to_string());
+        if (!st.ok()) {
+            tablet()->set_last_base_compaction_failure_time(UnixMillis());
+        } else {
+            tablet()->set_last_base_compaction_success_time(UnixMillis());
+        }
+    });
+
     std::unique_lock<std::mutex> lock(tablet()->get_base_compaction_lock(), std::try_to_lock);
     if (!lock.owns_lock()) {
-        Status res = Status::Error<TRY_LOCK_FAILED, false>(
+        st = Status::Error<TRY_LOCK_FAILED, false>(
                 "another base compaction is running. tablet={}", _tablet->tablet_id());
-        tablet()->set_last_base_compaction_failure_time(UnixMillis());
-        tablet()->set_last_base_compaction_status(res.to_string());
-        return res;
+        return st;
     }
 
     SCOPED_ATTACH_TASK(_mem_tracker);
 
-    Status res = CompactionMixin::execute_compact();
-    tablet()->set_last_base_compaction_status(res.to_string());
-    if (!res.ok()) {
-        tablet()->set_last_base_compaction_failure_time(UnixMillis());
-    }
-    RETURN_IF_ERROR(res);
+    st = CompactionMixin::execute_compact();
+    RETURN_IF_ERROR(st);
 
     DCHECK_EQ(_state, CompactionState::SUCCESS);
 
     DorisMetrics::instance()->base_compaction_deltas_total->increment(_input_rowsets.size());
     DorisMetrics::instance()->base_compaction_bytes_total->increment(_input_rowsets_size);
 
-    tablet()->set_last_base_compaction_success_time(UnixMillis());
-    tablet()->set_last_base_compaction_status(Status::OK().to_string());
-    return Status::OK();
+    st = Status::OK();
+    return st;
 }
 
 void BaseCompaction::_filter_input_rowset() {

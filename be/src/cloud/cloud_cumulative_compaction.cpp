@@ -50,13 +50,18 @@ CloudCumulativeCompaction::CloudCumulativeCompaction(CloudStorageEngine& engine,
 CloudCumulativeCompaction::~CloudCumulativeCompaction() = default;
 
 Status CloudCumulativeCompaction::prepare_compact() {
+    Status st;
+    Defer defer_set_st([&] {
+        cloud_tablet()->set_last_cumu_compaction_status(st.to_string());
+        if (!st.ok()) {
+            cloud_tablet()->set_last_cumu_compaction_failure_time(UnixMillis());
+        }
+    });
     if (_tablet->tablet_state() != TABLET_RUNNING &&
         (!config::enable_new_tablet_do_compaction ||
          static_cast<CloudTablet*>(_tablet.get())->alter_version() == -1)) {
-        Status res = Status::InternalError("invalid tablet state. tablet_id={}", _tablet->tablet_id());
-        cloud_tablet()->set_last_cumu_compaction_failure_time(UnixMillis());
-        cloud_tablet()->set_last_cumu_compaction_status(res.to_string());
-        return res;
+        st = Status::InternalError("invalid tablet state. tablet_id={}", _tablet->tablet_id());
+        return st;
     }
 
     std::vector<std::shared_ptr<CloudCumulativeCompaction>> cumu_compactions;
@@ -83,19 +88,13 @@ PREPARE_TRY_AGAIN:
         }
     }
     if (need_sync_tablet) {
-        Status res = cloud_tablet()->sync_rowsets();
-        cloud_tablet()->set_last_cumu_compaction_status(res.to_string());
-        if (!res.ok()) {
-            cloud_tablet()->set_last_cumu_compaction_failure_time(UnixMillis());
-        }
-        RETURN_IF_ERROR(res);
+        st = cloud_tablet()->sync_rowsets();
+        RETURN_IF_ERROR(st);
     }
 
     // pick rowsets to compact
-    auto st = pick_rowsets_to_compact();
-    cloud_tablet()->set_last_cumu_compaction_status(st.to_string());
+    st = pick_rowsets_to_compact();
     if (!st.ok()) {
-        cloud_tablet()->set_last_cumu_compaction_failure_time(UnixMillis());
         if (tried == 0 && _last_delete_version.first != -1) {
             // we meet a delete version, should increase the cumulative point to let base compaction handle the delete version.
             // plus 1 to skip the delete version.
@@ -131,9 +130,7 @@ PREPARE_TRY_AGAIN:
     compaction_job->set_check_input_versions_range(config::enable_parallel_cumu_compaction);
     cloud::StartTabletJobResponse resp;
     st = _engine.meta_mgr().prepare_tablet_job(job, &resp);
-    cloud_tablet()->set_last_cumu_compaction_status(st.to_string());
     if (!st.ok()) {
-        cloud_tablet()->set_last_cumu_compaction_failure_time(UnixMillis());
         if (resp.status().code() == cloud::STALE_TABLET_CACHE) {
             // set last_sync_time to 0 to force sync tablet next time
             cloud_tablet()->last_sync_time_s = 0;
@@ -189,7 +186,7 @@ PREPARE_TRY_AGAIN:
             .tag("cumulative_point", cloud_tablet()->cumulative_layer_point())
             .tag("num_rowsets", cloud_tablet()->fetch_add_approximate_num_rowsets(0))
             .tag("cumu_num_rowsets", cloud_tablet()->fetch_add_approximate_cumu_num_rowsets(0));
-    cloud_tablet()->set_last_cumu_compaction_status(st.to_string());
+    st = Status::OK();
     return st;
 }
 
@@ -201,14 +198,21 @@ Status CloudCumulativeCompaction::execute_compact() {
 
     using namespace std::chrono;
     auto start = steady_clock::now();
-    auto res = CloudCompactionMixin::execute_compact();
-    cloud_tablet()->set_last_cumu_compaction_status(res.to_string());
-    if (!res.ok()) {
-        cloud_tablet()->set_last_cumu_compaction_failure_time(UnixMillis());
-        LOG(WARNING) << "fail to do " << compaction_name() << ". res=" << res
+    Status st;
+    Defer defer_set_st([&] {
+        cloud_tablet()->set_last_cumu_compaction_status(st.to_string());
+        if (!st.ok()) {
+            cloud_tablet()->set_last_cumu_compaction_failure_time(UnixMillis());
+        } else {
+            cloud_tablet()->set_last_cumu_compaction_success_time(UnixMillis());
+        }
+    });
+    st = CloudCompactionMixin::execute_compact();
+    if (!st.ok()) {
+        LOG(WARNING) << "fail to do " << compaction_name() << ". res=" << st
                      << ", tablet=" << _tablet->tablet_id()
                      << ", output_version=" << _output_version;
-        return res;
+        return st;
     }
     LOG_INFO("finish CloudCumulativeCompaction, tablet_id={}, cost={}ms", _tablet->tablet_id(),
              duration_cast<milliseconds>(steady_clock::now() - start).count())
@@ -231,9 +235,8 @@ Status CloudCumulativeCompaction::execute_compact() {
     DorisMetrics::instance()->cumulative_compaction_bytes_total->increment(_input_rowsets_size);
     cumu_output_size << _output_rowset->data_disk_size();
 
-    cloud_tablet()->set_last_cumu_compaction_success_time(UnixMillis());
-    cloud_tablet()->set_last_cumu_compaction_status(Status::OK().to_string());
-    return Status::OK();
+    st = Status::OK();
+    return st;
 }
 
 Status CloudCumulativeCompaction::modify_rowsets() {

@@ -48,11 +48,16 @@ CloudBaseCompaction::CloudBaseCompaction(CloudStorageEngine& engine, CloudTablet
 CloudBaseCompaction::~CloudBaseCompaction() = default;
 
 Status CloudBaseCompaction::prepare_compact() {
+    Status st;
+    Defer defer_set_st([&] {
+        cloud_tablet()->set_last_base_compaction_status(st.to_string());
+        if (!st.ok()) {
+            cloud_tablet()->set_last_base_compaction_failure_time(UnixMillis());
+        }
+    });
     if (_tablet->tablet_state() != TABLET_RUNNING) {
-        Status res = Status::InternalError("invalid tablet state. tablet_id={}", _tablet->tablet_id());
-        cloud_tablet()->set_last_base_compaction_failure_time(UnixMillis());
-        cloud_tablet()->set_last_base_compaction_status(res.to_string());
-        return res;
+        st = Status::InternalError("invalid tablet state. tablet_id={}", _tablet->tablet_id());
+        return st;
     }
 
     bool need_sync_tablet = true;
@@ -67,20 +72,12 @@ Status CloudBaseCompaction::prepare_compact() {
         }
     }
     if (need_sync_tablet) {
-        Status res = cloud_tablet()->sync_rowsets();
-        cloud_tablet()->set_last_base_compaction_status(res.to_string());
-        if (!res.ok()) {
-            cloud_tablet()->set_last_base_compaction_failure_time(UnixMillis());
-        }
-        RETURN_IF_ERROR(res);
+        st = cloud_tablet()->sync_rowsets();
+        RETURN_IF_ERROR(st);
     }
 
-    Status res = pick_rowsets_to_compact();
-    cloud_tablet()->set_last_base_compaction_status(res.to_string());
-    if (!res.ok()) {
-        cloud_tablet()->set_last_base_compaction_failure_time(UnixMillis());
-    }
-    RETURN_IF_ERROR(res);
+    st = pick_rowsets_to_compact();
+    RETURN_IF_ERROR(st);
 
     // prepare compaction job
     cloud::TabletJobInfoPB job;
@@ -104,7 +101,7 @@ Status CloudBaseCompaction::prepare_compact() {
     compaction_job->set_expiration(_expiration);
     compaction_job->set_lease(now + config::lease_compaction_interval_seconds * 4);
     cloud::StartTabletJobResponse resp;
-    auto st = _engine.meta_mgr().prepare_tablet_job(job, &resp);
+    st = _engine.meta_mgr().prepare_tablet_job(job, &resp);
     cloud_tablet()->set_last_base_compaction_status(st.to_string());
     if (resp.has_alter_version()) {
         (static_cast<CloudTablet*>(_tablet.get()))->set_alter_version(resp.alter_version());
@@ -148,6 +145,8 @@ Status CloudBaseCompaction::prepare_compact() {
             .tag("input_rows", _input_row_num)
             .tag("input_segments", _input_segments)
             .tag("input_data_size", _input_rowsets_size);
+
+    st = Status::OK();
     return st;
 }
 
@@ -272,14 +271,21 @@ Status CloudBaseCompaction::execute_compact() {
 
     using namespace std::chrono;
     auto start = steady_clock::now();
-    auto res = CloudCompactionMixin::execute_compact();
-    cloud_tablet()->set_last_base_compaction_status(res.to_string());
-    if (!res.ok()) {
-        cloud_tablet()->set_last_base_compaction_failure_time(UnixMillis());
-        LOG(WARNING) << "fail to do " << compaction_name() << ". res=" << res
+    Status st;
+    Defer defer_set_st([&] {
+        cloud_tablet()->set_last_base_compaction_status(st.to_string());
+        if (!st.ok()) {
+            cloud_tablet()->set_last_base_compaction_failure_time(UnixMillis());
+        } else {
+            cloud_tablet()->set_last_base_compaction_success_time(UnixMillis());
+        }
+    });
+    st = CloudCompactionMixin::execute_compact();
+    if (!st.ok()) {
+        LOG(WARNING) << "fail to do " << compaction_name() << ". res=" << st
                      << ", tablet=" << _tablet->tablet_id()
                      << ", output_version=" << _output_version;
-        return res;
+        return st;
     }
     LOG_INFO("finish CloudBaseCompaction, tablet_id={}, cost={}ms", _tablet->tablet_id(),
              duration_cast<milliseconds>(steady_clock::now() - start).count())
@@ -299,9 +305,8 @@ Status CloudBaseCompaction::execute_compact() {
     DorisMetrics::instance()->base_compaction_bytes_total->increment(_input_rowsets_size);
     base_output_size << _output_rowset->data_disk_size();
 
-    cloud_tablet()->set_last_base_compaction_success_time(UnixMillis());
-    cloud_tablet()->set_last_base_compaction_status(Status::OK().to_string());
-    return Status::OK();
+    st = Status::OK();
+    return st;
 }
 
 Status CloudBaseCompaction::modify_rowsets() {

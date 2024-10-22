@@ -51,27 +51,24 @@ CloudFullCompaction::CloudFullCompaction(CloudStorageEngine& engine, CloudTablet
 CloudFullCompaction::~CloudFullCompaction() = default;
 
 Status CloudFullCompaction::prepare_compact() {
+    Status st;
+    Defer defer_set_st([&] {
+        cloud_tablet()->set_last_full_compaction_status(st.to_string());
+        if (!st.ok()) {
+            cloud_tablet()->set_last_full_compaction_failure_time(UnixMillis());
+        }
+    });
     if (_tablet->tablet_state() != TABLET_RUNNING) {
-        Status res = Status::InternalError("invalid tablet state. tablet_id={}", _tablet->tablet_id());
-        cloud_tablet()->set_last_full_compaction_failure_time(UnixMillis());
-        cloud_tablet()->set_last_full_compaction_status(res.to_string());
-        return res;
+        st = Status::InternalError("invalid tablet state. tablet_id={}", _tablet->tablet_id());
+        return st;
     }
 
     // always sync latest rowset for full compaction
-    Status res = cloud_tablet()->sync_rowsets();
-    cloud_tablet()->set_last_full_compaction_status(res.to_string());
-    if (!res.ok()) {
-        cloud_tablet()->set_last_full_compaction_failure_time(UnixMillis());
-    }
-    RETURN_IF_ERROR(res);
+    st = cloud_tablet()->sync_rowsets();
+    RETURN_IF_ERROR(st);
 
-    res = pick_rowsets_to_compact();
-    cloud_tablet()->set_last_full_compaction_status(res.to_string());
-    if (!res.ok()) {
-        cloud_tablet()->set_last_full_compaction_failure_time(UnixMillis());
-    }
-    RETURN_IF_ERROR(res);
+    st = pick_rowsets_to_compact();
+    RETURN_IF_ERROR(st);
 
     // prepare compaction job
     cloud::TabletJobInfoPB job;
@@ -96,10 +93,8 @@ Status CloudFullCompaction::prepare_compact() {
     compaction_job->add_input_versions(_input_rowsets.front()->start_version());
     compaction_job->add_input_versions(_input_rowsets.back()->end_version());
     cloud::StartTabletJobResponse resp;
-    auto st = _engine.meta_mgr().prepare_tablet_job(job, &resp);
-    cloud_tablet()->set_last_full_compaction_status(st.to_string());
+    st = _engine.meta_mgr().prepare_tablet_job(job, &resp);
     if (!st.ok()) {
-        cloud_tablet()->set_last_full_compaction_failure_time(UnixMillis());
         if (resp.status().code() == cloud::STALE_TABLET_CACHE) {
             // set last_sync_time to 0 to force sync tablet next time
             cloud_tablet()->last_sync_time_s = 0;
@@ -122,7 +117,7 @@ Status CloudFullCompaction::prepare_compact() {
             .tag("input_rows", _input_row_num)
             .tag("input_segments", _input_segments)
             .tag("input_data_size", _input_rowsets_size);
-    cloud_tablet()->set_last_full_compaction_status(st.to_string());
+    st = Status::OK();
     return st;
 }
 

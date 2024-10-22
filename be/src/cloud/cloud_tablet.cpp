@@ -557,27 +557,16 @@ void CloudTablet::get_compaction_status(std::string* json_result) {
 
     std::vector<RowsetSharedPtr> rowsets;
     std::vector<RowsetSharedPtr> stale_rowsets;
-    std::vector<bool> delete_flags;
     {
         std::shared_lock rdlock(_meta_lock);
         rowsets.reserve(_rs_version_map.size());
         for (auto& it : _rs_version_map) {
             rowsets.push_back(it.second);
         }
-        std::sort(rowsets.begin(), rowsets.end(), Rowset::comparator);
-
         stale_rowsets.reserve(_stale_rs_version_map.size());
         for (auto& it : _stale_rs_version_map) {
             stale_rowsets.push_back(it.second);
         }
-        std::sort(stale_rowsets.begin(), stale_rowsets.end(), Rowset::comparator);
-
-        delete_flags.reserve(rowsets.size());
-        for (auto& rs : rowsets) {
-            delete_flags.push_back(rs->rowset_meta()->has_delete_predicate());
-        }
-
-        _timestamped_version_tracker.get_stale_version_path_json_doc(path_arr);
     }
 
     root.AddMember("cumulative point", _cumulative_point.load(), root.GetAllocator());
