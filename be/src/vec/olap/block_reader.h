@@ -86,7 +86,8 @@ private:
 
     bool _get_next_row_same();
 
-    bool _rowsets_overlapping(const ReaderParams& read_params);
+    // return true if keys of rowsets are mono ascending and disjoint
+    bool _rowsets_mono_asc_disjoint(const ReaderParams& read_params);
 
     VCollectIterator _vcollect_iter;
     IteratorRowRef _next_row {{}, -1, false};
