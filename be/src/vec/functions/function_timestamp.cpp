@@ -375,9 +375,10 @@ private:
     static void _execute_inner_loop(const int& l, const int& r, PaddedPODArray<ReturnType>& res,
                                     NullMap& null_map, size_t index) {
         auto& res_val = *reinterpret_cast<DateValueType*>(&res[index]);
+        // l checked outside
         if constexpr (std::is_same_v<DateValueType, VecDateTimeValue>) {
             VecDateTimeValue ts_value = VecDateTimeValue();
-            ts_value.set_time(l, 1, 1, 0, 0, 0);
+            ts_value.unchecked_set_time(l, 1, 1, 0, 0, 0);
 
             TimeInterval interval(DAY, r - 1, false);
             res_val = ts_value;
@@ -387,7 +388,7 @@ private:
             }
             res_val.cast_to_date();
         } else {
-            res_val.set_time(l, 1, 1, 0, 0, 0, 0);
+            res_val.unchecked_set_time(l, 1, 1, 0, 0, 0, 0);
             TimeInterval interval(DAY, r - 1, false);
             if (!res_val.template date_add_interval<DAY>(interval)) {
                 null_map[index] = 1;
@@ -1125,17 +1126,17 @@ struct LastDayImpl {
                 continue;
             }
             int day = get_last_month_day(ts_value.year(), ts_value.month());
-
+            // day is definitely legal
             if constexpr (date_cast::IsV1<DateType>()) {
-                ts_value.set_time(ts_value.year(), ts_value.month(), day, 0, 0, 0);
+                ts_value.unchecked_set_time(ts_value.year(), ts_value.month(), day, 0, 0, 0);
                 ts_value.set_type(TIME_DATE);
                 res_data[i] = binary_cast<VecDateTimeValue, Int64>(ts_value);
             } else if constexpr (std::is_same_v<DateType, DataTypeDateV2>) {
-                ts_value.template set_time_unit<TimeUnit::DAY>(day);
+                ts_value.template unchecked_set_time_unit<TimeUnit::DAY>(day);
                 res_data[i] = binary_cast<DateValueType, UInt32>(ts_value);
             } else {
-                ts_value.template set_time_unit<TimeUnit::DAY>(day);
-                ts_value.set_time(ts_value.year(), ts_value.month(), day, 0, 0, 0, 0);
+                ts_value.template unchecked_set_time_unit<TimeUnit::DAY>(day);
+                ts_value.unchecked_set_time(ts_value.year(), ts_value.month(), day, 0, 0, 0, 0);
                 UInt64 cast_value = binary_cast<DateValueType, UInt64>(ts_value);
                 DataTypeDateTimeV2::cast_to_date_v2(cast_value, res_data[i]);
             }
@@ -1150,12 +1151,12 @@ struct LastDayImpl {
             auto ts_value = binary_cast<NativeType, DateValueType>(cur_data);
             DCHECK(ts_value.is_valid_date());
             int day = get_last_month_day(ts_value.year(), ts_value.month());
-            ts_value.template set_time_unit<TimeUnit::DAY>(day);
+            ts_value.template unchecked_set_time_unit<TimeUnit::DAY>(day);
 
             if constexpr (std::is_same_v<DateType, DataTypeDateV2>) {
                 res_data[i] = binary_cast<DateValueType, UInt32>(ts_value);
             } else if constexpr (std::is_same_v<DateType, DataTypeDateTimeV2>) {
-                ts_value.set_time(ts_value.year(), ts_value.month(), day, 0, 0, 0, 0);
+                ts_value.unchecked_set_time(ts_value.year(), ts_value.month(), day, 0, 0, 0, 0);
                 UInt64 cast_value = binary_cast<DateValueType, UInt64>(ts_value);
                 DataTypeDateTimeV2::cast_to_date_v2(cast_value, res_data[i]);
             }
@@ -1239,7 +1240,7 @@ struct MondayImpl {
             }
             if constexpr (date_cast::IsV1<DateType>()) {
                 if (is_special_day(ts_value.year(), ts_value.month(), ts_value.day())) {
-                    ts_value.set_time(ts_value.year(), ts_value.month(), 1, 0, 0, 0);
+                    ts_value.unchecked_set_time(ts_value.year(), ts_value.month(), 1, 0, 0, 0);
                     ts_value.set_type(TIME_DATE);
                     res_data[i] = binary_cast<VecDateTimeValue, Int64>(ts_value);
                     continue;
@@ -1255,7 +1256,7 @@ struct MondayImpl {
 
             } else if constexpr (std::is_same_v<DateType, DataTypeDateV2>) {
                 if (is_special_day(ts_value.year(), ts_value.month(), ts_value.day())) {
-                    ts_value.template set_time_unit<TimeUnit::DAY>(1);
+                    ts_value.template unchecked_set_time_unit<TimeUnit::DAY>(1);
                     res_data[i] = binary_cast<DateValueType, UInt32>(ts_value);
                     continue;
                 }
@@ -1268,7 +1269,7 @@ struct MondayImpl {
                 res_data[i] = binary_cast<DateValueType, UInt32>(ts_value);
             } else {
                 if (is_special_day(ts_value.year(), ts_value.month(), ts_value.day())) {
-                    ts_value.set_time(ts_value.year(), ts_value.month(), 1, 0, 0, 0, 0);
+                    ts_value.unchecked_set_time(ts_value.year(), ts_value.month(), 1, 0, 0, 0, 0);
                     UInt64 cast_value = binary_cast<DateValueType, UInt64>(ts_value);
                     DataTypeDateTimeV2::cast_to_date_v2(cast_value, res_data[i]);
                     continue;
@@ -1278,7 +1279,8 @@ struct MondayImpl {
                 int gap_of_monday = day_of_week - 1;
                 TimeInterval interval(DAY, gap_of_monday, true);
                 ts_value.template date_add_interval<DAY>(interval);
-                ts_value.set_time(ts_value.year(), ts_value.month(), ts_value.day(), 0, 0, 0, 0);
+                ts_value.unchecked_set_time(ts_value.year(), ts_value.month(), ts_value.day(), 0, 0,
+                                            0, 0);
                 UInt64 cast_value = binary_cast<DateValueType, UInt64>(ts_value);
                 DataTypeDateTimeV2::cast_to_date_v2(cast_value, res_data[i]);
             }
@@ -1295,7 +1297,7 @@ struct MondayImpl {
             DCHECK(ts_value.is_valid_date());
             if constexpr (std::is_same_v<DateType, DataTypeDateV2>) {
                 if (is_special_day(ts_value.year(), ts_value.month(), ts_value.day())) {
-                    ts_value.template set_time_unit<TimeUnit::DAY>(1);
+                    ts_value.template unchecked_set_time_unit<TimeUnit::DAY>(1);
                     res_data[i] = binary_cast<DateValueType, UInt32>(ts_value);
                     continue;
                 }
@@ -1307,7 +1309,7 @@ struct MondayImpl {
                 res_data[i] = binary_cast<DateValueType, UInt32>(ts_value);
             } else if constexpr (std::is_same_v<DateType, DataTypeDateTimeV2>) {
                 if (is_special_day(ts_value.year(), ts_value.month(), ts_value.day())) {
-                    ts_value.set_time(ts_value.year(), ts_value.month(), 1, 0, 0, 0, 0);
+                    ts_value.unchecked_set_time(ts_value.year(), ts_value.month(), 1, 0, 0, 0, 0);
                     UInt64 cast_value = binary_cast<DateValueType, UInt64>(ts_value);
                     DataTypeDateTimeV2::cast_to_date_v2(cast_value, res_data[i]);
                     continue;
@@ -1317,7 +1319,8 @@ struct MondayImpl {
                 int gap_of_monday = day_of_week - 1;
                 TimeInterval interval(DAY, gap_of_monday, true);
                 ts_value.template date_add_interval<DAY>(interval);
-                ts_value.set_time(ts_value.year(), ts_value.month(), ts_value.day(), 0, 0, 0, 0);
+                ts_value.unchecked_set_time(ts_value.year(), ts_value.month(), ts_value.day(), 0, 0,
+                                            0, 0);
                 UInt64 cast_value = binary_cast<DateValueType, UInt64>(ts_value);
                 DataTypeDateTimeV2::cast_to_date_v2(cast_value, res_data[i]);
             }
