@@ -21,7 +21,7 @@ import org.apache.doris.regression.util.Http
 suite("test_fix_tablet_stat_fault_injection", "nonConcurrent") {
     if(isCloudMode()){
         def tableName = "test_fix_tablet_stat_fault_injection"
-        def bucketSize = 10
+        def bucketSize = 100
         def create_table_sql = """
                     CREATE TABLE IF NOT EXISTS ${tableName}
                         (
@@ -80,7 +80,6 @@ suite("test_fix_tablet_stat_fault_injection", "nonConcurrent") {
                         (code, out, err) = be_run_full_compaction(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
                         logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
                         ++times
-                        sleep(2000)
                     } while (parseJson(out.trim()).status.toLowerCase()!="success" && times<=10)
 
                     def compactJson = parseJson(out.trim())
@@ -91,7 +90,6 @@ suite("test_fix_tablet_stat_fault_injection", "nonConcurrent") {
                 for (def tablet in tablets) {
                     boolean running = true
                     do {
-                        Thread.sleep(1000)
                         String tablet_id = tablet.TabletId
                         backend_id = tablet.BackendId
                         (code, out, err) = be_get_compaction_status(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
@@ -130,7 +128,7 @@ suite("test_fix_tablet_stat_fault_injection", "nonConcurrent") {
                 for (def tablet in tablets) {
                     String tablet_id = tablet.TabletId
                     (code, out, err) = curl("GET", tablet.CompactionStatus)
-                    logger.info("Show tablets status after fix stats: code=" + code + ", out=" + out + ", err=" + err)
+                    //logger.info("Show tablets status after fix stats: code=" + code + ", out=" + out + ", err=" + err)
                     assertEquals(code, 0)
                     def tabletJson = parseJson(out.trim())
                     assert tabletJson.rowsets instanceof List
@@ -141,7 +139,7 @@ suite("test_fix_tablet_stat_fault_injection", "nonConcurrent") {
                 sql "select * from ${tableName};"
                 qt_select_3 "show data from ${tableName};"
             } finally {
-                try_sql("DROP TABLE IF EXISTS ${tableName}")
+                //try_sql("DROP TABLE IF EXISTS ${tableName}")
                 GetDebugPoint().disableDebugPointForAllBEs("CloudFullCompaction::modify_rowsets.wrong_compaction_data_size")
             }
         }
