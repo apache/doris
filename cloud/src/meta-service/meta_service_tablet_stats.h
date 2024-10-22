@@ -78,6 +78,11 @@ MetaServiceResponseStatus fix_tablet_stats_data(
 
 MetaServiceResponseStatus check_tablet_stats_data(
         std::vector<std::shared_ptr<TabletStatsPB>>& tablet_stat_shared_ptr_vec,
+        std::shared_ptr<TxnKv> txn_kv, const std::string& instance_id, int64_t table_id,
+        std::vector<std::shared_ptr<TabletStatsPB>>& conflict_tablet_stat_shared_ptr_vec);
+
+MetaServiceResponseStatus deal_with_conflict(
+        std::vector<std::shared_ptr<TabletStatsPB>>& conflict_tablet_stat_shared_ptr_vec,
         std::shared_ptr<TxnKv> txn_kv, const std::string& instance_id, int64_t table_id);
 
 } // namespace doris::cloud

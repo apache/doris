@@ -2209,7 +2209,33 @@ MetaServiceResponseStatus MetaServiceImpl::fix_tablet_stats(std::string cloud_un
     }
 
     // step 3: check new data
-    st = check_tablet_stats_data(tablet_stat_shared_ptr_vec, txn_kv_, instance_id, table_id);
+    std::vector<std::shared_ptr<TabletStatsPB>> conflict_tablet_stat_shared_ptr_vec;
+    st = check_tablet_stats_data(tablet_stat_shared_ptr_vec, txn_kv_, instance_id, table_id,
+                                 conflict_tablet_stat_shared_ptr_vec);
+    if (st.code() != MetaServiceCode::OK) {
+        return st;
+    }
+
+    // step 4: deal with unchaged tablet stat due to conflict txn
+    size_t retry = 0;
+    while (!conflict_tablet_stat_shared_ptr_vec.empty() && retry < 5) {
+        retry++;
+        std::ostringstream oss;
+        std::transform(conflict_tablet_stat_shared_ptr_vec.begin(),
+                       conflict_tablet_stat_shared_ptr_vec.end(),
+                       std::ostream_iterator<std::string>(oss, ","),
+                       [](const std::shared_ptr<TabletStatsPB>& s) {
+                           return std::to_string(s->idx().tablet_id());
+                       });
+        LOG(INFO) << fmt::format("retry time: {}, conflict tablet stat vec: [{}]", retry,
+                                 oss.str());
+        st = deal_with_conflict(conflict_tablet_stat_shared_ptr_vec, txn_kv_, instance_id,
+                                table_id);
+        if (st.code() != MetaServiceCode::OK) {
+            return st;
+        }
+    }
+
     st.set_code(MetaServiceCode::OK);
     st.set_msg("");
     return st;
