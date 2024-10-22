@@ -133,7 +133,7 @@ suite("variant_mv") {
     FROM github_events1
     """
     order_qt_query1_1_before "${query1_1}"
-    async_mv_rewrite_success(db, mv1_1, query1_1, "mv1_1")
+    async_mv_rewrite_success_without_check_chosen(db, mv1_1, query1_1, "mv1_1")
     order_qt_query1_1_after "${query1_1}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_1"""
 

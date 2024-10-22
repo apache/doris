@@ -136,7 +136,7 @@ suite("materialized_view_switch") {
 
     async_mv_rewrite_success(db, mv_name, query, "mv_name")
     sql "SET enable_materialized_view_rewrite=false"
-    async_mv_rewrite_fail(db, mv_name, query, "mv_name")
+    mv_not_part_in(query, "mv_name")
     sql "SET enable_materialized_view_rewrite=true"
     async_mv_rewrite_success(db, mv_name, query, "mv_name")
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv_name"""

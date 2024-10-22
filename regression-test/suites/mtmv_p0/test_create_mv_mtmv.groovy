@@ -77,7 +77,7 @@ suite("test_create_mv_mtmv","mtmv") {
     order_qt_refresh_mv "SELECT * FROM ${mvName}"
     order_qt_sync_mv "SELECT k2 FROM ${mvName}"
 
-    mv_rewrite_success_without_check_chosen("""SELECT k2 FROM ${mvName}""", "mv_mtmv1")
+    mv_rewrite_success_without_check_chosen("""SELECT k2 FROM ${mvName}""", "mv_mtmv1", true)
 
     sql """DROP MATERIALIZED VIEW  mv_mtmv1 ON ${mvName};"""
 
