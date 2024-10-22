@@ -620,7 +620,7 @@ Status BetaRowsetWriter::_close_file_writers() {
     return Status::OK();
 }
 
-Status BaseBetaRowsetWriter::build(RowsetSharedPtr& rowset) {
+Status BetaRowsetWriter::build(RowsetSharedPtr& rowset) {
     RETURN_IF_ERROR(_close_file_writers());
 
     const auto total_segment_num = _num_segment - _segcompacted_point + 1 + _num_segcompacted;

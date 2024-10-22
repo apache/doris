@@ -85,8 +85,6 @@ public:
     // This method is thread-safe.
     Status flush_single_block(const vectorized::Block* block) override;
 
-    Status build(RowsetSharedPtr& rowset) override;
-
     RowsetSharedPtr manual_build(const RowsetMetaSharedPtr& rowset_meta) override;
 
     PUniqueId load_id() override { return _context.load_id; }
@@ -200,6 +198,8 @@ public:
 
     Status add_segment(uint32_t segment_id, const SegmentStatistics& segstat,
                        TabletSchemaSPtr flush_schema) override;
+
+    Status build(RowsetSharedPtr& rowset) override;
 
     Status flush_segment_writer_for_segcompaction(
             std::unique_ptr<segment_v2::SegmentWriter>* writer, uint64_t index_size,
