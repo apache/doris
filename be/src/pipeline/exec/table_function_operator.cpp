@@ -290,7 +290,7 @@ Status TableFunctionOperatorX::open(doris::RuntimeState* state) {
         }
     }
 
-    for (int i = 0; i < _child_slots.size(); i++) {
+    for (int i = 0; i < cast_set<int>(_child_slots.size()); i++) {
         if (_slot_need_copy(i)) {
             _output_slot_indexs.push_back(i);
         } else {

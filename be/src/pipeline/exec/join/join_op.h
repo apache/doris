@@ -44,10 +44,10 @@ namespace doris::pipeline {
  *  RowRefListWithFlags is a list of many RowRefWithFlags. This means each row will have different visited flags. It's used for join operation which has `other_conjuncts`.
  */
 struct RowRef {
-    size_t row_num = 0;
+    uint32_t row_num = 0;
 
     RowRef() = default;
-    RowRef(size_t row_num_count) : row_num(row_num_count) {}
+    RowRef(size_t row_num_count) : row_num(static_cast<uint32_t>(row_num_count)) {}
     void clear() {};
 };
 
