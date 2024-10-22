@@ -1885,7 +1885,7 @@ class Suite implements GroovyInterceptable {
                     for (String mv_name : mv_names) {
                         def splitResult = result.split("MaterializedViewRewriteFail")
                         def each_result =  splitResult.length == 2 ? splitResult[0].contains(mv_name) : false
-                        success = success && (result.contains"(${mv_name})" || each_result)
+                        success = success && (result.contains("(${mv_name})") || each_result)
                     }
                     Assert.assertEquals(true, success)
                 }
@@ -1918,7 +1918,7 @@ class Suite implements GroovyInterceptable {
                     for (String mv_name : mv_names) {
                         def splitResult = result.split("MaterializedViewRewriteFail")
                         def each_result =  splitResult.length == 2 ? splitResult[0].contains(mv_name) : false
-                        success = success || (result.contains"(${mv_name})" || each_result)
+                        success = success || (result.contains("(${mv_name})") || each_result)
                     }
                     Assert.assertEquals(true, success)
                 }
@@ -1947,7 +1947,7 @@ class Suite implements GroovyInterceptable {
                 sql("${query_sql}")
                 check { result ->
                     def splitResult = result.split("MaterializedViewRewriteFail")
-                    result.contains"(${mv_name})" || (splitResult.length == 2 ? splitResult[0].contains(mv_name) : false)
+                    result.contains("(${mv_name})") || (splitResult.length == 2 ? splitResult[0].contains(mv_name) : false)
                 }
             }
             return
