@@ -53,7 +53,7 @@ public class HiveProperties {
     public static final String PROP_QUOTE_CHAR = OpenCSVSerde.QUOTECHAR;
     public static final String DEFAULT_QUOTE_CHAR = "\"";
     public static final String PROP_ESCAPE_CHAR = OpenCSVSerde.ESCAPECHAR;
-    public static final String DEFAULT_ESCAPE_CHAR = "\"";
+    public static final String DEFAULT_ESCAPE_CHAR = "\\";
 
     public static final Set<String> HIVE_SERDE_PROPERTIES = ImmutableSet.of(
             PROP_FIELD_DELIMITER,
