@@ -203,7 +203,7 @@ public abstract class JdbcClient {
             info.put("user", jdbcUser);
             info.put("password", jdbcPassword);
 
-            Connection connection = driverInstance.connect(SecurityChecker.getInstance().getSafeJdbcUrl(jdbcUrl), info);
+            Connection connection = driverInstance.connect(jdbcUrl, info);
 
             if (connection == null) {
                 throw new SQLException("Failed to establish a connection. The JDBC driver returned null. "
