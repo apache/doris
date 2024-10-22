@@ -292,6 +292,7 @@ DEFINE_mInt32(doris_scanner_max_run_time_ms, "1000");
 // (Advanced) Maximum size of per-query receive-side buffer
 DEFINE_mInt32(exchg_node_buffer_size_bytes, "20485760");
 DEFINE_mInt32(exchg_buffer_queue_capacity_factor, "64");
+DEFINE_mInt64(exchg_max_remote_bytes, "262144"); //(256KB)
 
 // memory_limitation_per_thread_for_schema_change_bytes unit bytes
 DEFINE_mInt64(memory_limitation_per_thread_for_schema_change_bytes, "2147483648");
