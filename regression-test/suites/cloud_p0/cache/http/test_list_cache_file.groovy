@@ -100,7 +100,7 @@ suite("test_list_cache_file") {
         uri socket + "/api/file_cache?op=clear&value=" + segment_file
         op "get"
         check {respCode, body ->
-            assertEquals(respCode, 200, "clear local cache fail")
+            assertEquals(respCode, 200, "clear local cache fail, maybe you can find something in respond: " + parseJson(body))
         }
     }
 
