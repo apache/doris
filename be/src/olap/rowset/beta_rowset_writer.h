@@ -130,15 +130,13 @@ public:
 
     const RowsetWriterContext& context() const override { return _context; }
 
-private:
+protected:
     virtual Status _generate_delete_bitmap(int32_t segment_id) = 0;
     Status _build_rowset_meta(std::shared_ptr<RowsetMeta> rowset_meta,
                               bool check_segment_num = false);
 
     void update_rowset_schema(TabletSchemaSPtr flush_schema);
-    // build a tmp rowset for load segment to calc delete_bitmap
-    // for this segment
-protected:
+
     Status _create_file_writer(std::string path, io::FileWriterPtr& file_writer);
     virtual Status _close_file_writers();
     virtual Status _check_segment_number_limit(size_t segnum);
