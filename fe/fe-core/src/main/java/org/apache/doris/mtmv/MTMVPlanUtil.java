@@ -30,6 +30,7 @@ import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateMTMVInfo;
@@ -39,6 +40,7 @@ import org.apache.doris.nereids.trees.plans.visitor.TableCollector.TableCollecto
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
 
 import java.util.List;
@@ -55,10 +57,14 @@ public class MTMVPlanUtil {
         ctx.getState().reset();
         ctx.setThreadLocalInfo();
         ctx.getSessionVariable().allowModifyMaterializedViewData = true;
+        // Disable add default limit rule to avoid refresh data wrong
+        ctx.getSessionVariable().setDisableNereidsRules(
+                String.join(",", ImmutableSet.of(RuleType.ADD_DEFAULT_LIMIT.name())));
         Optional<String> workloadGroup = mtmv.getWorkloadGroup();
         if (workloadGroup.isPresent()) {
             ctx.getSessionVariable().setWorkloadGroup(workloadGroup.get());
         }
+        ctx.setStartTime();
         return ctx;
     }
 

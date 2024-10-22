@@ -23,7 +23,7 @@
 #include "runtime/exec_env.h"
 
 namespace doris::pipeline {
-
+#include "common/compile_check_begin.h"
 class AggSinkOperatorX;
 
 class AggSinkLocalState : public PipelineXSinkLocalState<AggSharedState> {
@@ -109,7 +109,7 @@ protected:
     RuntimeProfile::Counter* _max_row_size_counter = nullptr;
     RuntimeProfile::Counter* _hash_table_memory_usage = nullptr;
     RuntimeProfile::Counter* _hash_table_size_counter = nullptr;
-    RuntimeProfile::HighWaterMarkCounter* _serialize_key_arena_memory_usage = nullptr;
+    RuntimeProfile::Counter* _serialize_key_arena_memory_usage = nullptr;
 
     bool _should_limit_output = false;
 
@@ -209,3 +209,4 @@ protected:
 };
 
 } // namespace doris::pipeline
+#include "common/compile_check_end.h"

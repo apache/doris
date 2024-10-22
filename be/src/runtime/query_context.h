@@ -193,8 +193,6 @@ public:
 
     ThreadPool* get_memtable_flush_pool();
 
-    std::vector<TUniqueId> get_fragment_instance_ids() const { return fragment_instance_ids; }
-
     int64_t mem_limit() const { return _bytes_limit; }
 
     void set_merge_controller_handler(

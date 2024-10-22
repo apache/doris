@@ -454,6 +454,7 @@ struct TJdbcExecutorCtorParams {
   14: optional i32 connection_pool_cache_clear_time
   15: optional bool connection_pool_keep_alive
   16: optional i64 catalog_id
+  17: optional bool enable_connection_pool
 }
 
 struct TJavaUdfExecutorCtorParams {
@@ -716,6 +717,12 @@ enum TMergeType {
   APPEND,
   MERGE,
   DELETE
+}
+
+enum TUniqueKeyUpdateMode {
+  UPSERT,
+  UPDATE_FIXED_COLUMNS,
+  UPDATE_FLEXIBLE_COLUMNS
 }
 
 enum TSortType {

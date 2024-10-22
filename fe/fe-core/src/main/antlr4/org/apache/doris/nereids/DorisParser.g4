@@ -50,6 +50,7 @@ statementBase
     | supportedCreateStatement          #supportedCreateStatementAlias
     | supportedAlterStatement           #supportedAlterStatementAlias
     | materializedViewStatement         #materializedViewStatementAlias
+    | supportedJobStatement              #supportedJobStatementAlias
     | constraintStatement               #constraintStatementAlias
     | supportedDropStatement            #supportedDropStatementAlias
     | unsupportedStatement              #unsupported
@@ -102,7 +103,17 @@ materializedViewStatement
     | CANCEL MATERIALIZED VIEW TASK taskId=INTEGER_VALUE ON mvName=multipartIdentifier          #cancelMTMVTask
     | SHOW CREATE MATERIALIZED VIEW mvName=multipartIdentifier                                  #showCreateMTMV
     ;
-
+supportedJobStatement
+    : CREATE JOB label=multipartIdentifier ON SCHEDULE
+        (
+            (EVERY timeInterval=INTEGER_VALUE timeUnit=identifier
+            (STARTS (startTime=STRING_LITERAL | CURRENT_TIMESTAMP))?
+            (ENDS endsTime=STRING_LITERAL)?)
+            |
+            (AT (atTime=STRING_LITERAL | CURRENT_TIMESTAMP)))
+        commentSpec?
+        DO supportedDmlStatement                                                               #createScheduledJob                                                                    
+   ;
 constraintStatement
     : ALTER TABLE table=multipartIdentifier
         ADD CONSTRAINT constraintName=errorCapturingIdentifier
@@ -413,16 +424,8 @@ unsupportedCleanStatement
     ;
 
 unsupportedJobStatement
-    : CREATE JOB label=multipartIdentifier ON SCHEDULE
-        (
-            (EVERY timeInterval=INTEGER_VALUE timeUnit=identifier
-            (STARTS (startTime=STRING_LITERAL | CURRENT_TIMESTAMP))?
-            (ENDS endsTime=STRING_LITERAL)?)
-            |
-            (AT (atTime=STRING_LITERAL | CURRENT_TIMESTAMP)))
-        commentSpec?
-        DO statement                                                                #createJob
-    | PAUSE JOB wildWhere?                                                          #pauseJob
+
+    : PAUSE JOB wildWhere?                                                          #pauseJob
     | DROP JOB (IF EXISTS)? wildWhere?                                              #dropJob
     | RESUME JOB wildWhere?                                                         #resumeJob
     | CANCEL TASK wildWhere?                                                        #cancelJobTask
@@ -903,7 +906,7 @@ identityOrFunction
 
 dataDesc
     : ((WITH)? mergeType)? DATA INFILE LEFT_PAREN filePaths+=STRING_LITERAL (COMMA filePath+=STRING_LITERAL)* RIGHT_PAREN
-        INTO TABLE tableName=multipartIdentifier
+        INTO TABLE targetTableName=identifier
         (PARTITION partition=identifierList)?
         (COLUMNS TERMINATED BY comma=STRING_LITERAL)?
         (LINES TERMINATED BY separator=STRING_LITERAL)?
@@ -917,8 +920,8 @@ dataDesc
         (deleteOn=deleteOnClause)?
         (sequenceColumn=sequenceColClause)?
         (propertyClause)?
-    | ((WITH)? mergeType)? DATA FROM TABLE tableName=multipartIdentifier
-        INTO TABLE tableName=multipartIdentifier
+    | ((WITH)? mergeType)? DATA FROM TABLE sourceTableName=identifier
+        INTO TABLE targetTableName=identifier
         (PARTITION partition=identifierList)?
         (columnMapping=colMappingList)?
         (where=whereClause)?
@@ -1003,7 +1006,7 @@ planType
     ;
 
 replayCommand
-    : REPLAYER replayType;
+    : PLAN REPLAYER replayType;
 
 replayType
     : DUMP query
@@ -2023,7 +2026,7 @@ nonReserved
     | REPEATABLE
     | REPLACE
     | REPLACE_IF_NOT_NULL
-    | REPLAY
+    | REPLAYER
     | REPOSITORIES
     | REPOSITORY
     | RESOURCE

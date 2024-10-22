@@ -22,7 +22,7 @@
 #include "operator.h"
 
 namespace doris::pipeline {
-
+#include "common/compile_check_begin.h"
 class HashJoinBuildSinkOperatorX;
 
 class HashJoinBuildSinkLocalState final
@@ -74,8 +74,6 @@ protected:
     std::vector<vectorized::ColumnPtr> _key_columns_holder;
 
     bool _should_build_hash_table = true;
-    int64_t _build_side_mem_used = 0;
-    int64_t _build_side_last_mem_used = 0;
 
     size_t _build_side_rows = 0;
 
@@ -91,7 +89,7 @@ protected:
      */
     bool _build_side_ignore_null = false;
     std::vector<int> _build_col_ids;
-    std::shared_ptr<Dependency> _finish_dependency;
+    std::shared_ptr<CountedFinishDependency> _finish_dependency;
 
     RuntimeProfile::Counter* _build_table_timer = nullptr;
     RuntimeProfile::Counter* _build_expr_call_timer = nullptr;
@@ -103,7 +101,7 @@ protected:
 
     RuntimeProfile::Counter* _build_blocks_memory_usage = nullptr;
     RuntimeProfile::Counter* _hash_table_memory_usage = nullptr;
-    RuntimeProfile::HighWaterMarkCounter* _build_arena_memory_usage = nullptr;
+    RuntimeProfile::Counter* _build_arena_memory_usage = nullptr;
 };
 
 class HashJoinBuildSinkOperatorX final
@@ -181,7 +179,7 @@ private:
 
 template <class HashTableContext>
 struct ProcessHashTableBuild {
-    ProcessHashTableBuild(int rows, vectorized::ColumnRawPtrs& build_raw_ptrs,
+    ProcessHashTableBuild(size_t rows, vectorized::ColumnRawPtrs& build_raw_ptrs,
                           HashJoinBuildSinkLocalState* parent, int batch_size, RuntimeState* state)
             : _rows(rows),
               _build_raw_ptrs(build_raw_ptrs),
@@ -225,7 +223,7 @@ struct ProcessHashTableBuild {
     }
 
 private:
-    const uint32_t _rows;
+    const size_t _rows;
     vectorized::ColumnRawPtrs& _build_raw_ptrs;
     HashJoinBuildSinkLocalState* _parent = nullptr;
     int _batch_size;
@@ -233,3 +231,4 @@ private:
 };
 
 } // namespace doris::pipeline
+#include "common/compile_check_end.h"

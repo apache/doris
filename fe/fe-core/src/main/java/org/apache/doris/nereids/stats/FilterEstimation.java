@@ -500,13 +500,15 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
                 // 2. not A in (...)
                 // 3. not A is null
                 // 4. not A like XXX
+                // 5. not array_contains([xx, xx], xx)
                 colBuilder.setNumNulls(0);
                 Preconditions.checkArgument(
                         child instanceof EqualPredicate
                                 || child instanceof InPredicate
                                 || child instanceof IsNull
                                 || child instanceof Like
-                                || child instanceof Match,
+                                || child instanceof Match
+                                || child instanceof Function,
                         "Not-predicate meet unexpected child: %s", child.toSql());
                 if (child instanceof Like) {
                     rowCount = context.statistics.getRowCount() - childStats.getRowCount();

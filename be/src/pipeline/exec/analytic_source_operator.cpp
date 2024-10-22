@@ -161,7 +161,7 @@ Status AnalyticLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_init_timer);
     _blocks_memory_usage =
-            profile()->AddHighWaterMarkCounter("Blocks", TUnit::BYTES, "MemoryUsage", 1);
+            profile()->AddHighWaterMarkCounter("MemoryUsageBlocks", TUnit::BYTES, "", 1);
     _evaluation_timer = ADD_TIMER(profile(), "EvaluationTime");
     return Status::OK();
 }
@@ -443,7 +443,6 @@ bool AnalyticLocalState::init_next_partition(BlockRowPos found_partition_end) {
 Status AnalyticLocalState::output_current_block(vectorized::Block* block) {
     block->swap(std::move(_shared_state->input_blocks[_output_block_index]));
     _blocks_memory_usage->add(-block->allocated_bytes());
-    mem_tracker()->consume(-block->allocated_bytes());
     if (_shared_state->origin_cols.size() < block->columns()) {
         block->erase_not_in(_shared_state->origin_cols);
     }

@@ -31,6 +31,7 @@ import org.apache.doris.nereids.rules.analysis.NormalizeAggregate;
 import org.apache.doris.nereids.rules.expression.CheckLegalityAfterRewrite;
 import org.apache.doris.nereids.rules.expression.ExpressionNormalizationAndOptimization;
 import org.apache.doris.nereids.rules.expression.ExpressionRewrite;
+import org.apache.doris.nereids.rules.expression.NullableDependentExpressionRewrite;
 import org.apache.doris.nereids.rules.expression.QueryColumnCollector;
 import org.apache.doris.nereids.rules.rewrite.AddDefaultLimit;
 import org.apache.doris.nereids.rules.rewrite.AddProjectForJoin;
@@ -107,9 +108,7 @@ import org.apache.doris.nereids.rules.rewrite.PullUpJoinFromUnionAll;
 import org.apache.doris.nereids.rules.rewrite.PullUpProjectUnderApply;
 import org.apache.doris.nereids.rules.rewrite.PullUpProjectUnderLimit;
 import org.apache.doris.nereids.rules.rewrite.PullUpProjectUnderTopN;
-import org.apache.doris.nereids.rules.rewrite.PushConjunctsIntoEsScan;
-import org.apache.doris.nereids.rules.rewrite.PushConjunctsIntoJdbcScan;
-import org.apache.doris.nereids.rules.rewrite.PushConjunctsIntoOdbcScan;
+import org.apache.doris.nereids.rules.rewrite.PushCountIntoUnionAll;
 import org.apache.doris.nereids.rules.rewrite.PushDownAggThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.PushDownAggThroughJoinOnPkFk;
 import org.apache.doris.nereids.rules.rewrite.PushDownAggThroughJoinOneSide;
@@ -295,8 +294,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         // eliminate useless not null or inferred not null
                         // TODO: wait InferPredicates to infer more not null.
                         bottomUp(new EliminateNotNull()),
-                        topDown(new ConvertInnerOrCrossJoin()),
-                        topDown(new ProjectOtherJoinConditionForNestedLoopJoin())
+                        topDown(new ConvertInnerOrCrossJoin())
                 ),
                 topic("Set operation optimization",
                         // Do MergeSetOperation first because we hope to match pattern of Distinct SetOperator.
@@ -326,7 +324,12 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         // after eliminate outer join, we can move some filters to join.otherJoinConjuncts,
                         // this can help to translate plan to backend
                         topDown(new PushFilterInsideJoin()),
-                        topDown(new FindHashConditionForJoin())
+                        topDown(new FindHashConditionForJoin()),
+                        // ProjectOtherJoinConditionForNestedLoopJoin will push down the expression
+                        // in the non-equivalent join condition and turn it into slotReference,
+                        // This results in the inability to obtain Cast child information in INFER_PREDICATES,
+                        // which will affect predicate inference with cast. So put this rule behind the INFER_PREDICATES
+                        topDown(new ProjectOtherJoinConditionForNestedLoopJoin())
                 ),
                 // this rule should invoke after ColumnPruning
                 custom(RuleType.ELIMINATE_UNNECESSARY_PROJECT, EliminateUnnecessaryProject::new),
@@ -343,7 +346,8 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                 new PushDownAggThroughJoinOneSide(),
                                 new PushDownAggThroughJoin()
                         )),
-                        costBased(custom(RuleType.PUSH_DOWN_DISTINCT_THROUGH_JOIN, PushDownDistinctThroughJoin::new))
+                        costBased(custom(RuleType.PUSH_DOWN_DISTINCT_THROUGH_JOIN, PushDownDistinctThroughJoin::new)),
+                        topDown(new PushCountIntoUnionAll())
                 ),
 
                 // this rule should invoke after infer predicate and push down distinct, and before push down limit
@@ -403,10 +407,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         topDown(
                                 new PruneOlapScanPartition(),
                                 new PruneEmptyPartition(),
-                                new PruneFileScanPartition(),
-                                new PushConjunctsIntoJdbcScan(),
-                                new PushConjunctsIntoOdbcScan(),
-                                new PushConjunctsIntoEsScan()
+                                new PruneFileScanPartition()
                         )
                 ),
                 topic("MV optimization",
@@ -573,7 +574,10 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         ),
                         topic("whole plan check",
                                 custom(RuleType.ADJUST_NULLABLE, AdjustNullable::new)
-                        )
+                        ),
+                        // NullableDependentExpressionRewrite need to be done after nullable fixed
+                        topic("condition function", bottomUp(ImmutableList.of(
+                                new NullableDependentExpressionRewrite())))
                 ));
                 return rewriteJobs;
             }

@@ -227,6 +227,9 @@ bool PipelineTask::_wait_to_start() {
     _blocked_dep = _execution_dep->is_blocked_by(this);
     if (_blocked_dep != nullptr) {
         static_cast<Dependency*>(_blocked_dep)->start_watcher();
+        if (_wake_up_by_downstream) {
+            _eos = true;
+        }
         return true;
     }
 
@@ -234,6 +237,9 @@ bool PipelineTask::_wait_to_start() {
         _blocked_dep = op_dep->is_blocked_by(this);
         if (_blocked_dep != nullptr) {
             _blocked_dep->start_watcher();
+            if (_wake_up_by_downstream) {
+                _eos = true;
+            }
             return true;
         }
     }
@@ -249,6 +255,9 @@ bool PipelineTask::_is_blocked() {
                 _blocked_dep = dep->is_blocked_by(this);
                 if (_blocked_dep != nullptr) {
                     _blocked_dep->start_watcher();
+                    if (_wake_up_by_downstream) {
+                        _eos = true;
+                    }
                     return true;
                 }
             }
@@ -268,6 +277,9 @@ bool PipelineTask::_is_blocked() {
         _blocked_dep = op_dep->is_blocked_by(this);
         if (_blocked_dep != nullptr) {
             _blocked_dep->start_watcher();
+            if (_wake_up_by_downstream) {
+                _eos = true;
+            }
             return true;
         }
     }
@@ -306,6 +318,11 @@ Status PipelineTask::execute(bool* eos) {
     if (_wait_to_start()) {
         return Status::OK();
     }
+    if (_wake_up_by_downstream) {
+        _eos = true;
+        *eos = true;
+        return Status::OK();
+    }
     // The status must be runnable
     if (!_opened && !_fragment_context->is_canceled()) {
         RETURN_IF_ERROR(_open());
@@ -313,6 +330,11 @@ Status PipelineTask::execute(bool* eos) {
 
     while (!_fragment_context->is_canceled()) {
         if (_is_blocked()) {
+            return Status::OK();
+        }
+        if (_wake_up_by_downstream) {
+            _eos = true;
+            *eos = true;
             return Status::OK();
         }
 
@@ -481,9 +503,10 @@ std::string PipelineTask::debug_string() {
     auto elapsed = _fragment_context->elapsed_time() / 1000000000.0;
     fmt::format_to(debug_string_buffer,
                    "PipelineTask[this = {}, id = {}, open = {}, eos = {}, finish = {}, dry run = "
-                   "{}, elapse time "
-                   "= {}s], block dependency = {}, is running = {}\noperators: ",
+                   "{}, elapse time = {}s, _wake_up_by_downstream = {}], block dependency = {}, is "
+                   "running = {}\noperators: ",
                    (void*)this, _index, _opened, _eos, _finalized, _dry_run, elapsed,
+                   _wake_up_by_downstream.load(),
                    cur_blocked_dep && !_finalized ? cur_blocked_dep->debug_string() : "NULL",
                    is_running());
     for (size_t i = 0; i < _operators.size(); i++) {

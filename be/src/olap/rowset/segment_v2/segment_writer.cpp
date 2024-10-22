@@ -209,8 +209,9 @@ Status SegmentWriter::_create_column_writer(uint32_t cid, const TabletColumn& co
     opts.need_bitmap_index = column.has_bitmap_index();
     bool skip_inverted_index = false;
     if (_opts.rowset_ctx != nullptr) {
-        // skip write inverted index for index compaction
-        skip_inverted_index = _opts.rowset_ctx->skip_inverted_index.count(column.unique_id()) > 0;
+        // skip write inverted index for index compaction column
+        skip_inverted_index =
+                _opts.rowset_ctx->columns_to_do_index_compaction.count(column.unique_id()) > 0;
     }
     // skip write inverted index on load if skip_write_index_on_load is true
     if (_opts.write_type == DataWriteType::TYPE_DIRECT && schema->skip_write_index_on_load()) {
@@ -464,10 +465,11 @@ void SegmentWriter::_serialize_block_to_row_column(vectorized::Block& block) {
 
 Status SegmentWriter::probe_key_for_mow(
         std::string key, std::size_t segment_pos, bool have_input_seq_column, bool have_delete_sign,
-        PartialUpdateReadPlan& read_plan, const std::vector<RowsetSharedPtr>& specified_rowsets,
+        const std::vector<RowsetSharedPtr>& specified_rowsets,
         std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
         bool& has_default_or_nullable, std::vector<bool>& use_default_or_null_flag,
-        PartialUpdateStats& stats) {
+        const std::function<void(const RowLocation& loc)>& found_cb,
+        const std::function<Status()>& not_found_cb, PartialUpdateStats& stats) {
     RowLocation loc;
     // save rowset shared ptr so this rowset wouldn't delete
     RowsetSharedPtr rowset;
@@ -482,9 +484,7 @@ Status SegmentWriter::probe_key_for_mow(
                     {_opts.rowset_ctx->rowset_id, _segment_id, DeleteBitmap::TEMP_VERSION_COMMON},
                     segment_pos);
         } else if (!have_delete_sign) {
-            RETURN_IF_ERROR(
-                    _opts.rowset_ctx->partial_update_info->handle_non_strict_mode_not_found_error(
-                            *_tablet_schema));
+            RETURN_IF_ERROR(not_found_cb());
         }
         ++stats.num_rows_new_added;
         has_default_or_nullable = true;
@@ -508,7 +508,7 @@ Status SegmentWriter::probe_key_for_mow(
         // partial update should not contain invisible columns
         use_default_or_null_flag.emplace_back(false);
         _rsid_to_rowset.emplace(rowset->rowset_id(), rowset);
-        read_plan.prepare_to_read(loc, segment_pos);
+        found_cb(loc);
     }
 
     if (st.is<KEY_ALREADY_EXISTS>()) {
@@ -546,6 +546,7 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
     DCHECK(_is_mow());
 
     DCHECK(_opts.rowset_ctx->partial_update_info);
+    DCHECK(_opts.rowset_ctx->partial_update_info->is_fixed_partial_update());
     DCHECK(row_pos == 0);
 
     // find missing column cids
@@ -595,7 +596,7 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
     const std::vector<RowsetSharedPtr>& specified_rowsets = _mow_context->rowset_ptrs;
     std::vector<std::unique_ptr<SegmentCacheHandle>> segment_caches(specified_rowsets.size());
 
-    PartialUpdateReadPlan read_plan;
+    FixedReadPlan read_plan;
 
     // locate rows in base data
     PartialUpdateStats stats;
@@ -625,10 +626,17 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
         bool have_delete_sign =
                 (delete_sign_column_data != nullptr && delete_sign_column_data[block_pos] != 0);
 
-        RETURN_IF_ERROR(probe_key_for_mow(key, segment_pos, have_input_seq_column, have_delete_sign,
-                                          read_plan, specified_rowsets, segment_caches,
+        auto not_found_cb = [&]() {
+            return _opts.rowset_ctx->partial_update_info->handle_non_strict_mode_not_found_error(
+                    *_tablet_schema);
+        };
+        auto update_read_plan = [&](const RowLocation& loc) {
+            read_plan.prepare_to_read(loc, segment_pos);
+        };
+        RETURN_IF_ERROR(probe_key_for_mow(std::move(key), segment_pos, have_input_seq_column,
+                                          have_delete_sign, specified_rowsets, segment_caches,
                                           has_default_or_nullable, use_default_or_null_flag,
-                                          stats));
+                                          update_read_plan, not_found_cb, stats));
     }
     CHECK_EQ(use_default_or_null_flag.size(), num_rows);
 
@@ -637,7 +645,7 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
                                                     _mow_context->rowset_ids);
     }
 
-    // read and fill block
+    // read to fill full block
     RETURN_IF_ERROR(read_plan.fill_missing_columns(
             _opts.rowset_ctx, _rsid_to_rowset, *_tablet_schema, full_block,
             use_default_or_null_flag, has_default_or_nullable, segment_start_pos, block));
@@ -692,10 +700,17 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
 Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_pos,
                                    size_t num_rows) {
     if (_opts.rowset_ctx->partial_update_info &&
-        _opts.rowset_ctx->partial_update_info->is_partial_update &&
+        _opts.rowset_ctx->partial_update_info->is_partial_update() &&
         _opts.write_type == DataWriteType::TYPE_DIRECT &&
         !_opts.rowset_ctx->is_transient_rowset_writer) {
-        RETURN_IF_ERROR(append_block_with_partial_content(block, row_pos, num_rows));
+        if (_opts.rowset_ctx->partial_update_info->is_fixed_partial_update()) {
+            RETURN_IF_ERROR(append_block_with_partial_content(block, row_pos, num_rows));
+        } else {
+            return Status::NotSupported<false>(
+                    "SegmentWriter doesn't support flexible partial update, please set "
+                    "enable_vertical_segment_writer=true in be.conf on all BEs to use "
+                    "VerticalSegmentWriter.");
+        }
         return Status::OK();
     }
     CHECK(block->columns() >= _column_writers.size())

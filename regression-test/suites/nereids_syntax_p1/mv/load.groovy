@@ -111,7 +111,7 @@ suite("load") {
 
     streamLoad {
         table "agg_mv_test"
-        db "regression_test_nereids_syntax_p0_mv"
+        db "regression_test_nereids_syntax_p1_mv"
         set 'column_separator', ';'
         set 'columns', '''
             id, kbool, ktint, ksint, kint, kbint, klint, kfloat, kdbl, kdcmls1, kdcmls2, kdcmls3,

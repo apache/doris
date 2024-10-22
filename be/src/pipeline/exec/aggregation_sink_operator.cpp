@@ -57,10 +57,10 @@ Status AggSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     _agg_data = Base::_shared_state->agg_data.get();
     _agg_arena_pool = Base::_shared_state->agg_arena_pool.get();
     _hash_table_size_counter = ADD_COUNTER(profile(), "HashTableSize", TUnit::UNIT);
-    _hash_table_memory_usage = ADD_CHILD_COUNTER_WITH_LEVEL(Base::profile(), "HashTable",
-                                                            TUnit::BYTES, "MemoryUsage", 1);
-    _serialize_key_arena_memory_usage = Base::profile()->AddHighWaterMarkCounter(
-            "SerializeKeyArena", TUnit::BYTES, "MemoryUsage", 1);
+    _hash_table_memory_usage =
+            ADD_COUNTER_WITH_LEVEL(Base::profile(), "MemoryUsageHashTable", TUnit::BYTES, 1);
+    _serialize_key_arena_memory_usage = ADD_COUNTER_WITH_LEVEL(
+            Base::profile(), "MemoryUsageSerializeKeyArena", TUnit::BYTES, 1);
 
     _build_timer = ADD_TIMER(Base::profile(), "BuildTime");
     _serialize_key_timer = ADD_TIMER(Base::profile(), "SerializeKeyTime");
@@ -227,24 +227,17 @@ void AggSinkLocalState::_update_memusage_with_serialized_key() {
                        },
                        [&](auto& agg_method) -> void {
                            auto& data = *agg_method.hash_table;
-                           auto arena_memory_usage =
+                           int64_t arena_memory_usage =
                                    _agg_arena_pool->size() +
-                                   Base::_shared_state->aggregate_data_container->memory_usage() -
-                                   Base::_shared_state->mem_usage_record.used_in_arena;
-                           Base::_mem_tracker->consume(arena_memory_usage);
-                           Base::_mem_tracker->consume(
-                                   data.get_buffer_size_in_bytes() -
-                                   Base::_shared_state->mem_usage_record.used_in_state);
-                           _serialize_key_arena_memory_usage->add(arena_memory_usage);
-                           COUNTER_UPDATE(
-                                   _hash_table_memory_usage,
-                                   data.get_buffer_size_in_bytes() -
-                                           Base::_shared_state->mem_usage_record.used_in_state);
-                           Base::_shared_state->mem_usage_record.used_in_state =
-                                   data.get_buffer_size_in_bytes();
-                           Base::_shared_state->mem_usage_record.used_in_arena =
-                                   _agg_arena_pool->size() +
-                                   Base::_shared_state->aggregate_data_container->memory_usage();
+                                   _shared_state->aggregate_data_container->memory_usage();
+                           int64_t hash_table_memory_usage = data.get_buffer_size_in_bytes();
+
+                           COUNTER_SET(_memory_used_counter,
+                                       arena_memory_usage + hash_table_memory_usage);
+                           COUNTER_SET(_peak_memory_usage_counter, _memory_used_counter->value());
+
+                           COUNTER_SET(_serialize_key_arena_memory_usage, arena_memory_usage);
+                           COUNTER_SET(_hash_table_memory_usage, hash_table_memory_usage);
                        }},
                _agg_data->method_variant);
 }
@@ -423,11 +416,10 @@ Status AggSinkLocalState::_merge_without_key(vectorized::Block* block) {
 }
 
 void AggSinkLocalState::_update_memusage_without_key() {
-    auto arena_memory_usage =
-            _agg_arena_pool->size() - Base::_shared_state->mem_usage_record.used_in_arena;
-    Base::_mem_tracker->consume(arena_memory_usage);
-    _serialize_key_arena_memory_usage->add(arena_memory_usage);
-    Base::_shared_state->mem_usage_record.used_in_arena = _agg_arena_pool->size();
+    int64_t arena_memory_usage = _agg_arena_pool->size();
+    COUNTER_SET(_memory_used_counter, arena_memory_usage);
+    COUNTER_SET(_peak_memory_usage_counter, arena_memory_usage);
+    COUNTER_SET(_serialize_key_arena_memory_usage, arena_memory_usage);
 }
 
 Status AggSinkLocalState::_execute_with_serialized_key(vectorized::Block* block) {
@@ -876,8 +868,6 @@ Status AggSinkLocalState::close(RuntimeState* state, Status exec_status) {
 
     std::vector<char> tmp_deserialize_buffer;
     _deserialize_buffer.swap(tmp_deserialize_buffer);
-    Base::_mem_tracker->release(Base::_shared_state->mem_usage_record.used_in_state +
-                                Base::_shared_state->mem_usage_record.used_in_arena);
     return Base::close(state, exec_status);
 }
 

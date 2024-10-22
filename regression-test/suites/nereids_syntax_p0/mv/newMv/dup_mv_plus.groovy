@@ -49,16 +49,10 @@ suite ("dup_mv_plus") {
 
     order_qt_select_star "select * from dup_mv_plus order by k1;"
 
-    explain {
-        sql("select k1,k2+1 from dup_mv_plus order by k1;")
-        contains "(k12p)"
-    }
+    mv_rewrite_success("select k1,k2+1 from dup_mv_plus order by k1;", "k12p")
     order_qt_select_mv "select k1,k2+1 from dup_mv_plus order by k1;"
 
-    explain {
-        sql("select k2+1 from dup_mv_plus order by k1;")
-        contains "(k12p)"
-    }
+    mv_rewrite_success("select k2+1 from dup_mv_plus order by k1;", "k12p")
     order_qt_select_mv_sub "select k2+1 from dup_mv_plus order by k1;"
 
     /*
@@ -71,16 +65,10 @@ suite ("dup_mv_plus") {
     qt_select_mv_sub_add "select k2+1-1 from dup_mv_plus order by k1;"
      */
 
-    explain {
-        sql("select sum(k2+1) from dup_mv_plus group by k1 order by k1;")
-        contains "(k12p)"
-    }
+    mv_rewrite_success("select sum(k2+1) from dup_mv_plus group by k1 order by k1;", "k12p")
     order_qt_select_group_mv "select sum(k2+1) from dup_mv_plus group by k1 order by k1;"
 
-    explain {
-        sql("select sum(k1) from dup_mv_plus group by k2+1 order by k2+1;")
-        contains "(k12p)"
-    }
+    mv_rewrite_success("select sum(k1) from dup_mv_plus group by k2+1 order by k2+1;", "k12p")
     order_qt_select_group_mv "select sum(k1) from dup_mv_plus group by k2+1 order by k2+1;"
 
     /*
@@ -91,47 +79,23 @@ suite ("dup_mv_plus") {
     qt_select_group_mv_add "select sum(k2+1-1) from dup_mv_plus group by k1 order by k1;"
      */
 
-    explain {
-        sql("select sum(k2) from dup_mv_plus group by k3;")
-        contains "(dup_mv_plus)"
-    }
+    mv_rewrite_fail("select sum(k2) from dup_mv_plus group by k3;", "k12p")
     order_qt_select_group_mv_not "select sum(k2) from dup_mv_plus group by k3 order by k3;"
 
-    explain {
-        sql("select k1,k2+1 from dup_mv_plus order by k2;")
-        contains "(dup_mv_plus)"
-    }
+    mv_rewrite_fail("select k1,k2+1 from dup_mv_plus order by k2;", "k12p")
     order_qt_select_mv "select k1,k2+1 from dup_mv_plus order by k2;"
 
     sql """set enable_stats=true;"""
 
-    explain {
-        sql("select k1,k2+1 from dup_mv_plus order by k1;")
-        contains "(k12p)"
-    }
+    mv_rewrite_success("select k1,k2+1 from dup_mv_plus order by k1;", "k12p")
 
-    explain {
-        sql("select k2+1 from dup_mv_plus order by k1;")
-        contains "(k12p)"
-    }
+    mv_rewrite_success("select k2+1 from dup_mv_plus order by k1;", "k12p")
 
-    explain {
-        sql("select sum(k2+1) from dup_mv_plus group by k1 order by k1;")
-        contains "(k12p)"
-    }
+    mv_rewrite_success("select sum(k2+1) from dup_mv_plus group by k1 order by k1;", "k12p")
 
-    explain {
-        sql("select sum(k1) from dup_mv_plus group by k2+1 order by k2+1;")
-        contains "(k12p)"
-    }
+    mv_rewrite_success("select sum(k1) from dup_mv_plus group by k2+1 order by k2+1;", "k12p")
 
-    explain {
-        sql("select sum(k2) from dup_mv_plus group by k3;")
-        contains "(dup_mv_plus)"
-    }
+    mv_rewrite_success("select sum(k2+1) from dup_mv_plus group by k1 order by k1;", "k12p")
 
-    explain {
-        sql("select k1,k2+1 from dup_mv_plus order by k2;")
-        contains "(dup_mv_plus)"
-    }
+    mv_rewrite_success("select sum(k1) from dup_mv_plus group by k2+1 order by k2+1;", "k12p")
 }

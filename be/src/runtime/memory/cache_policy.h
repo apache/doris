@@ -92,7 +92,7 @@ public:
         case CacheType::FOR_UT_CACHE_NUMBER:
             return "ForUTCacheNumber";
         case CacheType::QUERY_CACHE:
-            return "QUERY_CACHE";
+            return "QueryCache";
         default:
             LOG(FATAL) << "not match type of cache policy :" << static_cast<int>(type);
         }

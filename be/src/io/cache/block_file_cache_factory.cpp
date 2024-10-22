@@ -32,9 +32,12 @@
 #include <utility>
 
 #include "common/config.h"
+#include "exec/schema_scanner/schema_scanner_helper.h"
 #include "io/cache/file_cache_common.h"
 #include "io/fs/local_file_system.h"
 #include "runtime/exec_env.h"
+#include "service/backend_options.h"
+#include "vec/core/block.h"
 
 namespace doris {
 class TUniqueId;
@@ -167,6 +170,24 @@ std::string FileCacheFactory::reset_capacity(const std::string& path, int64_t ne
         }
     }
     return "Unknown the cache path " + path;
+}
+
+void FileCacheFactory::get_cache_stats_block(vectorized::Block* block) {
+    // std::shared_lock<std::shared_mutex> read_lock(_qs_ctx_map_lock);
+    TBackend be = BackendOptions::get_local_backend();
+    int64_t be_id = be.id;
+    std::string be_ip = be.host;
+    for (auto& cache : _caches) {
+        std::map<std::string, double> stats = cache->get_stats();
+        for (auto& [k, v] : stats) {
+            SchemaScannerHelper::insert_int64_value(0, be_id, block);  // be id
+            SchemaScannerHelper::insert_string_value(1, be_ip, block); // be ip
+            SchemaScannerHelper::insert_string_value(2, cache->get_base_path(),
+                                                     block);                       // cache path
+            SchemaScannerHelper::insert_string_value(3, k, block);                 // metric name
+            SchemaScannerHelper::insert_string_value(4, std::to_string(v), block); // metric value
+        }
+    }
 }
 
 } // namespace io

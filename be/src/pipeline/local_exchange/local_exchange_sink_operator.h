@@ -116,6 +116,7 @@ private:
     std::unique_ptr<vectorized::PartitionerBase> _partitioner;
     const std::map<int, int> _bucket_seq_to_instance_idx;
     std::vector<std::pair<int, int>> _shuffle_idx_to_instance_idx;
+    bool _use_global_shuffle = false;
 };
 
 } // namespace doris::pipeline

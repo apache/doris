@@ -26,6 +26,8 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateV2Type;
+import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.TimeType;
 import org.apache.doris.nereids.types.TinyIntType;
 
 import com.google.common.base.Preconditions;
@@ -42,8 +44,8 @@ public class Hour extends ScalarFunction
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(TinyIntType.INSTANCE).args(DateTimeV2Type.SYSTEM_DEFAULT),
             FunctionSignature.ret(TinyIntType.INSTANCE).args(DateV2Type.INSTANCE),
-            FunctionSignature.ret(TinyIntType.INSTANCE).args(DateTimeType.INSTANCE)
-    );
+            FunctionSignature.ret(TinyIntType.INSTANCE).args(DateTimeType.INSTANCE),
+            FunctionSignature.ret(IntegerType.INSTANCE).args(TimeType.INSTANCE));
 
     /**
      * constructor with 1 argument.

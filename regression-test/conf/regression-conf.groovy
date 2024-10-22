@@ -252,3 +252,7 @@ lakesoulMinioAK="*******"
 lakesoulMinioSK="*******"
 lakesoulMinioEndpoint="*******"
 
+// cloud
+metaServiceToken = "greedisgood9999"
+instanceId = "default_instance_id"
+multiClusterInstance = "default_instance_id"

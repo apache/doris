@@ -636,13 +636,75 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
             request.__set_enable_profile(false);
         }
     }
-    if (!http_req->header(HTTP_PARTIAL_COLUMNS).empty()) {
-        if (iequal(http_req->header(HTTP_PARTIAL_COLUMNS), "true")) {
-            request.__set_partial_update(true);
+
+    if (!http_req->header(HTTP_UNIQUE_KEY_UPDATE_MODE).empty()) {
+        static const StringCaseMap<TUniqueKeyUpdateMode::type> unique_key_update_mode_map = {
+                {"UPSERT", TUniqueKeyUpdateMode::UPSERT},
+                {"UPDATE_FIXED_COLUMNS", TUniqueKeyUpdateMode::UPDATE_FIXED_COLUMNS},
+                {"UPDATE_FLEXIBLE_COLUMNS", TUniqueKeyUpdateMode::UPDATE_FLEXIBLE_COLUMNS}};
+        std::string unique_key_update_mode_str = http_req->header(HTTP_UNIQUE_KEY_UPDATE_MODE);
+        auto iter = unique_key_update_mode_map.find(unique_key_update_mode_str);
+        if (iter != unique_key_update_mode_map.end()) {
+            TUniqueKeyUpdateMode::type unique_key_update_mode = iter->second;
+            if (unique_key_update_mode == TUniqueKeyUpdateMode::UPDATE_FLEXIBLE_COLUMNS) {
+                // check constraints when flexible partial update is enabled
+                if (ctx->format != TFileFormatType::FORMAT_JSON) {
+                    return Status::InvalidArgument(
+                            "flexible partial update only support json format as input file "
+                            "currently");
+                }
+                if (!http_req->header(HTTP_FUZZY_PARSE).empty() &&
+                    iequal(http_req->header(HTTP_FUZZY_PARSE), "true")) {
+                    return Status::InvalidArgument(
+                            "Don't support flexible partial update when 'fuzzy_parse' is enabled");
+                }
+                if (!http_req->header(HTTP_COLUMNS).empty()) {
+                    return Status::InvalidArgument(
+                            "Don't support flexible partial update when 'columns' is specified");
+                }
+                if (!http_req->header(HTTP_JSONPATHS).empty()) {
+                    return Status::InvalidArgument(
+                            "Don't support flexible partial update when 'jsonpaths' is specified");
+                }
+                if (!http_req->header(HTTP_HIDDEN_COLUMNS).empty()) {
+                    return Status::InvalidArgument(
+                            "Don't support flexible partial update when 'hidden_columns' is "
+                            "specified");
+                }
+                if (!http_req->header(HTTP_FUNCTION_COLUMN + "." + HTTP_SEQUENCE_COL).empty()) {
+                    return Status::InvalidArgument(
+                            "Don't support flexible partial update when "
+                            "'function_column.sequence_col' is specified");
+                }
+                if (!http_req->header(HTTP_MERGE_TYPE).empty()) {
+                    return Status::InvalidArgument(
+                            "Don't support flexible partial update when "
+                            "'merge_type' is specified");
+                }
+                if (!http_req->header(HTTP_WHERE).empty()) {
+                    return Status::InvalidArgument(
+                            "Don't support flexible partial update when "
+                            "'where' is specified");
+                }
+            }
+            request.__set_unique_key_update_mode(unique_key_update_mode);
         } else {
-            request.__set_partial_update(false);
+            return Status::InvalidArgument(
+                    "Invalid unique_key_partial_mode {}, must be one of 'UPSERT', "
+                    "'UPDATE_FIXED_COLUMNS' or 'UPDATE_FLEXIBLE_COLUMNS'",
+                    unique_key_update_mode_str);
         }
     }
+    if (http_req->header(HTTP_UNIQUE_KEY_UPDATE_MODE).empty() &&
+        !http_req->header(HTTP_PARTIAL_COLUMNS).empty()) {
+        // only consider `partial_columns` parameter when `unique_key_update_mode` is not set
+        if (iequal(http_req->header(HTTP_PARTIAL_COLUMNS), "true")) {
+            request.__set_unique_key_update_mode(TUniqueKeyUpdateMode::UPDATE_FIXED_COLUMNS);
+            // for backward compatibility
+            request.__set_partial_update(true);
+        }
+    }
+
     if (!http_req->header(HTTP_MEMTABLE_ON_SINKNODE).empty()) {
         bool value = iequal(http_req->header(HTTP_MEMTABLE_ON_SINKNODE), "true");
         request.__set_memtable_on_sink_node(value);
