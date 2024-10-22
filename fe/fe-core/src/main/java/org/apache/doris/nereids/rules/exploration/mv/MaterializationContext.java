@@ -348,7 +348,7 @@ public abstract class MaterializationContext {
      * ToSummaryString, this contains only summary info.
      */
     public static String toSummaryString(List<MaterializationContext> materializationContexts,
-            PhysicalPlan physicalPlan) {
+            Plan physicalPlan) {
         if (materializationContexts.isEmpty()) {
             return "";
         }
