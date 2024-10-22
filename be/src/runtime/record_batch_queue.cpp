@@ -23,7 +23,7 @@
 namespace doris {
 
 bool RecordBatchQueue::blocking_get(std::shared_ptr<arrow::RecordBatch>* result) {
-    if (_dep && size() <= 10) {
+    if (_dep && size() <= config::max_memory_sink_batch_count) {
         _dep->set_ready();
     }
     // Before each get queue, will set sink task dependency ready.
