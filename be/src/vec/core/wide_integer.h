@@ -40,6 +40,7 @@
 // and modified by Doris
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <initializer_list>
 #include <limits>
