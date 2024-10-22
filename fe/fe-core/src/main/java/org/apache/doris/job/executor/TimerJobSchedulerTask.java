@@ -45,7 +45,7 @@ public class TimerJobSchedulerTask<T extends AbstractJob> implements TimerTask {
                 return;
             }
             if (!dispatchDisruptor.publishEvent(this.job)) {
-                log.warn("dispatch timer job failed, job id is {}, job name is {}",
+                log.warn("dispatch timer job failed, queue maybe full. job id is {}, job name is {}",
                         this.job.getJobId(), this.job.getJobName());
             }
         } catch (Exception e) {
