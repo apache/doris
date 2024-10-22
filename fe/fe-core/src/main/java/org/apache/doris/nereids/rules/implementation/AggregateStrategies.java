@@ -501,26 +501,53 @@ public class AggregateStrategies implements ImplementationRuleFactory {
             LogicalFilter<? extends Plan> filter,
             LogicalOlapScan olapScan,
             CascadesContext cascadesContext) {
-        PhysicalOlapScan physicalOlapScan
-                = (PhysicalOlapScan) new LogicalOlapScanToPhysicalOlapScan()
+
+        PhysicalOlapScan physicalOlapScan = (PhysicalOlapScan) new LogicalOlapScanToPhysicalOlapScan()
                 .build()
                 .transform(olapScan, cascadesContext)
                 .get(0);
-        if (project != null) {
-            return agg.withChildren(ImmutableList.of(
-                    project.withChildren(ImmutableList.of(
-                            filter.withChildren(ImmutableList.of(
-                                    new PhysicalStorageLayerAggregate(
-                                            physicalOlapScan,
-                                            PushDownAggOp.COUNT_ON_MATCH)))))
-            ));
-        } else {
-            return agg.withChildren(ImmutableList.of(
-                            filter.withChildren(ImmutableList.of(
-                                    new PhysicalStorageLayerAggregate(
-                                            physicalOlapScan,
-                                            PushDownAggOp.COUNT_ON_MATCH)))));
+
+        List<Expression> argumentsOfAggregateFunction = normalizeArguments(agg.getAggregateFunctions(), project);
+
+        if (!onlyContainsSlot(argumentsOfAggregateFunction)) {
+            return agg;
         }
+
+        return agg.withChildren(ImmutableList.of(
+                project != null
+                        ? project.withChildren(ImmutableList.of(
+                        filter.withChildren(ImmutableList.of(
+                                new PhysicalStorageLayerAggregate(
+                                        physicalOlapScan, PushDownAggOp.COUNT_ON_MATCH)))))
+                        : filter.withChildren(ImmutableList.of(
+                                new PhysicalStorageLayerAggregate(
+                                        physicalOlapScan, PushDownAggOp.COUNT_ON_MATCH)))
+        ));
+    }
+
+    private List<Expression> normalizeArguments(Set<AggregateFunction> aggregateFunctions,
+            @Nullable LogicalProject<? extends Plan> project) {
+        List<Expression> arguments = aggregateFunctions.stream()
+                .flatMap(aggregateFunction -> aggregateFunction.getArguments().stream())
+                .collect(ImmutableList.toImmutableList());
+
+        if (project != null) {
+            arguments = Project.findProject(arguments, project.getProjects())
+                    .stream()
+                    .map(p -> p instanceof Alias ? p.child(0) : p)
+                    .collect(ImmutableList.toImmutableList());
+        }
+
+        return arguments;
+    }
+
+    private boolean onlyContainsSlot(List<Expression> arguments) {
+        return arguments.stream().allMatch(argument -> {
+            if (argument instanceof SlotReference) {
+                return true;
+            }
+            return false;
+        });
     }
 
     //select /*+SET_VAR(enable_pushdown_minmax_on_unique=true) */min(user_id) from table_unique;
