@@ -1776,11 +1776,15 @@ public class Config extends ConfigBase {
             "Maximum number of persistence allowed per task in a job,exceeding which old tasks will be discarded，"
                    + "If the value is less than 1, it will not be persisted." })
     public static int max_persistence_task_count = 100;
-    @ConfField(description = {"MV task 的等待队列大小，值必须是 2 的幂，否则将使用默认值 1024", "The size of the MV task's"
-            + "waiting queue must be a power of 2; otherwise, the default value of 1024 will be used."})
+    @ConfField(description = {"MV task 的等待队列大小，如果是负数，则会使用 1024，如果不是 2 的幂，则会自动选择一个最接近的"
+            + " 2 的幂次方数", "The size of the MV task's waiting queue If the size is negative, 1024 will be used. If "
+            + "the size is not a power of two, the nearest power of the size will be"
+            + " automatically selected."})
     public static int mtmv_task_queue_size = 1024;
-    @ConfField(description = {"Insert task 的等待队列大小，值必须是 2 的幂，否则将使用默认值 1024", "The size of the Insert "
-            + "task's waiting queue must be a power of 2; otherwise, the default value of 1024 will be used."})
+    @ConfField(description = {"Insert task 的等待队列大小，如果是负数，则会使用 1024，如果不是 2 的幂，则会自动选择一个最接近"
+            + " 的 2 的幂次方数", "The size of the Insert task's waiting queue If the size is negative, 1024 will be used."
+            + " If the size is not a power of two, the nearest power of the size will "
+            + "be automatically selected."})
     public static int insert_task_queue_size = 1024;
     @ConfField(description = {"finished 状态的 job 最长保存时间，超过这个时间将会被删除, 单位：小时",
             "The longest time to save the job in finished status, it will be deleted after this time. Unit: hour"})

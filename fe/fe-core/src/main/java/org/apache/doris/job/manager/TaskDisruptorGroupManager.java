@@ -65,10 +65,8 @@ public class TaskDisruptorGroupManager<T extends AbstractTask> {
     private static final int DISPATCH_MTMV_THREAD_NUM = Config.job_mtmv_task_consumer_thread_num > 0
             ? Config.job_mtmv_task_consumer_thread_num : DEFAULT_CONSUMER_THREAD_NUM;
 
-    private static final int DISPATCH_INSERT_TASK_QUEUE_SIZE = isPowerOfTwo(Config.insert_task_queue_size)
-            ? Config.insert_task_queue_size : DEFAULT_RING_BUFFER_SIZE;
-    private static final int DISPATCH_MTMV_TASK_QUEUE_SIZE = isPowerOfTwo(Config.mtmv_task_queue_size)
-            ? Config.mtmv_task_queue_size : DEFAULT_RING_BUFFER_SIZE;
+    private static final int DISPATCH_INSERT_TASK_QUEUE_SIZE = normalizeRingbufferSize(Config.insert_task_queue_size);
+    private static final int DISPATCH_MTMV_TASK_QUEUE_SIZE = normalizeRingbufferSize(Config.mtmv_task_queue_size);
 
 
     public void init() {
@@ -134,8 +132,25 @@ public class TaskDisruptorGroupManager<T extends AbstractTask> {
         return disruptorMap.get(jobType).publishEvent(task, jobExecutionConfiguration);
     }
 
-    private static boolean isPowerOfTwo(int n) {
-        // Check if n is greater than 0 and if n & (n - 1) equals 0
-        return n > 0 && (n & (n - 1)) == 0;
+
+    /**
+     * Normalizes the given size to the nearest power of two.
+     * This method ensures that the size is a power of two, which is often required for optimal
+     * performance in certain data structures like ring buffers.
+     *
+     * @param size The input size to be normalized.
+     * @return The nearest power of two greater than or equal to the input size.
+     */
+    public static int normalizeRingbufferSize(int size) {
+        int ringBufferSize = size - 1;
+        if (size < 1) {
+            return DEFAULT_RING_BUFFER_SIZE;
+        }
+        ringBufferSize |= ringBufferSize >>> 1;
+        ringBufferSize |= ringBufferSize >>> 2;
+        ringBufferSize |= ringBufferSize >>> 4;
+        ringBufferSize |= ringBufferSize >>> 8;
+        ringBufferSize |= ringBufferSize >>> 16;
+        return ringBufferSize + 1;
     }
 }
