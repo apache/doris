@@ -18,6 +18,10 @@
 import org.junit.Assert;
 
 suite("test_use_encryptkey_auth","p0,auth") {
+    multi_sql """
+        SET enable_nereids_planner=true;
+        SET enable_fallback_to_original_planner=false;
+    """
     String suiteName = "test_version_info_mtmv"
     String dbName = context.config.getDbNameByFile(context.file)
     String user = "${suiteName}_user"
