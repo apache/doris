@@ -1658,6 +1658,11 @@ void drop_tablet_callback(StorageEngine& engine, const TAgentTaskRequest& req) {
 
 void drop_tablet_callback(CloudStorageEngine& engine, const TAgentTaskRequest& req) {
     const auto& drop_tablet_req = req.drop_tablet_req;
+    DBUG_EXECUTE_IF("WorkPoolCloudDropTablet.drop_tablet_callback.failed", {
+        LOG_WARNING("WorkPoolCloudDropTablet.drop_tablet_callback.failed")
+                .tag("tablet_id", drop_tablet_req.tablet_id);
+        return;
+    });
     // 1. erase lru from tablet mgr
     // TODO(dx) clean tablet file cache
     // get tablet's info(such as cachekey, tablet id, rsid)

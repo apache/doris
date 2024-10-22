@@ -183,7 +183,7 @@ Result<std::shared_ptr<CloudTablet>> CloudTabletMgr::get_tablet(int64_t tablet_i
                                           CachePriority::NORMAL);
             auto ret =
                     std::shared_ptr<CloudTablet>(tablet.get(), [this, handle](CloudTablet* tablet) {
-                        int64_t now = duration_cast<std::chrono::seconds>(
+                        int64_t now = duration_cast<std::chrono::milliseconds>(
                                               std::chrono::system_clock::now().time_since_epoch())
                                               .count();
                         tablet->last_cache_release_ms = now;
@@ -202,7 +202,7 @@ Result<std::shared_ptr<CloudTablet>> CloudTabletMgr::get_tablet(int64_t tablet_i
 
     CloudTablet* tablet_raw_ptr = reinterpret_cast<Value*>(_cache->value(handle))->tablet.get();
     auto tablet = std::shared_ptr<CloudTablet>(tablet_raw_ptr, [this, handle](CloudTablet* tablet) {
-        int64_t now = duration_cast<std::chrono::seconds>(
+        int64_t now = duration_cast<std::chrono::milliseconds>(
                               std::chrono::system_clock::now().time_since_epoch())
                               .count();
         tablet->last_cache_release_ms = now;
@@ -381,8 +381,11 @@ void CloudTabletMgr::build_all_report_tablets_info(std::map<TTabletId, TTablet>*
         (*tablet_num)++;
         TTabletInfo tablet_info;
         tablet->build_tablet_report_info(&tablet_info);
-        if (::time(nullptr) - config::cloud_tablet_report_exceed_time_limit <
-            tablet->last_cache_release_ms / 1000) {
+        int64_t now = duration_cast<std::chrono::milliseconds>(
+                              std::chrono::system_clock::now().time_since_epoch())
+                              .count();
+        if (now - config::cloud_tablet_report_exceed_time_limit * 1000 <
+            tablet->last_cache_release_ms) {
             // the tablet is still being accessed and used in recently, so not report it
             return;
         }
