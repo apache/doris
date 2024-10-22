@@ -387,7 +387,7 @@ public class HiveScanNode extends FileQueryScanNode {
         Table table = hmsTable.getRemoteTable();
         // TODO: separate hive text table and OpenCsv table
         String serDeLib = table.getSd().getSerdeInfo().getSerializationLib();
-        if (serDeLib.contains("LazySimpleSerDe")) {
+        if (serDeLib.equals("org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe")) {
             // set properties of LazySimpleSerDe
             // 1. set column separator
             textParams.setColumnSeparator(HiveProperties.getFieldDelimiter(table));
@@ -401,13 +401,15 @@ public class HiveScanNode extends FileQueryScanNode {
             HiveProperties.getEscapeDelimiter(table).ifPresent(d -> textParams.setEscape(d.getBytes()[0]));
             // 6. set null format
             textParams.setNullFormat(HiveProperties.getNullFormat(table));
-        } else if (serDeLib.contains("OpenCSVSerde")) {
+        } else if (serDeLib.equals("org.apache.hadoop.hive.serde2.OpenCSVSerde")) {
             // set set properties of OpenCSVSerde
             // 1. set column separator
             textParams.setColumnSeparator(HiveProperties.getSeparatorChar(table));
-            // 2. set enclose char
+            // 2. set line delimiter
+            textParams.setLineDelimiter(HiveProperties.getLineDelimiter(table));
+            // 3. set enclose char
             textParams.setEnclose(HiveProperties.getQuoteChar(table).getBytes()[0]);
-            // 3. set escape char
+            // 4. set escape char
             textParams.setEscape(HiveProperties.getEscapeChar(table).getBytes()[0]);
         } else {
             throw new UserException(
