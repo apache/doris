@@ -114,6 +114,7 @@ public class MTMV extends OlapTable {
         this.mvPartitionInfo = params.mvPartitionInfo;
         this.relation = params.relation;
         this.refreshSnapshot = new MTMVRefreshSnapshot();
+        this.envInfo = new EnvInfo(-1L, -1L);
         mvRwLock = new ReentrantReadWriteLock(true);
     }
 
@@ -506,7 +507,11 @@ public class MTMV extends OlapTable {
         refreshInfo = materializedView.refreshInfo;
         querySql = materializedView.querySql;
         status = materializedView.status;
-        envInfo = materializedView.envInfo;
+        if (materializedView.envInfo != null) {
+            envInfo = materializedView.envInfo;
+        } else {
+            envInfo = new EnvInfo(-1L, -1L);
+        }
         jobInfo = materializedView.jobInfo;
         mvProperties = materializedView.mvProperties;
         relation = materializedView.relation;
