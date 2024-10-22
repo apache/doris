@@ -139,6 +139,8 @@ public:
 
     uint64_t create_time() const { return _create_time; }
 
+    uint64_t elapsed_time() const { return _fragment_watcher.elapsed_time(); }
+
 protected:
     Status _create_sink(int sender_id, const TDataSink& t_data_sink, RuntimeState* state);
     Status _build_pipelines(ExecNode*, PipelinePtr);
