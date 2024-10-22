@@ -6,6 +6,6 @@ CREATE TABLE `orc_tiny_stripes`(
     col3 bigint
 )
 STORED AS orc
-LOCATION '/user/doris/preinstalled_data/preinstalled_data/orc/orc_tiny_stripes';
+LOCATION '/user/doris/preinstalled_data/orc/orc_tiny_stripes';
 
 msck repair table orc_tiny_stripes;
