@@ -392,6 +392,19 @@ suite("test_external_catalog_maxcompute", "p2,external,maxcompute,external_remot
         order_qt_multi_partition_q10 """ select pt, yy, mm, dd from multi_partitions where pt >= 2 and create_time > '2023-08-03 03:11:00' order by pt, yy, mm, dd; """
 
 
+
+
+        sql """
+            create catalog if not exists ${mc_catalog_name}_2 properties (
+                "type" = "max_compute",
+                "mc.default.project" = "other_mc_datalake_test",
+                "mc.access_key" = "${ak}",
+                "mc.secret_key" = "${sk}",
+                "mc.endpoint" = "http://service.cn-beijing-vpc.maxcompute.aliyun-inc.com/api"
+            );
+        """
+        sql """ switch `${mc_catalog_name}_2` """
+
         //other db 
         sql """ use other_mc_datalake_test """
         order_qt_other_db_show  """ show tables ; """
@@ -400,7 +413,7 @@ suite("test_external_catalog_maxcompute", "p2,external,maxcompute,external_remot
         order_qt_other_db_show_partiton """show partitions from other_db_mc_parts;"""
 
 
-
+        sql """ switch `${mc_catalog_name}`; """
         sql """ use `${mc_db}`; """
         //test null value 
         order_qt_null_1 """ select * from mc_test_null; """
