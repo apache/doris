@@ -1071,7 +1071,7 @@ public class SessionVariable implements Serializable, Writable {
     private boolean forceToLocalShuffle = false;
 
     @VariableMgr.VarAttr(name = ENABLE_LOCAL_MERGE_SORT)
-    private boolean enableLocalMergeSort = true;
+    private boolean enableLocalMergeSort = false;
 
     @VariableMgr.VarAttr(name = ENABLE_AGG_STATE, fuzzy = false, varType = VariableAnnotation.EXPERIMENTAL,
             needForward = true)
