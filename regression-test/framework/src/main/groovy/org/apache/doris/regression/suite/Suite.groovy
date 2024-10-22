@@ -1605,6 +1605,7 @@ class Suite implements GroovyInterceptable {
                 check { result ->
                     boolean success = true;
                     for (String mv_name : mv_names) {
+                        def splitResult = result.split("MaterializedViewRewriteFail")
                         def each_result =  splitResult.length == 2 ? splitResult[0].contains(mv_name) : false
                         success = success && each_result
                     }
