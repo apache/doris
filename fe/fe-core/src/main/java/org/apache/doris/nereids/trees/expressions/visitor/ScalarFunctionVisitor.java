@@ -90,6 +90,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.BitCount;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitLength;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitShiftLeft;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitShiftRight;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.BitTest;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapAnd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapAndCount;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapAndNot;
@@ -867,6 +868,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitBitShiftRight(BitShiftRight bitShiftRight, C context) {
         return visitScalarFunction(bitShiftRight, context);
+    }
+
+    default R visitBitTest(BitTest bitTest, C context) {
+        return visitScalarFunction(bitTest, context);
     }
 
     default R visitCardinality(Cardinality cardinality, C context) {

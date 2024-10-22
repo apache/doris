@@ -265,4 +265,73 @@ protected:
     bool _is_incremental = false;
 };
 
+// a collection of LoadStreams connect to the same node
+class LoadStreamStubs {
+public:
+    LoadStreamStubs(size_t num_streams, UniqueId load_id, int64_t src_id,
+                    std::shared_ptr<IndexToTabletSchema> schema_map,
+                    std::shared_ptr<IndexToEnableMoW> mow_map, bool incremental = false)
+            : _is_incremental(incremental) {
+        _streams.reserve(num_streams);
+        for (size_t i = 0; i < num_streams; i++) {
+            _streams.emplace_back(
+                    new LoadStreamStub(load_id, src_id, schema_map, mow_map, incremental));
+        }
+    }
+
+    Status open(BrpcClientCache<PBackendService_Stub>* client_cache, const NodeInfo& node_info,
+                int64_t txn_id, const OlapTableSchemaParam& schema,
+                const std::vector<PTabletID>& tablets_for_schema, int total_streams,
+                int64_t idle_timeout_ms, bool enable_profile);
+
+    bool is_incremental() const { return _is_incremental; }
+
+    size_t size() const { return _streams.size(); }
+
+    // for UT only
+    void mark_open() { _open_success.store(true); }
+
+    std::shared_ptr<LoadStreamStub> select_one_stream() {
+        if (!_open_success.load()) {
+            return nullptr;
+        }
+        size_t i = _select_index.fetch_add(1);
+        return _streams[i % _streams.size()];
+    }
+
+    void cancel(Status reason) {
+        for (auto& stream : _streams) {
+            stream->cancel(reason);
+        }
+    }
+
+    Status close_load(const std::vector<PTabletID>& tablets_to_commit);
+
+    Status close_wait(RuntimeState* state, int64_t timeout_ms = 0);
+
+    std::unordered_set<int64_t> success_tablets() {
+        std::unordered_set<int64_t> s;
+        for (auto& stream : _streams) {
+            auto v = stream->success_tablets();
+            std::copy(v.begin(), v.end(), std::inserter(s, s.end()));
+        }
+        return s;
+    }
+
+    std::unordered_map<int64_t, Status> failed_tablets() {
+        std::unordered_map<int64_t, Status> m;
+        for (auto& stream : _streams) {
+            auto v = stream->failed_tablets();
+            m.insert(v.begin(), v.end());
+        }
+        return m;
+    }
+
+private:
+    std::vector<std::shared_ptr<LoadStreamStub>> _streams;
+    std::atomic<bool> _open_success = false;
+    std::atomic<size_t> _select_index = 0;
+    const bool _is_incremental;
+};
+
 } // namespace doris

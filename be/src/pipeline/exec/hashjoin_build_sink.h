@@ -89,7 +89,7 @@ protected:
      */
     bool _build_side_ignore_null = false;
     std::vector<int> _build_col_ids;
-    std::shared_ptr<Dependency> _finish_dependency;
+    std::shared_ptr<CountedFinishDependency> _finish_dependency;
 
     RuntimeProfile::Counter* _build_table_timer = nullptr;
     RuntimeProfile::Counter* _build_expr_call_timer = nullptr;

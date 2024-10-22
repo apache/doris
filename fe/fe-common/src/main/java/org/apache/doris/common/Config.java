@@ -3138,7 +3138,7 @@ public class Config extends ConfigBase {
     //                      start of lock config
     @ConfField(description = {"是否开启死锁检测",
             "Whether to enable deadlock detection"})
-    public static boolean enable_deadlock_detection = false;
+    public static boolean enable_deadlock_detection = true;
 
     @ConfField(description = {"死锁检测间隔时间，单位分钟",
             "Deadlock detection interval time, unit minute"})
