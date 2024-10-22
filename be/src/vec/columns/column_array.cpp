@@ -85,9 +85,10 @@ bool ColumnArray::could_shrinked_column() {
 MutableColumnPtr ColumnArray::get_shrinked_column() {
     if (could_shrinked_column()) {
         return ColumnArray::create(data->get_shrinked_column(), offsets->assume_mutable());
-    } else {
-        return ColumnArray::create(data->assume_mutable(), offsets->assume_mutable());
     }
+    // if nested column could not be shrinked, we should make behavior consistent
+    throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                           "Method get_shrinked_column is not supported for " + get_name());
 }
 
 std::string ColumnArray::get_name() const {
@@ -417,7 +418,8 @@ void ColumnArray::pop_back(size_t n) {
 void ColumnArray::reserve(size_t n) {
     get_offsets().reserve(n);
     get_data().reserve(
-            n); /// The average size of arrays is not taken into account here. Or it is considered to be no more than 1.
+            get_offsets()
+                    .back()); /// The average size of arrays is not taken into account here. Or it is considered to be no more than 1.
 }
 
 //please check you real need size in data column, because it's maybe need greater size when data is string column
@@ -527,6 +529,8 @@ ColumnPtr ColumnArray::filter(const Filter& filt, ssize_t result_size_hint) cons
         return filter_number<UInt32>(filt, result_size_hint);
     if (typeid_cast<const ColumnUInt64*>(data.get()))
         return filter_number<UInt64>(filt, result_size_hint);
+    if (typeid_cast<const ColumnUInt128*>(data.get()))
+        return filter_number<UInt128>(filt, result_size_hint);
     if (typeid_cast<const ColumnInt8*>(data.get()))
         return filter_number<Int8>(filt, result_size_hint);
     if (typeid_cast<const ColumnInt16*>(data.get()))
@@ -535,12 +539,23 @@ ColumnPtr ColumnArray::filter(const Filter& filt, ssize_t result_size_hint) cons
         return filter_number<Int32>(filt, result_size_hint);
     if (typeid_cast<const ColumnInt64*>(data.get()))
         return filter_number<Int64>(filt, result_size_hint);
+    if (typeid_cast<const ColumnInt128*>(data.get()))
+        return filter_number<Int128>(filt, result_size_hint);
     if (typeid_cast<const ColumnFloat32*>(data.get()))
         return filter_number<Float32>(filt, result_size_hint);
     if (typeid_cast<const ColumnFloat64*>(data.get()))
         return filter_number<Float64>(filt, result_size_hint);
+    if (typeid_cast<const ColumnDecimal32*>(data.get()))
+        return filter_number<Decimal32>(filt, result_size_hint);
+    if (typeid_cast<const ColumnDecimal64*>(data.get()))
+        return filter_number<Decimal64>(filt, result_size_hint);
+    if (typeid_cast<const ColumnDecimal128V2*>(data.get()))
+        return filter_number<Decimal128V2>(filt, result_size_hint);
+    if (typeid_cast<const ColumnDecimal128V3*>(data.get()))
+        return filter_number<Decimal128V3>(filt, result_size_hint);
+    if (typeid_cast<const ColumnDecimal256*>(data.get()))
+        return filter_number<Decimal256>(filt, result_size_hint);
     if (typeid_cast<const ColumnString*>(data.get())) return filter_string(filt, result_size_hint);
-    //if (typeid_cast<const ColumnTuple *>(data.get()))      return filterTuple(filt, result_size_hint);
     if (typeid_cast<const ColumnNullable*>(data.get()))
         return filter_nullable(filt, result_size_hint);
     return filter_generic(filt, result_size_hint);
@@ -581,12 +596,13 @@ ColumnPtr ColumnArray::filter_number(const Filter& filt, ssize_t result_size_hin
     if (get_offsets().empty()) return ColumnArray::create(data);
 
     auto res = ColumnArray::create(data->clone_empty());
+    using ColVecType = ColumnVectorOrDecimal<T>;
 
-    auto& res_elems = assert_cast<ColumnVector<T>&>(res->get_data()).get_data();
+    auto& res_elems = assert_cast<ColVecType&>(res->get_data()).get_data();
     auto& res_offsets = res->get_offsets();
 
     filter_arrays_impl<T, Offset64>(
-            assert_cast<const ColumnVector<T>&, TypeCheckOnRelease::DISABLE>(*data).get_data(),
+            assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(*data).get_data(),
             get_offsets(), res_elems, res_offsets, filt, result_size_hint);
     return res;
 }
@@ -732,22 +748,17 @@ ColumnPtr ColumnArray::filter_generic(const Filter& filt, ssize_t result_size_hi
     if (size == 0) return ColumnArray::create(data);
 
     Filter nested_filt(get_offsets().back());
+    ssize_t nested_result_size_hint = 0;
     for (size_t i = 0; i < size; ++i) {
-        if (filt[i])
+        if (filt[i]) {
             memset(&nested_filt[offset_at(i)], 1, size_at(i));
-        else
+            nested_result_size_hint += size_at(i);
+        } else {
             memset(&nested_filt[offset_at(i)], 0, size_at(i));
+        }
     }
 
     auto res = ColumnArray::create(data->clone_empty());
-
-    ssize_t nested_result_size_hint = 0;
-    if (result_size_hint < 0)
-        nested_result_size_hint = result_size_hint;
-    else if (result_size_hint && result_size_hint < 1000000000 &&
-             data->size() < 1000000000) /// Avoid overflow.
-        nested_result_size_hint = result_size_hint * data->size() / size;
-
     res->data = data->filter(nested_filt, nested_result_size_hint);
 
     auto& res_offsets = res->get_offsets();
@@ -855,6 +866,14 @@ ColumnPtr ColumnArray::replicate(const IColumn::Offsets& replicate_offsets) cons
     // keep ColumnUInt8 for ColumnNullable::null_map
     if (typeid_cast<const ColumnUInt8*>(data.get()))
         return replicate_number<UInt8>(replicate_offsets);
+    if (typeid_cast<const ColumnUInt16*>(data.get()))
+        return replicate_number<UInt16>(replicate_offsets);
+    if (typeid_cast<const ColumnUInt32*>(data.get()))
+        return replicate_number<UInt32>(replicate_offsets);
+    if (typeid_cast<const ColumnUInt64*>(data.get()))
+        return replicate_number<UInt64>(replicate_offsets);
+    if (typeid_cast<const ColumnUInt128*>(data.get()))
+        return replicate_number<UInt128>(replicate_offsets);
     if (typeid_cast<const ColumnInt8*>(data.get()))
         return replicate_number<Int8>(replicate_offsets);
     if (typeid_cast<const ColumnInt16*>(data.get()))
@@ -863,10 +882,22 @@ ColumnPtr ColumnArray::replicate(const IColumn::Offsets& replicate_offsets) cons
         return replicate_number<Int32>(replicate_offsets);
     if (typeid_cast<const ColumnInt64*>(data.get()))
         return replicate_number<Int64>(replicate_offsets);
+    if (typeid_cast<const ColumnInt128*>(data.get()))
+        return replicate_number<Int128>(replicate_offsets);
     if (typeid_cast<const ColumnFloat32*>(data.get()))
         return replicate_number<Float32>(replicate_offsets);
     if (typeid_cast<const ColumnFloat64*>(data.get()))
         return replicate_number<Float64>(replicate_offsets);
+    if (typeid_cast<const ColumnDecimal32*>(data.get()))
+        return replicate_number<Decimal32>(replicate_offsets);
+    if (typeid_cast<const ColumnDecimal64*>(data.get()))
+        return replicate_number<Decimal64>(replicate_offsets);
+    if (typeid_cast<const ColumnDecimal128V2*>(data.get()))
+        return replicate_number<Decimal128V2>(replicate_offsets);
+    if (typeid_cast<const ColumnDecimal128V3*>(data.get()))
+        return replicate_number<Decimal128V3>(replicate_offsets);
+    if (typeid_cast<const ColumnDecimal256*>(data.get()))
+        return replicate_number<Decimal256>(replicate_offsets);
     if (typeid_cast<const ColumnString*>(data.get())) return replicate_string(replicate_offsets);
     if (typeid_cast<const ColumnConst*>(data.get())) return replicate_const(replicate_offsets);
     if (typeid_cast<const ColumnNullable*>(data.get()))
@@ -880,6 +911,7 @@ ColumnPtr ColumnArray::replicate_number(const IColumn::Offsets& replicate_offset
     column_match_offsets_size(col_size, replicate_offsets.size());
 
     MutableColumnPtr res = clone_empty();
+    using ColVecType = ColumnVectorOrDecimal<T>;
 
     if (!col_size) {
         return res;
@@ -887,12 +919,12 @@ ColumnPtr ColumnArray::replicate_number(const IColumn::Offsets& replicate_offset
 
     auto& res_arr = assert_cast<ColumnArray&>(*res);
 
-    const typename ColumnVector<T>::Container& src_data =
-            assert_cast<const ColumnVector<T>&>(*data).get_data();
+    const typename ColVecType::Container& src_data =
+            assert_cast<const ColVecType&>(*data).get_data();
     const auto& src_offsets = get_offsets();
 
-    typename ColumnVector<T>::Container& res_data =
-            assert_cast<ColumnVector<T>&>(res_arr.get_data()).get_data();
+    typename ColVecType::Container& res_data =
+            assert_cast<ColVecType&>(res_arr.get_data()).get_data();
     auto& res_offsets = res_arr.get_offsets();
 
     res_data.reserve(data->size() / col_size * replicate_offsets.back());
@@ -1107,7 +1139,7 @@ ColumnPtr ColumnArray::permute(const Permutation& perm, size_t limit) const {
             nested_perm.push_back(offset_at(perm[i]) + j);
         }
     }
-    if (nested_perm.size() != 0) {
+    if (!nested_perm.empty()) {
         res->data = data->permute(nested_perm, nested_perm.size());
     }
     return res;
