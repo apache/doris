@@ -361,7 +361,6 @@ void TxnLazyCommitTask::commit() {
                 DCHECK(tmp_rowset_metas.size() > 0);
                 if (table_id <= 0) {
                     if (tablet_ids.size() > 0) {
-                        LOG(INFO) << "zhangleixxx" << tablet_ids.begin()->second.table_id();
                         table_id = tablet_ids.begin()->second.table_id();
                     } else {
                         // get table_id from storage
