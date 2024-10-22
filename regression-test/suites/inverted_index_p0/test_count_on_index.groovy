@@ -313,6 +313,30 @@ suite("test_count_on_index_httplogs", "p0") {
                 contains "pushAggOp=NONE"
         }
         qt_sql_bad "${bad_sql}"
+        def bad_sql2 = """
+        SELECT
+            COUNT(cond1) AS num1,
+            COUNT(cond2) AS num2
+        FROM (
+            SELECT
+                CASE
+                    WHEN c IN ('c1', 'c2', 'c3') AND d = 'd1' THEN b
+                END AS cond1,
+                CASE
+                    WHEN e = 'e1' AND c IN ('c1', 'c2', 'c3') THEN b
+                END AS cond2
+            FROM
+                ${tableName5}
+            WHERE
+                a = '2024-07-26'
+                AND e = 'e1'
+        ) AS project;
+        """
+        explain {
+            sql("${bad_sql2}")
+                contains "pushAggOp=NONE"
+        }
+        qt_sql_bad2 "${bad_sql2}"
     } finally {
         //try_sql("DROP TABLE IF EXISTS ${testTable}")
     }
