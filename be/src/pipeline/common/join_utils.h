@@ -74,41 +74,42 @@ struct JoinDataVariants {
 
     template <bool nullable>
     void init(const std::vector<vectorized::DataTypePtr>& data_types, HashKeyType type) {
+        // todo: support single column nullable context
         switch (type) {
         case HashKeyType::serialized:
             method_variant.emplace<SerializedHashTableContext>();
             break;
         case HashKeyType::int8_key:
             if (nullable) {
-                method_variant.emplace<SerializedHashTableContext>();
+                method_variant.emplace<I64FixedKeyHashTableContext<nullable>>();
             } else {
                 method_variant.emplace<I8HashTableContext>();
             }
             break;
         case HashKeyType::int16_key:
             if (nullable) {
-                method_variant.emplace<SerializedHashTableContext>();
+                method_variant.emplace<I64FixedKeyHashTableContext<nullable>>();
             } else {
                 method_variant.emplace<I16HashTableContext>();
             }
             break;
         case HashKeyType::int32_key:
             if (nullable) {
-                method_variant.emplace<SerializedHashTableContext>();
+                method_variant.emplace<I64FixedKeyHashTableContext<nullable>>();
             } else {
                 method_variant.emplace<I32HashTableContext>();
             }
             break;
         case HashKeyType::int64_key:
             if (nullable) {
-                method_variant.emplace<SerializedHashTableContext>();
+                method_variant.emplace<I128FixedKeyHashTableContext<nullable>>();
             } else {
                 method_variant.emplace<I64HashTableContext>();
             }
             break;
         case HashKeyType::int128_key:
             if (nullable) {
-                method_variant.emplace<SerializedHashTableContext>();
+                method_variant.emplace<I136FixedKeyHashTableContext<nullable>>();
             } else {
                 method_variant.emplace<I128HashTableContext>();
             }
