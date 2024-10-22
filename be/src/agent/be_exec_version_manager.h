@@ -25,7 +25,6 @@
 
 namespace doris {
 
-constexpr static int AGG_FUNCTION_NEW_WINDOW_FUNNEL = 6;
 constexpr inline int BITMAP_SERDE = 3;
 constexpr inline int USE_NEW_SERDE = 4;         // release on DORIS version 2.1
 constexpr inline int OLD_WAL_SERDE = 3;         // use to solve compatibility issues, see pr #32299
@@ -33,6 +32,8 @@ constexpr inline int AGG_FUNCTION_NULLABLE = 5; // change some agg nullable prop
 constexpr inline int VARIANT_SERDE = 6;         // change variant serde to fix PR #38413
 constexpr inline int AGGREGATION_2_1_VERSION =
         6; // some aggregation changed the data format after this version
+constexpr inline int USE_CONST_SERDE =
+        8; // support const column in serialize/deserialize function: PR #41175
 
 class BeExecVersionManager {
 public:
@@ -57,11 +58,17 @@ public:
         _function_change_map[function_name].insert(breaking_old_version);
     }
 
+    static void registe_restrict_function_compatibility(std::string function_name) {
+        _function_restrict_map.insert(function_name);
+    }
+
 private:
     static const int max_be_exec_version;
     static const int min_be_exec_version;
     // [function name] -> [breaking change start version]
     static std::map<std::string, std::set<int>> _function_change_map;
+    // those function must has input newest be exec version
+    static std::set<std::string> _function_restrict_map;
 };
 
 } // namespace doris

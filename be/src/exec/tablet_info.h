@@ -20,6 +20,7 @@
 #include <butil/fast_rand.h>
 #include <gen_cpp/Descriptors_types.h>
 #include <gen_cpp/descriptors.pb.h>
+#include <gen_cpp/olap_file.pb.h>
 
 #include <cstdint>
 #include <functional>
@@ -88,7 +89,18 @@ public:
         return _proto_schema;
     }
 
-    bool is_partial_update() const { return _is_partial_update; }
+    UniqueKeyUpdateModePB unique_key_update_mode() const { return _unique_key_update_mode; }
+
+    bool is_partial_update() const {
+        return _unique_key_update_mode != UniqueKeyUpdateModePB::UPSERT;
+    }
+    bool is_fixed_partial_update() const {
+        return _unique_key_update_mode == UniqueKeyUpdateModePB::UPDATE_FIXED_COLUMNS;
+    }
+    bool is_flexible_partial_update() const {
+        return _unique_key_update_mode == UniqueKeyUpdateModePB::UPDATE_FLEXIBLE_COLUMNS;
+    }
+
     std::set<std::string> partial_update_input_columns() const {
         return _partial_update_input_columns;
     }
@@ -101,7 +113,10 @@ public:
     void set_timezone(std::string timezone) { _timezone = timezone; }
     std::string timezone() const { return _timezone; }
     bool is_strict_mode() const { return _is_strict_mode; }
+    int32_t sequence_map_col_uid() const { return _sequence_map_col_uid; }
     std::string debug_string() const;
+
+    Status init_unique_key_update_mode(const TOlapTableSchemaParam& tschema);
 
 private:
     int64_t _db_id;
@@ -112,7 +127,7 @@ private:
     mutable POlapTableSchemaParam* _proto_schema = nullptr;
     std::vector<OlapTableIndexSchema*> _indexes;
     mutable ObjectPool _obj_pool;
-    bool _is_partial_update = false;
+    UniqueKeyUpdateModePB _unique_key_update_mode {UniqueKeyUpdateModePB::UPSERT};
     std::set<std::string> _partial_update_input_columns;
     bool _is_strict_mode = false;
     std::string _auto_increment_column;
@@ -120,6 +135,7 @@ private:
     int64_t _timestamp_ms = 0;
     int32_t _nano_seconds {0};
     std::string _timezone;
+    int32_t _sequence_map_col_uid {-1};
 };
 
 using OlapTableIndexTablets = TOlapTableIndexTablets;

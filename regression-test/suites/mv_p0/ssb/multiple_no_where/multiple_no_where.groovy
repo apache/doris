@@ -108,16 +108,13 @@ suite ("multiple_no_where") {
 
     sql """analyze table lineorder_flat with sync;"""
     sql """set enable_stats=false;"""
-    
-    explain {
-        sql("""SELECT SUM(LO_EXTENDEDPRICE * LO_DISCOUNT) AS revenue
+
+    mv_rewrite_success("""SELECT SUM(LO_EXTENDEDPRICE * LO_DISCOUNT) AS revenue
                 FROM lineorder_flat
                 WHERE
                     LO_ORDERDATE >= 19930101
                     AND LO_ORDERDATE <= 19931231
                     AND LO_DISCOUNT >= 1 AND LO_DISCOUNT <= 3
-                    AND LO_QUANTITY < 25;""")
-        contains "(lineorder_q_1_1)"
-    }
+                    AND LO_QUANTITY < 25;""", "lineorder_q_1_1")
     
 }

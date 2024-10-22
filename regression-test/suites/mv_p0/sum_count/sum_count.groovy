@@ -67,7 +67,7 @@ suite ("sum_count") {
     
     qt_select_mv "select k1,k4,sum(2) from d_table group by k1,k4 order by 1,2;"
 
-    mv_rewrite_all_fail("select k1,k4,sum(3) from d_table group by k1,k4;")
+    mv_rewrite_all_fail("select k1,k4,sum(3) from d_table group by k1,k4;", ["kavg", "kavg_const1", "kavg_key", "kavg_const1", "kavg_const2"])
     
     qt_select_mv "select k1,k4,sum(3) from d_table group by k1,k4 order by 1,2;"
 

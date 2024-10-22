@@ -2083,6 +2083,7 @@ int InstanceRecycler::abort_timeout_txn() {
 
         if (TxnStatusPB::TXN_STATUS_COMMITTED == txn_info.status()) {
             txn.reset();
+            TEST_SYNC_POINT_CALLBACK("abort_timeout_txn::advance_last_pending_txn_id", &txn_info);
             std::shared_ptr<TxnLazyCommitTask> task =
                     txn_lazy_committer_->submit(instance_id_, txn_info.txn_id());
             std::pair<MetaServiceCode, std::string> ret = task->wait();

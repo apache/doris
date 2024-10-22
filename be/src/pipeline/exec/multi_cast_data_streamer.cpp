@@ -22,7 +22,7 @@
 #include "runtime/runtime_state.h"
 
 namespace doris::pipeline {
-
+#include "common/compile_check_begin.h"
 MultiCastBlock::MultiCastBlock(vectorized::Block* block, int used_count, int un_finish_copy,
                                size_t mem_size)
         : _used_count(used_count), _un_finish_copy(un_finish_copy), _mem_size(mem_size) {

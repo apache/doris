@@ -77,9 +77,7 @@ suite("test_create_mv_mtmv","mtmv") {
     order_qt_refresh_mv "SELECT * FROM ${mvName}"
     order_qt_sync_mv "SELECT k2 FROM ${mvName}"
 
-    def explainResult = sql """explain SELECT k2 FROM ${mvName}"""
-    logger.info("explainResult: " + explainResult.toString())
-    assertTrue(explainResult.toString().contains('mv_mtmv1'))
+    mv_rewrite_success_without_check_chosen("""SELECT k2 FROM ${mvName}""", "mv_mtmv1")
 
     sql """DROP MATERIALIZED VIEW  mv_mtmv1 ON ${mvName};"""
 

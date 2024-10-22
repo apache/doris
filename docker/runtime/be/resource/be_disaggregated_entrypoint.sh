@@ -16,170 +16,246 @@
 # specific language governing permissions and limitations
 # under the License.
 
-#TODO: convert to "_"
-MS_ENDPOINT=${MS_ENDPOINT}
-MS_TOKEN=${MS_TOKEN:="greedisgood9999"}
-DORIS_HOME=${DORIS_HOME:="/opt/apache-doris"}
-CONFIGMAP_PATH=${CONFIGMAP_PATH:="/etc/doris"}
-INSTANCE_ID=${INSTANCE_ID}
-INSTANCE_NAME=${INSTANCE_NAME}
+
+# the fe query port for mysql.
+FE_QUERY_PORT=${FE_QUERY_PORT:-9030}
+# timeout for probe fe master.
+PROBE_TIMEOUT=60
+# interval time to probe fe.
+PROBE_INTERVAL=2
+# rpc port for fe communicate with be.
 HEARTBEAT_PORT=9050
-CLUSTER_NMAE=${CLUSTER_NAME}
-#option:IP,FQDN
-HOST_TYPE=${HOST_TYPE:="FQDN"}
-STATEFULSET_NAME=${STATEFULSET_NAME}
-POD_NAMESPACE=$POD_NAMESPACE
-DEFAULT_CLUSTER_ID=${POD_NAMESPACE}"_"${STATEFULSET_NAME}
-CLUSTER_ID=${CLUSTER_ID:="$DEFAULT_CLUSTER_ID"}
-POD_NAME=${POD_NAME}
-CLOUD_UNIQUE_ID_PRE=${CLOUD_UNIQUE_ID_PRE:="1:$INSTANCE_ID"}
-CLOUD_UNIQUE_ID="$CLOUD_UNIQUE_ID_PRE:$POD_NAME"
-# replace "-" with "_" in CLUSTER_ID and CLOUD_UNIQUE_ID
-CLUSTER_ID=$(sed 's/-/_/g' <<<$CLUSTER_ID)
-
-CONFIG_FILE="$DORIS_HOME/be/conf/be.conf"
+# fqdn or ip
 MY_SELF=
+MY_IP=`hostname -i`
+MY_HOSTNAME=`hostname -f`
+DORIS_ROOT=${DORIS_ROOT:-"/opt/apache-doris"}
+# if config secret for basic auth about operate node of doris, the path must be `/etc/basic_auth`. This is set by operator and the key of password must be `password`.
+AUTH_PATH="/etc/basic_auth"
+DORIS_HOME=${DORIS_ROOT}/be
+BE_CONFIG=$DORIS_HOME/conf/be.conf
+# represents self in fe meta or not.
+REGISTERED=false
 
-DEFAULT_CLUSTER_NAME=$(awk -F $INSTANCE_NAME"-" '{print $NF}' <<<$STATEFULSET_NAME)
-CLUSTER_NAME=${CLUSTER_NAME:="$DEFAULT_CLUSTER_NAME"}
+DB_ADMIN_USER=${USER:-"root"}
 
-#TODO: check config or not, add default
-echo 'file_cache_path = [{"path":"/opt/apache-doris/be/storage","total_size":107374182400,"query_limit":107374182400}]' >> $DORIS_HOME/be/conf/be.conf
+DB_ADMIN_PASSWD=$PASSWD
 
-function log_stderr()
+COMPUTE_GROUP_NAME=${COMPUTE_GROUP_NAME}
+
+log_stderr()
 {
-    echo "[`date`] $@" >& 1
+    echo "[`date`] $@" >&2
 }
 
-function add_cluster_info_to_conf()
+update_conf_from_configmap()
 {
-    echo "meta_service_endpoint=$MS_ENDPOINT" >> $DORIS_HOME/be/conf/be.conf
-    echo "cloud_unique_id=$CLOUD_UNIQUE_ID" >> $DORIS_HOME/be/conf/be.conf
-    echo "meta_service_use_load_balancer = false" >> $DORIS_HOME/be/conf/be.conf
-    echo "enable_file_cache = true" >> $DORIS_HOME/be/conf/be.conf
-}
-
-function link_config_files()
-{
-    if [[ -d $CONFIGMAP_PATH ]]; then
-        for file in `ls $CONFIGMAP_PATH`;
-        do
-            if [[ -f $DORIS_HOME/be/conf/$file ]]; then
-                mv $DORIS_HOME/be/conf/$file $DORIS_HOME/be/conf/$file.bak
-            fi
-        done
+    echo "deploy_mode = cloud" >> $DORIS_HOME/conf/be.conf
+    if [[ "x$CONFIGMAP_MOUNT_PATH" == "x" ]] ; then
+        log_stderr '[info] Empty $CONFIGMAP_MOUNT_PATH env var, skip it!'
+        return 0
     fi
-
-    for file in `ls $CONFIGMAP_PATH`;
+    if ! test -d $CONFIGMAP_MOUNT_PATH ; then
+        log_stderr "[info] $CONFIGMAP_MOUNT_PATH not exist or not a directory, ignore ..."
+        return 0
+    fi
+    local tgtconfdir=$DORIS_HOME/conf
+    for conffile in `ls $CONFIGMAP_MOUNT_PATH`
     do
-        if [[ "$file" == "be.conf" ]]; then
-            cp $CONFIGMAP_PATH/$file $DORIS_HOME/be/conf/$file
-            add_cluster_info_to_conf
-            continue
+        log_stderr "[info] Process conf file $conffile ..."
+        local tgt=$tgtconfdir/$conffile
+        if test -e $tgt ; then
+            # make a backup
+            mv -f $tgt ${tgt}.bak
         fi
-
-        ln -sfT $CONFIGMAP_PATH/$file $DORIS_HOME/be/conf/$file 
+        if [[ "$conffile" == "be.conf" ]]; then
+             cp $CONFIGMAP_MOUNT_PATH/$conffile $DORIS_HOME/conf/$file
+             echo "deploy_mode = cloud" >> $DORIS_HOME/conf/$file
+             continue
+         fi
+        ln -sfT $CONFIGMAP_MOUNT_PATH/$conffile $tgt
     done
 }
 
-function parse_config_file_with_key()
+# resolve password for root
+resolve_password_from_secret()
 {
-    local key=$1
-    local value=`grep "^\s*$key\s*=" $CONFIG_FILE | sed "s|^\s*$key\s*=\s*\(.*\)\s*$|\1|g"`
-}
-
-function parse_my_self_address()
-{
-    local my_ip=`hostname -i | awk '{print $1}'`
-    local my_fqdn=`hostname -f`
-    if [[ $HOST_TYPE == "IP" ]]; then
-        MY_SELF=$my_ip
-    else
-        MY_SELF=$my_fqdn
+    if [[ -f "$AUTH_PATH/password" ]]; then
+        DB_ADMIN_PASSWD=`cat $AUTH_PATH/password`
+    fi
+    if [[ -f "$AUTH_PATH/username" ]]; then
+        DB_ADMIN_USER=`cat $AUTH_PATH/username`
     fi
 }
 
-function variables_initial()
+# get all backends info to check self exist or not.
+show_backends(){
+    local svc=$1
+    backends=`timeout 15 mysql --connect-timeout 2 -h $svc -P $FE_QUERY_PORT -uroot --skip-column-names --batch -e 'SHOW BACKENDS;' 2>&1`
+    log_stderr "[info] use root no password show backends result $backends ."
+    if echo $backends | grep -w "1045" | grep -q -w "28000" &>/dev/null; then
+        log_stderr "[info] use username and password that configured to show backends."
+        backends=`timeout 15 mysql --connect-timeout 2 -h $svc -P $FE_QUERY_PORT -u$DB_ADMIN_USER -p$DB_ADMIN_PASSWD --skip-column-names --batch -e 'SHOW BACKENDS;'`
+    fi
+
+    echo "$backends"
+}
+
+# get all registered fe in cluster, for check the fe have `MASTER`.
+function show_frontends()
 {
-    parse_my_self_address
-    local heartbeat_port=$(parse_config_file_with_key "heartbeat_service_port")
-    if [[ "x$heartbeat_port" != "x" ]]; then
+    local addr=$1
+    frontends=`timeout 15 mysql --connect-timeout 2 -h $addr -P $FE_QUERY_PORT -uroot --batch -e 'show frontends;' 2>&1`
+    log_stderr "[info] use root no password show frontends result $frontends ."
+    if echo $frontends | grep -w "1045" | grep -q -w "28000" &>/dev/null; then
+        log_stderr "[info] use username and passwore that configured to show frontends."
+        frontends=`timeout 15 mysql --connect-timeout 2 -h $addr -P $FE_QUERY_PORT -u$DB_ADMIN_USER -p$DB_ADMIN_PASSWD --batch -e 'show frontends;'`
+    fi
+
+    echo "$frontends"
+}
+
+#parse the `$BE_CONFIG` file, passing the key need resolve as parameter.
+parse_confval_from_conf()
+{
+    # a naive script to grep given confkey from fe conf file
+    # assume conf format: ^\s*<key>\s*=\s*<value>\s*$
+    local confkey=$1
+    local confvalue=`grep "\<$confkey\>" $BE_CONFIG | grep -v '^\s*#' | sed 's|^\s*'$confkey'\s*=\s*\(.*\)\s*$|\1|g'`
+    echo "$confvalue"
+}
+
+collect_env_info()
+{
+    # heartbeat_port from conf file
+    local heartbeat_port=`parse_confval_from_conf "heartbeat_service_port"`
+    if [[ "x$heartbeat_port" != "x" ]] ; then
         HEARTBEAT_PORT=$heartbeat_port
     fi
+
+    if [[ "x$HOST_TYPE" == "xIP" ]] ; then
+        MY_SELF=$MY_IP
+    else
+        MY_SELF=$MY_HOSTNAME
+    fi
 }
 
-function check_or_register_in_ms()
+add_self()
 {
-    interval=5
-    start=$(date +%s)
-    timeout=60
-    while true;
+    local svc=$1
+    start=`date +%s`
+    local timeout=$PROBE_TIMEOUT
+
+    while true
     do
-        local find_address="http://$MS_ENDPOINT/MetaService/http/get_cluster?token=$MS_TOKEN"
-        local output=$(curl -s $find_address \
-              -d '{"cloud_unique_id":"'$CLOUD_UNIQUE_ID'","cluster_id":"'$CLUSTER_ID'"}')
-        if grep -q -w "$MY_SELF" <<< $output &>/dev/null; then
-            log_stderr "[INFO] $MY_SELF have register in instance id $INSTANCE_ID cluser id $CLUSTER_ID!"
-            return
+        memlist=`show_backends $svc`
+        # check ip exist
+        if echo "$memlist" | grep -q -w "$MY_IP" &>/dev/null ; then
+            log_stderr "[info] Check myself ($MY_IP:$HEARTBEAT_PORT) exist in FE, start be directly ..."
+            break;
+        fi
+        if echo "$memlist" | grep -q -w "$MY_HOSTNAME" &>/dev/null ; then
+            log_stderr "[info] Check myself ($MY_HOSTNAME:$HEARTBEAT_PORT) exist in FE, start be directly ..."
+            break;
         fi
 
-        local code=$(jq -r ".code" <<< $output)
-        if [[ "$code" == "NOT_FOUND" ]]; then
-           # if grep -q -w "$CLUSTER_ID" <<< $output &>/dev/null; then
-           #     log_stderr "[INFO] cluster id $CLUSTER_ID have exists, only register self.!"
-           #     add_my_self
-           # else
-           log_stderr "[INFO] register cluster id $CLUSTER_ID with myself $MY_SELF into instance id $INSTANCE_ID."
-           add_my_self_with_cluster
-           # fi
+        # check fe cluster have master, if fe have not master wait.
+        fe_memlist=`show_frontends $svc`
+        local pos=`echo "$fe_memlist" | grep '\<IsMaster\>' | awk -F '\t' '{for(i=1;i<NF;i++) {if ($i == "IsMaster") print i}}'`
+        local leader=`echo "$fe_memlist" | grep '\<FOLLOWER\>' | awk -v p="$pos" -F '\t' '{if ($p=="true") print $2}'`
+        log_stderr "'IsMaster' sequence in columns is $pos master=$leader ."
+
+        if [[ "x$leader" == "x" ]]; then
+            log_stderr "[info] resolve the eighth column for finding master !"
+            leader=`echo "$fe_memlist" | grep '\<FOLLOWER\>' | awk -F '\t' '{if ($8=="true") print $2}'`
+        fi
+        if [[ "x$leader" == "x" ]]; then
+            # compatible 2.1.0
+            log_stderr "[info] resoluve the ninth column for finding master!"
+            leader=`echo "$fe_memlist" | grep '\<FOLLOWER\>' | awk -F '\t' '{if ($9=="true") print $2}'`
+        fi
+
+        if [[ "x$leader" != "x" ]]; then
+            local add_sql="ALTER SYSTEM ADD BACKEND \"$MY_SELF:$HEARTBEAT_PORT\""
+            if [[ $COMPUTE_GROUP_NAME != "" ]]; then
+                add_sql=$add_sql" properties(\"tag.compute_group_name\"=\"$COMPUTE_GROUP_NAME\");"
+            fi
+            create_account $leader
+            log_stderr "[info] myself ($MY_SELF:$HEARTBEAT_PORT)  not exist in FE and fe have leader register myself into fe."
+            add_result=`timeout 15 mysql --connect-timeout 2 -h $svc -P $FE_QUERY_PORT -uroot --skip-column-names --batch -e "$add_sql;" 2>&1`
+            if echo $add_result | grep -w "1045" | grep -q -w "28000" &>/dev/null ; then
+                timeout 15 mysql --connect-timeout 2 -h $svc -P $FE_QUERY_PORT -u$DB_ADMIN_USER -p$DB_ADMIN_PASSWD --skip-column-names --batch -e "$add_sql;"
+            fi
+
+            let "expire=start+timeout"
+            now=`date +%s`
+            if [[ $expire -le $now ]] ; then
+                log_stderr "[error]  exit probe master for probing timeout."
+                return 0
+            fi
         else
-            log_stderr "[INFO] register $MY_SELF into cluster id $CLUSTER_ID!"
-            add_my_self
+            log_stderr "[info] not have leader wait fe cluster elect a master, sleep 2s..."
+            sleep $PROBE_INTERVAL
         fi
-
-        local now=$(date +%s)
-        let "expire=start+timeout"
-        if [[ $expire -le $now ]]; then
-            log_stderr "[ERROR] Timeout for register myself to ms, abort!"
-            exit 1
-        fi
-        sleep $interval
     done
 }
 
-function add_my_self()
+function create_account()
 {
-    local register_address="http://$MS_ENDPOINT/MetaService/http/add_node?token=$MS_TOKEN"
-    local output=$(curl -s $register_address \
-              -d '{"instance_id":"'$INSTANCE_ID'",
-              "cluster":{"type":"COMPUTE","cluster_id":"'$CLUSTER_ID'",
-              "nodes":[{"cloud_unique_id":"'$CLOUD_UNIQUE_ID'","ip":"'$MY_SELF'","host":"'$MY_SELF'","heartbeat_port":'$HEARTBEAT_PORT'}]}}')
-    local code=$(jq -r ".code" <<< $output)
-    if [[ "$code" == "OK" ]]; then
-        log_stderr "[INFO] my_self $MY_SELF register to ms $MS_ENDPOINT instance_id $INSTANCE_ID be cluster $CLUSTER_ID success."
+    master=$1
+    users=`mysql --connect-timeout 2 -h $master -P $FE_QUERY_PORT -uroot --skip-column-names --batch -e 'SHOW ALL GRANTS;' 2>&1`
+    if echo $users | grep -w "1045" | grep -q -w "28000" &>/dev/null; then
+        log_stderr "the 'root' account have set password! not need auto create management account."
+        return 0
+    fi
+    if echo $users | grep -q -w "$DB_ADMIN_USER" &>/dev/null; then
+       log_stderr "the $DB_ADMIN_USER have exist in doris."
+       return 0
+    fi
+    mysql --connect-timeout 2 -h $master -P$FE_QUERY_PORT -uroot --skip-column-names --batch -e "CREATE USER '$DB_ADMIN_USER' IDENTIFIED BY '$DB_ADMIN_PASSWD';GRANT NODE_PRIV ON *.*.* TO $DB_ADMIN_USER;" 2>&1
+    log_stderr "created new account and grant NODE_PRIV!"
+
+}
+
+# check be exist or not, if exist return 0, or register self in fe cluster. when all fe address failed exit script.
+# `xxx1:port,xxx2:port` as parameter to function.
+function check_and_register()
+{
+    addrs=$1
+    local addrArr=(${addrs//,/ })
+    for addr in ${addrArr[@]}
+    do
+        add_self $addr
+
+        if [[ $REGISTERED ]]; then
+            break;
+        fi
+    done
+
+    if [[ $REGISTERED ]]; then
+        return 0
     else
-        log_stderr "[ERROR] my_self $MY_SELF register ms $MS_ENDPOINT instance_id $INSTANCE_ID be cluster $CLUSTER_ID failed,err=$output!"
+        log_stderr  "not find master in fe cluster, please use mysql connect to fe for verfing the master exist and verify domain connectivity with two pods in different node. "
+        exit 1
     fi
 }
 
-function add_my_self_with_cluster()
-{
-    local register_address="http://$MS_ENDPOINT/MetaService/http/add_cluster?token=$MS_TOKEN"
-    local output=$(curl -s $register_address \
-              -d '{"instance_id":"'$INSTANCE_ID'",
-              "cluster":{"type":"COMPUTE","cluster_name":"'$CLUSTER_NAME'","cluster_id":"'$CLUSTER_ID'",
-              "nodes":[{"cloud_unique_id":"'$CLOUD_UNIQUE_ID'","ip":"'$MY_SELF'","host":"'$MY_SELF'","heartbeat_port":'$HEARTBEAT_PORT'}]}}')
-    local code=$(jq -r ".code" <<< $output)
-    if [[ "$code" == "OK" ]]; then
-        log_stderr "[INFO] cluster $CLUSTER_ID contains $MY_SELF register to ms $MS_ENDPOINT instance_id $INSTANCE_ID success."
-    else
-        log_stderr "[ERROR] cluster $CLUSTER_ID contains $MY_SELF register to ms $MS_ENDPOINT instance_id $INSTANCE_ID failed,err=$output!"
-    fi
-}
+fe_addrs=$1
+if [[ "x$fe_addrs" == "x" ]]; then
+    echo "need fe address as paramter!"
+    echo "  Example $0 <fe_addr>"
+    exit 1
+fi
 
-add_cluster_info_to_conf
-link_config_files
-variables_initial
-check_or_register_in_ms
-
-$DORIS_HOME/be/bin/start_be.sh --console
+update_conf_from_configmap
+# resolve password for root to manage nodes in doris.
+resolve_password_from_secret
+collect_env_info
+#add_self $fe_addr || exit $?
+check_and_register $fe_addrs
+./doris-debug --component be
+log_stderr "run start_be.sh"
+# the server will start in the current terminal session, and the log output and console interaction will be printed to that terminal
+# befor doris 2.0.2 ,doris start with : start_xx.sh
+# sine doris 2.0.2 ,doris start with : start_xx.sh --console  doc: https://doris.apache.org/docs/dev/install/standard-deployment/#version--202
+$DORIS_HOME/bin/start_be.sh --console

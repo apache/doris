@@ -700,6 +700,14 @@ int64_t ShardedLRUCache::get_usage() {
     return total_usage;
 }
 
+size_t ShardedLRUCache::get_element_count() {
+    size_t total_element_count = 0;
+    for (int i = 0; i < _num_shards; i++) {
+        total_element_count += _shards[i]->get_element_count();
+    }
+    return total_element_count;
+}
+
 void ShardedLRUCache::update_cache_metrics() const {
     size_t capacity = 0;
     size_t total_usage = 0;

@@ -25,29 +25,35 @@
         arr4 ARRAY<DATE>,
         arr5 ARRAY<DATETIME>
     );
-    INSERT INTO array_table VALUES(1, array(1, 2, 3), array('a', 'b', 'c'), array(1.2, 1.3), array(date('2023-05-23')), array(datetime('2023-05-23 13:55:12')));
-    INSERT INTO array_table VALUES(1, array(1, 2, 3), array('a', 'b', 'c'), array(1.2, 1.3), array(date('2023-05-23')), array(datetime('2023-05-23 13:55:12')));
-    INSERT INTO array_table VALUES(2, array(1, 2, 3), array('a', 'b', 'c'), array(1.2, 1.3), array(date('2023-05-23')), array(datetime('2023-05-23 13:55:12')));
-    INSERT INTO array_table VALUES(3, array(1, 2, 3), array('a', 'b', 'c'), array(1.3), array(date('2023-05-23')), array(datetime('2023-05-23 13:55:12')));
+    INSERT INTO array_table VALUES(1, array(1), array('a', 'b', 'c','ssadasda'), array(1.2, 1.3), array(date('2023-05-23'),date('2021-05-23')), array(datetime('2023-05-23 13:55:12')))
+        ,(2, array(1, 3), array('a', 'ccccb', 'c'), array(1, 1.3), array(date('2023-05-23'),date('2023-05-26')), array(datetime('2023-05-23 13:55:12')))
+        ,(3, array(1, 2, 3), array('a', 'b3', 'c2'), array(1.3), array(date('2023-05-23')), array(datetime('2023-05-23 13:55:12')));
+
 
     drop table map_table;
     create table map_table (
-        id int.
+        id int,
         arr1 MAP<BIGINT, DOUBLE>,
         arr2 MAP<BIGINT, STRING>
     );
-    INSERT INTO map_table (arr1, arr2)
+    INSERT INTO map_table 
     VALUES (
         1,
         MAP(1, 2.5, 2, 3.75),
         MAP(1, 'example1', 2, 'example2')
     );
-    INSERT INTO map_table (arr1, arr2)
+    INSERT INTO map_table 
     VALUES (
         2,
         MAP(3, 2.5, 99, 3.75),
         MAP(349, 'asd', 324, 'uid')
+    ),(
+        3,
+        MAP(10000000, 999.5, 98889, 31.75, 1 , 2),
+        MAP(34900, 'assssd', 32994, 'uisd')
     );
+
+
     drop table struct_table;
     create table struct_table (
         id int,
@@ -154,14 +160,14 @@
 suite("test_max_compute_complex_type", "p2,external,maxcompute,external_remote,external_remote_maxcompute") {
     String enabled = context.config.otherConfigs.get("enableMaxComputeTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
-        String ak = context.config.otherConfigs.get("aliYunAk")
-        String sk = context.config.otherConfigs.get("aliYunSk")
+        String ak = context.config.otherConfigs.get("ak")
+        String sk = context.config.otherConfigs.get("sk")
         String mc_catalog_name = "test_max_compute_complex_type"
         sql """drop catalog if exists ${mc_catalog_name} """
         sql """
         CREATE CATALOG IF NOT EXISTS ${mc_catalog_name} PROPERTIES (
                 "type" = "max_compute",
-                "mc.default.project" = "jz_datalake",
+                "mc.default.project" = "mc_datalake",
                 "mc.access_key" = "${ak}",
                 "mc.secret_key" = "${sk}",
                 "mc.endpoint" = "http://service.cn-beijing-vpc.maxcompute.aliyun-inc.com/api"
@@ -171,12 +177,13 @@ suite("test_max_compute_complex_type", "p2,external,maxcompute,external_remote,e
         logger.info("catalog " + mc_catalog_name + " created")
         sql """switch ${mc_catalog_name};"""
         logger.info("switched to catalog " + mc_catalog_name)
-        sql """ use jz_datalake """
+        sql """ use mc_datalake """
 
-        qt_mc_q1 """ select id,arr3,arr1,arr5,arr2 from array_table order by id desc """
-        qt_mc_q2 """ select arr2,arr1 from map_table order by id limit 2 """
-        qt_mc_q3 """ select contact_info,user_info from struct_table order by id limit 2 """
-        qt_mc_q4 """ select user_id,activity_log from nested_complex_table order by user_id limit 2 """
+        order_qt_mc_q1 """ select id,arr3,arr1,arr5,arr2,arr4 from array_table order by id desc """
+        order_qt_mc_q2 """ select arr2,arr1 from map_table order by id  """
+        order_qt_mc_q3 """ select contact_info,user_info from struct_table order by id """
+        order_qt_mc_q4 """ select user_id,activity_log from nested_complex_table order by user_id"""
+        order_qt_mc_q5 """ select * from nested_complex_table """
 
         sql """drop catalog ${mc_catalog_name};"""
     }

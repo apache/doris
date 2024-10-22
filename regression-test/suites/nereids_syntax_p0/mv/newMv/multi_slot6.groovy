@@ -80,15 +80,9 @@ suite ("multi_slot6") {
     }
     order_qt_select_mv "select abs(k1)+k2+1,sum(abs(k2+2)+k3+3) from multi_slot6 group by abs(k1)+k2+1 order by abs(k1)+k2+1;"
 
-    explain {
-        sql("select abs(k1)+k2+1,abs(k2+2)+k3+3 from multi_slot6 order by abs(k1)+k2+1,abs(k2+2)+k3+3")
-        contains "(k1a2p2ap3p)"
-    }
+    mv_rewrite_success("select abs(k1)+k2+1,abs(k2+2)+k3+3 from multi_slot6 order by abs(k1)+k2+1,abs(k2+2)+k3+3", "k1a2p2ap3p")
     order_qt_select_mv "select abs(k1)+k2+1,abs(k2+2)+k3+3 from multi_slot6 order by abs(k1)+k2+1,abs(k2+2)+k3+3;"
 
     sql """set enable_stats=true;"""
-    explain {
-        sql("select abs(k1)+k2+1,abs(k2+2)+k3+3 from multi_slot6 order by abs(k1)+k2+1,abs(k2+2)+k3+3")
-        contains "(k1a2p2ap3p)"
-    }
+    mv_rewrite_success("select abs(k1)+k2+1,abs(k2+2)+k3+3 from multi_slot6 order by abs(k1)+k2+1,abs(k2+2)+k3+3", "k1a2p2ap3p")
 }

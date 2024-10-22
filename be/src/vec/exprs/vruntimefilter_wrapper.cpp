@@ -63,7 +63,9 @@ namespace doris::vectorized {
 
 VRuntimeFilterWrapper::VRuntimeFilterWrapper(const TExprNode& node, const VExprSPtr& impl,
                                              double ignore_thredhold, bool null_aware)
-        : VExpr(node), _impl(impl), _ignore_thredhold(ignore_thredhold), _null_aware(null_aware) {}
+        : VExpr(node), _impl(impl), _ignore_thredhold(ignore_thredhold), _null_aware(null_aware) {
+    reset_judge_selectivity();
+}
 
 Status VRuntimeFilterWrapper::prepare(RuntimeState* state, const RowDescriptor& desc,
                                       VExprContext* context) {
@@ -88,7 +90,11 @@ void VRuntimeFilterWrapper::close(VExprContext* context,
 
 Status VRuntimeFilterWrapper::execute(VExprContext* context, Block* block, int* result_column_id) {
     DCHECK(_open_finished || _getting_const_col);
-    _judge_counter--;
+    DCHECK(_expr_filtered_rows_counter && _expr_input_rows_counter && _always_true_counter)
+            << "rf counter must be initialized";
+    if (_judge_counter.fetch_sub(1) == 0) {
+        reset_judge_selectivity();
+    }
     if (_always_true) {
         size_t size = block->rows();
         block->insert({create_always_true_column(size, _data_type->is_nullable()), _data_type,

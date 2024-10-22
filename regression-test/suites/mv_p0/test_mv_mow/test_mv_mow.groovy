@@ -35,7 +35,7 @@ suite ("test_mv_mow") {
     sql """analyze table u_table with sync;"""
     sql "insert into u_table select 1,1,1,1;"
     sql "insert into u_table select 1,2,1,1;"
-    createMV("create materialized view k123p as select k1,k2+k3 from u_table;")
+    createMV("create materialized view k123p as select k1,k2,k3,k2+k3 from u_table;")
 
     sql "insert into u_table select 1,1,1,2;"
     sql "insert into u_table select 1,2,1,2;"
@@ -43,18 +43,12 @@ suite ("test_mv_mow") {
     
     sql """set enable_stats=false;"""
 
-    explain {
-        sql("select k1,k2+k3 from u_table order by k1;")
-        contains "(k123p)"
-    }
+    mv_rewrite_success("select k1,k2+k3 from u_table order by k1;", "k123p")
     qt_select_mv "select k1,k2+k3 from u_table order by k1;"
 
     qt_select_mv "select * from `u_table` index `k123p` order by 1,2;"
     qt_select_mv "select mv_k1 from `u_table` index `k123p` order by 1;"
     qt_select_mv "select `mv_(k2 + k3)` from `u_table` index `k123p` order by 1;"
     sql """set enable_stats=true;"""
-    explain {
-        sql("select k1,k2+k3 from u_table order by k1;")
-        contains "(k123p)"
-    }
+    mv_rewrite_success("select k1,k2+k3 from u_table order by k1;", "k123p")
 }

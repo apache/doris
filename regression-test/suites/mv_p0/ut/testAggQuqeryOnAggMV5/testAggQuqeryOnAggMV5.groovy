@@ -43,26 +43,16 @@ suite ("testAggQuqeryOnAggMV5") {
     sql """analyze table emps with sync;"""
     sql """set enable_stats=false;"""
 
-    explain {
-        sql("select * from emps order by empid;")
-        contains "(emps)"
-    }
+    mv_rewrite_fail("select * from emps order by empid;", "emps_mv")
     qt_select_star "select * from emps order by empid;"
 
-    explain {
-        sql("select * from (select deptno, sum(salary) as sum_salary from emps group by deptno) a where sum_salary>0;")
-        contains "(emps_mv)"
-    }
+    mv_rewrite_success("select * from (select deptno, sum(salary) as sum_salary from emps group by deptno) a where sum_salary>0;",
+            "emps_mv")
     qt_select_mv "select * from (select deptno, sum(salary) as sum_salary from emps group by deptno) a where sum_salary>10 order by 1;"
 
     sql """set enable_stats=true;"""
-    explain {
-        sql("select * from emps order by empid;")
-        contains "(emps)"
-    }
+    mv_rewrite_fail("select * from emps order by empid;", "emps_mv")
 
-    explain {
-        sql("select * from (select deptno, sum(salary) as sum_salary from emps group by deptno) a where sum_salary>0;")
-        contains "(emps_mv)"
-    }
+    mv_rewrite_success("select * from (select deptno, sum(salary) as sum_salary from emps group by deptno) a where sum_salary>0;",
+            "emps_mv")
 }

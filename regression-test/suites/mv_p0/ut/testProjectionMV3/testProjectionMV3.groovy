@@ -43,37 +43,19 @@ suite ("testProjectionMV3") {
     sql """analyze table emps with sync;"""
     sql """set enable_stats=false;"""
 
-    explain {
-        sql("select * from emps order by empid;")
-        contains "(emps)"
-    }
+    mv_rewrite_fail("select * from emps order by empid;", "emps_mv")
     qt_select_star "select * from emps order by empid;"
 
-
-    explain {
-        sql("select empid + 1, name from emps where deptno = 1 order by empid;")
-        contains "(emps_mv)"
-    }
+    mv_rewrite_success("select empid + 1, name from emps where deptno = 1 order by empid;", "emps_mv")
     qt_select_mv "select empid + 1, name from emps where deptno = 1 order by empid;"
 
-    explain {
-        sql("select name from emps where deptno = 1 order by empid;")
-        contains "(emps_mv)"
-    }
+    mv_rewrite_success("select name from emps where deptno = 1 order by empid;", "emps_mv")
     qt_select_mv2 "select name from emps where deptno = 1 order by empid;"
 
     sql """set enable_stats=true;"""
-    explain {
-        sql("select * from emps order by empid;")
-        contains "(emps)"
-    }
-    explain {
-        sql("select empid + 1, name from emps where deptno = 1 order by empid;")
-        contains "(emps_mv)"
-    }
+    mv_rewrite_fail("select * from emps order by empid;", "emps_mv")
 
-    explain {
-        sql("select name from emps where deptno = 1 order by empid;")
-        contains "(emps_mv)"
-    }
+    mv_rewrite_success("select empid + 1, name from emps where deptno = 1 order by empid;", "emps_mv")
+
+    mv_rewrite_success("select name from emps where deptno = 1 order by empid;", "emps_mv")
 }
