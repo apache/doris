@@ -577,11 +577,11 @@ public class NereidsPlanner extends Planner {
         ExplainLevel explainLevel = getExplainLevel(explainOptions);
         String plan = "";
         String mvSummary = "";
-        if (this.getPhysicalPlan() != null && cascadesContext != null) {
+        if ((this.getPhysicalPlan() != null || this.getOptimizedPlan() != null) && cascadesContext != null) {
             mvSummary = cascadesContext.getMaterializationContexts().isEmpty() ? "" :
                     "\n\n========== MATERIALIZATIONS ==========\n"
                             + MaterializationContext.toSummaryString(cascadesContext.getMaterializationContexts(),
-                            this.getPhysicalPlan());
+                            this.getPhysicalPlan() == null ? this.getOptimizedPlan() : this.getPhysicalPlan());
         }
         switch (explainLevel) {
             case PARSED_PLAN:
