@@ -59,6 +59,7 @@ public class MTMVPlanUtil {
         if (workloadGroup.isPresent()) {
             ctx.getSessionVariable().setWorkloadGroup(workloadGroup.get());
         }
+        ctx.setStartTime();
         return ctx;
     }
 
