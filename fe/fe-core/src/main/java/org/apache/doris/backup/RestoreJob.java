@@ -950,9 +950,9 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
 
         // Send create replica task to BE outside the db lock
         boolean ok = false;
-        long numBatchTasks = batchTaskPerTable.values()
+        int numBatchTasks = batchTaskPerTable.values()
                 .stream()
-                .map(AgentBatchTask::getTaskNum)
+                .mapToInt(AgentBatchTask::getTaskNum)
                 .sum();
         MarkedCountDownLatch<Long, Long> latch = new MarkedCountDownLatch<Long, Long>(numBatchTasks);
         if (batchTaskPerTable.size() > 0) {
@@ -966,7 +966,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
             }
 
             // estimate timeout
-            long timeout = DbUtil.getCreateReplicasTimeoutMs(batchTask.getTaskNum());
+            long timeout = DbUtil.getCreateReplicasTimeoutMs(numBatchTasks);
             try {
                 LOG.info("begin to send create replica tasks to BE for restore. total {} tasks. timeout: {}",
                         numBatchTasks, timeout);
