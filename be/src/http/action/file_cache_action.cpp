@@ -122,7 +122,7 @@ Status FileCacheAction::_handle_header(HttpRequest* req, std::string* json_metri
             } else {
                 EasyJson json;
                 std::for_each(cache_files.begin(), cache_files.end(),
-                              [&json](auto& x) {json.PushBack(x);});
+                              [&json](auto& x) { json.PushBack(x); });
                 *json_metrics = json.ToString();
             }
         }
