@@ -153,12 +153,13 @@ public class AgentBatchTask implements Runnable {
             BackendService.Client client = null;
             TNetworkAddress address = null;
             boolean ok = false;
+            Backend backend = Env.getCurrentSystemInfo().getBackend(backendId);
+            if (backend == null || !backend.isAlive()) {
+                continue;
+            }
+            List<AgentTask> tasks = this.backendIdToTasks.get(backendId).subList(0, Config.schedule_batch_size);
+
             try {
-                Backend backend = Env.getCurrentSystemInfo().getBackend(backendId);
-                if (backend == null || !backend.isAlive()) {
-                    continue;
-                }
-                List<AgentTask> tasks = this.backendIdToTasks.get(backendId);
                 // create AgentClient
                 String host = FeConstants.runningUnitTest ? "127.0.0.1" : backend.getHost();
                 address = new TNetworkAddress(host, backend.getBePort());
@@ -168,7 +169,6 @@ public class AgentBatchTask implements Runnable {
                     try {
                         agentTaskRequests.add(toAgentTaskRequest(task));
                     } catch (Exception e) {
-                        task.failed();
                         throw e;
                     }
                 }
@@ -181,6 +181,10 @@ public class AgentBatchTask implements Runnable {
                 }
                 ok = true;
             } catch (Exception e) {
+                for (AgentTask task : tasks) {
+                    task.failed();
+                    AgentTaskQueue.remove(task, );
+                }
                 LOG.warn("task exec error. backend[{}]", backendId, e);
             } finally {
                 if (ok) {
