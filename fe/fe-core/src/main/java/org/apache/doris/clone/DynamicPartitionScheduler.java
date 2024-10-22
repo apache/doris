@@ -94,6 +94,8 @@ public class DynamicPartitionScheduler extends MasterDaemon {
 
     private static final String DEFAULT_RUNTIME_VALUE = FeConstants.null_string;
 
+    private static final long SLEEP_PIECE = 5000L;
+
     private Map<Long, Map<String, String>> runtimeInfos = Maps.newConcurrentMap();
     private Set<Pair<Long, Long>> dynamicPartitionTableInfo = Sets.newConcurrentHashSet();
     private boolean initialize;
@@ -825,16 +827,16 @@ public class DynamicPartitionScheduler extends MasterDaemon {
             try {
                 long oldInterval = intervalMs;
                 long remainingInterval = oldInterval;
-                while (remainingInterval > 5000L) {
+                while (remainingInterval > SLEEP_PIECE) {
                     // if it changed. let it know at most 10 seconds. and 5 second per wakeup is acceptable.
                     if (intervalMs != oldInterval) { // changed
                         break;
                     }
 
-                    Thread.sleep(5000L);
-                    remainingInterval -= 5000L;
+                    Thread.sleep(SLEEP_PIECE);
+                    remainingInterval -= SLEEP_PIECE;
                 }
-                if (remainingInterval <= 5000L) {
+                if (remainingInterval <= SLEEP_PIECE) {
                     Thread.sleep(remainingInterval);
                 }
             } catch (InterruptedException e) {
