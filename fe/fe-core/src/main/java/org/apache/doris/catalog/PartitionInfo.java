@@ -70,8 +70,6 @@ public class PartitionInfo {
     // partition id -> data property
     @SerializedName("IdToDataProperty")
     protected Map<Long, DataProperty> idToDataProperty;
-    // partition id -> storage policy
-    protected Map<Long, String> idToStoragePolicy;
     // partition id -> replication allocation
     @SerializedName("IdToReplicaAllocation")
     protected Map<Long, ReplicaAllocation> idToReplicaAllocation;
@@ -100,7 +98,6 @@ public class PartitionInfo {
         this.idToReplicaAllocation = new HashMap<>();
         this.idToInMemory = new HashMap<>();
         this.idToTabletType = new HashMap<>();
-        this.idToStoragePolicy = new HashMap<>();
         this.partitionExprs = new ArrayList<>();
     }
 
@@ -110,7 +107,6 @@ public class PartitionInfo {
         this.idToReplicaAllocation = new HashMap<>();
         this.idToInMemory = new HashMap<>();
         this.idToTabletType = new HashMap<>();
-        this.idToStoragePolicy = new HashMap<>();
         this.partitionExprs = new ArrayList<>();
     }
 
@@ -209,7 +205,6 @@ public class PartitionInfo {
         idToDataProperty.put(partitionId, desc.getPartitionDataProperty());
         idToReplicaAllocation.put(partitionId, desc.getReplicaAlloc());
         idToInMemory.put(partitionId, desc.isInMemory());
-        idToStoragePolicy.put(partitionId, desc.getStoragePolicy());
 
         return partitionItem;
     }
@@ -225,7 +220,6 @@ public class PartitionInfo {
         idToDataProperty.put(partitionId, dataProperty);
         idToReplicaAllocation.put(partitionId, replicaAlloc);
         idToInMemory.put(partitionId, isInMemory);
-        idToStoragePolicy.put(partitionId, "");
         //TODO
         //idToMutable.put(partitionId, isMutable);
     }
@@ -299,18 +293,17 @@ public class PartitionInfo {
     }
 
     public void refreshTableStoragePolicy(String storagePolicy) {
-        idToStoragePolicy.replaceAll((k, v) -> storagePolicy);
         idToDataProperty.entrySet().forEach(entry -> {
             entry.getValue().setStoragePolicy(storagePolicy);
         });
     }
 
     public String getStoragePolicy(long partitionId) {
-        return idToStoragePolicy.getOrDefault(partitionId, "");
+        return idToDataProperty.get(partitionId).getStoragePolicy();
     }
 
     public void setStoragePolicy(long partitionId, String storagePolicy) {
-        idToStoragePolicy.put(partitionId, storagePolicy);
+        idToDataProperty.get(partitionId).setStoragePolicy(storagePolicy);
     }
 
     public Map<Long, ReplicaAllocation> getPartitionReplicaAllocations() {
@@ -421,12 +414,10 @@ public class PartitionInfo {
         Map<Long, ReplicaAllocation> origIdToReplicaAllocation = idToReplicaAllocation;
         Map<Long, PartitionItem> origIdToItem = idToItem;
         Map<Long, Boolean> origIdToInMemory = idToInMemory;
-        Map<Long, String> origIdToStoragePolicy = idToStoragePolicy;
         idToDataProperty = Maps.newHashMap();
         idToReplicaAllocation = Maps.newHashMap();
         idToItem = Maps.newHashMap();
         idToInMemory = Maps.newHashMap();
-        idToStoragePolicy = Maps.newHashMap();
 
         for (Map.Entry<Long, Long> entry : partitionIdMap.entrySet()) {
             idToDataProperty.put(entry.getKey(), origIdToDataProperty.get(entry.getValue()));
@@ -437,7 +428,6 @@ public class PartitionInfo {
                 idToItem.put(entry.getKey(), origIdToItem.get(entry.getValue()));
             }
             idToInMemory.put(entry.getKey(), origIdToInMemory.get(entry.getValue()));
-            idToStoragePolicy.put(entry.getKey(), origIdToStoragePolicy.get(entry.getValue()));
         }
     }
 
@@ -518,15 +508,15 @@ public class PartitionInfo {
         return isMultiColumnPartition == that.isMultiColumnPartition && type == that.type && Objects.equals(
                 partitionColumns, that.partitionColumns) && Objects.equals(idToItem, that.idToItem)
                 && Objects.equals(idToTempItem, that.idToTempItem) && Objects.equals(idToDataProperty,
-                that.idToDataProperty) && Objects.equals(idToStoragePolicy, that.idToStoragePolicy)
-                && Objects.equals(idToReplicaAllocation, that.idToReplicaAllocation) && Objects.equals(
-                idToInMemory, that.idToInMemory) && Objects.equals(idToTabletType, that.idToTabletType)
+                that.idToDataProperty) && Objects.equals(idToReplicaAllocation, that.idToReplicaAllocation)
+                && Objects.equals(idToInMemory, that.idToInMemory)
+                && Objects.equals(idToTabletType, that.idToTabletType)
                 && Objects.equals(partitionExprs, that.partitionExprs);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(type, partitionColumns, idToItem, idToTempItem, idToDataProperty, idToStoragePolicy,
-                idToReplicaAllocation, isMultiColumnPartition, idToInMemory, idToTabletType, partitionExprs);
+        return Objects.hash(type, partitionColumns, idToItem, idToTempItem, idToDataProperty, idToReplicaAllocation,
+                isMultiColumnPartition, idToInMemory, idToTabletType, partitionExprs);
     }
 }
