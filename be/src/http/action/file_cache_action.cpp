@@ -48,7 +48,7 @@ constexpr static std::string_view PATH = "path";
 constexpr static std::string_view CLEAR = "clear";
 constexpr static std::string_view RESET = "reset";
 constexpr static std::string_view HASH = "hash";
-constexpr static std::string_view GET_CACHE_PATH = "get_cache_path";
+constexpr static std::string_view LIST_CACHE = "list_cache";
 constexpr static std::string_view CAPACITY = "capacity";
 constexpr static std::string_view RELEASE = "release";
 constexpr static std::string_view BASE_PATH = "base_path";
@@ -109,7 +109,7 @@ Status FileCacheAction::_handle_header(HttpRequest* req, std::string* json_metri
             json[HASH.data()] = ret.to_string();
             *json_metrics = json.ToString();
         }
-    } else if (operation == GET_CACHE_PATH) {
+    } else if (operation == LIST_CACHE) {
         const std::string& segment_path = req->param(VALUE.data());
         if (segment_path.empty()) {
             st = Status::InvalidArgument("missing parameter: {} is required", VALUE.data());
