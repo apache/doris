@@ -168,7 +168,7 @@ private:
     io::FileReaderSPtr _inner_reader;
     std::shared_ptr<RangeFinder> _range_finder;
 
-    std::unique_ptr<char[]> _cache;
+    OwnedSlice _cache;
     int64_t _current_start_offset = -1;
 
     size_t _size;

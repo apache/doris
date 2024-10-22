@@ -894,7 +894,7 @@ RangeCacheFileReader::RangeCacheFileReader(RuntimeProfile* profile, io::FileRead
     _size = _inner_reader->size();
     uint64_t max_cache_size =
             std::max((uint64_t)4096, (uint64_t)_range_finder->get_max_range_size());
-    _cache = std::make_unique<char[]>(max_cache_size);
+    _cache = OwnedSlice(max_cache_size);
 
     if (_profile != nullptr) {
         const char* random_profile = "RangeCacheFileReader";
@@ -930,7 +930,7 @@ Status RangeCacheFileReader::read_at_impl(size_t offset, Slice result, size_t* b
             _cache_statistics.read_to_cache_bytes += range_size;
             SCOPED_RAW_TIMER(&_cache_statistics.read_to_cache_time);
 
-            Slice cache_slice = {_cache.get(), range_size};
+            Slice cache_slice = {_cache.data(), range_size};
             RETURN_IF_ERROR(
                     _inner_reader->read_at(range.start_offset, cache_slice, bytes_read, io_ctx));
 
@@ -944,7 +944,7 @@ Status RangeCacheFileReader::read_at_impl(size_t offset, Slice result, size_t* b
         }
 
         int64_t buffer_offset = offset - _current_start_offset;
-        memcpy(result.data, _cache.get() + buffer_offset, request_size);
+        memcpy(result.data, _cache.data() + buffer_offset, request_size);
         *bytes_read = request_size;
 
         return Status::OK();
