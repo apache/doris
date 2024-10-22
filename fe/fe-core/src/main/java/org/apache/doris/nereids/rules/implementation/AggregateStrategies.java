@@ -130,7 +130,8 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                     Set<Slot> aggSlots = funcs.stream()
                             .flatMap(f -> f.getInputSlots().stream())
                             .collect(Collectors.toSet());
-                    return conjuncts.stream().allMatch(expr -> checkSlotInOrExpression(expr, aggSlots));
+                    return conjuncts.stream().allMatch(expr -> checkSlotInOrExpression(expr, aggSlots)
+                                                                && checkIsNullExpr(expr, aggSlots));
                 })
                 .thenApply(ctx -> {
                     LogicalAggregate<LogicalFilter<LogicalOlapScan>> agg = ctx.root;
@@ -166,7 +167,8 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                     Set<Slot> aggSlots = funcs.stream()
                             .flatMap(f -> f.getInputSlots().stream())
                             .collect(Collectors.toSet());
-                    return conjuncts.stream().allMatch(expr -> checkSlotInOrExpression(expr, aggSlots));
+                    return conjuncts.stream().allMatch(expr -> checkSlotInOrExpression(expr, aggSlots)
+                                                                && checkIsNullExpr(expr, aggSlots));
                 })
                 .thenApply(ctx -> {
                     LogicalAggregate<LogicalProject<LogicalFilter<LogicalOlapScan>>> agg = ctx.root;
@@ -366,6 +368,22 @@ public class AggregateStrategies implements ImplementationRuleFactory {
         } else {
             for (Expression child : expr.children()) {
                 if (!checkSlotInOrExpression(child, aggSlots)) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    private boolean checkIsNullExpr(Expression expr, Set<Slot> aggSlots) {
+        if (expr instanceof IsNull) {
+            Set<Slot> slots = expr.getInputSlots();
+            if (slots.stream().anyMatch(aggSlots::contains)) {
+                return false;
+            }
+        } else {
+            for (Expression child : expr.children()) {
+                if (!checkIsNullExpr(child, aggSlots)) {
                     return false;
                 }
             }
