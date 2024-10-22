@@ -59,8 +59,8 @@ Status BaseCompaction::prepare_compact() {
 
     std::unique_lock<std::mutex> lock(tablet()->get_base_compaction_lock(), std::try_to_lock);
     if (!lock.owns_lock()) {
-        st = Status::Error<TRY_LOCK_FAILED, false>(
-                "another base compaction is running. tablet={}", _tablet->tablet_id());
+        st = Status::Error<TRY_LOCK_FAILED, false>("another base compaction is running. tablet={}",
+                                                   _tablet->tablet_id());
         return st;
     }
 

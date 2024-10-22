@@ -94,8 +94,8 @@ Status CumulativeCompaction::prepare_compact() {
 
     std::unique_lock<std::mutex> lock(tablet()->get_cumulative_compaction_lock(), std::try_to_lock);
     if (!lock.owns_lock()) {
-        st = Status::Error<TRY_LOCK_FAILED, false>(
-                "The tablet is under cumulative compaction. tablet={}", _tablet->tablet_id());
+        st = Status::Error<TRY_LOCK_FAILED, false>("The tablet is under cumulative compaction. tablet={}",
+                                                   _tablet->tablet_id());
         return st;
     }
 
@@ -105,7 +105,7 @@ Status CumulativeCompaction::prepare_compact() {
 
     st = pick_rowsets_to_compact();
     RETURN_IF_ERROR(st);
-    
+
     COUNTER_UPDATE(_input_rowsets_counter, _input_rowsets.size());
 
     st = Status::OK();
