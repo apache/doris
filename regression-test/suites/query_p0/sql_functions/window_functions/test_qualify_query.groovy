@@ -32,19 +32,19 @@ suite("test_qualify_query") {
         """
     sql """
         INSERT INTO sales VALUES
-        (2000,'Finland','Computer',1500),
+        (2000,'Finland','Computer',1501),
         (2000,'Finland','Phone',100),
         (2001,'Finland','Phone',10),
         (2000,'India','Calculator',75),
-        (2000,'India','Calculator',75),
-        (2000,'India','Computer',1200),
-        (2000,'USA','Calculator',75),
-        (2000,'USA','Computer',1500),
+        (2000,'India','Calculator',76),
+        (2000,'India','Computer',1201),
+        (2000,'USA','Calculator',77),
+        (2000,'USA','Computer',1502),
         (2001,'USA','Calculator',50),
-        (2001,'USA','Computer',1500),
-        (2001,'USA','Computer',1200),
+        (2001,'USA','Computer',1503),
+        (2001,'USA','Computer',1202),
         (2001,'USA','TV',150),
-        (2001,'USA','TV',100);
+        (2001,'USA','TV',101);
         """
 
     qt_select_1 "select year + 1 as year, country from sales where year >= 2000 qualify row_number() over (order by year) > 1 order by year,country;"
