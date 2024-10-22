@@ -160,8 +160,8 @@ suite("union_all_compensate") {
     sql """set enable_materialized_view_rewrite = false;"""
     order_qt_query1_0_before "${query1_0}"
     sql """set enable_materialized_view_rewrite = true;"""
-    mv_rewrite_success(query1_0, "test_agg_mv", true,
-            is_partition_statistics_ready(db, ["test_table1", "test_table2", "test_agg_mv"]))
+    // equalsIgnoreNullable code is not ready in NullableAggregateFunction.java on 2.1, so should fail
+    mv_rewrite_fail(query1_0, "test_agg_mv")
     order_qt_query1_0_after "${query1_0}"
 
     // Data modify
