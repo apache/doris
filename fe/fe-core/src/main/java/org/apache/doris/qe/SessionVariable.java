@@ -2031,7 +2031,7 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_DECIMAL256, needForward = true, description = { "控制是否在计算过程中使用Decimal256类型",
             "Set to true to enable Decimal256 type" })
-    public boolean enableDecimal256 = false;
+    public boolean enableDecimal256 = true;
 
     @VariableMgr.VarAttr(name = FALLBACK_OTHER_REPLICA_WHEN_FIXED_CORRUPT, needForward = true,
             description = { "当开启use_fix_replica时遇到故障，是否漂移到其他健康的副本",
