@@ -31,7 +31,7 @@ class PHHashSet : private boost::noncopyable {
 public:
     using Self = PHHashSet;
     using Hash = HashMethod;
-    using HashMapImpl = doris::vectorized::flat_hash_set<Key, Hash>;
+    using HashSetImpl = doris::vectorized::flat_hash_set<Key, Hash>;
 
     using key_type = Key;
     using mapped_type = void;
@@ -41,33 +41,33 @@ public:
 
     PHHashSet() = default;
 
-    PHHashSet(size_t reserve_for_num_elements) { _hash_map.reserve(reserve_for_num_elements); }
+    PHHashSet(size_t reserve_for_num_elements) { _hash_set.reserve(reserve_for_num_elements); }
 
     PHHashSet(PHHashSet&& other) { *this = std::move(other); }
 
     PHHashSet& operator=(PHHashSet&& rhs) {
-        _hash_map.clear();
-        _hash_map = std::move(rhs._hash_map);
+        _hash_set.clear();
+        _hash_set = std::move(rhs._hash_set);
         return *this;
     }
 
-    size_t hash(const Key& x) const { return _hash_map.hash(x); }
+    size_t hash(const Key& x) const { return _hash_set.hash(x); }
 
     template <typename KeyHolder, typename Func>
     void ALWAYS_INLINE lazy_emplace(KeyHolder&& key_holder, LookupResult& it, Func&& f) {
-        _hash_map.lazy_emplace(key_holder, [&](const auto& ctor) { f(ctor, key_holder); });
+        _hash_set.lazy_emplace(key_holder, [&](const auto& ctor) { f(ctor, key_holder); });
     }
 
     template <typename KeyHolder, typename Func>
     void ALWAYS_INLINE lazy_emplace(KeyHolder&& key, LookupResult& it, size_t hash_value,
                                     Func&& f) {
-        _hash_map.lazy_emplace_with_hash(key, hash_value,
+        _hash_set.lazy_emplace_with_hash(key, hash_value,
                                          [&](const auto& ctor) { f(ctor, key, key); });
     }
 
     template <bool read>
     void ALWAYS_INLINE prefetch(const Key& key, size_t hash_value) {
-        _hash_map.prefetch_hash(hash_value);
+        _hash_set.prefetch_hash(hash_value);
     }
 
     /// Call func(Mapped &) for each hash map element.
@@ -79,19 +79,19 @@ public:
     }
 
     size_t get_buffer_size_in_bytes() const {
-        const auto capacity = _hash_map.capacity();
-        return capacity * sizeof(typename HashMapImpl::slot_type);
+        const auto capacity = _hash_set.capacity();
+        return capacity * sizeof(typename HashSetImpl::slot_type);
     }
 
-    size_t get_buffer_size_in_cells() const { return _hash_map.capacity(); }
+    size_t get_buffer_size_in_cells() const { return _hash_set.capacity(); }
 
     bool add_elem_size_overflow(size_t row) const {
-        const auto capacity = _hash_map.capacity();
+        const auto capacity = _hash_set.capacity();
         // phmap use 7/8th as maximum load factor.
-        return (_hash_map.size() + row) > (capacity * 7 / 8);
+        return (_hash_set.size() + row) > (capacity * 7 / 8);
     }
 
-    size_t size() const { return _hash_map.size(); }
+    size_t size() const { return _hash_set.size(); }
 
     template <typename MappedType>
     void* get_null_key_data() {
@@ -100,12 +100,12 @@ public:
 
     bool has_null_key_data() const { return false; }
 
-    bool empty() const { return _hash_map.empty(); }
+    bool empty() const { return _hash_set.empty(); }
 
-    void clear_and_shrink() { _hash_map.clear(); }
+    void clear_and_shrink() { _hash_set.clear(); }
 
-    void expanse_for_add_elem(size_t num_elem) { _hash_map.reserve(num_elem); }
+    void expanse_for_add_elem(size_t num_elem) { _hash_set.reserve(num_elem); }
 
 private:
-    HashMapImpl _hash_map;
+    HashSetImpl _hash_set;
 };
