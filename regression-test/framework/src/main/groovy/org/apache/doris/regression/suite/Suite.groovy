@@ -1605,7 +1605,8 @@ class Suite implements GroovyInterceptable {
                 check { result ->
                     boolean success = true;
                     for (String mv_name : mv_names) {
-                        success = success && result.contains("(${mv_name})")
+                        def each_result =  splitResult.length == 2 ? splitResult[0].contains(mv_name) : false
+                        success = success && each_result
                     }
                     Assert.assertEquals(true, success)
                 }
@@ -1636,7 +1637,9 @@ class Suite implements GroovyInterceptable {
                 check { result ->
                     boolean success = false;
                     for (String mv_name : mv_names) {
-                        success = success || result.contains("(${mv_name})")
+                        def splitResult = result.split("MaterializedViewRewriteFail")
+                        def each_result =  splitResult.length == 2 ? splitResult[0].contains(mv_name) : false
+                        success = success || each_result
                     }
                     Assert.assertEquals(true, success)
                 }
@@ -1645,7 +1648,7 @@ class Suite implements GroovyInterceptable {
         }
         explain {
             sql(" memo plan ${query_sql}")
-            check {result ->
+            check { result ->
                 boolean success = false
                 for (String mv_name : mv_names) {
                     success = success || result.contains("${mv_name} chose") || result.contains("${mv_name} not chose")
@@ -1663,7 +1666,10 @@ class Suite implements GroovyInterceptable {
         if (!sync_cbo_rewrite) {
             explain {
                 sql("${query_sql}")
-                contains("(${mv_name})")
+                check { result ->
+                    def splitResult = result.split("MaterializedViewRewriteFail")
+                    splitResult.length == 2 ? splitResult[0].contains(mv_name) : false
+                }
             }
             return
         }
