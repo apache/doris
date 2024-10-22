@@ -143,6 +143,7 @@ public class ExecutionProfile {
                 RuntimeProfile.mergeProfiles(allPipelineTask, mergedpipelineProfile, planNodeMap);
                 newFragmentProfile.addChild(mergedpipelineProfile);
                 pipelineIdx++;
+                fragmentsProfile.rowsProducedMap.putAll(mergedpipelineProfile.rowsProducedMap);
             }
         }
         return fragmentsProfile;
