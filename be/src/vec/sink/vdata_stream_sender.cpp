@@ -87,7 +87,7 @@ template <typename Parent>
 Status Channel<Parent>::open(RuntimeState* state) {
     if (_is_local) {
         auto st = _parent->state()->exec_env()->vstream_mgr()->find_recvr(
-                _fragment_instance_id, _dest_node_id, &_local_recvr);
+                _dest_fragment_instance_id, _dest_node_id, &_local_recvr);
         if (!st.ok()) {
             // Recvr not found. Maybe downstream task is finished already.
             LOG(INFO) << "Recvr is not found : " << st.to_string();
@@ -96,8 +96,8 @@ Status Channel<Parent>::open(RuntimeState* state) {
     _be_number = state->be_number();
     _brpc_request = std::make_shared<PTransmitDataParams>();
     // initialize brpc request
-    _brpc_request->mutable_finst_id()->set_hi(_fragment_instance_id.hi);
-    _brpc_request->mutable_finst_id()->set_lo(_fragment_instance_id.lo);
+    _brpc_request->mutable_finst_id()->set_hi(_dest_fragment_instance_id.hi);
+    _brpc_request->mutable_finst_id()->set_lo(_dest_fragment_instance_id.lo);
     _finst_id = _brpc_request->finst_id();
 
     _brpc_request->mutable_query_id()->set_hi(state->query_id().hi);
@@ -115,9 +115,17 @@ Status Channel<Parent>::open(RuntimeState* state) {
     // In bucket shuffle join will set fragment_instance_id (-1, -1)
     // to build a camouflaged empty channel. the ip and port is '0.0.0.0:0"
     // so the empty channel not need call function close_internal()
-    _need_close = (_fragment_instance_id.hi != -1 && _fragment_instance_id.lo != -1);
+    _need_close = (_dest_fragment_instance_id.hi != -1 && _dest_fragment_instance_id.lo != -1);
     _state = state;
     return Status::OK();
+}
+
+int PipChannel::sender_id() const {
+    return _parent->sender_id();
+}
+
+int PipChannel::be_number() const {
+    return _parent->be_number();
 }
 
 std::shared_ptr<pipeline::Dependency> PipChannel::get_local_channel_dependency() {
@@ -233,7 +241,7 @@ Status PipChannel::close_internal(Status exec_status) {
     if (!_need_close) {
         return Status::OK();
     }
-    VLOG_RPC << "Channel::close_internal() instance_id=" << print_id(_fragment_instance_id)
+    VLOG_RPC << "Channel::close_internal() instance_id=" << print_id(_dest_fragment_instance_id)
              << " dest_node=" << _dest_node_id << " #rows= "
              << ((_serializer.get_block() == nullptr) ? 0 : _serializer.get_block()->rows())
              << " receiver status: " << _receiver_status << ", exec_status: " << exec_status;
@@ -305,7 +313,7 @@ Status BlockSerializer<Parent>::next_serialized_block(Block* block, PBlock* dest
         }
     }
 
-    if (_mutable_block->rows() >= _batch_size || eos) {
+    if (_mutable_block->bytes() >= config::exchg_max_remote_bytes || eos) {
         if (!_is_local) {
             RETURN_IF_ERROR(serialize_block(dest, num_receivers));
         }

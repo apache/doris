@@ -60,6 +60,8 @@ public:
         _finish_dependency =
                 std::make_shared<Dependency>(parent->operator_id(), parent->node_id(),
                                              parent->get_name() + "_FINISH_DEPENDENCY", true);
+        _queue_dependency = Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
+                                                      "ExchangeSinkQueueDependency", true);
     }
 
     std::vector<Dependency*> dependencies() const override {
@@ -104,7 +106,7 @@ public:
     void set_reach_limit() { _reach_limit = true; };
 
     [[nodiscard]] int sender_id() const { return _sender_id; }
-
+    [[nodiscard]] int be_number() const { return _state->be_number(); }
     std::string name_suffix() override;
     segment_v2::CompressionTypePB compression_type() const;
     std::string debug_string(int indentation_level) const override;
@@ -127,7 +129,7 @@ private:
     friend class vectorized::PipChannel;
     friend class vectorized::BlockSerializer<ExchangeSinkLocalState>;
 
-    std::unique_ptr<ExchangeSinkBuffer> _sink_buffer = nullptr;
+    std::shared_ptr<ExchangeSinkBuffer> _sink_buffer = nullptr;
     RuntimeProfile::Counter* _serialize_batch_timer = nullptr;
     RuntimeProfile::Counter* _compress_timer = nullptr;
     RuntimeProfile::Counter* _brpc_send_timer = nullptr;
@@ -228,17 +230,22 @@ private:
     template <typename ChannelPtrType>
     void _handle_eof_channel(RuntimeState* state, ChannelPtrType channel, Status st);
 
-    template <typename Channels, typename HashValueType>
-    Status channel_add_rows(RuntimeState* state, Channels& channels, int num_channels,
-                            const HashValueType* channel_ids, int rows, vectorized::Block* block,
-                            bool eos);
+    template <typename HashValueType>
+    Status channel_add_rows(RuntimeState* state, std::vector<vectorized::PipChannel*>& channels,
+                            int num_channels, const HashValueType* channel_ids, int rows,
+                            vectorized::Block* block, bool eos);
 
-    template <typename Channels>
-    Status channel_add_rows_with_idx(RuntimeState* state, Channels& channels, int num_channels,
+    Status channel_add_rows_with_idx(RuntimeState* state,
+                                     std::vector<vectorized::PipChannel*>& channels,
+                                     int num_channels,
                                      std::vector<std::vector<uint32_t>>& channel2rows,
                                      vectorized::Block* block, bool eos);
+
+    void create_buffer();
+
     RuntimeState* _state = nullptr;
 
+    std::shared_ptr<ExchangeSinkBuffer> _sink_buffer = nullptr;
     const std::vector<TExpr> _texprs;
 
     const RowDescriptor& _row_desc;

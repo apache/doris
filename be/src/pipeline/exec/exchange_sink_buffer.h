@@ -121,11 +121,11 @@ class ExchangeSendCallback : public ::doris::DummyBrpcCallback<Response> {
 public:
     ExchangeSendCallback() = default;
 
-    void init(InstanceLoId id, bool eos) {
-        _id = id;
+    void init(InstanceLoId id, bool eos, int64_t start_rpc_time) {
         _eos = eos;
+        _id = id;
+        _start_rpc_time = start_rpc_time;
     }
-
     ~ExchangeSendCallback() override = default;
     ExchangeSendCallback(const ExchangeSendCallback& other) = delete;
     ExchangeSendCallback& operator=(const ExchangeSendCallback& other) = delete;
@@ -151,7 +151,7 @@ public:
                 _fail_fn(_id, err);
             } else {
                 _suc_fn(_id, _eos, *(::doris::DummyBrpcCallback<Response>::response_),
-                        start_rpc_time);
+                        _start_rpc_time);
             }
         } catch (const std::exception& exp) {
             LOG(FATAL) << "brpc callback error: " << exp.what();
@@ -160,27 +160,21 @@ public:
             __builtin_unreachable();
         }
     }
-    int64_t start_rpc_time;
 
 private:
     std::function<void(const InstanceLoId&, const std::string&)> _fail_fn;
     std::function<void(const InstanceLoId&, const bool&, const Response&, const int64_t&)> _suc_fn;
     InstanceLoId _id;
     bool _eos;
-};
-
-struct ExchangeRpcContext {
-    std::shared_ptr<ExchangeSendCallback<PTransmitDataResult>> _send_callback;
-    bool is_cancelled = false;
+    int64_t _start_rpc_time;
 };
 
 // Each ExchangeSinkOperator have one ExchangeSinkBuffer
 class ExchangeSinkBuffer final : public HasTaskExecutionCtx {
 public:
-    ExchangeSinkBuffer(PUniqueId query_id, PlanNodeId dest_node_id, int send_id, int be_number,
-                       RuntimeState* state, ExchangeSinkLocalState* parent);
+    ExchangeSinkBuffer(PUniqueId query_id, PlanNodeId dest_node_id, RuntimeState* state);
     ~ExchangeSinkBuffer() override = default;
-    void register_sink(TUniqueId);
+    void construct_request(TUniqueId);
 
     Status add_block(TransmitInfo&& request);
     Status add_block(BroadcastTransmitInfo&& request);
@@ -190,16 +184,22 @@ public:
 
     void set_dependency(std::shared_ptr<Dependency> queue_dependency,
                         std::shared_ptr<Dependency> finish_dependency) {
-        _queue_dependency = queue_dependency;
-        _finish_dependency = finish_dependency;
+        std::lock_guard lc(_dep_lock);
+        CHECK(queue_dependency);
+        CHECK(finish_dependency);
+        _queue_dependencies.push_back(queue_dependency);
+        _finish_dependencies.push_back(finish_dependency);
     }
 
-    void set_broadcast_dependency(std::shared_ptr<Dependency> broadcast_dependency) {
-        _broadcast_dependency = broadcast_dependency;
+    void inc_running_sink(ExchangeSinkLocalState* local_state) {
+        std::lock_guard lc(_dep_lock);
+        _running_sink++;
+        _local_states.push_back(local_state);
     }
-
-    void set_should_stop() {
-        _should_stop = true;
+    void sub_running_sink() {
+        if ((--_running_sink) == 0) {
+            _is_all_eos = true;
+        }
         _set_ready_to_finish(_busy_channels == 0);
     }
 
@@ -228,22 +228,15 @@ private:
     std::atomic<int> _busy_channels = 0;
     phmap::flat_hash_map<InstanceLoId, bool> _instance_to_receiver_eof;
     phmap::flat_hash_map<InstanceLoId, int64_t> _instance_to_rpc_time;
-    phmap::flat_hash_map<InstanceLoId, ExchangeRpcContext> _instance_to_rpc_ctx;
-
+    // Once _is_finishing is set to true, no more send RPCs will be generated.
     std::atomic<bool> _is_finishing;
     PUniqueId _query_id;
     PlanNodeId _dest_node_id;
-    // Sender instance id, unique within a fragment. StreamSender save the variable
-    int _sender_id;
-    int _be_number;
     std::atomic<int64_t> _rpc_count = 0;
-    RuntimeState* _state = nullptr;
+    RuntimeState* _fragment_state = nullptr;
     QueryContext* _context = nullptr;
 
     Status _send_rpc(InstanceLoId);
-    // must hold the _instance_to_package_queue_mutex[id] mutex to opera
-    void _construct_request(InstanceLoId id, PUniqueId);
-    inline void _ended(InstanceLoId id);
     inline void _failed(InstanceLoId id, const std::string& err);
     inline void _set_receiver_eof(InstanceLoId id);
     inline bool _is_receiver_eof(InstanceLoId id);
@@ -252,11 +245,16 @@ private:
     int64_t get_sum_rpc_time();
 
     std::atomic<int> _total_queue_size = 0;
-    std::shared_ptr<Dependency> _queue_dependency = nullptr;
-    std::shared_ptr<Dependency> _finish_dependency = nullptr;
-    std::shared_ptr<Dependency> _broadcast_dependency = nullptr;
-    std::atomic<bool> _should_stop = false;
-    ExchangeSinkLocalState* _parent = nullptr;
+    std::atomic_int64_t _running_sink = 0;
+    std::atomic_int64_t _eof_channels = 0;
+    std::atomic_bool _is_all_eos = false;
+
+    std::mutex _dep_lock;
+    std::vector<std::shared_ptr<Dependency>> _queue_dependencies;
+    std::vector<std::shared_ptr<Dependency>> _finish_dependencies;
+
+    // only use to set_reach_limit
+    std::vector<ExchangeSinkLocalState*> _local_states;
 };
 
 } // namespace pipeline
