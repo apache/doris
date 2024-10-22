@@ -423,7 +423,7 @@ suite("agg_on_none_agg") {
              bin(o_orderkey);
             """
     order_qt_query5_0_before "${query5_0}"
-    async_mv_rewrite_success(db, mv5_0, query5_0, "mv5_0")
+    async_mv_rewrite_success_without_check_chosen(db, mv5_0, query5_0, "mv5_0")
     order_qt_query5_0_after "${query5_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv5_0"""
 

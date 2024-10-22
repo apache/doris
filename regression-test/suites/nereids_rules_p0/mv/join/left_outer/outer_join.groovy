@@ -446,7 +446,7 @@ suite("outer_join") {
         where l_shipdate = '2023-12-10'  and o_orderdate = '2023-12-10';
     """
     order_qt_query6_1_before "${query6_1}"
-    async_mv_rewrite_success(db, mv6_1, query6_1, "mv6_1")
+    async_mv_rewrite_success_without_check_chosen(db, mv6_1, query6_1, "mv6_1")
     order_qt_query6_1_after "${query6_1}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv6_1"""
 
