@@ -102,6 +102,7 @@ Status NewJdbcScanner::prepare(RuntimeState* state, const VExprContextSPtrs& con
     _jdbc_param.connection_pool_max_life_time = jdbc_table->connection_pool_max_life_time();
     _jdbc_param.connection_pool_max_wait_time = jdbc_table->connection_pool_max_wait_time();
     _jdbc_param.connection_pool_keep_alive = jdbc_table->connection_pool_keep_alive();
+    _jdbc_param.enable_connection_pool = jdbc_table->enable_connection_pool();
 
     if (get_parent() != nullptr) {
         get_parent()->_scanner_profile->add_info_string("JdbcDriverClass",
