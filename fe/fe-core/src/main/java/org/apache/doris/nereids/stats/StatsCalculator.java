@@ -497,7 +497,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                     builder.putColumnStatistics(slot, colStatsBuilder.build());
                 }
                 checkIfUnknownStatsUsedAsKey(builder);
-                builder.setRowCount(tableRowCount + deltaRowCount);
+                builder.setRowCount(tableRowCount);
             }
         } else {
             // get table level stats
@@ -509,7 +509,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                 builder.putColumnStatistics(slot, colStatsBuilder.build());
             }
             checkIfUnknownStatsUsedAsKey(builder);
-            builder.setRowCount(tableRowCount + deltaRowCount);
+            builder.setRowCount(tableRowCount);
         }
         return builder.build();
     }
