@@ -66,7 +66,12 @@ public:
 };
 
 static constexpr size_t INITIAL_BUFFERED_BLOCK_BYTES = 64 << 20;
+
+#ifndef NDEBUG
+static constexpr size_t PARTITION_SORT_ROWS_THRESHOLD = 10;
+#else
 static constexpr size_t PARTITION_SORT_ROWS_THRESHOLD = 20000;
+#endif
 
 struct PartitionBlocks {
 public:
@@ -234,6 +239,8 @@ private:
     std::unique_ptr<vectorized::Arena> _agg_arena_pool;
     int _partition_exprs_num = 0;
     std::shared_ptr<PartitionSortInfo> _partition_sort_info = nullptr;
+    TPartTopNPhase::type _topn_phase;
+    bool _is_need_passthrough = false;
 
     RuntimeProfile::Counter* _build_timer = nullptr;
     RuntimeProfile::Counter* _emplace_key_timer = nullptr;
@@ -241,7 +248,10 @@ private:
     RuntimeProfile::Counter* _hash_table_size_counter = nullptr;
     RuntimeProfile::Counter* _passthrough_rows_counter = nullptr;
     RuntimeProfile::Counter* _sorted_partition_input_rows_counter = nullptr;
+    RuntimeProfile::Counter* _hash_table_memory_usage = nullptr;
+    RuntimeProfile::HighWaterMarkCounter* _serialize_key_arena_memory_usage = nullptr;
     Status _init_hash_method();
+    bool check_whether_need_passthrough();
 };
 
 class PartitionSortSinkOperatorX final : public DataSinkOperatorX<PartitionSortSinkLocalState> {
@@ -284,7 +294,7 @@ private:
     Status _split_block_by_partition(vectorized::Block* input_block,
                                      PartitionSortSinkLocalState& local_state, bool eos);
     Status _emplace_into_hash_table(const vectorized::ColumnRawPtrs& key_columns,
-                                    const vectorized::Block* input_block,
+                                    vectorized::Block* input_block,
                                     PartitionSortSinkLocalState& local_state, bool eos);
 };
 

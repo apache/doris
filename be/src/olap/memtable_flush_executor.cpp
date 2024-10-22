@@ -46,10 +46,10 @@ class MemtableFlushTask final : public Runnable {
     ENABLE_FACTORY_CREATOR(MemtableFlushTask);
 
 public:
-    MemtableFlushTask(std::shared_ptr<FlushToken> flush_token, std::unique_ptr<MemTable> memtable,
+    MemtableFlushTask(std::shared_ptr<FlushToken> flush_token, std::shared_ptr<MemTable> memtable,
                       int32_t segment_id, int64_t submit_task_time)
             : _flush_token(flush_token),
-              _memtable(std::move(memtable)),
+              _memtable(memtable),
               _segment_id(segment_id),
               _submit_task_time(submit_task_time) {
         g_flush_task_num << 1;
@@ -60,7 +60,7 @@ public:
     void run() override {
         auto token = _flush_token.lock();
         if (token) {
-            token->_flush_memtable(std::move(_memtable), _segment_id, _submit_task_time);
+            token->_flush_memtable(_memtable, _segment_id, _submit_task_time);
         } else {
             LOG(WARNING) << "flush token is deconstructed, ignore the flush task";
         }
@@ -68,7 +68,7 @@ public:
 
 private:
     std::weak_ptr<FlushToken> _flush_token;
-    std::unique_ptr<MemTable> _memtable;
+    std::shared_ptr<MemTable> _memtable;
     int32_t _segment_id;
     int64_t _submit_task_time;
 };
@@ -83,7 +83,7 @@ std::ostream& operator<<(std::ostream& os, const FlushStatistic& stat) {
     return os;
 }
 
-Status FlushToken::submit(std::unique_ptr<MemTable> mem_table) {
+Status FlushToken::submit(std::shared_ptr<MemTable> mem_table) {
     {
         std::shared_lock rdlk(_flush_status_lock);
         DBUG_EXECUTE_IF("FlushToken.submit_flush_error", {
@@ -98,9 +98,8 @@ Status FlushToken::submit(std::unique_ptr<MemTable> mem_table) {
         return Status::OK();
     }
     int64_t submit_task_time = MonotonicNanos();
-    auto task = MemtableFlushTask::create_shared(shared_from_this(), std::move(mem_table),
-                                                 _rowset_writer->allocate_segment_id(),
-                                                 submit_task_time);
+    auto task = MemtableFlushTask::create_shared(
+            shared_from_this(), mem_table, _rowset_writer->allocate_segment_id(), submit_task_time);
     Status ret = _thread_pool->submit(std::move(task));
     if (ret.ok()) {
         // _wait_running_task_finish was executed after this function, so no need to notify _cond here
@@ -136,17 +135,19 @@ Status FlushToken::_do_flush_memtable(MemTable* memtable, int32_t segment_id, in
     VLOG_CRITICAL << "begin to flush memtable for tablet: " << memtable->tablet_id()
                   << ", memsize: " << memtable->memory_usage()
                   << ", rows: " << memtable->stat().raw_rows;
+    memtable->update_mem_type(MemType::FLUSH);
     int64_t duration_ns;
     SCOPED_RAW_TIMER(&duration_ns);
     SCOPED_ATTACH_TASK(memtable->query_thread_context());
     signal::set_signal_task_id(_rowset_writer->load_id());
     signal::tablet_id = memtable->tablet_id();
     {
-        SCOPED_CONSUME_MEM_TRACKER(memtable->flush_mem_tracker());
+        SCOPED_CONSUME_MEM_TRACKER(memtable->mem_tracker());
         std::unique_ptr<vectorized::Block> block;
         RETURN_IF_ERROR(memtable->to_block(&block));
         RETURN_IF_ERROR(_rowset_writer->flush_memtable(block.get(), segment_id, flush_size));
     }
+    memtable->set_flush_success();
     _memtable_stat += memtable->stat();
     DorisMetrics::instance()->memtable_flush_total->increment(1);
     DorisMetrics::instance()->memtable_flush_duration_us->increment(duration_ns / 1000);
@@ -155,7 +156,7 @@ Status FlushToken::_do_flush_memtable(MemTable* memtable, int32_t segment_id, in
     return Status::OK();
 }
 
-void FlushToken::_flush_memtable(std::unique_ptr<MemTable> memtable_ptr, int32_t segment_id,
+void FlushToken::_flush_memtable(std::shared_ptr<MemTable> memtable_ptr, int32_t segment_id,
                                  int64_t submit_task_time) {
     Defer defer {[&]() {
         std::lock_guard<std::mutex> lock(_mutex);

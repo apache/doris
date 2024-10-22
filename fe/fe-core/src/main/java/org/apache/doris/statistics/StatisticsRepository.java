@@ -326,10 +326,9 @@ public class StatisticsRepository {
         if (rowCount == null) {
             throw new RuntimeException("Row count is null.");
         }
-        ColumnStatisticBuilder builder = new ColumnStatisticBuilder();
+        ColumnStatisticBuilder builder = new ColumnStatisticBuilder(Double.parseDouble(rowCount));
         String colName = alterColumnStatsStmt.getColumnName();
         Column column = objects.table.getColumn(colName);
-        builder.setCount(Double.parseDouble(rowCount));
         if (ndv != null) {
             double dNdv = Double.parseDouble(ndv);
             builder.setNdv(dNdv);

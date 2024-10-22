@@ -198,11 +198,11 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc,
             _function = AggregateFunctionSimpleFactory::instance().get(
                     _fn.name.function_name, argument_types,
                     AggregateFunctionSimpleFactory::result_nullable_by_foreach(_data_type),
-                    state->be_exec_version(), state->enable_decima256());
+                    state->be_exec_version(), state->enable_decimal256());
         } else {
             _function = AggregateFunctionSimpleFactory::instance().get(
                     _fn.name.function_name, argument_types, _data_type->is_nullable(),
-                    state->be_exec_version(), state->enable_decima256());
+                    state->be_exec_version(), state->enable_decimal256());
         }
     }
     if (_function == nullptr) {
@@ -351,7 +351,7 @@ AggFnEvaluator::AggFnEvaluator(AggFnEvaluator& evaluator, RuntimeState* state)
     }
 }
 
-Status AggFnEvaluator::check_agg_fn_output(int key_size,
+Status AggFnEvaluator::check_agg_fn_output(int64_t key_size,
                                            const std::vector<vectorized::AggFnEvaluator*>& agg_fn,
                                            const RowDescriptor& output_row_desc) {
     auto name_and_types = VectorizedUtils::create_name_and_data_types(output_row_desc);

@@ -232,9 +232,6 @@ TableFunctionOperatorX::TableFunctionOperatorX(ObjectPool* pool, const TPlanNode
 
 Status TableFunctionOperatorX::_prepare_output_slot_ids(const TPlanNode& tnode) {
     // Prepare output slot ids
-    if (tnode.table_function_node.outputSlotIds.empty()) {
-        return Status::InternalError("Output slots of table function node is empty");
-    }
     SlotId max_id = -1;
     for (auto slot_id : tnode.table_function_node.outputSlotIds) {
         if (slot_id > max_id) {

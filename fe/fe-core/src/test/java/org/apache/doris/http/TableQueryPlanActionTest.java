@@ -173,4 +173,22 @@ public class TableQueryPlanActionTest extends DorisHttpTestCase {
         String exception = (String) jsonObject.get("data");
         Assert.assertTrue(exception.contains("table type is not OLAP"));
     }
+
+    @Test
+    public void testHasAggFailure() throws IOException {
+        RequestBody body = RequestBody.create(
+                "{ \"sql\" :  \" select k1,k2 from " + DB_NAME + "." + TABLE_NAME + " group by k1, k2 \" }", JSON);
+        Request request = new Request.Builder()
+                .post(body)
+                .addHeader("Authorization", rootAuth)
+                .url(URI + PATH_URI)
+                .build();
+        Response response = networkClient.newCall(request).execute();
+        Assert.assertNotNull(response.body());
+        String respStr = response.body().string();
+        Assert.assertNotNull(respStr);
+        JSONObject jsonObject = (JSONObject) JSONValue.parse(respStr);
+        String exception = jsonObject.get("data").toString();
+        Assert.assertTrue(exception.contains("only support single table filter-prune-scan"));
+    }
 }

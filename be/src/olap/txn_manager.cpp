@@ -374,7 +374,7 @@ Status TxnManager::commit_txn(OlapMeta* meta, TPartitionId partition_id,
             return save_status;
         }
 
-        if (partial_update_info && partial_update_info->is_partial_update) {
+        if (partial_update_info && partial_update_info->is_partial_update()) {
             PartialUpdateInfoPB partial_update_info_pb;
             partial_update_info->to_pb(&partial_update_info_pb);
             save_status = RowsetMetaManager::save_partial_update_info(
@@ -397,7 +397,7 @@ Status TxnManager::commit_txn(OlapMeta* meta, TPartitionId partition_id,
             if (st.ok()) {
                 decoded_partial_update_info = std::make_shared<PartialUpdateInfo>();
                 decoded_partial_update_info->from_pb(&partial_update_info_pb);
-                DCHECK(decoded_partial_update_info->is_partial_update);
+                DCHECK(decoded_partial_update_info->is_partial_update());
             } else if (!st.is<META_KEY_NOT_FOUND>()) {
                 // the load is not a partial update
                 return st;
@@ -555,7 +555,7 @@ Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
     }
 
     if (tablet_txn_info->unique_key_merge_on_write && tablet_txn_info->partial_update_info &&
-        tablet_txn_info->partial_update_info->is_partial_update) {
+        tablet_txn_info->partial_update_info->is_partial_update()) {
         status = RowsetMetaManager::remove_partial_update_info(meta, tablet_id, partition_id,
                                                                transaction_id);
         if (!status) {

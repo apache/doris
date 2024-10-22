@@ -111,6 +111,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
             ConnectContext.get().getExecutor().getSummaryProfile().setInitScanNodeStartTime();
         }
         super.init(analyzer);
+        initFileSplitSize();
         doInitialize();
         if (ConnectContext.get().getExecutor() != null) {
             ConnectContext.get().getExecutor().getSummaryProfile().setInitScanNodeFinishTime();
@@ -143,7 +144,6 @@ public abstract class FileQueryScanNode extends FileScanNode {
                                 table.getName()));
             }
         }
-        computeColumnsFilter();
         initBackendPolicy();
         initSchemaParams();
     }
@@ -212,11 +212,21 @@ public abstract class FileQueryScanNode extends FileScanNode {
         if (ConnectContext.get().getExecutor() != null) {
             ConnectContext.get().getExecutor().getSummaryProfile().setFinalizeScanNodeStartTime();
         }
+        convertPredicate();
         createScanRangeLocations();
         updateRequiredSlots();
         if (ConnectContext.get().getExecutor() != null) {
             ConnectContext.get().getExecutor().getSummaryProfile().setFinalizeScanNodeFinishTime();
         }
+    }
+
+    /**
+     * Used as a predicate to convert conjuncts into corresponding data sources.
+     * All predicate conversions from different data sources should override this method.
+     * and this method must be called in finalize,
+     * because in nereids planner, conjuncts are only generated in the finalize stage.
+     */
+    protected void convertPredicate() {
     }
 
     private void setColumnPositionMapping()

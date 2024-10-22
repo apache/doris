@@ -77,7 +77,12 @@ visible_functions = {
         [['bitnot'], 'LARGEINT', ['LARGEINT'], ''],
         
         [['bit_shift_left'],    'BIGINT',   ['BIGINT',  'TINYINT'],     ''],
-        [['bit_shift_right'],   'BIGINT',   ['BIGINT',  'TINYINT'],     '']
+        [['bit_shift_right'],   'BIGINT',   ['BIGINT',  'TINYINT'],     ''],
+        [['bit_test','bit_test_all'], 'TINYINT', ['TINYINT','TINYINT','...'], ''],
+        [['bit_test','bit_test_all'], 'TINYINT', ['SMALLINT','SMALLINT','...'], ''],
+        [['bit_test','bit_test_all'], 'TINYINT', ['INT','INT','...'], ''],
+        [['bit_test','bit_test_all'], 'TINYINT', ['BIGINT','BIGINT','...'], ''],
+        [['bit_test','bit_test_all'], 'TINYINT', ['LARGEINT','LARGEINT','...'], '']
     ],
 
     # map functions
@@ -1825,6 +1830,8 @@ visible_functions = {
         [['json_parse_notnull'], 'JSONB', ['VARCHAR'], ''],
         [['json_parse_notnull_error_to_value'], 'JSONB', ['VARCHAR', 'VARCHAR'], ''],
         [['json_parse_notnull_error_to_invalid'], 'JSONB', ['VARCHAR'], ''],
+
+        [['json_search'], 'JSONB', ['VARCHAR', 'VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
 
         [['json_exists_path'], 'BOOLEAN', ['JSONB', 'VARCHAR'], ''],
         [['json_exists_path'], 'BOOLEAN', ['JSONB', 'STRING'], ''],

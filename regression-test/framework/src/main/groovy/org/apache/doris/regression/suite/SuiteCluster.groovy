@@ -17,8 +17,9 @@
 package org.apache.doris.regression.suite
 
 import org.apache.doris.regression.Config
-import org.apache.doris.regression.util.Http
 import org.apache.doris.regression.util.DebugPoint
+import org.apache.doris.regression.util.Http
+import org.apache.doris.regression.util.JdbcUtils
 import org.apache.doris.regression.util.NodeType
 
 import com.google.common.collect.Maps
@@ -29,16 +30,27 @@ import groovy.json.JsonSlurper
 import groovy.transform.CompileStatic
 import groovy.util.logging.Slf4j
 import java.util.stream.Collectors
+import java.sql.Connection
 
 class ClusterOptions {
 
     int feNum = 1
     int beNum = 3
 
+    Boolean sqlModeNodeMgr = false
+    Boolean beMetaServiceEndpoint = true
+    Boolean beClusterId = false
+
+    int waitTimeout = 180
+
+    // don't add whitespace in feConfigs items,
+    // for example, ' xx = yy ' is bad, should use 'xx=yy'
     List<String> feConfigs = [
         'heartbeat_interval_second=5',
     ]
 
+    // don't add whitespace in beConfigs items,
+    // for example, ' xx = yy ' is bad, should use 'xx=yy'
     List<String> beConfigs = [
         'max_sys_mem_available_low_water_mark_bytes=0', //no check mem available memory
         'report_disk_state_interval_seconds=2',
@@ -57,10 +69,6 @@ class ClusterOptions {
     // 2. mutli followers - multi observers
     // default use 1
     Boolean useFollowersMode = false
-
-    // when cloudMode = true/false,  but the running pipeline is diff with cloudMode,
-    // skip run this docker test or not.
-    boolean skipRunWhenPipelineDiff = true
 
     // each be disks, a disks format is: disk_type=disk_num[,disk_capacity]
     // here disk_type=HDD or SSD,  disk capacity is in gb unit.
@@ -151,6 +159,7 @@ class ServerNode {
 
 class Frontend extends ServerNode {
 
+    int editLogPort
     int queryPort
     boolean isMaster
 
@@ -158,6 +167,7 @@ class Frontend extends ServerNode {
         Frontend fe = new Frontend()
         ServerNode.fromCompose(fe, header, index, fields)
         fe.queryPort = (Integer) fields.get(header.indexOf('query_port'))
+        fe.editLogPort = (Integer) fields.get(header.indexOf('edit_log_port'))
         fe.isMaster = fields.get(header.indexOf('is_master')) == 'true'
         return fe
     }
@@ -178,14 +188,17 @@ class Frontend extends ServerNode {
 
 class Backend extends ServerNode {
 
+    int heartbeatPort
     long backendId
     int tabletNum
 
     static Backend fromCompose(ListHeader header, int index, List<Object> fields) {
         Backend be = new Backend()
         ServerNode.fromCompose(be, header, index, fields)
+        be.heartbeatPort = (Integer) fields.get(header.indexOf('heartbeat_port'))
         be.backendId = toLongOrDefault(fields.get(header.indexOf('backend_id')), -1L)
         be.tabletNum = (int) toLongOrDefault(fields.get(header.indexOf('tablet_num')), 0L)
+
         return be
     }
 
@@ -256,6 +269,8 @@ class SuiteCluster {
     final String name
     final Config config
     private boolean running
+    private boolean sqlModeNodeMgr = false
+    private boolean isCloudMode = false
 
     SuiteCluster(String name, Config config) {
         this.name = name
@@ -267,6 +282,8 @@ class SuiteCluster {
         assert name != null && name != ''
         assert options.feNum > 0 || options.beNum > 0
         assert config.image != null && config.image != ''
+
+        this.isCloudMode = isCloud
 
         def cmd = [
             'up', name, config.image
@@ -302,7 +319,19 @@ class SuiteCluster {
             cmd += ['--fe-follower']
         }
 
-        cmd += ['--wait-timeout', String.valueOf(180)]
+        if (options.sqlModeNodeMgr) {
+            cmd += ['--sql-mode-node-mgr']
+        }
+        if (!options.beMetaServiceEndpoint) {
+            cmd += ['--no-be-metaservice-endpoint']
+        }
+        if (!options.beClusterId) {
+            cmd += ['--no-be-cluster-id']
+        }
+
+        cmd += ['--wait-timeout', String.valueOf(options.waitTimeout)]
+
+        sqlModeNodeMgr = options.sqlModeNodeMgr
 
         runCmd(cmd.join(' '), -1)
 
@@ -406,6 +435,7 @@ class SuiteCluster {
         def data = runCmd(cmd)
         assert data instanceof List
         def rows = (List<List<Object>>) data
+        logger.info('get all nodes {}', rows)
         def header = new ListHeader(rows.get(0))
         for (int i = 1; i < rows.size(); i++) {
             def row = (List<Object>) rows.get(i)
@@ -486,6 +516,10 @@ class SuiteCluster {
 
     boolean isRunning() {
         return running
+    }
+
+    boolean isCloudMode() {
+        return this.isCloudMode
     }
 
     // if not specific fe indices, then start all frontends

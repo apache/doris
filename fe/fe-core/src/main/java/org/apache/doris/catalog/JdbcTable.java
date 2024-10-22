@@ -97,6 +97,7 @@ public class JdbcTable extends Table {
     @SerializedName("cid")
     private long catalogId = -1;
 
+    private boolean enableConnectionPool;
     private int connectionPoolMinSize;
     private int connectionPoolMaxSize;
     private int connectionPoolMaxWaitTime;
@@ -116,6 +117,7 @@ public class JdbcTable extends Table {
         tempMap.put("oceanbase", TOdbcTableType.OCEANBASE);
         tempMap.put("oceanbase_oracle", TOdbcTableType.OCEANBASE_ORACLE);
         tempMap.put("db2", TOdbcTableType.DB2);
+        tempMap.put("gbase", TOdbcTableType.GBASE);
         TABLE_TYPE_MAP = Collections.unmodifiableMap(tempMap);
     }
 
@@ -189,6 +191,11 @@ public class JdbcTable extends Table {
         return catalogId;
     }
 
+    public boolean isEnableConnectionPool() {
+        return Boolean.parseBoolean(getFromJdbcResourceOrDefault(JdbcResource.ENABLE_CONNECTION_POOL,
+                String.valueOf(enableConnectionPool)));
+    }
+
     public int getConnectionPoolMinSize() {
         return Integer.parseInt(getFromJdbcResourceOrDefault(JdbcResource.CONNECTION_POOL_MIN_SIZE,
                 String.valueOf(connectionPoolMinSize)));
@@ -237,6 +244,7 @@ public class JdbcTable extends Table {
         tJdbcTable.setJdbcDriverUrl(getDriverUrl());
         tJdbcTable.setJdbcResourceName(resourceName);
         tJdbcTable.setJdbcDriverChecksum(checkSum);
+        tJdbcTable.setEnableConnectionPool(isEnableConnectionPool());
         tJdbcTable.setConnectionPoolMinSize(getConnectionPoolMinSize());
         tJdbcTable.setConnectionPoolMaxSize(getConnectionPoolMaxSize());
         tJdbcTable.setConnectionPoolMaxWaitTime(getConnectionPoolMaxWaitTime());
@@ -393,6 +401,7 @@ public class JdbcTable extends Table {
         driverClass = jdbcResource.getProperty(DRIVER_CLASS);
         driverUrl = jdbcResource.getProperty(DRIVER_URL);
         checkSum = jdbcResource.getProperty(CHECK_SUM);
+        enableConnectionPool = Boolean.parseBoolean(jdbcResource.getProperty(JdbcResource.ENABLE_CONNECTION_POOL));
         connectionPoolMinSize = Integer.parseInt(jdbcResource.getProperty(JdbcResource.CONNECTION_POOL_MIN_SIZE));
         connectionPoolMaxSize = Integer.parseInt(jdbcResource.getProperty(JdbcResource.CONNECTION_POOL_MAX_SIZE));
         connectionPoolMaxWaitTime = Integer.parseInt(
@@ -464,6 +473,7 @@ public class JdbcTable extends Table {
         switch (tableType) {
             case MYSQL:
             case OCEANBASE:
+            case GBASE:
                 return formatName(name, "`", "`", false, false);
             case SQLSERVER:
                 return formatName(name, "[", "]", false, false);
@@ -486,6 +496,7 @@ public class JdbcTable extends Table {
         switch (tableType) {
             case MYSQL:
             case OCEANBASE:
+            case GBASE:
                 return formatNameWithRemoteName(remoteName, "`", "`");
             case SQLSERVER:
                 return formatNameWithRemoteName(remoteName, "[", "]");

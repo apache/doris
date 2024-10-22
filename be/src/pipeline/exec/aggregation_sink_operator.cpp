@@ -27,7 +27,7 @@
 #include "vec/exprs/vectorized_agg_fn.h"
 
 namespace doris::pipeline {
-
+#include "common/compile_check_begin.h"
 /// The minimum reduction factor (input rows divided by output rows) to grow hash tables
 /// in a streaming preaggregation, given that the hash tables are currently the given
 /// size or above. The sizes roughly correspond to hash table sizes where the bucket
@@ -57,10 +57,10 @@ Status AggSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     _agg_data = Base::_shared_state->agg_data.get();
     _agg_arena_pool = Base::_shared_state->agg_arena_pool.get();
     _hash_table_size_counter = ADD_COUNTER(profile(), "HashTableSize", TUnit::UNIT);
-    _hash_table_memory_usage = ADD_CHILD_COUNTER_WITH_LEVEL(Base::profile(), "HashTable",
-                                                            TUnit::BYTES, "MemoryUsage", 1);
-    _serialize_key_arena_memory_usage = Base::profile()->AddHighWaterMarkCounter(
-            "SerializeKeyArena", TUnit::BYTES, "MemoryUsage", 1);
+    _hash_table_memory_usage =
+            ADD_COUNTER_WITH_LEVEL(Base::profile(), "MemoryUsageHashTable", TUnit::BYTES, 1);
+    _serialize_key_arena_memory_usage = ADD_COUNTER_WITH_LEVEL(
+            Base::profile(), "MemoryUsageSerializeKeyArena", TUnit::BYTES, 1);
 
     _build_timer = ADD_TIMER(Base::profile(), "BuildTime");
     _serialize_key_timer = ADD_TIMER(Base::profile(), "SerializeKeyTime");
@@ -227,24 +227,17 @@ void AggSinkLocalState::_update_memusage_with_serialized_key() {
                        },
                        [&](auto& agg_method) -> void {
                            auto& data = *agg_method.hash_table;
-                           auto arena_memory_usage =
+                           int64_t arena_memory_usage =
                                    _agg_arena_pool->size() +
-                                   Base::_shared_state->aggregate_data_container->memory_usage() -
-                                   Base::_shared_state->mem_usage_record.used_in_arena;
-                           Base::_mem_tracker->consume(arena_memory_usage);
-                           Base::_mem_tracker->consume(
-                                   data.get_buffer_size_in_bytes() -
-                                   Base::_shared_state->mem_usage_record.used_in_state);
-                           _serialize_key_arena_memory_usage->add(arena_memory_usage);
-                           COUNTER_UPDATE(
-                                   _hash_table_memory_usage,
-                                   data.get_buffer_size_in_bytes() -
-                                           Base::_shared_state->mem_usage_record.used_in_state);
-                           Base::_shared_state->mem_usage_record.used_in_state =
-                                   data.get_buffer_size_in_bytes();
-                           Base::_shared_state->mem_usage_record.used_in_arena =
-                                   _agg_arena_pool->size() +
-                                   Base::_shared_state->aggregate_data_container->memory_usage();
+                                   _shared_state->aggregate_data_container->memory_usage();
+                           int64_t hash_table_memory_usage = data.get_buffer_size_in_bytes();
+
+                           COUNTER_SET(_memory_used_counter,
+                                       arena_memory_usage + hash_table_memory_usage);
+                           COUNTER_SET(_peak_memory_usage_counter, _memory_used_counter->value());
+
+                           COUNTER_SET(_serialize_key_arena_memory_usage, arena_memory_usage);
+                           COUNTER_SET(_hash_table_memory_usage, hash_table_memory_usage);
                        }},
                _agg_data->method_variant);
 }
@@ -266,7 +259,7 @@ Status AggSinkLocalState::_merge_with_serialized_key_helper(vectorized::Block* b
     vectorized::ColumnRawPtrs key_columns(key_size);
     std::vector<int> key_locs(key_size);
 
-    for (size_t i = 0; i < key_size; ++i) {
+    for (int i = 0; i < key_size; ++i) {
         if constexpr (for_spill) {
             key_columns[i] = block->get_by_position(i).column.get();
             key_locs[i] = i;
@@ -279,7 +272,7 @@ Status AggSinkLocalState::_merge_with_serialized_key_helper(vectorized::Block* b
         }
     }
 
-    int rows = block->rows();
+    size_t rows = block->rows();
     if (_places.size() < rows) {
         _places.resize(rows);
     }
@@ -336,7 +329,7 @@ Status AggSinkLocalState::_merge_with_serialized_key_helper(vectorized::Block* b
         if (need_do_agg) {
             for (int i = 0; i < Base::_shared_state->aggregate_evaluators.size(); ++i) {
                 if (Base::_shared_state->aggregate_evaluators[i]->is_merge() || for_spill) {
-                    int col_id = 0;
+                    size_t col_id = 0;
                     if constexpr (for_spill) {
                         col_id = Base::_shared_state->probe_expr_ctxs.size() + i;
                     } else {
@@ -423,11 +416,10 @@ Status AggSinkLocalState::_merge_without_key(vectorized::Block* block) {
 }
 
 void AggSinkLocalState::_update_memusage_without_key() {
-    auto arena_memory_usage =
-            _agg_arena_pool->size() - Base::_shared_state->mem_usage_record.used_in_arena;
-    Base::_mem_tracker->consume(arena_memory_usage);
-    _serialize_key_arena_memory_usage->add(arena_memory_usage);
-    Base::_shared_state->mem_usage_record.used_in_arena = _agg_arena_pool->size();
+    int64_t arena_memory_usage = _agg_arena_pool->size();
+    COUNTER_SET(_memory_used_counter, arena_memory_usage);
+    COUNTER_SET(_peak_memory_usage_counter, arena_memory_usage);
+    COUNTER_SET(_serialize_key_arena_memory_usage, arena_memory_usage);
 }
 
 Status AggSinkLocalState::_execute_with_serialized_key(vectorized::Block* block) {
@@ -459,7 +451,7 @@ Status AggSinkLocalState::_execute_with_serialized_key_helper(vectorized::Block*
         }
     }
 
-    int rows = block->rows();
+    size_t rows = block->rows();
     if (_places.size() < rows) {
         _places.resize(rows);
     }
@@ -756,7 +748,7 @@ Status AggSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
         const auto& agg_sort_info = tnode.agg_node.agg_sort_info_by_group_key;
         DCHECK_EQ(agg_sort_info.nulls_first.size(), agg_sort_info.is_asc_order.size());
 
-        const int order_by_key_size = agg_sort_info.is_asc_order.size();
+        const size_t order_by_key_size = agg_sort_info.is_asc_order.size();
         _order_directions.resize(order_by_key_size);
         _null_directions.resize(order_by_key_size);
         for (int i = 0; i < order_by_key_size; ++i) {
@@ -777,8 +769,8 @@ Status AggSinkOperatorX::open(RuntimeState* state) {
     RETURN_IF_ERROR(vectorized::VExpr::prepare(
             _probe_expr_ctxs, state, DataSinkOperatorX<AggSinkLocalState>::_child->row_desc()));
 
-    int j = _probe_expr_ctxs.size();
-    for (int i = 0; i < j; ++i) {
+    size_t j = _probe_expr_ctxs.size();
+    for (size_t i = 0; i < j; ++i) {
         auto nullable_output = _output_tuple_desc->slots()[i]->is_nullable();
         auto nullable_input = _probe_expr_ctxs[i]->root()->is_nullable();
         if (nullable_output != nullable_input) {
@@ -786,7 +778,7 @@ Status AggSinkOperatorX::open(RuntimeState* state) {
             _make_nullable_keys.emplace_back(i);
         }
     }
-    for (int i = 0; i < _aggregate_evaluators.size(); ++i, ++j) {
+    for (size_t i = 0; i < _aggregate_evaluators.size(); ++i, ++j) {
         SlotDescriptor* intermediate_slot_desc = _intermediate_tuple_desc->slots()[j];
         SlotDescriptor* output_slot_desc = _output_tuple_desc->slots()[j];
         RETURN_IF_ERROR(_aggregate_evaluators[i]->prepare(
@@ -876,8 +868,6 @@ Status AggSinkLocalState::close(RuntimeState* state, Status exec_status) {
 
     std::vector<char> tmp_deserialize_buffer;
     _deserialize_buffer.swap(tmp_deserialize_buffer);
-    Base::_mem_tracker->release(Base::_shared_state->mem_usage_record.used_in_state +
-                                Base::_shared_state->mem_usage_record.used_in_arena);
     return Base::close(state, exec_status);
 }
 

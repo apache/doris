@@ -251,6 +251,26 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
         connectContext.getSessionVariable().setDisableNereidsRules("OLAP_SCAN_PARTITION_PRUNE,PRUNE_EMPTY_PARTITION");
     }
 
+    // Test when join both side are all partition table and partition column name is same
+    @Test
+    public void joinPartitionNameSameTest() {
+        PlanChecker.from(connectContext)
+                .checkExplain("select t1.upgrade_day, t2.batch_no, count(*) "
+                                + "from test2 t2 join test1 t1 on "
+                                + "t1.upgrade_day = t2.upgrade_day "
+                                + "group by t1.upgrade_day, t2.batch_no;",
+                        nereidsPlanner -> {
+                            Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
+                            RelatedTableInfo relatedTableInfo =
+                                    MaterializedViewUtils.getRelatedTableInfo("upgrade_day", null,
+                                            rewrittenPlan, nereidsPlanner.getCascadesContext());
+                            checkRelatedTableInfo(relatedTableInfo,
+                                    "test1",
+                                    "upgrade_day",
+                                    true);
+                        });
+    }
+
     @Test
     public void getRelatedTableInfoWhenAutoPartitionTest() {
         PlanChecker.from(connectContext)

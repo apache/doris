@@ -441,7 +441,8 @@ public class StatementContext implements Closeable {
         String fullTableName = tableIf.getNameWithFullQualifiers();
         String resourceName = "tableReadLock(" + fullTableName + ")";
         plannerResources.push(new CloseableResource(
-                resourceName, Thread.currentThread().getName(), originStatement.originStmt, tableIf::readUnlock));
+                resourceName, Thread.currentThread().getName(),
+                originStatement == null ? null : originStatement.originStmt, tableIf::readUnlock));
     }
 
     /** releasePlannerResources */

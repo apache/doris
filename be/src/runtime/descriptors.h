@@ -35,6 +35,7 @@
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/global_types.h"
 #include "common/status.h"
+#include "olap/utils.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/types.h"
 #include "vec/data_types/data_type.h"
@@ -82,6 +83,9 @@ public:
     const std::vector<std::string>& column_paths() const { return _column_paths; };
 
     bool is_auto_increment() const { return _is_auto_increment; }
+
+    bool is_skip_bitmap_col() const { return _col_name == SKIP_BITMAP_COL; }
+    bool is_sequence_col() const { return _col_name == SEQUENCE_COL; }
 
     const std::string& col_default_value() const { return _col_default_value; }
     PrimitiveType col_type() const { return _col_type; }
@@ -215,16 +219,22 @@ public:
     std::string access_key() const { return _access_key; }
     std::string secret_key() const { return _secret_key; }
     std::string public_access() const { return _public_access; }
+    std::string endpoint() const { return _endpoint; }
+    std::string quota() const { return _quota; }
+    Status init_status() const { return _init_status; }
 
 private:
-    std::string _region;
+    std::string _region; //deprecated
     std::string _project;
     std::string _table;
-    std::string _odps_url;
-    std::string _tunnel_url;
+    std::string _odps_url;   //deprecated
+    std::string _tunnel_url; //deprecated
     std::string _access_key;
     std::string _secret_key;
-    std::string _public_access;
+    std::string _public_access; //deprecated
+    std::string _endpoint;
+    std::string _quota;
+    Status _init_status = Status::OK();
 };
 
 class TrinoConnectorTableDescriptor : public TableDescriptor {
@@ -309,6 +319,7 @@ public:
     int32_t connection_pool_max_wait_time() const { return _connection_pool_max_wait_time; }
     int32_t connection_pool_max_life_time() const { return _connection_pool_max_life_time; }
     bool connection_pool_keep_alive() const { return _connection_pool_keep_alive; }
+    bool enable_connection_pool() const { return _enable_connection_pool; }
 
 private:
     int64_t _jdbc_catalog_id;
@@ -325,6 +336,7 @@ private:
     int32_t _connection_pool_max_wait_time;
     int32_t _connection_pool_max_life_time;
     bool _connection_pool_keep_alive;
+    bool _enable_connection_pool;
 };
 
 class TupleDescriptor {

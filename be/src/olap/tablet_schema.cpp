@@ -53,8 +53,6 @@
 
 namespace doris {
 
-static bvar::Adder<size_t> g_total_tablet_schema_num("doris_total_tablet_schema_num");
-
 FieldType TabletColumn::get_field_type_by_type(PrimitiveType primitiveType) {
     switch (primitiveType) {
     case PrimitiveType::INVALID_TYPE:
@@ -97,8 +95,6 @@ FieldType TabletColumn::get_field_type_by_type(PrimitiveType primitiveType) {
         return FieldType::OLAP_FIELD_TYPE_HLL;
     case PrimitiveType::TYPE_DECIMALV2:
         return FieldType::OLAP_FIELD_TYPE_UNKNOWN; // Not implemented
-    case PrimitiveType::TYPE_TIME:
-        return FieldType::OLAP_FIELD_TYPE_UNKNOWN;
     case PrimitiveType::TYPE_OBJECT:
         return FieldType::OLAP_FIELD_TYPE_OBJECT;
     case PrimitiveType::TYPE_STRING:
@@ -675,7 +671,7 @@ bool TabletColumn::is_row_store_column() const {
 vectorized::AggregateFunctionPtr TabletColumn::get_aggregate_function_union(
         vectorized::DataTypePtr type, int current_be_exec_version) const {
     const auto* state_type = assert_cast<const vectorized::DataTypeAggState*>(type.get());
-    BeExecVersionManager::check_agg_state_compatibility(
+    BeExecVersionManager::check_function_compatibility(
             current_be_exec_version, _be_exec_version,
             state_type->get_nested_function()->get_name());
     return vectorized::AggregateStateUnion::create(state_type->get_nested_function(), {type}, type);
@@ -847,12 +843,12 @@ void TabletIndex::to_schema_pb(TabletIndexPB* index) const {
     }
 }
 
-TabletSchema::TabletSchema() {
-    g_total_tablet_schema_num << 1;
-}
+TabletSchema::TabletSchema() = default;
 
-TabletSchema::~TabletSchema() {
-    g_total_tablet_schema_num << -1;
+TabletSchema::~TabletSchema() = default;
+
+int64_t TabletSchema::get_metadata_size() const {
+    return sizeof(TabletSchema) + _vl_field_mem_size;
 }
 
 void TabletSchema::append_column(TabletColumn column, ColumnType col_type) {
@@ -876,6 +872,8 @@ void TabletSchema::append_column(TabletColumn column, ColumnType col_type) {
         _sequence_col_idx = _num_columns;
     } else if (UNLIKELY(column.name() == VERSION_COL)) {
         _version_col_idx = _num_columns;
+    } else if (UNLIKELY(column.name() == SKIP_BITMAP_COL)) {
+        _skip_bitmap_col_idx = _num_columns;
     }
     _field_id_to_index[column.unique_id()] = _num_columns;
     _cols.push_back(std::make_shared<TabletColumn>(std::move(column)));
@@ -974,7 +972,10 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema, bool ignore_extrac
             ++_num_variant_columns;
         }
         _cols.emplace_back(std::make_shared<TabletColumn>(std::move(column)));
+        _vl_field_mem_size +=
+                sizeof(StringRef) + sizeof(char) * _cols.back()->name().size() + sizeof(size_t);
         _field_name_to_index.emplace(StringRef(_cols.back()->name()), _num_columns);
+        _vl_field_mem_size += sizeof(int32_t) * 2;
         _field_id_to_index[_cols.back()->unique_id()] = _num_columns;
         _num_columns++;
     }
@@ -1002,6 +1003,7 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema, bool ignore_extrac
     _delete_sign_idx = schema.delete_sign_idx();
     _sequence_col_idx = schema.sequence_col_idx();
     _version_col_idx = schema.version_col_idx();
+    _skip_bitmap_col_idx = schema.skip_bitmap_col_idx();
     _sort_type = schema.sort_type();
     _sort_col_num = schema.sort_col_num();
     _compression_type = schema.compression_type();
@@ -1017,6 +1019,8 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema, bool ignore_extrac
     _row_store_column_unique_ids.assign(schema.row_store_column_unique_ids().begin(),
                                         schema.row_store_column_unique_ids().end());
     _variant_enable_flatten_nested = schema.variant_enable_flatten_nested();
+    _vl_field_mem_size += _row_store_column_unique_ids.capacity() * sizeof(int32_t);
+    update_metadata_size();
 }
 
 void TabletSchema::copy_from(const TabletSchema& tablet_schema) {
@@ -1084,6 +1088,7 @@ void TabletSchema::build_current_tablet_schema(int64_t index_id, int32_t version
     _delete_sign_idx = -1;
     _sequence_col_idx = -1;
     _version_col_idx = -1;
+    _skip_bitmap_col_idx = -1;
     _cluster_key_idxes.clear();
     for (const auto& i : ori_tablet_schema._cluster_key_idxes) {
         _cluster_key_idxes.push_back(i);
@@ -1107,6 +1112,8 @@ void TabletSchema::build_current_tablet_schema(int64_t index_id, int32_t version
             _sequence_col_idx = _num_columns;
         } else if (UNLIKELY(column->name() == VERSION_COL)) {
             _version_col_idx = _num_columns;
+        } else if (UNLIKELY(column->name() == SKIP_BITMAP_COL)) {
+            _skip_bitmap_col_idx = _num_columns;
         }
         _cols.emplace_back(std::make_shared<TabletColumn>(*column));
         _field_name_to_index.emplace(StringRef(_cols.back()->name()), _num_columns);
@@ -1224,6 +1231,7 @@ void TabletSchema::to_schema_pb(TabletSchemaPB* tablet_schema_pb) const {
     tablet_schema_pb->set_compression_type(_compression_type);
     tablet_schema_pb->set_row_store_page_size(_row_store_page_size);
     tablet_schema_pb->set_version_col_idx(_version_col_idx);
+    tablet_schema_pb->set_skip_bitmap_col_idx(_skip_bitmap_col_idx);
     tablet_schema_pb->set_inverted_index_storage_format(_inverted_index_storage_format);
     tablet_schema_pb->mutable_row_store_column_unique_ids()->Assign(
             _row_store_column_unique_ids.begin(), _row_store_column_unique_ids.end());

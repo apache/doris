@@ -50,6 +50,21 @@ ColumnConst::ColumnConst(const ColumnPtr& data_, size_t s_) : data(data_), s(s_)
     }
 }
 
+ColumnConst::ColumnConst(const ColumnPtr& data_, size_t s_, bool create_with_empty)
+        : data(data_), s(s_) {
+    /// Squash Const of Const.
+    while (const auto* const_data = typeid_cast<const ColumnConst*>(data.get())) {
+        data = const_data->get_data_column_ptr();
+    }
+
+    if (!(data->empty() && create_with_empty)) {
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "Incorrect size of nested column in constructor of ColumnConst: {}, "
+                               "create_with_empty: {}.",
+                               data->size(), create_with_empty);
+    }
+}
+
 ColumnPtr ColumnConst::convert_to_full_column() const {
     return data->replicate(Offsets(1, s));
 }

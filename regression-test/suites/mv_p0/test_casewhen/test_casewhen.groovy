@@ -36,15 +36,9 @@ suite ("test_casewhen") {
 
     qt_select_star "select * from sales_records order by 1,2;"
 
-    explain {
-        sql("select store_id, sum(case when sale_amt>10 then 1 else 2 end) from sales_records group by store_id order by 1;")
-        contains "(store_amt)"
-    }
+    mv_rewrite_success("select store_id, sum(case when sale_amt>10 then 1 else 2 end) from sales_records group by store_id order by 1;", "store_amt")
     qt_select_mv "select store_id, sum(case when sale_amt>10 then 1 else 2 end) from sales_records group by store_id order by 1;"
 
     sql """set enable_stats=true;"""
-    explain {
-        sql("select store_id, sum(case when sale_amt>10 then 1 else 2 end) from sales_records group by store_id order by 1;")
-        contains "(store_amt)"
-    }
+    mv_rewrite_success("select store_id, sum(case when sale_amt>10 then 1 else 2 end) from sales_records group by store_id order by 1;", "store_amt")
 }

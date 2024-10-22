@@ -117,7 +117,7 @@ TReportExecStatusParams RuntimeQueryStatisticsMgr::create_report_exec_status_par
         int32_t fragment_id = entry.first;
         const std::vector<std::shared_ptr<TRuntimeProfileTree>>& fragment_profile = entry.second;
         std::vector<TDetailedReportParams> detailed_params;
-
+        bool is_first = true;
         for (auto pipeline_profile : fragment_profile) {
             if (pipeline_profile == nullptr) {
                 auto msg = fmt::format("Register fragment profile {} {} failed, profile is null",
@@ -129,6 +129,9 @@ TReportExecStatusParams RuntimeQueryStatisticsMgr::create_report_exec_status_par
 
             TDetailedReportParams tmp;
             THRIFT_MOVE_VALUES(tmp, profile, *pipeline_profile);
+            // First profile is fragment level
+            tmp.__set_is_fragment_level(is_first);
+            is_first = false;
             // tmp.fragment_instance_id is not needed for pipeline x
             detailed_params.push_back(std::move(tmp));
         }
@@ -521,21 +524,21 @@ void RuntimeQueryStatisticsMgr::get_active_be_tasks_block(vectorized::Block* blo
     for (auto& [query_id, qs_ctx_ptr] : _query_statistics_ctx_map) {
         TQueryStatistics tqs;
         qs_ctx_ptr->collect_query_statistics(&tqs);
-        SchemaScannerHelper::insert_int_value(0, be_id, block);
+        SchemaScannerHelper::insert_int64_value(0, be_id, block);
         SchemaScannerHelper::insert_string_value(1, qs_ctx_ptr->_fe_addr.hostname, block);
         SchemaScannerHelper::insert_string_value(2, query_id, block);
 
         int64_t task_time = qs_ctx_ptr->_is_query_finished
                                     ? qs_ctx_ptr->_query_finish_time - qs_ctx_ptr->_query_start_time
                                     : MonotonicMillis() - qs_ctx_ptr->_query_start_time;
-        SchemaScannerHelper::insert_int_value(3, task_time, block);
-        SchemaScannerHelper::insert_int_value(4, tqs.cpu_ms, block);
-        SchemaScannerHelper::insert_int_value(5, tqs.scan_rows, block);
-        SchemaScannerHelper::insert_int_value(6, tqs.scan_bytes, block);
-        SchemaScannerHelper::insert_int_value(7, tqs.max_peak_memory_bytes, block);
-        SchemaScannerHelper::insert_int_value(8, tqs.current_used_memory_bytes, block);
-        SchemaScannerHelper::insert_int_value(9, tqs.shuffle_send_bytes, block);
-        SchemaScannerHelper::insert_int_value(10, tqs.shuffle_send_rows, block);
+        SchemaScannerHelper::insert_int64_value(3, task_time, block);
+        SchemaScannerHelper::insert_int64_value(4, tqs.cpu_ms, block);
+        SchemaScannerHelper::insert_int64_value(5, tqs.scan_rows, block);
+        SchemaScannerHelper::insert_int64_value(6, tqs.scan_bytes, block);
+        SchemaScannerHelper::insert_int64_value(7, tqs.max_peak_memory_bytes, block);
+        SchemaScannerHelper::insert_int64_value(8, tqs.current_used_memory_bytes, block);
+        SchemaScannerHelper::insert_int64_value(9, tqs.shuffle_send_bytes, block);
+        SchemaScannerHelper::insert_int64_value(10, tqs.shuffle_send_rows, block);
 
         std::stringstream ss;
         ss << qs_ctx_ptr->_query_type;

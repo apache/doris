@@ -91,10 +91,10 @@ PhysicalCteAnchor ( cteId=CTEId#1 )
 ------PhysicalDistribute[DistributionSpecGather]
 --------PhysicalQuickSort[LOCAL_SORT]
 ----------PhysicalProject
-------------hashJoin[INNER_JOIN shuffle] hashCondition=((cs1.item_sk = cs2.item_sk) and (cs1.store_name = cs2.store_name) and (cs1.store_zip = cs2.store_zip)) otherCondition=((cs2.cnt <= cs1.cnt))
+------------hashJoin[INNER_JOIN shuffle] hashCondition=((cs1.item_sk = cs2.item_sk) and (cs1.store_name = cs2.store_name) and (cs1.store_zip = cs2.store_zip)) otherCondition=((cs2.cnt <= cs1.cnt)) build RFs:RF20 item_sk->[item_sk];RF21 store_name->[store_name];RF22 store_zip->[store_zip]
 --------------PhysicalProject
 ----------------filter((cs1.syear = 2001))
-------------------PhysicalCteConsumer ( cteId=CTEId#1 )
+------------------PhysicalCteConsumer ( cteId=CTEId#1 ) apply RFs: RF20 RF21 RF22
 --------------PhysicalProject
 ----------------filter((cs2.syear = 2002))
 ------------------PhysicalCteConsumer ( cteId=CTEId#1 )

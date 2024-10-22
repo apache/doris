@@ -87,6 +87,7 @@ Status CloudEngineCalcDeleteBitmapTask::execute() {
                     LOG(WARNING) << "handle calc delete bitmap fail, st=" << st.to_string();
                 }
             });
+            VLOG_DEBUG << "submit TabletCalcDeleteBitmapTask for tablet=" << tablet_id;
             if (!submit_st.ok()) {
                 _res = submit_st;
                 break;
@@ -95,6 +96,7 @@ Status CloudEngineCalcDeleteBitmapTask::execute() {
     }
     // wait for all finished
     token->wait();
+    DBUG_EXECUTE_IF("CloudEngineCalcDeleteBitmapTask.execute.enable_wait", { sleep(3); });
 
     LOG(INFO) << "finish to calculate delete bitmap on transaction."
               << "transaction_id=" << transaction_id << ", cost(us): " << watch.get_elapse_time_us()
@@ -125,6 +127,7 @@ void CloudTabletCalcDeleteBitmapTask::set_compaction_stats(int64_t ms_base_compa
 }
 
 Status CloudTabletCalcDeleteBitmapTask::handle() const {
+    VLOG_DEBUG << "start calculate delete bitmap on tablet " << _tablet_id;
     SCOPED_ATTACH_TASK(_mem_tracker);
     int64_t t1 = MonotonicMicros();
     auto base_tablet = DORIS_TRY(_engine.get_tablet(_tablet_id));
@@ -174,8 +177,12 @@ Status CloudTabletCalcDeleteBitmapTask::handle() const {
     auto sync_rowset_time_us = MonotonicMicros() - t2;
     max_version = tablet->max_version_unlocked();
     if (_version != max_version + 1) {
-        LOG(WARNING) << "version not continuous, current max version=" << max_version
-                     << ", request_version=" << _version << " tablet_id=" << _tablet_id;
+        bool need_log = (config::publish_version_gap_logging_threshold < 0 ||
+                         max_version + config::publish_version_gap_logging_threshold >= _version);
+        if (need_log) {
+            LOG(WARNING) << "version not continuous, current max version=" << max_version
+                         << ", request_version=" << _version << " tablet_id=" << _tablet_id;
+        }
         auto error_st =
                 Status::Error<ErrorCode::DELETE_BITMAP_LOCK_ERROR, false>("version not continuous");
         _engine_calc_delete_bitmap_task->add_error_tablet_id(_tablet_id, error_st);

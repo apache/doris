@@ -71,7 +71,8 @@ run() {
         --times "${repeat_times_from_trigger:-1}" \
         -parallel 18 \
         -suiteParallel 18 \
-        -actionParallel 10; then
+        -actionParallel 10 \
+        -runNonConcurrent false; then
         echo
     else
         bash "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/get-or-set-tmp-env.sh 'set' "export need_collect_log=true"

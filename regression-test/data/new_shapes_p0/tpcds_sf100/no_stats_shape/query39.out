@@ -25,9 +25,9 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----PhysicalQuickSort[MERGE_SORT]
 ------PhysicalDistribute[DistributionSpecGather]
 --------PhysicalQuickSort[LOCAL_SORT]
-----------hashJoin[INNER_JOIN shuffle] hashCondition=((inv1.i_item_sk = inv2.i_item_sk) and (inv1.w_warehouse_sk = inv2.w_warehouse_sk)) otherCondition=()
+----------hashJoin[INNER_JOIN shuffle] hashCondition=((inv1.i_item_sk = inv2.i_item_sk) and (inv1.w_warehouse_sk = inv2.w_warehouse_sk)) otherCondition=() build RFs:RF3 i_item_sk->[i_item_sk];RF4 w_warehouse_sk->[w_warehouse_sk]
 ------------filter((inv1.d_moy = 1))
---------------PhysicalCteConsumer ( cteId=CTEId#0 )
+--------------PhysicalCteConsumer ( cteId=CTEId#0 ) apply RFs: RF3 RF4
 ------------filter((inv2.d_moy = 2))
 --------------PhysicalCteConsumer ( cteId=CTEId#0 )
 

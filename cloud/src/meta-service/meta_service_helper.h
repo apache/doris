@@ -58,6 +58,9 @@ void begin_rpc(std::string_view func_name, brpc::Controller* ctrl, const Request
                          std::is_same_v<Request, GetTabletRequest>) {
         VLOG_DEBUG << "begin " << func_name << " from " << ctrl->remote_side()
                    << " request=" << req->ShortDebugString();
+    } else if constexpr (std::is_same_v<Request, RemoveDeleteBitmapRequest>) {
+        LOG(INFO) << "begin " << func_name << " from " << ctrl->remote_side()
+                  << " tablet_id=" << req->tablet_id() << " rowset_size=" << req->rowset_ids_size();
     } else {
         LOG(INFO) << "begin " << func_name << " from " << ctrl->remote_side()
                   << " request=" << req->ShortDebugString();

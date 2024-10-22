@@ -61,7 +61,7 @@ class FlushToken : public std::enable_shared_from_this<FlushToken> {
 public:
     FlushToken(ThreadPool* thread_pool) : _flush_status(Status::OK()), _thread_pool(thread_pool) {}
 
-    Status submit(std::unique_ptr<MemTable> mem_table);
+    Status submit(std::shared_ptr<MemTable> mem_table);
 
     // error has happens, so we cancel this token
     // And remove all tasks in the queue.
@@ -87,7 +87,7 @@ private:
 private:
     friend class MemtableFlushTask;
 
-    void _flush_memtable(std::unique_ptr<MemTable> memtable_ptr, int32_t segment_id,
+    void _flush_memtable(std::shared_ptr<MemTable> memtable_ptr, int32_t segment_id,
                          int64_t submit_task_time);
 
     Status _do_flush_memtable(MemTable* memtable, int32_t segment_id, int64_t* flush_size);

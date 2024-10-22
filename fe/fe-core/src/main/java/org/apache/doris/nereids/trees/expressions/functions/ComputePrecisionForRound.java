@@ -40,8 +40,10 @@ public interface ComputePrecisionForRound extends ComputePrecision {
             // If scale arg is an integer literal, or it is a cast(Integer as Integer)
             // then we will try to use its value as result scale
             // In any other cases, we will make sure result decimal has same scale with input.
-            if ((floatLength.isLiteral() && floatLength.getDataType() instanceof Int32OrLessType)
+            if ((floatLength.isLiteral() && !floatLength.isNullLiteral()
+                    && floatLength.getDataType() instanceof Int32OrLessType)
                     || (floatLength instanceof Cast && floatLength.child(0).isLiteral()
+                    && !floatLength.child(0).isNullLiteral()
                     && floatLength.child(0).getDataType() instanceof Int32OrLessType)) {
                 if (floatLength instanceof Cast) {
                     scale = ((IntegerLikeLiteral) floatLength.child(0)).getIntValue();

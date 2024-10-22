@@ -59,7 +59,6 @@ Status OlapScanLocalState::_init_profile() {
     _block_fetch_timer = ADD_TIMER(_scanner_profile, "BlockFetchTime");
     _delete_bitmap_get_agg_timer = ADD_TIMER(_scanner_profile, "DeleteBitmapGetAggTime");
     _sync_rowset_timer = ADD_TIMER(_scanner_profile, "SyncRowsetTime");
-    _raw_rows_counter = ADD_COUNTER(_segment_profile, "RawRowsRead", TUnit::UNIT);
     _block_convert_timer = ADD_TIMER(_scanner_profile, "BlockConvertTime");
     _block_init_timer = ADD_TIMER(_segment_profile, "BlockInitTime");
     _block_init_seek_timer = ADD_TIMER(_segment_profile, "BlockInitSeekTime");
@@ -164,16 +163,13 @@ Status OlapScanLocalState::_process_conjuncts(RuntimeState* state) {
 }
 
 bool OlapScanLocalState::_is_key_column(const std::string& key_name) {
-    auto& p = _parent->cast<OlapScanOperatorX>();
     // all column in dup_keys table or unique_keys with merge on write table olap scan node threat
     // as key column
-    if (p._olap_scan_node.keyType == TKeysType::DUP_KEYS ||
-        (p._olap_scan_node.keyType == TKeysType::UNIQUE_KEYS &&
-         p._olap_scan_node.__isset.enable_unique_key_merge_on_write &&
-         p._olap_scan_node.enable_unique_key_merge_on_write)) {
+    if (_storage_no_merge()) {
         return true;
     }
 
+    auto& p = _parent->cast<OlapScanOperatorX>();
     auto res = std::find(p._olap_scan_node.key_column_name.begin(),
                          p._olap_scan_node.key_column_name.end(), key_name);
     return res != p._olap_scan_node.key_column_name.end();
@@ -257,10 +253,8 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* s
     }
     auto& p = _parent->cast<OlapScanOperatorX>();
 
-    if (!p._olap_scan_node.output_column_unique_ids.empty()) {
-        for (auto uid : p._olap_scan_node.output_column_unique_ids) {
-            _maybe_read_column_ids.emplace(uid);
-        }
+    for (auto uid : p._olap_scan_node.output_column_unique_ids) {
+        _maybe_read_column_ids.emplace(uid);
     }
 
     // ranges constructed from scan keys
@@ -482,9 +476,13 @@ Status OlapScanLocalState::_build_key_ranges_and_filters() {
         // we use `exact_range` to identify a key range is an exact range or not when we convert
         // it to `_scan_keys`. If `exact_range` is true, we can just discard it from `_olap_filters`.
         bool exact_range = true;
+
+        // If the `_scan_keys` cannot extend by the range of column, should stop.
+        bool should_break = false;
+
         bool eos = false;
-        for (int column_index = 0;
-             column_index < column_names.size() && !_scan_keys.has_range_value() && !eos;
+        for (int column_index = 0; column_index < column_names.size() &&
+                                   !_scan_keys.has_range_value() && !eos && !should_break;
              ++column_index) {
             auto iter = _colname_to_value_range.find(column_names[column_index]);
             if (_colname_to_value_range.end() == iter) {
@@ -498,8 +496,9 @@ Status OlapScanLocalState::_build_key_ranges_and_filters() {
                         // but the original range may be converted to olap filters, if it's not a exact_range.
                         auto temp_range = range;
                         if (range.get_fixed_value_size() <= p._max_pushdown_conditions_per_column) {
-                            RETURN_IF_ERROR(_scan_keys.extend_scan_key(
-                                    temp_range, p._max_scan_key_num, &exact_range, &eos));
+                            RETURN_IF_ERROR(
+                                    _scan_keys.extend_scan_key(temp_range, p._max_scan_key_num,
+                                                               &exact_range, &eos, &should_break));
                             if (exact_range) {
                                 _colname_to_value_range.erase(iter->first);
                             }
@@ -507,8 +506,9 @@ Status OlapScanLocalState::_build_key_ranges_and_filters() {
                             // if exceed max_pushdown_conditions_per_column, use whole_value_rang instead
                             // and will not erase from _colname_to_value_range, it must be not exact_range
                             temp_range.set_whole_value_range();
-                            RETURN_IF_ERROR(_scan_keys.extend_scan_key(
-                                    temp_range, p._max_scan_key_num, &exact_range, &eos));
+                            RETURN_IF_ERROR(
+                                    _scan_keys.extend_scan_key(temp_range, p._max_scan_key_num,
+                                                               &exact_range, &eos, &should_break));
                         }
                         return Status::OK();
                     },

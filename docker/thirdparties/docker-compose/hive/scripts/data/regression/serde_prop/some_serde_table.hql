@@ -88,19 +88,8 @@ CREATE TABLE `serde_test7`(
 ROW FORMAT SERDE 
   'org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe' 
 WITH SERDEPROPERTIES (
-  'escape.delim' = '|'
-)
-STORED AS INPUTFORMAT 
-  'org.apache.hadoop.mapred.TextInputFormat' 
-OUTPUTFORMAT 
-  'org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat';
-
-CREATE TABLE `serde_test8`(
-  `id` int, 
-  `name` string)
-ROW FORMAT SERDE 
-  'org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe' 
-WITH SERDEPROPERTIES (
+  'field.delim' = 'a',
+  'escape.delim' = '|',
   'serialization.null.format' = 'null'
 )
 STORED AS INPUTFORMAT 
@@ -108,11 +97,12 @@ STORED AS INPUTFORMAT
 OUTPUTFORMAT 
   'org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat';
 
+CREATE TABLE `serde_test8` like `serde_test7`;
+
 insert into serde_test1 values(1, "abc"),(2, "def");
 insert into serde_test2 values(1, "abc"),(2, "def");
 insert into serde_test3 values(1, "abc"),(2, "def");
 insert into serde_test4 values(1, "abc"),(2, "def");
 insert into serde_test5 values(1, "abc"),(2, "def");
 insert into serde_test6 values(1, "abc"),(2, "def");
-insert into serde_test7 values(1, "abc"),(2, "def");
-insert into serde_test8 values(1, "abc"),(2, "def");
+insert into serde_test7 values(1, null),(2, "|||"),(3, "aaa"),(4, "\"null\"");

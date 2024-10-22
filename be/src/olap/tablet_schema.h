@@ -35,6 +35,7 @@
 #include "common/consts.h"
 #include "common/status.h"
 #include "gutil/stringprintf.h"
+#include "olap/metadata_adder.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/options.h"
 #include "runtime/define_primitive_type.h"
@@ -60,7 +61,7 @@ class TabletColumn;
 
 using TabletColumnPtr = std::shared_ptr<TabletColumn>;
 
-class TabletColumn {
+class TabletColumn : public MetadataAdder<TabletColumn> {
 public:
     TabletColumn();
     TabletColumn(const ColumnPB& column);
@@ -90,6 +91,7 @@ public:
     bool is_bf_column() const { return _is_bf_column; }
     bool has_bitmap_index() const { return _has_bitmap_index; }
     bool is_array_type() const { return _type == FieldType::OLAP_FIELD_TYPE_ARRAY; }
+    bool is_agg_state_type() const { return _type == FieldType::OLAP_FIELD_TYPE_AGG_STATE; }
     bool is_jsonb_type() const { return _type == FieldType::OLAP_FIELD_TYPE_JSONB; }
     bool is_length_variable_type() const {
         return _type == FieldType::OLAP_FIELD_TYPE_CHAR ||
@@ -245,7 +247,7 @@ bool operator!=(const TabletColumn& a, const TabletColumn& b);
 
 class TabletSchema;
 
-class TabletIndex {
+class TabletIndex : public MetadataAdder<TabletIndex> {
 public:
     TabletIndex() = default;
     void init_from_thrift(const TOlapTableIndex& index, const TabletSchema& tablet_schema);
@@ -287,7 +289,7 @@ private:
     std::map<string, string> _properties;
 };
 
-class TabletSchema {
+class TabletSchema : public MetadataAdder<TabletSchema> {
 public:
     enum ColumnType { NORMAL = 0, DROPPED = 1, VARIANT = 2 };
     // TODO(yingchun): better to make constructor as private to avoid
@@ -368,6 +370,8 @@ public:
     int32_t sequence_col_idx() const { return _sequence_col_idx; }
     void set_version_col_idx(int32_t version_col_idx) { _version_col_idx = version_col_idx; }
     int32_t version_col_idx() const { return _version_col_idx; }
+    bool has_skip_bitmap_col() const { return _skip_bitmap_col_idx != -1; }
+    int32_t skip_bitmap_col_idx() const { return _skip_bitmap_col_idx; }
     segment_v2::CompressionTypePB compression_type() const { return _compression_type; }
     void set_row_store_page_size(long page_size) { _row_store_page_size = page_size; }
     long row_store_page_size() const { return _row_store_page_size; }
@@ -497,6 +501,8 @@ public:
 
     const std::vector<int32_t>& row_columns_uids() const { return _row_store_column_unique_ids; }
 
+    int64_t get_metadata_size() const override;
+
 private:
     friend bool operator==(const TabletSchema& a, const TabletSchema& b);
     friend bool operator!=(const TabletSchema& a, const TabletSchema& b);
@@ -530,6 +536,7 @@ private:
     int32_t _delete_sign_idx = -1;
     int32_t _sequence_col_idx = -1;
     int32_t _version_col_idx = -1;
+    int32_t _skip_bitmap_col_idx = -1;
     int32_t _schema_version = -1;
     int64_t _table_id = -1;
     int64_t _db_id = -1;
@@ -544,6 +551,7 @@ private:
     // ATTN: For compability reason empty cids means all columns of tablet schema are encoded to row column
     std::vector<int32_t> _row_store_column_unique_ids;
     bool _variant_enable_flatten_nested = false;
+    int64_t _vl_field_mem_size {0}; // variable length field
 };
 
 bool operator==(const TabletSchema& a, const TabletSchema& b);

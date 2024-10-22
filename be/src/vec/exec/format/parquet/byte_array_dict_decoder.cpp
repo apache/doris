@@ -32,6 +32,9 @@ namespace doris::vectorized {
 Status ByteArrayDictDecoder::set_dict(std::unique_ptr<uint8_t[]>& dict, int32_t length,
                                       size_t num_values) {
     _dict = std::move(dict);
+    if (_dict == nullptr) {
+        return Status::Corruption("Wrong dictionary data for byte array type, dict is null.");
+    }
     _dict_items.reserve(num_values);
     uint32_t offset_cursor = 0;
     char* dict_item_address = reinterpret_cast<char*>(_dict.get());

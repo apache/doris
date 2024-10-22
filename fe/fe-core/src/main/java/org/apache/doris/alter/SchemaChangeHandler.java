@@ -310,7 +310,7 @@ public class SchemaChangeHandler extends AlterHandler {
         boolean lightSchemaChange = olapTable.getEnableLightSchemaChange();
         /*
          * UNIQUE:
-         *      Can not drop any key column.
+         *      Can not drop any key column, cluster key column
          * AGGREGATION:
          *      Can not drp any key column is has value with REPLACE method
          */
@@ -428,6 +428,18 @@ public class SchemaChangeHandler extends AlterHandler {
             }
             if (!found) {
                 throw new DdlException("Column does not exists: " + dropColName);
+            }
+
+            // drop bloom filter column
+            Set<String> bfCols = olapTable.getCopiedBfColumns();
+            if (bfCols != null) {
+                Set<String> newBfCols = new HashSet<>();
+                for (String bfCol : bfCols) {
+                    if (!bfCol.equalsIgnoreCase(dropColName)) {
+                        newBfCols.add(bfCol);
+                    }
+                }
+                olapTable.setBloomFilterInfo(newBfCols, olapTable.getBfFpp());
             }
 
             for (int i = 1; i < indexIds.size(); i++) {
@@ -741,12 +753,6 @@ public class SchemaChangeHandler extends AlterHandler {
         } // end for handling other indices
 
         if (typeChanged && !lightSchemaChange) {
-            Optional<Column> autoIncCol = olapTable.getBaseSchema(true).stream()
-                    .filter(col -> col.isAutoInc()).findFirst();
-            if (autoIncCol.isPresent()) {
-                throw new DdlException("Can not modify column " + modColumn.getName() + " becasue table "
-                        + olapTable.getName() + " has auto-increment column " + autoIncCol.get().getName());
-            }
             /*
              * In new alter table process (AlterJobV2), any modified columns are treated as new columns.
              * But the modified columns' name does not changed. So in order to distinguish this, we will add
@@ -843,9 +849,6 @@ public class SchemaChangeHandler extends AlterHandler {
             for (Column column : targetIndexSchema) {
                 if (!column.isVisible()) {
                     newSchema.add(column);
-                }
-                if (column.isClusterKey()) {
-                    throw new DdlException("Can not modify column order in Unique data model table");
                 }
             }
         }
@@ -963,7 +966,7 @@ public class SchemaChangeHandler extends AlterHandler {
                 }
             }
         } else if (KeysType.UNIQUE_KEYS == olapTable.getKeysType()) {
-            if (newColumn.getAggregationType() != null) {
+            if (newColumn.getAggregationType() != null && newColumn.getAggregationType() != AggregateType.NONE) {
                 throw new DdlException(
                         "Can not assign aggregation method" + " on column in Unique data model table: " + newColName);
             }
@@ -1378,6 +1381,26 @@ public class SchemaChangeHandler extends AlterHandler {
             }
         }
 
+        // property enable_unique_key_skip_bitmap
+        boolean enableUniqueKeySkipBitmap = false;
+        boolean hasEnableUniqueKeySkipBitmapChanged = false;
+        if (propertyMap.containsKey(PropertyAnalyzer.ENABLE_UNIQUE_KEY_SKIP_BITMAP_COLUMN)) {
+            if (!(olapTable.getKeysType() == KeysType.UNIQUE_KEYS && olapTable.getEnableUniqueKeyMergeOnWrite())) {
+                throw new DdlException("Only allow to alter table property enable_unique_key_skip_bitmap"
+                        + "on unique merge-on-write table.");
+            }
+            try {
+                enableUniqueKeySkipBitmap = PropertyAnalyzer.analyzeUniqueKeySkipBitmapColumn(propertyMap);
+            } catch (AnalysisException e) {
+                throw new DdlException(e.getMessage());
+            }
+            if (enableUniqueKeySkipBitmap) {
+                if (olapTable.getEnableUniqueKeySkipBitmap() != enableUniqueKeySkipBitmap) {
+                    hasEnableUniqueKeySkipBitmapChanged = true;
+                }
+            }
+        }
+
         // begin checking each table
         // ATTN: DO NOT change any meta in this loop
         long tableId = olapTable.getId();
@@ -1453,6 +1476,8 @@ public class SchemaChangeHandler extends AlterHandler {
                 if (olapTable.getStorageFormat() != TStorageFormat.V2) {
                     needAlter = true;
                 }
+            } else if (hasEnableUniqueKeySkipBitmapChanged) {
+                needAlter = true;
             }
 
             if (!needAlter) {
@@ -1570,7 +1595,8 @@ public class SchemaChangeHandler extends AlterHandler {
             }
         } // end for indices
 
-        if (changedIndexIdToSchema.isEmpty() && !hasIndexChange && !hasRowStoreChanged) {
+        if (changedIndexIdToSchema.isEmpty() && !hasIndexChange && !hasRowStoreChanged
+                && !hasEnableUniqueKeySkipBitmapChanged) {
             throw new DdlException("Nothing is changed. please check your alter stmt.");
         }
 
@@ -1584,6 +1610,8 @@ public class SchemaChangeHandler extends AlterHandler {
         schemaChangeJob.setBloomFilterInfo(hasBfChange, bfColumns, bfFpp);
         schemaChangeJob.setAlterIndexInfo(hasIndexChange, indexes);
         schemaChangeJob.setStoreRowColumnInfo(hasRowStoreChanged, storeRowColumn, rsColumns);
+        schemaChangeJob.setEnableUniqueKeySkipBitmapInfo(enableUniqueKeySkipBitmap,
+                hasEnableUniqueKeySkipBitmapChanged);
 
         // If StorageFormat is set to TStorageFormat.V2
         // which will create tablet with preferred_rowset_type set to BETA
@@ -2007,6 +2035,22 @@ public class SchemaChangeHandler extends AlterHandler {
                             rowColumn.setUniqueId(maxColUniqueId + 1);
                             indexSchemaMap.get(olapTable.getBaseIndexId()).add(rowColumn);
                         }
+                    } else if (properties.containsKey(PropertyAnalyzer.ENABLE_UNIQUE_KEY_SKIP_BITMAP_COLUMN)) {
+                        boolean value = Boolean.parseBoolean(properties
+                                .get(PropertyAnalyzer.ENABLE_UNIQUE_KEY_SKIP_BITMAP_COLUMN));
+                        if (!value) {
+                            throw new DdlException("Can not alter enable_unique_key_skip_bitmap_column"
+                                    + " from true to false currently.");
+                        }
+                        if (!olapTable.hasSkipBitmapColumn()) {
+                            Column skipBitmapColumn =
+                                    ColumnDefinition.newSkipBitmapColumnDef(AggregateType.NONE)
+                                            .translateToCatalogStyle();
+                            int maxColUniqueId = olapTable.getIndexMetaByIndexId(olapTable.getBaseIndexId())
+                                    .getMaxColUniqueId();
+                            skipBitmapColumn.setUniqueId(maxColUniqueId + 1);
+                            indexSchemaMap.get(olapTable.getBaseIndexId()).add(skipBitmapColumn);
+                        }
                     }
                 }
 
@@ -2237,8 +2281,9 @@ public class SchemaChangeHandler extends AlterHandler {
                     int schemaHash = olapTable.getSchemaHashByIndexId(index.getId());
                     for (Tablet tablet : index.getTablets()) {
                         for (Replica replica : tablet.getReplicas()) {
-                            ClearAlterTask alterTask = new ClearAlterTask(replica.getBackendId(), db.getId(),
-                                    olapTable.getId(), partition.getId(), index.getId(), tablet.getId(), schemaHash);
+                            ClearAlterTask alterTask = new ClearAlterTask(replica.getBackendIdWithoutException(),
+                                    db.getId(), olapTable.getId(), partition.getId(),
+                                    index.getId(), tablet.getId(), schemaHash);
                             batchTask.addTask(alterTask);
                         }
                     }
@@ -2866,11 +2911,7 @@ public class SchemaChangeHandler extends AlterHandler {
                 }
                 Env.getCurrentEnv().getEditLog().logModifyTableAddOrDropInvertedIndices(info);
                 // Drop table column stats after light schema change finished.
-                try {
-                    Env.getCurrentEnv().getAnalysisManager().dropStats(olapTable, null);
-                } catch (Exception e) {
-                    LOG.info("Failed to drop stats after light schema change. Reason: {}", e.getMessage());
-                }
+                Env.getCurrentEnv().getAnalysisManager().dropStats(olapTable, null);
 
                 if (isDropIndex) {
                     // send drop rpc to be
@@ -2898,11 +2939,7 @@ public class SchemaChangeHandler extends AlterHandler {
                 }
                 Env.getCurrentEnv().getEditLog().logModifyTableAddOrDropColumns(info);
                 // Drop table column stats after light schema change finished.
-                try {
-                    Env.getCurrentEnv().getAnalysisManager().dropStats(olapTable, null);
-                } catch (Exception e) {
-                    LOG.info("Failed to drop stats after light schema change. Reason: {}", e.getMessage());
-                }
+                Env.getCurrentEnv().getAnalysisManager().dropStats(olapTable, null);
             }
             LOG.info("finished modify table's add or drop or modify columns. table: {}, job: {}, is replay: {}",
                     olapTable.getName(), jobId, isReplay);
@@ -3022,9 +3059,17 @@ public class SchemaChangeHandler extends AlterHandler {
         List<Long> indexIds = new ArrayList<Long>();
         indexIds.add(baseIndexId);
         indexIds.addAll(olapTable.getIndexIdListExceptBaseIndex());
+        boolean hasEnableUniqueKeySkipBitmapChanged = false;
         for (int i = 0; i < indexIds.size(); i++) {
             List<Column> indexSchema = indexSchemaMap.get(indexIds.get(i));
             MaterializedIndexMeta currentIndexMeta = olapTable.getIndexMetaByIndexId(indexIds.get(i));
+            if (i == 0 && !olapTable.getEnableUniqueKeySkipBitmap()) {
+                Preconditions.checkState(!currentIndexMeta.getSchema(true).stream()
+                        .anyMatch(col -> col.isSkipBitmapColumn()));
+                if (indexSchema.stream().anyMatch(col -> col.isSkipBitmapColumn())) {
+                    hasEnableUniqueKeySkipBitmapChanged = true;
+                }
+            }
             currentIndexMeta.setSchema(indexSchema);
 
             int currentSchemaVersion = currentIndexMeta.getSchemaVersion();
@@ -3040,6 +3085,9 @@ public class SchemaChangeHandler extends AlterHandler {
             }
             currentIndexMeta.setMaxColUniqueId(maxColUniqueId);
             currentIndexMeta.setIndexes(indexes);
+        }
+        if (hasEnableUniqueKeySkipBitmapChanged) {
+            olapTable.setEnableUniqueKeySkipBitmap(true);
         }
         olapTable.setIndexes(indexes);
         olapTable.rebuildFullSchema();

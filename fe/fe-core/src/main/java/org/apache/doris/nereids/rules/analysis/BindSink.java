@@ -75,6 +75,7 @@ import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -110,7 +111,7 @@ public class BindSink implements AnalysisRuleFactory {
                             return fileSink.withOutputExprs(output);
                         })
                 ),
-                // TODO: bind hive taget table
+                // TODO: bind hive target table
                 RuleType.BINDING_INSERT_HIVE_TABLE.build(unboundHiveTableSink().thenApply(this::bindHiveTableSink)),
                 RuleType.BINDING_INSERT_ICEBERG_TABLE.build(
                     unboundIcebergTableSink().thenApply(this::bindIcebergTableSink)),
@@ -199,9 +200,12 @@ public class BindSink implements AnalysisRuleFactory {
                 // including the following cases:
                 // 1. it's a load job with `partial_columns=true`
                 // 2. UPDATE and DELETE, planner will automatically add these hidden columns
+                // 3. session value `require_sequence_in_insert` is false
                 if (!haveInputSeqCol && !isPartialUpdate && (
                         boundSink.getDmlCommandType() != DMLCommandType.UPDATE
-                                && boundSink.getDmlCommandType() != DMLCommandType.DELETE)) {
+                                && boundSink.getDmlCommandType() != DMLCommandType.DELETE) && (
+                        boundSink.getDmlCommandType() != DMLCommandType.INSERT
+                                || ConnectContext.get().getSessionVariable().isRequireSequenceInInsert())) {
                     if (!seqColInTable.isPresent() || seqColInTable.get().getDefaultValue() == null
                             || !seqColInTable.get().getDefaultValue()
                             .equalsIgnoreCase(DefaultValue.CURRENT_TIMESTAMP)) {
@@ -593,11 +597,6 @@ public class BindSink implements AnalysisRuleFactory {
         Pair<DatabaseIf<?>, TableIf> pair = RelationUtil.getDbAndTable(tableQualifier,
                 cascadesContext.getConnectContext().getEnv());
         if (!(pair.second instanceof OlapTable)) {
-            try {
-                cascadesContext.getConnectContext().getSessionVariable().enableFallbackToOriginalPlannerOnce();
-            } catch (Exception e) {
-                throw new AnalysisException("fall back failed");
-            }
             throw new AnalysisException("the target table of insert into is not an OLAP table");
         }
         return Pair.of(((Database) pair.first), (OlapTable) pair.second);

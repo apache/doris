@@ -30,7 +30,7 @@ import java.util.Objects;
 /**
  * refresh mtmv
  */
-public class RefreshMTMVCommand extends Command implements ForwardWithSync, NotAllowFallback {
+public class RefreshMTMVCommand extends Command implements ForwardWithSync {
     private final RefreshMTMVInfo refreshMTMVInfo;
 
     public RefreshMTMVCommand(RefreshMTMVInfo refreshMTMVInfo) {

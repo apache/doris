@@ -110,8 +110,6 @@ public:
         return get_variadic_argument_types_impl().size();
     }
 
-    bool use_default_implementation_for_nulls() const override { return false; }
-
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
         return Impl::execute_impl_inner(context, block, arguments, result, input_rows_count);
@@ -207,9 +205,6 @@ struct EncryptionAndDecryptTwoImpl {
 
         default_preprocess_parameter_columns(argument_columns, col_const, {1, 2}, block, arguments);
 
-        for (int i = 0; i < argument_size; i++) {
-            check_set_nullable(argument_columns[i], result_null_map_column, col_const[i]);
-        }
         auto& result_data = result_column->get_chars();
         auto& result_offset = result_column->get_offsets();
         result_offset.resize(input_rows_count);
@@ -244,8 +239,9 @@ struct EncryptionAndDecryptTwoImpl {
         if (mode_arg.size != 0) {
             if (!aes_mode_map.contains(mode_str)) {
                 all_insert_null = true;
+            } else {
+                encryption_mode = aes_mode_map.at(mode_str);
             }
-            encryption_mode = aes_mode_map.at(mode_str);
         }
         const ColumnString::Offsets* offsets_column = &column->get_offsets();
         const ColumnString::Chars* chars_column = &column->get_chars();
@@ -326,9 +322,6 @@ struct EncryptionAndDecryptMultiImpl {
                                                  arguments);
         }
 
-        for (int i = 0; i < argument_size; i++) {
-            check_set_nullable(argument_columns[i], result_null_map_column, col_const[i]);
-        }
         auto& result_data = result_column->get_chars();
         auto& result_offset = result_column->get_offsets();
         result_offset.resize(input_rows_count);
@@ -371,13 +364,15 @@ struct EncryptionAndDecryptMultiImpl {
             if constexpr (is_sm_mode) {
                 if (sm4_mode_map.count(mode_str) == 0) {
                     all_insert_null = true;
+                } else {
+                    encryption_mode = sm4_mode_map.at(mode_str);
                 }
-                encryption_mode = sm4_mode_map.at(mode_str);
             } else {
                 if (aes_mode_map.count(mode_str) == 0) {
                     all_insert_null = true;
+                } else {
+                    encryption_mode = aes_mode_map.at(mode_str);
                 }
-                encryption_mode = aes_mode_map.at(mode_str);
             }
         }
 

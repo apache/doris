@@ -22,6 +22,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.AuthenticationException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.Status;
 import org.apache.doris.common.proc.CurrentQueryStatementsProcNode;
 import org.apache.doris.common.proc.ProcResult;
 import org.apache.doris.common.profile.ProfileTreeNode;
@@ -38,6 +39,7 @@ import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.FrontendOptions;
+import org.apache.doris.thrift.TStatusCode;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
@@ -576,7 +578,7 @@ public class QueryProfileAction extends RestBaseController {
         }
 
         ExecuteEnv env = ExecuteEnv.getInstance();
-        env.getScheduler().cancelQuery(queryId);
+        env.getScheduler().cancelQuery(queryId, new Status(TStatusCode.CANCELLED, "cancel query by rest api"));
         return ResponseEntityBuilder.ok();
     }
 }

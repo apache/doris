@@ -37,10 +37,10 @@
 #include <utility>
 #include <vector>
 
+#include "cloud/config.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
-#include "config.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "util/cpu_info.h"
@@ -149,6 +149,12 @@ DEFINE_mBool(enable_stacktrace, "true");
 DEFINE_mInt64(stacktrace_in_alloc_large_memory_bytes, "2147483648");
 
 DEFINE_mInt64(crash_in_alloc_large_memory_bytes, "-1");
+
+// The actual meaning of this parameter is `debug_memory`.
+// 1. crash in memory tracker inaccurate, if memory tracker value is inaccurate, BE will crash.
+//    usually used in test environments, default value is false.
+// 2. print more memory logs.
+DEFINE_mBool(crash_in_memory_tracker_inaccurate, "false");
 
 // default is true. if any memory tracking in Orphan mem tracker will report error.
 // !! not modify the default value of this conf!! otherwise memory errors cannot be detected in time.
@@ -281,6 +287,8 @@ DEFINE_mInt32(doris_scan_range_max_mb, "1024");
 DEFINE_mInt32(doris_scanner_row_num, "16384");
 // single read execute fragment row bytes
 DEFINE_mInt32(doris_scanner_row_bytes, "10485760");
+// single read execute fragment max run time millseconds
+DEFINE_mInt32(doris_scanner_max_run_time_ms, "1000");
 // (Advanced) Maximum size of per-query receive-side buffer
 DEFINE_mInt32(exchg_node_buffer_size_bytes, "20485760");
 DEFINE_mInt32(exchg_buffer_queue_capacity_factor, "64");
@@ -388,7 +396,7 @@ DEFINE_mInt64(base_compaction_max_compaction_score, "20");
 DEFINE_mDouble(base_compaction_min_data_ratio, "0.3");
 DEFINE_mInt64(base_compaction_dup_key_max_file_size_mbytes, "1024");
 
-DEFINE_Bool(enable_skip_tablet_compaction, "true");
+DEFINE_Bool(enable_skip_tablet_compaction, "false");
 // output rowset of cumulative compaction total disk size exceed this config size,
 // this rowset will be given to base compaction, unit is m byte.
 DEFINE_mInt64(compaction_promotion_size_mbytes, "1024");
@@ -513,8 +521,12 @@ DEFINE_Int32(brpc_heavy_work_pool_max_queue_size, "-1");
 DEFINE_Int32(brpc_light_work_pool_max_queue_size, "-1");
 DEFINE_mBool(enable_bthread_transmit_block, "true");
 
+//Enable brpc builtin services, see:
+//https://brpc.apache.org/docs/server/basics/#disable-built-in-services-completely
+DEFINE_Bool(enable_brpc_builtin_services, "true");
+
 // The maximum amount of data that can be processed by a stream load
-DEFINE_mInt64(streaming_load_max_mb, "10240");
+DEFINE_mInt64(streaming_load_max_mb, "102400");
 // Some data formats, such as JSON, cannot be streamed.
 // Therefore, it is necessary to limit the maximum number of
 // such data when using stream load to prevent excessive memory consumption.
@@ -591,14 +603,6 @@ DEFINE_mInt32(memory_maintenance_sleep_time_ms, "20");
 // After minor gc, no minor gc during sleep, but full gc is possible.
 DEFINE_mInt32(memory_gc_sleep_time_ms, "500");
 
-// percent of (active memtables size / all memtables size) when reach hard limit
-DEFINE_mInt32(memtable_hard_limit_active_percent, "50");
-
-// percent of (active memtables size / all memtables size) when reach soft limit
-DEFINE_mInt32(memtable_soft_limit_active_percent, "50");
-
-// memtable insert memory tracker will multiply input block size with this ratio
-DEFINE_mDouble(memtable_insert_memory_ratio, "1.4");
 // max write buffer size before flush, default 200MB
 DEFINE_mInt64(write_buffer_size, "209715200");
 // max buffer size used in memtable for the aggregated table, default 400MB
@@ -897,7 +901,7 @@ DEFINE_mInt32(orc_natural_read_size_mb, "8");
 DEFINE_mInt64(big_column_size_buffer, "65535");
 DEFINE_mInt64(small_column_size_buffer, "100");
 
-// rf will decide whether the next sampling_frequency blocks need to be filtered based on the filtering rate of the current block.
+// Perform the always_true check at intervals determined by runtime_filter_sampling_frequency
 DEFINE_mInt32(runtime_filter_sampling_frequency, "64");
 
 // cooldown task configs
@@ -984,7 +988,17 @@ DEFINE_Bool(enable_file_cache, "false");
 // format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240}]
 // format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240},{"path":"/path/to/file_cache2","total_size":21474836480,"query_limit":10737418240}]
 // format: {"path": "/path/to/file_cache", "total_size":53687091200, "normal_percent":85, "disposable_percent":10, "index_percent":5}
-DEFINE_String(file_cache_path, "");
+// format: [{"path": "xxx", "total_size":53687091200, "storage": "memory"}]
+// Note1: storage is "disk" by default
+// Note2: when the storage is "memory", the path is ignored. So you can set xxx to anything you like
+// and doris will just reset the path to "memory" internally.
+// In a very wierd case when your storage is disk, and the directory, by accident, is named
+// "memory" for some reason, you should write the path as:
+//     {"path": "memory", "total_size":53687091200, "storage": "disk"}
+// or use the default storage value:
+//     {"path": "memory", "total_size":53687091200}
+// Both will use the directory "memory" on the disk instead of the real RAM.
+DEFINE_String(file_cache_path, "[{\"path\":\"${DORIS_HOME}/file_cache\"}]");
 DEFINE_Int64(file_cache_each_block_size, "1048576"); // 1MB
 
 DEFINE_Bool(clear_file_cache, "false");
@@ -997,6 +1011,11 @@ DEFINE_mInt64(file_cache_ttl_valid_check_interval_second, "0"); // zero for not 
 // If true, evict the ttl cache using LRU when full.
 // Otherwise, only expiration can evict ttl and new data won't add to cache when full.
 DEFINE_Bool(enable_ttl_cache_evict_using_lru, "true");
+// rename ttl filename to new format during read, with some performance cost
+DEFINE_mBool(translate_to_new_ttl_format_during_read, "false");
+DEFINE_mBool(enbale_dump_error_file, "true");
+// limit the max size of error log on disk
+DEFINE_mInt64(file_cache_error_log_limit_bytes, "209715200"); // 200MB
 
 DEFINE_mInt32(index_cache_entry_stay_time_after_lookup_s, "1800");
 DEFINE_mInt32(inverted_index_cache_stale_sweep_time_sec, "600");
@@ -1020,7 +1039,7 @@ DEFINE_Int32(inverted_index_read_buffer_size, "4096");
 // tree depth for bkd index
 DEFINE_Int32(max_depth_in_bkd_tree, "32");
 // index compaction
-DEFINE_mBool(inverted_index_compaction_enable, "true");
+DEFINE_mBool(inverted_index_compaction_enable, "false");
 // Only for debug, do not use in production
 DEFINE_mBool(debug_inverted_index_compaction, "false");
 // index by RAM directory
@@ -1106,11 +1125,13 @@ DEFINE_mBool(enable_missing_rows_correctness_check, "false");
 // When the number of missing versions is more than this value, do not directly
 // retry the publish and handle it through async publish.
 DEFINE_mInt32(mow_publish_max_discontinuous_version_num, "20");
+// When the version is not continuous for MOW table in publish phase and the gap between
+// current txn's publishing version and the max version of the tablet exceeds this value,
+// don't print warning log
+DEFINE_mInt32(publish_version_gap_logging_threshold, "200");
 
 // The secure path with user files, used in the `local` table function.
 DEFINE_mString(user_files_secure_path, "${DORIS_HOME}");
-
-DEFINE_Int32(partition_topn_partition_threshold, "1024");
 
 DEFINE_Int32(fe_expire_duration_seconds, "60");
 
@@ -1326,6 +1347,8 @@ DEFINE_mInt32(snappy_compression_block_size, "262144");
 DEFINE_mInt32(lz4_compression_block_size, "262144");
 
 DEFINE_mBool(enable_pipeline_task_leakage_detect, "false");
+
+DEFINE_mInt32(check_score_rounds_num, "1000");
 
 DEFINE_Int32(query_cache_size, "512");
 
@@ -1665,6 +1688,13 @@ bool init(const char* conf_file, bool fill_conf_map, bool must_exist, bool set_t
         SET_FIELD(it.second, std::vector<std::string>, fill_conf_map, set_to_default);
     }
 
+    if (config::is_cloud_mode()) {
+        auto st = config::set_config("enable_file_cache", "true", true, true);
+        LOG(INFO) << "set config enable_file_cache "
+                  << "true"
+                  << " " << st;
+    }
+
     return true;
 }
 
@@ -1767,6 +1797,9 @@ Status set_fuzzy_configs() {
             ((distribution(*generator) % 2) == 0) ? "true" : "false";
     fuzzy_field_and_value["enable_shrink_memory"] =
             ((distribution(*generator) % 2) == 0) ? "true" : "false";
+    fuzzy_field_and_value["enable_vertical_compaction"] =
+            ((distribution(*generator) % 2) == 0) ? "true" : "false";
+
     fuzzy_field_and_value["string_overflow_size"] =
             ((distribution(*generator) % 2) == 0) ? "10" : "4294967295";
 

@@ -65,8 +65,6 @@ public interface TableIf {
     default void readUnlock() {
     }
 
-    ;
-
     default void writeLock() {
     }
 
@@ -563,4 +561,6 @@ public interface TableIf {
     }
 
     boolean autoAnalyzeEnabled();
+
+    TableIndexes getTableIndexes();
 }

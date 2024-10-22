@@ -40,6 +40,9 @@ class RuntimeState;
 class RowDescriptor;
 class RuntimeProfile;
 class PTransmitDataParams;
+namespace pipeline {
+class ExchangeLocalState;
+}
 
 namespace vectorized {
 class VDataStreamRecvr;
@@ -50,6 +53,7 @@ public:
     ~VDataStreamMgr();
 
     std::shared_ptr<VDataStreamRecvr> create_recvr(RuntimeState* state,
+                                                   pipeline::ExchangeLocalState* parent,
                                                    const RowDescriptor& row_desc,
                                                    const TUniqueId& fragment_instance_id,
                                                    PlanNodeId dest_node_id, int num_senders,

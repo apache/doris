@@ -59,6 +59,8 @@ suite("nereids_scalar_fn_R") {
     qt_sql_relace_empty06 "select replace_empty('xyz', 'x', '');"
     qt_sql_relace_empty07 "select replace_empty('xyz', '', '');"
     qt_sql_relace_empty08 "select replace_empty('', '', 'abc');"
+    qt_sql_relace_empty09 "select  replace_empty('你a好b世c界','','b');"
+    qt_sql_relace_empty10 "select  replace_empty('你a好b世c界','','');"
     qt_sql_right_Varchar_Integer "select right(kvchrs1, kint) from fn_test order by kvchrs1, kint"
     qt_sql_right_Varchar_Integer_notnull "select right(kvchrs1, kint) from fn_test_not_nullable order by kvchrs1, kint"
     qt_sql_right_String_Integer "select right(kstr, kint) from fn_test order by kstr, kint"

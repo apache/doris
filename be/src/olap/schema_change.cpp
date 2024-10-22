@@ -316,9 +316,9 @@ Status BlockChanger::change_block(vectorized::Block* ref_block,
 
             if (result_tmp_column_def.column->size() != row_num) {
                 return Status::Error<ErrorCode::INTERNAL_ERROR>(
-                        "result size invalid, expect={}, real={}; input expr={}", row_num,
+                        "result size invalid, expect={}, real={}; input expr={}, block={}", row_num,
                         result_tmp_column_def.column->size(),
-                        apache::thrift::ThriftDebugString(*expr));
+                        apache::thrift::ThriftDebugString(*expr), ref_block->dump_structure());
             }
 
             if (_type == SCHEMA_CHANGE) {
@@ -899,7 +899,7 @@ Status SchemaChangeJob::_do_process_alter_tablet(const TAlterTabletReqV2& reques
                 }
             }
             std::vector<RowsetSharedPtr> empty_vec;
-            _new_tablet->delete_rowsets(rowsets_to_delete, false);
+            RETURN_IF_ERROR(_new_tablet->delete_rowsets(rowsets_to_delete, false));
             // inherit cumulative_layer_point from base_tablet
             // check if new_tablet.ce_point > base_tablet.ce_point?
             _new_tablet->set_cumulative_layer_point(-1);
@@ -1133,6 +1133,8 @@ Status SchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParams& sc
     auto sc_procedure = _get_sc_procedure(
             changer, sc_sorting, sc_directly,
             _local_storage_engine.memory_limitation_bytes_per_thread_for_schema_change());
+
+    DBUG_EXECUTE_IF("SchemaChangeJob::_convert_historical_rowsets.block", DBUG_BLOCK);
 
     // c.Convert historical data
     bool have_failure_rowset = false;

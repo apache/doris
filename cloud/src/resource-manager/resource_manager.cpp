@@ -171,7 +171,9 @@ bool ResourceManager::check_cluster_params_valid(const ClusterPB& cluster, std::
                    n.heartbeat_port()) {
             continue;
         }
-        ss << "check cluster params failed, node : " << proto_to_json(n);
+        ss << "check cluster params failed, edit_log_port is required for frontends while "
+              "heatbeat_port is required for banckens, node : "
+           << proto_to_json(n);
         *err = ss.str();
         no_err = false;
         break;

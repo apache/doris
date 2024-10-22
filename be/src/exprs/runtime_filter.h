@@ -69,6 +69,7 @@ struct RuntimeFilterContextSPtr;
 
 namespace pipeline {
 class RuntimeFilterTimer;
+class CountedFinishDependency;
 } // namespace pipeline
 
 enum class RuntimeFilterType {
@@ -198,7 +199,6 @@ public:
               _is_broadcast_join(true),
               _has_remote_target(false),
               _has_local_target(false),
-              _rf_state(RuntimeFilterState::NOT_READY),
               _rf_state_atomic(RuntimeFilterState::NOT_READY),
               _role(RuntimeFilterRole::PRODUCER),
               _expr_order(-1),
@@ -263,8 +263,6 @@ public:
     // init filter with desc
     Status init_with_desc(const TRuntimeFilterDesc* desc, const TQueryOptions* options,
                           int node_id = -1, bool build_bf_exactly = false);
-
-    BloomFilterFuncBase* get_bloomfilter() const;
 
     // serialize _wrapper to protobuf
     Status serialize(PMergeFilterRequest* request, void** data, int* len);
@@ -355,7 +353,8 @@ public:
 
     void set_synced_size(uint64_t global_size);
 
-    void set_dependency(std::shared_ptr<pipeline::Dependency> dependency);
+    void set_finish_dependency(
+            const std::shared_ptr<pipeline::CountedFinishDependency>& dependency);
 
     int64_t get_synced_size() const { return _synced_size; }
 
@@ -365,9 +364,6 @@ protected:
     // serialize _wrapper to protobuf
     void to_protobuf(PInFilter* filter);
     void to_protobuf(PMinMaxFilter* filter);
-
-    template <class T>
-    Status _update_filter(const T* param);
 
     template <class T>
     Status serialize_impl(T* request, void** data, int* len);
@@ -398,7 +394,6 @@ protected:
     // will apply to local node
     bool _has_local_target;
     // filter is ready for consumer
-    RuntimeFilterState _rf_state;
     std::atomic<RuntimeFilterState> _rf_state_atomic;
     // role consumer or producer
     RuntimeFilterRole _role;
@@ -429,7 +424,7 @@ protected:
     std::vector<std::shared_ptr<pipeline::RuntimeFilterTimer>> _filter_timer;
 
     int64_t _synced_size = -1;
-    std::shared_ptr<pipeline::Dependency> _dependency;
+    std::shared_ptr<pipeline::CountedFinishDependency> _dependency;
 };
 
 // avoid expose RuntimePredicateWrapper
