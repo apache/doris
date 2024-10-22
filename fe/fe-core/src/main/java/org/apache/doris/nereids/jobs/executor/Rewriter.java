@@ -403,7 +403,8 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                 new EliminateFilter(),
                                 new PushDownFilterThroughProject(),
                                 new MergeProjects(),
-                                new PruneOlapScanTablet()
+                                new PruneOlapScanTablet(),
+                                new AdjustAggregateNullableForEmptySet()
                         ),
                         custom(RuleType.COLUMN_PRUNING, ColumnPruning::new),
                         bottomUp(RuleSet.PUSH_DOWN_FILTERS),
