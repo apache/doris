@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.call.CallFunc;
@@ -58,4 +59,15 @@ public class CallCommand extends Command implements ForwardWithSync, NotAllowFal
         return visitor.visitCallCommand(this, context);
     }
 
+    @Override
+    public RedirectStatus toRedirectStatus() {
+        // Some of call statements may need to be redirected, some may not
+        String funcName = unboundFunction.getName().toUpperCase();
+        switch (funcName) {
+            case "FLUSH_AUDIT_LOG":
+                return RedirectStatus.NO_FORWARD;
+            default:
+                return RedirectStatus.FORWARD_WITH_SYNC;
+        }
+    }
 }
