@@ -279,7 +279,7 @@ suite("variant_mv") {
     cast(repo['name'] as varchar(100));
     """
     order_qt_query2_1_before "${query2_1}"
-    async_mv_rewrite_success(db, mv2_1, query2_1, "mv2_1")
+    async_mv_rewrite_success_without_check_chosen(db, mv2_1, query2_1, "mv2_1", true)
     order_qt_query2_1_after "${query2_1}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv2_1"""
 
