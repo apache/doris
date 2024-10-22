@@ -395,7 +395,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             rowCount = olapTable.getRowCountForIndex(olapScan.getSelectedIndexId(), true);
             if (rowCount == -1) {
                 if (tableMeta != null) {
-                    rowCount = tableMeta.getRowCount(olapScan.getSelectedIndexId());
+                    rowCount = tableMeta.getRowCount(olapScan.getSelectedIndexId()) + computeDeltaRowCount(olapScan);
                 }
             }
         }
@@ -423,7 +423,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                     for (Slot slot : ((Relation) olapScan).getOutput()) {
                         if (derivedStats.findColumnStatistics(slot) == null) {
                             derivedStats.addColumnStats(slot,
-                                    new ColumnStatisticBuilder(ColumnStatistic.UNKNOWN, derivedRowCount).build());
+                                    new ColumnStatisticBuilder(ColumnStatistic.UNKNOWN).setCount(derivedRowCount).build());
                         }
                     }
                     return derivedStats;
