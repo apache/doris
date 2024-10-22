@@ -403,7 +403,7 @@ suite("test_external_catalog_maxcompute", "p2,external,maxcompute,external_remot
                 "mc.endpoint" = "http://service.cn-beijing-vpc.maxcompute.aliyun-inc.com/api"
             );
         """
-        sql """ switch `${mc_catalog_name}_2`" ""
+        sql """ switch `${mc_catalog_name}_2` """
 
         //other db 
         sql """ use other_mc_datalake_test """
