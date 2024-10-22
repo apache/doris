@@ -65,8 +65,10 @@ public class TaskDisruptorGroupManager<T extends AbstractTask> {
     private static final int DISPATCH_MTMV_THREAD_NUM = Config.job_mtmv_task_consumer_thread_num > 0
             ? Config.job_mtmv_task_consumer_thread_num : DEFAULT_CONSUMER_THREAD_NUM;
 
-    private static final int DISPATCH_INSERT_TASK_QUEUE_SIZE = DEFAULT_RING_BUFFER_SIZE;
-    private static final int DISPATCH_MTMV_TASK_QUEUE_SIZE = DEFAULT_RING_BUFFER_SIZE;
+    private static final int DISPATCH_INSERT_TASK_QUEUE_SIZE = isPowerOfTwo(Config.insert_task_queue_size)
+            ? Config.insert_task_queue_size : DEFAULT_RING_BUFFER_SIZE;
+    private static final int DISPATCH_MTMV_TASK_QUEUE_SIZE = isPowerOfTwo(Config.mtmv_task_queue_size)
+            ? Config.mtmv_task_queue_size : DEFAULT_RING_BUFFER_SIZE;
 
 
     public void init() {
@@ -132,5 +134,8 @@ public class TaskDisruptorGroupManager<T extends AbstractTask> {
         return disruptorMap.get(jobType).publishEvent(task, jobExecutionConfiguration);
     }
 
-
+    private static boolean isPowerOfTwo(int n) {
+        // Check if n is greater than 0 and if n & (n - 1) equals 0
+        return n > 0 && (n & (n - 1)) == 0;
+    }
 }
