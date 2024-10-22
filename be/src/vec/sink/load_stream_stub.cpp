@@ -207,7 +207,8 @@ Status LoadStreamStub::open(BrpcClientCache<PBackendService_Stub>* client_cache,
     LOG(INFO) << "open load stream to host=" << node_info.host << ", port=" << node_info.brpc_port
               << ", " << *this;
     _is_open.store(true);
-    return Status::OK();
+    _status = Status::OK();
+    return _status;
 }
 
 // APPEND_DATA
@@ -503,6 +504,69 @@ inline std::ostream& operator<<(std::ostream& ostr, const LoadStreamStub& stub) 
     ostr << "LoadStreamStub load_id=" << print_id(stub._load_id) << ", src_id=" << stub._src_id
          << ", dst_id=" << stub._dst_id << ", stream_id=" << stub._stream_id;
     return ostr;
+}
+
+Status LoadStreamStubs::open(BrpcClientCache<PBackendService_Stub>* client_cache,
+                             const NodeInfo& node_info, int64_t txn_id,
+                             const OlapTableSchemaParam& schema,
+                             const std::vector<PTabletID>& tablets_for_schema, int total_streams,
+                             int64_t idle_timeout_ms, bool enable_profile) {
+    bool get_schema = true;
+    auto status = Status::OK();
+    for (auto& stream : _streams) {
+        Status st;
+        if (get_schema) {
+            st = stream->open(client_cache, node_info, txn_id, schema, tablets_for_schema,
+                              total_streams, idle_timeout_ms, enable_profile);
+        } else {
+            st = stream->open(client_cache, node_info, txn_id, schema, {}, total_streams,
+                              idle_timeout_ms, enable_profile);
+        }
+        if (st.ok()) {
+            get_schema = false;
+        } else {
+            LOG(WARNING) << "open stream failed: " << st << "; stream: " << *stream;
+            status = st;
+            // no break here to try get schema from the rest streams
+        }
+    }
+    // only mark open when all streams open success
+    _open_success.store(status.ok());
+    // cancel all streams if open failed
+    if (!status.ok()) {
+        cancel(status);
+    }
+    return status;
+}
+
+Status LoadStreamStubs::close_load(const std::vector<PTabletID>& tablets_to_commit) {
+    if (!_open_success.load()) {
+        return Status::InternalError("streams not open");
+    }
+    bool first = true;
+    auto status = Status::OK();
+    for (auto& stream : _streams) {
+        Status st;
+        if (first) {
+            st = stream->close_load(tablets_to_commit);
+            first = false;
+        } else {
+            st = stream->close_load({});
+        }
+        if (!st.ok()) {
+            LOG(WARNING) << "close_load failed: " << st << "; stream: " << *stream;
+        }
+    }
+    return status;
+}
+
+Status LoadStreamStubs::close_wait(RuntimeState* state, int64_t timeout_ms) {
+    MonotonicStopWatch watch;
+    watch.start();
+    for (auto& stream : _streams) {
+        RETURN_IF_ERROR(stream->close_wait(state, timeout_ms - watch.elapsed_time() / 1000 / 1000));
+    }
+    return Status::OK();
 }
 
 } // namespace doris
