@@ -48,7 +48,7 @@ struct FuncExprParams;
 namespace doris::vectorized {
 
 struct FunctionAttr {
-    bool enable_decimal256 {};
+    bool enable_decimal256 {false};
 };
 
 #define RETURN_REAL_TYPE_FOR_DATEV2_FUNCTION(TYPE)                                       \

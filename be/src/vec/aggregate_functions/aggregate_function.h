@@ -41,7 +41,7 @@ class IColumn;
 class IDataType;
 
 struct AggregateFunctionAttr {
-    bool enable_decimal256 {};
+    bool enable_decimal256 {false};
 };
 
 template <bool nullable, typename ColVecType>
