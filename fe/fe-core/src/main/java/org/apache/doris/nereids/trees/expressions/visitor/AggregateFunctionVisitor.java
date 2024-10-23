@@ -324,11 +324,11 @@ public interface AggregateFunctionVisitor<R, C> {
     }
 
     default R visitTopNArray(TopNArray topnArray, C context) {
-        return visitNullableAggregateFunction(topnArray, context);
+        return visitAggregateFunction(topnArray, context);
     }
 
     default R visitTopNWeighted(TopNWeighted topnWeighted, C context) {
-        return visitNullableAggregateFunction(topnWeighted, context);
+        return visitAggregateFunction(topnWeighted, context);
     }
 
     default R visitVariance(Variance variance, C context) {
