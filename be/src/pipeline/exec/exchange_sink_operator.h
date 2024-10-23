@@ -284,7 +284,7 @@ private:
     int _writer_count = 1;
     const bool _enable_local_merge_sort;
 
-    mutable bool _keep_order = false;
+    mutable bool _keep_order = true;
 };
 
 } // namespace pipeline
