@@ -44,11 +44,6 @@ suite("with_select_table_auth","p0,auth") {
       O_COMMENT        VARCHAR(79) NOT NULL
     )
     DUPLICATE KEY(o_orderkey, o_custkey)
-    PARTITION BY RANGE(o_orderdate) (
-    PARTITION `day_2` VALUES LESS THAN ('2023-12-9'),
-    PARTITION `day_3` VALUES LESS THAN ("2023-12-11"),
-    PARTITION `day_4` VALUES LESS THAN ("2023-12-30")
-    )
     DISTRIBUTED BY HASH(o_orderkey) BUCKETS 3
     PROPERTIES (
       "replication_num" = "1"
@@ -78,10 +73,6 @@ suite("with_select_table_auth","p0,auth") {
       l_comment      VARCHAR(44) NOT NULL
     )
     DUPLICATE KEY(l_orderkey, l_partkey, l_suppkey, l_linenumber)
-    PARTITION BY RANGE(l_shipdate) (
-    PARTITION `day_1` VALUES LESS THAN ('2023-12-9'),
-    PARTITION `day_2` VALUES LESS THAN ("2023-12-11"),
-    PARTITION `day_3` VALUES LESS THAN ("2023-12-30"))
     DISTRIBUTED BY HASH(l_orderkey) BUCKETS 3
     PROPERTIES (
       "replication_num" = "1"
@@ -125,14 +116,7 @@ suite("with_select_table_auth","p0,auth") {
     sql """grant select_priv on ${db}.lineitem to ${user_name}"""
     sql """grant select_priv on regression_test to ${user_name}"""
 
-
-    sql """drop materialized view if exists mv1;"""
-    sql """
-            CREATE MATERIALIZED VIEW ${db}.mv1
-            BUILD IMMEDIATE REFRESH AUTO ON MANUAL 
-            DISTRIBUTED BY RANDOM BUCKETS 1 
-            PROPERTIES ('replication_num' = '1') 
-            AS 
+    create_async_mv(db, "mv1", """
             select l_shipdate, o_orderdate, l_partkey, l_suppkey,
             sum(o_totalprice) as sum_total,
             max(o_totalprice) as max_total,
@@ -146,9 +130,7 @@ suite("with_select_table_auth","p0,auth") {
             o_orderdate,
             l_partkey,
             l_suppkey;
-            """
-
-    sql """analyze table mv1 with sync"""
+    """)
 
     connect(user=user_name, password="${pwd}", url=context.config.jdbcUrl) {
         sql "use ${db}"

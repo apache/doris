@@ -40,7 +40,6 @@ suite("nested_mtmv") {
     ) ENGINE=OLAP
     DUPLICATE KEY(`o_orderkey`, `o_custkey`)
     COMMENT 'OLAP'
-    auto partition by range (date_trunc(`o_orderdate`, 'day')) ()
     DISTRIBUTED BY HASH(`o_orderkey`) BUCKETS 96
     PROPERTIES (
     "replication_allocation" = "tag.location.default: 1"
@@ -70,7 +69,6 @@ suite("nested_mtmv") {
     ) ENGINE=OLAP
     DUPLICATE KEY(l_orderkey, l_linenumber, l_partkey, l_suppkey )
     COMMENT 'OLAP'
-    auto partition by range (date_trunc(`l_shipdate`, 'day')) ()
     DISTRIBUTED BY HASH(`l_orderkey`) BUCKETS 96
     PROPERTIES (
     "replication_allocation" = "tag.location.default: 1"
@@ -134,19 +132,6 @@ suite("nested_mtmv") {
     sql """analyze table lineitem_1 with sync;"""
     sql """analyze table partsupp_1 with sync;"""
 
-    def create_mv = { mv_name, mv_sql ->
-        sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name};"""
-        sql """DROP TABLE IF EXISTS ${mv_name}"""
-        sql"""
-        CREATE MATERIALIZED VIEW ${mv_name} 
-        BUILD IMMEDIATE REFRESH AUTO ON MANUAL 
-        DISTRIBUTED BY RANDOM BUCKETS 2 
-        PROPERTIES ('replication_num' = '1') 
-        AS  
-        ${mv_sql}
-        """
-    }
-
     def compare_res = { def stmt ->
         sql "SET enable_materialized_view_rewrite=false"
         def origin_res = sql stmt
@@ -184,17 +169,11 @@ suite("nested_mtmv") {
         FROM ${mv_name_2}
         GROUP BY l_orderkey;"""
     def mv_name_3 = "join_agg_mv3"
-    create_mv(mv_name_1, mv_stmt_1)
-    def job_name_1 = getJobName(db, mv_name_1)
-    waitingMTMVTaskFinished(job_name_1)
+    create_async_mv(db, mv_name_1, mv_stmt_1)
 
-    create_mv(mv_name_2, mv_stmt_2)
-    job_name_1 = getJobName(db, mv_name_2)
-    waitingMTMVTaskFinished(job_name_1)
+    create_async_mv(db, mv_name_2, mv_stmt_2)
 
-    create_mv(mv_name_3, mv_stmt_3)
-    job_name_1 = getJobName(db, mv_name_3)
-    waitingMTMVTaskFinished(job_name_1)
+    create_async_mv(db, mv_name_3, mv_stmt_3)
 
     def query_stmt_1 = """SELECT 
           l_orderkey, 
@@ -203,10 +182,7 @@ suite("nested_mtmv") {
         FROM lineitem_1 INNER JOIN orders_1
         ON l_orderkey = o_orderkey
         GROUP BY l_orderkey"""
-    explain {
-        sql("${query_stmt_1}")
-        contains "${mv_name_3}(${mv_name_3})"
-    }
+    mv_rewrite_success(query_stmt_1, mv_name_3)
     compare_res(query_stmt_1 + " order by 1,2,3")
 
     // user
@@ -239,21 +215,13 @@ suite("nested_mtmv") {
         """
     def mv_level4_name = "mv_level4_name"
 
-    create_mv(mv_level1_name, mv_stmt_4)
-    job_name_1 = getJobName(db, mv_level1_name)
-    waitingMTMVTaskFinished(job_name_1)
+    create_async_mv(db, mv_level1_name, mv_stmt_4)
 
-    create_mv(mv_level2_name, mv_stmt_5)
-    job_name_1 = getJobName(db, mv_level2_name)
-    waitingMTMVTaskFinished(job_name_1)
+    create_async_mv(db, mv_level2_name, mv_stmt_5)
 
-    create_mv(mv_level3_name, mv_stmt_6)
-    job_name_1 = getJobName(db, mv_level3_name)
-    waitingMTMVTaskFinished(job_name_1)
+    create_async_mv(db, mv_level3_name, mv_stmt_6)
 
-    create_mv(mv_level4_name, mv_stmt_7)
-    job_name_1 = getJobName(db, mv_level4_name)
-    waitingMTMVTaskFinished(job_name_1)
+    create_async_mv(db, mv_level4_name, mv_stmt_7)
 
     def query_stmt_2 = """
         select t1.l_orderkey, t2.l_linenumber, t1.l_partkey, t2.o_orderkey, t1.o_custkey, t2.ps_partkey, t1.col1
@@ -276,14 +244,8 @@ suite("nested_mtmv") {
                 ) as t1 
             ) as t2 on t1.l_orderkey = t2.l_orderkey
         """
-    explain {
-        sql("${query_stmt_2}")
-        check {result ->
-            // both mv_level4_name and mv_level3_name can be rewritten successfully
-            result.contains("${mv_level4_name}(${mv_level4_name})")
-                    || result.contains("${mv_level3_name}(${mv_level3_name})")
-        }
-    }
+    mv_rewrite_any_success(query_stmt_2, [mv_level4_name, mv_level3_name])
+
     compare_res(query_stmt_2 + " order by 1,2,3,4,5,6,7")
 
     // five level
@@ -344,25 +306,15 @@ suite("nested_mtmv") {
         group by t1.l_orderkey, t2.l_partkey, t1.l_suppkey, t2.o_orderkey, t1.o_custkey, t2.ps_partkey, t1.ps_suppkey, t2.agg1, t1.agg2, t2.agg3, t1.agg4, t2.agg5, t1.agg6
         """
 
-    create_mv(mv_1, join_mv_1)
-    job_name_1 = getJobName(db, mv_1)
-    waitingMTMVTaskFinished(job_name_1)
+    create_async_mv(db, mv_1, join_mv_1)
 
-    create_mv(mv_2, join_mv_2)
-    job_name_1 = getJobName(db, mv_2)
-    waitingMTMVTaskFinished(job_name_1)
+    create_async_mv(db, mv_2, join_mv_2)
 
-    create_mv(mv_3, join_mv_3)
-    job_name_1 = getJobName(db, mv_3)
-    waitingMTMVTaskFinished(job_name_1)
+    create_async_mv(db, mv_3, join_mv_3)
 
-    create_mv(mv_4, join_mv_4)
-    job_name_1 = getJobName(db, mv_4)
-    waitingMTMVTaskFinished(job_name_1)
+    create_async_mv(db, mv_4, join_mv_4)
 
-    create_mv(mv_5, join_mv_5)
-    job_name_1 = getJobName(db, mv_5)
-    waitingMTMVTaskFinished(job_name_1)
+    create_async_mv(db, mv_5, join_mv_5)
 
 
     def sql_2 = """

@@ -49,49 +49,25 @@ suite ("sum_devide_count") {
 
     qt_select_star "select * from sum_devide_count order by k1,k2,k3,k4;"
 
-    explain {
-        sql("select k1,k4,sum(k2)/count(k2) from sum_devide_count group by k1,k4 order by k1,k4;")
-        contains "(kavg)"
-    }
+    mv_rewrite_success("select k1,k4,sum(k2)/count(k2) from sum_devide_count group by k1,k4 order by k1,k4;", "kavg")
     order_qt_select_mv "select k1,k4,sum(k2)/count(k2) from sum_devide_count group by k1,k4 order by k1,k4;"
 
-    explain {
-        sql("select k1,sum(k2)/count(k2) from sum_devide_count group by k1 order by k1;")
-        contains "(kavg)"
-    }
+    mv_rewrite_success("select k1,sum(k2)/count(k2) from sum_devide_count group by k1 order by k1;", "kavg")
     order_qt_select_mv "select k1,sum(k2)/count(k2) from sum_devide_count group by k1 order by k1;"
 
-    explain {
-        sql("select k4,sum(k2)/count(k2) from sum_devide_count group by k4 order by k4;")
-        contains "(kavg)"
-    }
+    mv_rewrite_success("select k4,sum(k2)/count(k2) from sum_devide_count group by k4 order by k4;", "kavg")
     order_qt_select_mv "select k4,sum(k2)/count(k2) from sum_devide_count group by k4 order by k4;"
 
-    explain {
-        sql("select sum(k2)/count(k2) from sum_devide_count;")
-        contains "(kavg)"
-    }
+    mv_rewrite_success("select sum(k2)/count(k2) from sum_devide_count;", "kavg")
     order_qt_select_mv "select sum(k2)/count(k2) from sum_devide_count;"
 
     sql """set enable_stats=true;"""
 
-    explain {
-        sql("select k1,k4,sum(k2)/count(k2) from sum_devide_count group by k1,k4 order by k1,k4;")
-        contains "(kavg)"
-    }
+    mv_rewrite_success("select k1,k4,sum(k2)/count(k2) from sum_devide_count group by k1,k4 order by k1,k4;", "kavg")
 
-    explain {
-        sql("select k1,sum(k2)/count(k2) from sum_devide_count group by k1 order by k1;")
-        contains "(kavg)"
-    }
+    mv_rewrite_success("select k1,sum(k2)/count(k2) from sum_devide_count group by k1 order by k1;", "kavg")
 
-    explain {
-        sql("select k4,sum(k2)/count(k2) from sum_devide_count group by k4 order by k4;")
-        contains "(kavg)"
-    }
+    mv_rewrite_success("select k4,sum(k2)/count(k2) from sum_devide_count group by k4 order by k4;", "kavg")
 
-    explain {
-        sql("select sum(k2)/count(k2) from sum_devide_count;")
-        contains "(kavg)"
-    }
+    mv_rewrite_success("select sum(k2)/count(k2) from sum_devide_count;", "kavg")
 }
