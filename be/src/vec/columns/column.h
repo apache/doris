@@ -639,6 +639,8 @@ public:
 
     virtual bool is_column_string() const { return false; }
 
+    virtual bool is_predict_column() const { return false; }
+
     virtual bool is_column_string64() const { return false; }
 
     virtual bool is_column_decimal() const { return false; }
@@ -666,8 +668,7 @@ public:
       */
     String dump_structure() const;
 
-    // only used in agg value replace
-    // ColumnString should replace according to 0,1,2... ,size,0,1,2...
+    // only used in agg value replace for column which is not variable length
     virtual void replace_column_data(const IColumn&, size_t row, size_t self_row = 0) = 0;
 
     virtual void replace_column_null_data(const uint8_t* __restrict null_map) {}

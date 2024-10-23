@@ -355,7 +355,7 @@ public:
     void finalize(FinalizeMode mode);
 
     /// Finalizes all subcolumns.
-    void finalize() override;
+    void finalize();
 
     bool is_finalized() const;
 
