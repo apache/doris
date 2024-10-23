@@ -35,8 +35,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
-import java.time.ZoneId;
-import java.time.format.DateTimeFormatter;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.TimeUnit;
 
@@ -47,9 +45,6 @@ public class AuditLoader extends Plugin implements AuditPlugin {
     private static final Logger LOG = LogManager.getLogger(AuditLoader.class);
 
     public static final String AUDIT_LOG_TABLE = "audit_log";
-
-    private static final DateTimeFormatter DATETIME_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS")
-            .withZone(ZoneId.systemDefault());
 
     private StringBuilder auditLogBuffer = new StringBuilder();
     private int auditLogNum = 0;
@@ -143,6 +138,7 @@ public class AuditLoader extends Plugin implements AuditPlugin {
     }
 
     private void fillLogBuffer(AuditEvent event, StringBuilder logBuffer) {
+        // should be same order as InternalSchema.AUDIT_SCHEMA
         logBuffer.append(event.queryId).append("\t");
         logBuffer.append(TimeUtils.longToTimeStringWithms(event.timestamp)).append("\t");
         logBuffer.append(event.clientIp).append("\t");
@@ -156,6 +152,10 @@ public class AuditLoader extends Plugin implements AuditPlugin {
         logBuffer.append(event.scanBytes).append("\t");
         logBuffer.append(event.scanRows).append("\t");
         logBuffer.append(event.returnRows).append("\t");
+        logBuffer.append(event.shuffleSendRows).append("\t");
+        logBuffer.append(event.shuffleSendBytes).append("\t");
+        logBuffer.append(event.scanBytesFromLocalStorage).append("\t");
+        logBuffer.append(event.scanBytesFromRemoteStorage).append("\t");
         logBuffer.append(event.stmtId).append("\t");
         logBuffer.append(event.stmtType).append("\t");
         logBuffer.append(event.isQuery ? 1 : 0).append("\t");
@@ -165,6 +165,7 @@ public class AuditLoader extends Plugin implements AuditPlugin {
         logBuffer.append(event.sqlDigest).append("\t");
         logBuffer.append(event.peakMemoryBytes).append("\t");
         logBuffer.append(event.workloadGroup).append("\t");
+        logBuffer.append(event.cloudClusterName).append("\t");
         // already trim the query in org.apache.doris.qe.AuditLogHelper#logAuditLog
         String stmt = event.stmt;
         if (LOG.isDebugEnabled()) {
