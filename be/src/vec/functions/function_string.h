@@ -2378,8 +2378,6 @@ public:
 
     String get_name() const override { return name; }
 
-    bool is_variadic() const override { return false; }
-
     size_t get_number_of_arguments() const override { return 2; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {

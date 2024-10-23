@@ -22,6 +22,7 @@ suite("test_count_substrings") {
     qt_select3 "select count_substrings(NULL, 'a12bc23de345f');"
     qt_select4 "select count_substrings('a12bc23de345f','2');"
     qt_select5 "select count_substrings('a1你你c我你3我d你3你5你','你');"
+    qt_select6 "select count_substrings('ccc','cc');"
 
     sql """DROP TABLE IF EXISTS test_count_substrings"""
     sql """ 

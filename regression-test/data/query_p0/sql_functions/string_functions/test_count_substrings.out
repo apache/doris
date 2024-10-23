@@ -14,6 +14,9 @@
 -- !select5 --
 6
 
+-- !select6 --
+1
+
 -- !select4_empty --
 
 -- !select5_empty --
