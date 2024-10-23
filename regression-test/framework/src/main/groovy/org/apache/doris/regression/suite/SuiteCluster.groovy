@@ -522,7 +522,7 @@ class SuiteCluster {
         return this.isCloudMode
     }
 
-    def START_WAIT_TIMEOUT = 120
+    int START_WAIT_TIMEOUT = 120
 
     // if not specific fe indices, then start all frontends
     void startFrontends(int... indices) {
