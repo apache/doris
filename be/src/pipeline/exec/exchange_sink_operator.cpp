@@ -733,12 +733,13 @@ Status ExchangeSinkLocalState::close(RuntimeState* state, Status exec_status) {
 }
 
 DataDistribution ExchangeSinkOperatorX::required_data_distribution() const {
-    if (_child && _enable_local_merge_sort) {
+    if (_child) {
         // SORT_OPERATOR -> DATA_STREAM_SINK_OPERATOR
         // SORT_OPERATOR -> LOCAL_MERGE_SORT -> DATA_STREAM_SINK_OPERATOR
         if (auto sort_source = std::dynamic_pointer_cast<SortSourceOperatorX>(_child);
             sort_source && sort_source->use_local_merge()) {
             // Sort the data local
+            _keep_order = true;
             return ExchangeType::LOCAL_MERGE_SORT;
         }
     }
@@ -749,7 +750,7 @@ void ExchangeSinkOperatorX::create_buffer() {
     PUniqueId id;
     id.set_hi(_state->query_id().hi);
     id.set_lo(_state->query_id().lo);
-    _sink_buffer = std::make_unique<ExchangeSinkBuffer>(id, _dest_node_id, state());
+    _sink_buffer = std::make_unique<ExchangeSinkBuffer>(id, _dest_node_id, state(), _keep_order);
     for (const auto& _dest : _dests) {
         const auto& dest_fragment_instance_id = _dest.fragment_instance_id;
         _sink_buffer->construct_request(dest_fragment_instance_id);
