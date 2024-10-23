@@ -56,6 +56,8 @@ import org.apache.doris.cloud.proto.Cloud.LoadJobSourceTypePB;
 import org.apache.doris.cloud.proto.Cloud.MetaServiceCode;
 import org.apache.doris.cloud.proto.Cloud.PrecommitTxnRequest;
 import org.apache.doris.cloud.proto.Cloud.PrecommitTxnResponse;
+import org.apache.doris.cloud.proto.Cloud.RemoveDeleteBitmapUpdateLockRequest;
+import org.apache.doris.cloud.proto.Cloud.RemoveDeleteBitmapUpdateLockResponse;
 import org.apache.doris.cloud.proto.Cloud.SubTxnInfo;
 import org.apache.doris.cloud.proto.Cloud.TableStatsPB;
 import org.apache.doris.cloud.proto.Cloud.TabletIndexPB;
@@ -647,7 +649,13 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         Map<Long, List<TCalcDeleteBitmapPartitionInfo>> backendToPartitionInfos = getCalcDeleteBitmapInfo(
                 backendToPartitionTablets, partitionVersions, baseCompactionCnts, cumulativeCompactionCnts,
                         cumulativePoints);
-        sendCalcDeleteBitmaptask(dbId, transactionId, backendToPartitionInfos);
+        try {
+            sendCalcDeleteBitmaptask(dbId, transactionId, backendToPartitionInfos);
+        } catch (UserException e) {
+            LOG.warn("failed to sendCalcDeleteBitmaptask for txn=" + transactionId + ",exception=" + e);
+            removeDeleteBitmapUpdateLock(tableToPartitions, transactionId);
+            throw e;
+        }
     }
 
     private void getPartitionInfo(List<OlapTable> tableList,
@@ -806,12 +814,14 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             while (retryTime++ < Config.metaServiceRpcRetryTimes()) {
                 try {
                     response = MetaServiceProxy.getInstance().getDeleteBitmapUpdateLock(request);
-                    if (LOG.isDebugEnabled()) {
-                        LOG.debug("get delete bitmap lock, transactionId={}, Request: {}, Response: {}",
-                                transactionId, request, response);
-                    }
+                    // if (LOG.isDebugEnabled()) {
+                    LOG.info("get delete bitmap lock, transactionId={}, Request: {}, Response: {}",
+                            transactionId, request, response);
+                    // }
                     if (response.getStatus().getCode() != MetaServiceCode.LOCK_CONFLICT
-                            && response.getStatus().getCode() != MetaServiceCode.KV_TXN_CONFLICT) {
+                            && response.getStatus().getCode() != MetaServiceCode.KV_TXN_CONFLICT
+                            && response.getStatus().getCode()
+                            != MetaServiceCode.KV_TXN_CONFLICT_RETRY_EXCEEDED_MAX_TIMES) {
                         break;
                     }
                 } catch (Exception e) {
@@ -835,7 +845,8 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                 LOG.warn("get delete bitmap lock failed, transactionId={}, for {} times, response:{}",
                         transactionId, retryTime, response);
                 if (response.getStatus().getCode() == MetaServiceCode.LOCK_CONFLICT
-                        || response.getStatus().getCode() == MetaServiceCode.KV_TXN_CONFLICT) {
+                        || response.getStatus().getCode() == MetaServiceCode.KV_TXN_CONFLICT
+                        || response.getStatus().getCode() == MetaServiceCode.KV_TXN_CONFLICT_RETRY_EXCEEDED_MAX_TIMES) {
                     // DELETE_BITMAP_LOCK_ERR will be retried on be
                     throw new UserException(InternalErrorCode.DELETE_BITMAP_LOCK_ERR,
                             "Failed to get delete bitmap lock due to confilct");
@@ -865,6 +876,33 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                     "get delete bitmap lock successfully. txns: {}. totalRetryTime: {}. "
                             + "partitionSize: {}. time cost: {} ms.",
                     transactionId, totalRetryTime, tableToParttions.size(), stopWatch.getTime());
+        }
+    }
+
+    private void removeDeleteBitmapUpdateLock(Map<Long, Set<Long>> tableToParttions, long transactionId) {
+        for (Map.Entry<Long, Set<Long>> entry : tableToParttions.entrySet()) {
+            RemoveDeleteBitmapUpdateLockRequest.Builder builder = RemoveDeleteBitmapUpdateLockRequest.newBuilder();
+            builder.setTableId(entry.getKey())
+                    .setLockId(transactionId)
+                    .setInitiator(-1);
+            final RemoveDeleteBitmapUpdateLockRequest request = builder.build();
+            RemoveDeleteBitmapUpdateLockResponse response = null;
+            try {
+                response = MetaServiceProxy.getInstance().removeDeleteBitmapUpdateLock(request);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("remove delete bitmap lock, transactionId={}, Request: {}, Response: {}",
+                            transactionId, request, response);
+                }
+            } catch (Exception e) {
+                LOG.warn("ignore get delete bitmap lock exception, transactionId={}, exception={}",
+                        transactionId, e);
+            }
+            Preconditions.checkNotNull(response);
+            Preconditions.checkNotNull(response.getStatus());
+            if (response.getStatus().getCode() != MetaServiceCode.OK) {
+                LOG.warn("remove delete bitmap lock failed, transactionId={}, response:{}",
+                        transactionId, response);
+            }
         }
     }
 

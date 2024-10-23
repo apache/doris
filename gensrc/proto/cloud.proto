@@ -1385,6 +1385,7 @@ message UpdateDeleteBitmapRequest {
     // Serialized roaring bitmaps indexed with {rowset_id, segment_id, version}
     repeated bytes segment_delete_bitmaps = 10;
     optional bool unlock = 11;
+    optional bool is_load = 12;
 }
 
 message UpdateDeleteBitmapResponse {
@@ -1443,6 +1444,7 @@ message GetDeleteBitmapUpdateLockRequest {
     optional int64 expiration = 6;
     optional bool require_compaction_stats = 7 [default = false];
     repeated TabletIndexPB tablet_indexes = 8;
+    optional int64 tablet_id = 9;
 }
 
 message GetDeleteBitmapUpdateLockResponse {
@@ -1450,6 +1452,18 @@ message GetDeleteBitmapUpdateLockResponse {
     repeated int64 base_compaction_cnts = 2;
     repeated int64 cumulative_compaction_cnts = 3;
     repeated int64 cumulative_points = 4;
+}
+
+message RemoveDeleteBitmapUpdateLockRequest {
+    optional string cloud_unique_id = 1; // For auth
+    optional int64 table_id = 2;
+    optional int64 tablet_id = 3;
+    optional int64 lock_id = 4;
+    optional int64 initiator = 5;
+}
+
+message RemoveDeleteBitmapUpdateLockResponse {
+    optional MetaServiceResponseStatus status = 1;
 }
 
 message GetRLTaskCommitAttachRequest {
@@ -1563,6 +1577,7 @@ service MetaService {
     rpc update_delete_bitmap(UpdateDeleteBitmapRequest) returns(UpdateDeleteBitmapResponse);
     rpc get_delete_bitmap(GetDeleteBitmapRequest) returns(GetDeleteBitmapResponse);
     rpc get_delete_bitmap_update_lock(GetDeleteBitmapUpdateLockRequest) returns(GetDeleteBitmapUpdateLockResponse);
+    rpc remove_delete_bitmap_update_lock(RemoveDeleteBitmapUpdateLockRequest) returns(RemoveDeleteBitmapUpdateLockResponse);
     rpc remove_delete_bitmap(RemoveDeleteBitmapRequest) returns(RemoveDeleteBitmapResponse);
 
     // routine load progress
