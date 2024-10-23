@@ -109,18 +109,18 @@
 namespace doris::vectorized {
 
 struct StringOP {
-    static void push_empty_string(int index, ColumnString::Chars& chars,
+    static void push_empty_string(size_t index, ColumnString::Chars& chars,
                                   ColumnString::Offsets& offsets) {
         offsets[index] = chars.size();
     }
 
-    static void push_null_string(int index, ColumnString::Chars& chars,
+    static void push_null_string(size_t index, ColumnString::Chars& chars,
                                  ColumnString::Offsets& offsets, NullMap& null_map) {
         null_map[index] = 1;
         push_empty_string(index, chars, offsets);
     }
 
-    static void push_value_string(const std::string_view& string_value, int index,
+    static void push_value_string(const std::string_view& string_value, size_t index,
                                   ColumnString::Chars& chars, ColumnString::Offsets& offsets) {
         ColumnString::check_chars_length(chars.size() + string_value.size(), offsets.size());
 
@@ -129,7 +129,8 @@ struct StringOP {
     }
 
     static void push_value_string_reserved_and_allow_overflow(const std::string_view& string_value,
-                                                              int index, ColumnString::Chars& chars,
+                                                              size_t index,
+                                                              ColumnString::Chars& chars,
                                                               ColumnString::Offsets& offsets) {
         chars.insert_assume_reserved_and_allow_overflow(string_value.data(),
                                                         string_value.data() + string_value.size());
