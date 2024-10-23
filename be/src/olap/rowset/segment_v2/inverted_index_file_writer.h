@@ -67,7 +67,6 @@ public:
     Status write_v2();
     Status write_v1();
     Status close();
-    int64_t headerLength();
     const InvertedIndexFileInfo* get_index_file_info() const {
         DCHECK(_closed) << debug_string();
         return &_file_info;
@@ -77,11 +76,7 @@ public:
         return _total_file_size;
     }
     const io::FileSystemSPtr& get_fs() const { return _fs; }
-    void sort_files(std::vector<FileInfo>& file_infos);
-    void copyFile(const char* fileName, lucene::store::Directory* dir,
-                  lucene::store::IndexOutput* output, uint8_t* buffer, int64_t bufferLength);
     InvertedIndexStorageFormatPB get_storage_format() const { return _storage_format; }
-
     void set_file_writer_opts(const io::FileWriterOptions& opts) { _opts = opts; }
 
     std::string debug_string() const {
@@ -99,6 +94,52 @@ public:
     }
 
 private:
+    // Helper functions shared between write_v1 and write_v2
+    std::vector<FileInfo> prepare_sorted_files(lucene::store::Directory* directory);
+    void sort_files(std::vector<FileInfo>& file_infos);
+    void copyFile(const char* fileName, lucene::store::Directory* dir,
+                  lucene::store::IndexOutput* output, uint8_t* buffer, int64_t bufferLength);
+    void finalize_output(lucene::store::Directory* out_dir, lucene::store::IndexOutput* output);
+    void add_index_info(int64_t index_id, const std::string& index_suffix,
+                        int64_t compound_file_size);
+    int64_t headerLength();
+    // Helper functions specific to write_v1
+    int64_t calculate_header_length(const std::vector<FileInfo>& sorted_files,
+                                    lucene::store::Directory* directory);
+    std::pair<lucene::store::Directory*, std::unique_ptr<lucene::store::IndexOutput>>
+    create_output_stream_v1(int64_t index_id, const std::string& index_suffix);
+    void write_header_and_data_v1(lucene::store::IndexOutput* output,
+                                  const std::vector<FileInfo>& sorted_files,
+                                  lucene::store::Directory* directory, int64_t header_length);
+    // Helper functions specific to write_v2
+    std::pair<lucene::store::Directory*, std::unique_ptr<lucene::store::IndexOutput>>
+    create_output_stream_v2();
+    void write_version_and_indices_count(lucene::store::IndexOutput* output);
+    struct FileMetadata {
+        int64_t index_id;
+        std::string index_suffix;
+        std::string filename;
+        int64_t offset;
+        int64_t length;
+        lucene::store::Directory* directory;
+
+        FileMetadata(int64_t id, const std::string& suffix, const std::string& file, int64_t off,
+                     int64_t len, lucene::store::Directory* dir)
+                : index_id(id),
+                  index_suffix(suffix),
+                  filename(file),
+                  offset(off),
+                  length(len),
+                  directory(dir) {}
+    };
+    std::vector<FileMetadata> prepare_file_metadata_v2(int64_t& current_offset);
+    std::vector<std::string> get_sorted_files_v2(lucene::store::Directory* dir);
+    void write_index_headers_and_metadata(lucene::store::IndexOutput* output,
+                                          const std::vector<FileMetadata>& file_metadata);
+    void copy_files_data_v2(lucene::store::IndexOutput* output,
+                            const std::vector<FileMetadata>& file_metadata);
+
+    // Member variables...
     InvertedIndexDirectoryMap _indices_dirs;
     const io::FileSystemSPtr _fs;
     std::string _index_path_prefix;
