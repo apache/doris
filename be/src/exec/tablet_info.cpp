@@ -103,10 +103,10 @@ Status OlapTableSchemaParam::init(const POlapTableSchemaParam& pschema) {
             if (!_is_partial_update ||
                 _partial_update_input_columns.count(pcolumn_desc.name()) > 0) {
                 std::string is_null_str = pcolumn_desc.is_nullable() ? "true" : "false";
-                std::string data_type_str = std::to_string(
-                        int64_t(TabletColumn::get_field_type_by_string(
+                std::string data_type_str =
+                        std::to_string(int64_t(TabletColumn::get_field_type_by_string(
                                 has_invalid_type ? "INVALID_TYPE" : pcolumn_desc.type())));
-                auto it = slots_map.find(to_lower(pcolumn_desc.name()) +"+" + data_type_str +
+                auto it = slots_map.find(to_lower(pcolumn_desc.name()) + "+" + data_type_str +
                                          is_null_str);
                 if (it == std::end(slots_map)) {
                     return Status::InternalError("unknown index column, column={}, type={}",
