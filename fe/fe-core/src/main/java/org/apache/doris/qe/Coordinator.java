@@ -1146,6 +1146,14 @@ public class Coordinator implements CoordInterface {
             } catch (ExecutionException e) {
                 exception = e;
                 code = TStatusCode.THRIFT_RPC_ERROR;
+                // If the error reason is call send fragment timeout, then should not use thrift rpc error as error
+                // code, because FE will add it to blacklist and other RPC may fail.
+                if (e.getCause() instanceof io.grpc.StatusRuntimeException) {
+                    io.grpc.StatusRuntimeException realException = (io.grpc.StatusRuntimeException) e.getCause();
+                    if (realException.getStatus().getCode() == io.grpc.Status.DEADLINE_EXCEEDED.getCode()) {
+                        code = TStatusCode.TIMEOUT;
+                    }
+                }
                 triple.getMiddle().removeProxy(triple.getLeft().brpcAddr);
             } catch (InterruptedException e) {
                 exception = e;
@@ -1239,6 +1247,14 @@ public class Coordinator implements CoordInterface {
             } catch (ExecutionException e) {
                 exception = e;
                 code = TStatusCode.THRIFT_RPC_ERROR;
+                // If the error reason is call send fragment timeout, then should not use thrift rpc error as error
+                // code, because FE will add it to blacklist and other RPC may fail.
+                if (e.getCause() instanceof io.grpc.StatusRuntimeException) {
+                    io.grpc.StatusRuntimeException realException = (io.grpc.StatusRuntimeException) e.getCause();
+                    if (realException.getStatus().getCode() == io.grpc.Status.DEADLINE_EXCEEDED.getCode()) {
+                        code = TStatusCode.TIMEOUT;
+                    }
+                }
                 triple.getMiddle().removeProxy(triple.getLeft().brpcAddr);
             } catch (InterruptedException e) {
                 exception = e;
@@ -3321,7 +3337,6 @@ public class Coordinator implements CoordInterface {
                 } catch (RpcException e) {
                     LOG.warn("cancel plan fragment get a exception, address={}:{}", brpcAddress.getHostname(),
                             brpcAddress.getPort());
-                    SimpleScheduler.addToBlacklist(addressToBackendID.get(brpcAddress), e.getMessage());
                 }
 
             } catch (Exception e) {
@@ -3506,7 +3521,6 @@ public class Coordinator implements CoordInterface {
                 } catch (RpcException e) {
                     LOG.warn("cancel plan fragment get a exception, address={}:{}", brpcAddress.getHostname(),
                             brpcAddress.getPort());
-                    SimpleScheduler.addToBlacklist(addressToBackendID.get(brpcAddress), e.getMessage());
                 }
             } catch (Exception e) {
                 LOG.warn("catch a exception", e);
