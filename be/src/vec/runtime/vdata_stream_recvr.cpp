@@ -145,10 +145,9 @@ Status VDataStreamRecvr::SenderQueue::add_block(const PBlock& pblock, int be_num
         auto iter = _packet_seq_map.find(be_number);
         if (iter != _packet_seq_map.end()) {
             if (iter->second >= packet_seq) {
-                LOG(WARNING) << fmt::format(
-                        "packet already exist [cur_packet_id= {} receive_packet_id={}]",
-                        iter->second, packet_seq);
-                return Status::OK();
+                return Status::InternalError(
+                        fmt::format("packet already exist [cur_packet_id= {} receive_packet_id={}]",
+                                    iter->second, packet_seq));
             }
             iter->second = packet_seq;
         } else {
