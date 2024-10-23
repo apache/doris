@@ -98,6 +98,7 @@ suite("test_backup_restore_atomic_reserve_replica", "backup_restore") {
 
     syncer.waitAllRestoreFinish(dbName)
 
+    sql "sync"
     for (def tableName in tables) {
         qt_sql "SELECT * FROM ${dbName}.${tableName} ORDER BY id"
     }
@@ -120,6 +121,7 @@ suite("test_backup_restore_atomic_reserve_replica", "backup_restore") {
 
     syncer.waitAllRestoreFinish(dbName)
 
+    sql "sync"
     for (def tableName in tables) {
         qt_sql "SELECT * FROM ${dbName}.${tableName} ORDER BY id"
     }
