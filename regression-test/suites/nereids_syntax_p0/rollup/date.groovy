@@ -114,22 +114,26 @@ suite("date", "rollup") {
     sql "insert into ${tbName1} values(1, 1, 1, '2020-05-30', '2020-05-30', '2020-05-30 11:11:11.111111', '2020-05-30 11:11:11.111111', '2020-05-30 11:11:11.111111',100);"
     sql "insert into ${tbName1} values(2, 1, 1, '2020-05-30', '2020-05-30', '2020-04-30 11:11:11.111111', '2020-04-30 11:11:11.111111', '2020-04-30 11:11:11.111111',100);"
     Thread.sleep(2000)
-    explain{
-        sql("SELECT store_id, max(sale_date1) FROM ${tbName1} GROUP BY store_id")
-        contains("(amt_max1)")
-    }
-    explain{
-        sql("SELECT store_id, max(sale_datetime1) FROM ${tbName1} GROUP BY store_id")
-        contains("(amt_max2)")
-    }
-    explain{
-        sql("SELECT store_id, max(sale_datetime2) FROM ${tbName1} GROUP BY store_id")
-        contains("(amt_max3)")
-    }
-    explain{
-        sql("SELECT store_id, max(sale_datetime3) FROM ${tbName1} GROUP BY store_id")
-        contains("(amt_max4)")
-    }
+
+    sql "analyze table ${tbName1} with sync;"
+    sql """set enable_stats=false;"""
+
+    mv_rewrite_success("SELECT store_id, max(sale_date1) FROM ${tbName1} GROUP BY store_id", "amt_max1")
+
+    mv_rewrite_success("SELECT store_id, max(sale_datetime1) FROM ${tbName1} GROUP BY store_id", "amt_max2")
+
+    mv_rewrite_success("SELECT store_id, max(sale_datetime2) FROM ${tbName1} GROUP BY store_id", "amt_max3")
+
+    mv_rewrite_success("SELECT store_id, max(sale_datetime3) FROM ${tbName1} GROUP BY store_id", "amt_max4")
+    sql """set enable_stats=true;"""
+    mv_rewrite_success("SELECT store_id, max(sale_date1) FROM ${tbName1} GROUP BY store_id", "amt_max1")
+
+    mv_rewrite_success("SELECT store_id, max(sale_datetime1) FROM ${tbName1} GROUP BY store_id", "amt_max2")
+
+    mv_rewrite_success("SELECT store_id, max(sale_datetime2) FROM ${tbName1} GROUP BY store_id", "amt_max3")
+
+    mv_rewrite_success("SELECT store_id, max(sale_datetime3) FROM ${tbName1} GROUP BY store_id", "amt_max4")
+
     qt_sql """ SELECT store_id, max(sale_date1) FROM ${tbName1} GROUP BY store_id """
     qt_sql """ SELECT store_id, max(sale_datetime1) FROM ${tbName1} GROUP BY store_id """
     qt_sql """ SELECT store_id, max(sale_datetime2) FROM ${tbName1} GROUP BY store_id """

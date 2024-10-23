@@ -35,8 +35,17 @@ suite("hll", "rollup") {
 
     qt_sql "desc test_materialized_view_hll1 all";
 
+    sql "analyze table test_materialized_view_hll1 with sync;"
+    sql """set enable_stats=false;"""
+
     explain {
         sql("SELECT store_id, hll_union_agg(hll_hash(sale_amt)) FROM test_materialized_view_hll1 GROUP BY store_id;")
         contains "(amt_count)"
     }
+    mv_rewrite_success("SELECT store_id, hll_union_agg(hll_hash(sale_amt)) FROM test_materialized_view_hll1 GROUP BY store_id;",
+            "amt_count")
+
+    sql """set enable_stats=true;"""
+    mv_rewrite_success("SELECT store_id, hll_union_agg(hll_hash(sale_amt)) FROM test_materialized_view_hll1 GROUP BY store_id;",
+            "amt_count")
 }

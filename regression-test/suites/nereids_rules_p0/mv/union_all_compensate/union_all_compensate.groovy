@@ -159,7 +159,8 @@ suite("union_all_compensate") {
     sql """set enable_materialized_view_rewrite = false;"""
     order_qt_query1_0_before "${query1_0}"
     sql """set enable_materialized_view_rewrite = true;"""
-    mv_rewrite_success_without_check_chosen(query1_0, "test_agg_mv")
+    // equalsIgnoreNullable code is not ready in NullableAggregateFunction.java on 2.1, so should fail
+    mv_rewrite_fail(query1_0, "test_agg_mv")
     order_qt_query1_0_after "${query1_0}"
 
     // Data modify
@@ -196,7 +197,8 @@ suite("union_all_compensate") {
     order_qt_query2_0_before "${query2_0}"
     sql """set enable_materialized_view_rewrite = true;"""
     sql """ALTER MATERIALIZED VIEW test_agg_mv set("grace_period"="100000");"""
-    mv_rewrite_success_without_check_chosen(query2_0, "test_agg_mv")
+    mv_rewrite_success(query2_0, "test_agg_mv", true,
+            is_partition_statistics_ready(db, ["test_table1", "test_table2", "test_agg_mv"]))
     order_qt_query2_0_after "${query2_0}"
 
 
@@ -214,11 +216,11 @@ suite("union_all_compensate") {
             group by t2.slot_id;
             """
     sql """set enable_materialized_view_rewrite = false;"""
-    order_qt_query3_0_before "${query2_0}"
+    order_qt_query3_0_before "${query3_0}"
     sql """set enable_materialized_view_rewrite = true;"""
     sql """ALTER MATERIALIZED VIEW test_agg_mv set("grace_period"="0");"""
-    mv_rewrite_fail(query2_0, "test_agg_mv")
-    order_qt_query3_0_after "${query2_0}"
+    mv_rewrite_fail(query3_0, "test_agg_mv")
+    order_qt_query3_0_after "${query3_0}"
 
 
     // Aggregate, if query group by expression use the partition column, but the invalid partition is in the
@@ -239,7 +241,8 @@ suite("union_all_compensate") {
     order_qt_query4_0_before "${query4_0}"
     sql """set enable_materialized_view_rewrite = true;"""
     sql """ALTER MATERIALIZED VIEW test_agg_mv set("grace_period"="100000");"""
-    mv_rewrite_success_without_check_chosen(query4_0, "test_agg_mv")
+    mv_rewrite_success(query4_0, "test_agg_mv", true,
+            is_partition_statistics_ready(db, ["test_table1", "test_table2", "test_agg_mv"]))
     order_qt_query4_0_after "${query4_0}"
 
 
@@ -258,11 +261,12 @@ suite("union_all_compensate") {
             to_date(t1.data_date);
             """
     sql """set enable_materialized_view_rewrite = false;"""
-    order_qt_query5_0_before "${query4_0}"
+    order_qt_query5_0_before "${query5_0}"
     sql """ALTER MATERIALIZED VIEW test_agg_mv set("grace_period"="0");"""
     sql """set enable_materialized_view_rewrite = true;"""
-    mv_rewrite_success_without_check_chosen(query4_0, "test_agg_mv")
-    order_qt_query5_0_after "${query4_0}"
+    mv_rewrite_success(query5_0, "test_agg_mv", true,
+            is_partition_statistics_ready(db, ["test_table1", "test_table2", "test_agg_mv"]))
+    order_qt_query5_0_after "${query5_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS test_agg_mv"""
 
 
@@ -288,7 +292,6 @@ suite("union_all_compensate") {
       test_table2 t4 on t3.data_date = t4.data_date
     """
     waitingMTMVTaskFinishedByMvName("test_join_mv")
-    sql """analyze table test_table1 with sync"""
 
     // Data modify
     sql """
@@ -298,7 +301,7 @@ suite("union_all_compensate") {
     ('2024-09-12 00:20:00', 'a', 1),
     ('2024-09-12 00:20:00', 'b', 1);
     """
-    sql """analyze table test_join_mv with sync"""
+    sql """analyze table test_table1 with sync"""
 
     // Join, if select expression not use the partition column, and the invalid partition is not in the
     // grace_period, should union all,and should rewritten successfully
@@ -316,7 +319,8 @@ suite("union_all_compensate") {
     sql """set enable_materialized_view_rewrite = false;"""
     order_qt_query6_0_before "${query6_0}"
     sql """set enable_materialized_view_rewrite = true;"""
-    mv_rewrite_success_without_check_chosen(query6_0, "test_join_mv")
+    mv_rewrite_success(query6_0, "test_join_mv", true,
+            is_partition_statistics_ready(db, ["test_table1", "test_table2", "test_join_mv"]))
     order_qt_query6_0_after "${query6_0}"
 
 
@@ -337,7 +341,8 @@ suite("union_all_compensate") {
     order_qt_query7_0_before "${query7_0}"
     sql """set enable_materialized_view_rewrite = true;"""
     sql """ALTER MATERIALIZED VIEW test_join_mv set("grace_period"="100000");"""
-    mv_rewrite_success_without_check_chosen(query7_0, "test_join_mv")
+    mv_rewrite_success(query7_0, "test_join_mv", true,
+            is_partition_statistics_ready(db, ["test_table1", "test_table2", "test_join_mv"]))
     order_qt_query7_0_after "${query7_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS test_join_mv"""
 

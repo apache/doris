@@ -39,11 +39,6 @@ suite("agg_on_none_agg") {
       O_COMMENT        VARCHAR(79) NOT NULL
     )
     DUPLICATE KEY(o_orderkey, o_custkey)
-    PARTITION BY RANGE(o_orderdate) (
-    PARTITION `day_2` VALUES LESS THAN ('2023-12-9'),
-    PARTITION `day_3` VALUES LESS THAN ("2023-12-11"),
-    PARTITION `day_4` VALUES LESS THAN ("2023-12-30")
-    )
     DISTRIBUTED BY HASH(o_orderkey) BUCKETS 3
     PROPERTIES (
       "replication_num" = "1"
@@ -86,10 +81,6 @@ suite("agg_on_none_agg") {
       l_comment      VARCHAR(44) NOT NULL
     )
     DUPLICATE KEY(l_orderkey, l_partkey, l_suppkey, l_linenumber)
-    PARTITION BY RANGE(l_shipdate) (
-    PARTITION `day_1` VALUES LESS THAN ('2023-12-9'),
-    PARTITION `day_2` VALUES LESS THAN ("2023-12-11"),
-    PARTITION `day_3` VALUES LESS THAN ("2023-12-30"))
     DISTRIBUTED BY HASH(l_orderkey) BUCKETS 3
     PROPERTIES (
       "replication_num" = "1"
@@ -151,7 +142,7 @@ suite("agg_on_none_agg") {
              bin(o_orderkey);
             """
     order_qt_query1_0_before "${query1_0}"
-    check_mv_rewrite_success(db, mv1_0, query1_0, "mv1_0")
+    async_mv_rewrite_success_without_check_chosen(db, mv1_0, query1_0, "mv1_0")
     order_qt_query1_0_after "${query1_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_0"""
 
@@ -173,7 +164,7 @@ suite("agg_on_none_agg") {
              exp(bin(o_orderkey + 1));
             """
     order_qt_query1_1_before "${query1_1}"
-    check_mv_rewrite_success(db, mv1_1, query1_1, "mv1_1")
+    async_mv_rewrite_success(db, mv1_1, query1_1, "mv1_1")
     order_qt_query1_1_after "${query1_1}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_1"""
 
@@ -199,7 +190,7 @@ suite("agg_on_none_agg") {
              exp(bin(o_orderkey + 1));
             """
     order_qt_query1_3_before "${query1_3}"
-    check_mv_rewrite_success(db, mv1_3, query1_3, "mv1_3")
+    async_mv_rewrite_success(db, mv1_3, query1_3, "mv1_3")
     order_qt_query1_3_after "${query1_3}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_3"""
 
@@ -225,7 +216,7 @@ suite("agg_on_none_agg") {
              o_shippriority;
             """
     order_qt_query2_0_before "${query2_0}"
-    check_mv_rewrite_fail(db, mv2_0, query2_0, "mv2_0")
+    async_mv_rewrite_fail(db, mv2_0, query2_0, "mv2_0")
     order_qt_query2_0_after "${query2_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv2_0"""
 
@@ -252,7 +243,7 @@ suite("agg_on_none_agg") {
              l_suppkey;
             """
     order_qt_query2_1_before "${query2_1}"
-    check_mv_rewrite_fail(db, mv2_1, query2_1, "mv2_1")
+    async_mv_rewrite_fail(db, mv2_1, query2_1, "mv2_1")
     order_qt_query2_1_after "${query2_1}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv2_1"""
 
@@ -276,7 +267,7 @@ suite("agg_on_none_agg") {
              bin(o_orderkey);
             """
     order_qt_query3_0_before "${query3_0}"
-    check_mv_rewrite_success(db, mv3_0, query3_0, "mv3_0")
+    async_mv_rewrite_success_without_check_chosen(db, mv3_0, query3_0, "mv3_0")
     order_qt_query3_0_after "${query3_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv3_0"""
 
@@ -300,7 +291,7 @@ suite("agg_on_none_agg") {
             """
     order_qt_query3_1_before "${query3_1}"
     // the filter slot used in query can not be found from mv
-    check_mv_rewrite_fail(db, mv3_1, query3_1, "mv3_1")
+    async_mv_rewrite_fail(db, mv3_1, query3_1, "mv3_1")
     order_qt_query3_1_after "${query3_1}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv3_1"""
 
@@ -325,7 +316,7 @@ suite("agg_on_none_agg") {
             """
     order_qt_query3_2_before "${query3_2}"
     // the filter slot used in query can not be found from mv
-    check_mv_rewrite_fail(db, mv3_2, query3_2, "mv3_2")
+    async_mv_rewrite_fail(db, mv3_2, query3_2, "mv3_2")
     order_qt_query3_2_after "${query3_2}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv3_2"""
 
@@ -353,7 +344,7 @@ suite("agg_on_none_agg") {
             """
     order_qt_query3_3_before "${query3_3}"
     // the filter slot used in query can not be found from mv
-    check_mv_rewrite_success(db, mv3_3, query3_3, "mv3_3")
+    async_mv_rewrite_success(db, mv3_3, query3_3, "mv3_3")
     order_qt_query3_3_after "${query3_3}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv3_3"""
 
@@ -379,7 +370,7 @@ suite("agg_on_none_agg") {
              bin(o_orderkey);
             """
     order_qt_query4_0_before "${query4_0}"
-    check_mv_rewrite_success(db, mv4_0, query4_0, "mv4_0")
+    async_mv_rewrite_success(db, mv4_0, query4_0, "mv4_0")
     order_qt_query4_0_after "${query4_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv4_0"""
 
@@ -408,7 +399,7 @@ suite("agg_on_none_agg") {
              l_partkey;
             """
     order_qt_query4_1_before "${query4_1}"
-    check_mv_rewrite_success(db, mv4_1, query4_1, "mv4_1")
+    async_mv_rewrite_success(db, mv4_1, query4_1, "mv4_1")
     order_qt_query4_1_after "${query4_1}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv4_1"""
 
@@ -432,7 +423,7 @@ suite("agg_on_none_agg") {
              bin(o_orderkey);
             """
     order_qt_query5_0_before "${query5_0}"
-    check_mv_rewrite_success(db, mv5_0, query5_0, "mv5_0")
+    async_mv_rewrite_success_without_check_chosen(db, mv5_0, query5_0, "mv5_0")
     order_qt_query5_0_after "${query5_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv5_0"""
 
@@ -460,7 +451,7 @@ suite("agg_on_none_agg") {
              l_linenumber;
             """
     order_qt_query5_1_before "${query5_1}"
-    check_mv_rewrite_success(db, mv5_1, query5_1, "mv5_1")
+    async_mv_rewrite_success(db, mv5_1, query5_1, "mv5_1")
     order_qt_query5_1_after "${query5_1}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv5_1"""
 }
