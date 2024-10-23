@@ -322,7 +322,9 @@ public class BackupHandler extends MasterDaemon implements Writable {
             AbstractJob currentJob = getCurrentJob(db.getId());
             if (currentJob != null && !currentJob.isDone()) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
-                                               "Can only run one backup or restore job of a database at same time");
+                                               "Can only run one backup or restore job of a database at same time "
+                                               + ", current running: label = " + currentJob.getLabel() + " jobId = "
+                                               + currentJob.getJobId() + ", to run label = " + stmt.getLabel());
             }
 
             if (stmt instanceof BackupStmt) {
