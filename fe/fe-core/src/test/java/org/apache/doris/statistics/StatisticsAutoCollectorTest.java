@@ -567,4 +567,36 @@ public class StatisticsAutoCollectorTest {
 
         sac.analyzeAll();
     }
+
+    @Test
+    public void testCreateAnalyzeJobForTbl() {
+        StatisticsAutoCollector collector = new StatisticsAutoCollector();
+        OlapTable table = new OlapTable();
+        new MockUp<OlapTable>() {
+            @Mock
+            public long getDataSize(boolean singleReplica) {
+                return 100;
+            }
+
+            @Mock
+            public long getRowCountForIndex(long indexId, boolean strict) {
+                return -1;
+            }
+
+            @Mock
+            public boolean isPartitionedTable() {
+                return false;
+            }
+        };
+        List<AnalysisInfo> infos = Lists.newArrayList();
+        collector.createAnalyzeJobForTbl(null, infos, table);
+        Assertions.assertEquals(0, infos.size());
+        new MockUp<OlapTable>() {
+            @Mock
+            public long getRowCountForIndex(long indexId, boolean strict) {
+                return 100;
+            }
+        };
+        Assertions.assertThrows(NullPointerException.class, () -> collector.createAnalyzeJobForTbl(null, infos, table));
+    }
 }
