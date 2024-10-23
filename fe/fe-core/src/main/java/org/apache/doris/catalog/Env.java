@@ -259,6 +259,7 @@ import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.statistics.AnalysisManager;
 import org.apache.doris.statistics.FollowerColumnSender;
+import org.apache.doris.statistics.LongTimeJobAppender;
 import org.apache.doris.statistics.StatisticsAutoCollector;
 import org.apache.doris.statistics.StatisticsCache;
 import org.apache.doris.statistics.StatisticsCleaner;
@@ -552,6 +553,8 @@ public class Env {
 
     private StatisticsJobAppender statisticsJobAppender;
 
+    private LongTimeJobAppender longTimeJobAppender;
+
     private FollowerColumnSender followerColumnSender;
 
     private HiveTransactionMgr hiveTransactionMgr;
@@ -798,6 +801,7 @@ public class Env {
         this.statisticsCleaner = new StatisticsCleaner();
         this.statisticsAutoCollector = new StatisticsAutoCollector();
         this.statisticsJobAppender = new StatisticsJobAppender();
+        this.longTimeJobAppender = new LongTimeJobAppender();
         this.globalFunctionMgr = new GlobalFunctionMgr();
         this.workloadGroupMgr = new WorkloadGroupMgr();
         this.workloadSchedPolicyMgr = new WorkloadSchedPolicyMgr();
@@ -1849,6 +1853,7 @@ public class Env {
         statisticsCleaner.start();
         statisticsAutoCollector.start();
         statisticsJobAppender.start();
+        longTimeJobAppender.start();
     }
 
     // start threads that should run on all FE
@@ -6610,6 +6615,10 @@ public class Env {
 
     public StatisticsJobAppender getStatisticsJobAppender() {
         return statisticsJobAppender;
+    }
+
+    public LongTimeJobAppender getLongTimeJobAppender() {
+        return longTimeJobAppender;
     }
 
     public void alterMTMVRefreshInfo(AlterMTMVRefreshInfo info) {

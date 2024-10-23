@@ -70,6 +70,11 @@ public class StatisticsJobAppender extends MasterDaemon {
             LOG.info("Stats table not available, skip");
             return;
         }
+        if (Env.getCurrentEnv().getStatisticsAutoCollector() == null
+                || !Env.getCurrentEnv().getStatisticsAutoCollector().isReady()) {
+            LOG.info("Statistics auto collector not ready, skip");
+            return;
+        }
         if (Env.isCheckpointThread()) {
             return;
         }
