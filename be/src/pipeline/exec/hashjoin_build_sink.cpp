@@ -394,7 +394,6 @@ Status HashJoinBuildSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* st
     }
 
     const bool build_stores_null = _join_op == TJoinOp::RIGHT_OUTER_JOIN ||
-                                   _join_op == TJoinOp::FULL_OUTER_JOIN ||
                                    _join_op == TJoinOp::RIGHT_ANTI_JOIN;
 
     const std::vector<TEqJoinCondition>& eq_join_conjuncts = tnode.hash_join_node.eq_join_conjuncts;
