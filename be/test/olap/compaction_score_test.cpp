@@ -90,12 +90,12 @@ TEST_F(CompactionScoreTest, TestCompactionScore) {
                       .set_min_threads(2)
                       .set_max_threads(2)
                       .build(&_storage_engine->_base_compaction_thread_pool);
-    EXPECT_TRUE(st.OK());
+    EXPECT_TRUE(st.ok());
     st = ThreadPoolBuilder("CumuCompactionTaskThreadPool")
                  .set_min_threads(2)
                  .set_max_threads(2)
                  .build(&_storage_engine->_cumu_compaction_thread_pool);
-    EXPECT_TRUE(st.OK());
+    EXPECT_TRUE(st.ok());
     */
 
     /*
@@ -115,12 +115,12 @@ TEST_F(CompactionScoreTest, TestCompactionScore) {
     TabletSharedPtr tablet(new Tablet(*(_storage_engine.get()), tablet_meta, _data_dir.get(),
                                       CUMULATIVE_SIZE_BASED_POLICY));
     Status st = tablet->init();
-    EXPECT_TRUE(st.OK());
+    EXPECT_TRUE(st.ok());
 
     for (int i = 2; i < 10; ++i) {
         RowsetSharedPtr rs = create_rowset({i, i}, 1, false, 102400);
         st = tablet->add_inc_rowset(rs);
-        EXPECT_TRUE(st.OK());
+        EXPECT_TRUE(st.ok());
     }
     EXPECT_EQ(tablet->get_compaction_score(), -1);
     EXPECT_EQ(tablet->calc_compaction_score(), 8);
@@ -129,7 +129,7 @@ TEST_F(CompactionScoreTest, TestCompactionScore) {
     for (int i = 10; i < 30; ++i) {
         RowsetSharedPtr rs = create_rowset({i, i}, 1, false, 102400);
         st = tablet->add_inc_rowset(rs);
-        EXPECT_TRUE(st.OK());
+        EXPECT_TRUE(st.ok());
     }
     EXPECT_EQ(tablet->get_compaction_score(), 28);
     EXPECT_EQ(tablet->calc_compaction_score(), 28);
@@ -148,7 +148,7 @@ TEST_F(CompactionScoreTest, TestCompactionScore) {
     std::vector<RowsetSharedPtr> output_rowsets;
     output_rowsets.push_back(rs);
     st = tablet->modify_rowsets(output_rowsets, input_rowsets, true);
-    EXPECT_TRUE(st.OK());
+    EXPECT_TRUE(st.ok());
 
     EXPECT_EQ(tablet->get_compaction_score(), 9);
     EXPECT_EQ(tablet->calc_compaction_score(), 9);
