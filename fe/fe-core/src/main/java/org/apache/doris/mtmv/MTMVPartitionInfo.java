@@ -22,9 +22,13 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.CatalogMgr;
 
+import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
 
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 
 /**
  * MTMVPartitionInfo
@@ -47,6 +51,8 @@ public class MTMVPartitionInfo {
     private String partitionCol;
     @SerializedName("expr")
     private Expr expr;
+    @SerializedName("prt")
+    private List<MTMVPartitionCol> partitionRefreshTablesNotIncludeRelatedTable;
 
     public MTMVPartitionInfo() {
     }
@@ -103,6 +109,32 @@ public class MTMVPartitionInfo {
 
     public void setExpr(Expr expr) {
         this.expr = expr;
+    }
+
+    public List<MTMVPartitionCol> getPartitionRefreshTablesNotIncludeRelatedTable() {
+        return partitionRefreshTablesNotIncludeRelatedTable;
+    }
+
+    public List<MTMVPartitionCol> getPartitionRefreshTables() {
+        if (getPartitionType() == MTMVPartitionType.SELF_MANAGE) {
+            return Lists.newArrayList();
+        }
+        ArrayList<MTMVPartitionCol> partitionRefreshTables = Lists.newArrayList(
+                partitionRefreshTablesNotIncludeRelatedTable);
+        partitionRefreshTables.add(new MTMVPartitionCol(this.relatedTable, this.relatedCol));
+        return partitionRefreshTables;
+    }
+
+    public Set<BaseTableInfo> getPartitionRefreshTableInfos() {
+        Set<BaseTableInfo> res = Sets.newHashSet();
+        if (getPartitionType() == MTMVPartitionType.SELF_MANAGE) {
+            return res;
+        }
+        for (MTMVPartitionCol col : partitionRefreshTablesNotIncludeRelatedTable) {
+            res.add(col.getTable());
+        }
+        res.add(this.relatedTable);
+        return res;
     }
 
     /**
