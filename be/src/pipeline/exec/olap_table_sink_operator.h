@@ -21,6 +21,7 @@
 #include "vec/sink/writer/vtablet_writer.h"
 
 namespace doris::pipeline {
+#include "common/compile_check_begin.h"
 
 class OlapTableSinkOperatorX;
 
@@ -76,3 +77,5 @@ private:
 };
 
 } // namespace doris::pipeline
+
+#include "common/compile_check_end.h"

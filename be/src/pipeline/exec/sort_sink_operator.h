@@ -23,6 +23,7 @@
 #include "vec/core/field.h"
 
 namespace doris::pipeline {
+#include "common/compile_check_begin.h"
 
 class SortSinkOperatorX;
 
@@ -108,3 +109,5 @@ private:
 };
 
 } // namespace doris::pipeline
+
+#include "common/compile_check_end.h"

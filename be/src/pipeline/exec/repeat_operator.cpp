@@ -24,6 +24,7 @@
 #include "vec/core/block.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class RuntimeState;
 } // namespace doris
 
@@ -81,7 +82,7 @@ bool RepeatOperatorX::need_more_input_data(RuntimeState* state) const {
     return !local_state._child_block->rows() && !local_state._child_eos;
 }
 
-Status RepeatLocalState::get_repeated_block(vectorized::Block* child_block, int repeat_id_idx,
+Status RepeatLocalState::get_repeated_block(vectorized::Block* child_block, size_t repeat_id_idx,
                                             vectorized::Block* output_block) {
     auto& p = _parent->cast<RepeatOperatorX>();
     DCHECK(child_block != nullptr);
@@ -147,7 +148,7 @@ Status RepeatLocalState::get_repeated_block(vectorized::Block* child_block, int 
 
 Status RepeatLocalState::add_grouping_id_column(std::size_t rows, std::size_t& cur_col,
                                                 vectorized::MutableColumns& columns,
-                                                int repeat_id_idx) {
+                                                size_t repeat_id_idx) {
     auto& p = _parent->cast<RepeatOperatorX>();
     for (auto slot_idx = 0; slot_idx < p._grouping_list.size(); slot_idx++) {
         DCHECK_LT(slot_idx, p._output_tuple_desc->slots().size());
@@ -198,7 +199,7 @@ Status RepeatOperatorX::pull(doris::RuntimeState* state, vectorized::Block* outp
     RETURN_IF_CANCELLED(state);
     DCHECK(_repeat_id_idx >= 0);
     for (const std::vector<int64_t>& v : _grouping_list) {
-        DCHECK(_repeat_id_idx <= (int)v.size());
+        DCHECK(_repeat_id_idx <= v.size());
     }
     DCHECK(output_block->rows() == 0);
 
@@ -208,7 +209,7 @@ Status RepeatOperatorX::pull(doris::RuntimeState* state, vectorized::Block* outp
 
         _repeat_id_idx++;
 
-        int size = _repeat_id_list.size();
+        size_t size = _repeat_id_list.size();
         if (_repeat_id_idx >= size) {
             _intermediate_block->clear();
             _child_block.clear_column_data(_child->row_desc().num_materialized_slots());

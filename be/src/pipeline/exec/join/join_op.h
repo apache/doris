@@ -21,6 +21,7 @@
 #include "vec/core/block.h"
 
 namespace doris::pipeline {
+#include "common/compile_check_begin.h"
 /**
  * Now we have different kinds of RowRef for join operation. Overall, RowRef is the base class and
  * the class inheritance is below:
@@ -46,7 +47,7 @@ struct RowRef {
     uint32_t row_num = 0;
 
     RowRef() = default;
-    RowRef(size_t row_num_count) : row_num(row_num_count) {}
+    RowRef(size_t row_num_count) : row_num(static_cast<uint32_t>(row_num_count)) {}
     void clear() {};
 };
 
@@ -186,3 +187,5 @@ private:
 };
 
 } // namespace doris::pipeline
+
+#include "common/compile_check_end.h"

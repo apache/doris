@@ -23,6 +23,7 @@
 #include "vec/spill/spill_stream_manager.h"
 
 namespace doris::pipeline {
+#include "common/compile_check_begin.h"
 
 Status PartitionedHashJoinSinkLocalState::init(doris::RuntimeState* state,
                                                doris::pipeline::LocalSinkStateInfo& info) {
@@ -250,7 +251,7 @@ Status PartitionedHashJoinSinkLocalState::revoke_memory(RuntimeState* state) {
 
     auto query_id = state->query_id();
 
-    for (size_t i = 0; i != _shared_state->partitioned_build_blocks.size(); ++i) {
+    for (uint32_t i = 0; i != _shared_state->partitioned_build_blocks.size(); ++i) {
         vectorized::SpillStreamSPtr& spilling_stream = _shared_state->spilled_streams[i];
         auto& mutable_block = _shared_state->partitioned_build_blocks[i];
 

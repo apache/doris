@@ -28,6 +28,7 @@
 #include "vec/sink/vdata_stream_sender.h"
 
 namespace doris::pipeline {
+#include "common/compile_check_begin.h"
 
 ResultFileSinkLocalState::ResultFileSinkLocalState(DataSinkOperatorXBase* parent,
                                                    RuntimeState* state)

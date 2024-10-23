@@ -22,6 +22,7 @@
 #include "pipeline/exec/operator.h"
 
 namespace doris::pipeline {
+#include "common/compile_check_begin.h"
 
 Status EmptySetSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* block,
                                           bool* eos) {

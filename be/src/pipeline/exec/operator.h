@@ -39,6 +39,7 @@
 #include "vec/runtime/vdata_stream_recvr.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class RowDescriptor;
 class RuntimeState;
 class TDataSink;
@@ -878,3 +879,5 @@ protected:
 };
 
 } // namespace doris::pipeline
+
+#include "common/compile_check_end.h"

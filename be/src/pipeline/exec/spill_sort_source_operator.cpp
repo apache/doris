@@ -17,6 +17,7 @@
 
 #include "spill_sort_source_operator.h"
 
+#include "common/cast_set.h"
 #include "common/status.h"
 #include "pipeline/exec/spill_utils.h"
 #include "runtime/fragment_mgr.h"
@@ -25,6 +26,7 @@
 #include "vec/spill/spill_stream_manager.h"
 
 namespace doris::pipeline {
+#include "common/compile_check_begin.h"
 SpillSortLocalState::SpillSortLocalState(RuntimeState* state, OperatorXBase* parent)
         : Base(state, parent) {
     if (state->external_sort_bytes_threshold() > 0) {
@@ -70,7 +72,11 @@ Status SpillSortLocalState::close(RuntimeState* state) {
     return Base::close(state);
 }
 int SpillSortLocalState::_calc_spill_blocks_to_merge() const {
-    int count = _external_sort_bytes_threshold / SpillSortSharedState::SORT_BLOCK_SPILL_BATCH_BYTES;
+    // The configured conf will not result in values exceeding the range of an int.
+    //  _external_sort_bytes_threshold = 134217728
+    //  SORT_BLOCK_SPILL_BATCH_BYTES = 8 * 1024 * 1024;
+    int count = cast_set<int>(_external_sort_bytes_threshold /
+                              SpillSortSharedState::SORT_BLOCK_SPILL_BATCH_BYTES);
     return std::max(2, count);
 }
 Status SpillSortLocalState::initiate_merge_sort_spill_streams(RuntimeState* state) {
