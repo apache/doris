@@ -31,7 +31,9 @@ namespace doris::pipeline {
 
 ResultFileSinkLocalState::ResultFileSinkLocalState(DataSinkOperatorXBase* parent,
                                                    RuntimeState* state)
-        : AsyncWriterSink<vectorized::VFileResultWriter, ResultFileSinkOperatorX>(parent, state) {}
+        : AsyncWriterSink<vectorized::VFileResultWriter, ResultFileSinkOperatorX>(parent, state),
+          _serializer(
+                  std::make_unique<vectorized::BlockSerializer<ResultFileSinkLocalState>>(this)) {}
 
 ResultFileSinkOperatorX::ResultFileSinkOperatorX(int operator_id, const RowDescriptor& row_desc,
                                                  const std::vector<TExpr>& t_output_expr)
@@ -141,6 +143,14 @@ Status ResultFileSinkLocalState::close(RuntimeState* state, Status exec_status) 
             state->fragment_instance_id());
 
     return Base::close(state, exec_status);
+}
+
+template <typename ChannelPtrType>
+void ResultFileSinkLocalState::_handle_eof_channel(RuntimeState* state, ChannelPtrType channel,
+                                                   Status st) {
+    channel->set_receiver_eof(st);
+    // Chanel will not send RPC to the downstream when eof, so close chanel by OK status.
+    static_cast<void>(channel->close(state, Status::OK()));
 }
 
 Status ResultFileSinkOperatorX::sink(RuntimeState* state, vectorized::Block* in_block, bool eos) {
