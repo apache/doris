@@ -35,6 +35,7 @@
 // TODO: support foreach
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 template <typename T>
 struct AggregateFunctionLinearHistogramData {
@@ -255,3 +256,5 @@ private:
 };
 
 } // namespace doris::vectorized
+
+#include "common/compile_check_end.h"

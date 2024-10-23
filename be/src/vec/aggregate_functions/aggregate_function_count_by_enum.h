@@ -32,6 +32,7 @@
 #include "vec/io/io_helper.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 struct CountByEnumData {
     std::unordered_map<std::string, uint64_t> cbe;
@@ -240,3 +241,4 @@ private:
 };
 
 } // namespace doris::vectorized
+#include "common/compile_check_end.h"

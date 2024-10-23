@@ -41,6 +41,7 @@
 #include "vec/io/io_helper.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 namespace vectorized {
 class Arena;
 template <typename T>
@@ -716,3 +717,5 @@ AggregateFunctionPtr create_aggregate_function_single_value(const String& name,
                                                             const DataTypes& argument_types,
                                                             const bool result_is_nullable);
 } // namespace doris::vectorized
+
+#include "common/compile_check_end.h"

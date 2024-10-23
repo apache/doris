@@ -34,6 +34,7 @@
 #include "vec/io/io_helper.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 template <typename ColVecType, bool arg_is_nullable>
 struct Value {
@@ -303,3 +304,4 @@ CREATE_READER_FUNCTION_WITH_NAME_AND_DATA(create_aggregate_function_last, Reader
 CREATE_READER_FUNCTION_WITH_NAME_AND_DATA(create_aggregate_function_last_non_null_value,
                                           ReaderFunctionLastNonNullData);
 } // namespace doris::vectorized
+#include "common/compile_check_end.h"

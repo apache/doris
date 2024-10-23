@@ -36,6 +36,7 @@
 #include "vec/data_types/data_type_nullable.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 using DataTypePtr = std::shared_ptr<const IDataType>;
 using DataTypes = std::vector<DataTypePtr>;
 using AggregateFunctionCreator =
@@ -189,3 +190,5 @@ public:
     static AggregateFunctionSimpleFactory& instance();
 };
 }; // namespace doris::vectorized
+
+#include "common/compile_check_end.h"

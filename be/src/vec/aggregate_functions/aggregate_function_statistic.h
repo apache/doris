@@ -35,6 +35,7 @@
 #include "vec/data_types/data_type_number.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 enum class STATISTICS_FUNCTION_KIND : uint8_t { SKEW_POP, KURT_POP };
 
@@ -161,3 +162,4 @@ private:
 };
 
 } // namespace doris::vectorized
+#include "common/compile_check_end.h"

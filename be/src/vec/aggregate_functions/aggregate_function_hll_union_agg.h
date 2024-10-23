@@ -38,6 +38,7 @@
 #include "vec/io/io_helper.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 namespace vectorized {
 class Arena;
 class BufferReadable;
@@ -149,3 +150,5 @@ AggregateFunctionPtr create_aggregate_function_HLL(const std::string& name,
                                                    const bool result_is_nullable);
 
 } // namespace doris::vectorized
+
+#include "common/compile_check_end.h"

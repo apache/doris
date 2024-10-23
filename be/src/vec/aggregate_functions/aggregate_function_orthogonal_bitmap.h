@@ -39,6 +39,7 @@
 #include "vec/io/io_helper.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 class Arena;
 class BufferReadable;
 class BufferWritable;
@@ -413,3 +414,5 @@ private:
     int _argument_size;
 };
 } // namespace doris::vectorized
+
+#include "common/compile_check_end.h"
