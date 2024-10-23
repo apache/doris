@@ -38,7 +38,6 @@ import org.slf4j.LoggerFactory;
 
 import java.util.Map;
 import java.util.Map.Entry;
-import java.util.Optional;
 
 /**
  * eliminate logical select hint and set them to cascade context

@@ -59,12 +59,22 @@ public class SelectHintSetVar extends SelectHint {
             if (value.isPresent()) {
                 try {
                     VariableMgr.setVar(sessionVariable, new SetVar(key, new StringLiteral(value.get())));
-                    context.invalidCache(key);
                 } catch (Throwable t) {
                     throw new AnalysisException("Can not set session variable '"
                         + key + "' = '" + value.get() + "'", t);
                 }
             }
+        }
+        // if sv set enable_nereids_planner=true and hint set enable_nereids_planner=false, we should set
+        // enable_fallback_to_original_planner=true and revert it after executing.
+        // throw exception to fall back to original planner
+        if (!sessionVariable.isEnableNereidsPlanner()) {
+            try {
+                sessionVariable.enableFallbackToOriginalPlannerOnce();
+            } catch (Throwable t) {
+                throw new AnalysisException("failed to set fallback to original planner to true", t);
+            }
+            throw new AnalysisException("The nereids is disabled in this sql, fallback to original planner");
         }
     }
 
