@@ -52,6 +52,10 @@ public:
         return resource_mgr_;
     }
 
+    [[nodiscard]] const std::shared_ptr<TxnLazyCommitter>& txn_lazy_committer() const {
+        return txn_lazy_committer_;
+    }
+
     void begin_txn(::google::protobuf::RpcController* controller, const BeginTxnRequest* request,
                    BeginTxnResponse* response, ::google::protobuf::Closure* done) override;
 

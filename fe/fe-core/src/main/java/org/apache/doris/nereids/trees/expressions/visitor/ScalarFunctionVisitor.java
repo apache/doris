@@ -90,6 +90,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.BitCount;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitLength;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitShiftLeft;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitShiftRight;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.BitTest;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapAnd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapAndCount;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapAndNot;
@@ -282,6 +283,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Log2;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lower;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lpad;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ltrim;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.LtrimIn;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MakeDate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapContainsKey;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapContainsValue;
@@ -357,6 +359,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Round;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.RoundBankers;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Rpad;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Rtrim;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.RtrimIn;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Second;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondCeil;
@@ -435,6 +438,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ToQuantileSta
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Tokenize;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Translate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Trim;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.TrimIn;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Truncate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Unhex;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UnixTimestamp;
@@ -864,6 +868,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitBitShiftRight(BitShiftRight bitShiftRight, C context) {
         return visitScalarFunction(bitShiftRight, context);
+    }
+
+    default R visitBitTest(BitTest bitTest, C context) {
+        return visitScalarFunction(bitTest, context);
     }
 
     default R visitCardinality(Cardinality cardinality, C context) {
@@ -1550,6 +1558,10 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(ltrim, context);
     }
 
+    default R visitLtrimIn(LtrimIn ltrimIn, C context) {
+        return visitScalarFunction(ltrimIn, context);
+    }
+
     default R visitMakeDate(MakeDate makeDate, C context) {
         return visitScalarFunction(makeDate, context);
     }
@@ -1800,6 +1812,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitRtrim(Rtrim rtrim, C context) {
         return visitScalarFunction(rtrim, context);
+    }
+
+    default R visitRtrimIn(RtrimIn rtrimIn, C context) {
+        return visitScalarFunction(rtrimIn, context);
     }
 
     default R visitSecond(Second second, C context) {
@@ -2100,6 +2116,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitTrim(Trim trim, C context) {
         return visitScalarFunction(trim, context);
+    }
+
+    default R visitTrimIn(TrimIn trimIn, C context) {
+        return visitScalarFunction(trimIn, context);
     }
 
     default R visitTruncate(Truncate truncate, C context) {

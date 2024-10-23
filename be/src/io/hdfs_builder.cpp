@@ -34,7 +34,68 @@
 
 namespace doris {
 
+#ifdef USE_HADOOP_HDFS
+void err_log_message(const char* fmt, ...) {
+    va_list args;
+    va_start(args, fmt);
+
+    // First, call vsnprintf to get the required buffer size
+    int size = vsnprintf(nullptr, 0, fmt, args) + 1; // +1 for '\0'
+    if (size <= 0) {
+        LOG(ERROR) << "Error formatting log message, invalid size";
+        va_end(args);
+        return;
+    }
+
+    va_end(args);
+    va_start(args, fmt); // Reinitialize va_list
+
+    // Allocate a buffer and format the string into it
+    std::vector<char> buffer(size);
+    vsnprintf(buffer.data(), size, fmt, args);
+
+    va_end(args);
+
+    // Use glog to log the message
+    LOG(ERROR) << buffer.data();
+}
+
+void va_err_log_message(const char* fmt, va_list ap) {
+    va_list args_copy;
+    va_copy(args_copy, ap);
+
+    // Call vsnprintf to get the required buffer size
+    int size = vsnprintf(nullptr, 0, fmt, args_copy) + 1; // +1 for '\0'
+    va_end(args_copy);                                    // Release the copied va_list
+
+    if (size <= 0) {
+        LOG(ERROR) << "Error formatting log message, invalid size";
+        return;
+    }
+
+    // Reinitialize va_list for the second vsnprintf call
+    va_copy(args_copy, ap);
+
+    // Allocate a buffer and format the string into it
+    std::vector<char> buffer(size);
+    vsnprintf(buffer.data(), size, fmt, args_copy);
+
+    va_end(args_copy);
+
+    // Use glog to log the message
+    LOG(ERROR) << buffer.data();
+}
+
+struct hdfsLogger logger = {.errLogMessage = err_log_message,
+                            .vaErrLogMessage = va_err_log_message};
+#endif // #ifdef USE_HADOOP_HDFS
+
 Status HDFSCommonBuilder::init_hdfs_builder() {
+#ifdef USE_HADOOP_HDFS
+    static std::once_flag flag;
+    std::call_once(flag, []() { hdfsSetLogger(&logger); });
+#endif // #ifdef USE_HADOOP_HDFS
+
     hdfs_builder = hdfsNewBuilder();
     if (hdfs_builder == nullptr) {
         LOG(INFO) << "failed to init HDFSCommonBuilder, please check check be/conf/hdfs-site.xml";

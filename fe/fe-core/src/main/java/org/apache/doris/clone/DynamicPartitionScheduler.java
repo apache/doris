@@ -170,22 +170,19 @@ public class DynamicPartitionScheduler extends MasterDaemon {
             return historyPartitionsSize.get(0);
         }
 
-        int size = historyPartitionsSize.size() > 7 ? 7 : historyPartitionsSize.size();
-
         boolean isAscending = true;
-        for (int i = 1; i < size; i++) {
-            if (historyPartitionsSize.get(i) < historyPartitionsSize.get(i - 1)) {
+        ArrayList<Long> ascendingDeltaSize = new ArrayList<Long>();
+        for (int i = Math.max(1, historyPartitionsSize.size() - 7); i < historyPartitionsSize.size(); i++) {
+            long delta = historyPartitionsSize.get(i) - historyPartitionsSize.get(i - 1);
+            if (delta < 0) {
                 isAscending = false;
                 break;
             }
+            ascendingDeltaSize.add(delta);
         }
 
         if (isAscending) {
-            ArrayList<Long> historyDeltaSize = Lists.newArrayList();
-            for (int i = 1; i < size; i++) {
-                historyDeltaSize.add(historyPartitionsSize.get(i) - historyPartitionsSize.get(i - 1));
-            }
-            return historyPartitionsSize.get(size - 1) + ema(historyDeltaSize, 7);
+            return historyPartitionsSize.get(historyPartitionsSize.size() - 1) + ema(ascendingDeltaSize, 7);
         } else {
             return ema(historyPartitionsSize, 7);
         }
@@ -654,7 +651,8 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                         clearCreatePartitionFailedMsg(olapTable.getId());
                     } catch (Exception e) {
                         recordCreatePartitionFailedMsg(db.getFullName(), tableName, e.getMessage(), olapTable.getId());
-                        LOG.warn("has error", e);
+                        LOG.warn("db [{}-{}], table [{}-{}]'s dynamic partition has error",
+                                db.getId(), db.getName(), olapTable.getId(), olapTable.getName(), e);
                         if (executeFirstTime) {
                             throw new DdlException(e.getMessage());
                         }

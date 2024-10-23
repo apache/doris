@@ -1350,7 +1350,6 @@ public:
     }
 
     bool use_default_implementation_for_nulls() const override { return false; }
-
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
         return Impl::execute_impl(context, block, arguments, result, input_rows_count);

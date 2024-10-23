@@ -343,6 +343,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         return indexes.getIndexIds();
     }
 
+    @Override
     public TableIndexes getTableIndexes() {
         return indexes;
     }
@@ -1154,6 +1155,25 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
                             partitionInfo.getReplicaAllocation(partition.getId()),
                             partitionInfo.getIsInMemory(partition.getId()),
                             partitionInfo.getIsMutable(partition.getId()));
+                } else {
+                    // unpartition
+                    // construct a dummy range and dummy list.
+                    List<Column> dummyColumns = new ArrayList<>();
+                    dummyColumns.add(new Column("dummy", PrimitiveType.INT));
+                    PartitionKey dummyKey = null;
+                    try {
+                        dummyKey = PartitionKey.createInfinityPartitionKey(dummyColumns, false);
+                    } catch (AnalysisException e) {
+                        LOG.warn("should not happen", e);
+                    }
+                    Range<PartitionKey> dummyRange = Range.open(new PartitionKey(), dummyKey);
+                    Env.getCurrentRecycleBin().recyclePartition(dbId, id, name, partition,
+                            dummyRange,
+                            new ListPartitionItem(Lists.newArrayList(new PartitionKey())),
+                            partitionInfo.getDataProperty(partition.getId()),
+                            partitionInfo.getReplicaAllocation(partition.getId()),
+                            partitionInfo.getIsInMemory(partition.getId()),
+                            partitionInfo.getIsMutable(partition.getId()));
                 }
             } else if (!reserveTablets) {
                 Env.getCurrentEnv().onErasePartition(partition);
@@ -1503,6 +1523,19 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         } else {
             return getSequenceCol().getType();
         }
+    }
+
+    public Column getSkipBitmapColumn() {
+        for (Column column : getBaseSchema(true)) {
+            if (column.isSkipBitmapColumn()) {
+                return column;
+            }
+        }
+        return null;
+    }
+
+    public boolean hasSkipBitmapColumn() {
+        return getSkipBitmapColumn() != null;
     }
 
     public void setIndexes(List<Index> indexes) {
@@ -2771,6 +2804,17 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         getOrCreatTableProperty().setEnableUniqueKeyMergeOnWrite(speedup);
     }
 
+    public void setEnableUniqueKeySkipBitmap(boolean enable) {
+        getOrCreatTableProperty().setEnableUniqueKeySkipBitmap(enable);
+    }
+
+    public boolean getEnableUniqueKeySkipBitmap() {
+        if (tableProperty == null) {
+            return false;
+        }
+        return tableProperty.getEnableUniqueKeySkipBitmap();
+    }
+
     public boolean getEnableUniqueKeyMergeOnWrite() {
         if (tableProperty == null) {
             return false;
@@ -2780,6 +2824,10 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
 
     public boolean isUniqKeyMergeOnWrite() {
         return getKeysType() == KeysType.UNIQUE_KEYS && getEnableUniqueKeyMergeOnWrite();
+    }
+
+    public boolean isUniqKeyMergeOnWriteWithClusterKeys() {
+        return isUniqKeyMergeOnWrite() && getBaseSchema().stream().anyMatch(Column::isClusterKey);
     }
 
     public boolean isDuplicateWithoutKey() {

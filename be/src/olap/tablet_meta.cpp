@@ -42,6 +42,7 @@
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/rowset.h"
+#include "olap/rowset/rowset_meta_manager.h"
 #include "olap/tablet_meta_manager.h"
 #include "olap/utils.h"
 #include "util/debug_points.h"
@@ -345,7 +346,8 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
 }
 
 TabletMeta::TabletMeta(const TabletMeta& b)
-        : _table_id(b._table_id),
+        : MetadataAdder(b),
+          _table_id(b._table_id),
           _index_id(b._index_id),
           _partition_id(b._partition_id),
           _tablet_id(b._tablet_id),

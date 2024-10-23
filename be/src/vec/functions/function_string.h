@@ -22,9 +22,9 @@
 #include <algorithm>
 #include <array>
 #include <boost/iterator/iterator_facade.hpp>
+#include <boost/locale.hpp>
 #include <climits>
 #include <cmath>
-#include <codecvt>
 #include <cstddef>
 #include <cstdlib>
 #include <cstring>
@@ -448,8 +448,7 @@ public:
 
 private:
     std::u16string _string_to_u16string(const std::string& str) const {
-        std::wstring_convert<std::codecvt_utf8_utf16<char16_t>, char16_t> convert;
-        return convert.from_bytes(str);
+        return boost::locale::conv::utf_to_utf<char16_t>(str);
     }
 
     std::string _string_to_unicode(const std::u16string& s) const {
@@ -1696,14 +1695,13 @@ public:
         }
 
         fmt::memory_buffer buffer;
-        buffer.reserve(strcol_chars.size());
+        buffer.resize(strcol_chars.size());
         size_t buffer_len = 0;
 
         for (size_t i = 0; i < input_rows_count; ++i) {
             if constexpr (!pad_const) {
                 pad_index.clear();
             }
-            buffer.clear();
             const auto len = col_len_data[index_check_const<len_const>(i)];
             if (len < 0) {
                 // return NULL when input length is invalid number
@@ -1722,7 +1720,7 @@ public:
                                 (const char*)str_data, (const char*)str_data + str_len, len);
                 // If iterate_char_len equals len, it indicates that the str length is greater than or equal to len
                 if (iterate_char_len == len) {
-                    buffer.reserve(buffer_len + iterate_byte_len);
+                    buffer.resize(buffer_len + iterate_byte_len);
                     memcpy(buffer.data() + buffer_len, str_data, iterate_byte_len);
                     buffer_len += iterate_byte_len;
                     res_offsets[i] = buffer_len;
@@ -1746,7 +1744,7 @@ public:
                 const size_t pad_remainder_len = pad_index[(len - str_char_size) % pad_char_size];
                 const size_t new_capacity = str_len + size_t(pad_times + 1) * pad_len;
                 ColumnString::check_chars_length(buffer_len + new_capacity, i);
-                buffer.reserve(buffer_len + new_capacity);
+                buffer.resize(buffer_len + new_capacity);
                 if constexpr (!Impl::is_lpad) {
                     memcpy(buffer.data() + buffer_len, str_data, str_len);
                     buffer_len += str_len;

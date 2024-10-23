@@ -89,7 +89,8 @@ public:
             std::list<std::shared_ptr<MemTrackerLimiter>>* tracker_snapshots);
     // call make_memory_tracker_snapshots, so also refresh total memory used.
     int64_t memory_used();
-    void refresh_memory(int64_t used_memory);
+
+    void do_sweep();
 
     int spill_threshold_low_water_mark() const {
         return _spill_low_watermark.load(std::memory_order_relaxed);
@@ -132,8 +133,6 @@ public:
 
     void add_mem_tracker_limiter(std::shared_ptr<MemTrackerLimiter> mem_tracker_ptr);
 
-    void remove_mem_tracker_limiter(std::shared_ptr<MemTrackerLimiter> mem_tracker_ptr);
-
     // when mem_limit <=0 , it's an invalid value, then current group not participating in memory GC
     // because mem_limit is not a required property
     bool is_mem_limit_valid() {
@@ -154,11 +153,6 @@ public:
         return Status::OK();
     }
 
-    void remove_query(TUniqueId query_id) {
-        std::unique_lock<std::shared_mutex> wlock(_mutex);
-        _query_ctxs.erase(query_id);
-    }
-
     void shutdown() {
         std::unique_lock<std::shared_mutex> wlock(_mutex);
         _is_shutdown = true;
@@ -167,11 +161,6 @@ public:
     bool can_be_dropped() {
         std::shared_lock<std::shared_mutex> r_lock(_mutex);
         return _is_shutdown && _query_ctxs.empty();
-    }
-
-    int query_num() {
-        std::shared_lock<std::shared_mutex> r_lock(_mutex);
-        return _query_ctxs.size();
     }
 
     int64_t gc_memory(int64_t need_free_mem, RuntimeProfile* profile, bool is_minor_gc);
@@ -208,6 +197,17 @@ public:
         return _total_local_scan_io_per_second->get_value();
     }
     int64_t get_remote_scan_bytes_per_second();
+
+    CgroupCpuCtl* get_cgroup_cpu_ctl_ptr() {
+        std::shared_lock<std::shared_mutex> rlock(_task_sched_lock);
+        return _cgroup_cpu_ctl.get();
+    }
+
+    ThreadPool* get_memtable_flush_pool_ptr() {
+        // no lock here because this is called by memtable flush,
+        // to avoid lock competition with the workload thread pool's update
+        return _memtable_flush_pool.get();
+    }
 
 private:
     mutable std::shared_mutex _mutex; // lock _name, _version, _cpu_share, _memory_limit

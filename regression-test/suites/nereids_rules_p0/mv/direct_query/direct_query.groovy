@@ -20,6 +20,7 @@ suite("direct_query_mv") {
     String db = context.config.getDbNameByFile(context.file)
     sql "use ${db}"
     sql "set runtime_filter_mode=OFF"
+    sql """set enable_materialized_view_nest_rewrite = true; """
 
     sql """
     drop table if exists orders
@@ -38,7 +39,6 @@ suite("direct_query_mv") {
       o_comment        VARCHAR(79) NOT NULL
     )
     DUPLICATE KEY(o_orderkey, o_custkey)
-    PARTITION BY RANGE(o_orderdate) (PARTITION `day_2` VALUES LESS THAN ('2023-12-30'))
     DISTRIBUTED BY HASH(o_orderkey) BUCKETS 3
     PROPERTIES (
       "replication_num" = "1"
@@ -69,7 +69,6 @@ suite("direct_query_mv") {
       l_comment      VARCHAR(44) NOT NULL
     )
     DUPLICATE KEY(l_orderkey, l_partkey, l_suppkey, l_linenumber)
-    PARTITION BY RANGE(l_shipdate) (PARTITION `day_1` VALUES LESS THAN ('2023-12-30'))
     DISTRIBUTED BY HASH(l_orderkey) BUCKETS 3
     PROPERTIES (
       "replication_num" = "1"

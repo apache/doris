@@ -87,7 +87,7 @@ public class MasterOpExecutor {
 
     public void execute() throws Exception {
         result = forward(buildStmtForwardParams());
-        if (result.getStatusCode() == 0 && ctx.isTxnModel()) {
+        if (ctx.isTxnModel()) {
             if (result.isSetTxnLoadInfo()) {
                 ctx.getTxnEntry().setTxnLoadInfoInObserver(result.getTxnLoadInfo());
             } else {
@@ -218,7 +218,6 @@ public class MasterOpExecutor {
                 cluster = ctx.getCloudCluster(false);
             } catch (Exception e) {
                 LOG.warn("failed to get cloud compute group", e);
-                throw new AnalysisException("failed to get cloud compute group", e);
             }
             if (!Strings.isNullOrEmpty(cluster)) {
                 params.setCloudCluster(cluster);

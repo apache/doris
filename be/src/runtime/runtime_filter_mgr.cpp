@@ -129,6 +129,7 @@ Status RuntimeFilterMgr::register_local_merge_producer_filter(
             RETURN_IF_ERROR(IRuntimeFilter::create(_state, &desc, &options,
                                                    RuntimeFilterRole::PRODUCER, -1, &merge_filter,
                                                    build_bf_exactly, true));
+            merge_filter->set_ignored();
             iter->second.filters.emplace_back(merge_filter);
         }
         iter->second.merge_time++;
@@ -150,7 +151,6 @@ Status RuntimeFilterMgr::get_local_merge_producer_filters(
     }
     *local_merge_filters = &iter->second;
     DCHECK(!iter->second.filters.empty());
-    DCHECK_GT(iter->second.merge_time, 0);
     return Status::OK();
 }
 
@@ -228,13 +228,13 @@ Status RuntimeFilterMergeControllerEntity::_init_with_desc(
     // so we need to copy to cnt_val
     cnt_val->producer_size = producer_size;
     cnt_val->runtime_filter_desc = *runtime_filter_desc;
-    cnt_val->target_info = *target_info;
     cnt_val->pool.reset(new ObjectPool());
     cnt_val->filter = cnt_val->pool->add(new IRuntimeFilter(_state, runtime_filter_desc));
 
     auto filter_id = runtime_filter_desc->filter_id;
     RETURN_IF_ERROR(cnt_val->filter->init_with_desc(&cnt_val->runtime_filter_desc, query_options,
                                                     -1, false));
+    cnt_val->filter->set_ignored();
     _filter_map.emplace(filter_id, cnt_val);
     return Status::OK();
 }
@@ -253,6 +253,7 @@ Status RuntimeFilterMergeControllerEntity::_init_with_desc(
     cnt_val->filter = cnt_val->pool->add(new IRuntimeFilter(_state, runtime_filter_desc));
     auto filter_id = runtime_filter_desc->filter_id;
     RETURN_IF_ERROR(cnt_val->filter->init_with_desc(&cnt_val->runtime_filter_desc, query_options));
+    cnt_val->filter->set_ignored();
 
     std::unique_lock<std::shared_mutex> guard(_filter_map_mutex);
     _filter_map.emplace(filter_id, cnt_val);
@@ -343,6 +344,7 @@ Status RuntimeFilterMergeControllerEntity::send_filter_size(const PSendFilterSiz
             pquery_id->set_hi(_state->query_id.hi());
             pquery_id->set_lo(_state->query_id.lo());
             closure->cntl_->set_timeout_ms(std::min(3600, _state->execution_timeout) * 1000);
+            closure->cntl_->ignore_eovercrowded();
 
             closure->request_->set_filter_id(filter_id);
             closure->request_->set_filter_size(cnt_val->global_size);
@@ -455,11 +457,19 @@ Status RuntimeFilterMergeControllerEntity::merge(const PMergeFilterRequest* requ
                 closure->cntl_->request_attachment().append(request_attachment);
             }
             closure->cntl_->set_timeout_ms(std::min(3600, _state->execution_timeout) * 1000);
+            closure->cntl_->ignore_eovercrowded();
             // set fragment-id
-            for (auto& target_fragment_instance_id : target.target_fragment_instance_ids) {
-                PUniqueId* cur_id = closure->request_->add_fragment_instance_ids();
-                cur_id->set_hi(target_fragment_instance_id.hi);
-                cur_id->set_lo(target_fragment_instance_id.lo);
+            if (target.__isset.target_fragment_ids) {
+                for (auto& target_fragment_id : target.target_fragment_ids) {
+                    closure->request_->add_fragment_ids(target_fragment_id);
+                }
+            } else {
+                // FE not upgraded yet.
+                for (auto& target_fragment_instance_id : target.target_fragment_instance_ids) {
+                    PUniqueId* cur_id = closure->request_->add_fragment_instance_ids();
+                    cur_id->set_hi(target_fragment_instance_id.hi);
+                    cur_id->set_lo(target_fragment_instance_id.lo);
+                }
             }
 
             std::shared_ptr<PBackendService_Stub> stub(

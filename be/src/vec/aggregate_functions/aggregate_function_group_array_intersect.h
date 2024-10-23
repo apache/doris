@@ -132,7 +132,8 @@ struct AggregateFunctionGroupArrayIntersectData {
                 const T* src_data =
                         is_null_element ? nullptr : &(nested_column_data->get_element(offset + i));
 
-                if (set->find(src_data) || (set->contain_null() && src_data == nullptr)) {
+                if ((!is_null_element && set->find(src_data)) ||
+                    (set->contain_null() && is_null_element)) {
                     new_set->insert(src_data);
                 }
             }
@@ -424,7 +425,8 @@ public:
 
             for (size_t i = 0; i < arr_size; ++i) {
                 StringRef src = process_element(i);
-                if (set->find(src.data, src.size) || (set->contain_null() && src.data == nullptr)) {
+                if ((set->find(src.data, src.size) && src.data != nullptr) ||
+                    (set->contain_null() && src.data == nullptr)) {
                     new_set->insert((void*)src.data, src.size);
                 }
             }

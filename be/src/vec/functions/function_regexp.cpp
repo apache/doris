@@ -391,8 +391,6 @@ public:
 
     String get_name() const override { return name; }
 
-    bool use_default_implementation_for_nulls() const override { return false; }
-
     size_t get_number_of_arguments() const override {
         if constexpr (std::is_same_v<Impl, RegexpExtractAllImpl>) {
             return 2;
@@ -454,9 +452,6 @@ public:
         } else {
             default_preprocess_parameter_columns(argument_columns, col_const, {1, 2}, block,
                                                  arguments);
-        }
-        for (int i = 0; i < argument_size; i++) {
-            check_set_nullable(argument_columns[i], result_null_map, col_const[i]);
         }
 
         if constexpr (std::is_same_v<Impl, RegexpExtractAllImpl>) {

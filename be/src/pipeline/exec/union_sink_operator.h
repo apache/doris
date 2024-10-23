@@ -89,6 +89,12 @@ public:
         }
     }
 
+    bool require_shuffled_data_distribution() const override {
+        return _followed_by_shuffled_operator;
+    }
+
+    bool is_shuffled_operator() const override { return _followed_by_shuffled_operator; }
+
 private:
     int _get_first_materialized_child_idx() const { return _first_materialized_child_idx; }
 

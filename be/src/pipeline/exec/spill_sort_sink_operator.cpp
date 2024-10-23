@@ -51,7 +51,7 @@ void SpillSortSinkLocalState::_init_counters() {
     _partial_sort_timer = ADD_TIMER(_profile, "PartialSortTime");
     _merge_block_timer = ADD_TIMER(_profile, "MergeBlockTime");
     _sort_blocks_memory_usage =
-            ADD_CHILD_COUNTER_WITH_LEVEL(_profile, "SortBlocks", TUnit::BYTES, "MemoryUsage", 1);
+            ADD_COUNTER_WITH_LEVEL(_profile, "MemoryUsageSortBlocks", TUnit::BYTES, 1);
 
     _spill_merge_sort_timer =
             ADD_CHILD_TIMER_WITH_LEVEL(_profile, "SpillMergeSortTime", "Spill", 1);
@@ -70,7 +70,7 @@ void SpillSortSinkLocalState::_init_counters() {
 void SpillSortSinkLocalState::update_profile(RuntimeProfile* child_profile) {
     UPDATE_PROFILE(_partial_sort_timer, "PartialSortTime");
     UPDATE_PROFILE(_merge_block_timer, "MergeBlockTime");
-    UPDATE_PROFILE(_sort_blocks_memory_usage, "SortBlocks");
+    UPDATE_PROFILE(_sort_blocks_memory_usage, "MemoryUsageSortBlocks");
 }
 
 Status SpillSortSinkLocalState::close(RuntimeState* state, Status execsink_status) {
@@ -156,8 +156,12 @@ Status SpillSortSinkOperatorX::sink(doris::RuntimeState* state, vectorized::Bloc
     DBUG_EXECUTE_IF("fault_inject::spill_sort_sink::sink",
                     { return Status::InternalError("fault_inject spill_sort_sink sink failed"); });
     RETURN_IF_ERROR(_sort_sink_operator->sink(local_state._runtime_state.get(), in_block, false));
-    local_state._mem_tracker->set_consumption(
-            local_state._shared_state->in_mem_shared_state->sorter->data_size());
+
+    int64_t data_size = local_state._shared_state->in_mem_shared_state->sorter->data_size();
+    COUNTER_SET(local_state._sort_blocks_memory_usage, data_size);
+    COUNTER_SET(local_state._memory_used_counter, data_size);
+    COUNTER_SET(local_state._peak_memory_usage_counter, data_size);
+
     if (eos) {
         if (local_state._shared_state->is_spilled) {
             if (revocable_mem_size(state) > 0) {

@@ -43,6 +43,6 @@ suite ("test_duplicate_mv") {
 
     mv_rewrite_success("select k1, k2, k3, k4 from duplicate_table group by k1, k2, k3, k4;", "deduplicate")
     
-    qt_select_mv1 "select k1, k2, k3, k4 from duplicate_table group by k1, k2, k3, k4;"
+    qt_select_mv1 "select k1, k2, k3, k4 from duplicate_table group by k1, k2, k3, k4 order by k1;"
  
 }

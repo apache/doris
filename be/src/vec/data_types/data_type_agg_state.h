@@ -107,7 +107,8 @@ public:
         return _agg_serialized_type->serialize(column, buf, be_exec_version);
     }
 
-    const char* deserialize(const char* buf, IColumn* column, int be_exec_version) const override {
+    const char* deserialize(const char* buf, MutableColumnPtr* column,
+                            int be_exec_version) const override {
         return _agg_serialized_type->deserialize(buf, column, be_exec_version);
     }
 
