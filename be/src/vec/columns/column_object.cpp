@@ -1071,6 +1071,8 @@ void ColumnObject::insert_range_from(const IColumn& src, size_t start, size_t le
             if (entry->path.has_nested_part()) {
                 FieldInfo field_info {
                         .scalar_type_id = entry->data.least_common_type.get_base_type_id(),
+                        .have_nulls = false,
+                        .need_convert = false,
                         .num_dimensions = entry->data.get_dimensions()};
                 add_nested_subcolumn(entry->path, field_info, num_rows);
             } else {
@@ -1985,6 +1987,8 @@ bool ColumnObject::try_insert_many_defaults_from_nested(const Subcolumns::NodePt
     size_t old_size = entry->data.size();
     FieldInfo field_info = {
             .scalar_type_id = entry->data.least_common_type.get_base_type_id(),
+            .have_nulls = false,
+            .need_convert = false,
             .num_dimensions = entry->data.get_dimensions(),
     };
 

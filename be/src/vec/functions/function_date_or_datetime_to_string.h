@@ -65,7 +65,6 @@ public:
     String get_name() const override { return name; }
 
     size_t get_number_of_arguments() const override { return 1; }
-    bool use_default_implementation_for_nulls() const override { return false; }
 
     DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
         RETURN_REAL_TYPE_FOR_DATEV2_FUNCTION(DataTypeString);
@@ -95,14 +94,6 @@ public:
                 TransformerToStringOneArgument<Transform>::vector(
                         context, sources->get_data(), col_res->get_chars(), col_res->get_offsets(),
                         null_map->get_data());
-                if (const auto* nullable_col =
-                            check_and_get_column<ColumnNullable>(source_col.get())) {
-                    NullMap& result_null_map = assert_cast<ColumnUInt8&>(*null_map).get_data();
-                    const NullMap& src_null_map =
-                            assert_cast<const ColumnUInt8&>(nullable_col->get_null_map_column())
-                                    .get_data();
-                    VectorizedUtils::update_null_map(result_null_map, src_null_map);
-                }
                 block.replace_by_position(
                         result, ColumnNullable::create(std::move(col_res), std::move(null_map)));
             } else {

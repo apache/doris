@@ -481,8 +481,4 @@ private:
 
 ColumnPtr make_nullable(const ColumnPtr& column, bool is_nullable = false);
 ColumnPtr remove_nullable(const ColumnPtr& column);
-// check if argument column is nullable. If so, extract its concrete column and set null_map.
-//TODO: use this to replace inner usages.
-// is_single: whether null_map is null map of a ColumnConst
-void check_set_nullable(ColumnPtr&, ColumnVector<UInt8>::MutablePtr& null_map, bool is_single);
 } // namespace doris::vectorized

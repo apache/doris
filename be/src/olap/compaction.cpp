@@ -47,6 +47,7 @@
 #include "olap/cumulative_compaction_policy.h"
 #include "olap/cumulative_compaction_time_series_policy.h"
 #include "olap/data_dir.h"
+#include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/beta_rowset_writer.h"
@@ -99,14 +100,14 @@ bool is_rowset_tidy(std::string& pre_max_key, const RowsetSharedPtr& rhs) {
         }
     }
     std::string min_key;
-    auto ret = rhs->min_key(&min_key);
+    auto ret = rhs->first_key(&min_key);
     if (!ret) {
         return false;
     }
     if (min_key <= pre_max_key) {
         return false;
     }
-    CHECK(rhs->max_key(&pre_max_key));
+    CHECK(rhs->last_key(&pre_max_key));
 
     return true;
 }
@@ -174,10 +175,11 @@ Status Compaction::merge_input_rowsets() {
 
     // write merged rows to output rowset
     // The test results show that merger is low-memory-footprint, there is no need to tracker its mem pool
-    // if ctx.skip_inverted_index.size() > 0, it means we need to do inverted index compaction.
+    // if ctx.columns_to_do_index_compaction.size() > 0, it means we need to do inverted index compaction.
     // the row ID conversion matrix needs to be used for inverted index compaction.
-    if (!ctx.skip_inverted_index.empty() || (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
-                                             _tablet->enable_unique_key_merge_on_write())) {
+    if (!ctx.columns_to_do_index_compaction.empty() ||
+        (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
+         _tablet->enable_unique_key_merge_on_write())) {
         _stats.rowid_conversion = _rowid_conversion.get();
     }
 
@@ -482,45 +484,11 @@ Status CompactionMixin::execute_compact_impl(int64_t permits) {
 Status Compaction::do_inverted_index_compaction() {
     const auto& ctx = _output_rs_writer->context();
     if (!config::inverted_index_compaction_enable || _input_row_num <= 0 ||
-        !_stats.rowid_conversion || ctx.skip_inverted_index.empty()) {
+        !_stats.rowid_conversion || ctx.columns_to_do_index_compaction.empty()) {
         return Status::OK();
     }
 
     OlapStopWatch inverted_watch;
-
-    int64_t cur_max_version = 0;
-    {
-        std::shared_lock rlock(_tablet->get_header_lock());
-        cur_max_version = _tablet->max_version_unlocked();
-    }
-
-    DeleteBitmap output_rowset_delete_bitmap(_tablet->tablet_id());
-    std::set<RowLocation> missed_rows;
-    std::map<RowsetSharedPtr, std::list<std::pair<RowLocation, RowLocation>>> location_map;
-    // Convert the delete bitmap of the input rowsets to output rowset.
-    _tablet->calc_compaction_output_rowset_delete_bitmap(
-            _input_rowsets, *_rowid_conversion, 0, cur_max_version + 1, &missed_rows, &location_map,
-            _tablet->tablet_meta()->delete_bitmap(), &output_rowset_delete_bitmap);
-
-    if (!_allow_delete_in_cumu_compaction) {
-        if (compaction_type() == ReaderType::READER_CUMULATIVE_COMPACTION &&
-            _stats.merged_rows != missed_rows.size() && _tablet->tablet_state() == TABLET_RUNNING) {
-            std::string err_msg = fmt::format(
-                    "cumulative compaction: the merged rows({}) is not equal to missed "
-                    "rows({}) in rowid conversion, tablet_id: {}, table_id:{}",
-                    _stats.merged_rows, missed_rows.size(), _tablet->tablet_id(),
-                    _tablet->table_id());
-            if (config::enable_mow_compaction_correctness_check_core) {
-                CHECK(false) << err_msg;
-            } else {
-                DCHECK(false) << err_msg;
-            }
-            // log here just for debugging, do not return error
-            LOG(WARNING) << err_msg;
-        }
-    }
-
-    RETURN_IF_ERROR(_tablet->check_rowid_conversion(_output_rowset, location_map));
 
     // translation vec
     // <<dest_idx_num, dest_docId>>
@@ -718,7 +686,7 @@ Status Compaction::do_inverted_index_compaction() {
     };
 
     Status status = Status::OK();
-    for (auto&& column_uniq_id : ctx.skip_inverted_index) {
+    for (auto&& column_uniq_id : ctx.columns_to_do_index_compaction) {
         auto col = _cur_tablet_schema->column_by_uid(column_uniq_id);
         const auto* index_meta = _cur_tablet_schema->get_inverted_index(col);
 
@@ -746,19 +714,18 @@ Status Compaction::do_inverted_index_compaction() {
         }
 
         std::vector<lucene::store::Directory*> dest_index_dirs(dest_segment_num);
-        std::vector<lucene::store::Directory*> src_index_dirs(src_segment_num);
         try {
+            std::vector<std::unique_ptr<DorisCompoundReader>> src_idx_dirs(src_segment_num);
             for (int src_segment_id = 0; src_segment_id < src_segment_num; src_segment_id++) {
-                auto src_dir =
+                src_idx_dirs[src_segment_id] =
                         DORIS_TRY(inverted_index_file_readers[src_segment_id]->open(index_meta));
-                src_index_dirs[src_segment_id] = src_dir.release();
             }
             for (int dest_segment_id = 0; dest_segment_id < dest_segment_num; dest_segment_id++) {
                 auto* dest_dir =
                         DORIS_TRY(inverted_index_file_writers[dest_segment_id]->open(index_meta));
                 dest_index_dirs[dest_segment_id] = dest_dir;
             }
-            auto st = compact_column(index_meta->index_id(), src_index_dirs, dest_index_dirs,
+            auto st = compact_column(index_meta->index_id(), src_idx_dirs, dest_index_dirs,
                                      index_tmp_path.native(), trans_vec, dest_segment_num_rows);
             if (!st.ok()) {
                 error_handler(index_meta->index_id(), column_uniq_id);
@@ -809,13 +776,25 @@ Status Compaction::do_inverted_index_compaction() {
     return Status::OK();
 }
 
-void Compaction::construct_skip_inverted_index(RowsetWriterContext& ctx) {
+void Compaction::construct_index_compaction_columns(RowsetWriterContext& ctx) {
     for (const auto& index : _cur_tablet_schema->indexes()) {
         if (index.index_type() != IndexType::INVERTED) {
             continue;
         }
 
-        auto col_unique_id = index.col_unique_ids()[0];
+        auto col_unique_ids = index.col_unique_ids();
+        // check if column unique ids is empty to avoid crash
+        if (col_unique_ids.empty()) {
+            LOG(WARNING) << "tablet[" << _tablet->tablet_id() << "] index[" << index.index_id()
+                         << "] has no column unique id, will skip index compaction."
+                         << " tablet_schema=" << _cur_tablet_schema->dump_full_schema();
+            continue;
+        }
+        auto col_unique_id = col_unique_ids[0];
+        // Avoid doing inverted index compaction on non-slice type columns
+        if (!field_is_slice_type(_cur_tablet_schema->column_by_uid(col_unique_id).type())) {
+            continue;
+        }
         auto has_inverted_index = [&](const RowsetSharedPtr& src_rs) {
             auto* rowset = static_cast<BetaRowset*>(src_rs.get());
             if (rowset->is_skip_index_compaction(col_unique_id)) {
@@ -877,7 +856,7 @@ void Compaction::construct_skip_inverted_index(RowsetWriterContext& ctx) {
                     reader->close();
 
                     // why is 3?
-                    // bkd index will write at least 3 files
+                    // slice type index file at least has 3 files: null_bitmap, segments_N, segments.gen
                     if (files.size() < 3) {
                         LOG(WARNING) << "tablet[" << _tablet->tablet_id() << "] column_unique_id["
                                      << col_unique_id << "]," << index_file_path
@@ -897,9 +876,8 @@ void Compaction::construct_skip_inverted_index(RowsetWriterContext& ctx) {
         bool all_have_inverted_index = std::all_of(_input_rowsets.begin(), _input_rowsets.end(),
                                                    std::move(has_inverted_index));
 
-        if (all_have_inverted_index &&
-            field_is_slice_type(_cur_tablet_schema->column_by_uid(col_unique_id).type())) {
-            ctx.skip_inverted_index.insert(col_unique_id);
+        if (all_have_inverted_index) {
+            ctx.columns_to_do_index_compaction.insert(col_unique_id);
         }
     }
 }
@@ -912,7 +890,7 @@ Status CompactionMixin::construct_output_rowset_writer(RowsetWriterContext& ctx)
           _tablet->keys_type() == KeysType::DUP_KEYS)) &&
         _cur_tablet_schema->get_inverted_index_storage_format() ==
                 InvertedIndexStorageFormatPB::V1) {
-        construct_skip_inverted_index(ctx);
+        construct_index_compaction_columns(ctx);
     }
     ctx.version = _output_version;
     ctx.rowset_state = VISIBLE;
@@ -1209,7 +1187,7 @@ Status CloudCompactionMixin::construct_output_rowset_writer(RowsetWriterContext&
           _tablet->keys_type() == KeysType::DUP_KEYS)) &&
         _cur_tablet_schema->get_inverted_index_storage_format() ==
                 InvertedIndexStorageFormatPB::V1) {
-        construct_skip_inverted_index(ctx);
+        construct_index_compaction_columns(ctx);
     }
 
     // Use the storage resource of the previous rowset

@@ -38,7 +38,7 @@ suite ("testSelectMVWithTableAlias") {
 
     sql "analyze table user_tags with sync;"
 
-    mv_rewrite_all_fail("select * from user_tags order by time_col;")
+    mv_rewrite_all_fail("select * from user_tags order by time_col;", ["user_tags_mv"])
         
     qt_select_star "select * from user_tags order by time_col;"
 

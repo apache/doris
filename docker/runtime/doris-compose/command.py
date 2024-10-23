@@ -294,7 +294,7 @@ class UpCommand(Command):
         group2.add_argument("--force-recreate",
                            default=False,
                            action=self._get_parser_bool_action(True),
-                           help="Recreate containers even if their configuration" \
+                           help="Recreate containers even if their configuration " \
                                 "and image haven't changed. ")
 
         parser.add_argument("--coverage-dir",
