@@ -1095,6 +1095,9 @@ void DeleteBitmap::subset(const BitmapKey& start, const BitmapKey& end,
 }
 
 void DeleteBitmap::merge(const BitmapKey& bmk, const roaring::Roaring& segment_delete_bitmap) {
+    VLOG_DEBUG << "Merge rs: " << std::get<0>(bmk) << "|seg: " << std::get<1>(bmk) << "|"
+               << std::get<2>(bmk) << " " << segment_delete_bitmap.cardinality()
+               << " to delete bitmap in " << _tablet_id;
     std::lock_guard l(lock);
     auto [iter, succ] = delete_bitmap.emplace(bmk, segment_delete_bitmap);
     if (!succ) {
@@ -1106,7 +1109,16 @@ void DeleteBitmap::merge(const DeleteBitmap& other) {
     std::lock_guard l(lock);
     for (auto& i : other.delete_bitmap) {
         auto [j, succ] = this->delete_bitmap.insert(i);
-        if (!succ) j->second |= i.second;
+        if (!succ) {
+            VLOG_DEBUG << "Merge rs: " << std::get<0>(j->first) << "|seg: " << std::get<1>(j->first)
+                       << "|" << std::get<2>(j->first) << " " << j->second.cardinality()
+                       << " to delete bitmap in " << _tablet_id;
+            j->second |= i.second;
+        } else {
+            VLOG_DEBUG << "Insert rs: " << std::get<0>(j->first)
+                       << "|seg: " << std::get<1>(j->first) << "|" << std::get<2>(j->first) << " "
+                       << j->second.cardinality() << " to delete bitmap in " << _tablet_id;
+        }
     }
 }
 
