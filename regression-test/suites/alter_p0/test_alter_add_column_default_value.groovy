@@ -39,7 +39,9 @@ suite('test_alter_add_column_default_value') {
 
     // Check data before ALTER TABLE
     qt_select1 """ SELECT * FROM ${tbl} ORDER BY k1 """
-    qt_select2 """ show create table ${tbl}"""
+    def tb1 = sql """ show create table ${tbl}"""
+    logger.info("tb1:{}", tb1[0][1])
+    assertFalse(tb1[0][1].contains("bitmap NOT NULL DEFAULT BITMAP_EMPTY"))
 
     sql """
         ALTER TABLE ${tbl} add column v3 bitmap default bitmap_empty;
@@ -51,7 +53,9 @@ suite('test_alter_add_column_default_value') {
     }
 
     // Check table structure after ALTER TABLE
-    qt_select3 """ show create table ${tbl}"""
+    def tb2 = sql """ show create table ${tbl}"""
+    logger.info("tb2:{}", tb2[0][1])
+    assertTrue(tb2[0][1].contains("bitmap NOT NULL DEFAULT BITMAP_EMPTY"))
     def resultCreate = sql """ SHOW CREATE TABLE ${tbl} """
     sql """insert into ${tbl} values (4,4,4,to_bitmap(444))"""
     sql """insert into ${tbl} (k1,v1,v2) values (5,5,5)"""
