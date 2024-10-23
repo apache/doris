@@ -1,0 +1,45 @@
+on:
+  pull_request:
+    branches:
+      - master
+    types: ["closed"]
+
+jobs:
+  cherry_pick_branch_2.1:
+    runs-on: ubuntu-latest
+    name: Cherry pick into branch-2.1
+    if: ${{ contains(github.event.pull_request.labels.*.name, 'branch_2.1') && github.event.pull_request.merged == true }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+      - name: Cherry pick into branch-2.1
+        uses: carloscastrojumo/github-cherry-pick-action@v1.0.1
+        with:
+          branch: branch-2.1
+          labels: |
+            cherry-pick
+          reviewers: |
+            yiguolei
+  cherry_pick_branch-3.0:
+    runs-on: ubuntu-latest
+    name: Cherry pick into branch-3.0
+    if: ${{ contains(github.event.pull_request.labels.*.name, 'branch-3.0') && github.event.pull_request.merged == true }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+      - name: Cherry pick into branch-3.0
+        uses: carloscastrojumo/github-cherry-pick-action@v1.0.1
+        with:
+          branch: branch-3.0
+          labels: |
+            cherry-pick
+          reviewers: |
+            dataroaring
+          title: '[cherry-pick] {old_title}'
+          body: 'Cherry picking #{old_pull_request_id} onto this branch'
+env:
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
