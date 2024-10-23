@@ -130,8 +130,8 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                     Set<Slot> aggSlots = funcs.stream()
                             .flatMap(f -> f.getInputSlots().stream())
                             .collect(Collectors.toSet());
-                    return conjuncts.stream().allMatch(expr -> checkSlotInOrExpression(expr, aggSlots)
-                                                                && checkIsNullExpr(expr, aggSlots));
+                    return aggSlots.isEmpty() || conjuncts.stream().allMatch(expr ->
+                                checkSlotInOrExpression(expr, aggSlots) && checkIsNullExpr(expr, aggSlots));
                 })
                 .thenApply(ctx -> {
                     LogicalAggregate<LogicalFilter<LogicalOlapScan>> agg = ctx.root;
@@ -164,8 +164,8 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                     Set<Slot> aggSlots = funcs.stream()
                             .flatMap(f -> f.getInputSlots().stream())
                             .collect(Collectors.toSet());
-                    return conjuncts.stream().allMatch(expr -> checkSlotInOrExpression(expr, aggSlots)
-                                                                && checkIsNullExpr(expr, aggSlots));
+                    return aggSlots.isEmpty() || conjuncts.stream().allMatch(expr ->
+                                checkSlotInOrExpression(expr, aggSlots) && checkIsNullExpr(expr, aggSlots));
                 })
                 .thenApply(ctx -> {
                     LogicalAggregate<LogicalProject<LogicalFilter<LogicalOlapScan>>> agg = ctx.root;
