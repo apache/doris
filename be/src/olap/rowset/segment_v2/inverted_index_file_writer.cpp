@@ -68,7 +68,7 @@ Result<DorisFSDirectory*> InvertedIndexFileWriter::open(const TabletIndex* index
     auto* dir = DorisFSDirectoryFactory::getDirectory(_lfs, lfs_index_path.c_str(),
                                                       use_compound_file_writer, can_use_ram_dir,
                                                       nullptr, _fs, index_path.c_str());
-    auto key = std::make_pair(index_meta->index_id(), index_meta->get_index_suffix());
+    auto key = std::make_pair(index_id, index_suffix);
     auto [it, inserted] = _indices_dirs.emplace(key, std::unique_ptr<DorisFSDirectory>(dir));
     if (!inserted) {
         LOG(ERROR) << "InvertedIndexFileWriter::open attempted to insert a duplicate key: ("
@@ -80,8 +80,6 @@ Result<DorisFSDirectory*> InvertedIndexFileWriter::open(const TabletIndex* index
         return ResultError(Status::InternalError(
                 "InvertedIndexFileWriter::open attempted to insert a duplicate dir"));
     }
-    _indices_dirs.emplace(std::make_pair(index_id, index_suffix),
-                          std::unique_ptr<DorisFSDirectory>(dir));
     return dir;
 }
 
