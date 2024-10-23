@@ -163,12 +163,12 @@ public class BDBJEJournal implements Journal { // CHECKSTYLE IGNORE THIS LINE: B
                     MetricRepo.HISTO_JOURNAL_BATCH_DATA_SIZE.update(dataSize);
                 }
 
-                if (entitySize > 32) {
+                if (entitySize > Config.batch_edit_log_max_item_num) {
                     LOG.warn("write bdb journal batch is too large, batch size {}, the first journal id {}, "
                             + "data size {}", entitySize, firstId, dataSize);
                 }
 
-                if (dataSize > 640 * 1024) {  // 640KB
+                if (dataSize > Config.batch_edit_log_max_byte_size) {  // 640KB
                     LOG.warn("write bdb journal batch data is too large, data size {}, the first journal id {}, "
                             + "batch size {}", dataSize, firstId, entitySize);
                 }
