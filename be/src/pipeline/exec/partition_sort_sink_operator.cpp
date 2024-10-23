@@ -113,9 +113,9 @@ Status PartitionSortSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
     _partition_exprs_num = p._partition_exprs_num;
     _hash_table_size_counter = ADD_COUNTER(_profile, "HashTableSize", TUnit::UNIT);
     _serialize_key_arena_memory_usage =
-            _profile->AddHighWaterMarkCounter("SerializeKeyArena", TUnit::BYTES, "MemoryUsage", 1);
+            _profile->AddHighWaterMarkCounter("MemoryUsageSerializeKeyArena", TUnit::BYTES, "", 1);
     _hash_table_memory_usage =
-            ADD_CHILD_COUNTER_WITH_LEVEL(_profile, "HashTable", TUnit::BYTES, "MemoryUsage", 1);
+            ADD_COUNTER_WITH_LEVEL(_profile, "MemoryUsageHashTable", TUnit::BYTES, 1);
     _build_timer = ADD_TIMER(_profile, "HashTableBuildTime");
     _selector_block_timer = ADD_TIMER(_profile, "SelectorBlockTime");
     _emplace_key_timer = ADD_TIMER(_profile, "EmplaceKeyTime");

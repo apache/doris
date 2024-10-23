@@ -115,4 +115,21 @@ std::vector<std::string> InvertedIndexAnalyzer::get_analyse_result(
     return analyse_result;
 }
 
+std::vector<std::string> InvertedIndexAnalyzer::get_analyse_result(
+        const std::string& search_str, const std::string& field_name,
+        InvertedIndexQueryType query_type, const std::map<std::string, std::string>& properties) {
+    InvertedIndexCtxSPtr inverted_index_ctx = std::make_shared<InvertedIndexCtx>(
+            get_inverted_index_parser_type_from_string(
+                    get_parser_string_from_properties(properties)),
+            get_parser_mode_string_from_properties(properties),
+            get_parser_char_filter_map_from_properties(properties),
+            get_parser_lowercase_from_properties(properties),
+            get_parser_stopwords_from_properties(properties));
+    auto analyzer = create_analyzer(inverted_index_ctx.get());
+    inverted_index_ctx->analyzer = analyzer.get();
+    auto reader = create_reader(inverted_index_ctx->char_filter_map);
+    reader->init(search_str.data(), search_str.size(), true);
+    return get_analyse_result(reader.get(), analyzer.get(), field_name, query_type);
+}
+
 } // namespace doris::segment_v2::inverted_index

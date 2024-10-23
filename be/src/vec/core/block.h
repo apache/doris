@@ -247,7 +247,7 @@ public:
 
     // Default column size = -1 means clear all column in block
     // Else clear column [0, column_size) delete column [column_size, data.size)
-    void clear_column_data(int column_size = -1) noexcept;
+    void clear_column_data(int64_t column_size = -1) noexcept;
 
     bool mem_reuse() { return !data.empty(); }
 
@@ -403,6 +403,9 @@ public:
     // in inverted index apply logic, in order to optimize query performance,
     // we built some temporary columns into block
     void erase_tmp_columns() noexcept;
+
+    void clear_column_mem_not_keep(const std::vector<bool>& column_keep_flags,
+                                   bool need_keep_first);
 
 private:
     void erase_impl(size_t position);

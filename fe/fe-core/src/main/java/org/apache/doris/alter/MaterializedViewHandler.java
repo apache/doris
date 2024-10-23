@@ -587,8 +587,7 @@ public class MaterializedViewHandler extends AlterHandler {
         }
 
         // check b.3
-        if (olapTable.getKeysType() == KeysType.UNIQUE_KEYS && !olapTable.getEnableUniqueKeyMergeOnWrite()
-                && !addMVClause.isReplay()) {
+        if (olapTable.getKeysType() == KeysType.UNIQUE_KEYS && !addMVClause.isReplay()) {
             Set<String> originColumns = new TreeSet<String>(String.CASE_INSENSITIVE_ORDER);
             for (Column column : newMVColumns) {
                 originColumns.add(CreateMaterializedViewStmt.mvColumnBreaker(column.getName()));

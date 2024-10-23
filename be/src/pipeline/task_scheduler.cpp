@@ -94,7 +94,7 @@ void _close_task(PipelineTask* task, Status exec_status) {
     }
     task->finalize();
     task->set_running(false);
-    task->fragment_context()->close_a_pipeline();
+    task->fragment_context()->close_a_pipeline(task->pipeline_id());
 }
 
 void TaskScheduler::_do_work(size_t index) {

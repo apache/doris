@@ -109,6 +109,7 @@ class LookupConnectionCache;
 class RowCache;
 class DummyLRUCache;
 class CacheManager;
+class ProcessProfile;
 class WalManager;
 class DNSCache;
 
@@ -271,6 +272,7 @@ public:
 
     void set_storage_engine(std::unique_ptr<BaseStorageEngine>&& engine);
     void set_cache_manager(CacheManager* cm) { this->_cache_manager = cm; }
+    void set_process_profile(ProcessProfile* pp) { this->_process_profile = pp; }
     void set_tablet_schema_cache(TabletSchemaCache* c) { this->_tablet_schema_cache = c; }
     void set_storage_page_cache(StoragePageCache* c) { this->_storage_page_cache = c; }
     void set_segment_loader(SegmentLoader* sl) { this->_segment_loader = sl; }
@@ -303,6 +305,7 @@ public:
     LookupConnectionCache* get_lookup_connection_cache() { return _lookup_connection_cache; }
     RowCache* get_row_cache() { return _row_cache; }
     CacheManager* get_cache_manager() { return _cache_manager; }
+    ProcessProfile* get_process_profile() { return _process_profile; }
     segment_v2::InvertedIndexSearcherCache* get_inverted_index_searcher_cache() {
         return _inverted_index_searcher_cache;
     }
@@ -441,6 +444,7 @@ private:
     LookupConnectionCache* _lookup_connection_cache = nullptr;
     RowCache* _row_cache = nullptr;
     CacheManager* _cache_manager = nullptr;
+    ProcessProfile* _process_profile = nullptr;
     segment_v2::InvertedIndexSearcherCache* _inverted_index_searcher_cache = nullptr;
     segment_v2::InvertedIndexQueryCache* _inverted_index_query_cache = nullptr;
     QueryCache* _query_cache = nullptr;

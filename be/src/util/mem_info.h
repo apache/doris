@@ -219,6 +219,18 @@ public:
         return PrettyPrinter::print(_s_soft_mem_limit.load(std::memory_order_relaxed),
                                     TUnit::BYTES);
     }
+    static inline int64_t cgroup_mem_limit() {
+        DCHECK(_s_initialized);
+        return _s_cgroup_mem_limit.load(std::memory_order_relaxed);
+    }
+    static inline int64_t cgroup_mem_usage() {
+        DCHECK(_s_initialized);
+        return _s_cgroup_mem_usage.load(std::memory_order_relaxed);
+    }
+    static inline int64_t cgroup_mem_refresh_state() {
+        DCHECK(_s_initialized);
+        return _s_cgroup_mem_refresh_state.load(std::memory_order_relaxed);
+    }
 
     static std::string debug_string();
 
@@ -236,9 +248,9 @@ private:
     static std::atomic<int64_t> _s_je_dirty_pages_mem_limit;
     static std::atomic<int64_t> _s_virtual_memory_used;
 
-    static int64_t _s_cgroup_mem_limit;
-    static int64_t _s_cgroup_mem_usage;
-    static bool _s_cgroup_mem_refresh_state;
+    static std::atomic<int64_t> _s_cgroup_mem_limit;
+    static std::atomic<int64_t> _s_cgroup_mem_usage;
+    static std::atomic<bool> _s_cgroup_mem_refresh_state;
     static int64_t _s_cgroup_mem_refresh_wait_times;
 
     static std::atomic<int64_t> _s_sys_mem_available;

@@ -95,6 +95,11 @@ public:
         return Status::OK();
     }
     [[nodiscard]] int get_child_count() const { return _child_size; }
+    bool require_shuffled_data_distribution() const override {
+        return _followed_by_shuffled_operator;
+    }
+
+    bool is_shuffled_operator() const override { return _followed_by_shuffled_operator; }
 
 private:
     bool _has_data(RuntimeState* state) const {

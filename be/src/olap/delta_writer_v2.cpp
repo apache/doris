@@ -127,13 +127,12 @@ Status DeltaWriterV2::init() {
 
     _rowset_writer = std::make_shared<BetaRowsetWriterV2>(_streams);
     RETURN_IF_ERROR(_rowset_writer->init(context));
-    ThreadPool* wg_thread_pool_ptr = nullptr;
+    std::shared_ptr<WorkloadGroup> wg_sptr = nullptr;
     if (_state->get_query_ctx()) {
-        wg_thread_pool_ptr = _state->get_query_ctx()->get_memtable_flush_pool();
+        wg_sptr = _state->get_query_ctx()->workload_group();
     }
     RETURN_IF_ERROR(_memtable_writer->init(_rowset_writer, _tablet_schema, _partial_update_info,
-                                           wg_thread_pool_ptr,
-                                           _streams[0]->enable_unique_mow(_req.index_id)));
+                                           wg_sptr, _streams[0]->enable_unique_mow(_req.index_id)));
     ExecEnv::GetInstance()->memtable_memory_limiter()->register_writer(_memtable_writer);
     _is_init = true;
     _streams.clear();
@@ -237,7 +236,7 @@ void DeltaWriterV2::_build_current_tablet_schema(int64_t index_id,
     }
     // set partial update columns info
     _partial_update_info = std::make_shared<PartialUpdateInfo>();
-    _partial_update_info->init(*_tablet_schema, table_schema_param->is_partial_update(),
+    _partial_update_info->init(*_tablet_schema, table_schema_param->unique_key_update_mode(),
                                table_schema_param->partial_update_input_columns(),
                                table_schema_param->is_strict_mode(),
                                table_schema_param->timestamp_ms(),

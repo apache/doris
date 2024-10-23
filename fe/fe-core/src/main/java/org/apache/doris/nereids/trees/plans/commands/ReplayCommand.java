@@ -57,6 +57,10 @@ public class ReplayCommand extends Command implements NoForward {
         return dumpFileFullPath;
     }
 
+    public ReplayType getReplayType() {
+        return replayType;
+    }
+
     /**
      * explain level.
      */

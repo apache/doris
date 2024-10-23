@@ -577,6 +577,11 @@ public class Config extends ConfigBase {
             "Default commit data bytes for group commit"})
     public static int group_commit_data_bytes_default_value = 134217728;
 
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "内部攒批的超时时间为table的group_commit_interval_ms的倍数",
+            "The internal group commit timeout is the multiple of table's group_commit_interval_ms"})
+    public static int group_commit_timeout_multipler = 10;
+
     @ConfField(mutable = true, masterOnly = true, description = {"Stream load 的默认超时时间，单位是秒。",
             "Default timeout for stream load job, in seconds."})
     public static int stream_load_default_timeout_second = 86400 * 3; // 3days
@@ -1441,6 +1446,12 @@ public class Config extends ConfigBase {
     public static boolean enable_hidden_version_column_by_default = true;
 
     /**
+     * Whether to add a skip bitmap column when create merge-on-write unique table
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean enable_skip_bitmap_column_by_default = false;
+
+    /**
      * Used to set default db data quota bytes.
      */
     @ConfField(mutable = true, masterOnly = true)
@@ -1748,7 +1759,7 @@ public class Config extends ConfigBase {
      * corresponding type of job
      * The value should be greater than 0, if it is 0 or <=0, set it to 5
      */
-    @ConfField(description = {"用于分发定时任务的线程数",
+    @ConfField(masterOnly = true, description = {"用于分发定时任务的线程数",
             "The number of threads used to dispatch timer job."})
     public static int job_dispatch_timer_job_thread_num = 2;
 
@@ -1759,24 +1770,34 @@ public class Config extends ConfigBase {
      * {@code @dispatch_timer_job_thread_num}
      * The value should be greater than 0, if it is 0 or <=0, set it to 1024
      */
-    @ConfField(description = {"任务堆积时用于存放定时任务的队列大小", "The number of timer jobs that can be queued."})
+    @ConfField(masterOnly = true, description = {"任务堆积时用于存放定时任务的队列大小", "The number of timer jobs that can be queued."})
     public static int job_dispatch_timer_job_queue_size = 1024;
-    @ConfField(description = {"一个 Job 的 task 最大的持久化数量，超过这个限制将会丢弃旧的 task 记录, 如果值 < 1, 将不会持久化。",
+    @ConfField(masterOnly = true, description = {"一个 Job 的 task 最大的持久化数量，超过这个限制将会丢弃旧的 task 记录, 如果值 < 1, 将不会持久化。",
             "Maximum number of persistence allowed per task in a job,exceeding which old tasks will be discarded，"
                    + "If the value is less than 1, it will not be persisted." })
     public static int max_persistence_task_count = 100;
-    @ConfField(description = {"finished 状态的 job 最长保存时间，超过这个时间将会被删除, 单位：小时",
+    @ConfField(masterOnly = true, description = {"MV task 的等待队列大小，如果是负数，则会使用 1024，如果不是 2 的幂，则会自动选择一个最接近的"
+            + " 2 的幂次方数", "The size of the MV task's waiting queue If the size is negative, 1024 will be used. If "
+            + "the size is not a power of two, the nearest power of the size will be"
+            + " automatically selected."})
+    public static int mtmv_task_queue_size = 1024;
+    @ConfField(masterOnly = true, description = {"Insert task 的等待队列大小，如果是负数，则会使用 1024，如果不是 2 的幂，则会自动选择一个最接近"
+            + " 的 2 的幂次方数", "The size of the Insert task's waiting queue If the size is negative, 1024 will be used."
+            + " If the size is not a power of two, the nearest power of the size will "
+            + "be automatically selected."})
+    public static int insert_task_queue_size = 1024;
+    @ConfField(masterOnly = true, description = {"finished 状态的 job 最长保存时间，超过这个时间将会被删除, 单位：小时",
             "The longest time to save the job in finished status, it will be deleted after this time. Unit: hour"})
     public static int finished_job_cleanup_threshold_time_hour = 24;
 
-    @ConfField(description = {"用于执行 Insert 任务的线程数,值应该大于0，否则默认为5",
+    @ConfField(masterOnly = true, description = {"用于执行 Insert 任务的线程数,值应该大于0，否则默认为10",
             "The number of threads used to consume Insert tasks, "
-                    + "the value should be greater than 0, if it is <=0, default is 5."})
+                    + "the value should be greater than 0, if it is <=0, default is 10."})
     public static int job_insert_task_consumer_thread_num = 10;
 
-    @ConfField(description = {"用于执行 MTMV 任务的线程数,值应该大于0，否则默认为5",
+    @ConfField(masterOnly = true, description = {"用于执行 MTMV 任务的线程数,值应该大于0，否则默认为10",
             "The number of threads used to consume mtmv tasks, "
-                    + "the value should be greater than 0, if it is <=0, default is 5."})
+                    + "the value should be greater than 0, if it is <=0, default is 10."})
     public static int job_mtmv_task_consumer_thread_num = 10;
 
     /* job test config */
@@ -1886,7 +1907,7 @@ public class Config extends ConfigBase {
      * Max data version of backends serialize block.
      */
     @ConfField(mutable = false)
-    public static int max_be_exec_version = 7;
+    public static int max_be_exec_version = 8;
 
     /**
      * Min data version of backends serialize block.
@@ -1971,6 +1992,20 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = false)
     public static boolean disable_backend_black_list = false;
+
+    @ConfField(mutable = true, masterOnly = false, description = {
+        "If a backend is tried to be added to black list do_add_backend_black_list_threshold_count times "
+            + "in do_add_backend_black_list_threshold_seconds, it will be added to black list."})
+    public static long do_add_backend_black_list_threshold_count = 10;
+
+    @ConfField(mutable = true, masterOnly = false, description = {
+        "If a backend is tried to be added to black list do_add_backend_black_list_threshold_count times "
+            + "in do_add_backend_black_list_threshold_seconds, it will be added to black list."})
+    public static long do_add_backend_black_list_threshold_seconds = 30;
+
+    @ConfField(mutable = true, masterOnly = false, description = {
+        "Backend will stay in black list for this time after it is added to black list."})
+    public static long stay_in_backend_black_list_threshold_seconds = 60;
 
     /**
      * Maximum backend heartbeat failure tolerance count.
@@ -2361,6 +2396,11 @@ public class Config extends ConfigBase {
             "是否启用binlog特性",
             "Whether to enable binlog feature"})
     public static boolean enable_feature_binlog = false;
+
+    @ConfField(mutable = false, description = {
+            "是否默认为 Database/Table 启用binlog特性",
+            "Whether to enable binlog feature for Database/Table by default"})
+    public static boolean force_enable_feature_binlog = false;
 
     @ConfField(mutable = false, masterOnly = false, varType = VariableAnnotation.EXPERIMENTAL, description = {
         "设置 binlog 消息最字节长度",
@@ -2788,9 +2828,6 @@ public class Config extends ConfigBase {
             "Should the request content be logged before each request starts, specifically the query statements"})
     public static boolean enable_print_request_before_execution = false;
 
-    @ConfField(mutable = true)
-    public static boolean enable_cooldown_replica_affinity = true;
-
     @ConfField
     public static String spilled_profile_storage_path = System.getenv("LOG_DIR") + File.separator + "profile";
 
@@ -3032,6 +3069,9 @@ public class Config extends ConfigBase {
     public static int history_cloud_warm_up_job_keep_max_second = 7 * 24 * 3600;
 
     @ConfField(mutable = true, masterOnly = true)
+    public static int max_active_cloud_warm_up_job = 10;
+
+    @ConfField(mutable = true, masterOnly = true)
     public static int cloud_warm_up_timeout_second = 86400 * 30; // 30 days
 
     @ConfField(mutable = true, masterOnly = true)
@@ -3108,7 +3148,7 @@ public class Config extends ConfigBase {
     //                      start of lock config
     @ConfField(description = {"是否开启死锁检测",
             "Whether to enable deadlock detection"})
-    public static boolean enable_deadlock_detection = false;
+    public static boolean enable_deadlock_detection = true;
 
     @ConfField(description = {"死锁检测间隔时间，单位分钟",
             "Deadlock detection interval time, unit minute"})
@@ -3150,4 +3190,8 @@ public class Config extends ConfigBase {
                     + "default is conf/authentication.conf"})
     public static String authentication_config_file_path = "/conf/authentication.conf";
 
+    @ConfField(description = {"用于测试，强制将所有的查询forward到master以验证forward query的行为",
+            "For testing purposes, all queries are forcibly forwarded to the master to verify"
+                    + "the behavior of forwarding queries."})
+    public static boolean force_forward_all_queries = false;
 }

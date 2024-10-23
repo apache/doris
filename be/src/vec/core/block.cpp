@@ -125,7 +125,7 @@ Status Block::deserialize(const PBlock& pblock) {
         MutableColumnPtr data_column = type->create_column();
         // Here will try to allocate large memory, should return error if failed.
         RETURN_IF_CATCH_EXCEPTION(
-                buf = type->deserialize(buf, data_column.get(), pblock.be_exec_version()));
+                buf = type->deserialize(buf, &data_column, pblock.be_exec_version()));
         data.emplace_back(data_column->get_ptr(), type, pcol_meta.name());
     }
     initialize_index_by_name();
@@ -511,10 +511,14 @@ std::string Block::dump_data(size_t begin, size_t row_limit, bool allow_null_mis
             std::string s;
             if (data[i].column) {
                 if (data[i].type->is_nullable() && !data[i].column->is_nullable()) {
-                    assert(allow_null_mismatch);
-                    s = assert_cast<const DataTypeNullable*>(data[i].type.get())
-                                ->get_nested_type()
-                                ->to_string(*data[i].column, row_num);
+                    if (is_column_const(*data[i].column)) {
+                        s = data[i].to_string(0);
+                    } else {
+                        assert(allow_null_mismatch);
+                        s = assert_cast<const DataTypeNullable*>(data[i].type.get())
+                                    ->get_nested_type()
+                                    ->to_string(*data[i].column, row_num);
+                    }
                 } else {
                     s = data[i].to_string(row_num);
                 }
@@ -722,7 +726,7 @@ std::string Block::print_use_count() {
     return ss.str();
 }
 
-void Block::clear_column_data(int column_size) noexcept {
+void Block::clear_column_data(int64_t column_size) noexcept {
     SCOPED_SKIP_MEMORY_CHECK();
     // data.size() greater than column_size, means here have some
     // function exec result in block, need erase it here
@@ -745,6 +749,24 @@ void Block::erase_tmp_columns() noexcept {
     for (auto& name : all_column_names) {
         if (name.rfind(BeConsts::BLOCK_TEMP_COLUMN_PREFIX, 0) == 0) {
             erase(name);
+        }
+    }
+}
+
+void Block::clear_column_mem_not_keep(const std::vector<bool>& column_keep_flags,
+                                      bool need_keep_first) {
+    if (data.size() >= column_keep_flags.size()) {
+        auto origin_rows = rows();
+        for (size_t i = 0; i < column_keep_flags.size(); ++i) {
+            if (!column_keep_flags[i]) {
+                data[i].column = data[i].column->clone_empty();
+            }
+        }
+
+        if (need_keep_first && !column_keep_flags[0]) {
+            auto first_column = data[0].column->clone_empty();
+            first_column->resize(origin_rows);
+            data[0].column = std::move(first_column);
         }
     }
 }

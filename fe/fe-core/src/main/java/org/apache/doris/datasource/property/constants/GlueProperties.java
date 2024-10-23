@@ -32,9 +32,14 @@ public class GlueProperties extends BaseProperties {
     public static final String SECRET_KEY = "glue.secret_key";
     public static final String SESSION_TOKEN = "glue.session_token";
 
+    public static final String CLIENT_CREDENTIALS_PROVIDER = "client.credentials-provider";
+    public static final String CLIENT_CREDENTIALS_PROVIDER_AK = "client.credentials-provider.glue.access_key";
+    public static final String CLIENT_CREDENTIALS_PROVIDER_SK = "client.credentials-provider.glue.secret_key";
+
     public static final List<String> META_KEYS = Arrays.asList(AWSGlueConfig.AWS_GLUE_ENDPOINT,
             AWSGlueConfig.AWS_REGION, AWSGlueConfig.AWS_GLUE_ACCESS_KEY, AWSGlueConfig.AWS_GLUE_SECRET_KEY,
-            AWSGlueConfig.AWS_GLUE_SESSION_TOKEN);
+            AWSGlueConfig.AWS_GLUE_SESSION_TOKEN, CLIENT_CREDENTIALS_PROVIDER, CLIENT_CREDENTIALS_PROVIDER_AK,
+            CLIENT_CREDENTIALS_PROVIDER_SK);
 
     public static CloudCredential getCredential(Map<String, String> props) {
         return getCloudCredential(props, ACCESS_KEY, SECRET_KEY, SESSION_TOKEN);

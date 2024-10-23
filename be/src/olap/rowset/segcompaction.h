@@ -73,7 +73,7 @@ public:
     // set the cancel flag, tasks already started will not be cancelled.
     bool cancel();
 
-    void init_mem_tracker(int64_t txn_id);
+    void init_mem_tracker(const RowsetWriterContext& rowset_writer_context);
 
 private:
     Status _create_segment_writer_for_segcompaction(

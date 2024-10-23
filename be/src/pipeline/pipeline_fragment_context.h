@@ -100,7 +100,7 @@ public:
 
     [[nodiscard]] int get_fragment_id() const { return _fragment_id; }
 
-    void close_a_pipeline();
+    void close_a_pipeline(PipelineId pipeline_id);
 
     Status send_report(bool);
 
@@ -114,20 +114,6 @@ public:
     [[nodiscard]] int max_operator_id() const { return _operator_id; }
 
     [[nodiscard]] int next_sink_operator_id() { return _sink_operator_id--; }
-
-    void instance_ids(std::vector<TUniqueId>& ins_ids) const {
-        ins_ids.resize(_fragment_instance_ids.size());
-        for (size_t i = 0; i < _fragment_instance_ids.size(); i++) {
-            ins_ids[i] = _fragment_instance_ids[i];
-        }
-    }
-
-    void instance_ids(std::vector<string>& ins_ids) const {
-        ins_ids.resize(_fragment_instance_ids.size());
-        for (size_t i = 0; i < _fragment_instance_ids.size(); i++) {
-            ins_ids[i] = print_id(_fragment_instance_ids[i]);
-        }
-    }
 
     void clear_finished_tasks() {
         for (size_t j = 0; j < _tasks.size(); j++) {
@@ -291,6 +277,7 @@ private:
     std::map<int, std::pair<std::shared_ptr<LocalExchangeSharedState>, std::shared_ptr<Dependency>>>
             _op_id_to_le_state;
 
+    std::map<PipelineId, Pipeline*> _pip_id_to_pipeline;
     // UniqueId -> runtime mgr
     std::map<UniqueId, std::unique_ptr<RuntimeFilterMgr>> _runtime_filter_mgr_map;
 

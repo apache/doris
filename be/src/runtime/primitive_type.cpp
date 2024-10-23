@@ -99,7 +99,7 @@ PrimitiveType thrift_to_type(TPrimitiveType::type ttype) {
         return TYPE_TIMEV2;
 
     case TPrimitiveType::TIME:
-        return TYPE_TIME;
+        return TYPE_TIMEV2;
 
     case TPrimitiveType::VARCHAR:
         return TYPE_VARCHAR;
@@ -207,9 +207,6 @@ TPrimitiveType::type to_thrift(PrimitiveType ptype) {
 
     case TYPE_DATETIME:
         return TPrimitiveType::DATETIME;
-
-    case TYPE_TIME:
-        return TPrimitiveType::TIME;
 
     case TYPE_DATEV2:
         return TPrimitiveType::DATEV2;
@@ -323,9 +320,6 @@ std::string type_to_string(PrimitiveType t) {
 
     case TYPE_DATETIME:
         return "DATETIME";
-
-    case TYPE_TIME:
-        return "TIME";
 
     case TYPE_DATEV2:
         return "DATEV2";

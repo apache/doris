@@ -17,7 +17,8 @@
 
 #include "runtime/memory/memory_reclamation.h"
 
-#include "runtime/memory/cache_manager.h"
+#include "runtime/exec_env.h"
+#include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/workload_group/workload_group.h"
 #include "runtime/workload_group/workload_group_manager.h"
 #include "util/mem_info.h"
@@ -55,9 +56,15 @@ bool MemoryReclamation::process_minor_gc(std::string mem_info) {
     }
 
     if (config::enable_query_memory_overcommit) {
-        VLOG_NOTICE << MemTrackerLimiter::type_detail_usage(
-                "[MemoryGC] before free top memory overcommit query in minor GC",
-                MemTrackerLimiter::Type::QUERY);
+        if (config::crash_in_memory_tracker_inaccurate) {
+            LOG(INFO) << fmt::format(
+                    "[MemoryGC] before free top memory overcommit query in minor GC, Type:{}, "
+                    "Memory "
+                    "Tracker Summary: {}",
+                    MemTrackerLimiter::type_string(MemTrackerLimiter::Type::QUERY),
+                    MemTrackerLimiter::make_type_trackers_profile_str(
+                            MemTrackerLimiter::Type::QUERY));
+        }
         RuntimeProfile* toq_profile =
                 profile->create_child("FreeTopOvercommitMemoryQuery", true, true);
         freed_mem += MemTrackerLimiter::free_top_overcommit_query(
@@ -98,8 +105,14 @@ bool MemoryReclamation::process_full_gc(std::string mem_info) {
         }
     }
 
-    VLOG_NOTICE << MemTrackerLimiter::type_detail_usage(
-            "[MemoryGC] before free top memory query in full GC", MemTrackerLimiter::Type::QUERY);
+    if (config::crash_in_memory_tracker_inaccurate) {
+        LOG(INFO) << fmt::format(
+                "[MemoryGC] before free top memory query in full GC, Type:{}, Memory Tracker "
+                "Summary: "
+                "{}",
+                MemTrackerLimiter::type_string(MemTrackerLimiter::Type::QUERY),
+                MemTrackerLimiter::make_type_trackers_profile_str(MemTrackerLimiter::Type::QUERY));
+    }
     RuntimeProfile* tmq_profile = profile->create_child("FreeTopMemoryQuery", true, true);
     freed_mem += MemTrackerLimiter::free_top_memory_query(
             MemInfo::process_full_gc_size() - freed_mem, mem_info, tmq_profile);
@@ -108,9 +121,14 @@ bool MemoryReclamation::process_full_gc(std::string mem_info) {
     }
 
     if (config::enable_query_memory_overcommit) {
-        VLOG_NOTICE << MemTrackerLimiter::type_detail_usage(
-                "[MemoryGC] before free top memory overcommit load in full GC",
-                MemTrackerLimiter::Type::LOAD);
+        if (config::crash_in_memory_tracker_inaccurate) {
+            LOG(INFO) << fmt::format(
+                    "[MemoryGC] before free top memory overcommit load in full GC, Type:{}, Memory "
+                    "Tracker Summary: {}",
+                    MemTrackerLimiter::type_string(MemTrackerLimiter::Type::LOAD),
+                    MemTrackerLimiter::make_type_trackers_profile_str(
+                            MemTrackerLimiter::Type::LOAD));
+        }
         RuntimeProfile* tol_profile =
                 profile->create_child("FreeTopMemoryOvercommitLoad", true, true);
         freed_mem += MemTrackerLimiter::free_top_overcommit_load(
@@ -120,8 +138,14 @@ bool MemoryReclamation::process_full_gc(std::string mem_info) {
         }
     }
 
-    VLOG_NOTICE << MemTrackerLimiter::type_detail_usage(
-            "[MemoryGC] before free top memory load in full GC", MemTrackerLimiter::Type::LOAD);
+    if (config::crash_in_memory_tracker_inaccurate) {
+        LOG(INFO) << fmt::format(
+                "[MemoryGC] before free top memory load in full GC, Type:{}, Memory Tracker "
+                "Summary: "
+                "{}",
+                MemTrackerLimiter::type_string(MemTrackerLimiter::Type::LOAD),
+                MemTrackerLimiter::make_type_trackers_profile_str(MemTrackerLimiter::Type::LOAD));
+    }
     RuntimeProfile* tml_profile = profile->create_child("FreeTopMemoryLoad", true, true);
     freed_mem += MemTrackerLimiter::free_top_memory_load(
             MemInfo::process_full_gc_size() - freed_mem, mem_info, tml_profile);
