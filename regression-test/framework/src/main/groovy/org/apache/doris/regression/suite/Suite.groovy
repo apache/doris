@@ -472,6 +472,30 @@ class Suite implements GroovyInterceptable {
         return res;
     }
 
+    def reconnectToMasterFe = {
+        logger.info("Reconnecting to a new master frontend...")
+        def result = sql_return_maparray("SHOW FRONTENDS")
+        def master = null
+        for (def row : result) {
+            if (row.IsMaster == "true") {
+                master = row
+                break
+            }
+        }
+        if (master) {
+            logger.info("master found: ${master.Host}:${master.HttpPort}")
+            def url = String.format(
+                    "jdbc:mysql://%s:%s/?useLocalSessionState=true&allowLoadLocalInfile=false",
+                    master.Host, master.QueryPort)
+            url = context.config.buildUrlWithDb(url, context.dbName)
+            context.connectTo(url, "root", "")
+            logger.info("Successfully reconnected to the master")
+        } else {
+            logger.error("No master found to reconnect")
+            assertTrue(false)
+        }
+    }
+
     String getMasterIp(Connection conn) {
         def result = sql_return_maparray_impl("select Host, QueryPort, IsMaster from frontends();", conn)
         logger.info("get master fe: ${result}")
