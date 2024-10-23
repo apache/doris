@@ -96,6 +96,11 @@ namespace doris::vectorized {
 // TODO: we need to determine it by test.
 static constexpr uint32_t MAX_DICT_CODE_PREDICATE_TO_REWRITE = std::numeric_limits<uint32_t>::max();
 static constexpr char EMPTY_STRING_FOR_OVERFLOW[ColumnString::MAX_STRINGS_OVERFLOW_SIZE] = "";
+// Because HIVE 0.11 & 0.12 does not support precision and scale for decimal
+// The decimal type of orc file produced by HIVE 0.11 & 0.12 are DECIMAL(0,0)
+// We should set a default precision and scale for these orc files.
+static constexpr int decimal_precision_for_hive11 = BeConsts::MAX_DECIMAL128_PRECISION;
+static constexpr int decimal_scale_for_hive11 = 10;
 
 #define FOR_FLAT_ORC_COLUMNS(M)                            \
     M(TypeIndex::Int8, Int8, orc::LongVectorBatch)         \
@@ -1050,6 +1055,10 @@ TypeDescriptor OrcReader::convert_to_doris_type(const orc::Type* orc_type) {
     case orc::TypeKind::TIMESTAMP:
         return TypeDescriptor(PrimitiveType::TYPE_DATETIMEV2);
     case orc::TypeKind::DECIMAL:
+        if (orc_type->getPrecision() == 0) {
+            return TypeDescriptor::create_decimalv3_type(decimal_precision_for_hive11,
+                                                         decimal_scale_for_hive11);
+        }
         return TypeDescriptor::create_decimalv3_type(orc_type->getPrecision(),
                                                      orc_type->getScale());
     case orc::TypeKind::DATE:
