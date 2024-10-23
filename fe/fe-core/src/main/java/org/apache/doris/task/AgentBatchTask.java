@@ -183,23 +183,16 @@ public class AgentBatchTask implements Runnable {
                 ok = true;
             } catch (Exception e) {
                 LOG.warn("task exec error. backend[{}]", backendId, e);
-                errMsg = String.format("task exec error: %s", e.getMessage());
+                errMsg = String.format("task exec error: %s. backend[%d]", e.getMessage(), backendId);
             } finally {
                 if (ok) {
                     ClientPool.backendPool.returnObject(address, client);
                 } else {
-                    for (AgentTask task : tasks) {
-                        task.failed();
-
-                        // CreateReplicaTask will not trigger a retry in ReportTask.
-                        // Therefore, it needs to be marked as failed here and all
-                        // threads waiting for the result of CreateReplicaTask need
-                        // to be awakened.
-                        if (task instanceof CreateReplicaTask) {
-                            ((CreateReplicaTask) task).countDownToZero(errMsg);
-                        }
-                    }
                     ClientPool.backendPool.invalidateObject(address, client);
+                    List<AgentTask> tasks = this.backendIdToTasks.get(backendId);
+                    for (AgentTask task : tasks) {
+                        task.failedWithMsg(errMsg);
+                    }
                 }
             }
         } // end for backend
