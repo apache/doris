@@ -474,6 +474,10 @@ public class Config extends ConfigBase {
             "print log interval for publish transaction failed interval"})
     public static long publish_fail_log_interval_second = 5 * 60;
 
+    @ConfField(mutable = true, masterOnly = true, description = {"一个 PUBLISH_VERSION 任务打印失败日志的次数上限",
+            "the upper limit of failure logs of PUBLISH_VERSION task"})
+    public static long publish_version_task_failed_log_threshold = 80;
+
     @ConfField(mutable = true, masterOnly = true, description = {"提交事务的最大超时时间，单位是秒。"
             + "该参数仅用于事务型 insert 操作中。",
             "Maximal waiting time for all data inserted before one transaction to be committed, in seconds. "
@@ -1142,6 +1146,12 @@ public class Config extends ConfigBase {
     public static int max_routine_load_task_num_per_be = 1024;
 
     /**
+     * routine load timeout is equal to maxBatchIntervalS * routine_load_task_timeout_multiplier.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int routine_load_task_timeout_multiplier = 10;
+
+    /**
      * the max timeout of get kafka meta.
      */
     @ConfField(mutable = true, masterOnly = true)
@@ -1471,6 +1481,15 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static int max_backup_restore_job_num_per_db = 10;
+
+    /**
+     * Control the max num of tablets per backup job involved.
+     */
+    @ConfField(mutable = true, masterOnly = true, description = {
+        "用于控制每次 backup job 允许备份的 tablet 上限，以避免 OOM",
+        "Control the max num of tablets per backup job involved, to avoid OOM"
+    })
+    public static int max_backup_tablets_per_job = 300000;
 
     /**
      * Control the default max num of the instance for a user.
@@ -1813,6 +1832,20 @@ public class Config extends ConfigBase {
     public static long max_backend_heartbeat_failure_tolerance_count = 1;
 
     /**
+     * Abort transaction time after lost heartbeat.
+     * The default value is 300s, which means transactions of be will be aborted after lost heartbeat 300s.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int abort_txn_after_lost_heartbeat_time_second = 300;
+
+    /**
+     * Heartbeat interval in seconds.
+     * Default is 5, which means every 5 seconds, the master will send a heartbeat to all backends.
+     */
+    @ConfField(mutable = false, masterOnly = false)
+    public static int heartbeat_interval_second = 5;
+
+    /**
      * The iceberg and hudi table will be removed in v1.3
      * Use multi catalog instead.
      */
@@ -2064,6 +2097,10 @@ public class Config extends ConfigBase {
      */
     @ConfField
     public static long lock_reporting_threshold_ms = 500L;
+
+    @ConfField(mutable = true, description = {"表示最大锁持有时间，超过该时间会打印告警日志，单位秒",
+            "Maximum lock hold time; logs a warning if exceeded"})
+    public static long max_lock_hold_threshold_seconds = 10L;
 
     /**
      * If false, when select from tables in information_schema database,
@@ -2430,4 +2467,8 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true)
     public static boolean enable_cooldown_replica_affinity = true;
+
+    @ConfField(mutable = true, description = {
+            "设置为 true，root 和 admin 将跳过 sql block rule", "Set to true, root and admin will skip SQL block rule"})
+    public static boolean sql_block_rule_ignore_admin = false;
 }

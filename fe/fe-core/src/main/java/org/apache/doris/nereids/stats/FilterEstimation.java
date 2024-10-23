@@ -34,6 +34,7 @@ import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.Like;
+import org.apache.doris.nereids.trees.expressions.Match;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Or;
@@ -68,6 +69,9 @@ import java.util.function.Predicate;
  */
 public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationContext> {
     public static final double DEFAULT_INEQUALITY_COEFFICIENT = 0.5;
+    // "Range selectivity is prone to producing outliers, so we add this threshold limit.
+    // The threshold estimation is calculated based on selecting one month out of fifty years."
+    public static final double RANGE_SELECTIVITY_THRESHOLD = 0.0016;
     public static final double DEFAULT_IN_COEFFICIENT = 1.0 / 3.0;
 
     public static final double DEFAULT_HAVING_COEFFICIENT = 0.01;
@@ -86,12 +90,21 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
     /**
      * This method will update the stats according to the selectivity.
      */
-    public Statistics estimate(Expression expression, Statistics statistics) {
+    public Statistics estimate(Expression expression, Statistics inputStats) {
         // For a comparison predicate, only when it's left side is a slot and right side is a literal, we would
         // consider is a valid predicate.
-        Statistics stats = expression.accept(this, new EstimationContext(statistics));
-        stats.enforceValid();
-        return stats;
+        Statistics outputStats = expression.accept(this, new EstimationContext(inputStats));
+        if (outputStats.getRowCount() == 0 && inputStats.getDeltaRowCount() > 0) {
+            StatisticsBuilder deltaStats = new StatisticsBuilder();
+            deltaStats.setDeltaRowCount(0);
+            deltaStats.setRowCount(inputStats.getDeltaRowCount());
+            for (Expression expr : inputStats.columnStatistics().keySet()) {
+                deltaStats.putColumnStatistics(expr, ColumnStatistic.UNKNOWN);
+            }
+            outputStats = expression.accept(this, new EstimationContext(deltaStats.build()));
+        }
+        outputStats.enforceValid();
+        return outputStats;
     }
 
     @Override
@@ -480,7 +493,8 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
                         child instanceof EqualPredicate
                                 || child instanceof InPredicate
                                 || child instanceof IsNull
-                                || child instanceof Like,
+                                || child instanceof Like
+                                || child instanceof Match,
                         "Not-predicate meet unexpected child: %s", child.toSql());
                 if (child instanceof Like) {
                     rowCount = context.statistics.getRowCount() - childStats.getRowCount();
@@ -503,6 +517,9 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
                             .setMinExpr(originColStats.minExpr)
                             .setMaxValue(originColStats.maxValue)
                             .setMaxExpr(originColStats.maxExpr);
+                } else if (child instanceof Match) {
+                    rowCount = context.statistics.getRowCount() - childStats.getRowCount();
+                    colBuilder.setNdv(Math.max(1.0, originColStats.ndv - childColStats.ndv));
                 }
                 if (not.child().getInputSlots().size() == 1 && !(child instanceof IsNull)) {
                     // only consider the single column numNull, otherwise, ignore
@@ -585,9 +602,13 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
                     .setMaxExpr(intersectRange.getHighExpr())
                     .setNdv(intersectRange.getDistinctValues())
                     .setNumNulls(0);
-            double sel = leftRange.overlapPercentWith(rightRange);
+            double sel = leftRange.getDistinctValues() == 0
+                    ? 1.0
+                    : intersectRange.getDistinctValues() / leftRange.getDistinctValues();
             if (!(dataType instanceof RangeScalable) && (sel != 0.0 && sel != 1.0)) {
                 sel = DEFAULT_INEQUALITY_COEFFICIENT;
+            } else {
+                sel = Math.max(sel, RANGE_SELECTIVITY_THRESHOLD);
             }
             sel = getNotNullSelectivity(leftStats, sel);
             updatedStatistics = context.statistics.withSel(sel);

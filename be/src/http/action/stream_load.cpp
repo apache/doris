@@ -75,6 +75,8 @@ DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(streaming_load_requests_total, MetricUnit::
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(streaming_load_duration_ms, MetricUnit::MILLISECONDS);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(streaming_load_current_processing, MetricUnit::REQUESTS);
 
+bvar::LatencyRecorder g_stream_load_receive_data_latency_ms("stream_load_receive_data_latency_ms");
+
 static constexpr size_t MIN_CHUNK_SIZE = 64 * 1024;
 static const string CHUNK = "chunked";
 
@@ -131,6 +133,19 @@ void StreamLoadAction::handle(HttpRequest* req) {
         _save_stream_load_record(ctx, str);
     }
 #endif
+
+    LOG(INFO) << "finished to execute stream load. label=" << ctx->label
+              << ", txn_id=" << ctx->txn_id << ", query_id=" << ctx->id
+              << ", load_cost_ms=" << ctx->load_cost_millis << ", receive_data_cost_ms="
+              << (ctx->receive_and_read_data_cost_nanos - ctx->read_data_cost_nanos) / 1000000
+              << ", read_data_cost_ms=" << ctx->read_data_cost_nanos / 1000000
+              << ", write_data_cost_ms=" << ctx->write_data_cost_nanos / 1000000
+              << ", commit_and_publish_txn_cost_ms="
+              << ctx->commit_and_publish_txn_cost_nanos / 1000000
+              << ", number_total_rows=" << ctx->number_total_rows
+              << ", number_loaded_rows=" << ctx->number_loaded_rows
+              << ", receive_bytes=" << ctx->receive_bytes << ", loaded_bytes=" << ctx->loaded_bytes;
+
     // update statistics
     streaming_load_requests_total->increment(1);
     streaming_load_duration_ms->increment(ctx->load_cost_millis);
@@ -188,8 +203,10 @@ int StreamLoadAction::on_header(HttpRequest* req) {
 
     LOG(INFO) << "new income streaming load request." << ctx->brief() << ", db=" << ctx->db
               << ", tbl=" << ctx->table;
+    ctx->begin_receive_and_read_data_cost_nanos = MonotonicNanos();
 
     auto st = _on_header(req, ctx);
+
     if (!st.ok()) {
         ctx->status = std::move(st);
         if (ctx->need_rollback) {
@@ -340,7 +357,15 @@ void StreamLoadAction::on_chunk_data(HttpRequest* req) {
         }
         ctx->receive_bytes += remove_bytes;
     }
-    ctx->read_data_cost_nanos += (MonotonicNanos() - start_read_data_time);
+    int64_t read_data_time = MonotonicNanos() - start_read_data_time;
+    int64_t last_receive_and_read_data_cost_nanos = ctx->receive_and_read_data_cost_nanos;
+    ctx->read_data_cost_nanos += read_data_time;
+    ctx->receive_and_read_data_cost_nanos =
+            MonotonicNanos() - ctx->begin_receive_and_read_data_cost_nanos;
+    g_stream_load_receive_data_latency_ms
+            << (ctx->receive_and_read_data_cost_nanos - last_receive_and_read_data_cost_nanos -
+                read_data_time) /
+                       1000000;
 }
 
 void StreamLoadAction::free_handler_ctx(std::shared_ptr<void> param) {

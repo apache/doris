@@ -2894,3 +2894,63 @@
 -- !sql --
 0
 
+-- !select --
+hello!
+
+-- !select --
+hello!
+
+-- !select --
+hello 
+
+-- !select --
+!
+
+-- !select --
+hello?
+
+-- !select --
+hello?!
+
+-- !select --
+\N
+
+-- !select --
+\N
+
+-- !select --
+\N
+
+-- !select --
+\N
+
+-- !select --
+12345!
+
+-- !select --
+hello1
+
+-- !select --
+h!
+
+-- !select --
+こんにちは!
+
+-- !select --
+\N
+
+-- !select --
+This is a very long string.
+
+-- !select --
+hello1
+
+-- !select --
+12345!
+
+-- !select --
+Привет!
+
+-- !select --
+hello 
+

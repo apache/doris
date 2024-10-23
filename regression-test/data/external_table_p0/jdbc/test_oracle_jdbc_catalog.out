@@ -187,14 +187,14 @@ N2	largeint	Yes	false	\N	NONE
 N3	decimal	Yes	false	\N	NONE
 N4	largeint	Yes	false	\N	NONE
 N5	largeint	Yes	false	\N	NONE
-N6	decimal(5, 2)	Yes	false	\N	NONE
+N6	decimal(5,2)	Yes	false	\N	NONE
 N7	double	Yes	false	\N	NONE
 N8	double	Yes	false	\N	NONE
 N9	double	Yes	false	\N	NONE
 NAME	text	Yes	false	\N	NONE
-NUM1	decimal(5, 2)	Yes	false	\N	NONE
+NUM1	decimal(5,2)	Yes	false	\N	NONE
 NUM2	int	Yes	false	\N	NONE
-NUM4	decimal(7, 7)	Yes	false	\N	NONE
+NUM4	decimal(7,7)	Yes	false	\N	NONE
 REMARK	text	Yes	false	\N	NONE
 SMALLINT_VALUE1	smallint	Yes	false	\N	NONE
 SMALLINT_VALUE2	int	Yes	false	\N	NONE

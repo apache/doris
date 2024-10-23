@@ -450,6 +450,9 @@ public class Column implements Writable, GsonPostProcessable {
     }
 
     public Expr getDefaultValueExpr() throws AnalysisException {
+        if (defaultValue == null) {
+            return null;
+        }
         StringLiteral defaultValueLiteral = new StringLiteral(defaultValue);
         if (getDataType() == PrimitiveType.VARCHAR) {
             return defaultValueLiteral;
@@ -587,6 +590,11 @@ public class Column implements Writable, GsonPostProcessable {
     public void checkSchemaChangeAllowed(Column other) throws DdlException {
         if (Strings.isNullOrEmpty(other.name)) {
             throw new DdlException("Dest column name is empty");
+        }
+
+        // now nested type can only support change order
+        if (type.isComplexType() && !type.equals(other.type)) {
+            throw new DdlException("Can not change " + type + " to " + other);
         }
 
         if (!ColumnType.isSchemaChangeAllowed(type, other.type)) {
@@ -972,5 +980,11 @@ public class Column implements Writable, GsonPostProcessable {
     public boolean isMaterializedViewColumn() {
         return getName().startsWith(CreateMaterializedViewStmt.MATERIALIZED_VIEW_NAME_PREFIX)
                 || getName().startsWith(CreateMaterializedViewStmt.MATERIALIZED_VIEW_AGGREGATE_NAME_PREFIX);
+    }
+
+    public void setDefaultValueInfo(Column refColumn) {
+        this.defaultValue = refColumn.defaultValue;
+        this.defaultValueExprDef = refColumn.defaultValueExprDef;
+        this.realDefaultValue = refColumn.realDefaultValue;
     }
 }

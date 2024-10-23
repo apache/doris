@@ -12,22 +12,22 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------------PhysicalOlapScan[web_sales]
 --PhysicalResultSink
 ----PhysicalTopN
-------PhysicalTopN
---------hashAgg[DISTINCT_GLOBAL]
-----------PhysicalDistribute
-------------hashAgg[DISTINCT_LOCAL]
---------------hashAgg[GLOBAL]
-----------------hashAgg[LOCAL]
-------------------PhysicalProject
---------------------hashJoin[RIGHT_SEMI_JOIN](ws1.ws_order_number = web_returns.wr_order_number)
-----------------------PhysicalProject
-------------------------hashJoin[INNER_JOIN](web_returns.wr_order_number = ws_wh.ws_order_number)
---------------------------PhysicalDistribute
-----------------------------PhysicalProject
-------------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
---------------------------PhysicalDistribute
-----------------------------PhysicalProject
-------------------------------PhysicalOlapScan[web_returns]
+------hashAgg[DISTINCT_GLOBAL]
+--------PhysicalDistribute
+----------hashAgg[DISTINCT_LOCAL]
+------------hashAgg[GLOBAL]
+--------------hashAgg[LOCAL]
+----------------PhysicalProject
+------------------hashJoin[RIGHT_SEMI_JOIN](ws1.ws_order_number = web_returns.wr_order_number)
+--------------------PhysicalProject
+----------------------hashJoin[INNER_JOIN](web_returns.wr_order_number = ws_wh.ws_order_number)
+------------------------PhysicalDistribute
+--------------------------PhysicalProject
+----------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
+------------------------PhysicalDistribute
+--------------------------PhysicalProject
+----------------------------PhysicalOlapScan[web_returns]
+--------------------PhysicalProject
 ----------------------hashJoin[RIGHT_SEMI_JOIN](ws1.ws_order_number = ws_wh.ws_order_number)
 ------------------------PhysicalDistribute
 --------------------------PhysicalProject

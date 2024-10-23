@@ -365,6 +365,17 @@ class Syncer {
         true
     }
 
+    void waitSnapshotFinish(String dbName = null) {
+        int count = 0;
+        while (!checkSnapshotFinish(dbName)) {
+            if (++count >= 600) {  // 30min
+                logger.error('BACKUP task is timeouted')
+                throw new Exception("BACKUP task is timeouted after 30mins")
+            }
+            Thread.sleep(3000)
+        }
+    }
+
     String getSnapshotTimestamp(String repoName, String snapshotName) {
         def filterShowSnapshot = { records, name ->
             for (row in records) {
@@ -403,12 +414,34 @@ class Syncer {
         true
     }
 
+    void waitAllRestoreFinish(String dbName = null) {
+        int count = 0;
+        while (!checkAllRestoreFinish(dbName)) {
+            if (++count >= 600) {  // 30min
+                logger.error('RESTORE task is timeouted')
+                throw new Exception("RESTORE task is timeouted after 30mins")
+            }
+            Thread.sleep(3000)
+        }
+    }
+
     Boolean checkRestoreFinish() {
         String checkSQL = "SHOW RESTORE FROM TEST_" + context.db
         List<Object> row = suite.sql(checkSQL)[0]
         logger.info("Now row is ${row}")
 
         return (row[4] as String) == "FINISHED"
+    }
+
+    void waitTargetRestoreFinish() {
+        int count = 0;
+        while (!checkRestoreFinish()) {
+            if (++count >= 600) {  // 30min
+                logger.error('target RESTORE task is timeouted')
+                throw new Exception("target RESTORE task is timeouted after 30mins")
+            }
+            Thread.sleep(3000)
+        }
     }
 
     Boolean checkGetSnapshot() {

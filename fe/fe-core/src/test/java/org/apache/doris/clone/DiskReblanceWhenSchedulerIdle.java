@@ -108,7 +108,8 @@ public class DiskReblanceWhenSchedulerIdle extends TestWithFeService {
             Lists.newArrayList(tablet.getReplicas()).forEach(
                     replica -> {
                     if (replica.getBackendId() == backends.get(1).getId()) {
-                        replica.updateStat(totalCapacity / 4, 1);
+                        replica.setDataSize(totalCapacity / 4);
+                        replica.setRowCount(1L);
                         tablet.deleteReplica(replica);
                         replica.setBackendId(backends.get(0).getId());
                         replica.setPathHash(diskInfo0.getPathHash());

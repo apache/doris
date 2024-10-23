@@ -11,11 +11,12 @@ PhysicalResultSink
 ----------------hashJoin[INNER_JOIN](store_returns.sr_item_sk = store_sales.ss_item_sk)(store_returns.sr_ticket_number = store_sales.ss_ticket_number)
 ------------------PhysicalProject
 --------------------PhysicalOlapScan[store_sales]
-------------------hashJoin[INNER_JOIN](store_returns.sr_reason_sk = reason.r_reason_sk)
---------------------PhysicalProject
-----------------------PhysicalOlapScan[store_returns]
---------------------PhysicalDistribute
+------------------PhysicalProject
+--------------------hashJoin[INNER_JOIN](store_returns.sr_reason_sk = reason.r_reason_sk)
 ----------------------PhysicalProject
-------------------------filter((reason.r_reason_desc = 'duplicate purchase'))
---------------------------PhysicalOlapScan[reason]
+------------------------PhysicalOlapScan[store_returns]
+----------------------PhysicalDistribute
+------------------------PhysicalProject
+--------------------------filter((reason.r_reason_desc = 'duplicate purchase'))
+----------------------------PhysicalOlapScan[reason]
 

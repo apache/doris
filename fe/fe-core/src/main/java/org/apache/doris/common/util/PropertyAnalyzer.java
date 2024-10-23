@@ -70,6 +70,7 @@ public class PropertyAnalyzer {
     public static final String PROPERTIES_VERSION_INFO = "version_info";
     // for restore
     public static final String PROPERTIES_SCHEMA_VERSION = "schema_version";
+    public static final String PROPERTIES_IN_ATOMIC_RESTORE = "in_atomic_restore";
 
     public static final String PROPERTIES_BF_COLUMNS = "bloom_filter_columns";
     public static final String PROPERTIES_BF_FPP = "bloom_filter_fpp";
@@ -1183,14 +1184,15 @@ public class PropertyAnalyzer {
         throw new AnalysisException(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE + " must be `true` or `false`");
     }
 
-    public static boolean analyzeEnableDeleteOnDeletePredicate(Map<String, String> properties)
+    public static boolean analyzeEnableDeleteOnDeletePredicate(Map<String, String> properties,
+            boolean enableUniqueKeyMergeOnWrite)
             throws AnalysisException {
         if (properties == null || properties.isEmpty()) {
-            return false;
+            return enableUniqueKeyMergeOnWrite ? Config.enable_mow_light_delete : false;
         }
         String value = properties.get(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_LIGHT_DELETE);
         if (value == null) {
-            return false;
+            return enableUniqueKeyMergeOnWrite ? Config.enable_mow_light_delete : false;
         }
         properties.remove(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_LIGHT_DELETE);
         if (value.equals("true")) {

@@ -346,8 +346,8 @@ boolean	tinyint	Yes	false	\N	NONE
 char	text	Yes	false	\N	NONE
 date	date	Yes	false	\N	NONE
 datetime	datetime	Yes	false	\N	NONE
-decimal	decimal(12, 4)	Yes	false	\N	NONE
-decimal_u	decimal(19, 5)	Yes	false	\N	NONE
+decimal	decimal(12,4)	Yes	false	\N	NONE
+decimal_u	decimal(19,5)	Yes	false	\N	NONE
 double	double	Yes	false	\N	NONE
 double_u	double	Yes	false	\N	NONE
 enum	text	Yes	false	\N	NONE

@@ -52,24 +52,25 @@ public class TopNWeighted extends AggregateFunction
         implements ExplicitlyCastableSignature, PropagateNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(ArrayType.of(BooleanType.INSTANCE))
-                    .args(BooleanType.INSTANCE, BigIntType.INSTANCE, IntegerType.INSTANCE),
-            FunctionSignature.ret(ArrayType.of(TinyIntType.INSTANCE))
-                    .args(TinyIntType.INSTANCE, BigIntType.INSTANCE, IntegerType.INSTANCE),
-            FunctionSignature.ret(ArrayType.of(SmallIntType.INSTANCE))
-                    .args(SmallIntType.INSTANCE, BigIntType.INSTANCE, IntegerType.INSTANCE),
-            FunctionSignature.ret(ArrayType.of(IntegerType.INSTANCE))
-                    .args(IntegerType.INSTANCE, BigIntType.INSTANCE, IntegerType.INSTANCE),
-            FunctionSignature.ret(ArrayType.of(BigIntType.INSTANCE))
-                    .args(BigIntType.INSTANCE, BigIntType.INSTANCE, IntegerType.INSTANCE),
-            FunctionSignature.ret(ArrayType.of(LargeIntType.INSTANCE))
-                    .args(LargeIntType.INSTANCE, BigIntType.INSTANCE, IntegerType.INSTANCE),
-            FunctionSignature.ret(ArrayType.of(FloatType.INSTANCE))
-                    .args(FloatType.INSTANCE, BigIntType.INSTANCE, IntegerType.INSTANCE),
+            // three arguments
             FunctionSignature.ret(ArrayType.of(DoubleType.INSTANCE))
                     .args(DoubleType.INSTANCE, BigIntType.INSTANCE, IntegerType.INSTANCE),
             FunctionSignature.ret(ArrayType.of(DecimalV2Type.CATALOG_DEFAULT))
                     .args(DecimalV2Type.CATALOG_DEFAULT, BigIntType.INSTANCE, IntegerType.INSTANCE),
+            FunctionSignature.ret(ArrayType.of(LargeIntType.INSTANCE))
+                    .args(LargeIntType.INSTANCE, BigIntType.INSTANCE, IntegerType.INSTANCE),
+            FunctionSignature.ret(ArrayType.of(BigIntType.INSTANCE))
+                    .args(BigIntType.INSTANCE, BigIntType.INSTANCE, IntegerType.INSTANCE),
+            FunctionSignature.ret(ArrayType.of(IntegerType.INSTANCE))
+                    .args(IntegerType.INSTANCE, BigIntType.INSTANCE, IntegerType.INSTANCE),
+            FunctionSignature.ret(ArrayType.of(SmallIntType.INSTANCE))
+                    .args(SmallIntType.INSTANCE, BigIntType.INSTANCE, IntegerType.INSTANCE),
+            FunctionSignature.ret(ArrayType.of(TinyIntType.INSTANCE))
+                    .args(TinyIntType.INSTANCE, BigIntType.INSTANCE, IntegerType.INSTANCE),
+            FunctionSignature.ret(ArrayType.of(BooleanType.INSTANCE))
+                    .args(BooleanType.INSTANCE, BigIntType.INSTANCE, IntegerType.INSTANCE),
+            FunctionSignature.ret(ArrayType.of(FloatType.INSTANCE))
+                    .args(FloatType.INSTANCE, BigIntType.INSTANCE, IntegerType.INSTANCE),
             FunctionSignature.ret(ArrayType.of(DateType.INSTANCE))
                     .args(DateType.INSTANCE, BigIntType.INSTANCE, IntegerType.INSTANCE),
             FunctionSignature.ret(ArrayType.of(DateTimeType.INSTANCE))
@@ -78,24 +79,14 @@ public class TopNWeighted extends AggregateFunction
                     .args(DateV2Type.INSTANCE, BigIntType.INSTANCE, IntegerType.INSTANCE),
             FunctionSignature.ret(ArrayType.of(DateTimeV2Type.SYSTEM_DEFAULT))
                     .args(DateTimeV2Type.SYSTEM_DEFAULT, BigIntType.INSTANCE, IntegerType.INSTANCE),
-            FunctionSignature.ret(ArrayType.of(CharType.SYSTEM_DEFAULT))
-                    .args(CharType.SYSTEM_DEFAULT, BigIntType.INSTANCE, IntegerType.INSTANCE),
             FunctionSignature.ret(ArrayType.of(StringType.INSTANCE))
                     .args(StringType.INSTANCE, BigIntType.INSTANCE, IntegerType.INSTANCE),
-            FunctionSignature.ret(ArrayType.of(BooleanType.INSTANCE))
-                    .args(BooleanType.INSTANCE, BigIntType.INSTANCE, IntegerType.INSTANCE, IntegerType.INSTANCE),
-            FunctionSignature.ret(ArrayType.of(TinyIntType.INSTANCE))
-                    .args(TinyIntType.INSTANCE, BigIntType.INSTANCE, IntegerType.INSTANCE, IntegerType.INSTANCE),
-            FunctionSignature.ret(ArrayType.of(SmallIntType.INSTANCE))
-                    .args(SmallIntType.INSTANCE, BigIntType.INSTANCE, IntegerType.INSTANCE, IntegerType.INSTANCE),
-            FunctionSignature.ret(ArrayType.of(IntegerType.INSTANCE))
-                    .args(IntegerType.INSTANCE, BigIntType.INSTANCE, IntegerType.INSTANCE, IntegerType.INSTANCE),
-            FunctionSignature.ret(ArrayType.of(BigIntType.INSTANCE))
-                    .args(BigIntType.INSTANCE, BigIntType.INSTANCE, IntegerType.INSTANCE, IntegerType.INSTANCE),
-            FunctionSignature.ret(ArrayType.of(LargeIntType.INSTANCE))
-                    .args(LargeIntType.INSTANCE, BigIntType.INSTANCE, IntegerType.INSTANCE, IntegerType.INSTANCE),
-            FunctionSignature.ret(ArrayType.of(FloatType.INSTANCE))
-                    .args(FloatType.INSTANCE, BigIntType.INSTANCE, IntegerType.INSTANCE, IntegerType.INSTANCE),
+            FunctionSignature.ret(ArrayType.of(VarcharType.SYSTEM_DEFAULT))
+                    .args(VarcharType.SYSTEM_DEFAULT, BigIntType.INSTANCE, IntegerType.INSTANCE),
+            FunctionSignature.ret(ArrayType.of(CharType.SYSTEM_DEFAULT))
+                    .args(CharType.SYSTEM_DEFAULT, BigIntType.INSTANCE, IntegerType.INSTANCE),
+
+            // four arguments
             FunctionSignature.ret(ArrayType.of(DoubleType.INSTANCE))
                     .args(DoubleType.INSTANCE, BigIntType.INSTANCE, IntegerType.INSTANCE, IntegerType.INSTANCE),
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT)
@@ -103,6 +94,20 @@ public class TopNWeighted extends AggregateFunction
                             BigIntType.INSTANCE,
                             IntegerType.INSTANCE,
                             IntegerType.INSTANCE),
+            FunctionSignature.ret(ArrayType.of(LargeIntType.INSTANCE))
+                    .args(LargeIntType.INSTANCE, BigIntType.INSTANCE, IntegerType.INSTANCE, IntegerType.INSTANCE),
+            FunctionSignature.ret(ArrayType.of(BigIntType.INSTANCE))
+                    .args(BigIntType.INSTANCE, BigIntType.INSTANCE, IntegerType.INSTANCE, IntegerType.INSTANCE),
+            FunctionSignature.ret(ArrayType.of(IntegerType.INSTANCE))
+                    .args(IntegerType.INSTANCE, BigIntType.INSTANCE, IntegerType.INSTANCE, IntegerType.INSTANCE),
+            FunctionSignature.ret(ArrayType.of(SmallIntType.INSTANCE))
+                    .args(SmallIntType.INSTANCE, BigIntType.INSTANCE, IntegerType.INSTANCE, IntegerType.INSTANCE),
+            FunctionSignature.ret(ArrayType.of(TinyIntType.INSTANCE))
+                    .args(TinyIntType.INSTANCE, BigIntType.INSTANCE, IntegerType.INSTANCE, IntegerType.INSTANCE),
+            FunctionSignature.ret(ArrayType.of(BooleanType.INSTANCE))
+                    .args(BooleanType.INSTANCE, BigIntType.INSTANCE, IntegerType.INSTANCE, IntegerType.INSTANCE),
+            FunctionSignature.ret(ArrayType.of(FloatType.INSTANCE))
+                    .args(FloatType.INSTANCE, BigIntType.INSTANCE, IntegerType.INSTANCE, IntegerType.INSTANCE),
             FunctionSignature.ret(ArrayType.of(DateType.INSTANCE))
                     .args(DateType.INSTANCE, BigIntType.INSTANCE, IntegerType.INSTANCE, IntegerType.INSTANCE),
             FunctionSignature.ret(ArrayType.of(DateTimeType.INSTANCE))
@@ -114,10 +119,12 @@ public class TopNWeighted extends AggregateFunction
                             BigIntType.INSTANCE,
                             IntegerType.INSTANCE,
                             IntegerType.INSTANCE),
-            FunctionSignature.ret(ArrayType.of(CharType.SYSTEM_DEFAULT))
-                    .args(CharType.SYSTEM_DEFAULT, BigIntType.INSTANCE, IntegerType.INSTANCE, IntegerType.INSTANCE),
             FunctionSignature.ret(ArrayType.of(StringType.INSTANCE))
-                    .args(StringType.INSTANCE, BigIntType.INSTANCE, IntegerType.INSTANCE, IntegerType.INSTANCE)
+                    .args(StringType.INSTANCE, BigIntType.INSTANCE, IntegerType.INSTANCE, IntegerType.INSTANCE),
+            FunctionSignature.ret(ArrayType.of(VarcharType.SYSTEM_DEFAULT))
+                    .args(VarcharType.SYSTEM_DEFAULT, BigIntType.INSTANCE, IntegerType.INSTANCE, IntegerType.INSTANCE),
+            FunctionSignature.ret(ArrayType.of(CharType.SYSTEM_DEFAULT))
+                    .args(CharType.SYSTEM_DEFAULT, BigIntType.INSTANCE, IntegerType.INSTANCE, IntegerType.INSTANCE)
     );
 
     /**

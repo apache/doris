@@ -422,6 +422,41 @@ class Suite implements GroovyInterceptable {
         return result;
     }
 
+    long getTableId(String tableName) {
+        return getTableId(getDbName(), tableName)
+    }
+
+    long getTableId(String dbName, String tableName) {
+        def dbInfo = sql "show proc '/dbs'"
+        for(List<Object> row : dbInfo) {
+            if (row[1].replace("default_cluster:", "").equals(dbName)) {
+                def tbInfo = sql "show proc '/dbs/${row[0]}' "
+                for (List<Object> tb : tbInfo) {
+                    if (tb[1].equals(tableName)) {
+                        return tb[0].toLong()
+                    }
+                }
+            }
+        }
+    }
+
+    long getDbId() {
+        return getDbId(getDbName())
+    }
+
+    long getDbId(String dbName) {
+        def dbInfo = sql "show proc '/dbs'"
+        for (List<Object> row : dbInfo) {
+            if (row[1].replace("default_cluster:", "").equals(dbName)) {
+                return row[0].toLong()
+            }
+        }
+    }
+
+    String getDbName() {
+        return context.dbName
+    }
+
     List<List<Object>> order_sql(String sqlStr) {
         return sql(sqlStr,  true)
     }
@@ -495,6 +530,16 @@ class Suite implements GroovyInterceptable {
 
     void waitForSchemaChangeDone(Closure actionSupplier) {
         runAction(new WaitForAction(context), actionSupplier)
+    }
+
+    void expectExceptionLike(Closure userFunction, String errorMessage = null) {
+        try {
+            userFunction()
+        } catch (Exception e) {
+            if (!e.getMessage().contains(errorMessage)) {
+                throw e
+            }
+        }
     }
 
     String getBrokerName() {
@@ -679,6 +724,33 @@ class Suite implements GroovyInterceptable {
         String hdfsUser = context.config.otherConfigs.get("hdfsUser")
         Hdfs hdfs = new Hdfs(hdfsFs, hdfsUser, dataDir)
         return hdfs.downLoad(label)
+    }
+
+    void runStreamLoadExample(String tableName, String coordidateBeHostPort = "") {
+        def backends = sql_return_maparray "show backends"
+        sql """
+                CREATE TABLE IF NOT EXISTS ${tableName} (
+                    id int,
+                    name varchar(255)
+                )
+                DISTRIBUTED BY HASH(id) BUCKETS 1
+                PROPERTIES (
+                  "replication_num" = "${backends.size()}"
+                )
+            """
+
+        streamLoad {
+            table tableName
+            set 'column_separator', ','
+            file context.config.dataPath + "/demo_p0/streamload_input.csv"
+            time 10000
+            if (!coordidateBeHostPort.equals("")) {
+                def pos = coordidateBeHostPort.indexOf(':')
+                def host = coordidateBeHostPort.substring(0, pos)
+                def httpPort = coordidateBeHostPort.substring(pos + 1).toInteger()
+                directToBe host, httpPort
+            }
+        }
     }
 
     void streamLoad(Closure actionSupplier) {

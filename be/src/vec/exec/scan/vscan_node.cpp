@@ -77,6 +77,10 @@ namespace doris::vectorized {
     }
 
 static bool ignore_cast(SlotDescriptor* slot, VExpr* expr) {
+    if (slot->type().is_date_type() && expr->type().is_date_type()) {
+        return true;
+    }
+
     if (slot->type().is_string_type() && expr->type().is_string_type()) {
         return true;
     }
@@ -228,12 +232,7 @@ Status VScanNode::get_next(RuntimeState* state, vectorized::Block* block, bool* 
     // remove them when query leave scan node to avoid other nodes use block->columns() to make a wrong decision
     Defer drop_block_temp_column {[&]() {
         std::unique_lock l(_block_lock);
-        auto all_column_names = block->get_names();
-        for (auto& name : all_column_names) {
-            if (name.rfind(BeConsts::BLOCK_TEMP_COLUMN_PREFIX, 0) == 0) {
-                block->erase(name);
-            }
-        }
+        block->erase_tmp_columns();
     }};
 
     if (state->is_cancelled()) {
@@ -824,6 +823,9 @@ Status VScanNode::_normalize_in_and_eq_predicate(VExpr* expr, VExprContext* expr
                         ColumnValueRange<T>::add_fixed_value_range, fn_name));
             }
             range.intersection(temp_range);
+        } else {
+            _eos = true;
+            return Status::OK();
         }
         *pdt = temp_pdt;
     }
@@ -927,6 +929,9 @@ Status VScanNode::_normalize_not_in_and_not_eq_predicate(VExpr* expr, VExprConte
                             ColumnValueRange<T>::add_fixed_value_range, fn_name));
                 }
             }
+        } else {
+            _eos = true;
+            return Status::OK();
         }
     } else {
         return Status::OK();
@@ -1005,6 +1010,9 @@ Status VScanNode::_normalize_noneq_binary_predicate(VExpr* expr, VExprContext* e
                             ColumnValueRange<T>::add_value_range, fn_name, slot_ref_child));
                 }
                 *pdt = temp_pdt;
+            } else {
+                _eos = true;
+                return Status::OK();
             }
         }
     }

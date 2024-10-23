@@ -41,8 +41,6 @@ import java.util.Map;
 
 public class BackupMeta implements Writable {
 
-    @SerializedName(value = "db")
-    private String dbName;
     // tbl name -> tbl
     @SerializedName(value = "tblNameMap")
     private Map<String, Table> tblNameMap = Maps.newHashMap();
@@ -56,9 +54,7 @@ public class BackupMeta implements Writable {
     private BackupMeta() {
     }
 
-    public BackupMeta(String dbName, List<Table> tables, List<Resource> resources) {
-        this.dbName = dbName;
-
+    public BackupMeta(List<Table> tables, List<Resource> resources) {
         for (Table table : tables) {
             tblNameMap.put(table.getName(), table);
             tblIdMap.put(table.getId(), table);
@@ -66,10 +62,6 @@ public class BackupMeta implements Writable {
         for (Resource resource : resources) {
             resourceNameMap.put(resource.getName(), resource);
         }
-    }
-
-    public String getDbName() {
-        return dbName;
     }
 
     public Map<String, Table> getTables() {

@@ -150,9 +150,8 @@ Status NewOlapScanner::init() {
             !olap_scan_node.columns_desc.empty() &&
             olap_scan_node.columns_desc[0].col_unique_id >= 0) {
             schema_key = SchemaCache::get_schema_key(tablet_id, olap_scan_node.columns_desc,
-                                                     olap_scan_node.schema_version,
-                                                     SchemaCache::Type::TABLET_SCHEMA);
-            cached_schema = SchemaCache::instance()->get_schema<TabletSchemaSPtr>(schema_key);
+                                                     olap_scan_node.schema_version);
+            cached_schema = SchemaCache::instance()->get_schema(schema_key);
         }
         if (cached_schema) {
             _tablet_schema = cached_schema;

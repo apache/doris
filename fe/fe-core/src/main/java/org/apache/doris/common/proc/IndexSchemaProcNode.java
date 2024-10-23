@@ -95,7 +95,7 @@ public class IndexSchemaProcNode implements ProcNodeInterface {
                 int precision = sType.getScalarPrecision();
                 // not default
                 if (scale > 0 && precision != 9) {
-                    typeStr.append("(").append(precision).append(", ").append(scale)
+                    typeStr.append("(").append(precision).append(",").append(scale)
                             .append(")");
                 }
                 rowList.set(1, typeStr.toString());

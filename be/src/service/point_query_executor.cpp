@@ -37,7 +37,9 @@
 #include "runtime/runtime_state.h"
 #include "util/key_util.h"
 #include "util/runtime_profile.h"
+#include "util/simd/bits.h"
 #include "util/thrift_util.h"
+#include "vec/columns/columns_number.h"
 #include "vec/data_types/serde/data_type_serde.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
@@ -49,7 +51,8 @@ namespace doris {
 Reusable::~Reusable() {}
 constexpr static int s_preallocted_blocks_num = 32;
 Status Reusable::init(const TDescriptorTable& t_desc_tbl, const std::vector<TExpr>& output_exprs,
-                      const TQueryOptions& query_options, size_t block_size) {
+                      const TQueryOptions& query_options, const TabletSchema& schema,
+                      size_t block_size) {
     SCOPED_MEM_COUNT(&_mem_size);
     _runtime_state = RuntimeState::create_unique();
     _runtime_state->set_query_options(query_options);
@@ -74,6 +77,8 @@ Status Reusable::init(const TDescriptorTable& t_desc_tbl, const std::vector<TExp
         _col_uid_to_idx[slot->col_unique_id()] = i;
         _col_default_values[i] = slot->col_default_value();
     }
+    // get the delete sign idx in block
+    _delete_sign_idx = _col_uid_to_idx[schema.columns()[schema.delete_sign_idx()].unique_id()];
     return Status::OK();
 }
 
@@ -169,6 +174,12 @@ Status PointQueryExecutor::init(const PTabletKeyLookupRequest* request,
             static_cast<__int128_t>(request->uuid().uuid_high()) << 64 | request->uuid().uuid_low();
     auto cache_handle = LookupConnectionCache::instance()->get(uuid);
     _binary_row_format = request->is_binary_row();
+    _tablet = StorageEngine::instance()->tablet_manager()->get_tablet(request->tablet_id());
+    if (_tablet == nullptr) {
+        LOG(WARNING) << "failed to do tablet_fetch_data. tablet [" << request->tablet_id()
+                     << "] is not exist";
+        return Status::NotFound(fmt::format("tablet {} not exist", request->tablet_id()));
+    }
     if (cache_handle != nullptr) {
         _reusable = cache_handle;
         _profile_metrics.hit_lookup_cache = true;
@@ -196,18 +207,13 @@ Status PointQueryExecutor::init(const PTabletKeyLookupRequest* request,
         if (uuid != 0) {
             // could be reused by requests after, pre allocte more blocks
             RETURN_IF_ERROR(reusable_ptr->init(t_desc_tbl, t_output_exprs.exprs, t_query_options,
+                                               *_tablet->tablet_schema(),
                                                s_preallocted_blocks_num));
             LookupConnectionCache::instance()->add(uuid, reusable_ptr);
         } else {
-            RETURN_IF_ERROR(
-                    reusable_ptr->init(t_desc_tbl, t_output_exprs.exprs, t_query_options, 1));
+            RETURN_IF_ERROR(reusable_ptr->init(t_desc_tbl, t_output_exprs.exprs, t_query_options,
+                                               *_tablet->tablet_schema(), 1));
         }
-    }
-    _tablet = StorageEngine::instance()->tablet_manager()->get_tablet(request->tablet_id());
-    if (_tablet == nullptr) {
-        LOG(WARNING) << "failed to do tablet_fetch_data. tablet [" << request->tablet_id()
-                     << "] is not exist";
-        return Status::NotFound(fmt::format("tablet {} not exist", request->tablet_id()));
     }
     RETURN_IF_ERROR(_init_keys(request));
     _result_block = _reusable->get_block();
@@ -298,9 +304,9 @@ Status PointQueryExecutor::_lookup_row_key() {
         }
         // Get rowlocation and rowset, ctx._rowset_ptr will acquire wrap this ptr
         auto rowset_ptr = std::make_unique<RowsetSharedPtr>();
-        st = (_tablet->lookup_row_key(_row_read_ctxs[i]._primary_key, false, specified_rowsets,
-                                      &location, INT32_MAX /*rethink?*/, segment_caches,
-                                      rowset_ptr.get()));
+        st = (_tablet->lookup_row_key(_row_read_ctxs[i]._primary_key, nullptr, false,
+                                      specified_rowsets, &location, INT32_MAX /*rethink?*/,
+                                      segment_caches, rowset_ptr.get()));
         if (st.is<ErrorCode::KEY_NOT_FOUND>()) {
             continue;
         }
@@ -341,6 +347,19 @@ Status PointQueryExecutor::_lookup_row_data() {
                 _reusable->get_data_type_serdes(), value.data(), value.size(),
                 _reusable->get_col_uid_to_idx(), *_result_block,
                 _reusable->get_col_default_values());
+    }
+    // filter rows by delete sign
+    if (_result_block->rows() > 0 && _reusable->delete_sign_idx() != -1) {
+        vectorized::ColumnPtr delete_filter_columns =
+                _result_block->get_columns()[_reusable->delete_sign_idx()];
+        const auto& filter =
+                assert_cast<const vectorized::ColumnInt8*>(delete_filter_columns.get())->get_data();
+        size_t count = filter.size() - simd::count_zero_num((int8_t*)filter.data(), filter.size());
+        if (count == filter.size()) {
+            _result_block->clear();
+        } else if (count > 0) {
+            return Status::NotSupported("Not implemented since only single row at present");
+        }
     }
     return Status::OK();
 }

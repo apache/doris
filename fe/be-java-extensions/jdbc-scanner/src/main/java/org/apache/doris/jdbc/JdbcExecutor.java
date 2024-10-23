@@ -116,6 +116,7 @@ public class JdbcExecutor {
                 .setConnectionPoolMaxLifeTime(request.connection_pool_max_life_time)
                 .setConnectionPoolKeepAlive(request.connection_pool_keep_alive);
         JdbcDataSource.getDataSource().setCleanupInterval(request.connection_pool_cache_clear_time);
+        System.setProperty("com.zaxxer.hikari.useWeakReferences", "true");
         init(config, request.statement);
     }
 
@@ -125,25 +126,18 @@ public class JdbcExecutor {
 
     public void close() throws Exception {
         try {
-            if (stmt != null) {
+            if (stmt != null && !stmt.isClosed()) {
                 try {
                     stmt.cancel();
                 } catch (SQLException e) {
-                    LOG.error("Error cancelling statement", e);
+                    LOG.warn("Cannot cancelling statement: ", e);
                 }
             }
 
-            boolean shouldAbort = conn != null && resultSet != null
-                    && (tableType == TOdbcTableType.MYSQL || tableType == TOdbcTableType.SQLSERVER);
-            boolean aborted = false; // Used to record whether the abort operation is performed
-            if (shouldAbort) {
-                aborted = abortReadConnection(conn, resultSet, tableType);
+            if (conn != null && resultSet != null) {
+                abortReadConnection(conn, resultSet, tableType);
             }
-
-            // If no abort operation is performed, the resource needs to be closed manually
-            if (!aborted) {
-                closeResources(resultSet, stmt, conn);
-            }
+            closeResources(resultSet, stmt, conn);
         } finally {
             if (config.getConnectionPoolMinSize() == 0 && hikariDataSource != null) {
                 hikariDataSource.close();
@@ -157,31 +151,22 @@ public class JdbcExecutor {
         for (AutoCloseable closeable : closeables) {
             if (closeable != null) {
                 try {
-                    if (closeable instanceof Connection) {
-                        if (!((Connection) closeable).isClosed()) {
-                            closeable.close();
-                        }
-                    } else {
-                        closeable.close();
-                    }
+                    closeable.close();
                 } catch (Exception e) {
-                    LOG.error("Cannot close resource: ", e);
+                    LOG.warn("Cannot close resource: ", e);
                 }
             }
         }
     }
 
-    public boolean abortReadConnection(Connection connection, ResultSet resultSet, TOdbcTableType tableType)
+    public void abortReadConnection(Connection connection, ResultSet resultSet, TOdbcTableType tableType)
             throws SQLException {
         if (!resultSet.isAfterLast() && (tableType == TOdbcTableType.MYSQL || tableType == TOdbcTableType.SQLSERVER)) {
             // Abort connection before closing. Without this, the MySQL/SQLServer driver
             // attempts to drain the connection by reading all the results.
             connection.abort(MoreExecutors.directExecutor());
-            return true;
         }
-        return false;
     }
-
 
     public void cleanDataSource() {
         if (hikariDataSource != null) {

@@ -20,6 +20,8 @@
 
 #include <stdint.h>
 
+#include <gen_cpp/olap_file.pb.h>
+
 #include <mutex>
 #include <shared_mutex>
 #include <string>
@@ -72,7 +74,8 @@ private:
     // TODO: hkp
     // rewrite this function
     Status _copy_index_and_data_files(const std::string& full_path,
-                                      const std::vector<RowsetSharedPtr>& consistent_rowsets) const;
+                                      const std::vector<RowsetSharedPtr>& consistent_rowsets,
+                                      RowsetBinlogMetasPB* all_binlog_metas_pb) const;
 
 private:
     // tablet to do migrated

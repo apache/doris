@@ -64,8 +64,6 @@ public class StatisticConstants {
 
     public static List<String> SYSTEM_DBS = new ArrayList<>();
 
-    public static int ANALYZE_TASK_RETRY_TIMES = 5;
-
     public static final String DB_NAME = SystemInfoService.DEFAULT_CLUSTER + ":" + FeConstants.INTERNAL_DB_NAME;
 
     public static final String FULL_QUALIFIED_STATS_TBL_NAME = InternalCatalog.INTERNAL_CATALOG_NAME

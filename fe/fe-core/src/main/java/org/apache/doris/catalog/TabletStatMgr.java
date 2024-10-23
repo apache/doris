@@ -113,17 +113,49 @@ public class TabletStatMgr extends MasterDaemon {
                         long version = partition.getVisibleVersion();
                         for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
                             long indexRowCount = 0L;
+                            boolean indexReported = true;
                             for (Tablet tablet : index.getTablets()) {
-                                long tabletRowCount = 0L;
+                                long tabletRowCount = Long.MAX_VALUE;
+                                boolean tabletReported = false;
                                 for (Replica replica : tablet.getReplicas()) {
+                                    LOG.debug("Table {} replica {} current version {}, report version {}",
+                                            olapTable.getName(), replica.getId(),
+                                            replica.getVersion(), replica.getLastReportVersion());
+                                    // Replica with less row count is more accurate than the others
+                                    // when replicas' version are identical. Because less row count
+                                    // means this replica does more compaction than the others.
                                     if (replica.checkVersionCatchUp(version, false)
-                                            && replica.getRowCount() > tabletRowCount) {
+                                            && replica.getRowCount() < tabletRowCount) {
+                                        // 1. If replica version and reported replica version are all equal to
+                                        // PARTITION_INIT_VERSION, set tabletReported to true, which indicates this
+                                        // tablet is empty for sure when previous report.
+                                        // 2. If last report version is larger than PARTITION_INIT_VERSION, set
+                                        // tabletReported to true as well. That is, we only guarantee all replicas of
+                                        // the tablet are reported for the init version.
+                                        // e.g. When replica version is 2, but last reported version is 1,
+                                        // tabletReported would be false.
+                                        if (replica.getVersion() == Partition.PARTITION_INIT_VERSION
+                                                && replica.getLastReportVersion() == Partition.PARTITION_INIT_VERSION
+                                                || replica.getLastReportVersion() > Partition.PARTITION_INIT_VERSION) {
+                                            tabletReported = true;
+                                        }
                                         tabletRowCount = replica.getRowCount();
                                     }
                                 }
+
+                                // When all BEs are down, avoid set Long.MAX_VALUE to index and table row count. Use 0.
+                                if (tabletRowCount == Long.MAX_VALUE) {
+                                    tabletRowCount = 0L;
+                                }
                                 indexRowCount += tabletRowCount;
+                                // Only when all tablets of this index are reported, we set indexReported to true.
+                                indexReported = indexReported && tabletReported;
                             } // end for tablets
+                            index.setRowCountReported(indexReported);
                             index.setRowCount(indexRowCount);
+                            LOG.debug("Table {} index {} all tablets reported[{}], row count {}",
+                                    olapTable.getName(), olapTable.getIndexNameById(index.getId()),
+                                    indexReported, indexRowCount);
                         } // end for indices
                     } // end for partitions
                     LOG.debug("finished to set row num for table: {} in database: {}",
@@ -144,8 +176,13 @@ public class TabletStatMgr extends MasterDaemon {
                 if (invertedIndex.getTabletMeta(stat.getTabletId()) != null) {
                     Replica replica = invertedIndex.getReplica(stat.getTabletId(), beId);
                     if (replica != null) {
-                        replica.updateStat(stat.getDataSize(), stat.getRemoteDataSize(), stat.getRowNum(),
-                                stat.getVersionCount());
+                        replica.setDataSize(stat.getDataSize());
+                        replica.setRemoteDataSize(stat.getRemoteDataSize());
+                        replica.setRowCount(stat.getRowNum());
+                        replica.setVersionCount(stat.getVersionCount());
+                        // Older version BE doesn't set visible version. Set it to max for compatibility.
+                        replica.setLastReportVersion(stat.isSetVisibleVersion() ? stat.getVisibleVersion()
+                                : Long.MAX_VALUE);
                     }
                 }
             }
@@ -161,7 +198,8 @@ public class TabletStatMgr extends MasterDaemon {
                     continue;
                 }
                 // TODO(cmy) no db lock protected. I think it is ok even we get wrong row num
-                replica.updateStat(entry.getValue().getDataSize(), entry.getValue().getRowNum());
+                replica.setDataSize(entry.getValue().getDataSize());
+                replica.setRowCount(entry.getValue().getRowNum());
             }
         }
     }

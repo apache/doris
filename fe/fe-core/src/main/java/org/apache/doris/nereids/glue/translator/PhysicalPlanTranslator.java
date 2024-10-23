@@ -377,10 +377,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         boolean isPartialUpdate = olapTableSink.isPartialUpdate();
         if (isPartialUpdate) {
             OlapTable olapTable = (OlapTable) olapTableSink.getTargetTable();
-            if (!olapTable.getEnableUniqueKeyMergeOnWrite()) {
-                throw new AnalysisException("Partial update is only allowed in"
-                        + "unique table with merge-on-write enabled.");
-            }
             for (Column col : olapTable.getFullSchema()) {
                 boolean exists = false;
                 for (Column insertCol : olapTableSink.getCols()) {
@@ -991,9 +987,10 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
 
         // update expr to slot mapping
         for (Slot producerSlot : cteProducer.getOutput()) {
-            Slot consumerSlot = cteConsumer.getProducerToConsumerSlotMap().get(producerSlot);
-            SlotRef slotRef = context.findSlotRef(producerSlot.getExprId());
-            context.addExprIdSlotRefPair(consumerSlot.getExprId(), slotRef);
+            for (Slot consumerSlot : cteConsumer.getProducerToConsumerSlotMap().get(producerSlot)) {
+                SlotRef slotRef = context.findSlotRef(producerSlot.getExprId());
+                context.addExprIdSlotRefPair(consumerSlot.getExprId(), slotRef);
+            }
         }
         return multiCastFragment;
     }
@@ -1563,10 +1560,35 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     public PlanFragment visitPhysicalLimit(PhysicalLimit<? extends Plan> physicalLimit, PlanTranslatorContext context) {
         PlanFragment inputFragment = physicalLimit.child(0).accept(this, context);
         PlanNode child = inputFragment.getPlanRoot();
-        child.setLimit(MergeLimits.mergeLimit(physicalLimit.getLimit(), physicalLimit.getOffset(), child.getLimit()));
-        // TODO: plan node don't support limit
-        // child.setOffset(MergeLimits.mergeOffset(physicalLimit.getOffset(), child.getOffset()));
-        updateLegacyPlanIdToPhysicalPlan(child, physicalLimit);
+
+        if (physicalLimit.getPhase().isLocal()) {
+            child.setLimit(MergeLimits.mergeLimit(physicalLimit.getLimit(), physicalLimit.getOffset(),
+                    child.getLimit()));
+        } else if (physicalLimit.getPhase().isGlobal()) {
+            if (!(child instanceof ExchangeNode)) {
+                ExchangeNode exchangeNode = new ExchangeNode(context.nextPlanNodeId(), child);
+                exchangeNode.setLimit(physicalLimit.getLimit());
+                exchangeNode.setOffset(physicalLimit.getOffset());
+                exchangeNode.setPartitionType(TPartitionType.UNPARTITIONED);
+                exchangeNode.setNumInstances(1);
+                PlanFragment fragment = new PlanFragment(context.nextFragmentId(), exchangeNode,
+                        DataPartition.UNPARTITIONED);
+                inputFragment.setDestination(exchangeNode);
+                inputFragment.setOutputPartition(DataPartition.UNPARTITIONED);
+                DataStreamSink sink = new DataStreamSink(exchangeNode.getId());
+                sink.setOutputPartition(DataPartition.UNPARTITIONED);
+                inputFragment.setSink(sink);
+                context.addPlanFragment(fragment);
+                inputFragment = fragment;
+            } else {
+                ExchangeNode exchangeNode = (ExchangeNode) child;
+                exchangeNode.setLimit(MergeLimits.mergeLimit(physicalLimit.getLimit(), physicalLimit.getOffset(),
+                        exchangeNode.getLimit()));
+                exchangeNode.setOffset(MergeLimits.mergeOffset(physicalLimit.getOffset(), exchangeNode.getOffset()));
+            }
+        }
+
+        updateLegacyPlanIdToPhysicalPlan(inputFragment.getPlanRoot(), physicalLimit);
         return inputFragment;
     }
 

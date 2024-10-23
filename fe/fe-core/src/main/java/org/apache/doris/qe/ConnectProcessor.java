@@ -33,9 +33,11 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.AuthenticationException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.NotSupportPreparedStmtError;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.telemetry.Telemetry;
 import org.apache.doris.common.util.DebugUtil;
@@ -43,25 +45,31 @@ import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlCommand;
+import org.apache.doris.mysql.MysqlHandshakePacket;
 import org.apache.doris.mysql.MysqlPacket;
 import org.apache.doris.mysql.MysqlProto;
 import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.mysql.MysqlServerStatusFlag;
+import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.minidump.MinidumpUtils;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.stats.StatsErrorEstimator;
 import org.apache.doris.proto.Data;
 import org.apache.doris.qe.QueryState.MysqlStateType;
+import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TMasterOpRequest;
 import org.apache.doris.thrift.TMasterOpResult;
 import org.apache.doris.thrift.TUniqueId;
 
+import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.api.trace.SpanKind;
@@ -173,8 +181,17 @@ public class ConnectProcessor {
         ctx.getState().setOk();
     }
 
-    private void handleStmtReset() {
+    // Do nothing for now.
+    protected void handleStatistics() {
         ctx.getState().setOk();
+    }
+
+    // Do nothing for now.
+    protected void handleDebug() {
+        ctx.getState().setOk();
+    }
+
+    protected void handleStmtReset() {
     }
 
     private void handleStmtClose() {
@@ -348,7 +365,7 @@ public class ConnectProcessor {
                     // when client not request CLIENT_MULTI_STATEMENTS, mysql treat all query as
                     // single statement. Doris treat it with multi statement, but only return
                     // the last statement result.
-                    if (ctx.getCapability().isClientMultiStatements()) {
+                    if (ctx.getMysqlChannel().clientMultiStatements()) {
                         finalizeCommand();
                     }
                 }
@@ -376,6 +393,12 @@ public class ConnectProcessor {
                                       StatementBase parsedStmt, Data.PQueryStatistics statistics) {
         if (ctx.getMinidump() != null) {
             MinidumpUtils.saveMinidumpString(ctx.getMinidump(), DebugUtil.printId(ctx.queryId()));
+        }
+        if (throwable instanceof NotSupportPreparedStmtError) {
+            LOG.info("Process one query failed because NotSupportPreparedStmtError: ", throwable.getMessage());
+            ctx.getState().setError(ErrorCode.ERR_UNSUPPORTED_PS, throwable.getMessage());
+            // Not audit such error, since we don't support such prepared statement
+            return;
         }
         if (throwable instanceof IOException) {
             // Client failed.
@@ -510,11 +533,23 @@ public class ConnectProcessor {
             case COM_PING:
                 handlePing();
                 break;
+            case COM_STATISTICS:
+                handleStatistics();
+                break;
+            case COM_DEBUG:
+                handleDebug();
+                break;
+            case COM_CHANGE_USER:
+                handleChangeUser();
+                break;
             case COM_STMT_RESET:
                 handleStmtReset();
                 break;
             case COM_STMT_CLOSE:
                 handleStmtClose();
+                break;
+            case COM_SET_OPTION:
+                handleSetOption();
                 break;
             default:
                 ctx.getState().setError(ErrorCode.ERR_UNKNOWN_COM_ERROR, "Unsupported command(" + command + ")");
@@ -737,6 +772,105 @@ public class ConnectProcessor {
             }
         }
         return result;
+    }
+
+    private void handleChangeUser() throws IOException {
+        // Random bytes generated when creating connection.
+        byte[] authPluginData = ctx.getAuthPluginData();
+        Preconditions.checkNotNull(authPluginData, "Auth plugin data is null.");
+        String userName = new String(MysqlProto.readNulTerminateString(packetBuf));
+        userName = ClusterNamespace.getFullName(SystemInfoService.DEFAULT_CLUSTER, userName);
+        int passwordLen = MysqlProto.readInt1(packetBuf);
+        byte[] password = MysqlProto.readFixedString(packetBuf, passwordLen);
+        String db = new String(MysqlProto.readNulTerminateString(packetBuf));
+        // Read the character set.
+        MysqlProto.readInt2(packetBuf);
+        String authPluginName = new String(MysqlProto.readNulTerminateString(packetBuf));
+
+        // Send Protocol::AuthSwitchRequest to client if auth plugin name is not mysql_native_password
+        if (!MysqlHandshakePacket.AUTH_PLUGIN_NAME.equals(authPluginName)) {
+            MysqlChannel channel = ctx.mysqlChannel;
+            MysqlSerializer serializer = MysqlSerializer.newInstance();
+            serializer.writeInt1((byte) 0xfe);
+            serializer.writeNulTerminateString(MysqlHandshakePacket.AUTH_PLUGIN_NAME);
+            serializer.writeBytes(authPluginData);
+            serializer.writeInt1(0);
+            channel.sendAndFlush(serializer.toByteBuffer());
+            // Server receive auth switch response packet from client.
+            ByteBuffer authSwitchResponse = channel.fetchOnePacket();
+            int length = authSwitchResponse.limit();
+            password = new byte[length];
+            System.arraycopy(authSwitchResponse.array(), 0, password, 0, length);
+        }
+
+        // For safety, not allowed to change to root or admin.
+        if (Auth.ROOT_USER.equals(userName) || Auth.ADMIN_USER.equals(userName)) {
+            ctx.getState().setError(ErrorCode.ERR_ACCESS_DENIED_ERROR, "Change to root or admin is forbidden");
+            return;
+        }
+
+        // Check password.
+        List<UserIdentity> currentUserIdentity = Lists.newArrayList();
+        try {
+            Env.getCurrentEnv().getAuth()
+                    .checkPassword(userName, ctx.remoteIP, password, authPluginData, currentUserIdentity);
+        } catch (AuthenticationException e) {
+            ctx.getState().setError(ErrorCode.ERR_ACCESS_DENIED_ERROR, "Authentication failed.");
+            return;
+        }
+        ctx.setCurrentUserIdentity(currentUserIdentity.get(0));
+        ctx.setQualifiedUser(userName);
+
+        // Change default db if set.
+        if (Strings.isNullOrEmpty(db)) {
+            ctx.changeDefaultCatalog(InternalCatalog.INTERNAL_CATALOG_NAME);
+        } else {
+            String catalogName = null;
+            String dbName = null;
+            String[] dbNames = db.split("\\.");
+            if (dbNames.length == 1) {
+                dbName = db;
+            } else if (dbNames.length == 2) {
+                catalogName = dbNames[0];
+                dbName = dbNames[1];
+            } else if (dbNames.length > 2) {
+                ctx.getState().setError(ErrorCode.ERR_BAD_DB_ERROR, "Only one dot can be in the name: " + db);
+                return;
+            }
+            dbName = ClusterNamespace.getFullName(ctx.getClusterName(), dbName);
+
+            // check catalog and db exists
+            if (catalogName != null) {
+                CatalogIf catalogIf = ctx.getEnv().getCatalogMgr().getCatalog(catalogName);
+                if (catalogIf == null) {
+                    ctx.getState().setError(ErrorCode.ERR_BAD_DB_ERROR, "No match catalog in doris: " + db);
+                    return;
+                }
+                if (catalogIf.getDbNullable(dbName) == null) {
+                    ctx.getState().setError(ErrorCode.ERR_BAD_DB_ERROR, "No match database in doris: " + db);
+                    return;
+                }
+            }
+            try {
+                if (catalogName != null) {
+                    ctx.getEnv().changeCatalog(ctx, catalogName);
+                }
+                Env.getCurrentEnv().changeDb(ctx, dbName);
+            } catch (DdlException e) {
+                ctx.getState().setError(e.getMysqlErrorCode(), e.getMessage());
+                return;
+            }
+        }
+        ctx.getState().setOk();
+    }
+
+    private void handleSetOption() {
+        // https://dev.mysql.com/doc/dev/mysql-server/latest/page_protocol_com_set_option.html
+        int optionOperation = MysqlProto.readInt2(packetBuf);
+        LOG.debug("option_operation {}", optionOperation);
+        // Do nothing for now.
+        // https://dev.mysql.com/doc/c-api/8.0/en/mysql-set-server-option.html
+        ctx.getState().setOk();
     }
 
     // Process a MySQL request

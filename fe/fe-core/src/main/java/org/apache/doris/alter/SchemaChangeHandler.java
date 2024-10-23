@@ -411,6 +411,18 @@ public class SchemaChangeHandler extends AlterHandler {
                 throw new DdlException("Column does not exists: " + dropColName);
             }
 
+            // drop bloom filter column
+            Set<String> bfCols = olapTable.getCopiedBfColumns();
+            if (bfCols != null) {
+                Set<String> newBfCols = new HashSet<>();
+                for (String bfCol : bfCols) {
+                    if (!bfCol.equalsIgnoreCase(dropColName)) {
+                        newBfCols.add(bfCol);
+                    }
+                }
+                olapTable.setBloomFilterInfo(newBfCols, olapTable.getBfFpp());
+            }
+
             for (int i = 1; i < indexIds.size(); i++) {
                 List<Column> rollupSchema = indexSchemaMap.get(indexIds.get(i));
                 Iterator<Column> iter = rollupSchema.iterator();
@@ -2692,6 +2704,8 @@ public class SchemaChangeHandler extends AlterHandler {
                         olapTable.getId(), indexSchemaMap, indexes, alterIndexes, isDropIndex, jobId);
                 LOG.debug("logModifyTableAddOrDropInvertedIndices info:{}", info);
                 Env.getCurrentEnv().getEditLog().logModifyTableAddOrDropInvertedIndices(info);
+                // Drop table column stats after light schema change finished.
+                Env.getCurrentEnv().getAnalysisManager().dropStats(olapTable);
 
                 if (isDropIndex) {
                     // send drop rpc to be
@@ -2716,6 +2730,8 @@ public class SchemaChangeHandler extends AlterHandler {
                         indexSchemaMap, indexes, jobId);
                 LOG.debug("logModifyTableAddOrDropColumns info:{}", info);
                 Env.getCurrentEnv().getEditLog().logModifyTableAddOrDropColumns(info);
+                // Drop table column stats after light schema change finished.
+                Env.getCurrentEnv().getAnalysisManager().dropStats(olapTable);
             }
             LOG.info("finished modify table's add or drop or modify columns. table: {}, job: {}, is replay: {}",
                     olapTable.getName(), jobId, isReplay);

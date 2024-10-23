@@ -143,8 +143,8 @@ public class ShowColumnStatsStmt extends ShowStmt {
                 return;
             }
             List<String> row = Lists.newArrayList();
-            row.add(p.first.first);
             row.add(p.first.second);
+            row.add(p.first.first);
             row.add(String.valueOf(p.second.count));
             row.add(String.valueOf(p.second.ndv));
             row.add(String.valueOf(p.second.numNulls));
@@ -153,7 +153,7 @@ public class ShowColumnStatsStmt extends ShowStmt {
             row.add(String.valueOf(p.second.minExpr == null ? "N/A" : p.second.minExpr.toSql()));
             row.add(String.valueOf(p.second.maxExpr == null ? "N/A" : p.second.maxExpr.toSql()));
             ColStatsMeta colStatsMeta = Env.getCurrentEnv().getAnalysisManager().findColStatsMeta(table.getId(),
-                    p.first.first);
+                    p.first.second);
             row.add(String.valueOf(colStatsMeta == null ? "N/A" : colStatsMeta.analysisMethod));
             row.add(String.valueOf(colStatsMeta == null ? "N/A" : colStatsMeta.analysisType));
             row.add(String.valueOf(colStatsMeta == null ? "N/A" : colStatsMeta.jobType));

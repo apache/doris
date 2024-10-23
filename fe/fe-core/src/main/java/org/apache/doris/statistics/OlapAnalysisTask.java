@@ -101,7 +101,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         List<Long> tabletIds = pair.first;
         long totalRowCount = info.indexId == -1
                 ? tbl.getRowCount()
-                : ((OlapTable) tbl).getRowCountForIndex(info.indexId);
+                : ((OlapTable) tbl).getRowCountForIndex(info.indexId, false);
         double scaleFactor = (double) totalRowCount / (double) pair.second;
         // might happen if row count in fe metadata hasn't been updated yet
         if (Double.isInfinite(scaleFactor) || Double.isNaN(scaleFactor)) {
@@ -133,8 +133,8 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
             params.put("colId", StatisticsUtil.escapeSQL(String.valueOf(info.colName)));
             params.put("dataSizeFunction", getDataSizeFunction(col, false));
             params.put("dbName", db.getFullName());
-            params.put("colName", StatisticsUtil.escapeColumnName(info.colName));
-            params.put("tblName", tbl.getName());
+            params.put("colName", StatisticsUtil.escapeColumnName(String.valueOf(info.colName)));
+            params.put("tblName", String.valueOf(tbl.getName()));
             params.put("scaleFactor", String.valueOf(scaleFactor));
             params.put("sampleHints", tabletStr.isEmpty() ? "" : String.format("TABLET(%s)", tabletStr));
             params.put("ndvFunction", getNdvFunction(String.valueOf(totalRowCount)));
@@ -167,11 +167,8 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
                 sql = stringSubstitutor.replace(LINEAR_ANALYZE_TEMPLATE);
             } else {
                 params.put("dataSizeFunction", getDataSizeFunction(col, true));
-                if (col.getType().isStringType()) {
-                    sql = stringSubstitutor.replace(DUJ1_ANALYZE_STRING_TEMPLATE);
-                } else {
-                    sql = stringSubstitutor.replace(DUJ1_ANALYZE_TEMPLATE);
-                }
+                params.put("subStringColName", getStringTypeColName(col));
+                sql = stringSubstitutor.replace(DUJ1_ANALYZE_TEMPLATE);
             }
             LOG.info("Sample for column [{}]. Total rows [{}], rows to sample [{}], scale factor [{}], "
                     + "limited [{}], distribute column [{}], partition column [{}], key column [{}], "
@@ -195,7 +192,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         Map<String, String> params = new HashMap<>();
         params.put("dbName", db.getFullName());
         params.put("colName", StatisticsUtil.escapeColumnName(info.colName));
-        params.put("tblName", tbl.getName());
+        params.put("tblName", String.valueOf(tbl.getName()));
         params.put("index", getIndex());
         StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
         String sql = stringSubstitutor.replace(BASIC_STATS_TEMPLATE);
@@ -287,7 +284,8 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
                 int seekTid = (int) ((i + seek) % ids.size());
                 long tabletId = ids.get(seekTid);
                 sampleTabletIds.add(tabletId);
-                actualSampledRowCount += materializedIndex.getTablet(tabletId).getRowCount(true);
+                actualSampledRowCount += materializedIndex.getTablet(tabletId)
+                        .getMinReplicaRowCount(p.getVisibleVersion());
                 if (actualSampledRowCount >= sampleRows && !forPartitionColumn) {
                     enough = true;
                     break;

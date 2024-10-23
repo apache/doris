@@ -757,11 +757,19 @@ Status SegmentIterator::_execute_predicates_except_leafnode_of_andnode(
             _rowid_result_for_index[pred_result_sign].first) {
             auto apply_result = _rowid_result_for_index[pred_result_sign].second;
             _pred_except_leafnode_of_andnode_evaluate_result.push_back(apply_result);
+        } else {
+            return Status::InvalidArgument(
+                    "_execute_predicates_except_leafnode_of_andnode has no result for {}",
+                    pred_result_sign);
         }
     } else if (node_type == TExprNodeType::COMPOUND_PRED) {
         auto function_name = expr->fn().name.function_name;
         // execute logic function
         RETURN_IF_ERROR(_execute_compound_fn(function_name));
+    } else {
+        return Status::InvalidArgument(
+                "_execute_predicates_except_leafnode_of_andnode not supported for TExprNodeType:{}",
+                node_type);
     }
 
     return Status::OK();
@@ -927,7 +935,9 @@ Status SegmentIterator::_apply_index_except_leafnode_of_andnode() {
 }
 
 bool SegmentIterator::_downgrade_without_index(Status res, bool need_remaining) {
-    if (res.code() == ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND ||
+    bool is_fallback =
+            _opts.runtime_state->query_options().enable_fallback_on_missing_inverted_index;
+    if ((res.code() == ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND && is_fallback) ||
         res.code() == ErrorCode::INVERTED_INDEX_BYPASS ||
         res.code() == ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED ||
         (res.code() == ErrorCode::INVERTED_INDEX_NO_TERMS && need_remaining)) {
@@ -2081,6 +2091,8 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
 }
 
 Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
+    // TEMP column in block is not allowed here, need to erase.
+    block->erase_tmp_columns();
     bool is_mem_reuse = block->mem_reuse();
     DCHECK(is_mem_reuse);
 

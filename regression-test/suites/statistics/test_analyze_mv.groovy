@@ -111,6 +111,7 @@ suite("test_analyze_mv") {
     sql """drop database if exists test_analyze_mv"""
     sql """create database test_analyze_mv"""
     sql """use test_analyze_mv"""
+    sql """set global enable_auto_analyze=false"""
 
     sql """CREATE TABLE mvTestDup (
             key1 bigint NOT NULL,
@@ -126,18 +127,26 @@ suite("test_analyze_mv") {
             "replication_num" = "1" 
         )
     """
-    sql """create materialized view mv1 as select key1 from mvTestDup;"""
-    wait_mv_finish("test_analyze_mv", "mvTestDup")
-    sql """create materialized view mv2 as select key2 from mvTestDup;"""
-    wait_mv_finish("test_analyze_mv", "mvTestDup")
-    sql """create materialized view mv3 as select key1, key2, sum(value1), max(value2), min(value3) from mvTestDup group by key1, key2;"""
-    wait_mv_finish("test_analyze_mv", "mvTestDup")
+    def result_row
+    if (!isCloudMode()) {
+        // Test row count report and report for nereids
+        result_row = sql """show index stats mvTestDup mvTestDup"""
+        assertEquals(1, result_row.size())
+        assertEquals("mvTestDup", result_row[0][0])
+        assertEquals("mvTestDup", result_row[0][1])
+        assertEquals("0", result_row[0][3])
+        assertEquals("-1", result_row[0][4])
+    }
+
+    createMV("create materialized view mv1 as select key1 from mvTestDup;")
+    createMV("create materialized view mv2 as select key2 from mvTestDup;")
+    createMV("create materialized view mv3 as select key1, key2, sum(value1), max(value2), min(value3) from mvTestDup group by key1, key2;")
     sql """insert into mvTestDup values (1, 2, 3, 4, 5), (1, 2, 3, 4, 5), (10, 20, 30, 40, 50), (10, 20, 30, 40, 50), (100, 200, 300, 400, 500), (1001, 2001, 3001, 4001, 5001);"""
 
     sql """analyze table mvTestDup with sync;"""
 
     // Test show index row count
-    def result_row = sql """show index stats mvTestDup mvTestDup"""
+    result_row = sql """show index stats mvTestDup mvTestDup"""
     assertEquals(1, result_row.size())
     assertEquals("mvTestDup", result_row[0][0])
     assertEquals("mvTestDup", result_row[0][1])
@@ -382,6 +391,30 @@ suite("test_analyze_mv") {
     assertEquals("5001", result_sample[0][8])
     assertEquals("FULL", result_sample[0][9])
 
+    // Test drop mv and other indexes' row still exist.
+    sql """DROP MATERIALIZED VIEW mv1 ON mvTestAgg;"""
+    sql """analyze table mvTestAgg with sync;"""
+    result_row = sql """show index stats mvTestAgg mvTestAgg"""
+    assertEquals(1, result_row.size())
+    assertEquals("mvTestAgg", result_row[0][0])
+    assertEquals("mvTestAgg", result_row[0][1])
+    assertEquals("5", result_row[0][2])
+    result_row = sql """show index stats mvTestAgg mv3"""
+    assertEquals(1, result_row.size())
+    assertEquals("mvTestAgg", result_row[0][0])
+    assertEquals("mv3", result_row[0][1])
+    assertEquals("5", result_row[0][2])
+    result_row = sql """show index stats mvTestAgg mv6"""
+    assertEquals(1, result_row.size())
+    assertEquals("mvTestAgg", result_row[0][0])
+    assertEquals("mv6", result_row[0][1])
+    assertEquals("4", result_row[0][2])
+    result_row = sql """show index stats mvTestAgg rollup1"""
+    assertEquals(1, result_row.size())
+    assertEquals("mvTestAgg", result_row[0][0])
+    assertEquals("rollup1", result_row[0][1])
+    assertEquals("4", result_row[0][2])
+
 
     sql """
         CREATE TABLE mvTestUni ( 
@@ -470,6 +503,35 @@ suite("test_analyze_mv") {
         logger.info(e.getMessage());
         return;
     }
+
+    if (!isCloudMode()) {
+        // Test row count report and report for nereids
+        result_row = sql """show index stats mvTestDup mvTestDup"""
+        assertEquals(1, result_row.size())
+        assertEquals("mvTestDup", result_row[0][0])
+        assertEquals("mvTestDup", result_row[0][1])
+        assertEquals("6", result_row[0][3])
+        assertEquals("6", result_row[0][4])
+        result_row = sql """show index stats mvTestDup mv1"""
+        assertEquals(1, result_row.size())
+        assertEquals("mvTestDup", result_row[0][0])
+        assertEquals("mv1", result_row[0][1])
+        assertEquals("6", result_row[0][3])
+        assertEquals("6", result_row[0][4])
+        result_row = sql """show index stats mvTestDup mv2"""
+        assertEquals(1, result_row.size())
+        assertEquals("mvTestDup", result_row[0][0])
+        assertEquals("mv2", result_row[0][1])
+        assertEquals("6", result_row[0][3])
+        assertEquals("6", result_row[0][4])
+        result_row = sql """show index stats mvTestDup mv3"""
+        assertEquals(1, result_row.size())
+        assertEquals("mvTestDup", result_row[0][0])
+        assertEquals("mv3", result_row[0][1])
+        assertEquals("4", result_row[0][3])
+        assertEquals("4", result_row[0][4])
+    }
+
     sql """analyze table mvTestDup with sample rows 4000000"""
     wait_analyze_finish("mvTestDup")
     result_sample = sql """SHOW ANALYZE mvTestDup;"""
@@ -616,6 +678,38 @@ suite("test_analyze_mv") {
     verifyTaskStatus(result_sample, "mva_MAX__`value2`", "mv3")
     verifyTaskStatus(result_sample, "mva_MIN__`value3`", "mv3")
     verifyTaskStatus(result_sample, "mva_SUM__CAST(`value1` AS bigint)", "mv3")
+
+    if (!isCloudMode()) {
+        // Test row count report and report for nereids
+        sql """truncate table mvTestDup"""
+        result_row = sql """show index stats mvTestDup mv3"""
+        assertEquals(1, result_row.size())
+        assertEquals("mvTestDup", result_row[0][0])
+        assertEquals("mv3", result_row[0][1])
+        assertEquals("0", result_row[0][3])
+        assertEquals("-1", result_row[0][4])
+
+        for (int i = 0; i < 120; i++) {
+            result_row = sql """show index stats mvTestDup mv3"""
+            logger.info("mv3 stats: " + result_row)
+            if (result_row[0][4] == "0") {
+                break;
+            }
+            Thread.sleep(5000)
+        }
+        result_row = sql """show index stats mvTestDup mv3"""
+        assertEquals(1, result_row.size())
+        assertEquals("mvTestDup", result_row[0][0])
+        assertEquals("mv3", result_row[0][1])
+        assertEquals("0", result_row[0][3])
+        assertEquals("0", result_row[0][4])
+        sql """insert into mvTestDup values (1, 2, 3, 4, 5), (1, 2, 3, 4, 5), (10, 20, 30, 40, 50), (10, 20, 30, 40, 50), (100, 200, 300, 400, 500), (1001, 2001, 3001, 4001, 5001);"""
+        result_row = sql """show index stats mvTestDup mv3"""
+        assertEquals(1, result_row.size())
+        assertEquals("mvTestDup", result_row[0][0])
+        assertEquals("mv3", result_row[0][1])
+        assertEquals("-1", result_row[0][4])
+    }
 
     // Test alter column stats
     sql """drop stats mvTestDup"""

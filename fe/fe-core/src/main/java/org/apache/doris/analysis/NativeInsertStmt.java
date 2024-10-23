@@ -53,6 +53,7 @@ import org.apache.doris.planner.OlapTableSink;
 import org.apache.doris.planner.external.jdbc.JdbcTableSink;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rewrite.ExprRewriter;
+import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TUniqueId;
@@ -358,7 +359,9 @@ public class NativeInsertStmt extends InsertStmt {
                 LoadJobSourceType sourceType = LoadJobSourceType.INSERT_STREAMING;
                 transactionId = Env.getCurrentGlobalTransactionMgr().beginTransaction(db.getId(),
                         Lists.newArrayList(targetTable.getId()), label.getLabelName(),
-                        new TxnCoordinator(TxnSourceType.FE, FrontendOptions.getLocalHostAddress()),
+                        new TxnCoordinator(TxnSourceType.FE, 0,
+                                FrontendOptions.getLocalHostAddress(),
+                                ExecuteEnv.getInstance().getStartupTime()),
                         sourceType, timeoutSecond);
             }
             isTransactionBegin = true;
@@ -447,7 +450,8 @@ public class NativeInsertStmt extends InsertStmt {
                 }
 
                 if (!haveInputSeqCol && !isPartialUpdate && !isFromDeleteOrUpdateStmt
-                        && !analyzer.getContext().getSessionVariable().isEnableUniqueKeyPartialUpdate()) {
+                        && !analyzer.getContext().getSessionVariable().isEnableUniqueKeyPartialUpdate()
+                        && analyzer.getContext().getSessionVariable().isRequireSequenceInInsert()) {
                     if (!seqColInTable.isPresent() || seqColInTable.get().getDefaultValue() == null
                             || !seqColInTable.get().getDefaultValue().equals(DefaultValue.CURRENT_TIMESTAMP)) {
                         throw new AnalysisException("Table " + olapTable.getName()
@@ -850,11 +854,15 @@ public class NativeInsertStmt extends InsertStmt {
             Column col = targetColumns.get(i);
 
             if (expr instanceof DefaultValueExpr) {
-                if (targetColumns.get(i).getDefaultValue() == null) {
+                if (targetColumns.get(i).getDefaultValue() == null && !targetColumns.get(i).isAllowNull()) {
                     throw new AnalysisException("Column has no default value, column="
                             + targetColumns.get(i).getName());
                 }
-                expr = new StringLiteral(targetColumns.get(i).getDefaultValue());
+                if (targetColumns.get(i).getDefaultValue() == null) {
+                    expr = new NullLiteral();
+                } else {
+                    expr = new StringLiteral(targetColumns.get(i).getDefaultValue());
+                }
             }
             if (expr instanceof Subquery) {
                 throw new AnalysisException("Insert values can not be query");
@@ -1102,7 +1110,7 @@ public class NativeInsertStmt extends InsertStmt {
             return;
         }
         if (!olapTable.getEnableUniqueKeyMergeOnWrite()) {
-            throw new UserException("Partial update is only allowed on unique table with merge-on-write enabled.");
+            return;
         }
         if (hasEmptyTargetColumns) {
             throw new AnalysisException("You must explicitly specify the columns to be updated when "

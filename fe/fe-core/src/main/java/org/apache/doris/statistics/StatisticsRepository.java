@@ -111,11 +111,20 @@ public class StatisticsRepository {
             + " AND part_id IS NULL";
 
     public static ColumnStatistic queryColumnStatisticsByName(long tableId, long indexId, String colName) {
+        ColumnStatistic columnStatistic = ColumnStatistic.UNKNOWN;
         ResultRow resultRow = queryColumnStatisticById(tableId, indexId, colName);
         if (resultRow == null) {
-            return ColumnStatistic.UNKNOWN;
+            return columnStatistic;
         }
-        return ColumnStatistic.fromResultRow(resultRow);
+        try {
+            columnStatistic = ColumnStatistic.fromResultRow(resultRow);
+        } catch (Exception e) {
+            LOG.warn("Failed to deserialize column statistics. reason: [{}]. Row [{}]", e.getMessage(), resultRow);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug(e);
+            }
+        }
+        return columnStatistic;
     }
 
     public static List<ColumnStatistic> queryColumnStatisticsByPartitions(TableName tableName, String colName,

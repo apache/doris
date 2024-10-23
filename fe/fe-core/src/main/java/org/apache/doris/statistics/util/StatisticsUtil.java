@@ -167,8 +167,7 @@ public class StatisticsUtil {
         }
     }
 
-    public static ColumnStatistic deserializeToColumnStatistics(List<ResultRow> resultBatches)
-            throws Exception {
+    public static ColumnStatistic deserializeToColumnStatistics(List<ResultRow> resultBatches) {
         if (CollectionUtils.isEmpty(resultBatches)) {
             return null;
         }
@@ -977,37 +976,26 @@ public class StatisticsUtil {
     }
 
     public static boolean isEmptyTable(TableIf table, AnalysisInfo.AnalysisMethod method) {
-        int waitRowCountReportedTime = 90;
+        int waitRowCountReportedTime = 120;
         if (!(table instanceof OlapTable) || method.equals(AnalysisInfo.AnalysisMethod.FULL)) {
             return false;
         }
         OlapTable olapTable = (OlapTable) table;
+        long rowCount = 0;
         for (int i = 0; i < waitRowCountReportedTime; i++) {
-            if (olapTable.getRowCount() > 0) {
-                return false;
-            }
-            boolean allInitVersion = true;
-            // If all partitions' visible version are PARTITION_INIT_VERSION, return true.
-            // If any partition's visible version is greater than 2, return true.
-            // Otherwise, wait row count to be reported.
-            for (Partition p : olapTable.getPartitions()) {
-                if (p.getVisibleVersion() != Partition.PARTITION_INIT_VERSION) {
-                    allInitVersion = false;
+            rowCount = olapTable.getRowCountForIndex(olapTable.getBaseIndexId(), true);
+            // rowCount == -1 means new table or first load row count not fully reported, need to wait.
+            if (rowCount == -1) {
+                try {
+                    Thread.sleep(1000);
+                } catch (InterruptedException e) {
+                    LOG.info("Sleep interrupted.");
                 }
-                if (p.getVisibleVersion() > Partition.PARTITION_INIT_VERSION + 1) {
-                    return true;
-                }
+                continue;
             }
-            if (allInitVersion) {
-                return true;
-            }
-            try {
-                Thread.sleep(1000);
-            } catch (InterruptedException e) {
-                LOG.info("Sleep interrupted.", e);
-            }
+            break;
         }
-        return true;
+        return rowCount == 0;
     }
 
 }

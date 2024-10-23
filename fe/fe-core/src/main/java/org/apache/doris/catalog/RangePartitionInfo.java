@@ -278,13 +278,6 @@ public class RangePartitionInfo extends PartitionInfo {
             sb.append(range.lowerEndpoint().toSql());
             sb.append(", ").append(range.upperEndpoint().toSql()).append(")");
 
-            Optional.ofNullable(this.idToStoragePolicy.get(entry.getKey())).ifPresent(p -> {
-                if (!p.equals("")) {
-                    sb.append("PROPERTIES (\"STORAGE POLICY\" = \"");
-                    sb.append(p).append("\")");
-                }
-            });
-
             if (partitionId != null) {
                 partitionId.add(entry.getKey());
                 break;

@@ -18,6 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.Analyzer;
+import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SlotRef;
@@ -122,8 +123,15 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
         return indexId;
     }
 
-    public void resetIndexIdForRestore(long id) {
+    public void resetIndexIdForRestore(long id, String srcDbName, String dbName) {
         indexId = id;
+
+        // the source db name is not setted in old BackupMeta, keep compatible with the old one.
+        // See InitMaterializationContextHook.java:createSyncMvContexts for details.
+        if (defineStmt != null && srcDbName != null) {
+            String newStmt = defineStmt.originStmt.replaceAll(srcDbName, dbName);
+            defineStmt = new OriginStatement(newStmt, defineStmt.idx);
+        }
     }
 
     public KeysType getKeysType() {
@@ -192,6 +200,24 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
                     column.setDefineExpr(entry.getValue());
                     match = true;
                     break;
+                }
+            }
+
+            boolean isCastSlot =
+                    entry.getValue() instanceof CastExpr && entry.getValue().getChild(0) instanceof SlotRef;
+
+            // Compatibility code for older versions of mv
+            // old version:
+            // goods_number -> mva_SUM__CAST(`goods_number` AS BIGINT)
+            // new version:
+            // goods_number -> mva_SUM__CAST(`goods_number` AS bigint)
+            if (isCastSlot && !match) {
+                for (Column column : schema) {
+                    if (column.getName().equalsIgnoreCase(entry.getKey())) {
+                        column.setDefineExpr(entry.getValue());
+                        match = true;
+                        break;
+                    }
                 }
             }
 

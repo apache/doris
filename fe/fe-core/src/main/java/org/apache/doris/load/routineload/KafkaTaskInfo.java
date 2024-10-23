@@ -47,17 +47,16 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
     private Map<Integer, Long> partitionIdToOffset;
 
     public KafkaTaskInfo(UUID id, long jobId, String clusterName,
-                        long timeoutMs, int timeoutBackOffCount,
-                        Map<Integer, Long> partitionIdToOffset, boolean isMultiTable) {
-        super(id, jobId, clusterName, timeoutMs, timeoutBackOffCount, isMultiTable);
+                         long timeoutMs, Map<Integer, Long> partitionIdToOffset, boolean isMultiTable) {
+        super(id, jobId, clusterName, timeoutMs, isMultiTable);
         this.partitionIdToOffset = partitionIdToOffset;
     }
 
     public KafkaTaskInfo(KafkaTaskInfo kafkaTaskInfo, Map<Integer, Long> partitionIdToOffset, boolean isMultiTable) {
         super(UUID.randomUUID(), kafkaTaskInfo.getJobId(), kafkaTaskInfo.getClusterName(),
-                kafkaTaskInfo.getTimeoutMs(), kafkaTaskInfo.getTimeoutBackOffCount(),
-                kafkaTaskInfo.getBeId(), isMultiTable);
+                kafkaTaskInfo.getTimeoutMs(), kafkaTaskInfo.getBeId(), isMultiTable);
         this.partitionIdToOffset = partitionIdToOffset;
+        this.isEof = kafkaTaskInfo.getIsEof();
     }
 
     public List<Integer> getPartitions() {

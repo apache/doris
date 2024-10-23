@@ -99,4 +99,36 @@ suite("test_aggregate_table") {
     qt_desc_date_table """desc date_agg"""
     sql """DROP TABLE date_agg"""
 
+    sql """DROP TABLE IF EXISTS test_string_agg_with_null"""
+    sql """ 
+        CREATE TABLE `test_string_agg_with_null` (
+            `col1` tinyint NOT NULL,
+            `col2` int NOT NULL,
+            `col3` tinyint NOT NULL,
+            `col5` boolean REPLACE NOT NULL,
+            `col4` datetime(2) REPLACE NOT NULL,
+            `col6` double REPLACE_IF_NOT_NULL NULL,
+            `col7` varchar(100) REPLACE_IF_NOT_NULL NULL
+        ) ENGINE=OLAP
+        AGGREGATE KEY(`col1`, `col2`, `col3`)
+        DISTRIBUTED BY HASH(`col1`, `col2`, `col3`) BUCKETS 1
+        PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1",
+            "disable_auto_compaction" = "true"
+        ); 
+    """
+
+    sql """ insert into test_string_agg_with_null values
+        ( -100 ,    1 ,  -82 ,    1 , '2024-02-16 04:37:37.00' , -1299962421.904282 , NULL ),
+        ( -100 ,    0 ,  -82 ,    1 , '2024-02-16 04:37:37.00' , -1299962421.904282 , "hi" ),
+        ( -100 ,    1 ,   92 ,    1 , '2024-02-16 04:37:37.00' ,   23423423.0324234 , "NULL" );
+    """
+
+    sql """ insert into test_string_agg_with_null values
+        ( -100 ,    1 ,  1 ,    1 , '2024-02-16 04:37:37.00' , 1399962421.904282 , "doris" );
+        """
+    
+    qt_string_agg_table_with_null """ select * from test_string_agg_with_null """
+    sql """DROP TABLE test_string_agg_with_null"""
+
 }

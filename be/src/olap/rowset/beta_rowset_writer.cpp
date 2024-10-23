@@ -191,7 +191,12 @@ Status BetaRowsetWriter::_find_longest_consecutive_small_segment(
         if (is_large_segment) {
             if (segid == _segcompacted_point) {
                 // skip large segments at the front
+                auto dst_seg_id = _num_segcompacted.load();
                 RETURN_IF_ERROR(_rename_compacted_segment_plain(_segcompacted_point++));
+                if (_segcompaction_worker.need_convert_delete_bitmap()) {
+                    _segcompaction_worker.convert_segment_delete_bitmap(
+                            _context.mow_context->delete_bitmap, segid, dst_seg_id);
+                }
                 continue;
             } else {
                 // stop because we need consecutive segments
@@ -216,7 +221,13 @@ Status BetaRowsetWriter::_find_longest_consecutive_small_segment(
     }
     if (s == 1) { // poor bachelor, let it go
         VLOG_DEBUG << "only one candidate segment";
+        auto src_seg_id = _segcompacted_point.load();
+        auto dst_seg_id = _num_segcompacted.load();
         RETURN_IF_ERROR(_rename_compacted_segment_plain(_segcompacted_point++));
+        if (_segcompaction_worker.need_convert_delete_bitmap()) {
+            _segcompaction_worker.convert_segment_delete_bitmap(_context.mow_context->delete_bitmap,
+                                                                src_seg_id, dst_seg_id);
+        }
         segments->clear();
         return Status::OK();
     }
@@ -374,7 +385,7 @@ Status BetaRowsetWriter::_segcompaction_rename_last_segments() {
         return Status::Error<SEGCOMPACTION_FAILED>(
                 "BetaRowsetWriter::_segcompaction_rename_last_segments meet invalid state");
     }
-    if (!_is_segcompacted() || _segcompacted_point == _num_segment) {
+    if (!is_segcompacted() || _segcompacted_point == _num_segment) {
         // no need if never segcompact before or all segcompacted
         return Status::OK();
     }
@@ -382,7 +393,12 @@ Status BetaRowsetWriter::_segcompaction_rename_last_segments() {
     // so that transaction can be committed ASAP
     VLOG_DEBUG << "segcompaction last few segments";
     for (int32_t segid = _segcompacted_point; segid < _num_segment; segid++) {
+        auto dst_segid = _num_segcompacted.load();
         RETURN_IF_ERROR(_rename_compacted_segment_plain(_segcompacted_point++));
+        if (_segcompaction_worker.need_convert_delete_bitmap()) {
+            _segcompaction_worker.convert_segment_delete_bitmap(_context.mow_context->delete_bitmap,
+                                                                segid, dst_segid);
+        }
     }
     return Status::OK();
 }
@@ -458,6 +474,7 @@ Status BetaRowsetWriter::add_rowset_for_linked_schema_change(RowsetSharedPtr row
 Status BetaRowsetWriter::flush() {
     if (_segment_writer != nullptr) {
         RETURN_IF_ERROR(_flush_segment_writer(&_segment_writer));
+        RETURN_IF_ERROR(_segcompaction_if_necessary());
     }
     return Status::OK();
 }
@@ -542,6 +559,21 @@ Status BetaRowsetWriter::build(RowsetSharedPtr& rowset) {
             RETURN_NOT_OK_STATUS_WITH_WARN(_segcompaction_worker.get_file_writer()->close(),
                                            "close segment compaction worker failed");
         }
+        // process delete bitmap for mow table
+        if (is_segcompacted() && _segcompaction_worker.need_convert_delete_bitmap()) {
+            auto converted_delete_bitmap = _segcompaction_worker.get_converted_delete_bitmap();
+            // which means the segment compaction is triggerd
+            if (converted_delete_bitmap != nullptr) {
+                RowsetIdUnorderedSet rowsetids;
+                rowsetids.insert(rowset_id());
+                auto tablet = static_cast<Tablet*>(_context.tablet.get());
+                tablet->add_sentinel_mark_to_delete_bitmap(converted_delete_bitmap.get(),
+                                                           rowsetids);
+                _context.mow_context->delete_bitmap->remove({rowset_id(), 0, 0},
+                                                            {rowset_id(), UINT32_MAX, INT64_MAX});
+                _context.mow_context->delete_bitmap->merge(*converted_delete_bitmap);
+            }
+        }
     }
     // When building a rowset, we must ensure that the current _segment_writer has been
     // flushed, that is, the current _segment_writer is nullptr
@@ -611,7 +643,7 @@ void BetaRowsetWriter::_build_rowset_meta_with_spec_field(
 
 Status BetaRowsetWriter::_build_rowset_meta(std::shared_ptr<RowsetMeta> rowset_meta,
                                             bool check_segment_num) {
-    int64_t num_seg = _is_segcompacted() ? _num_segcompacted : _num_segment;
+    int64_t num_seg = is_segcompacted() ? _num_segcompacted : _num_segment;
     int64_t num_rows_written = 0;
     int64_t total_data_size = 0;
     int64_t total_index_size = 0;
@@ -759,10 +791,11 @@ Status BetaRowsetWriter::_create_segment_writer(std::unique_ptr<segment_v2::Segm
     if (UNLIKELY(total_segment_num > config::max_segment_num_per_rowset)) {
         return Status::Error<TOO_MANY_SEGMENTS>(
                 "too many segments in rowset. tablet_id:{}, rowset_id:{}, max:{}, _num_segment:{}, "
-                "_segcompacted_point:{}, _num_segcompacted:{}",
+                "_segcompacted_point:{}, _num_segcompacted:{}, rowset_num_rows:{}. Please check if "
+                "the bucket number is too small or if the data is skewed.",
                 _context.tablet_id, _context.rowset_id.to_string(),
                 config::max_segment_num_per_rowset, _num_segment, _segcompacted_point,
-                _num_segcompacted);
+                _num_segcompacted, get_rowset_num_rows());
     } else {
         return _do_create_segment_writer(writer, false, -1, -1, flush_ctx);
     }

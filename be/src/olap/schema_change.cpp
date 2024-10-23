@@ -498,6 +498,13 @@ Status VSchemaChangeDirectly::_inner_process(RowsetReaderSharedPtr rowset_reader
                                              TabletSchemaSPtr base_tablet_schema) {
     bool eof = false;
     do {
+        // tablet may be dropped due to user cancel, schema change thread should fast fail
+        // and release tablet lock.
+        if (new_tablet->tablet_state() == TABLET_SHUTDOWN) {
+            return Status::Error<TABLE_ALREADY_DELETED_ERROR>(
+                    "fail to process tablet because it is to be deleted. tablet_id={}",
+                    new_tablet->tablet_id());
+        }
         auto new_block =
                 vectorized::Block::create_unique(new_tablet->tablet_schema()->create_block());
         auto ref_block = vectorized::Block::create_unique(base_tablet_schema->create_block());
@@ -580,6 +587,13 @@ Status VSchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowset_rea
 
     bool eof = false;
     do {
+        // tablet may be dropped due to user cancel, schema change thread should fast fail
+        // and release tablet lock.
+        if (new_tablet->tablet_state() == TABLET_SHUTDOWN) {
+            return Status::Error<TABLE_ALREADY_DELETED_ERROR>(
+                    "fail to process tablet because it is to be deleted. tablet_id={}",
+                    new_tablet->tablet_id());
+        }
         auto ref_block = vectorized::Block::create_unique(base_tablet_schema->create_block());
         auto st = rowset_reader->next_block(ref_block.get());
         if (!st) {
@@ -595,7 +609,11 @@ Status VSchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowset_rea
         }
 
         RETURN_IF_ERROR(_changer.change_block(ref_block.get(), new_block.get()));
-        if (_mem_tracker->consumption() + new_block->allocated_bytes() > _memory_limitation) {
+
+        constexpr double HOLD_BLOCK_MEMORY_RATE =
+                0.66; // Reserve some memory for use by other parts of this job
+        if (_mem_tracker->consumption() + new_block->allocated_bytes() > _memory_limitation ||
+            _mem_tracker->consumption() > _memory_limitation * HOLD_BLOCK_MEMORY_RATE) {
             RETURN_IF_ERROR(create_rowset());
 
             if (_mem_tracker->consumption() + new_block->allocated_bytes() > _memory_limitation) {
@@ -847,8 +865,7 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
                             pair.first.to_string(), max_rowset->end_version());
                 }
             }
-            std::vector<RowsetSharedPtr> empty_vec;
-            new_tablet->modify_rowsets(empty_vec, rowsets_to_delete);
+            new_tablet->delete_rowsets(rowsets_to_delete, false);
             // inherit cumulative_layer_point from base_tablet
             // check if new_tablet.ce_point > base_tablet.ce_point?
             new_tablet->set_cumulative_layer_point(-1);
@@ -1100,7 +1117,7 @@ Status SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangeParams
         context.segments_overlap = rs_reader->rowset()->rowset_meta()->segments_overlap();
         context.tablet_schema = new_tablet->tablet_schema();
         context.newest_write_timestamp = rs_reader->newest_write_timestamp();
-        context.fs = rs_reader->rowset()->rowset_meta()->fs();
+        context.fs = io::global_local_filesystem();
         context.write_type = DataWriteType::TYPE_SCHEMA_CHANGE;
         Status status = new_tablet->create_rowset_writer(context, &rowset_writer);
         if (!status.ok()) {

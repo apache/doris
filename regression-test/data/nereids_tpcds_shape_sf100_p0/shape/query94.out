@@ -2,17 +2,17 @@
 -- !ds_shape_94 --
 PhysicalResultSink
 --PhysicalTopN
-----PhysicalTopN
-------hashAgg[DISTINCT_GLOBAL]
---------PhysicalDistribute
-----------hashAgg[DISTINCT_LOCAL]
-------------hashAgg[GLOBAL]
---------------hashAgg[LOCAL]
-----------------PhysicalProject
-------------------hashJoin[RIGHT_SEMI_JOIN](ws1.ws_order_number = ws2.ws_order_number)( not (ws_warehouse_sk = ws_warehouse_sk))
---------------------PhysicalDistribute
-----------------------PhysicalProject
-------------------------PhysicalOlapScan[web_sales]
+----hashAgg[DISTINCT_GLOBAL]
+------PhysicalDistribute
+--------hashAgg[DISTINCT_LOCAL]
+----------hashAgg[GLOBAL]
+------------hashAgg[LOCAL]
+--------------PhysicalProject
+----------------hashJoin[RIGHT_SEMI_JOIN](ws1.ws_order_number = ws2.ws_order_number)( not (ws_warehouse_sk = ws_warehouse_sk))
+------------------PhysicalDistribute
+--------------------PhysicalProject
+----------------------PhysicalOlapScan[web_sales]
+------------------PhysicalProject
 --------------------hashJoin[RIGHT_ANTI_JOIN](ws1.ws_order_number = wr1.wr_order_number)
 ----------------------PhysicalDistribute
 ------------------------PhysicalProject

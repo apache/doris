@@ -61,7 +61,7 @@ jobs:
           git clone https://github.com/DoozyX/clang-format-lint-action .github/actions/clang-format-lint-action
 
           pushd .github/actions/clang-format-lint-action &>/dev/null
-          git checkout 6adbe14579e5b8e19eb3e31e5ff2479f3bd302c7
+          git checkout c71d0bf4e21876ebec3e5647491186f8797fde31 # v0.18.2
           popd &>/dev/null
 
       - name: "Format it!"

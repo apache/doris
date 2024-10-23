@@ -1249,10 +1249,12 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         OlapTable table = (OlapTable) db.getTableOrMetaException(request.tbl, TableType.OLAP);
         // begin
         long timeoutSecond = request.isSetTimeout() ? request.getTimeout() : Config.stream_load_default_timeout_second;
+        Backend backend = Env.getCurrentSystemInfo().getBackend(request.getBackendId());
+        long startTime = backend != null ? backend.getLastStartTime() : 0;
+        TxnCoordinator txnCoord = new TxnCoordinator(TxnSourceType.BE, request.getBackendId(), clientIp, startTime);
         long txnId = Env.getCurrentGlobalTransactionMgr().beginTransaction(
                 db.getId(), Lists.newArrayList(table.getId()), request.getLabel(), request.getRequestId(),
-                new TxnCoordinator(TxnSourceType.BE, clientIp),
-                TransactionState.LoadJobSourceType.BACKEND_STREAMING, -1, timeoutSecond);
+                txnCoord, TransactionState.LoadJobSourceType.BACKEND_STREAMING, -1, timeoutSecond);
         TLoadTxnBeginResult result = new TLoadTxnBeginResult();
         result.setTxnId(txnId).setDbId(db.getId());
         return result;
@@ -1356,10 +1358,12 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         // step 5: get timeout
         long timeoutSecond = request.isSetTimeout() ? request.getTimeout() : Config.stream_load_default_timeout_second;
 
+        Backend backend = Env.getCurrentSystemInfo().getBackend(request.getBackendId());
+        long startTime = backend != null ? backend.getLastStartTime() : 0;
+        TxnCoordinator txnCoord = new TxnCoordinator(TxnSourceType.BE, request.getBackendId(), clientIp, startTime);
         // step 6: begin transaction
         long txnId = Env.getCurrentGlobalTransactionMgr().beginTransaction(
-                db.getId(), tableIdList, request.getLabel(), request.getRequestId(),
-                new TxnCoordinator(TxnSourceType.BE, clientIp),
+                db.getId(), tableIdList, request.getLabel(), request.getRequestId(), txnCoord,
                 TransactionState.LoadJobSourceType.BACKEND_STREAMING, -1, timeoutSecond);
 
         // step 7: return result
@@ -1726,13 +1730,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             throw new UserException("transaction [" + request.getTxnId() + "] not found");
         }
         List<Long> tableIdList = transactionState.getTableIdList();
-        List<Table> tableList = new ArrayList<>();
-        List<String> tables = new ArrayList<>();
         // if table was dropped, transaction must be aborted
-        tableList = db.getTablesOnIdOrderOrThrowException(tableIdList);
-        for (Table table : tableList) {
-            tables.add(table.getName());
-        }
+        List<Table>  tableList = db.getTablesOnIdOrderOrThrowException(tableIdList);
 
         // Step 3: check auth
         if (request.isSetAuthCode()) {
@@ -1740,6 +1739,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         } else if (request.isSetToken()) {
             checkToken(request.getToken());
         } else {
+            List<String> tables = tableList.stream().map(Table::getName).collect(Collectors.toList());
             checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(), tables,
                     request.getUserIp(), PrivPredicate.LOAD);
         }
@@ -1908,12 +1908,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             throw new UserException("transaction [" + request.getTxnId() + "] not found");
         }
         List<Long> tableIdList = transactionState.getTableIdList();
-        List<Table> tableList = new ArrayList<>();
-        List<String> tables = new ArrayList<>();
-        tableList = db.getTablesOnIdOrderOrThrowException(tableIdList);
-        for (Table table : tableList) {
-            tables.add(table.getName());
-        }
+        List<Table> tableList = db.getTablesOnIdOrderOrThrowException(tableIdList);
 
         // Step 3: check auth
         if (request.isSetAuthCode()) {
@@ -1921,6 +1916,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         } else if (request.isSetToken()) {
             checkToken(request.getToken());
         } else {
+            List<String> tables = tableList.stream().map(Table::getName).collect(Collectors.toList());
             checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(), tables,
                     request.getUserIp(), PrivPredicate.LOAD);
         }
@@ -2902,6 +2898,21 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         LabelName label = new LabelName(request.getDb(), request.getLabelName());
         String repoName = request.getRepoName();
         Map<String, String> properties = request.getProperties();
+
+        // Restore requires that all properties are known, so the old version of FE will not be able
+        // to recognize the properties of the new version. Therefore, request parameters are used here
+        // instead of directly putting them in properties to avoid compatibility issues of cross-version
+        // synchronization.
+        if (request.isCleanPartitions()) {
+            properties.put(RestoreStmt.PROP_CLEAN_PARTITIONS, "true");
+        }
+        if (request.isCleanTables()) {
+            properties.put(RestoreStmt.PROP_CLEAN_TABLES, "true");
+        }
+        if (request.isAtomicRestore()) {
+            properties.put(RestoreStmt.PROP_ATOMIC_RESTORE, "true");
+        }
+
         AbstractBackupTableRefClause restoreTableRefClause = null;
         if (request.isSetTableRefs()) {
             List<TableRef> tableRefs = new ArrayList<>();
@@ -3102,9 +3113,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         InvalidateStatsTarget target = GsonUtils.GSON.fromJson(request.key, InvalidateStatsTarget.class);
         AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
         TableStatsMeta tableStats = analysisManager.findTableStatsStatus(target.tableId);
-        if (tableStats == null) {
-            return new TStatus(TStatusCode.OK);
-        }
         analysisManager.invalidateLocalStats(target.catalogId, target.dbId, target.tableId, target.columns, tableStats);
         return new TStatus(TStatusCode.OK);
     }
@@ -3300,8 +3308,12 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (request.isSetShowFullSql()) {
             isShowFullSql = request.isShowFullSql();
         }
+        UserIdentity userIdentity = UserIdentity.ROOT;
+        if (request.isSetCurrentUserIdent()) {
+            userIdentity = UserIdentity.fromThrift(request.getCurrentUserIdent());
+        }
         List<List<String>> processList = ExecuteEnv.getInstance().getScheduler()
-                .listConnectionWithoutAuth(isShowFullSql, true);
+                .listConnectionForRpc(userIdentity, isShowFullSql, true);
         TShowProcessListResult result = new TShowProcessListResult();
         result.setProcessList(processList);
         return result;

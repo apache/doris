@@ -16,20 +16,18 @@ PhysicalResultSink
 --------------------------hashJoin[INNER_JOIN](store_sales.ss_addr_sk = customer_address.ca_address_sk)
 ----------------------------PhysicalDistribute
 ------------------------------hashJoin[INNER_JOIN](store_sales.ss_item_sk = item.i_item_sk)
---------------------------------PhysicalDistribute
-----------------------------------PhysicalProject
-------------------------------------hashJoin[INNER_JOIN](store_sales.ss_sold_date_sk = date_dim.d_date_sk)
---------------------------------------PhysicalProject
-----------------------------------------PhysicalOlapScan[store_sales]
---------------------------------------PhysicalDistribute
-----------------------------------------PhysicalProject
-------------------------------------------filter((date_dim.d_year = 2000)(date_dim.d_moy = 2))
---------------------------------------------PhysicalOlapScan[date_dim]
---------------------------------PhysicalDistribute
-----------------------------------hashJoin[LEFT_SEMI_JOIN](item.i_item_id = item.i_item_id)
+--------------------------------PhysicalProject
+----------------------------------hashJoin[INNER_JOIN](store_sales.ss_sold_date_sk = date_dim.d_date_sk)
+------------------------------------PhysicalProject
+--------------------------------------PhysicalOlapScan[store_sales]
 ------------------------------------PhysicalDistribute
 --------------------------------------PhysicalProject
-----------------------------------------PhysicalOlapScan[item]
+----------------------------------------filter((date_dim.d_year = 2000)(date_dim.d_moy = 2))
+------------------------------------------PhysicalOlapScan[date_dim]
+--------------------------------PhysicalDistribute
+----------------------------------hashJoin[LEFT_SEMI_JOIN](item.i_item_id = item.i_item_id)
+------------------------------------PhysicalProject
+--------------------------------------PhysicalOlapScan[item]
 ------------------------------------PhysicalDistribute
 --------------------------------------PhysicalProject
 ----------------------------------------filter(i_color IN ('powder', 'green', 'cyan'))
@@ -49,20 +47,18 @@ PhysicalResultSink
 --------------------------------PhysicalOlapScan[customer_address]
 ----------------------------PhysicalDistribute
 ------------------------------hashJoin[INNER_JOIN](catalog_sales.cs_item_sk = item.i_item_sk)
---------------------------------PhysicalDistribute
-----------------------------------PhysicalProject
-------------------------------------hashJoin[INNER_JOIN](catalog_sales.cs_sold_date_sk = date_dim.d_date_sk)
---------------------------------------PhysicalProject
-----------------------------------------PhysicalOlapScan[catalog_sales]
---------------------------------------PhysicalDistribute
-----------------------------------------PhysicalProject
-------------------------------------------filter((date_dim.d_year = 2000)(date_dim.d_moy = 2))
---------------------------------------------PhysicalOlapScan[date_dim]
---------------------------------PhysicalDistribute
-----------------------------------hashJoin[LEFT_SEMI_JOIN](item.i_item_id = item.i_item_id)
+--------------------------------PhysicalProject
+----------------------------------hashJoin[INNER_JOIN](catalog_sales.cs_sold_date_sk = date_dim.d_date_sk)
+------------------------------------PhysicalProject
+--------------------------------------PhysicalOlapScan[catalog_sales]
 ------------------------------------PhysicalDistribute
 --------------------------------------PhysicalProject
-----------------------------------------PhysicalOlapScan[item]
+----------------------------------------filter((date_dim.d_year = 2000)(date_dim.d_moy = 2))
+------------------------------------------PhysicalOlapScan[date_dim]
+--------------------------------PhysicalDistribute
+----------------------------------hashJoin[LEFT_SEMI_JOIN](item.i_item_id = item.i_item_id)
+------------------------------------PhysicalProject
+--------------------------------------PhysicalOlapScan[item]
 ------------------------------------PhysicalDistribute
 --------------------------------------PhysicalProject
 ----------------------------------------filter(i_color IN ('powder', 'green', 'cyan'))
@@ -78,20 +74,18 @@ PhysicalResultSink
 --------------------------------PhysicalOlapScan[customer_address]
 ----------------------------PhysicalDistribute
 ------------------------------hashJoin[INNER_JOIN](web_sales.ws_item_sk = item.i_item_sk)
---------------------------------PhysicalDistribute
-----------------------------------PhysicalProject
-------------------------------------hashJoin[INNER_JOIN](web_sales.ws_sold_date_sk = date_dim.d_date_sk)
---------------------------------------PhysicalProject
-----------------------------------------PhysicalOlapScan[web_sales]
---------------------------------------PhysicalDistribute
-----------------------------------------PhysicalProject
-------------------------------------------filter((date_dim.d_year = 2000)(date_dim.d_moy = 2))
---------------------------------------------PhysicalOlapScan[date_dim]
---------------------------------PhysicalDistribute
-----------------------------------hashJoin[LEFT_SEMI_JOIN](item.i_item_id = item.i_item_id)
+--------------------------------PhysicalProject
+----------------------------------hashJoin[INNER_JOIN](web_sales.ws_sold_date_sk = date_dim.d_date_sk)
+------------------------------------PhysicalProject
+--------------------------------------PhysicalOlapScan[web_sales]
 ------------------------------------PhysicalDistribute
 --------------------------------------PhysicalProject
-----------------------------------------PhysicalOlapScan[item]
+----------------------------------------filter((date_dim.d_year = 2000)(date_dim.d_moy = 2))
+------------------------------------------PhysicalOlapScan[date_dim]
+--------------------------------PhysicalDistribute
+----------------------------------hashJoin[LEFT_SEMI_JOIN](item.i_item_id = item.i_item_id)
+------------------------------------PhysicalProject
+--------------------------------------PhysicalOlapScan[item]
 ------------------------------------PhysicalDistribute
 --------------------------------------PhysicalProject
 ----------------------------------------filter(i_color IN ('powder', 'green', 'cyan'))

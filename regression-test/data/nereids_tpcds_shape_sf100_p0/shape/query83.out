@@ -32,57 +32,58 @@ PhysicalResultSink
 ------------------------------------------PhysicalProject
 --------------------------------------------filter(d_date IN ('2001-06-06', '2001-09-02', '2001-11-11'))
 ----------------------------------------------PhysicalOlapScan[date_dim]
-------------hashJoin[INNER_JOIN](sr_items.item_id = wr_items.item_id)
---------------PhysicalProject
-----------------hashAgg[GLOBAL]
-------------------PhysicalDistribute
---------------------hashAgg[LOCAL]
-----------------------PhysicalProject
-------------------------hashJoin[INNER_JOIN](store_returns.sr_item_sk = item.i_item_sk)
---------------------------PhysicalProject
-----------------------------PhysicalOlapScan[item]
---------------------------PhysicalDistribute
-----------------------------hashJoin[INNER_JOIN](store_returns.sr_returned_date_sk = date_dim.d_date_sk)
-------------------------------PhysicalProject
---------------------------------PhysicalOlapScan[store_returns]
-------------------------------PhysicalDistribute
+------------PhysicalProject
+--------------hashJoin[INNER_JOIN](sr_items.item_id = wr_items.item_id)
+----------------PhysicalProject
+------------------hashAgg[GLOBAL]
+--------------------PhysicalDistribute
+----------------------hashAgg[LOCAL]
+------------------------PhysicalProject
+--------------------------hashJoin[INNER_JOIN](store_returns.sr_item_sk = item.i_item_sk)
+----------------------------PhysicalProject
+------------------------------PhysicalOlapScan[item]
+----------------------------PhysicalDistribute
+------------------------------hashJoin[INNER_JOIN](store_returns.sr_returned_date_sk = date_dim.d_date_sk)
 --------------------------------PhysicalProject
-----------------------------------hashJoin[LEFT_SEMI_JOIN](date_dim.d_date = date_dim.d_date)
-------------------------------------PhysicalProject
---------------------------------------PhysicalOlapScan[date_dim]
-------------------------------------PhysicalDistribute
+----------------------------------PhysicalOlapScan[store_returns]
+--------------------------------PhysicalDistribute
+----------------------------------PhysicalProject
+------------------------------------hashJoin[LEFT_SEMI_JOIN](date_dim.d_date = date_dim.d_date)
 --------------------------------------PhysicalProject
-----------------------------------------hashJoin[LEFT_SEMI_JOIN](date_dim.d_week_seq = date_dim.d_week_seq)
-------------------------------------------PhysicalProject
---------------------------------------------PhysicalOlapScan[date_dim]
-------------------------------------------PhysicalDistribute
+----------------------------------------PhysicalOlapScan[date_dim]
+--------------------------------------PhysicalDistribute
+----------------------------------------PhysicalProject
+------------------------------------------hashJoin[LEFT_SEMI_JOIN](date_dim.d_week_seq = date_dim.d_week_seq)
 --------------------------------------------PhysicalProject
-----------------------------------------------filter(d_date IN ('2001-06-06', '2001-09-02', '2001-11-11'))
-------------------------------------------------PhysicalOlapScan[date_dim]
---------------PhysicalProject
-----------------hashAgg[GLOBAL]
-------------------PhysicalDistribute
---------------------hashAgg[LOCAL]
-----------------------PhysicalProject
-------------------------hashJoin[INNER_JOIN](web_returns.wr_item_sk = item.i_item_sk)
---------------------------PhysicalProject
-----------------------------PhysicalOlapScan[item]
---------------------------PhysicalDistribute
-----------------------------hashJoin[INNER_JOIN](web_returns.wr_returned_date_sk = date_dim.d_date_sk)
-------------------------------PhysicalProject
---------------------------------PhysicalOlapScan[web_returns]
-------------------------------PhysicalDistribute
+----------------------------------------------PhysicalOlapScan[date_dim]
+--------------------------------------------PhysicalDistribute
+----------------------------------------------PhysicalProject
+------------------------------------------------filter(d_date IN ('2001-06-06', '2001-09-02', '2001-11-11'))
+--------------------------------------------------PhysicalOlapScan[date_dim]
+----------------PhysicalProject
+------------------hashAgg[GLOBAL]
+--------------------PhysicalDistribute
+----------------------hashAgg[LOCAL]
+------------------------PhysicalProject
+--------------------------hashJoin[INNER_JOIN](web_returns.wr_item_sk = item.i_item_sk)
+----------------------------PhysicalProject
+------------------------------PhysicalOlapScan[item]
+----------------------------PhysicalDistribute
+------------------------------hashJoin[INNER_JOIN](web_returns.wr_returned_date_sk = date_dim.d_date_sk)
 --------------------------------PhysicalProject
-----------------------------------hashJoin[LEFT_SEMI_JOIN](date_dim.d_date = date_dim.d_date)
-------------------------------------PhysicalProject
---------------------------------------PhysicalOlapScan[date_dim]
-------------------------------------PhysicalDistribute
+----------------------------------PhysicalOlapScan[web_returns]
+--------------------------------PhysicalDistribute
+----------------------------------PhysicalProject
+------------------------------------hashJoin[LEFT_SEMI_JOIN](date_dim.d_date = date_dim.d_date)
 --------------------------------------PhysicalProject
-----------------------------------------hashJoin[LEFT_SEMI_JOIN](date_dim.d_week_seq = date_dim.d_week_seq)
-------------------------------------------PhysicalProject
---------------------------------------------PhysicalOlapScan[date_dim]
-------------------------------------------PhysicalDistribute
+----------------------------------------PhysicalOlapScan[date_dim]
+--------------------------------------PhysicalDistribute
+----------------------------------------PhysicalProject
+------------------------------------------hashJoin[LEFT_SEMI_JOIN](date_dim.d_week_seq = date_dim.d_week_seq)
 --------------------------------------------PhysicalProject
-----------------------------------------------filter(d_date IN ('2001-06-06', '2001-09-02', '2001-11-11'))
-------------------------------------------------PhysicalOlapScan[date_dim]
+----------------------------------------------PhysicalOlapScan[date_dim]
+--------------------------------------------PhysicalDistribute
+----------------------------------------------PhysicalProject
+------------------------------------------------filter(d_date IN ('2001-06-06', '2001-09-02', '2001-11-11'))
+--------------------------------------------------PhysicalOlapScan[date_dim]
 

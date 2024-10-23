@@ -134,6 +134,8 @@ public:
         return _context.partial_update_info && _context.partial_update_info->is_partial_update;
     }
 
+    bool is_segcompacted() { return (_num_segcompacted > 0) ? true : false; }
+
 private:
     Status _do_add_block(const vectorized::Block* block,
                          std::unique_ptr<segment_v2::SegmentWriter>* segment_writer,
@@ -155,7 +157,6 @@ private:
     Status _segcompaction_rename_last_segments();
     Status _load_noncompacted_segment(segment_v2::SegmentSharedPtr& segment, int32_t segment_id);
     Status _find_longest_consecutive_small_segment(SegCompactionCandidatesSharedPtr& segments);
-    bool _is_segcompacted() { return (_num_segcompacted > 0) ? true : false; }
 
     bool _check_and_set_is_doing_segcompaction();
 
@@ -186,6 +187,11 @@ protected:
     /// Because we want to flush memtables in parallel.
     /// In other processes, such as merger or schema change, we will use this unified writer for data writing.
     std::unique_ptr<segment_v2::SegmentWriter> _segment_writer;
+
+    uint64_t get_rowset_num_rows() {
+        std::lock_guard l(_segid_statistics_map_mutex);
+        return std::accumulate(_segment_num_rows.begin(), _segment_num_rows.end(), uint64_t(0));
+    }
 
     mutable SpinLock _lock; // protect following vectors.
     // record rows number of every segment already written, using for rowid

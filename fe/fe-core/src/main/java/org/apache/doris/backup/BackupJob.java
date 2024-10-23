@@ -471,7 +471,18 @@ public class BackupJob extends AbstractJob {
             }
         }
 
-        backupMeta = new BackupMeta(db.getName(), copiedTables, copiedResources);
+        // Limit the max num of tablets involved in a backup job, to avoid OOM.
+        if (unfinishedTaskIds.size() > Config.max_backup_tablets_per_job) {
+            String msg = String.format("the num involved tablets %d exceeds the limit %d, "
+                    + "which might cause the FE OOM, change config `max_backup_tablets_per_job` "
+                    + "to change this limitation",
+                    unfinishedTaskIds.size(), Config.max_backup_tablets_per_job);
+            LOG.warn(msg);
+            status = new Status(ErrCode.COMMON_ERROR, msg);
+            return;
+        }
+
+        backupMeta = new BackupMeta(copiedTables, copiedResources);
 
         // send tasks
         for (AgentTask task : batchTask.getAllTasks()) {
@@ -566,8 +577,8 @@ public class BackupJob extends AbstractJob {
                 }
             }
 
-            LOG.info("snapshot for partition {}, version: {}",
-                    partition.getId(), visibleVersion);
+            LOG.info("snapshot for partition {}, version: {}, job: {}",
+                    partition.getId(), visibleVersion, label);
         }
     }
 

@@ -260,7 +260,11 @@ struct TQueryOptions {
 
   92: optional bool enable_parquet_filter_by_min_max = true
   93: optional bool enable_orc_filter_by_min_max = true
+
   116: optional bool enable_no_need_read_data_opt = true;
+
+  119: optional bool enable_match_without_inverted_index = true;
+  120: optional bool enable_fallback_on_missing_inverted_index = true;
 }
 
 
@@ -459,6 +463,8 @@ struct TExecPlanFragmentParams {
 
   // scan node id -> scan range params, only for external file scan
   24: optional map<Types.TPlanNodeId, PlanNodes.TFileScanRangeParams> file_scan_params
+
+  31: optional bool is_nereids = true;
 
   32: optional Types.TNetworkAddress current_connect_fe
 }
@@ -676,6 +682,8 @@ struct TPipelineFragmentParams {
   // scan node id -> scan range params, only for external file scan
   29: optional map<Types.TPlanNodeId, PlanNodes.TFileScanRangeParams> file_scan_params
   43: optional Types.TNetworkAddress current_connect_fe
+
+  40: optional bool is_nereids = true;
 }
 
 struct TPipelineFragmentParamsList {

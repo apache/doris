@@ -240,9 +240,11 @@ public class Tablet extends MetaObject implements Writable {
     }
 
     // for query
-    public List<Replica> getQueryableReplicas(long visibleVersion, boolean allowFailedVersion) {
+    public List<Replica> getQueryableReplicas(long visibleVersion, Map<Long, Set<Long>> backendAlivePathHashs,
+            boolean allowFailedVersion) {
         List<Replica> allQueryableReplica = Lists.newArrayListWithCapacity(replicas.size());
         List<Replica> auxiliaryReplica = Lists.newArrayListWithCapacity(replicas.size());
+        List<Replica> deadPathReplica = Lists.newArrayList();
         for (Replica replica : replicas) {
             if (replica.isBad()) {
                 continue;
@@ -253,20 +255,30 @@ public class Tablet extends MetaObject implements Writable {
                 continue;
             }
 
+            if (!replica.checkVersionCatchUp(visibleVersion, false)) {
+                continue;
+            }
+
+            Set<Long> thisBeAlivePaths = backendAlivePathHashs.get(replica.getBackendId());
             ReplicaState state = replica.getState();
-            if (state.canQuery()) {
-                if (replica.checkVersionCatchUp(visibleVersion, false)) {
-                    allQueryableReplica.add(replica);
-                }
+            // if thisBeAlivePaths contains pathHash = 0, it mean this be hadn't report disks state.
+            // should ignore this case.
+            if (replica.getPathHash() != -1 && thisBeAlivePaths != null
+                    && !thisBeAlivePaths.contains(replica.getPathHash())
+                    && !thisBeAlivePaths.contains(0L)) {
+                deadPathReplica.add(replica);
+            } else if (state.canQuery()) {
+                allQueryableReplica.add(replica);
             } else if (state == ReplicaState.DECOMMISSION) {
-                if (replica.checkVersionCatchUp(visibleVersion, false)) {
-                    auxiliaryReplica.add(replica);
-                }
+                auxiliaryReplica.add(replica);
             }
         }
 
         if (allQueryableReplica.isEmpty()) {
             allQueryableReplica = auxiliaryReplica;
+        }
+        if (allQueryableReplica.isEmpty()) {
+            allQueryableReplica = deadPathReplica;
         }
 
         if (Config.skip_compaction_slower_replica && allQueryableReplica.size() > 1) {
@@ -462,6 +474,23 @@ public class Tablet extends MetaObject implements Writable {
         LongStream s = replicas.stream().filter(r -> r.getState() == ReplicaState.NORMAL)
                 .mapToLong(Replica::getRowCount);
         return singleReplica ? Double.valueOf(s.average().orElse(0)).longValue() : s.sum();
+    }
+
+    // Get the least row count among all valid replicas.
+    // The replica with the least row count is the most accurate one. Because it performs most compaction.
+    public long getMinReplicaRowCount(long version) {
+        long minRowCount = Long.MAX_VALUE;
+        long maxReplicaVersion = 0;
+        for (Replica r : replicas) {
+            if (r.isAlive()
+                    && r.checkVersionCatchUp(version, false)
+                    && (r.getVersion() > maxReplicaVersion
+                        || r.getVersion() == maxReplicaVersion && r.getRowCount() < minRowCount)) {
+                minRowCount = r.getRowCount();
+                maxReplicaVersion = r.getVersion();
+            }
+        }
+        return minRowCount == Long.MAX_VALUE ? 0 : minRowCount;
     }
 
     /**

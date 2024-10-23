@@ -277,7 +277,8 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                                     tbl.getPartitionInfo().getTabletType(partitionId),
                                     null,
                                     tbl.getCompressionType(),
-                                    tbl.getEnableUniqueKeyMergeOnWrite(), tbl.getStoragePolicy(),
+                                    tbl.getEnableUniqueKeyMergeOnWrite(),
+                                    tbl.getPartitionInfo().getDataProperty(partitionId).getStoragePolicy(),
                                     tbl.disableAutoCompaction(),
                                     tbl.enableSingleReplicaCompaction(),
                                     tbl.skipWriteIndexOnLoad(),
@@ -522,7 +523,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                 if (task.getFailedTimes() > 0) {
                     task.setFinished(true);
                     AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.ALTER, task.getSignature());
-                    LOG.warn("schema change task failed: " + task.getErrorMsg());
+                    LOG.warn("schema change task failed: {}", task.getErrorMsg());
                     List<Long> failedBackends = failedTabletBackends.get(task.getTabletId());
                     if (failedBackends == null) {
                         failedBackends = Lists.newArrayList();
@@ -533,8 +534,8 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                             .getReplicaAllocation(task.getPartitionId()).getTotalReplicaNum();
                     int failedTaskCount = failedBackends.size();
                     if (expectSucceedTaskNum - failedTaskCount < expectSucceedTaskNum / 2 + 1) {
-                        throw new AlterCancelException("schema change tasks failed on same tablet reach threshold "
-                                + failedTaskCount);
+                        throw new AlterCancelException(
+                                String.format("schema change tasks failed, error reason: %s", task.getErrorMsg()));
                     }
                 }
             }
@@ -603,6 +604,8 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
 
         changeTableState(dbId, tableId, OlapTableState.NORMAL);
         LOG.info("set table's state to NORMAL, table id: {}, job id: {}", tableId, jobId);
+        // Drop table column stats after schema change finished.
+        Env.getCurrentEnv().getAnalysisManager().dropStats(tbl);
     }
 
     private void onFinished(OlapTable tbl) {
@@ -907,6 +910,10 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             info.add(timeoutMs / 1000);
             infos.add(info);
         }
+    }
+
+    public Map<Long, Long> getIndexIdMap() {
+        return indexIdMap;
     }
 
     public List<List<String>> getUnfinishedTasks(int limit) {

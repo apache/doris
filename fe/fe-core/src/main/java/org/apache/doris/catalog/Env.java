@@ -78,6 +78,7 @@ import org.apache.doris.analysis.TableRenameClause;
 import org.apache.doris.analysis.TruncateTableStmt;
 import org.apache.doris.analysis.UninstallPluginStmt;
 import org.apache.doris.backup.BackupHandler;
+import org.apache.doris.backup.RestoreJob;
 import org.apache.doris.binlog.BinlogGcer;
 import org.apache.doris.binlog.BinlogManager;
 import org.apache.doris.blockrule.SqlBlockRuleMgr;
@@ -3308,6 +3309,10 @@ public class Env {
             sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_LIGHT_DELETE).append("\" = \"");
             sb.append(olapTable.getEnableMowLightDelete()).append("\"");
 
+            if (olapTable.isInAtomicRestore()) {
+                sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_IN_ATOMIC_RESTORE).append("\" = \"true\"");
+            }
+
             sb.append("\n)");
         } else if (table.getType() == TableType.MYSQL) {
             MysqlTable mysqlTable = (MysqlTable) table;
@@ -4132,6 +4137,9 @@ public class Env {
                 if (db.getTable(newTableName).isPresent()) {
                     throw new DdlException("Table name[" + newTableName + "] is already used");
                 }
+                if (db.getTable(RestoreJob.tableAliasWithAtomicRestore(newTableName)).isPresent()) {
+                    throw new DdlException("Table name[" + newTableName + "] is already used (in restoring)");
+                }
 
                 if (table.getType() == TableType.OLAP) {
                     // olap table should also check if any rollup has same name as "newTableName"
@@ -4528,6 +4536,7 @@ public class Env {
                     indexIdToSchemaVersion);
             editLog.logColumnRename(info);
             LOG.info("rename coloumn[{}] to {}", colName, newColName);
+            Env.getCurrentEnv().getAnalysisManager().dropStats(table);
         }
     }
 
@@ -4767,7 +4776,8 @@ public class Env {
                 throw new DdlException("Cannot change default bucket number of colocate table.");
             }
 
-            if (olapTable.getPartitionInfo().getType() != PartitionType.RANGE) {
+            if (olapTable.getPartitionInfo().getType() != PartitionType.RANGE
+                    && olapTable.getPartitionInfo().getType() != PartitionType.LIST) {
                 throw new DdlException("Only support change partitioned table's distribution.");
             }
 
@@ -5614,6 +5624,7 @@ public class Env {
             BinlogManager binlogManager = Env.getCurrentEnv().getBinlogManager();
             dbMeta.setDroppedPartitions(binlogManager.getDroppedPartitions(db.getId()));
             dbMeta.setDroppedTables(binlogManager.getDroppedTables(db.getId()));
+            dbMeta.setDroppedIndexes(binlogManager.getDroppedIndexes(db.getId()));
         }
 
         result.setDbMeta(dbMeta);

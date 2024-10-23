@@ -718,7 +718,7 @@ public class UdfConvert {
                 for (int i = 0; i < num; ++i) {
                     Boolean value = data.get(i);
                     if (value == null) {
-                        UdfUtils.UNSAFE.putByte(nestedNullMapAddr + row, (byte) 1);
+                        UdfUtils.UNSAFE.putByte(nestedNullMapAddr + (hasPutElementNum + i), (byte) 1);
                     } else {
                         UdfUtils.UNSAFE.putByte(dataAddr + ((hasPutElementNum + i)), value ? (byte) 1 : 0);
                     }
@@ -730,7 +730,7 @@ public class UdfConvert {
             for (int i = 0; i < num; ++i) {
                 Boolean value = data.get(i);
                 if (value == null) {
-                    UdfUtils.UNSAFE.putByte(nestedNullMapAddr + row, (byte) 1);
+                    UdfUtils.UNSAFE.putByte(nestedNullMapAddr + (hasPutElementNum + i), (byte) 1);
                 } else {
                     UdfUtils.UNSAFE.putByte(dataAddr + ((hasPutElementNum + i)), value ? (byte) 1 : 0);
                 }
@@ -752,7 +752,7 @@ public class UdfConvert {
                 for (int i = 0; i < num; ++i) {
                     Byte value = data.get(i);
                     if (value == null) {
-                        UdfUtils.UNSAFE.putByte(nestedNullMapAddr + row, (byte) 1);
+                        UdfUtils.UNSAFE.putByte(nestedNullMapAddr + (hasPutElementNum + i), (byte) 1);
                     } else {
                         UdfUtils.UNSAFE.putByte(dataAddr + ((hasPutElementNum + i)), value);
                     }
@@ -764,7 +764,7 @@ public class UdfConvert {
             for (int i = 0; i < num; ++i) {
                 Byte value = data.get(i);
                 if (value == null) {
-                    UdfUtils.UNSAFE.putByte(nestedNullMapAddr + row, (byte) 1);
+                    UdfUtils.UNSAFE.putByte(nestedNullMapAddr + (hasPutElementNum + i), (byte) 1);
                 } else {
                     UdfUtils.UNSAFE.putByte(dataAddr + ((hasPutElementNum + i)), value);
                 }
@@ -786,7 +786,7 @@ public class UdfConvert {
                 for (int i = 0; i < num; ++i) {
                     Short value = data.get(i);
                     if (value == null) {
-                        UdfUtils.UNSAFE.putByte(nestedNullMapAddr + row, (byte) 1);
+                        UdfUtils.UNSAFE.putByte(nestedNullMapAddr + (hasPutElementNum + i), (byte) 1);
                     } else {
                         UdfUtils.UNSAFE.putShort(dataAddr + ((hasPutElementNum + i) * 2L), value);
                     }
@@ -798,7 +798,7 @@ public class UdfConvert {
             for (int i = 0; i < num; ++i) {
                 Short value = data.get(i);
                 if (value == null) {
-                    UdfUtils.UNSAFE.putByte(nestedNullMapAddr + row, (byte) 1);
+                    UdfUtils.UNSAFE.putByte(nestedNullMapAddr + (hasPutElementNum + i), (byte) 1);
                 } else {
                     UdfUtils.UNSAFE.putShort(dataAddr + ((hasPutElementNum + i) * 2L), value);
                 }
@@ -820,7 +820,7 @@ public class UdfConvert {
                 for (int i = 0; i < num; ++i) {
                     Integer value = data.get(i);
                     if (value == null) {
-                        UdfUtils.UNSAFE.putByte(nestedNullMapAddr + row, (byte) 1);
+                        UdfUtils.UNSAFE.putByte(nestedNullMapAddr + (hasPutElementNum + i), (byte) 1);
                     } else {
                         UdfUtils.UNSAFE.putInt(dataAddr + ((hasPutElementNum + i) * 4L), value);
                     }
@@ -832,7 +832,7 @@ public class UdfConvert {
             for (int i = 0; i < num; ++i) {
                 Integer value = data.get(i);
                 if (value == null) {
-                    UdfUtils.UNSAFE.putByte(nestedNullMapAddr + row, (byte) 1);
+                    UdfUtils.UNSAFE.putByte(nestedNullMapAddr + (hasPutElementNum + i), (byte) 1);
                 } else {
                     UdfUtils.UNSAFE.putInt(dataAddr + ((hasPutElementNum + i) * 4L), value);
                 }
@@ -854,7 +854,7 @@ public class UdfConvert {
                 for (int i = 0; i < num; ++i) {
                     Long value = data.get(i);
                     if (value == null) {
-                        UdfUtils.UNSAFE.putByte(nestedNullMapAddr + row, (byte) 1);
+                        UdfUtils.UNSAFE.putByte(nestedNullMapAddr + (hasPutElementNum + i), (byte) 1);
                     } else {
                         UdfUtils.UNSAFE.putLong(dataAddr + ((hasPutElementNum + i) * 8L), value);
                     }
@@ -866,7 +866,7 @@ public class UdfConvert {
             for (int i = 0; i < num; ++i) {
                 Long value = data.get(i);
                 if (value == null) {
-                    UdfUtils.UNSAFE.putByte(nestedNullMapAddr + row, (byte) 1);
+                    UdfUtils.UNSAFE.putByte(nestedNullMapAddr + (hasPutElementNum + i), (byte) 1);
                 } else {
                     UdfUtils.UNSAFE.putLong(dataAddr + ((hasPutElementNum + i) * 8L), value);
                 }
@@ -888,7 +888,7 @@ public class UdfConvert {
                 for (int i = 0; i < num; ++i) {
                     Float value = data.get(i);
                     if (value == null) {
-                        UdfUtils.UNSAFE.putByte(nestedNullMapAddr + row, (byte) 1);
+                        UdfUtils.UNSAFE.putByte(nestedNullMapAddr + (hasPutElementNum + i), (byte) 1);
                     } else {
                         UdfUtils.UNSAFE.putFloat(dataAddr + ((hasPutElementNum + i) * 4L), value);
                     }
@@ -900,7 +900,7 @@ public class UdfConvert {
             for (int i = 0; i < num; ++i) {
                 Float value = data.get(i);
                 if (value == null) {
-                    UdfUtils.UNSAFE.putByte(nestedNullMapAddr + row, (byte) 1);
+                    UdfUtils.UNSAFE.putByte(nestedNullMapAddr + (hasPutElementNum + i), (byte) 1);
                 } else {
                     UdfUtils.UNSAFE.putFloat(dataAddr + ((hasPutElementNum + i) * 4L), value);
                 }
@@ -922,7 +922,7 @@ public class UdfConvert {
                 for (int i = 0; i < num; ++i) {
                     Double value = data.get(i);
                     if (value == null) {
-                        UdfUtils.UNSAFE.putByte(nestedNullMapAddr + row, (byte) 1);
+                        UdfUtils.UNSAFE.putByte(nestedNullMapAddr + (hasPutElementNum + i), (byte) 1);
                     } else {
                         UdfUtils.UNSAFE.putDouble(dataAddr + ((hasPutElementNum + i) * 8L), value);
                     }
@@ -934,7 +934,7 @@ public class UdfConvert {
             for (int i = 0; i < num; ++i) {
                 Double value = data.get(i);
                 if (value == null) {
-                    UdfUtils.UNSAFE.putByte(nestedNullMapAddr + row, (byte) 1);
+                    UdfUtils.UNSAFE.putByte(nestedNullMapAddr + (hasPutElementNum + i), (byte) 1);
                 } else {
                     UdfUtils.UNSAFE.putDouble(dataAddr + ((hasPutElementNum + i) * 8L), value);
                 }
@@ -956,7 +956,7 @@ public class UdfConvert {
                 for (int i = 0; i < num; ++i) {
                     LocalDate value = data.get(i);
                     if (value == null) {
-                        UdfUtils.UNSAFE.putByte(nestedNullMapAddr + row, (byte) 1);
+                        UdfUtils.UNSAFE.putByte(nestedNullMapAddr + (hasPutElementNum + i), (byte) 1);
                     } else {
                         long time = UdfUtils.convertToDate(value, LocalDate.class);
                         UdfUtils.UNSAFE.putLong(dataAddr + ((hasPutElementNum + i) * 8L), time);
@@ -969,7 +969,7 @@ public class UdfConvert {
             for (int i = 0; i < num; ++i) {
                 LocalDate value = data.get(i);
                 if (value == null) {
-                    UdfUtils.UNSAFE.putByte(nestedNullMapAddr + row, (byte) 1);
+                    UdfUtils.UNSAFE.putByte(nestedNullMapAddr + (hasPutElementNum + i), (byte) 1);
                 } else {
                     long time = UdfUtils.convertToDate(value, LocalDate.class);
                     UdfUtils.UNSAFE.putLong(dataAddr + ((hasPutElementNum + i) * 8L), time);
@@ -992,7 +992,7 @@ public class UdfConvert {
                 for (int i = 0; i < num; ++i) {
                     LocalDateTime value = data.get(i);
                     if (value == null) {
-                        UdfUtils.UNSAFE.putByte(nestedNullMapAddr + row, (byte) 1);
+                        UdfUtils.UNSAFE.putByte(nestedNullMapAddr + (hasPutElementNum + i), (byte) 1);
                     } else {
                         long time = UdfUtils.convertToDateTime(value, LocalDateTime.class);
                         UdfUtils.UNSAFE.putLong(dataAddr + ((hasPutElementNum + i) * 8L), time);
@@ -1005,7 +1005,7 @@ public class UdfConvert {
             for (int i = 0; i < num; ++i) {
                 LocalDateTime value = data.get(i);
                 if (value == null) {
-                    UdfUtils.UNSAFE.putByte(nestedNullMapAddr + row, (byte) 1);
+                    UdfUtils.UNSAFE.putByte(nestedNullMapAddr + (hasPutElementNum + i), (byte) 1);
                 } else {
                     long time = UdfUtils.convertToDateTime(value, LocalDateTime.class);
                     UdfUtils.UNSAFE.putLong(dataAddr + ((hasPutElementNum + i) * 8L), time);
@@ -1028,7 +1028,7 @@ public class UdfConvert {
                 for (int i = 0; i < num; ++i) {
                     LocalDate value = data.get(i);
                     if (value == null) {
-                        UdfUtils.UNSAFE.putByte(nestedNullMapAddr + row, (byte) 1);
+                        UdfUtils.UNSAFE.putByte(nestedNullMapAddr + (hasPutElementNum + i), (byte) 1);
                     } else {
                         int time = UdfUtils.convertToDateV2(value, LocalDate.class);
                         UdfUtils.UNSAFE.putInt(dataAddr + ((hasPutElementNum + i) * 4L), time);
@@ -1041,7 +1041,7 @@ public class UdfConvert {
             for (int i = 0; i < num; ++i) {
                 LocalDate value = data.get(i);
                 if (value == null) {
-                    UdfUtils.UNSAFE.putByte(nestedNullMapAddr + row, (byte) 1);
+                    UdfUtils.UNSAFE.putByte(nestedNullMapAddr + (hasPutElementNum + i), (byte) 1);
                 } else {
                     int time = UdfUtils.convertToDateV2(value, LocalDate.class);
                     UdfUtils.UNSAFE.putInt(dataAddr + ((hasPutElementNum + i) * 4L), time);
@@ -1065,7 +1065,7 @@ public class UdfConvert {
                 for (int i = 0; i < num; ++i) {
                     LocalDateTime value = data.get(i);
                     if (value == null) {
-                        UdfUtils.UNSAFE.putByte(nestedNullMapAddr + row, (byte) 1);
+                        UdfUtils.UNSAFE.putByte(nestedNullMapAddr + (hasPutElementNum + i), (byte) 1);
                     } else {
                         long time = UdfUtils.convertToDateTimeV2(value, LocalDateTime.class);
                         UdfUtils.UNSAFE.putLong(dataAddr + ((hasPutElementNum + i) * 8L), time);
@@ -1078,7 +1078,7 @@ public class UdfConvert {
             for (int i = 0; i < num; ++i) {
                 LocalDateTime value = data.get(i);
                 if (value == null) {
-                    UdfUtils.UNSAFE.putByte(nestedNullMapAddr + row, (byte) 1);
+                    UdfUtils.UNSAFE.putByte(nestedNullMapAddr + (hasPutElementNum + i), (byte) 1);
                 } else {
                     long time = UdfUtils.convertToDateTimeV2(value, LocalDateTime.class);
                     UdfUtils.UNSAFE.putLong(dataAddr + ((hasPutElementNum + i) * 8L), time);
@@ -1101,7 +1101,7 @@ public class UdfConvert {
                 for (int i = 0; i < num; ++i) {
                     BigInteger bigInteger = data.get(i);
                     if (bigInteger == null) {
-                        UdfUtils.UNSAFE.putByte(nestedNullMapAddr + row, (byte) 1);
+                        UdfUtils.UNSAFE.putByte(nestedNullMapAddr + (hasPutElementNum + i), (byte) 1);
                     } else {
                         byte[] bytes = UdfUtils.convertByteOrder(bigInteger.toByteArray());
                         byte[] value = new byte[16];
@@ -1121,7 +1121,7 @@ public class UdfConvert {
             for (int i = 0; i < num; ++i) {
                 BigInteger bigInteger = data.get(i);
                 if (bigInteger == null) {
-                    UdfUtils.UNSAFE.putByte(nestedNullMapAddr + row, (byte) 1);
+                    UdfUtils.UNSAFE.putByte(nestedNullMapAddr + (hasPutElementNum + i), (byte) 1);
                 } else {
                     byte[] bytes = UdfUtils.convertByteOrder(bigInteger.toByteArray());
                     byte[] value = new byte[16];
@@ -1151,7 +1151,7 @@ public class UdfConvert {
                 for (int i = 0; i < num; ++i) {
                     BigDecimal bigDecimal = data.get(i);
                     if (bigDecimal == null) {
-                        UdfUtils.UNSAFE.putByte(nestedNullMapAddr + row, (byte) 1);
+                        UdfUtils.UNSAFE.putByte(nestedNullMapAddr + (hasPutElementNum + i), (byte) 1);
                     } else {
                         BigInteger bigInteger = bigDecimal.setScale(9, RoundingMode.HALF_EVEN).unscaledValue();
                         byte[] bytes = UdfUtils.convertByteOrder(bigInteger.toByteArray());
@@ -1172,7 +1172,7 @@ public class UdfConvert {
             for (int i = 0; i < num; ++i) {
                 BigDecimal bigDecimal = data.get(i);
                 if (bigDecimal == null) {
-                    UdfUtils.UNSAFE.putByte(nestedNullMapAddr + row, (byte) 1);
+                    UdfUtils.UNSAFE.putByte(nestedNullMapAddr + (hasPutElementNum + i), (byte) 1);
                 } else {
                     BigInteger bigInteger = bigDecimal.setScale(9, RoundingMode.HALF_EVEN).unscaledValue();
                     byte[] bytes = UdfUtils.convertByteOrder(bigInteger.toByteArray());
@@ -1205,7 +1205,7 @@ public class UdfConvert {
                 for (int i = 0; i < num; ++i) {
                     BigDecimal bigDecimal = data.get(i);
                     if (bigDecimal == null) {
-                        UdfUtils.UNSAFE.putByte(nestedNullMapAddr + row, (byte) 1);
+                        UdfUtils.UNSAFE.putByte(nestedNullMapAddr + (hasPutElementNum + i), (byte) 1);
                     } else {
                         BigInteger bigInteger = bigDecimal.setScale(scale, RoundingMode.HALF_EVEN).unscaledValue();
                         byte[] bytes = UdfUtils.convertByteOrder(bigInteger.toByteArray());
@@ -1226,7 +1226,7 @@ public class UdfConvert {
             for (int i = 0; i < num; ++i) {
                 BigDecimal bigDecimal = data.get(i);
                 if (bigDecimal == null) {
-                    UdfUtils.UNSAFE.putByte(nestedNullMapAddr + row, (byte) 1);
+                    UdfUtils.UNSAFE.putByte(nestedNullMapAddr + (hasPutElementNum + i), (byte) 1);
                 } else {
                     BigInteger bigInteger = bigDecimal.setScale(scale, RoundingMode.HALF_EVEN).unscaledValue();
                     byte[] bytes = UdfUtils.convertByteOrder(bigInteger.toByteArray());
@@ -1263,14 +1263,14 @@ public class UdfConvert {
                     String value = data.get(i);
                     if (value == null) {
                         byteRes[i] = emptyBytes;
-                        UdfUtils.UNSAFE.putByte(nestedNullMapAddr + row, (byte) 1);
+                        UdfUtils.UNSAFE.putByte(nestedNullMapAddr + (hasPutElementNum + i), (byte) 1);
                     } else {
                         byteRes[i] = value.getBytes(StandardCharsets.UTF_8);
                     }
                     offset += byteRes[i].length;
                     offsets[i] = offset;
                 }
-                int oldSzie = 0;
+                int oldSzie = oldOffsetNum;
                 if (num > 0) {
                     oldSzie = offsets[num - 1];
                 }
@@ -1292,35 +1292,35 @@ public class UdfConvert {
             int num = data.size();
             int[] offsets = new int[num];
             byte[][] byteRes = new byte[num][];
-            int offset = 0;
+            int oldOffsetNum = UdfUtils.UNSAFE.getInt(null, strOffsetAddr + ((hasPutElementNum - 1) * 4L));
+            int offset = oldOffsetNum;
             for (int i = 0; i < num; ++i) {
                 String value = data.get(i);
                 if (value == null) {
                     byteRes[i] = emptyBytes;
-                    UdfUtils.UNSAFE.putByte(nestedNullMapAddr + row, (byte) 1);
+                    UdfUtils.UNSAFE.putByte(nestedNullMapAddr + (hasPutElementNum + i), (byte) 1);
                 } else {
                     byteRes[i] = value.getBytes(StandardCharsets.UTF_8);
                 }
                 offset += byteRes[i].length;
                 offsets[i] = offset;
             }
-            int oldOffsetNum = UdfUtils.UNSAFE.getInt(null, strOffsetAddr + ((hasPutElementNum - 1) * 4L));
-            int oldSzie = 0;
+            int oldSzie = oldOffsetNum;
             if (num > 0) {
                 oldSzie = offsets[num - 1];
             }
-            byte[] bytes = new byte[oldSzie];
-            long bytesAddr = JNINativeMethod.resizeStringColumn(dataAddr, oldOffsetNum + oldSzie);
+            byte[] bytes = new byte[oldSzie - oldOffsetNum];
+            long bytesAddr = JNINativeMethod.resizeStringColumn(dataAddr, oldSzie);
             int dst = 0;
             for (int i = 0; i < num; i++) {
                 for (int j = 0; j < byteRes[i].length; j++) {
                     bytes[dst++] = byteRes[i][j];
                 }
             }
-            UdfUtils.copyMemory(offsets, UdfUtils.INT_ARRAY_OFFSET, null, strOffsetAddr + (4L * oldOffsetNum),
+            UdfUtils.copyMemory(offsets, UdfUtils.INT_ARRAY_OFFSET, null, strOffsetAddr + (4L * hasPutElementNum),
                     num * 4L);
             UdfUtils.copyMemory(bytes, UdfUtils.BYTE_ARRAY_OFFSET, null, bytesAddr + oldOffsetNum,
-                    oldSzie);
+                    oldSzie - oldOffsetNum);
             hasPutElementNum = hasPutElementNum + num;
         }
         UdfUtils.UNSAFE.putLong(null, offsetsAddr + 8L * row, hasPutElementNum);

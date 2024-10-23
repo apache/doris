@@ -67,8 +67,10 @@ void IColumn::append_data_by_selector_impl(MutablePtr& res, const Selector& sele
         LOG(FATAL) << fmt::format("Size of selector: {}, is larger than size of column:{}",
                                   selector.size(), num_rows);
     }
-
-    res->reserve(num_rows);
+    // here wants insert some value from this column, and the nums is selector.size()
+    // and many be this column num_rows is 4096, but only need insert num is size = 1
+    // so can't call res->reserve(num_rows), it's will be too mush waste memory
+    res->reserve(res->size() + selector.size());
 
     for (size_t i = 0; i < selector.size(); ++i)
         static_cast<Derived&>(*res).insert_from(*this, selector[i]);

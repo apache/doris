@@ -73,7 +73,8 @@ public class ShowReplicaTest extends TestWithFeService {
             for (MaterializedIndex index : partition.getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE)) {
                 for (Tablet tablet : index.getTablets()) {
                     for (Replica replica : tablet.getReplicas()) {
-                        replica.updateStat(1024, 2);
+                        replica.setDataSize(1024L);
+                        replica.setRowCount(2L);
                     }
                 }
             }

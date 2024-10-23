@@ -121,4 +121,51 @@ public class OlapTableTest {
         Assert.assertFalse(olapTable.getTableProperty().getDynamicPartitionProperty().getEnable());
         Assert.assertEquals((short) 3, olapTable.getDefaultReplicaAllocation().getTotalReplicaNum());
     }
+
+    @Test
+    public void testGetPartitionRowCount() {
+        OlapTable olapTable = new OlapTable();
+        // Partition is null.
+        long row = olapTable.getRowCountForPartitionIndex(0, 0, true);
+        Assert.assertEquals(-1, row);
+
+        // Index is null.
+        MaterializedIndex index = new MaterializedIndex(10, MaterializedIndex.IndexState.NORMAL);
+        Partition partition = new Partition(11, "p1", index, null);
+        olapTable.addPartition(partition);
+        row = olapTable.getRowCountForPartitionIndex(11, 0, true);
+        Assert.assertEquals(-1, row);
+
+        // Strict is true and index is not reported.
+        index.setRowCountReported(false);
+        index.setRowCount(100);
+        row = olapTable.getRowCountForPartitionIndex(11, 10, true);
+        Assert.assertEquals(-1, row);
+
+        // Strict is true and index is reported.
+        index.setRowCountReported(true);
+        index.setRowCount(101);
+        row = olapTable.getRowCountForPartitionIndex(11, 10, true);
+        Assert.assertEquals(101, row);
+
+        // Strict is false and index is not reported.
+        index.setRowCountReported(false);
+        index.setRowCount(102);
+        row = olapTable.getRowCountForPartitionIndex(11, 10, false);
+        Assert.assertEquals(102, row);
+
+        // Reported row is -1, we should return 0
+        index.setRowCountReported(true);
+        index.setRowCount(-1);
+        row = olapTable.getRowCountForPartitionIndex(11, 10, false);
+        Assert.assertEquals(0, row);
+
+        // Return reported row.
+        index.setRowCountReported(true);
+        index.setRowCount(103);
+        row = olapTable.getRowCountForPartitionIndex(11, 10, false);
+        Assert.assertEquals(103, row);
+
+        olapTable.getRowCountForPartitionIndex(11, 10, true);
+    }
 }

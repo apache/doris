@@ -17,6 +17,7 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ThreadPoolManager;
@@ -151,7 +152,7 @@ public class ConnectScheduler {
         for (ConnectContext ctx : connectionMap.values()) {
             // Check auth
             if (!ctx.getQualifiedUser().equals(user) && !Env.getCurrentEnv().getAccessManager()
-                    .checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {
+                    .checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
                 continue;
             }
 
@@ -161,10 +162,17 @@ public class ConnectScheduler {
     }
 
     // used for thrift
-    public List<List<String>> listConnectionWithoutAuth(boolean isShowFullSql, boolean isShowFeHost) {
+    public List<List<String>> listConnectionForRpc(UserIdentity userIdentity, boolean isShowFullSql,
+            boolean isShowFeHost) {
         List<List<String>> list = new ArrayList<>();
         long nowMs = System.currentTimeMillis();
         for (ConnectContext ctx : connectionMap.values()) {
+            // Check auth
+            if (!ctx.getCurrentUserIdentity().equals(userIdentity) && !Env.getCurrentEnv()
+                    .getAccessManager()
+                    .checkGlobalPriv(userIdentity, PrivPredicate.GRANT)) {
+                continue;
+            }
             list.add(ctx.toThreadInfo(isShowFullSql).toRow(-1, nowMs, isShowFeHost));
         }
         return list;

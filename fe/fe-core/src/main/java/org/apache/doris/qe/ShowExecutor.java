@@ -482,6 +482,7 @@ public class ShowExecutor {
             try {
                 TShowProcessListRequest request = new TShowProcessListRequest();
                 request.setShowFullSql(isShowFullSql);
+                request.setCurrentUserIdent(ConnectContext.get().getCurrentUserIdentity().toThrift());
                 List<Pair<String, Integer>> frontends = FrontendsProcNode.getFrontendWithRpcPort(Env.getCurrentEnv(),
                         false);
                 FrontendService.Client client = null;
@@ -2481,17 +2482,19 @@ public class ShowExecutor {
     private void handleShowTableStats() {
         ShowTableStatsStmt showTableStatsStmt = (ShowTableStatsStmt) stmt;
         TableIf tableIf = showTableStatsStmt.getTable();
-        TableStatsMeta tableStats = Env.getCurrentEnv().getAnalysisManager().findTableStatsStatus(tableIf.getId());
-        /*
-           HMSExternalTable table will fetch row count from HMS
-           or estimate with file size and schema if it's not analyzed.
-           tableStats == null means it's not analyzed, in this case show the estimated row count.
-         */
-        if (tableStats == null) {
-            resultSet = showTableStatsStmt.constructResultSet(tableIf.getRowCount());
-        } else {
-            resultSet = showTableStatsStmt.constructResultSet(tableStats);
+        // Handle use table id to show table stats. Mainly for online debug.
+        if (showTableStatsStmt.isUseTableId()) {
+            long tableId = showTableStatsStmt.getTableId();
+            TableStatsMeta tableStats = Env.getCurrentEnv().getAnalysisManager().findTableStatsStatus(tableId);
+            if (tableStats == null) {
+                resultSet = showTableStatsStmt.constructEmptyResultSet();
+            } else {
+                resultSet = showTableStatsStmt.constructResultSet(tableStats, tableIf);
+            }
+            return;
         }
+        TableStatsMeta tableStats = Env.getCurrentEnv().getAnalysisManager().findTableStatsStatus(tableIf.getId());
+        resultSet = showTableStatsStmt.constructResultSet(tableStats, tableIf);
     }
 
     private void handleShowColumnStats() throws AnalysisException {
@@ -2523,7 +2526,14 @@ public class ShowExecutor {
                     continue;
                 }
             }
-            columnStatistics.add(Pair.of(Pair.of(row.get(5), indexName), ColumnStatistic.fromResultRow(row)));
+            try {
+                columnStatistics.add(Pair.of(Pair.of(indexName, row.get(5)), ColumnStatistic.fromResultRow(row)));
+            } catch (Exception e) {
+                LOG.warn("Failed to deserialize column statistics. reason: [{}]. Row [{}]", e.getMessage(), row);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug(e);
+                }
+            }
         }
     }
 
@@ -2552,16 +2562,16 @@ public class ShowExecutor {
                     ColumnStatistic columnStatistic = Env.getCurrentEnv().getStatisticsCache().getColumnStatistics(
                             tableIf.getDatabase().getCatalog().getId(),
                             tableIf.getDatabase().getId(), tableIf.getId(), indexId, colName);
-                    columnStatistics.add(Pair.of(Pair.of(colName, indexName), columnStatistic));
+                    columnStatistics.add(Pair.of(Pair.of(indexName, colName), columnStatistic));
                 } else if (partitionNames == null) {
                     ColumnStatistic columnStatistic =
                             StatisticsRepository.queryColumnStatisticsByName(tableIf.getId(), indexId, colName);
-                    columnStatistics.add(Pair.of(Pair.of(colName, indexName), columnStatistic));
+                    columnStatistics.add(Pair.of(Pair.of(indexName, colName), columnStatistic));
                 } else {
                     String finalIndexName = indexName;
                     columnStatistics.addAll(StatisticsRepository.queryColumnStatisticsByPartitions(tableName,
                             colName, partitionNames.getPartitionNames())
-                            .stream().map(s -> Pair.of(Pair.of(colName, finalIndexName), s))
+                            .stream().map(s -> Pair.of(Pair.of(finalIndexName, colName), s))
                             .collect(Collectors.toList()));
                 }
             }

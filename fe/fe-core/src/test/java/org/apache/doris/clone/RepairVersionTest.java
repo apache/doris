@@ -89,7 +89,7 @@ public class RepairVersionTest extends TestWithFeService {
         long visibleVersion = 2L;
         partition.updateVisibleVersion(visibleVersion);
         partition.setNextVersion(visibleVersion + 1);
-        tablet.getReplicas().forEach(replica -> replica.updateVersionInfo(visibleVersion, 1L, 1L, 1L));
+        tablet.getReplicas().forEach(replica -> replica.updateVersion(visibleVersion));
 
         Replica replica = tablet.getReplicas().iterator().next();
         Assertions.assertEquals(visibleVersion, replica.getVersion());

@@ -109,7 +109,8 @@ public class ReadLockTest extends SSBTestBase {
 
     @Test
     public void testInsertInto() {
-        String sql = "INSERT INTO supplier(s_suppkey) SELECT lo_orderkey FROM lineorder";
+        String sql = "INSERT INTO supplier(s_suppkey, s_name, s_address, s_city, s_nation, s_region, s_phone) "
+                + "SELECT lo_orderkey, '', '', '', '', '', '' FROM lineorder";
         StatementContext statementContext = MemoTestUtils.createStatementContext(connectContext, sql);
         boolean originalDML = connectContext.getSessionVariable().enableNereidsDML;
         connectContext.getSessionVariable().enableNereidsDML = true;

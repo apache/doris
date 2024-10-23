@@ -137,6 +137,7 @@ public class MysqlProto {
         serializer.reset();
         MysqlHandshakePacket handshakePacket = new MysqlHandshakePacket(context.getConnectionId());
         handshakePacket.writeTo(serializer);
+        context.setMysqlHandshakePacket(handshakePacket);
         try {
             channel.sendAndFlush(serializer.toByteBuffer());
         } catch (IOException e) {
@@ -205,6 +206,12 @@ public class MysqlProto {
         if (capability.isDeprecatedEOF()) {
             context.getMysqlChannel().setClientDeprecatedEOF();
         }
+
+        // we do not save client capability to context, so here we save CLIENT_MULTI_STATEMENTS to MysqlChannel
+        if (capability.isClientMultiStatements()) {
+            context.getMysqlChannel().setClientMultiStatements();
+        }
+
         MysqlAuthPacket authPacket = new MysqlAuthPacket();
         if (!authPacket.readFrom(handshakeResponse)) {
             ErrorReport.report(ErrorCode.ERR_NOT_SUPPORTED_AUTH_MODE);

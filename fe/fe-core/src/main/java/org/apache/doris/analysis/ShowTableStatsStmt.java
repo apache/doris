@@ -63,21 +63,33 @@ public class ShowTableStatsStmt extends ShowStmt {
             new ImmutableList.Builder<String>()
             .add("table_name")
             .add("index_name")
-            .add("row_count")
+            .add("analyze_row_count")
+            .add("report_row_count")
+            .add("report_row_count_for_nereids")
             .build();
 
     private final TableName tableName;
     private final PartitionNames partitionNames;
-    private final boolean cached;
     private final String indexName;
+    private final long tableId;
+    private final boolean useTableId;
 
     private TableIf table;
 
-    public ShowTableStatsStmt(TableName tableName, PartitionNames partitionNames, boolean cached, String indexName) {
+    public ShowTableStatsStmt(long tableId) {
+        this.tableName = null;
+        this.partitionNames = null;
+        this.indexName = null;
+        this.tableId = tableId;
+        this.useTableId = true;
+    }
+
+    public ShowTableStatsStmt(TableName tableName, PartitionNames partitionNames, String indexName) {
         this.tableName = tableName;
         this.partitionNames = partitionNames;
-        this.cached = cached;
         this.indexName = indexName;
+        this.tableId = -1;
+        this.useTableId = false;
     }
 
     public TableName getTableName() {
@@ -87,6 +99,13 @@ public class ShowTableStatsStmt extends ShowStmt {
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
+        if (useTableId) {
+            if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.SHOW)) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "Permission denied",
+                        ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP());
+            }
+            return;
+        }
         tableName.analyze(analyzer);
         if (partitionNames != null) {
             partitionNames.analyze(analyzer);
@@ -141,33 +160,41 @@ public class ShowTableStatsStmt extends ShowStmt {
         return table;
     }
 
-    public ShowResultSet constructResultSet(TableStatsMeta tableStatistic) {
+    public boolean isUseTableId() {
+        return useTableId;
+    }
+
+    public long getTableId() {
+        return tableId;
+    }
+
+    public ShowResultSet constructResultSet(TableStatsMeta tableStatistic, TableIf table) {
         if (indexName != null) {
-            return constructIndexResultSet(tableStatistic);
+            return constructIndexResultSet(tableStatistic, table);
         }
-        return constructTableResultSet(tableStatistic);
+        return constructTableResultSet(tableStatistic, table);
     }
 
-    public ShowResultSet constructResultSet(long rowCount) {
-        List<List<String>> result = Lists.newArrayList();
-        List<String> row = Lists.newArrayList();
-        row.add("");
-        row.add("");
-        row.add(String.valueOf(rowCount));
-        row.add("");
-        row.add("");
-        row.add("");
-        row.add("");
-        row.add("");
-        result.add(row);
-        return new ShowResultSet(getMetaData(), result);
+    public ShowResultSet constructEmptyResultSet() {
+        return new ShowResultSet(getMetaData(), new ArrayList<>());
     }
 
-    public ShowResultSet constructTableResultSet(TableStatsMeta tableStatistic) {
-        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+    public ShowResultSet constructTableResultSet(TableStatsMeta tableStatistic, TableIf table) {
         if (tableStatistic == null) {
-            return new ShowResultSet(getMetaData(), new ArrayList<>());
+            List<List<String>> result = Lists.newArrayList();
+            List<String> row = Lists.newArrayList();
+            row.add("");
+            row.add("");
+            row.add(String.valueOf(table.getRowCount()));
+            row.add("");
+            row.add("");
+            row.add("");
+            row.add("");
+            row.add("");
+            result.add(row);
+            return new ShowResultSet(getMetaData(), result);
         }
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
         List<List<String>> result = Lists.newArrayList();
         List<String> row = Lists.newArrayList();
         row.add(String.valueOf(tableStatistic.updatedRows));
@@ -186,7 +213,7 @@ public class ShowTableStatsStmt extends ShowStmt {
         return new ShowResultSet(getMetaData(), result);
     }
 
-    public ShowResultSet constructIndexResultSet(TableStatsMeta tableStatistic) {
+    public ShowResultSet constructIndexResultSet(TableStatsMeta tableStatistic, TableIf table) {
         List<List<String>> result = Lists.newArrayList();
         if (!(table instanceof OlapTable)) {
             return new ShowResultSet(getMetaData(), result);
@@ -196,19 +223,14 @@ public class ShowTableStatsStmt extends ShowStmt {
         if (indexId == null) {
             throw new RuntimeException(String.format("Index %s not exist.", indexName));
         }
-        long rowCount = tableStatistic.getRowCount(olapTable.getIndexIdByName(indexName));
-        if (rowCount == -1) {
-            return new ShowResultSet(getMetaData(), result);
-        }
+        long rowCount = tableStatistic == null ? -1 : tableStatistic.getRowCount(olapTable.getIndexIdByName(indexName));
         List<String> row = Lists.newArrayList();
         row.add(table.getName());
         row.add(indexName);
         row.add(String.valueOf(rowCount));
+        row.add(String.valueOf(olapTable.getRowCountForIndex(indexId, false)));
+        row.add(String.valueOf(olapTable.getRowCountForIndex(indexId, true)));
         result.add(row);
         return new ShowResultSet(getMetaData(), result);
-    }
-
-    public boolean isCached() {
-        return cached;
     }
 }

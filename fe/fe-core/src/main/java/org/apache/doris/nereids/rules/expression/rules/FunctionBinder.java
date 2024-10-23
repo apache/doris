@@ -44,6 +44,7 @@ import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
+import org.apache.doris.nereids.trees.expressions.functions.Nondeterministic;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nvl;
 import org.apache.doris.nereids.trees.expressions.functions.udf.AliasUdfBuilder;
@@ -114,6 +115,9 @@ public class FunctionBinder extends AbstractExpressionRewriteRule {
         FunctionBuilder builder = functionRegistry.findFunctionBuilder(
                 unboundFunction.getDbName(), functionName, arguments);
         if (builder instanceof AliasUdfBuilder) {
+            if (context != null) {
+                context.cascadesContext.getStatementContext().hasUnsupportedSqlCacheExpression = true;
+            }
             // we do type coercion in build function in alias function, so it's ok to return directly.
             return builder.build(functionName, arguments);
         } else {
@@ -130,6 +134,9 @@ public class FunctionBinder extends AbstractExpressionRewriteRule {
                 // but COUNT function is always not nullable.
                 // so wrap COUNT with Nvl to ensure it's result is 0 instead of null to get the correct result
                 boundFunction = new Nvl(boundFunction, new BigIntLiteral(0));
+            }
+            if (context != null && boundFunction instanceof Nondeterministic) {
+                context.cascadesContext.getStatementContext().hasUnsupportedSqlCacheExpression = true;
             }
             return boundFunction;
         }

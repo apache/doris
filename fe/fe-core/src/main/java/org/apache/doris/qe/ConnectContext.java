@@ -44,6 +44,7 @@ import org.apache.doris.mysql.DummyMysqlChannel;
 import org.apache.doris.mysql.MysqlCapability;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlCommand;
+import org.apache.doris.mysql.MysqlHandshakePacket;
 import org.apache.doris.mysql.MysqlSslContext;
 import org.apache.doris.mysql.ProxyMysqlChannel;
 import org.apache.doris.nereids.StatementContext;
@@ -199,6 +200,8 @@ public class ConnectContext {
     // but the internal implementation will call the logic of `AlterTable`.
     // In this case, `skipAuth` needs to be set to `true` to skip the permission check of `AlterTable`
     private boolean skipAuth = false;
+
+    private MysqlHandshakePacket mysqlHandshakePacket;
 
     public void setUserQueryTimeout(int queryTimeout) {
         if (queryTimeout > 0) {
@@ -951,6 +954,14 @@ public class ConnectContext {
 
     public void setSkipAuth(boolean skipAuth) {
         this.skipAuth = skipAuth;
+    }
+
+    public void setMysqlHandshakePacket(MysqlHandshakePacket mysqlHandshakePacket) {
+        this.mysqlHandshakePacket = mysqlHandshakePacket;
+    }
+
+    public byte[] getAuthPluginData() {
+        return mysqlHandshakePacket == null ? null : mysqlHandshakePacket.getAuthPluginData();
     }
 }
 

@@ -15,7 +15,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------------------------PhysicalOlapScan[store_sales]
 ----------------------PhysicalDistribute
 ------------------------PhysicalProject
---------------------------filter(d_year IN (2000, 1999))
+--------------------------filter(d_year IN (1999, 2000))
 ----------------------------PhysicalOlapScan[date_dim]
 ------------------PhysicalDistribute
 --------------------PhysicalProject
@@ -32,7 +32,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------------------------PhysicalOlapScan[catalog_sales]
 ----------------------PhysicalDistribute
 ------------------------PhysicalProject
---------------------------filter(d_year IN (2000, 1999))
+--------------------------filter(d_year IN (1999, 2000))
 ----------------------------PhysicalOlapScan[date_dim]
 ------------------PhysicalDistribute
 --------------------PhysicalProject
@@ -49,7 +49,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------------------------PhysicalOlapScan[web_sales]
 ----------------------PhysicalDistribute
 ------------------------PhysicalProject
---------------------------filter(d_year IN (2000, 1999))
+--------------------------filter(d_year IN (1999, 2000))
 ----------------------------PhysicalOlapScan[date_dim]
 ------------------PhysicalDistribute
 --------------------PhysicalProject
@@ -61,31 +61,30 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----------PhysicalProject
 ------------hashJoin[INNER_JOIN](t_s_firstyear.customer_id = t_w_secyear.customer_id)(if((year_total > 0.000000), (cast(year_total as DECIMALV3(38, 16)) / year_total), NULL) > if((year_total > 0.000000), (cast(year_total as DECIMALV3(38, 16)) / year_total), NULL))
 --------------PhysicalProject
-----------------hashJoin[INNER_JOIN](t_s_firstyear.customer_id = t_w_firstyear.customer_id)
-------------------PhysicalProject
---------------------hashJoin[INNER_JOIN](t_s_firstyear.customer_id = t_c_secyear.customer_id)(if((year_total > 0.000000), (cast(year_total as DECIMALV3(38, 16)) / year_total), NULL) > if((year_total > 0.000000), (cast(year_total as DECIMALV3(38, 16)) / year_total), NULL))
-----------------------PhysicalProject
-------------------------hashJoin[INNER_JOIN](t_s_secyear.customer_id = t_s_firstyear.customer_id)
---------------------------hashJoin[INNER_JOIN](t_s_firstyear.customer_id = t_c_firstyear.customer_id)
-----------------------------PhysicalDistribute
-------------------------------PhysicalProject
---------------------------------filter((t_s_firstyear.year_total > 0.000000)(t_s_firstyear.dyear = 1999)(t_s_firstyear.sale_type = 's'))
-----------------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
-----------------------------PhysicalDistribute
-------------------------------PhysicalProject
---------------------------------filter((t_c_firstyear.year_total > 0.000000)(t_c_firstyear.dyear = 1999)(t_c_firstyear.sale_type = 'c'))
-----------------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
+----------------hashJoin[INNER_JOIN](t_s_firstyear.customer_id = t_c_secyear.customer_id)(if((year_total > 0.000000), (cast(year_total as DECIMALV3(38, 16)) / year_total), NULL) > if((year_total > 0.000000), (cast(year_total as DECIMALV3(38, 16)) / year_total), NULL))
+------------------hashJoin[INNER_JOIN](t_s_secyear.customer_id = t_s_firstyear.customer_id)
+--------------------PhysicalProject
+----------------------hashJoin[INNER_JOIN](t_s_firstyear.customer_id = t_w_firstyear.customer_id)
+------------------------hashJoin[INNER_JOIN](t_s_firstyear.customer_id = t_c_firstyear.customer_id)
 --------------------------PhysicalDistribute
 ----------------------------PhysicalProject
-------------------------------filter((t_s_secyear.sale_type = 's')(t_s_secyear.dyear = 2000))
+------------------------------filter((t_s_firstyear.year_total > 0.000000)(t_s_firstyear.dyear = 1999)(t_s_firstyear.sale_type = 's'))
 --------------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
-----------------------PhysicalDistribute
-------------------------PhysicalProject
---------------------------filter((t_c_secyear.dyear = 2000)(t_c_secyear.sale_type = 'c'))
-----------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
+--------------------------PhysicalDistribute
+----------------------------PhysicalProject
+------------------------------filter((t_c_firstyear.year_total > 0.000000)(t_c_firstyear.dyear = 1999)(t_c_firstyear.sale_type = 'c'))
+--------------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
+------------------------PhysicalDistribute
+--------------------------PhysicalProject
+----------------------------filter((t_w_firstyear.dyear = 1999)(t_w_firstyear.sale_type = 'w')(t_w_firstyear.year_total > 0.000000))
+------------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
+--------------------PhysicalDistribute
+----------------------PhysicalProject
+------------------------filter((t_s_secyear.sale_type = 's')(t_s_secyear.dyear = 2000))
+--------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
 ------------------PhysicalDistribute
 --------------------PhysicalProject
-----------------------filter((t_w_firstyear.dyear = 1999)(t_w_firstyear.sale_type = 'w')(t_w_firstyear.year_total > 0.000000))
+----------------------filter((t_c_secyear.dyear = 2000)(t_c_secyear.sale_type = 'c'))
 ------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
 --------------PhysicalDistribute
 ----------------PhysicalProject

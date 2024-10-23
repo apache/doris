@@ -98,6 +98,7 @@ import org.apache.doris.nereids.rules.rewrite.PushdownFilterThroughAggregation;
 import org.apache.doris.nereids.rules.rewrite.PushdownFilterThroughProject;
 import org.apache.doris.nereids.rules.rewrite.PushdownLimit;
 import org.apache.doris.nereids.rules.rewrite.PushdownLimitDistinctThroughJoin;
+import org.apache.doris.nereids.rules.rewrite.PushdownProjectThroughLimit;
 import org.apache.doris.nereids.rules.rewrite.PushdownTopNThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.PushdownTopNThroughWindow;
 import org.apache.doris.nereids.rules.rewrite.ReorderJoin;
@@ -362,7 +363,17 @@ public class Rewriter extends AbstractBatchJobExecutor {
             topic("eliminate",
                     // SORT_PRUNING should be applied after mergeLimit
                     custom(RuleType.ELIMINATE_SORT, EliminateSort::new),
-                    bottomUp(new EliminateEmptyRelation())
+                    bottomUp(
+                            new EliminateEmptyRelation(),
+                            // after eliminate empty relation under union, we could get
+                            // limit
+                            // +-- project
+                            //     +-- limit
+                            //         + project
+                            // so, we need push project through limit to satisfy translator's assumptions
+                            new PushdownFilterThroughProject(),
+                            new PushdownProjectThroughLimit(),
+                            new MergeProjects())
             ),
             // this rule batch must keep at the end of rewrite to do some plan check
             topic("Final rewrite and check",

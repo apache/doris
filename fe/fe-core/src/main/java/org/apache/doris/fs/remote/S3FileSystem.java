@@ -57,14 +57,26 @@ public class S3FileSystem extends ObjFileSystem {
 
     @Override
     protected FileSystem nativeFileSystem(String remotePath) throws UserException {
+        //todo Extracting a common method to achieve logic reuse
+        if (closed.get()) {
+            throw new UserException("FileSystem is closed.");
+        }
         if (dfsFileSystem == null) {
-            Configuration conf = new Configuration();
-            System.setProperty("com.amazonaws.services.s3.enableV4", "true");
-            PropertyConverter.convertToHadoopFSProperties(properties).forEach(conf::set);
-            try {
-                dfsFileSystem = FileSystem.get(new Path(remotePath).toUri(), conf);
-            } catch (Exception e) {
-                throw new UserException("Failed to get S3 FileSystem for " + e.getMessage(), e);
+            synchronized (this) {
+                if (closed.get()) {
+                    throw new UserException("FileSystem is closed.");
+                }
+                if (dfsFileSystem == null) {
+                    Configuration conf = new Configuration();
+                    System.setProperty("com.amazonaws.services.s3.enableV4", "true");
+                    PropertyConverter.convertToHadoopFSProperties(properties).forEach(conf::set);
+                    try {
+                        dfsFileSystem = FileSystem.get(new Path(remotePath).toUri(), conf);
+                    } catch (Exception e) {
+                        throw new UserException("Failed to get S3 FileSystem for " + e.getMessage(), e);
+                    }
+                    RemoteFSPhantomManager.registerPhantomReference(this);
+                }
             }
         }
         return dfsFileSystem;

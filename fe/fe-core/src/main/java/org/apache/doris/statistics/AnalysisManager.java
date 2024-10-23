@@ -22,6 +22,7 @@ import org.apache.doris.analysis.AnalyzeProperties;
 import org.apache.doris.analysis.AnalyzeStmt;
 import org.apache.doris.analysis.AnalyzeTblStmt;
 import org.apache.doris.analysis.DropAnalyzeJobStmt;
+import org.apache.doris.analysis.DropCachedStatsStmt;
 import org.apache.doris.analysis.DropStatsStmt;
 import org.apache.doris.analysis.KillAnalysisJobStmt;
 import org.apache.doris.analysis.ShowAnalyzeStmt;
@@ -89,6 +90,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.NavigableMap;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.StringJoiner;
@@ -676,48 +678,82 @@ public class AnalysisManager implements Writable {
                 StatisticsUtil.getAnalyzeTimeout()));
     }
 
+    public void dropCachedStats(DropCachedStatsStmt stmt) {
+        long catalogId = stmt.getCatalogIdId();
+        long dbId = stmt.getDbId();
+        long tblId = stmt.getTblId();
+        dropCachedStats(catalogId, dbId, tblId);
+    }
+
     public void dropStats(DropStatsStmt dropStatsStmt) throws DdlException {
         if (dropStatsStmt.dropExpired) {
             Env.getCurrentEnv().getStatisticsCleaner().clear();
             return;
         }
 
-        Set<String> cols = dropStatsStmt.getColumnNames();
-        long catalogId = dropStatsStmt.getCatalogIdId();
-        long dbId = dropStatsStmt.getDbId();
-        long tblId = dropStatsStmt.getTblId();
         TableStatsMeta tableStats = findTableStatsStatus(dropStatsStmt.getTblId());
         if (tableStats == null) {
             return;
         }
-        invalidateLocalStats(catalogId, dbId, tblId, cols, tableStats);
+        Set<String> cols = dropStatsStmt.getColumnNames();
+        long catalogId = dropStatsStmt.getCatalogIdId();
+        long dbId = dropStatsStmt.getDbId();
+        long tblId = dropStatsStmt.getTblId();
+        // Remove tableMetaStats if drop whole table stats.
+        if (dropStatsStmt.isAllColumns()) {
+            removeTableStats(tblId);
+            Env.getCurrentEnv().getEditLog().logDeleteTableStats(new TableStatsDeletionLog(tblId));
+        }
+        invalidateLocalStats(catalogId, dbId, tblId, dropStatsStmt.isAllColumns() ? null : cols, tableStats);
         // Drop stats ddl is master only operation.
         invalidateRemoteStats(catalogId, dbId, tblId, cols, dropStatsStmt.isAllColumns());
         StatisticsRepository.dropStatistics(tblId, cols);
     }
 
-    public void dropStats(TableIf table) throws DdlException {
-        TableStatsMeta tableStats = findTableStatsStatus(table.getId());
-        if (tableStats == null) {
-            return;
+    public void dropStats(TableIf table) {
+        try {
+            TableStatsMeta tableStats = findTableStatsStatus(table.getId());
+            if (tableStats == null) {
+                return;
+            }
+            long catalogId = table.getDatabase().getCatalog().getId();
+            long dbId = table.getDatabase().getId();
+            long tableId = table.getId();
+            removeTableStats(tableId);
+            Env.getCurrentEnv().getEditLog().logDeleteTableStats(new TableStatsDeletionLog(tableId));
+            Set<String> cols = table.getSchemaAllIndexes(false).stream().map(Column::getName)
+                    .collect(Collectors.toSet());
+            invalidateLocalStats(catalogId, dbId, tableId, null, tableStats);
+            // Drop stats ddl is master only operation.
+            invalidateRemoteStats(catalogId, dbId, tableId, cols, true);
+            StatisticsRepository.dropStatistics(table.getId(), cols);
+        } catch (Throwable e) {
+            LOG.warn("Failed to drop stats for table {}", table.getName(), e);
         }
-        long catalogId = table.getDatabase().getCatalog().getId();
-        long dbId = table.getDatabase().getId();
-        long tableId = table.getId();
-        Set<String> cols = table.getSchemaAllIndexes(false).stream().map(Column::getName).collect(Collectors.toSet());
-        invalidateLocalStats(catalogId, dbId, tableId, cols, tableStats);
-        // Drop stats ddl is master only operation.
-        invalidateRemoteStats(catalogId, dbId, tableId, cols, true);
-        StatisticsRepository.dropStatistics(table.getId(), cols);
+    }
+
+    public void dropCachedStats(long catalogId, long dbId, long tableId) {
+        TableIf table = StatisticsUtil.findTable(catalogId, dbId, tableId);
+        StatisticsCache statsCache = Env.getCurrentEnv().getStatisticsCache();
+        Set<String> columns = table.getSchemaAllIndexes(false)
+                .stream().map(Column::getName).collect(Collectors.toSet());
+        for (String column : columns) {
+            List<Long> indexIds = Lists.newArrayList();
+            if (table instanceof OlapTable) {
+                indexIds = ((OlapTable) table).getMvColumnIndexIds(column);
+            } else {
+                indexIds.add(-1L);
+            }
+            for (long indexId : indexIds) {
+                statsCache.invalidate(tableId, indexId, column);
+            }
+        }
     }
 
     public void invalidateLocalStats(long catalogId, long dbId, long tableId,
-                                     Set<String> columns, TableStatsMeta tableStats) {
-        if (tableStats == null) {
-            return;
-        }
+            Set<String> columns, TableStatsMeta tableStats) {
         TableIf table = StatisticsUtil.findTable(catalogId, dbId, tableId);
-        StatisticsCache statisticsCache = Env.getCurrentEnv().getStatisticsCache();
+        StatisticsCache statsCache = Env.getCurrentEnv().getStatisticsCache();
         if (columns == null) {
             columns = table.getSchemaAllIndexes(false)
                 .stream().map(Column::getName).collect(Collectors.toSet());
@@ -731,12 +767,16 @@ public class AnalysisManager implements Writable {
                 indexIds.add(-1L);
             }
             for (long indexId : indexIds) {
-                tableStats.removeColumn(column);
-                statisticsCache.invalidate(tableId, indexId, column);
+                if (tableStats != null) {
+                    tableStats.removeColumn(column);
+                }
+                statsCache.invalidate(tableId, indexId, column);
             }
         }
-        tableStats.updatedTime = 0;
-        tableStats.userInjected = false;
+        if (tableStats != null) {
+            tableStats.updatedTime = 0;
+            tableStats.userInjected = false;
+        }
     }
 
     public void invalidateRemoteStats(long catalogId, long dbId, long tableId,
@@ -746,18 +786,15 @@ public class AnalysisManager implements Writable {
         request.key = GsonUtils.GSON.toJson(target);
         StatisticsCache statisticsCache = Env.getCurrentEnv().getStatisticsCache();
         SystemInfoService.HostInfo selfNode = Env.getCurrentEnv().getSelfNode();
-        boolean success = true;
         for (Frontend frontend : Env.getCurrentEnv().getFrontends(null)) {
             // Skip master
             if (selfNode.getHost().equals(frontend.getHost())) {
                 continue;
             }
-            success = success && statisticsCache.invalidateStats(frontend, request);
+            statisticsCache.invalidateStats(frontend, request);
         }
-        if (!success) {
-            // If any rpc failed, use edit log to sync table stats to non-master FEs.
-            LOG.warn("Failed to invalidate all remote stats by rpc for table {}, use edit log.", tableId);
-            TableStatsMeta tableStats = findTableStatsStatus(tableId);
+        TableStatsMeta tableStats = findTableStatsStatus(tableId);
+        if (tableStats != null) {
             logCreateTableStats(tableStats);
         }
     }
@@ -917,7 +954,7 @@ public class AnalysisManager implements Writable {
     public List<AnalysisInfo> findTasksByTaskIds(long jobId) {
         AnalysisInfo jobInfo = analysisJobInfoMap.get(jobId);
         if (jobInfo != null && jobInfo.taskIds != null) {
-            return jobInfo.taskIds.stream().map(analysisTaskInfoMap::get).filter(i -> i != null)
+            return jobInfo.taskIds.stream().map(analysisTaskInfoMap::get).filter(Objects::nonNull)
                     .collect(Collectors.toList());
         }
         return null;
@@ -934,7 +971,7 @@ public class AnalysisManager implements Writable {
     public void dropAnalyzeJob(DropAnalyzeJobStmt analyzeJobStmt) throws DdlException {
         AnalysisInfo jobInfo = analysisJobInfoMap.get(analyzeJobStmt.getJobId());
         if (jobInfo == null) {
-            throw new DdlException(String.format("Analyze job [%d] not exists", jobInfo.jobId));
+            throw new DdlException(String.format("Analyze job [%d] not exists", analyzeJobStmt.getJobId()));
         }
         checkPriv(jobInfo);
         long jobId = analyzeJobStmt.getJobId();
@@ -971,12 +1008,12 @@ public class AnalysisManager implements Writable {
         if (analysisInfo == null) {
             return true;
         }
-        if ((AnalysisState.PENDING.equals(analysisInfo.state) || AnalysisState.RUNNING.equals(analysisInfo.state))
-                && ScheduleType.ONCE.equals(analysisInfo.scheduleType)
-                && JobType.MANUAL.equals(analysisInfo.jobType)) {
+        if (analysisInfo.scheduleType == null || analysisInfo.jobType == null) {
             return true;
         }
-        return false;
+        return (AnalysisState.PENDING.equals(analysisInfo.state) || AnalysisState.RUNNING.equals(analysisInfo.state))
+                && ScheduleType.ONCE.equals(analysisInfo.scheduleType)
+                && JobType.MANUAL.equals(analysisInfo.jobType);
     }
 
     private static void readIdToTblStats(DataInput in, Map<Long, TableStatsMeta> map) throws IOException {
@@ -1114,6 +1151,10 @@ public class AnalysisManager implements Writable {
         idToTblStats.remove(log.id);
     }
 
+    public Set<Long> getIdToTblStatsKeys() {
+        return new HashSet<>(idToTblStats.keySet());
+    }
+
     public ColStatsMeta findColStatsMeta(long tblId, String colName) {
         TableStatsMeta tableStats = findTableStatsStatus(tblId);
         if (tableStats == null) {
@@ -1141,17 +1182,14 @@ public class AnalysisManager implements Writable {
 
     /**
      * Only OlapTable and Hive HMSExternalTable can sample for now.
-     * @param table
+     * @param table Table to check
      * @return Return true if the given table can do sample analyze. False otherwise.
      */
     public boolean canSample(TableIf table) {
         if (table instanceof OlapTable) {
             return true;
         }
-        if (table instanceof HMSExternalTable
-                && ((HMSExternalTable) table).getDlaType().equals(HMSExternalTable.DLAType.HIVE)) {
-            return true;
-        }
-        return false;
+        return table instanceof HMSExternalTable
+                && ((HMSExternalTable) table).getDlaType().equals(HMSExternalTable.DLAType.HIVE);
     }
 }

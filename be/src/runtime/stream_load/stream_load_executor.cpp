@@ -45,6 +45,7 @@
 #include "runtime/stream_load/new_load_stream_mgr.h"
 #include "runtime/stream_load/stream_load_context.h"
 #include "thrift/protocol/TDebugProtocol.h"
+#include "util/debug_points.h"
 #include "util/doris_metrics.h"
 #include "util/thrift_rpc_helper.h"
 #include "util/time.h"
@@ -68,7 +69,7 @@ Status StreamLoadExecutor::execute_plan_fragment(std::shared_ptr<StreamLoadConte
 // submit this params
 #ifndef BE_TEST
     ctx->start_write_data_nanos = MonotonicNanos();
-    LOG(INFO) << "begin to execute job. label=" << ctx->label << ", txn_id=" << ctx->txn_id
+    LOG(INFO) << "begin to execute stream load. label=" << ctx->label << ", txn_id=" << ctx->txn_id
               << ", query_id=" << print_id(ctx->put_result.params.params.query_id);
     Status st;
     if (ctx->put_result.__isset.params) {
@@ -81,6 +82,7 @@ Status StreamLoadExecutor::execute_plan_fragment(std::shared_ptr<StreamLoadConte
                         ctx->number_loaded_rows = state->num_rows_load_success();
                         ctx->number_filtered_rows = state->num_rows_load_filtered();
                         ctx->number_unselected_rows = state->num_rows_load_unselected();
+                        ctx->loaded_bytes = state->num_bytes_load_total();
 
                         int64_t num_selected_rows =
                                 ctx->number_total_rows - ctx->number_unselected_rows;
@@ -143,6 +145,16 @@ Status StreamLoadExecutor::execute_plan_fragment(std::shared_ptr<StreamLoadConte
                             this->commit_txn(ctx.get());
                         }
                     }
+
+                    LOG(INFO) << "finished to execute stream load. label=" << ctx->label
+                              << ", txn_id=" << ctx->txn_id
+                              << ", query_id=" << print_id(ctx->put_result.params.params.query_id)
+                              << ", receive_data_cost_ms="
+                              << (ctx->receive_and_read_data_cost_nanos -
+                                  ctx->read_data_cost_nanos) /
+                                         1000000
+                              << ", read_data_cost_ms=" << ctx->read_data_cost_nanos / 1000000
+                              << ", write_data_cost_ms=" << ctx->write_data_cost_nanos / 1000000;
                 });
     } else {
         st = _exec_env->fragment_mgr()->exec_plan_fragment(
@@ -154,6 +166,7 @@ Status StreamLoadExecutor::execute_plan_fragment(std::shared_ptr<StreamLoadConte
                         ctx->number_loaded_rows = state->num_rows_load_success();
                         ctx->number_filtered_rows = state->num_rows_load_filtered();
                         ctx->number_unselected_rows = state->num_rows_load_unselected();
+                        ctx->loaded_bytes = state->num_bytes_load_total();
 
                         int64_t num_selected_rows =
                                 ctx->number_total_rows - ctx->number_unselected_rows;
@@ -242,6 +255,7 @@ Status StreamLoadExecutor::begin_txn(StreamLoadContext* ctx) {
         request.__set_timeout(ctx->timeout_second);
     }
     request.__set_request_id(ctx->id.to_thrift());
+    request.__set_backend_id(_exec_env->master_info()->backend_id);
 
     TLoadTxnBeginResult result;
     Status status;
@@ -374,6 +388,8 @@ void StreamLoadExecutor::get_commit_request(StreamLoadContext* ctx,
 }
 
 Status StreamLoadExecutor::commit_txn(StreamLoadContext* ctx) {
+    DBUG_EXECUTE_IF("StreamLoadExecutor.commit_txn.block", DBUG_BLOCK);
+
     DorisMetrics::instance()->stream_load_txn_commit_request_total->increment(1);
 
     TLoadTxnCommitRequest request;

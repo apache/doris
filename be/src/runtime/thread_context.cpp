@@ -40,6 +40,7 @@ AttachTask::AttachTask(const std::shared_ptr<MemTrackerLimiter>& mem_tracker,
 AttachTask::AttachTask(RuntimeState* runtime_state) {
     SwitchBthreadLocal::switch_to_bthread_local();
     signal::set_signal_task_id(runtime_state->query_id());
+    signal::set_signal_is_nereids(runtime_state->is_nereids());
     thread_context()->attach_task(runtime_state->query_id(), runtime_state->fragment_instance_id(),
                                   runtime_state->query_mem_tracker());
 }

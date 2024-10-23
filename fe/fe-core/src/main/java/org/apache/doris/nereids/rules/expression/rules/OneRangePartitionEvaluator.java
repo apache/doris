@@ -217,21 +217,7 @@ public class OneRangePartitionEvaluator
 
     @Override
     public EvaluateRangeResult visit(Expression expr, EvaluateRangeInput context) {
-        EvaluateRangeResult result = evaluateChildrenThenThis(expr, context);
-
-        // NOTE: if children exist empty range return false
-        //       !!! this is different from `returnFalseIfExistEmptyRange` !!!
-        expr = result.result;
-        if (expr.getDataType() instanceof BooleanType && !(expr instanceof Literal)
-                && result.childrenResult.stream().anyMatch(childResult ->
-                childResult.columnRanges.values().stream().anyMatch(ColumnRange::isEmptyRange))) {
-            // this assumes that for expression: func(A)
-            // if A reject partition, then func(A) reject partition.
-            // implement visitFunc for Func if Func does not satisfy the above assumption.
-            return new EvaluateRangeResult(BooleanLiteral.FALSE, result.columnRanges, result.childrenResult);
-        }
-        // assumption: for func(A), if A accept range (n, m), then func(A) accept range (n, m).
-        return result;
+        return evaluateChildrenThenThis(expr, context);
     }
 
     @Override
@@ -265,6 +251,7 @@ public class OneRangePartitionEvaluator
                 Map<Slot, ColumnRange> leftColumnRanges = result.childrenResult.get(0).columnRanges;
                 ColumnRange greaterThenRange = ColumnRange.greaterThan((Literal) greaterThan.right());
                 result = intersectSlotRange(result, leftColumnRanges, slot, greaterThenRange);
+                result = result.withRejectNot(true);
             }
         } else if (greaterThan.left() instanceof Literal && greaterThan.right() instanceof Slot) {
             Slot slot = (Slot) greaterThan.right();
@@ -272,6 +259,7 @@ public class OneRangePartitionEvaluator
                 Map<Slot, ColumnRange> rightColumnRanges = result.childrenResult.get(1).columnRanges;
                 ColumnRange lessThenRange = ColumnRange.lessThen((Literal) greaterThan.left());
                 result = intersectSlotRange(result, rightColumnRanges, slot, lessThenRange);
+                result = result.withRejectNot(true);
             }
         }
         return result;
@@ -290,6 +278,7 @@ public class OneRangePartitionEvaluator
                 Map<Slot, ColumnRange> leftColumnRanges = result.childrenResult.get(0).columnRanges;
                 ColumnRange atLeastRange = ColumnRange.atLeast((Literal) greaterThanEqual.right());
                 result = intersectSlotRange(result, leftColumnRanges, slot, atLeastRange);
+                result = result.withRejectNot(true);
             }
         } else if (greaterThanEqual.left() instanceof Literal && greaterThanEqual.right() instanceof Slot) {
             Slot slot = (Slot) greaterThanEqual.right();
@@ -297,6 +286,7 @@ public class OneRangePartitionEvaluator
                 Map<Slot, ColumnRange> rightColumnRanges = result.childrenResult.get(1).columnRanges;
                 ColumnRange atMostRange = ColumnRange.atMost((Literal) greaterThanEqual.left());
                 result = intersectSlotRange(result, rightColumnRanges, slot, atMostRange);
+                result = result.withRejectNot(true);
             }
         }
         return result;
@@ -315,6 +305,7 @@ public class OneRangePartitionEvaluator
                 Map<Slot, ColumnRange> leftColumnRanges = result.childrenResult.get(0).columnRanges;
                 ColumnRange greaterThenRange = ColumnRange.lessThen((Literal) lessThan.right());
                 result = intersectSlotRange(result, leftColumnRanges, slot, greaterThenRange);
+                result = result.withRejectNot(true);
             }
         } else if (lessThan.left() instanceof Literal && lessThan.right() instanceof Slot) {
             Slot slot = (Slot) lessThan.right();
@@ -322,6 +313,7 @@ public class OneRangePartitionEvaluator
                 Map<Slot, ColumnRange> rightColumnRanges = result.childrenResult.get(1).columnRanges;
                 ColumnRange lessThenRange = ColumnRange.greaterThan((Literal) lessThan.left());
                 result = intersectSlotRange(result, rightColumnRanges, slot, lessThenRange);
+                result = result.withRejectNot(true);
             }
         }
         return result;
@@ -340,6 +332,7 @@ public class OneRangePartitionEvaluator
                 Map<Slot, ColumnRange> leftColumnRanges = result.childrenResult.get(0).columnRanges;
                 ColumnRange atLeastRange = ColumnRange.atMost((Literal) lessThanEqual.right());
                 result = intersectSlotRange(result, leftColumnRanges, slot, atLeastRange);
+                result = result.withRejectNot(true);
             }
         } else if (lessThanEqual.left() instanceof Literal && lessThanEqual.right() instanceof Slot) {
             Slot slot = (Slot) lessThanEqual.right();
@@ -347,6 +340,7 @@ public class OneRangePartitionEvaluator
                 Map<Slot, ColumnRange> rightColumnRanges = result.childrenResult.get(1).columnRanges;
                 ColumnRange atMostRange = ColumnRange.atLeast((Literal) lessThanEqual.left());
                 result = intersectSlotRange(result, rightColumnRanges, slot, atMostRange);
+                result = result.withRejectNot(true);
             }
         }
         return result;
@@ -382,8 +376,8 @@ public class OneRangePartitionEvaluator
         } else {
             isRejectNot = false;
         }
-        if (!isRejectNot) {
-            result = result.withRejectNot(false);
+        if (isRejectNot) {
+            result = result.withRejectNot(true);
         }
         return result;
     }
@@ -405,7 +399,7 @@ public class OneRangePartitionEvaluator
             return visit(ExpressionUtils.and(new EqualTo(nullSafeEqual.left(), nullSafeEqual.right()),
                     new Not(new IsNull(nullSafeEqual.right()))), context);
         } else {
-            return result.withRejectNot(false);
+            return result;
         }
     }
 
@@ -428,7 +422,6 @@ public class OneRangePartitionEvaluator
             Map<Slot, ColumnRange> slotRanges = result.childrenResult.get(0).columnRanges;
             result = intersectSlotRange(result, slotRanges, slot, unionLiteralRange);
         }
-        result = result.withRejectNot(false);
         return result;
     }
 
@@ -438,7 +431,6 @@ public class OneRangePartitionEvaluator
         if (!(result.result instanceof IsNull)) {
             return result;
         }
-        result = result.withRejectNot(false);
         Expression child = isNull.child();
         if (!(child instanceof Slot) || !isPartitionSlot((Slot) child)) {
             return result;
@@ -735,7 +727,7 @@ public class OneRangePartitionEvaluator
 
         public EvaluateRangeResult(Expression result, Map<Slot, ColumnRange> columnRanges,
                 List<EvaluateRangeResult> childrenResult) {
-            this(result, columnRanges, childrenResult, childrenResult.stream().allMatch(r -> r.isRejectNot()));
+            this(result, columnRanges, childrenResult, false);
         }
 
         public EvaluateRangeResult withRejectNot(boolean rejectNot) {

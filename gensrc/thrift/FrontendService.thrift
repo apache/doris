@@ -559,6 +559,7 @@ struct TLoadTxnBeginRequest {
     10: optional i64 timeout
     11: optional Types.TUniqueId request_id
     12: optional string token
+    15: optional i64 backend_id
 }
 
 struct TLoadTxnBeginResult {
@@ -581,6 +582,7 @@ struct TBeginTxnRequest {
     9: optional i64 timeout
     10: optional Types.TUniqueId request_id
     11: optional string token
+    12: optional i64 backend_id
 }
 
 struct TBeginTxnResult {
@@ -1100,6 +1102,9 @@ struct TRestoreSnapshotRequest {
     10: optional map<string, string> properties
     11: optional binary meta
     12: optional binary job_info
+    13: optional bool clean_tables
+    14: optional bool clean_partitions
+    15: optional bool atomic_restore
 }
 
 struct TRestoreSnapshotResult {
@@ -1225,6 +1230,7 @@ struct TGetMetaDBMeta {
     3: optional list<TGetMetaTableMeta> tables
     4: optional list<i64> dropped_partitions
     5: optional list<i64> dropped_tables
+    6: optional list<i64> dropped_indexes
 }
 
 struct TGetMetaResult {
@@ -1250,6 +1256,7 @@ struct TGetBackendMetaResult {
 
 struct TShowProcessListRequest {
     1: optional bool show_full_sql
+    2: optional Types.TUserIdentity current_user_ident
 }
 
 struct TShowProcessListResult {

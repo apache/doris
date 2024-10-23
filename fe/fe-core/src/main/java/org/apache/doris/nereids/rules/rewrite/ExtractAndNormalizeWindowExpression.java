@@ -17,12 +17,14 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.NormalizeToSlot.NormalizeToSlotContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -52,6 +54,10 @@ public class ExtractAndNormalizeWindowExpression extends OneRewriteRuleFactory i
                         if (output instanceof WindowExpression) {
                             // remove literal partition by and order by keys
                             WindowExpression windowExpression = (WindowExpression) output;
+                            Expression function = windowExpression.getFunction();
+                            if (function.containsType(OrderExpression.class)) {
+                                throw new AnalysisException("order by is not supported in " + function);
+                            }
                             return windowExpression.withPartitionKeysOrderKeys(
                                     windowExpression.getPartitionKeys().stream()
                                             .filter(expression -> !expression.isConstant())

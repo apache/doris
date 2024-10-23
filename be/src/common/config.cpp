@@ -1112,6 +1112,10 @@ DEFINE_mBool(enable_missing_rows_correctness_check, "false");
 // When the number of missing versions is more than this value, do not directly
 // retry the publish and handle it through async publish.
 DEFINE_mInt32(mow_publish_max_discontinuous_version_num, "20");
+// When the version is not continuous for MOW table in publish phase and the gap between
+// current txn's publishing version and the max version of the tablet exceeds this value,
+// don't print warning log
+DEFINE_mInt32(publish_version_gap_logging_threshold, "200");
 
 // The secure path with user files, used in the `local` table function.
 DEFINE_mString(user_files_secure_path, "${DORIS_HOME}");
@@ -1180,6 +1184,13 @@ DEFINE_mDouble(high_disk_avail_level_diff_usages, "0.15");
 DEFINE_Int32(partition_disk_index_lru_size, "10000");
 
 DEFINE_mBool(ignore_schema_change_check, "false");
+
+// Tablet meta size limit after serialization, 1.5GB
+DEFINE_mInt64(tablet_meta_serialize_size_limit, "1610612736");
+// Protobuf supports a maximum of 2GB, so the size of the tablet meta after serialization must be less than 2GB
+// 1717986918 = 2GB * 0.8
+DEFINE_Validator(tablet_meta_serialize_size_limit,
+                 [](const int64_t config) -> bool { return config < 1717986918; });
 
 // clang-format off
 #ifdef BE_TEST

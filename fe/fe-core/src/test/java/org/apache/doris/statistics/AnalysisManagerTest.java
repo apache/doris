@@ -23,6 +23,8 @@ import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.ShowAnalyzeStmt;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.Config;
@@ -273,6 +275,7 @@ public class AnalysisManagerTest {
 
     @Test
     public void testReAnalyze() {
+        Database db = new Database();
         new MockUp<OlapTable>() {
 
             int count = 0;
@@ -292,6 +295,11 @@ public class AnalysisManagerTest {
             @Mock
             public List<Column> getColumns() {
                 return Lists.newArrayList(c);
+            }
+
+            @Mock
+            public DatabaseIf getDatabase() {
+                return db;
             }
 
         };
