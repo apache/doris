@@ -394,4 +394,3 @@ private:
 };
 
 } // namespace doris::vectorized
-
