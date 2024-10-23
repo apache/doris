@@ -17,6 +17,7 @@
 
 #include "exchange_source_operator.h"
 
+#include <cstdint>
 #include <memory>
 
 #include "pipeline/exec/operator.h"
@@ -158,9 +159,10 @@ Status ExchangeSourceOperatorX::get_block(RuntimeState* state, vectorized::Block
                 local_state.num_rows_skipped += block->rows();
                 block->set_num_rows(0);
             } else if (local_state.num_rows_skipped < _offset) {
-                auto offset = _offset - local_state.num_rows_skipped;
+                int64_t offset = _offset - local_state.num_rows_skipped;
                 local_state.num_rows_skipped = _offset;
-                block->set_num_rows(block->rows() - offset);
+                // should skip some rows
+                block->skip_num_rows(offset);
             }
         }
         if (local_state.num_rows_returned() + block->rows() < _limit) {
