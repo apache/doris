@@ -1116,10 +1116,10 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                         if (localReplicas.size() != remoteReplicas.size()) {
                             LOG.warn("skip bind replicas because the size of local replicas {} is not equals to "
                                     + "the remote {}, is_atomic_restore=true, remote table={}, remote index={}, "
-                                    + "local table={}, local index={}, local replicas={}, remote replicas={}",
-                                    localTablets.size(), remoteTablets.size(), remoteOlapTbl.getId(),
-                                    index.getId(), localOlapTbl.getId(), localIndexId, localReplicas.size(),
-                                    remoteReplicas.size());
+                                    + "local table={}, local index={}, local tablet={}, remote tablet={}",
+                                    localReplicas.size(), remoteReplicas.size(), remoteOlapTbl.getId(),
+                                    index.getId(), localOlapTbl.getId(), localIndexId, localTablet.getId(),
+                                    remoteTablet.getId());
                             continue;
                         }
                         for (int j = 0; j < remoteReplicas.size(); j++) {
