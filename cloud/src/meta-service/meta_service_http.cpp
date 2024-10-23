@@ -597,6 +597,11 @@ void MetaServiceImpl::http(::google::protobuf::RpcController* controller,
             {"v1/injection_point", process_injection_point},
             // for get
             {"get_instance", process_get_instance_info},
+            // for get
+            {"get_instance", process_get_instance_info},
+            {"get_obj_store_info", process_get_obj_store_info},
+            {"get_cluster", process_get_cluster},
+            {"get_tablet_stats", process_get_tablet_stats},
             {"get_stage", process_get_stage},
             {"get_cluster_status", process_get_cluster_status},
             {"v1/get_instance", process_get_instance_info},

@@ -2218,8 +2218,10 @@ MetaServiceResponseStatus MetaServiceImpl::fix_tablet_stats(std::string cloud_un
 
     // step 4: deal with unchaged tablet stat due to conflict txn
     size_t retry = 0;
-    while (!conflict_tablet_stat_shared_ptr_vec.empty() && retry < 5) {
+    // If conflict_tablet_stat_shared_ptr_vec is not empty, it means we need to continue retry.
+    while (!conflict_tablet_stat_shared_ptr_vec.empty() && retry < 100) {
         retry++;
+        sleep(1);
         std::ostringstream oss;
         std::transform(conflict_tablet_stat_shared_ptr_vec.begin(),
                        conflict_tablet_stat_shared_ptr_vec.end(),
