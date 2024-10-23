@@ -88,14 +88,15 @@ void BroadcastPBlockHolderMemLimiter::release(const BroadcastPBlockHolder& holde
 namespace pipeline {
 
 ExchangeSinkBuffer::ExchangeSinkBuffer(PUniqueId query_id, PlanNodeId dest_node_id,
-                                       RuntimeState* state)
+                                       RuntimeState* state, bool keep_order)
         : HasTaskExecutionCtx(state),
           _queue_capacity(0),
           _is_finishing(false),
           _query_id(query_id),
           _dest_node_id(dest_node_id),
           _fragment_state(state),
-          _context(state->get_query_ctx()) {}
+          _context(state->get_query_ctx()),
+          _keep_order(keep_order) {}
 
 void ExchangeSinkBuffer::close() {
     // Could not clear the queue here, because there maybe a running rpc want to
@@ -321,6 +322,9 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
                 dep->set_ready();
             }
         }
+        if (_keep_order) {
+            return Status::OK();
+        }
     }
 
     while (!broadcast_q.empty()) {
@@ -404,6 +408,9 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
             static_cast<void>(brpc_request->release_block());
         }
         broadcast_q.pop();
+        if (_keep_order) {
+            return Status::OK();
+        }
     }
     if (is_empty) {
         _turn_off_channel(id);

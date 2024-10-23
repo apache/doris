@@ -283,6 +283,8 @@ private:
     size_t _data_processed = 0;
     int _writer_count = 1;
     const bool _enable_local_merge_sort;
+
+    mutable bool _keep_order = false;
 };
 
 } // namespace pipeline

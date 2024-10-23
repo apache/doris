@@ -172,7 +172,8 @@ private:
 // Each ExchangeSinkOperator have one ExchangeSinkBuffer
 class ExchangeSinkBuffer final : public HasTaskExecutionCtx {
 public:
-    ExchangeSinkBuffer(PUniqueId query_id, PlanNodeId dest_node_id, RuntimeState* state);
+    ExchangeSinkBuffer(PUniqueId query_id, PlanNodeId dest_node_id, RuntimeState* state,
+                       bool keep_order);
     ~ExchangeSinkBuffer() override = default;
     void construct_request(TUniqueId);
 
@@ -255,6 +256,7 @@ private:
 
     // only use to set_reach_limit
     std::vector<ExchangeSinkLocalState*> _local_states;
+    const bool _keep_order;
 };
 
 } // namespace pipeline

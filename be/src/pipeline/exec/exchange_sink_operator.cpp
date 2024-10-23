@@ -733,12 +733,13 @@ Status ExchangeSinkLocalState::close(RuntimeState* state, Status exec_status) {
 }
 
 DataDistribution ExchangeSinkOperatorX::required_data_distribution() const {
-    if (_child && _enable_local_merge_sort) {
+    if (_child) {
         // SORT_OPERATOR -> DATA_STREAM_SINK_OPERATOR
         // SORT_OPERATOR -> LOCAL_MERGE_SORT -> DATA_STREAM_SINK_OPERATOR
         if (auto sort_source = std::dynamic_pointer_cast<SortSourceOperatorX>(_child);
             sort_source && sort_source->use_local_merge()) {
             // Sort the data local
+            _keep_order = true;
             return ExchangeType::LOCAL_MERGE_SORT;
         }
     }
