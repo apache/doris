@@ -351,6 +351,8 @@ struct TQueryOptions {
 
   136: optional bool enable_phrase_query_sequential_opt = true;
 
+  137: optional i32 result_batch_rows = 32768;
+
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.
   // In read path, read from file cache or remote storage when execute query.

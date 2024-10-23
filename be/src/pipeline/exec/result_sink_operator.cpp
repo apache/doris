@@ -112,16 +112,12 @@ ResultSinkOperatorX::ResultSinkOperatorX(int operator_id, const RowDescriptor& r
     } else {
         _sink_type = sink.type;
     }
-    if (_sink_type == TResultSinkType::ARROW_FLIGHT_PROTOCAL) {
-        _result_sink_buffer_size_rows = config::arrow_flight_result_sink_buffer_size_rows;
-    } else {
-        _result_sink_buffer_size_rows = RESULT_SINK_BUFFER_SIZE;
-    }
     _fetch_option = sink.fetch_option;
     _name = "ResultSink";
 }
 
 Status ResultSinkOperatorX::open(RuntimeState* state) {
+    _result_sink_buffer_size_rows = state->result_batch_rows();
     RETURN_IF_ERROR(DataSinkOperatorX<ResultSinkLocalState>::open(state));
     // prepare output_expr
     // From the thrift expressions create the real exprs.
