@@ -47,7 +47,8 @@ suite("push_down_max_through_join") {
     sql "insert into max_t values (8, null, 'c')"
     sql "insert into max_t values (9, 3, null)"
     sql "insert into max_t values (10, null, null)"
-
+    sql "set disable_join_reorder=true"
+    
     qt_groupby_pushdown_basic """
         explain shape plan select max(t1.score) from max_t t1, max_t t2 where t1.id = t2.id group by t1.name;
     """

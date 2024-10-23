@@ -20,9 +20,6 @@
 
 #pragma once
 
-#include <type_traits>
-
-#include "vec/core/field.h"
 #include "vec/data_types/data_type_number_base.h"
 
 namespace doris::vectorized {

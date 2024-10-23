@@ -58,6 +58,11 @@ namespace doris::vectorized {
     return is_nullable || !is_datev2 ? make_nullable(std::make_shared<TYPE>())           \
                                      : std::make_shared<TYPE>();
 
+#define SET_NULLMAP_IF_FALSE(EXPR) \
+    if (!EXPR) [[unlikely]] {      \
+        null_map[i] = true;        \
+    }
+
 class Field;
 class VExpr;
 

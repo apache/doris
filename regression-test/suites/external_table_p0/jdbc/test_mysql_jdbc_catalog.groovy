@@ -307,6 +307,7 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
 
         // test all types supported by MySQL
         sql """use doris_test;"""
+        qt_mysql_all_types_count """select count(*) from all_types;"""
         qt_mysql_all_types """select * from all_types order by tinyint_u;"""
 
         // test insert into internal.db.table select * from all_types

@@ -20,6 +20,7 @@ package org.apache.doris.datasource.jdbc.source;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.BoolLiteral;
+import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprSubstitutionMap;
@@ -202,7 +203,8 @@ public class JdbcScanNode extends ExternalScanNode {
                 || jdbcType == TOdbcTableType.SAP_HANA
                 || jdbcType == TOdbcTableType.TRINO
                 || jdbcType == TOdbcTableType.PRESTO
-                || jdbcType == TOdbcTableType.OCEANBASE)) {
+                || jdbcType == TOdbcTableType.OCEANBASE
+                || jdbcType == TOdbcTableType.GBASE)) {
             sql.append(" LIMIT ").append(limit);
         }
 
@@ -300,11 +302,20 @@ public class JdbcScanNode extends ExternalScanNode {
     private static boolean shouldPushDownConjunct(TOdbcTableType tableType, Expr expr) {
         // Prevent pushing down expressions with NullLiteral to Oracle
         if (ConnectContext.get() != null
-                && !ConnectContext.get().getSessionVariable().jdbcOracleNullPredicatePushdown
+                && !ConnectContext.get().getSessionVariable().enableJdbcOracleNullPredicatePushDown
                 && containsNullLiteral(expr)
                 && tableType.equals(TOdbcTableType.ORACLE)) {
             return false;
         }
+
+        // Prevent pushing down cast expressions if ConnectContext is null or cast pushdown is disabled
+        if (ConnectContext.get() == null || !ConnectContext.get()
+                .getSessionVariable().enableJdbcCastPredicatePushDown) {
+            if (containsCastExpr(expr)) {
+                return false;
+            }
+        }
+
         if (containsFunctionCallExpr(expr)) {
             if (tableType.equals(TOdbcTableType.MYSQL) || tableType.equals(TOdbcTableType.CLICKHOUSE)
                     || tableType.equals(TOdbcTableType.ORACLE)) {
@@ -375,5 +386,11 @@ public class JdbcScanNode extends ExternalScanNode {
         List<NullLiteral> nullExprList = Lists.newArrayList();
         expr.collect(NullLiteral.class, nullExprList);
         return !nullExprList.isEmpty();
+    }
+
+    private static boolean containsCastExpr(Expr expr) {
+        List<CastExpr> castExprList = Lists.newArrayList();
+        expr.collect(CastExpr.class, castExprList);
+        return !castExprList.isEmpty();
     }
 }

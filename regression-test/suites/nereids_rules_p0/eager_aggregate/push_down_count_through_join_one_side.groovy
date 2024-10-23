@@ -25,6 +25,7 @@ suite("push_down_count_through_join_one_side") {
     sql """
         DROP TABLE IF EXISTS count_t_one_side;
     """
+    sql "set disable_join_reorder=true"
 
     sql """
     CREATE TABLE IF NOT EXISTS count_t_one_side(

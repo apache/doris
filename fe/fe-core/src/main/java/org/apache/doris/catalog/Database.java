@@ -90,7 +90,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
     private final Map<Long, Table> idToTable;
     @SerializedName(value = "nameToTable")
     private Map<String, Table> nameToTable;
-    // table name lower cast -> table name
+    // table name lower case -> table name
     private final Map<String, String> lowerCaseToTableName;
 
     // user define function

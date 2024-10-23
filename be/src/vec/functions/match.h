@@ -181,10 +181,7 @@ public:
                          const std::string& match_query_str, size_t input_rows_count,
                          const ColumnString* string_col, InvertedIndexCtx* inverted_index_ctx,
                          const ColumnArray::Offsets64* array_offsets,
-                         ColumnUInt8::Container& result) const override {
-        return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
-                "FunctionMatchPhraseEdge not support execute_match");
-    }
+                         ColumnUInt8::Container& result) const override;
 };
 
 } // namespace doris::vectorized

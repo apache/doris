@@ -104,13 +104,10 @@ suite("test_hdfs_parquet_group0","external,hive,tvf,external_docker") {
 
 
             uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_parquet/group0/large_string_map.brotli.parquet"
-            test {
-                sql """ select * from HDFS(
+            order_qt_test_11 """ select count(arr) from HDFS(
                         "uri" = "${uri}",
                         "hadoop.username" = "${hdfsUserName}",
-                        "format" = "parquet") limit 10; """
-                exception "unknown compression type(4)"
-            }
+                        "format" = "parquet"); """
 
 
             uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_parquet/group0/non_hadoop_lz4_compressed.parquet"
@@ -169,12 +166,14 @@ suite("test_hdfs_parquet_group0","external,hive,tvf,external_docker") {
                         "format" = "parquet") limit 10; """
 
 
-            // uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_parquet/group0/nation.dict-malformed.parquet"
-            // order_qt_test_20 """ select * from HDFS(
-            //             "uri" = "${uri}",
-            //             "hadoop.username" = "${hdfsUserName}",
-            //             "format" = "parquet") limit 10; """
-            // [E-3113]string column length is too large: total_length=3990808712454497748, element_number=25, you can set batch_size a number smaller than 25 to avoid this error
+            uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_parquet/group0/nation.dict-malformed.parquet"
+            test {
+                sql """ select * from HDFS(
+                        "uri" = "${uri}",
+                        "hadoop.username" = "${hdfsUserName}",
+                        "format" = "parquet") limit 10; """
+                exception "[IO_ERROR]Out-of-bounds Access"
+            }
 
 
             uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_parquet/group0/lz4_raw_compressed_larger.parquet"

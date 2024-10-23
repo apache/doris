@@ -839,6 +839,11 @@ public class ConnectContext {
         return executor;
     }
 
+    public void clear() {
+        executor = null;
+        statementContext = null;
+    }
+
     public PlSqlOperation getPlSqlOperation() {
         if (plSqlOperation == null) {
             plSqlOperation = new PlSqlOperation();
@@ -927,7 +932,8 @@ public class ConnectContext {
 
     // kill operation with no protect.
     public void kill(boolean killConnection) {
-        LOG.warn("kill query from {}, kill mysql connection: {}", getRemoteHostPortString(), killConnection);
+        LOG.warn("kill query from {}, kill {} connection: {}", getRemoteHostPortString(), getConnectType(),
+                killConnection);
 
         if (killConnection) {
             isKilled = true;
@@ -940,10 +946,10 @@ public class ConnectContext {
 
     // kill operation with no protect by timeout.
     private void killByTimeout(boolean killConnection) {
-        LOG.warn("kill query from {}, kill mysql connection: {} reason time out", getRemoteHostPortString(),
-                killConnection);
-
         if (killConnection) {
+            LOG.warn("kill wait timeout connection, connection type: {}, connectionId: {}, remote: {}, "
+                            + "wait timeout: {}",
+                    getConnectType(), connectionId, getRemoteHostPortString(), sessionVariable.getWaitTimeoutS());
             isKilled = true;
             // Close channel to break connection with client
             closeChannel();
@@ -952,6 +958,10 @@ public class ConnectContext {
         // cancelQuery by time out
         StmtExecutor executorRef = executor;
         if (executorRef != null) {
+            LOG.warn("kill time out query, remote: {}, at the same time kill connection is {},"
+                            + " connection type: {}, connectionId: {}",
+                    getRemoteHostPortString(), killConnection,
+                    getConnectType(), connectionId);
             executorRef.cancel(Types.PPlanFragmentCancelReason.TIMEOUT);
         }
     }
@@ -974,9 +984,6 @@ public class ConnectContext {
         if (command == MysqlCommand.COM_SLEEP) {
             if (delta > sessionVariable.getWaitTimeoutS() * 1000L) {
                 // Need kill this connection.
-                LOG.warn("kill wait timeout connection, remote: {}, wait timeout: {}",
-                        getRemoteHostPortString(), sessionVariable.getWaitTimeoutS());
-
                 killFlag = true;
                 killConnection = true;
             }

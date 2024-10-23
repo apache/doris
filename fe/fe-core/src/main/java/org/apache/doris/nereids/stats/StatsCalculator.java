@@ -19,6 +19,7 @@ package org.apache.doris.nereids.stats;
 
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
@@ -187,6 +188,11 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         this.cascadesContext = context;
     }
 
+    private StatsCalculator(CascadesContext context) {
+        this.groupExpression = null;
+        this.cascadesContext = context;
+    }
+
     public Map<String, Histogram> getTotalHistogramMap() {
         return totalHistogramMap;
     }
@@ -254,6 +260,29 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             groupExpression.getOwnerGroup().getStatistics().updateNdv(newStats);
         }
         groupExpression.setStatDerived(true);
+    }
+
+    /**
+     * disable join reorder if any table row count is not available.
+     */
+    public static void disableJoinReorderIfTableRowCountNotAvailable(
+            List<LogicalOlapScan> scans, CascadesContext context) {
+        StatsCalculator calculator = new StatsCalculator(context);
+        for (LogicalOlapScan scan : scans) {
+            double rowCount = calculator.getOlapTableRowCount(scan);
+            // analyzed rowCount may be zero, but BE-reported rowCount could be positive.
+            // check ndv validation when reported rowCount > 0
+            if (rowCount == -1 && ConnectContext.get() != null) {
+                try {
+                    ConnectContext.get().getSessionVariable().disableNereidsJoinReorderOnce();
+                    LOG.info("disable join reorder since row count not available: "
+                            + scan.getTable().getNameWithFullQualifiers());
+                } catch (Exception e) {
+                    LOG.info("disableNereidsJoinReorderOnce failed");
+                }
+                return;
+            }
+        }
     }
 
     @Override
@@ -762,6 +791,43 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         }
     }
 
+    private long computeDeltaRowCount(CatalogRelation scan) {
+        TableIf table = scan.getTable();
+        AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
+        TableStatsMeta tableMeta = analysisManager.findTableStatsStatus(table.getId());
+        return tableMeta == null ? 0 : tableMeta.updatedRows.get();
+    }
+
+    /**
+     * if the table is not analyzed and BE does not report row count, return -1
+     */
+    private double getOlapTableRowCount(OlapScan olapScan) {
+        OlapTable olapTable = olapScan.getTable();
+        AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
+        TableStatsMeta tableMeta = analysisManager.findTableStatsStatus(olapScan.getTable().getId());
+        double rowCount = -1;
+        if (tableMeta != null && tableMeta.userInjected) {
+            rowCount = tableMeta.getRowCount(olapScan.getSelectedIndexId());
+        } else {
+            rowCount = olapTable.getRowCountForIndex(olapScan.getSelectedIndexId(), true);
+            if (rowCount == -1) {
+                if (tableMeta != null) {
+                    rowCount = tableMeta.getRowCount(olapScan.getSelectedIndexId())
+                            + computeDeltaRowCount((CatalogRelation) olapScan);
+                }
+            }
+        }
+        return rowCount;
+    }
+
+    private double getTableRowCount(CatalogRelation relation) {
+        if (relation instanceof OlapScan) {
+            return getOlapTableRowCount((OlapScan) relation);
+        } else {
+            return relation.getTable().getRowCountForNereids();
+        }
+    }
+
     // TODO: 1. Subtract the pruned partition
     //       2. Consider the influence of runtime filter
     //       3. Get NDV and column data size from StatisticManger, StatisticManager doesn't support it now.
@@ -791,11 +857,10 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         Set<SlotReference> slotSet = slotSetBuilder.build();
         Map<Expression, ColumnStatisticBuilder> columnStatisticBuilderMap = new HashMap<>();
         TableIf table = catalogRelation.getTable();
-        AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
-        TableStatsMeta tableMeta = analysisManager.findTableStatsStatus(table.getId());
         // rows newly updated after last analyze
-        long deltaRowCount = tableMeta == null ? 0 : tableMeta.updatedRows.get();
-        double rowCount = catalogRelation.getTable().getRowCountForNereids();
+        long deltaRowCount = computeDeltaRowCount(catalogRelation);
+        double rowCount = getTableRowCount(catalogRelation);
+        rowCount = Math.max(1, rowCount);
         boolean hasUnknownCol = false;
         long idxId = -1;
         if (catalogRelation instanceof OlapScan) {

@@ -504,6 +504,72 @@ Status FunctionMatchRegexp::execute_match(FunctionContext* context, const std::s
     return Status::OK();
 }
 
+Status FunctionMatchPhraseEdge::execute_match(
+        FunctionContext* context, const std::string& column_name,
+        const std::string& match_query_str, size_t input_rows_count, const ColumnString* string_col,
+        InvertedIndexCtx* inverted_index_ctx, const ColumnArray::Offsets64* array_offsets,
+        ColumnUInt8::Container& result) const {
+    RETURN_IF_ERROR(check(context, name));
+
+    std::vector<std::string> query_tokens;
+    analyse_query_str_token(&query_tokens, inverted_index_ctx, match_query_str, column_name);
+    if (query_tokens.empty()) {
+        VLOG_DEBUG << fmt::format(
+                "token parser result is empty for query, "
+                "please check your query: '{}' and index parser: '{}'",
+                match_query_str,
+                inverted_index_parser_type_to_string(inverted_index_ctx->parser_type));
+        return Status::OK();
+    }
+
+    int32_t current_src_array_offset = 0;
+    for (size_t i = 0; i < input_rows_count; i++) {
+        auto data_tokens = analyse_data_token(column_name, inverted_index_ctx, string_col, i,
+                                              array_offsets, current_src_array_offset);
+
+        int32_t dis_count = data_tokens.size() - query_tokens.size();
+        if (dis_count < 0) {
+            continue;
+        }
+
+        for (size_t j = 0; j < dis_count + 1; j++) {
+            bool match = true;
+            if (query_tokens.size() == 1) {
+                if (data_tokens[j].find(query_tokens[0]) == std::string::npos) {
+                    match = false;
+                }
+            } else {
+                for (size_t k = 0; k < query_tokens.size(); k++) {
+                    const std::string& data_token = data_tokens[j + k];
+                    const std::string& query_token = query_tokens[k];
+                    if (k == 0) {
+                        if (!data_token.ends_with(query_token)) {
+                            match = false;
+                            break;
+                        }
+                    } else if (k == query_tokens.size() - 1) {
+                        if (!data_token.starts_with(query_token)) {
+                            match = false;
+                            break;
+                        }
+                    } else {
+                        if (data_token != query_token) {
+                            match = false;
+                            break;
+                        }
+                    }
+                }
+            }
+            if (match) {
+                result[i] = true;
+                break;
+            }
+        }
+    }
+
+    return Status::OK();
+}
+
 void register_function_match(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionMatchAny>();
     factory.register_function<FunctionMatchAll>();

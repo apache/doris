@@ -38,10 +38,10 @@ import org.apache.doris.datasource.hive.HiveMetaStoreCache;
 import org.apache.doris.datasource.hive.HiveMetaStoreCache.FileCacheValue;
 import org.apache.doris.datasource.hive.HiveMetaStoreClientHelper;
 import org.apache.doris.datasource.hive.HivePartition;
+import org.apache.doris.datasource.hive.HiveProperties;
 import org.apache.doris.datasource.hive.HiveTransaction;
 import org.apache.doris.datasource.hive.source.HiveSplit.HiveSplitCreator;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
-import org.apache.doris.planner.ListPartitionPrunerV2;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.spi.Split;
@@ -57,6 +57,7 @@ import com.google.common.collect.Maps;
 import lombok.Setter;
 import org.apache.hadoop.hive.common.ValidWriteIdList;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
+import org.apache.hadoop.hive.metastore.api.Table;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -65,7 +66,6 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Random;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
@@ -76,26 +76,6 @@ import java.util.stream.Collectors;
 
 public class HiveScanNode extends FileQueryScanNode {
     private static final Logger LOG = LogManager.getLogger(HiveScanNode.class);
-
-    public static final String PROP_FIELD_DELIMITER = "field.delim";
-    public static final String DEFAULT_FIELD_DELIMITER = "\1"; // "\x01"
-    public static final String PROP_LINE_DELIMITER = "line.delim";
-    public static final String DEFAULT_LINE_DELIMITER = "\n";
-    public static final String PROP_SEPARATOR_CHAR = "separatorChar";
-    public static final String PROP_QUOTE_CHAR = "quoteChar";
-    public static final String PROP_SERIALIZATION_FORMAT = "serialization.format";
-
-    public static final String PROP_COLLECTION_DELIMITER_HIVE2 = "colelction.delim";
-    public static final String PROP_COLLECTION_DELIMITER_HIVE3 = "collection.delim";
-    public static final String DEFAULT_COLLECTION_DELIMITER = "\2";
-
-    public static final String PROP_MAP_KV_DELIMITER = "mapkey.delim";
-    public static final String DEFAULT_MAP_KV_DELIMITER = "\003";
-
-    public static final String PROP_ESCAPE_DELIMITER = "escape.delim";
-    public static final String DEFAULT_ESCAPE_DELIMIER = "\\";
-    public static final String PROP_NULL_FORMAT = "serialization.null.format";
-    public static final String DEFAULT_NULL_FORMAT = "\\N";
 
     protected final HMSExternalTable hmsTable;
     private HiveTransaction hiveTransaction = null;
@@ -142,46 +122,16 @@ public class HiveScanNode extends FileQueryScanNode {
 
     protected List<HivePartition> getPartitions() throws AnalysisException {
         List<HivePartition> resPartitions = Lists.newArrayList();
-        long start = System.currentTimeMillis();
         HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
                 .getMetaStoreCache((HMSExternalCatalog) hmsTable.getCatalog());
         List<Type> partitionColumnTypes = hmsTable.getPartitionColumnTypes();
         if (!partitionColumnTypes.isEmpty()) {
             // partitioned table
-            boolean isPartitionPruned = selectedPartitions != null && selectedPartitions.isPruned;
             Collection<PartitionItem> partitionItems;
-            if (!isPartitionPruned) {
-                // partitionItems is null means that the partition is not pruned by Nereids,
-                // so need to prune partitions here by legacy ListPartitionPrunerV2.
-                HiveMetaStoreCache.HivePartitionValues hivePartitionValues = cache.getPartitionValues(
-                        hmsTable.getDbName(), hmsTable.getName(), partitionColumnTypes);
-                Map<Long, PartitionItem> idToPartitionItem = hivePartitionValues.getIdToPartitionItem();
-                this.totalPartitionNum = idToPartitionItem.size();
-                if (!conjuncts.isEmpty()) {
-                    ListPartitionPrunerV2 pruner = new ListPartitionPrunerV2(idToPartitionItem,
-                            hmsTable.getPartitionColumns(), columnNameToRange,
-                            hivePartitionValues.getUidToPartitionRange(),
-                            hivePartitionValues.getRangeToId(),
-                            hivePartitionValues.getSingleColumnRangeMap(),
-                            true);
-                    Collection<Long> filteredPartitionIds = pruner.prune();
-                    if (LOG.isDebugEnabled()) {
-                        LOG.debug("hive partition fetch and prune for table {}.{} cost: {} ms",
-                                hmsTable.getDbName(), hmsTable.getName(), (System.currentTimeMillis() - start));
-                    }
-                    partitionItems = Lists.newArrayListWithCapacity(filteredPartitionIds.size());
-                    for (Long id : filteredPartitionIds) {
-                        partitionItems.add(idToPartitionItem.get(id));
-                    }
-                } else {
-                    partitionItems = idToPartitionItem.values();
-                }
-            } else {
-                // partitions has benn pruned by Nereids, in PruneFileScanPartition,
-                // so just use the selected partitions.
-                this.totalPartitionNum = selectedPartitions.totalPartitionNum;
-                partitionItems = selectedPartitions.selectedPartitions.values();
-            }
+            // partitions has benn pruned by Nereids, in PruneFileScanPartition,
+            // so just use the selected partitions.
+            this.totalPartitionNum = selectedPartitions.totalPartitionNum;
+            partitionItems = selectedPartitions.selectedPartitions.values();
             Preconditions.checkNotNull(partitionItems);
             this.selectedPartitionNum = partitionItems.size();
 
@@ -431,57 +381,21 @@ public class HiveScanNode extends FileQueryScanNode {
     @Override
     protected TFileAttributes getFileAttributes() throws UserException {
         TFileTextScanRangeParams textParams = new TFileTextScanRangeParams();
-
+        Table table = hmsTable.getRemoteTable();
         // 1. set column separator
-        Optional<String> fieldDelim = HiveMetaStoreClientHelper.getSerdeProperty(hmsTable.getRemoteTable(),
-                PROP_FIELD_DELIMITER);
-        Optional<String> serFormat = HiveMetaStoreClientHelper.getSerdeProperty(hmsTable.getRemoteTable(),
-                PROP_SERIALIZATION_FORMAT);
-        Optional<String> columnSeparator = HiveMetaStoreClientHelper.getSerdeProperty(hmsTable.getRemoteTable(),
-                PROP_SEPARATOR_CHAR);
-        textParams.setColumnSeparator(HiveMetaStoreClientHelper.getByte(HiveMetaStoreClientHelper.firstPresentOrDefault(
-                DEFAULT_FIELD_DELIMITER, fieldDelim, columnSeparator, serFormat)));
+        textParams.setColumnSeparator(HiveProperties.getColumnSeparator(table));
         // 2. set line delimiter
-        Optional<String> lineDelim = HiveMetaStoreClientHelper.getSerdeProperty(hmsTable.getRemoteTable(),
-                PROP_LINE_DELIMITER);
-        textParams.setLineDelimiter(HiveMetaStoreClientHelper.getByte(HiveMetaStoreClientHelper.firstPresentOrDefault(
-                DEFAULT_LINE_DELIMITER, lineDelim)));
+        textParams.setLineDelimiter(HiveProperties.getLineDelimiter(table));
         // 3. set mapkv delimiter
-        Optional<String> mapkvDelim = HiveMetaStoreClientHelper.getSerdeProperty(hmsTable.getRemoteTable(),
-                PROP_MAP_KV_DELIMITER);
-        textParams.setMapkvDelimiter(HiveMetaStoreClientHelper.getByte(HiveMetaStoreClientHelper.firstPresentOrDefault(
-                DEFAULT_MAP_KV_DELIMITER, mapkvDelim)));
+        textParams.setMapkvDelimiter(HiveProperties.getMapKvDelimiter(table));
         // 4. set collection delimiter
-        Optional<String> collectionDelimHive2 = HiveMetaStoreClientHelper.getSerdeProperty(hmsTable.getRemoteTable(),
-                PROP_COLLECTION_DELIMITER_HIVE2);
-        Optional<String> collectionDelimHive3 = HiveMetaStoreClientHelper.getSerdeProperty(hmsTable.getRemoteTable(),
-                PROP_COLLECTION_DELIMITER_HIVE3);
-        textParams.setCollectionDelimiter(
-                HiveMetaStoreClientHelper.getByte(HiveMetaStoreClientHelper.firstPresentOrDefault(
-                        DEFAULT_COLLECTION_DELIMITER, collectionDelimHive2, collectionDelimHive3)));
+        textParams.setCollectionDelimiter(HiveProperties.getCollectionDelimiter(table));
         // 5. set quote char
-        Map<String, String> serdeParams = hmsTable.getRemoteTable().getSd().getSerdeInfo().getParameters();
-        if (serdeParams.containsKey(PROP_QUOTE_CHAR)) {
-            textParams.setEnclose(serdeParams.get(PROP_QUOTE_CHAR).getBytes()[0]);
-        }
+        HiveProperties.getQuoteChar(table).ifPresent(d -> textParams.setEnclose(d.getBytes()[0]));
         // 6. set escape delimiter
-        Optional<String> escapeDelim = HiveMetaStoreClientHelper.getSerdeProperty(hmsTable.getRemoteTable(),
-                PROP_ESCAPE_DELIMITER);
-        if (escapeDelim.isPresent()) {
-            String escape = HiveMetaStoreClientHelper.getByte(
-                    escapeDelim.get());
-            if (escape != null) {
-                textParams
-                        .setEscape(escape.getBytes()[0]);
-            } else {
-                textParams.setEscape(DEFAULT_ESCAPE_DELIMIER.getBytes()[0]);
-            }
-        }
+        HiveProperties.getEscapeDelimiter(table).ifPresent(d -> textParams.setEscape(d.getBytes()[0]));
         // 7. set null format
-        Optional<String> nullFormat = HiveMetaStoreClientHelper.getSerdeProperty(hmsTable.getRemoteTable(),
-                PROP_NULL_FORMAT);
-        textParams.setNullFormat(HiveMetaStoreClientHelper.firstPresentOrDefault(
-                DEFAULT_NULL_FORMAT, nullFormat));
+        textParams.setNullFormat(HiveProperties.getNullFormat(table));
 
         TFileAttributes fileAttributes = new TFileAttributes();
         fileAttributes.setTextParams(textParams);
