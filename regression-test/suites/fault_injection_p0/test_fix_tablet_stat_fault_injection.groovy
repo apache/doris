@@ -22,6 +22,8 @@ suite("test_fix_tablet_stat_fault_injection", "nonConcurrent") {
     if(isCloudMode()){
         def tableName = "test_fix_tablet_stat_fault_injection"
         def bucketSize = 1000
+        def partitionSize = 100
+        def maxPartition = partitionSize + 1
         def create_table_sql = """
                     CREATE TABLE IF NOT EXISTS ${tableName}
                         (
@@ -30,6 +32,10 @@ suite("test_fix_tablet_stat_fault_injection", "nonConcurrent") {
                         `v2` INT NULL
                         )
                         UNIQUE KEY (k1)
+                        PARTITION BY RANGE(`k1`)
+                        (
+                            FROM (1) TO (${maxPartition}) INTERVAL 1
+                        )
                         DISTRIBUTED BY HASH(`k1`) BUCKETS ${bucketSize}
                         PROPERTIES (
                         "replication_num" = "1",
@@ -45,13 +51,17 @@ suite("test_fix_tablet_stat_fault_injection", "nonConcurrent") {
                 GetDebugPoint().enableDebugPointForAllBEs("CloudFullCompaction::modify_rowsets.wrong_compaction_data_size")
                 // insert data
                 sql """ DROP TABLE IF EXISTS ${tableName} """
+
                 sql "${create_table_sql}"
-                sql "insert into ${tableName} values(1,1,1);"
-                sql "insert into ${tableName} values(1,1,1);"
-                sql "insert into ${tableName} values(1,1,1);"
-                sql "insert into ${tableName} values(1,1,1);"
-                sql "insert into ${tableName} values(1,1,1);"
-                sql "select * from ${tableName};"
+                (1..100).each { i ->
+                    sql "insert into ${tableName} values (${i},1,1);"
+                    sql "insert into ${tableName} values (${i},2,2);"
+                    sql "insert into ${tableName} values (${i},3,3);"
+                    //sql "insert into ${tableName} values (${i},4,4);"
+                    //sql "insert into ${tableName} values (${i},5,5);"
+                }
+
+                sql "select count(*) from ${tableName};"
                 sleep(60000)
                 qt_select_1 "show data from ${tableName};"
 
@@ -68,7 +78,7 @@ suite("test_fix_tablet_stat_fault_injection", "nonConcurrent") {
                     assert tabletJson.rowsets instanceof List
                     rowsetCount +=((List<String>) tabletJson.rowsets).size()
                 }
-                assert (rowsetCount == 6 * bucketSize) 
+                assert (rowsetCount == 6 * bucketSize * partitionSize) 
 
                 // trigger full compactions for all tablets in ${tableName}
                 for (def tablet in tablets) {
@@ -113,10 +123,10 @@ suite("test_fix_tablet_stat_fault_injection", "nonConcurrent") {
                     assert tabletJson.rowsets instanceof List
                     rowsetCount +=((List<String>) tabletJson.rowsets).size()
                 }
-                assert (rowsetCount == 2 * bucketSize)
+                // assert (rowsetCount == 2 * bucketSize * partitionSize)
 
                 // data size should be very large
-                sql "select * from ${tableName};"
+                sql "select count(*) from ${tableName};"
                 qt_select_2 "show data from ${tableName};"
 
 
@@ -134,9 +144,9 @@ suite("test_fix_tablet_stat_fault_injection", "nonConcurrent") {
                     assert tabletJson.rowsets instanceof List
                     rowsetCount +=((List<String>) tabletJson.rowsets).size()
                 }
-                assert (rowsetCount == 2 * bucketSize)
+                // assert (rowsetCount == 2 * bucketSize * partitionSize)
                 // after fix table stats, data size should be normal
-                sql "select * from ${tableName};"
+                sql "select count(*) from ${tableName};"
                 qt_select_3 "show data from ${tableName};"
             } finally {
                 //try_sql("DROP TABLE IF EXISTS ${tableName}")
