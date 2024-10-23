@@ -26,6 +26,9 @@
 #include <string>
 #include <utility>
 
+#include "cloud/cloud_storage_engine.h"
+#include "cloud/cloud_tablet.h"
+#include "cloud/cloud_tablet_mgr.h"
 #include "cloud/config.h"
 #include "common/status.h"
 #include "olap/olap_common.h"
@@ -35,6 +38,7 @@
 #include "olap/tablet.h"
 #include "olap/tablet_manager.h"
 #include "runtime/define_primitive_type.h"
+#include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 #include "util/runtime_profile.h"
 #include "vec/common/string_ref.h"
@@ -78,7 +82,19 @@ Status SchemaRowsetsScanner::start(RuntimeState* state) {
 
 Status SchemaRowsetsScanner::_get_all_rowsets() {
     if (config::is_cloud_mode()) {
-        return Status::NotSupported("SchemaRowsetsScanner::_get_all_rowsets is not implemented");
+        // only query cloud tablets in lru cache instead of all tablets
+        std::vector<std::weak_ptr<CloudTablet>> tablets =
+                ExecEnv::GetInstance()->storage_engine().to_cloud().tablet_mgr().get_weak_tablets();
+        for (const std::weak_ptr<CloudTablet>& tablet : tablets) {
+            if (!tablet.expired()) {
+                auto t = tablet.lock();
+                std::shared_lock rowset_ldlock(t->get_header_lock());
+                for (const auto& it : t->rowset_map()) {
+                    rowsets_.emplace_back(it.second);
+                }
+            }
+        }
+        return Status::OK();
     }
     std::vector<TabletSharedPtr> tablets =
             ExecEnv::GetInstance()->storage_engine().to_local().tablet_manager()->get_all_tablet();
