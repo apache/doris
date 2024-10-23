@@ -27,7 +27,7 @@
 #include "vec/utils/template_helpers.hpp"
 
 namespace doris::pipeline {
-
+#include "common/compile_check_begin.h"
 HashJoinBuildSinkLocalState::HashJoinBuildSinkLocalState(DataSinkOperatorXBase* parent,
                                                          RuntimeState* state)
         : JoinBuildSinkLocalState(parent, state) {

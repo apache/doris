@@ -14,13 +14,13 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+
 #include <fmt/format.h>
 #include <glog/logging.h>
-#include <stddef.h>
 
+#include <cstddef>
 #include <memory>
 #include <ostream>
-#include <string>
 #include <utility>
 
 #include "common/status.h"
@@ -43,13 +43,13 @@ class FunctionContext;
 
 namespace doris::vectorized {
 
-class FunctionArrayPopfront : public IFunction {
+template <typename PopType>
+class FunctionArrayPop : public IFunction {
 public:
-    static constexpr auto name = "array_popfront";
-    static FunctionPtr create() { return std::make_shared<FunctionArrayPopfront>(); }
+    static FunctionPtr create() { return std::make_shared<PopType>(); }
 
     /// Get function name.
-    String get_name() const override { return name; }
+    String get_name() const override { return PopType::name; }
 
     bool is_variadic() const override { return false; }
 
@@ -57,7 +57,7 @@ public:
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         DCHECK(is_array(arguments[0]))
-                << "First argument for function: " << name
+                << "First argument for function: " << PopType::name
                 << " should be DataTypeArray but it has type " << arguments[0]->get_name() << ".";
         return arguments[0];
     }
@@ -74,11 +74,11 @@ public:
                                 block.get_by_position(arguments[0]).type->get_name()));
         }
         // prepare dst array column
-        bool is_nullable = src.nested_nullmap_data ? true : false;
+        bool is_nullable = src.nested_nullmap_data != nullptr;
         ColumnArrayMutableData dst = create_mutable_data(src.nested_col, is_nullable);
         dst.offsets_ptr->reserve(input_rows_count);
-        // start from 2
-        auto offset_column = ColumnInt64::create(array_column->size(), 2);
+        // start from index depending on the PopType::start_offset
+        auto offset_column = ColumnInt64::create(array_column->size(), PopType::start_offset);
         // len - 1
         auto length_column = ColumnInt64::create();
         for (size_t row = 0; row < src.offsets_ptr->size(); ++row) {
@@ -93,7 +93,20 @@ public:
     }
 };
 
-void register_function_array_popfront(SimpleFunctionFactory& factory) {
+class FunctionArrayPopback : public FunctionArrayPop<FunctionArrayPopback> {
+public:
+    static constexpr auto name = "array_popback";
+    static constexpr int start_offset = 1;
+};
+
+class FunctionArrayPopfront : public FunctionArrayPop<FunctionArrayPopfront> {
+public:
+    static constexpr auto name = "array_popfront";
+    static constexpr int start_offset = 2;
+};
+
+void register_function_array_pop(SimpleFunctionFactory& factory) {
+    factory.register_function<FunctionArrayPopback>();
     factory.register_function<FunctionArrayPopfront>();
 }
 

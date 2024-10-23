@@ -1155,6 +1155,25 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
                             partitionInfo.getReplicaAllocation(partition.getId()),
                             partitionInfo.getIsInMemory(partition.getId()),
                             partitionInfo.getIsMutable(partition.getId()));
+                } else {
+                    // unpartition
+                    // construct a dummy range and dummy list.
+                    List<Column> dummyColumns = new ArrayList<>();
+                    dummyColumns.add(new Column("dummy", PrimitiveType.INT));
+                    PartitionKey dummyKey = null;
+                    try {
+                        dummyKey = PartitionKey.createInfinityPartitionKey(dummyColumns, false);
+                    } catch (AnalysisException e) {
+                        LOG.warn("should not happen", e);
+                    }
+                    Range<PartitionKey> dummyRange = Range.open(new PartitionKey(), dummyKey);
+                    Env.getCurrentRecycleBin().recyclePartition(dbId, id, name, partition,
+                            dummyRange,
+                            new ListPartitionItem(Lists.newArrayList(new PartitionKey())),
+                            partitionInfo.getDataProperty(partition.getId()),
+                            partitionInfo.getReplicaAllocation(partition.getId()),
+                            partitionInfo.getIsInMemory(partition.getId()),
+                            partitionInfo.getIsMutable(partition.getId()));
                 }
             } else if (!reserveTablets) {
                 Env.getCurrentEnv().onErasePartition(partition);

@@ -28,7 +28,7 @@
 #include "vec/exprs/vexpr_context.h"
 
 namespace doris::pipeline {
-
+#include "common/compile_check_begin.h"
 Status MemoryScratchSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
     SCOPED_TIMER(exec_time_counter());
@@ -100,7 +100,7 @@ Status MemoryScratchSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
     RETURN_IF_ERROR(convert_to_arrow_batch(block, block_arrow_schema, arrow::default_memory_pool(),
                                            &result, _timezone_obj));
     local_state._queue->blocking_put(result);
-    if (local_state._queue->size() < 10) {
+    if (local_state._queue->size() > config::max_memory_sink_batch_count) {
         local_state._queue_dependency->block();
     }
     return Status::OK();

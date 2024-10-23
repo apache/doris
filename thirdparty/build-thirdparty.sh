@@ -1901,6 +1901,7 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
         base64
         azure
         dragonbox
+        brotli
     )
     if [[ "$(uname -s)" == 'Darwin' ]]; then
         read -r -a packages <<<"binutils gettext ${packages[*]}"

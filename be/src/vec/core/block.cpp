@@ -726,7 +726,7 @@ std::string Block::print_use_count() {
     return ss.str();
 }
 
-void Block::clear_column_data(int column_size) noexcept {
+void Block::clear_column_data(int64_t column_size) noexcept {
     SCOPED_SKIP_MEMORY_CHECK();
     // data.size() greater than column_size, means here have some
     // function exec result in block, need erase it here

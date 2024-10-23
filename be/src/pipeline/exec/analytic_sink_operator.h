@@ -24,7 +24,7 @@
 #include "pipeline/dependency.h"
 
 namespace doris {
-
+#include "common/compile_check_begin.h"
 namespace pipeline {
 class AnalyticSinkOperatorX;
 
@@ -114,3 +114,4 @@ private:
 
 } // namespace pipeline
 } // namespace doris
+#include "common/compile_check_end.h"
