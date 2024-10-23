@@ -27,6 +27,7 @@
 #include <string_view>
 #include <type_traits>
 
+#include "common/cast_set.h"
 #include "util/bitmap_expr_calculation.h"
 #include "util/bitmap_intersect.h"
 #include "util/bitmap_value.h"
@@ -380,7 +381,8 @@ public:
 
     AggFunctionOrthBitmapFunc(const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper<Impl, AggFunctionOrthBitmapFunc<Impl>>(argument_types_),
-              _argument_size(argument_types_.size()) {}
+              // The number of arguments will not exceed the size of an int
+              _argument_size(cast_set<int>(argument_types_.size())) {}
 
     DataTypePtr get_return_type() const override { return Impl::get_return_type(); }
 

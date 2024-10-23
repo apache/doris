@@ -59,8 +59,7 @@ struct AggregateFunctionHLLData {
 
     void write(BufferWritable& buf) const {
         std::string result(dst_hll.max_serialized_size(), '0');
-        int size = dst_hll.serialize((uint8_t*)result.c_str());
-        result.resize(size);
+        result.resize(dst_hll.serialize((uint8_t*)result.c_str()));
         write_binary(result, buf);
     }
 

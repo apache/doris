@@ -182,7 +182,7 @@ class WindowFunctionPercentRank final
         : public IAggregateFunctionDataHelper<PercentRankData, WindowFunctionPercentRank> {
 private:
     static double _cal_percent(int64 rank, int64 total_rows) {
-        return total_rows <= 1 ? 0.0 : (rank - 1) * 1.0 / (total_rows - 1);
+        return total_rows <= 1 ? 0.0 : double(rank - 1) * 1.0 / double(total_rows - 1);
     }
 
 public:
@@ -271,7 +271,7 @@ public:
     }
 
     void insert_result_into(ConstAggregateDataPtr place, IColumn& to) const override {
-        auto cume_dist = data(place).numerator * 1.0 / data(place).denominator;
+        auto cume_dist = (double)data(place).numerator * 1.0 / (double)data(place).denominator;
         assert_cast<ColumnFloat64&>(to).get_data().push_back(cume_dist);
     }
 

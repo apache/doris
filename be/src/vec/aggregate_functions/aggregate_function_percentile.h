@@ -53,6 +53,10 @@ class Arena;
 class BufferReadable;
 
 struct PercentileApproxState {
+    // The result calculated by PercentileApprox is an approximate value,
+    // so the underlying storage uses float. The following calls will involve
+    // an implicit cast to float.
+
     static constexpr double INIT_QUANTILE = -1.0;
     PercentileApproxState() = default;
     ~PercentileApproxState() = default;
@@ -104,7 +108,7 @@ struct PercentileApproxState {
 
     double get() const {
         if (init_flag) {
-            return digest->quantile(target_quantile);
+            return digest->quantile((float)target_quantile);
         } else {
             return std::nan("");
         }
@@ -128,7 +132,7 @@ struct PercentileApproxState {
     }
 
     void add(double source, double quantile) {
-        digest->add(source);
+        digest->add((float)source);
         target_quantile = quantile;
     }
 
@@ -137,7 +141,7 @@ struct PercentileApproxState {
         if (weight <= 0) {
             return;
         }
-        digest->add(source, weight);
+        digest->add((float)source, (float)weight);
         target_quantile = quantile;
     }
 
@@ -322,7 +326,9 @@ struct PercentileState {
         if (!inited_flag) {
             return;
         }
-        int size_num = vec_quantile.size();
+        // It is preferable to change size to 64 bits here,
+        // but due to compatibility issues, we can only perform a cast.
+        int size_num = (int)vec_quantile.size();
         write_binary(size_num, buf);
         for (const auto& quantile : vec_quantile) {
             write_binary(quantile, buf);
@@ -352,7 +358,7 @@ struct PercentileState {
         }
     }
 
-    void add(T source, const PaddedPODArray<Float64>& quantiles, int arg_size) {
+    void add(T source, const PaddedPODArray<Float64>& quantiles, size_t arg_size) {
         if (!inited_flag) {
             vec_counts.resize(arg_size);
             vec_quantile.resize(arg_size, -1);
@@ -361,7 +367,7 @@ struct PercentileState {
                 vec_quantile[i] = quantiles[i];
             }
         }
-        for (int i = 0; i < arg_size; ++i) {
+        for (size_t i = 0; i < arg_size; ++i) {
             vec_counts[i].increment(source);
         }
     }
@@ -380,7 +386,7 @@ struct PercentileState {
         if (!rhs.inited_flag) {
             return;
         }
-        int size_num = rhs.vec_quantile.size();
+        int size_num = (int)(rhs.vec_quantile.size());
         if (!inited_flag) {
             vec_counts.resize(size_num);
             vec_quantile.resize(size_num, -1);
@@ -498,7 +504,7 @@ public:
                 assert_cast<const ColumnFloat64&, TypeCheckOnRelease::DISABLE>(nested_column);
 
         AggregateFunctionPercentileArray::data(place).add(
-                sources.get_int(row_num), nested_column_data.get_data(),
+                sources.get_element(row_num), nested_column_data.get_data(),
                 offset_column_data.data()[row_num] - offset_column_data[(ssize_t)row_num - 1]);
     }
 

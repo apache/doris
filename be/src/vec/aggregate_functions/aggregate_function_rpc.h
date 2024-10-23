@@ -43,7 +43,6 @@
 #include "vec/functions/function_rpc.h"
 #include "vec/io/io_helper.h"
 namespace doris::vectorized {
-#include "common/compile_check_begin.h"
 
 #define error_default_str "#$@"
 
@@ -396,4 +395,3 @@ private:
 
 } // namespace doris::vectorized
 
-#include "common/compile_check_end.h"

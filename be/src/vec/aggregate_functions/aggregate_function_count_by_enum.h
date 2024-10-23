@@ -47,8 +47,7 @@ void build_json_from_vec(rapidjson::StringBuffer& buffer,
     doc.SetArray();
     rapidjson::Document::AllocatorType& allocator = doc.GetAllocator();
 
-    int vec_size_number = data_vec.size();
-    for (int idx = 0; idx < vec_size_number; ++idx) {
+    for (size_t idx = 0; idx < data_vec.size(); ++idx) {
         rapidjson::Value obj(rapidjson::kObjectType);
 
         rapidjson::Value obj_cbe(rapidjson::kObjectType);

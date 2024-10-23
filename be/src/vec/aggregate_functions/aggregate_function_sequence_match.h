@@ -145,7 +145,8 @@ public:
             write_binary(events.second.to_ulong(), buf);
         }
 
-        UInt32 conditions_met_value = conditions_met.to_ulong();
+        // This is std::bitset<32>, which will not exceed 32 bits.
+        UInt32 conditions_met_value = (UInt32)conditions_met.to_ulong();
         write_binary(conditions_met_value, buf);
 
         write_binary(pattern, buf);

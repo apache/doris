@@ -71,7 +71,8 @@ public:
         double val = 0;
         if constexpr (IsDecimalNumber<T>) {
             using NativeType = typename T::NativeType;
-            val = static_cast<double>(value.value) / decimal_scale_multiplier<NativeType>(scale);
+            val = static_cast<double>(value.value) /
+                  static_cast<double>(decimal_scale_multiplier<NativeType>(scale));
         } else {
             val = static_cast<double>(value);
         }

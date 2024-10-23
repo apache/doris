@@ -65,8 +65,7 @@ struct AggregateFunctionApproxCountDistinctData {
     void write(BufferWritable& buf) const {
         std::string result;
         result.resize(hll_data.max_serialized_size());
-        int size = hll_data.serialize((uint8_t*)result.data());
-        result.resize(size);
+        result.resize(hll_data.serialize((uint8_t*)result.data()));
         write_binary(result, buf);
     }
 
