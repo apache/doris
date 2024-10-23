@@ -38,6 +38,10 @@ class Arena;
 class IColumn;
 class IDataType;
 
+struct AggregateFunctionAttr {
+    bool enable_decimal256 {false};
+};
+
 template <bool nullable, typename ColVecType>
 class AggregateFunctionBitmapCount;
 template <typename Op>

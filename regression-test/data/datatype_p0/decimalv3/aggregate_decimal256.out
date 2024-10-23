@@ -95,3 +95,11 @@
 -- !sql_count_3 --
 8	8
 
+-- !sql_distinct_count_1 --
+1	1
+2	1
+
+-- !sql_distinct_count_2 --
+1	1	3
+2	1	3
+

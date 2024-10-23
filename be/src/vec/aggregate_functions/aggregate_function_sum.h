@@ -231,7 +231,6 @@ struct SumSimple {
 template <typename T>
 using AggregateFunctionSumSimple = typename SumSimple<T, true>::Function;
 
-const static std::string DECIMAL256_SUFFIX {"_decimal256"};
 template <typename T, bool level_up>
 struct SumSimpleDecimal256 {
     /// @note It uses slow Decimal128 (cause we need such a variant). sumWithOverflow is faster for Decimal32/64
