@@ -16,7 +16,7 @@
 // under the License.
 
 suite('set_config_temporary_action', 'nonConcurrent') {
-    reconnectToMasterFe()
+    context.reconnectToMasterFe()
     def key = 'schedule_slot_num_per_ssd_path'
     setFeConfig(key, 8)
     assertEquals(8, getFeConfig(key) as int)
