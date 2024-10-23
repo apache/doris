@@ -125,12 +125,6 @@ Status PushHandler::_do_streaming_ingestion(TabletSharedPtr tablet, const TPushR
         return Status::Error<TRY_LOCK_FAILED>(
                 "PushHandler::_do_streaming_ingestion get lock failed");
     }
-    if (tablet->tablet_state() == TABLET_SHUTDOWN) {
-        return Status::InternalError<false>(
-                "The tablet's state is shutdown, tablet_id: {}. The tablet may have been dropped "
-                "or migrationed. Please check if the table has been dropped or try again.",
-                tablet->tablet_id());
-    }
     PUniqueId load_id;
     load_id.set_hi(0);
     load_id.set_lo(0);

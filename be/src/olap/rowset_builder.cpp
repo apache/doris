@@ -179,12 +179,6 @@ Status RowsetBuilder::prepare_txn() {
         return Status::Error<TRY_LOCK_FAILED>("try_lock migration lock failed after {}ms",
                                               config::migration_lock_timeout_ms);
     }
-    if (tablet()->tablet_state() == TABLET_SHUTDOWN) {
-        return Status::InternalError<false>(
-                "The tablet's state is shutdown, tablet_id: {}. The tablet may have been dropped "
-                "or migrationed. Please check if the table has been dropped or try again.",
-                tablet()->tablet_id());
-    }
     std::lock_guard<std::mutex> push_lock(tablet()->get_push_lock());
     return _engine.txn_manager()->prepare_txn(_req.partition_id, *tablet(), _req.txn_id,
                                               _req.load_id);
