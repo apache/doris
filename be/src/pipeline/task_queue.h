@@ -75,7 +75,9 @@ public:
 
     void inc_runtime(uint64_t delta_time) { _runtime += delta_time; }
 
-    void adjust_runtime(uint64_t vruntime) { this->_runtime = uint64_t(double(vruntime) * _level_factor); }
+    void adjust_runtime(uint64_t vruntime) {
+        this->_runtime = uint64_t(double(vruntime) * _level_factor);
+    }
 
     bool empty() { return _queue.empty(); }
 
