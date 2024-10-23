@@ -23,6 +23,7 @@
 #include "operator.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class RuntimeState;
 
 namespace vectorized {
@@ -116,3 +117,5 @@ private:
 
 } // namespace pipeline
 } // namespace doris
+
+#include "common/compile_check_end.h"

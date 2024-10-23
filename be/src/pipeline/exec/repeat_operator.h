@@ -23,6 +23,7 @@
 #include "pipeline/exec/operator.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class RuntimeState;
 
 namespace pipeline {
@@ -38,11 +39,11 @@ public:
 
     Status open(RuntimeState* state) override;
 
-    Status get_repeated_block(vectorized::Block* child_block, int repeat_id_idx,
+    Status get_repeated_block(vectorized::Block* child_block, size_t repeat_id_idx,
                               vectorized::Block* output_block);
 
     Status add_grouping_id_column(std::size_t rows, std::size_t& cur_col,
-                                  vectorized::MutableColumns& columns, int repeat_id_idx);
+                                  vectorized::MutableColumns& columns, size_t repeat_id_idx);
 
 private:
     friend class RepeatOperatorX;
@@ -50,7 +51,7 @@ private:
     friend class StatefulOperatorX;
     std::unique_ptr<vectorized::Block> _child_block;
     bool _child_eos = false;
-    int _repeat_id_idx;
+    size_t _repeat_id_idx;
     std::unique_ptr<vectorized::Block> _intermediate_block;
     vectorized::VExprContextSPtrs _expr_ctxs;
 };
@@ -88,3 +89,5 @@ private:
 
 } // namespace pipeline
 } // namespace doris
+
+#include "common/compile_check_end.h"

@@ -20,6 +20,7 @@
 #include "operator.h"
 
 namespace doris::pipeline {
+#include "common/compile_check_begin.h"
 template <typename LocalStateType>
 class JoinProbeOperatorX;
 template <typename SharedStateArg, typename Derived>
@@ -124,3 +125,5 @@ protected:
 };
 
 } // namespace doris::pipeline
+
+#include "common/compile_check_end.h"

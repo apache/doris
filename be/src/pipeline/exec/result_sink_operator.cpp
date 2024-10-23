@@ -36,6 +36,7 @@
 #include "vec/sink/vmysql_result_writer.h"
 
 namespace doris::pipeline {
+#include "common/compile_check_begin.h"
 
 Status ResultSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));

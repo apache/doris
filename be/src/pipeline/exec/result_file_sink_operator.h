@@ -21,6 +21,7 @@
 #include "vec/sink/writer/vfile_result_writer.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 class BroadcastPBlockHolder;
 } // namespace doris::vectorized
 
@@ -103,3 +104,5 @@ private:
 };
 
 } // namespace doris::pipeline
+
+#include "common/compile_check_end.h"

@@ -24,6 +24,7 @@
 #include "operator.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class RuntimeState;
 } // namespace doris
 
@@ -94,3 +95,4 @@ private:
 };
 
 } // namespace doris::pipeline
+#include "common/compile_check_end.h"

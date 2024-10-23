@@ -20,6 +20,7 @@
 #include "vec/sink/vdata_stream_sender.h"
 
 namespace doris::pipeline {
+#include "common/compile_check_begin.h"
 
 class Dependency;
 struct MultiCastBlock {
@@ -88,3 +89,4 @@ private:
     std::vector<Dependency*> _dependencies;
 };
 } // namespace doris::pipeline
+#include "common/compile_check_end.h"

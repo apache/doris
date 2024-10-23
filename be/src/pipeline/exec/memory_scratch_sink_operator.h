@@ -23,6 +23,7 @@
 #include "runtime/result_queue_mgr.h"
 
 namespace doris::pipeline {
+#include "common/compile_check_begin.h"
 
 class MemoryScratchSinkOperatorX;
 class MemoryScratchSinkLocalState final : public PipelineXSinkLocalState<FakeSharedState> {
@@ -65,3 +66,5 @@ private:
 };
 
 } // namespace doris::pipeline
+
+#include "common/compile_check_end.h"

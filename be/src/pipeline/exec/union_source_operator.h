@@ -24,6 +24,7 @@
 #include "operator.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class RuntimeState;
 
 namespace vectorized {
@@ -50,7 +51,7 @@ private:
     friend class UnionSourceOperatorX;
     friend class OperatorX<UnionSourceLocalState>;
     bool _need_read_for_const_expr {true};
-    int _const_expr_list_idx {0};
+    size_t _const_expr_list_idx {0};
     std::vector<vectorized::VExprContextSPtrs> _const_expr_lists;
 
     // If this operator has no children, there is no shared state which owns dependency. So we
@@ -122,3 +123,4 @@ private:
 
 } // namespace pipeline
 } // namespace doris
+#include "common/compile_check_end.h"

@@ -22,6 +22,7 @@
 #include "operator.h"
 
 namespace doris::pipeline {
+#include "common/compile_check_begin.h"
 
 class EmptySetLocalState final : public PipelineXLocalState<FakeSharedState> {
 public:
@@ -44,3 +45,5 @@ public:
 };
 
 } // namespace doris::pipeline
+
+#include "common/compile_check_end.h"
