@@ -54,7 +54,8 @@
 
 namespace doris::vectorized {
 
-Status Channel::init(RuntimeState* state) {
+template <typename Parent>
+Status Channel<Parent>::init(RuntimeState* state) {
     if (_brpc_dest_addr.hostname.empty()) {
         LOG(WARNING) << "there is no brpc destination address's hostname"
                         ", maybe version is not compatible.";
@@ -63,11 +64,9 @@ Status Channel::init(RuntimeState* state) {
     if (state->query_options().__isset.enable_local_exchange) {
         _is_local &= state->query_options().enable_local_exchange;
     }
-
     if (_is_local) {
         return Status::OK();
     }
-
     if (_brpc_dest_addr.hostname == BackendOptions::get_localhost()) {
         _brpc_stub = state->exec_env()->brpc_internal_client_cache()->get_client(
                 "127.0.0.1", _brpc_dest_addr.port);
@@ -84,7 +83,8 @@ Status Channel::init(RuntimeState* state) {
     return Status::OK();
 }
 
-Status Channel::open(RuntimeState* state) {
+template <typename Parent>
+Status Channel<Parent>::open(RuntimeState* state) {
     if (_is_local) {
         auto st = _parent->state()->exec_env()->vstream_mgr()->find_recvr(
                 _fragment_instance_id, _dest_node_id, &_local_recvr);
@@ -94,6 +94,19 @@ Status Channel::open(RuntimeState* state) {
         }
     }
     _be_number = state->be_number();
+    _brpc_request = std::make_shared<PTransmitDataParams>();
+    // initialize brpc request
+    _brpc_request->mutable_finst_id()->set_hi(_fragment_instance_id.hi);
+    _brpc_request->mutable_finst_id()->set_lo(_fragment_instance_id.lo);
+    _finst_id = _brpc_request->finst_id();
+
+    _brpc_request->mutable_query_id()->set_hi(state->query_id().hi);
+    _brpc_request->mutable_query_id()->set_lo(state->query_id().lo);
+    _query_id = _brpc_request->query_id();
+
+    _brpc_request->set_node_id(_dest_node_id);
+    _brpc_request->set_sender_id(_parent->sender_id());
+    _brpc_request->set_be_number(_be_number);
 
     _brpc_timeout_ms = std::min(3600, state->execution_timeout()) * 1000;
 
@@ -103,26 +116,28 @@ Status Channel::open(RuntimeState* state) {
     // to build a camouflaged empty channel. the ip and port is '0.0.0.0:0"
     // so the empty channel not need call function close_internal()
     _need_close = (_fragment_instance_id.hi != -1 && _fragment_instance_id.lo != -1);
-
     _state = state;
     return Status::OK();
 }
 
-std::shared_ptr<pipeline::Dependency> Channel::get_local_channel_dependency() {
-    if (!_local_recvr) {
+std::shared_ptr<pipeline::Dependency> PipChannel::get_local_channel_dependency() {
+    if (!Channel<pipeline::ExchangeSinkLocalState>::_local_recvr) {
         return nullptr;
     }
-    return _local_recvr->get_local_channel_dependency(_parent->sender_id());
+    return Channel<pipeline::ExchangeSinkLocalState>::_local_recvr->get_local_channel_dependency(
+            Channel<pipeline::ExchangeSinkLocalState>::_parent->sender_id());
 }
 
-int64_t Channel::mem_usage() const {
-    auto* mutable_block = _serializer.get_block();
+int64_t PipChannel::mem_usage() const {
+    auto* mutable_block = Channel<pipeline::ExchangeSinkLocalState>::_serializer.get_block();
     int64_t mem_usage = mutable_block ? mutable_block->allocated_bytes() : 0;
     return mem_usage;
 }
 
-Status Channel::send_remote_block(std::unique_ptr<PBlock>&& block, bool eos) {
-    COUNTER_UPDATE(_parent->blocks_sent_counter(), 1);
+Status PipChannel::send_remote_block(PBlock* block, bool eos, Status exec_status) {
+    COUNTER_UPDATE(Channel<pipeline::ExchangeSinkLocalState>::_parent->blocks_sent_counter(), 1);
+    std::unique_ptr<PBlock> pblock_ptr;
+    pblock_ptr.reset(block);
 
     if (eos) {
         if (_eos_send) {
@@ -132,13 +147,13 @@ Status Channel::send_remote_block(std::unique_ptr<PBlock>&& block, bool eos) {
         }
     }
     if (eos || block->column_metas_size()) {
-        RETURN_IF_ERROR(_buffer->add_block({this, std::move(block), eos, Status::OK()}));
+        RETURN_IF_ERROR(_buffer->add_block({this, std::move(pblock_ptr), eos, exec_status}));
     }
     return Status::OK();
 }
 
-Status Channel::send_broadcast_block(std::shared_ptr<BroadcastPBlockHolder>& block, bool eos) {
-    COUNTER_UPDATE(_parent->blocks_sent_counter(), 1);
+Status PipChannel::send_broadcast_block(std::shared_ptr<BroadcastPBlockHolder>& block, bool eos) {
+    COUNTER_UPDATE(Channel<pipeline::ExchangeSinkLocalState>::_parent->blocks_sent_counter(), 1);
     if (eos) {
         if (_eos_send) {
             return Status::OK();
@@ -151,88 +166,128 @@ Status Channel::send_broadcast_block(std::shared_ptr<BroadcastPBlockHolder>& blo
     return Status::OK();
 }
 
-Status Channel::_send_current_block(bool eos) {
-    if (is_local()) {
-        return _send_local_block(eos);
+Status PipChannel::send_current_block(bool eos, Status exec_status) {
+    if (Channel<pipeline::ExchangeSinkLocalState>::is_local()) {
+        return Channel<pipeline::ExchangeSinkLocalState>::send_local_block(exec_status, eos);
     }
-    return send_remote_block(std::move(_pblock), eos);
-}
-
-Status Channel::_send_local_block(bool eos) {
-    Block block;
-    if (_serializer.get_block() != nullptr) {
-        block = _serializer.get_block()->to_block();
-        _serializer.get_block()->set_mutable_columns(block.clone_empty_columns());
-    }
-
-    if (!block.empty() || eos) {
-        RETURN_IF_ERROR(send_local_block(&block, eos, true));
-    }
+    RETURN_IF_ERROR(send_remote_block(_pblock.release(), eos, exec_status));
     return Status::OK();
 }
 
-Status Channel::send_local_block(Block* block, bool eos, bool can_be_moved) {
+template <typename Parent>
+Status Channel<Parent>::send_local_block(Status exec_status, bool eos) {
     SCOPED_TIMER(_parent->local_send_timer());
-
-    if (eos) {
-        if (_eos_send) {
-            return Status::OK();
-        } else {
-            _eos_send = true;
-        }
-    }
-
-    if (is_receiver_eof()) {
-        return _receiver_status;
-    }
-
-    auto receiver_status = _recvr_status();
-    if (receiver_status.ok()) {
-        COUNTER_UPDATE(_parent->local_bytes_send_counter(), block->bytes());
-        COUNTER_UPDATE(_parent->local_sent_rows(), block->rows());
-        COUNTER_UPDATE(_parent->blocks_sent_counter(), 1);
-
-        const auto sender_id = _parent->sender_id();
-        if (!block->empty()) [[likely]] {
-            _local_recvr->add_block(block, sender_id, can_be_moved);
+    Block block = _serializer.get_block()->to_block();
+    _serializer.get_block()->set_mutable_columns(block.clone_empty_columns());
+    if (_recvr_is_valid()) {
+        if constexpr (!std::is_same_v<pipeline::ResultFileSinkLocalState, Parent>) {
+            COUNTER_UPDATE(_parent->local_bytes_send_counter(), block.bytes());
+            COUNTER_UPDATE(_parent->local_sent_rows(), block.rows());
+            COUNTER_UPDATE(_parent->blocks_sent_counter(), 1);
         }
 
-        if (eos) [[unlikely]] {
-            _local_recvr->remove_sender(sender_id, _be_number, Status::OK());
-            _parent->on_channel_finished(_fragment_instance_id.lo);
+        _local_recvr->add_block(&block, _parent->sender_id(), true);
+        if (eos) {
+            _local_recvr->remove_sender(_parent->sender_id(), _be_number, exec_status);
         }
         return Status::OK();
     } else {
-        _receiver_status = std::move(receiver_status);
-        _parent->on_channel_finished(_fragment_instance_id.lo);
+        _serializer.reset_block();
         return _receiver_status;
     }
 }
 
-Status Channel::close(RuntimeState* state) {
+template <typename Parent>
+Status Channel<Parent>::send_local_block(Block* block, bool can_be_moved) {
+    SCOPED_TIMER(_parent->local_send_timer());
+    if (_recvr_is_valid()) {
+        if constexpr (!std::is_same_v<pipeline::ResultFileSinkLocalState, Parent>) {
+            COUNTER_UPDATE(_parent->local_bytes_send_counter(), block->bytes());
+            COUNTER_UPDATE(_parent->local_sent_rows(), block->rows());
+            COUNTER_UPDATE(_parent->blocks_sent_counter(), 1);
+        }
+        _local_recvr->add_block(block, _parent->sender_id(), can_be_moved);
+        return Status::OK();
+    } else {
+        return _receiver_status;
+    }
+}
+
+template <typename Parent>
+Status Channel<Parent>::close_wait(RuntimeState* state) {
+    if (_need_close) {
+        Status st = _wait_last_brpc();
+        if (st.is<ErrorCode::END_OF_FILE>()) {
+            st = Status::OK();
+        } else if (!st.ok()) {
+            state->log_error(st.to_string());
+        }
+        _need_close = false;
+        return st;
+    }
+    _serializer.reset_block();
+    return Status::OK();
+}
+
+Status PipChannel::close_internal(Status exec_status) {
+    if (!_need_close) {
+        return Status::OK();
+    }
+    VLOG_RPC << "Channel::close_internal() instance_id=" << print_id(_fragment_instance_id)
+             << " dest_node=" << _dest_node_id << " #rows= "
+             << ((_serializer.get_block() == nullptr) ? 0 : _serializer.get_block()->rows())
+             << " receiver status: " << _receiver_status << ", exec_status: " << exec_status;
+    if (is_receiver_eof()) {
+        _serializer.reset_block();
+        return Status::OK();
+    }
+    Status status;
+    if (_serializer.get_block() != nullptr && _serializer.get_block()->rows() > 0) {
+        status = send_current_block(true, exec_status);
+    } else {
+        if (is_local()) {
+            if (_recvr_is_valid()) {
+                _local_recvr->remove_sender(_parent->sender_id(), _be_number, exec_status);
+            }
+        } else {
+            // Non pipeline engine will send an empty eos block
+            status = send_remote_block((PBlock*)nullptr, true, exec_status);
+        }
+    }
+    // Don't wait for the last packet to finish, left it to close_wait.
+    if (status.is<ErrorCode::END_OF_FILE>()) {
+        return Status::OK();
+    } else {
+        return status;
+    }
+}
+
+Status PipChannel::close(RuntimeState* state, Status exec_status) {
     if (_closed) {
         return Status::OK();
     }
     _closed = true;
 
-    if (!_need_close) {
-        return Status::OK();
+    Status st = close_internal(exec_status);
+    if (!st.ok()) {
+        state->log_error(st.to_string());
     }
-
-    if (is_receiver_eof()) {
-        _serializer.reset_block();
-        return Status::OK();
-    } else {
-        return _send_current_block(true);
-    }
+    return st;
 }
 
-BlockSerializer::BlockSerializer(pipeline::ExchangeSinkLocalState* parent, bool is_local)
+template <typename Parent>
+void Channel<Parent>::ch_roll_pb_block() {
+    _ch_cur_pb_block = (_ch_cur_pb_block == &_ch_pb_block1 ? &_ch_pb_block2 : &_ch_pb_block1);
+}
+
+template <typename Parent>
+BlockSerializer<Parent>::BlockSerializer(Parent* parent, bool is_local)
         : _parent(parent), _is_local(is_local), _batch_size(parent->state()->batch_size()) {}
 
-Status BlockSerializer::next_serialized_block(Block* block, PBlock* dest, int num_receivers,
-                                              bool* serialized, bool eos,
-                                              const std::vector<uint32_t>* rows) {
+template <typename Parent>
+Status BlockSerializer<Parent>::next_serialized_block(Block* block, PBlock* dest, int num_receivers,
+                                                      bool* serialized, bool eos,
+                                                      const std::vector<uint32_t>* rows) {
     if (_mutable_block == nullptr) {
         _mutable_block = MutableBlock::create_unique(block->clone_empty());
     }
@@ -261,7 +316,8 @@ Status BlockSerializer::next_serialized_block(Block* block, PBlock* dest, int nu
     return Status::OK();
 }
 
-Status BlockSerializer::serialize_block(PBlock* dest, int num_receivers) {
+template <typename Parent>
+Status BlockSerializer<Parent>::serialize_block(PBlock* dest, int num_receivers) {
     if (_mutable_block && _mutable_block->rows() > 0) {
         auto block = _mutable_block->to_block();
         RETURN_IF_ERROR(serialize_block(&block, dest, num_receivers));
@@ -272,20 +328,29 @@ Status BlockSerializer::serialize_block(PBlock* dest, int num_receivers) {
     return Status::OK();
 }
 
-Status BlockSerializer::serialize_block(const Block* src, PBlock* dest, int num_receivers) {
-    SCOPED_TIMER(_parent->_serialize_batch_timer);
-    dest->Clear();
-    size_t uncompressed_bytes = 0, compressed_bytes = 0;
-    RETURN_IF_ERROR(src->serialize(_parent->_state->be_exec_version(), dest, &uncompressed_bytes,
-                                   &compressed_bytes, _parent->compression_type(),
-                                   _parent->transfer_large_data_by_brpc()));
-    COUNTER_UPDATE(_parent->_bytes_sent_counter, compressed_bytes * num_receivers);
-    COUNTER_UPDATE(_parent->_uncompressed_bytes_counter, uncompressed_bytes * num_receivers);
-    COUNTER_UPDATE(_parent->_compress_timer, src->get_compress_time());
-    _parent->get_query_statistics_ptr()->add_shuffle_send_bytes(compressed_bytes * num_receivers);
-    _parent->get_query_statistics_ptr()->add_shuffle_send_rows(src->rows() * num_receivers);
+template <typename Parent>
+Status BlockSerializer<Parent>::serialize_block(const Block* src, PBlock* dest, int num_receivers) {
+    if constexpr (!std::is_same_v<pipeline::ResultFileSinkLocalState, Parent>) {
+        SCOPED_TIMER(_parent->_serialize_batch_timer);
+        dest->Clear();
+        size_t uncompressed_bytes = 0, compressed_bytes = 0;
+        RETURN_IF_ERROR(src->serialize(
+                _parent->_state->be_exec_version(), dest, &uncompressed_bytes, &compressed_bytes,
+                _parent->compression_type(), _parent->transfer_large_data_by_brpc()));
+        COUNTER_UPDATE(_parent->_bytes_sent_counter, compressed_bytes * num_receivers);
+        COUNTER_UPDATE(_parent->_uncompressed_bytes_counter, uncompressed_bytes * num_receivers);
+        COUNTER_UPDATE(_parent->_compress_timer, src->get_compress_time());
+        _parent->get_query_statistics_ptr()->add_shuffle_send_bytes(compressed_bytes *
+                                                                    num_receivers);
+        _parent->get_query_statistics_ptr()->add_shuffle_send_rows(src->rows() * num_receivers);
+    }
 
     return Status::OK();
 }
+
+template class Channel<pipeline::ExchangeSinkLocalState>;
+template class Channel<pipeline::ResultFileSinkLocalState>;
+template class BlockSerializer<pipeline::ResultFileSinkLocalState>;
+template class BlockSerializer<pipeline::ExchangeSinkLocalState>;
 
 } // namespace doris::vectorized
