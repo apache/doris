@@ -30,7 +30,7 @@
 #include "util/runtime_profile.h"
 
 namespace doris::pipeline {
-
+#include "common/compile_check_begin.h"
 class PipelineFragmentContext;
 class Pipeline;
 
@@ -119,10 +119,10 @@ public:
         fmt::format_to(debug_string_buffer,
                        "Pipeline [id: {}, _num_tasks: {}, _num_tasks_created: {}]", _pipeline_id,
                        _num_tasks, _num_tasks_created);
-        for (size_t i = 0; i < _operators.size(); i++) {
+        for (int i = 0; i < _operators.size(); i++) {
             fmt::format_to(debug_string_buffer, "\n{}", _operators[i]->debug_string(i));
         }
-        fmt::format_to(debug_string_buffer, "\n{}", _sink->debug_string(_operators.size()));
+        fmt::format_to(debug_string_buffer, "\n{}", _sink->debug_string(int(_operators.size())));
         return fmt::to_string(debug_string_buffer);
     }
 
@@ -168,5 +168,5 @@ private:
     // Parallelism of parent pipeline.
     const int _num_tasks_of_parent;
 };
-
+#include "common/compile_check_end.h"
 } // namespace doris::pipeline

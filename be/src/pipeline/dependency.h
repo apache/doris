@@ -46,7 +46,7 @@ class VSlotRef;
 } // namespace doris::vectorized
 
 namespace doris::pipeline {
-
+#include "common/compile_check_begin.h"
 class Dependency;
 class PipelineTask;
 struct BasicSharedState;
@@ -504,7 +504,7 @@ struct SpillSortSharedState : public BasicSharedState,
     ~SpillSortSharedState() override = default;
 
     // This number specifies the maximum size of sub blocks
-    static constexpr int SORT_BLOCK_SPILL_BATCH_BYTES = 8 * 1024 * 1024;
+    static constexpr size_t SORT_BLOCK_SPILL_BATCH_BYTES = 8 * 1024 * 1024;
     void update_spill_block_batch_row_count(const vectorized::Block* block) {
         auto rows = block->rows();
         if (rows > 0 && 0 == avg_row_bytes) {
@@ -525,7 +525,7 @@ struct SpillSortSharedState : public BasicSharedState,
 
     std::deque<vectorized::SpillStreamSPtr> sorted_streams;
     size_t avg_row_bytes = 0;
-    int spill_block_batch_row_count;
+    size_t spill_block_batch_row_count;
 };
 
 struct UnionSharedState : public BasicSharedState {
@@ -867,5 +867,5 @@ private:
     std::vector<std::atomic_int64_t> _queues_mem_usage;
     const int64_t _each_queue_limit;
 };
-
+#include "common/compile_check_end.h"
 } // namespace doris::pipeline
