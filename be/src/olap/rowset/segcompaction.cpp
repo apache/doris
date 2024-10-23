@@ -302,6 +302,10 @@ Status SegcompactionWorker::_do_compact_segments(SegCompactionCandidatesSharedPt
         RETURN_IF_ERROR(_file_writer->close());
     }
 
+    if (_idx_file_writer != nullptr) {
+        RETURN_IF_ERROR(_idx_file_writer->close());
+    }
+
     RETURN_IF_ERROR(_delete_original_segments(begin, end));
     if (_rowid_conversion != nullptr) {
         convert_segment_delete_bitmap(ctx.mow_context->delete_bitmap, begin, end,

@@ -1355,6 +1355,9 @@ void TabletSchema::update_tablet_columns(const TabletSchema& tablet_schema,
 }
 
 bool TabletSchema::has_inverted_index(const TabletColumn& col) const {
+    // if (col.is_variant_type()) {
+    //     return false;
+    // }
     // TODO use more efficient impl
     int32_t col_unique_id = col.is_extracted_column() ? col.parent_unique_id() : col.unique_id();
     const std::string& suffix_path =

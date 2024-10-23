@@ -23,6 +23,7 @@
 #include "common/status.h"
 #include "io/fs/file_reader_writer_fwd.h"
 #include "olap/merger.h"
+#include "olap/rowset/segment_v2/inverted_index_file_writer.h"
 #include "olap/simple_rowid_conversion.h"
 #include "olap/tablet.h"
 #include "segment_v2/segment.h"
@@ -41,7 +42,6 @@ struct OlapReaderStatistics;
 
 using SegCompactionCandidates = std::vector<segment_v2::SegmentSharedPtr>;
 using SegCompactionCandidatesSharedPtr = std::shared_ptr<SegCompactionCandidates>;
-
 class BetaRowsetWriter;
 
 class SegcompactionWorker {
@@ -61,6 +61,8 @@ public:
     DeleteBitmapPtr get_converted_delete_bitmap() { return _converted_delete_bitmap; }
 
     io::FileWriterPtr& get_file_writer() { return _file_writer; }
+
+    InvertedIndexFileWriterPtr& get_idx_file_writer() { return _idx_file_writer; }
 
     // set the cancel flag, tasks already started will not be cancelled.
     bool cancel();
@@ -86,6 +88,7 @@ private:
     // Currently cloud storage engine doesn't need segcompaction
     BetaRowsetWriter* _writer = nullptr;
     io::FileWriterPtr _file_writer;
+    InvertedIndexFileWriterPtr _idx_file_writer;
 
     // for unique key mow table
     std::unique_ptr<SimpleRowIdConversion> _rowid_conversion;

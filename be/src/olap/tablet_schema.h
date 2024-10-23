@@ -373,9 +373,14 @@ public:
     long row_store_page_size() const { return _row_store_page_size; }
 
     const std::vector<TabletIndex>& indexes() const { return _indexes; }
+    // when finding the index file, we should ignore variant column
     bool has_inverted_index() const {
         for (const auto& index : _indexes) {
             if (index.index_type() == IndexType::INVERTED) {
+                // if (const auto& column = column_by_uid(index.col_unique_ids()[0]);
+                //     column.is_variant_type() && check_variant) {
+                //     continue;
+                // }
                 return true;
             }
         }
