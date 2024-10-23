@@ -21,6 +21,8 @@
 #include <glog/logging.h>
 #include <opentelemetry/nostd/shared_ptr.h>
 
+#include <cstdint>
+
 #include "common/object_pool.h"
 #include "exec/rowid_fetcher.h"
 #include "exec/tablet_info.h"
@@ -113,9 +115,10 @@ Status VExchangeNode::get_next(RuntimeState* state, Block* block, bool* eos) {
                 _num_rows_skipped += block->rows();
                 block->set_num_rows(0);
             } else if (_num_rows_skipped < _offset) {
-                auto offset = _offset - _num_rows_skipped;
+                int64_t offset = _offset - _num_rows_skipped;
                 _num_rows_skipped = _offset;
-                block->set_num_rows(block->rows() - offset);
+                // should skip some rows
+                block->skip_num_rows(offset);
             }
         }
         if (_num_rows_returned + block->rows() < _limit) {
