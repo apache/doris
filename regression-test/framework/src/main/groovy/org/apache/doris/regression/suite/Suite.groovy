@@ -1194,6 +1194,8 @@ class Suite implements GroovyInterceptable {
             logger.info("status is not success")
         }
         Assert.assertEquals("SUCCESS", status)
+        logger.info("waitingMTMVTaskFinished analyze mv name is " + result.last().get(5))
+        sql "analyze table ${result.last().get(6)}.${mvName} with sync;"
     }
 
     void waitingMTMVTaskFinishedByMvNameAllowCancel(String mvName) {
@@ -1216,6 +1218,9 @@ class Suite implements GroovyInterceptable {
             logger.info("status is not success")
             assertTrue(result.toString().contains("same table"))
         }
+        // Need to analyze materialized view for cbo to choose the materialized view accurately
+        logger.info("waitingMTMVTaskFinished analyze mv name is " + result.last().get(5))
+        sql "analyze table ${result.last().get(6)}.${mvName} with sync;"
     }
 
     void waitingPartitionIsExpected(String tableName, String partitionName, boolean expectedStatus) {
@@ -1264,6 +1269,8 @@ class Suite implements GroovyInterceptable {
             logger.info("status is not success")
         }
         Assert.assertEquals("SUCCESS", status)
+        logger.info("waitingMTMVTaskFinished analyze mv name is " + result.last().get(5))
+        sql "analyze table ${result.last().get(6)}.${result.last().get(5)} with sync;"
     }
 
     void waitingMTMVTaskFinishedNotNeedSuccess(String jobName) {
@@ -1422,11 +1429,53 @@ class Suite implements GroovyInterceptable {
         return result.values().toList()
     }
 
+    // enable_sync_mv_cost_based_rewrite is true or not
+    boolean enable_sync_mv_cost_based_rewrite () {
+        def showVariable = "show variables like 'enable_sync_mv_cost_based_rewrite';"
+        List<List<Object>> result = sql(showVariable)
+        logger.info("enable_sync_mv_cost_based_rewrite = " + result)
+        if (result.isEmpty()) {
+            return false;
+        }
+        return Boolean.parseBoolean(result.get(0).get(1));
+    }
+
+    // Given tables to decide whether the table partition row count statistic is ready or not
+    boolean is_partition_statistics_ready(db, tables)  {
+        boolean isReady = true;
+        for (String table : tables) {
+            if (!isReady) {
+                logger.info("is_partition_statistics_ready " + db + " " + table + " " + isReady)
+                return false;
+            }
+            String showPartitions = "show partitions from ${db}.${table}"
+            String showData = "show data from ${db}.${table}"
+
+            List<List<Object>> partitions = sql(showPartitions)
+            logger.info("is_partition_statistics_ready partitions = " + partitions)
+            if (partitions.size() == 1) {
+                // If only one partition, the table row count is same with partition row count, so is ready
+                continue
+            }
+
+            List<List<Object>> data = sql(showData)
+            logger.info("is_partition_statistics_ready data = " + data)
+            for (List<Object> row : data) {
+                if (row.size() >= 2 && Objects.equals(row.get(1), table)) {
+                    isReady = isReady && Double.parseDouble(row.get(4)) > 0
+                    break
+                }
+            }
+        }
+        logger.info("is_partition_statistics_ready " + db + " " + tables + " " + isReady)
+        return isReady
+    }
+
     def create_async_mv = { db, mv_name, mv_sql ->
 
-        sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name}"""
+        sql """DROP MATERIALIZED VIEW IF EXISTS ${db}.${mv_name}"""
         sql"""
-        CREATE MATERIALIZED VIEW ${mv_name} 
+        CREATE MATERIALIZED VIEW ${db}.${mv_name} 
         BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL
         DISTRIBUTED BY RANDOM BUCKETS 2
         PROPERTIES ('replication_num' = '1') 
@@ -1434,75 +1483,321 @@ class Suite implements GroovyInterceptable {
         """
         def job_name = getJobName(db, mv_name);
         waitingMTMVTaskFinished(job_name)
-        sql "analyze table ${mv_name} with sync;"
+        sql "analyze table ${db}.${mv_name} with sync;"
     }
 
-    def check_mv_rewrite_success = { db, mv_sql, query_sql, mv_name ->
-
-        sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name}"""
-        sql"""
-        CREATE MATERIALIZED VIEW ${mv_name} 
-        BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL
-        DISTRIBUTED BY RANDOM BUCKETS 2
-        PROPERTIES ('replication_num' = '1') 
-        AS ${mv_sql}
-        """
-
-        def job_name = getJobName(db, mv_name);
-        waitingMTMVTaskFinished(job_name)
-        explain {
-            sql("${query_sql}")
-            contains("${mv_name}(${mv_name})")
-        }
-    }
-
-    def check_mv_rewrite_success_without_check_chosen = { db, mv_sql, query_sql, mv_name ->
-
-        sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name}"""
-        sql"""
-        CREATE MATERIALIZED VIEW ${mv_name} 
-        BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL
-        DISTRIBUTED BY RANDOM BUCKETS 2
-        PROPERTIES ('replication_num' = '1') 
-        AS ${mv_sql}
-        """
-
-        def job_name = getJobName(db, mv_name);
-        waitingMTMVTaskFinished(job_name)
-        explain {
-            sql("${query_sql}")
-            check {result ->
-                def splitResult = result.split("MaterializedViewRewriteFail")
-                splitResult.length == 2 ? splitResult[0].contains(mv_name) : false
-            }
-        }
-    }
-
-    def mv_rewrite_success_without_check_chosen = { query_sql, mv_name ->
-        explain {
-            sql("${query_sql}")
-            check {result ->
-                def splitResult = result.split("MaterializedViewRewriteFail")
-                splitResult.length == 2 ? splitResult[0].contains(mv_name) : false
-            }
-        }
-    }
-
+    // mv not part in rewrite process
     def mv_not_part_in = { query_sql, mv_name ->
+        logger.info("query_sql = " + query_sql + ", mv_names = " + mv_name)
         explain {
-            sql("${query_sql}")
-            notContains(mv_name)
+            sql(" memo plan ${query_sql}")
+            check { result ->
+                boolean success = !result.contains("${mv_name} chose") && !result.contains("${mv_name} not chose")
+                && !result.contains("${mv_name} fail")
+                Assert.assertEquals(true, success)
+            }
         }
     }
 
-    def mv_rewrite_fail = { query_sql, mv_name ->
+    // multi mv all not part in rewrite process
+    def mv_all_not_part_in = { query_sql, mv_names ->
+        logger.info("query_sql = " + query_sql + ", mv_names = " + mv_names)
         explain {
-            sql("${query_sql}")
-            notContains("${mv_name}(${mv_name})")
+            sql(" memo plan ${query_sql}")
+            check { result ->
+                boolean success = true;
+                for (String mv_name : mv_names) {
+                    success = !result.contains("${mv_name} chose") && !result.contains("${mv_name} not chose")
+                            && !result.contains("${mv_name} fail")
+                }
+                Assert.assertEquals(true, success)
+            }
         }
     }
 
-    def check_mv_rewrite_fail = { db, mv_sql, query_sql, mv_name ->
+    // mv part in rewrite process, rewrte success and chosen by cbo
+    // sync_cbo_rewrite is the bool value which control sync mv is use cbo based mv rewrite
+    // is_partition_statistics_ready is the bool value which identifying if partition row count is valid or not
+    // if true, check if chosen by cbo or doesn't check
+    void mv_rewrite_success(query_sql, mv_name, sync_cbo_rewrite = enable_sync_mv_cost_based_rewrite(),
+                            is_partition_statistics_ready = true) {
+        logger.info("query_sql = " + query_sql + ", mv_name = " + mv_name + ", sync_cbo_rewrite = " +sync_cbo_rewrite
+                + ", is_partition_statistics_ready = " + is_partition_statistics_ready)
+        if (!is_partition_statistics_ready) {
+            // If partition statistics is no ready, degrade to without check cbo chosen
+            mv_rewrite_success_without_check_chosen(query_sql, mv_name, sync_cbo_rewrite)
+            return
+        }
+        if (!sync_cbo_rewrite) {
+            explain {
+                sql("${query_sql}")
+                contains("(${mv_name})")
+            }
+            return
+        }
+        explain {
+            sql(" memo plan ${query_sql}")
+            contains("${mv_name} chose")
+        }
+    }
+
+    // multi mv part in rewrite process, all rewrte success and chosen by cbo
+    // sync_cbo_rewrite is the bool value which control sync mv is use cbo based mv rewrite
+    // is_partition_statistics_ready is the bool value which identifying if partition row count is valid or not
+    // if true, check if chosen by cbo or doesn't check
+    void mv_rewrite_all_success( query_sql, mv_names, sync_cbo_rewrite = enable_sync_mv_cost_based_rewrite(),
+                                 is_partition_statistics_ready = true) {
+        logger.info("query_sql = " + query_sql + ", mv_names = " + mv_names + ", sync_cbo_rewrite = " +sync_cbo_rewrite
+                + ", is_partition_statistics_ready = " + is_partition_statistics_ready)
+        if (!is_partition_statistics_ready) {
+            // If partition statistics is no ready, degrade to without check cbo chosen
+            mv_rewrite_all_success_without_check_chosen(query_sql, mv_names, sync_cbo_rewrite)
+            return
+        }
+        if (!sync_cbo_rewrite) {
+            explain {
+                sql("${query_sql}")
+                check { result ->
+                    boolean success = true;
+                    for (String mv_name : mv_names) {
+                        success = success && result.contains("(${mv_name})")
+                    }
+                    Assert.assertEquals(true, success)
+                }
+            }
+            return
+        }
+        explain {
+            sql(" memo plan ${query_sql}")
+            check { result ->
+                boolean success = true;
+                for (String mv_name : mv_names) {
+                    success = success && result.contains("${mv_name} chose")
+                }
+                Assert.assertEquals(true, success)
+            }
+        }
+    }
+
+    // multi mv part in rewrite process, any of them rewrte success and chosen by cbo
+    // sync_cbo_rewrite is the bool value which control sync mv is use cbo based mv rewrite
+    // is_partition_statistics_ready is the bool value which identifying if partition row count is valid or not
+    // if true, check if chosen by cbo or doesn't check
+    void mv_rewrite_any_success(query_sql, mv_names, sync_cbo_rewrite = enable_sync_mv_cost_based_rewrite(),
+                                is_partition_statistics_ready = true) {
+        logger.info("query_sql = " + query_sql + ", mv_names = " + mv_names + ", sync_cbo_rewrite = " +sync_cbo_rewrite
+                + ", is_partition_statistics_ready = " + is_partition_statistics_ready)
+        if (!is_partition_statistics_ready) {
+            // If partition statistics is no ready, degrade to without check cbo chosen
+            mv_rewrite_any_success_without_check_chosen(query_sql, mv_names, sync_cbo_rewrite)
+            return
+        }
+        if (!sync_cbo_rewrite) {
+            explain {
+                sql("${query_sql}")
+                check { result ->
+                    boolean success = false;
+                    for (String mv_name : mv_names) {
+                        success = success || result.contains("(${mv_name})")
+                    }
+                    Assert.assertEquals(true, success)
+                }
+            }
+            return
+        }
+        explain {
+            sql(" memo plan ${query_sql}")
+            check { result ->
+                boolean success = false;
+                for (String mv_name : mv_names) {
+                    success = success || result.contains("${mv_name} chose")
+                }
+                Assert.assertEquals(true, success)
+            }
+        }
+    }
+
+    // multi mv part in rewrite process, all rewrte success without check if chosen by cbo
+    // sync_cbo_rewrite is the bool value which control sync mv is use cbo based mv rewrite
+    void mv_rewrite_all_success_without_check_chosen(query_sql, mv_names,
+                                                     sync_cbo_rewrite = enable_sync_mv_cost_based_rewrite()){
+        logger.info("query_sql = " + query_sql + ", mv_names = " + mv_names)
+        if (!sync_cbo_rewrite) {
+            explain {
+                sql("${query_sql}")
+                check { result ->
+                    boolean success = true;
+                    for (String mv_name : mv_names) {
+                        def splitResult = result.split("MaterializedViewRewriteFail")
+                        def each_result =  splitResult.length == 2 ? splitResult[0].contains(mv_name) : false
+                        success = success && (result.contains("(${mv_name})") || each_result)
+                    }
+                    Assert.assertEquals(true, success)
+                }
+            }
+            return
+        }
+        explain {
+            sql(" memo plan ${query_sql}")
+            check {result ->
+                boolean success = true
+                for (String mv_name : mv_names) {
+                    boolean stepSuccess = result.contains("${mv_name} chose") || result.contains("${mv_name} not chose")
+                    success = success && stepSuccess
+                }
+                Assert.assertEquals(true, success)
+            }
+        }
+    }
+
+    // multi mv part in rewrite process, any of them rewrte success without check if chosen by cbo or not
+    // sync_cbo_rewrite is the bool value which control sync mv is use cbo based mv rewrite
+    void mv_rewrite_any_success_without_check_chosen(query_sql, mv_names,
+                                                     sync_cbo_rewrite = enable_sync_mv_cost_based_rewrite()) {
+        logger.info("query_sql = " + query_sql + ", mv_names = " + mv_names)
+        if (!sync_cbo_rewrite) {
+            explain {
+                sql("${query_sql}")
+                check { result ->
+                    boolean success = false;
+                    for (String mv_name : mv_names) {
+                        def splitResult = result.split("MaterializedViewRewriteFail")
+                        def each_result =  splitResult.length == 2 ? splitResult[0].contains(mv_name) : false
+                        success = success || (result.contains("(${mv_name})") || each_result)
+                    }
+                    Assert.assertEquals(true, success)
+                }
+            }
+            return
+        }
+        explain {
+            sql(" memo plan ${query_sql}")
+            check { result ->
+                boolean success = false
+                for (String mv_name : mv_names) {
+                    success = success || result.contains("${mv_name} chose") || result.contains("${mv_name} not chose")
+                }
+                Assert.assertEquals(true, success)
+            }
+        }
+    }
+
+    // multi mv part in rewrite process, rewrte success without check if chosen by cbo or not
+    // sync_cbo_rewrite is the bool value which control sync mv is use cbo based mv rewrite
+    void mv_rewrite_success_without_check_chosen(query_sql, mv_name,
+                                                 sync_cbo_rewrite = enable_sync_mv_cost_based_rewrite()) {
+        logger.info("query_sql = " + query_sql + ", mv_name = " + mv_name)
+        if (!sync_cbo_rewrite) {
+            explain {
+                sql("${query_sql}")
+                check { result ->
+                    def splitResult = result.split("MaterializedViewRewriteFail")
+                    result.contains("(${mv_name})") || (splitResult.length == 2 ? splitResult[0].contains(mv_name) : false)
+                }
+            }
+            return
+        }
+        explain {
+            sql(" memo plan ${query_sql}")
+            check { result ->
+                result.contains("${mv_name} chose") || result.contains("${mv_name} not chose")
+            }
+        }
+    }
+
+    // single mv part in rewrite process, rewrte fail
+    // sync_cbo_rewrite is the bool value which control sync mv is use cbo based mv rewrite
+    void mv_rewrite_fail(query_sql, mv_name, sync_cbo_rewrite = enable_sync_mv_cost_based_rewrite()) {
+        logger.info("query_sql = " + query_sql + ", mv_name = " + mv_name)
+        if (!sync_cbo_rewrite) {
+            explain {
+                sql("${query_sql}")
+                notContains("(${mv_name})")
+            }
+            return
+        }
+        explain {
+            sql(" memo plan ${query_sql}")
+            contains("${mv_name} fail")
+        }
+    }
+
+    // multi mv part in rewrite process, all rewrte fail
+    // sync_cbo_rewrite is the bool value which control sync mv is use cbo based mv rewrite
+    void mv_rewrite_all_fail(query_sql, mv_names, sync_cbo_rewrite = enable_sync_mv_cost_based_rewrite()) {
+        logger.info("query_sql = " + query_sql + ", mv_names = " + mv_names)
+        if (!sync_cbo_rewrite) {
+            explain {
+                sql("${query_sql}")
+                check { result ->
+                    boolean fail = true
+                    for (String mv_name : mv_names) {
+                        boolean stepFail = !result.contains("(${mv_name})")
+                        fail = fail && stepFail
+                    }
+                    Assert.assertEquals(true, fail)
+                }
+            }
+            return
+        }
+        explain {
+            sql(" memo plan ${query_sql}")
+            check {result ->
+                boolean fail = true
+                for (String mv_name : mv_names) {
+                    boolean stepFail = result.contains("${mv_name} fail")
+                    fail = fail && stepFail
+                }
+                Assert.assertEquals(true, fail)
+            }
+        }
+    }
+
+    // multi mv part in rewrite process, any rewrte fail
+    // sync_cbo_rewrite is the bool value which control sync mv is use cbo based mv rewrite
+    void mv_rewrite_any_fail (query_sql, mv_names, sync_cbo_rewrite = enable_sync_mv_cost_based_rewrite()) {
+        logger.info("query_sql = " + query_sql + ", mv_names = " + mv_names)
+        if (!sync_cbo_rewrite) {
+            explain {
+                sql("${query_sql}")
+                check { result ->
+                    boolean fail = false
+                    for (String mv_name : mv_names) {
+                        fail = fail || !result.contains("(${mv_name})")
+                    }
+                    Assert.assertEquals(true, fail)
+                }
+            }
+            return
+        }
+        explain {
+            sql(" memo plan ${query_sql}")
+            check { result ->
+                boolean fail = false
+                for (String mv_name : mv_names) {
+                    fail = fail || result.contains("${mv_name} fail")
+                }
+                Assert.assertEquals(true, fail)
+            }
+        }
+    }
+
+    def async_mv_rewrite_success = { db, mv_sql, query_sql, mv_name ->
+
+        sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name}"""
+        sql"""
+        CREATE MATERIALIZED VIEW ${mv_name} 
+        BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL
+        DISTRIBUTED BY RANDOM BUCKETS 2
+        PROPERTIES ('replication_num' = '1') 
+        AS ${mv_sql}
+        """
+        def job_name = getJobName(db, mv_name);
+        waitingMTMVTaskFinished(job_name)
+        mv_rewrite_success(query_sql, mv_name, true)
+    }
+
+    def async_mv_rewrite_success_without_check_chosen = { db, mv_sql, query_sql, mv_name ->
 
         sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name}"""
         sql"""
@@ -1515,11 +1810,26 @@ class Suite implements GroovyInterceptable {
 
         def job_name = getJobName(db, mv_name);
         waitingMTMVTaskFinished(job_name)
-        explain {
-            sql("${query_sql}")
-            notContains("${mv_name}(${mv_name})")
-        }
+        mv_rewrite_success_without_check_chosen(query_sql, mv_name, true)
     }
+
+
+    def async_mv_rewrite_fail = { db, mv_sql, query_sql, mv_name ->
+
+        sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name}"""
+        sql"""
+        CREATE MATERIALIZED VIEW ${mv_name} 
+        BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL
+        DISTRIBUTED BY RANDOM BUCKETS 2
+        PROPERTIES ('replication_num' = '1') 
+        AS ${mv_sql}
+        """
+
+        def job_name = getJobName(db, mv_name);
+        waitingMTMVTaskFinished(job_name)
+        mv_rewrite_fail(query_sql, mv_name, true)
+    }
+
     def scp_udf_file_to_all_be = { udf_file_path ->
         if (!new File(udf_file_path).isAbsolute()) {
             udf_file_path = new File(udf_file_path).getAbsolutePath()

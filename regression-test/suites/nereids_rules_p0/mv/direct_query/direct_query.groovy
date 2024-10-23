@@ -38,7 +38,6 @@ suite("direct_query_mv") {
       o_comment        VARCHAR(79) NOT NULL
     )
     DUPLICATE KEY(o_orderkey, o_custkey)
-    PARTITION BY RANGE(o_orderdate) (PARTITION `day_2` VALUES LESS THAN ('2023-12-30'))
     DISTRIBUTED BY HASH(o_orderkey) BUCKETS 3
     PROPERTIES (
       "replication_num" = "1"
@@ -69,7 +68,6 @@ suite("direct_query_mv") {
       l_comment      VARCHAR(44) NOT NULL
     )
     DUPLICATE KEY(l_orderkey, l_partkey, l_suppkey, l_linenumber)
-    PARTITION BY RANGE(l_shipdate) (PARTITION `day_1` VALUES LESS THAN ('2023-12-30'))
     DISTRIBUTED BY HASH(l_orderkey) BUCKETS 3
     PROPERTIES (
       "replication_num" = "1"
@@ -148,7 +146,7 @@ suite("direct_query_mv") {
             group by L_LINENUMBER;
             """)
     // mv2 use mv1, though query not use mv1 directly, mv2 should part in rewrite and shoule be chosen
-    check_mv_rewrite_success(db,
+    async_mv_rewrite_success(db,
             """
             select L_LINENUMBER, count(O_CUSTKEY)
             from mv1_0
