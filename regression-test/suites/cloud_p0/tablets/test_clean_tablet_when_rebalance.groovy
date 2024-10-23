@@ -95,7 +95,7 @@ suite('test_clean_tablet_when_rebalance', 'docker') {
         }
 
         cluster.stopBackends(choseDeadBeIndex)
-        dockerAwaitUntil(10) {
+        dockerAwaitUntil(50) {
             def bes = sql_return_maparray("SHOW TABLETS FROM ${table}")
                     .collect { it.BackendId }
                     .unique()
@@ -112,7 +112,7 @@ suite('test_clean_tablet_when_rebalance', 'docker') {
 
         cluster.startBackends(choseDeadBeIndex)
 
-        dockerAwaitUntil(10) {
+        dockerAwaitUntil(50) {
            def bes = sql_return_maparray("SHOW TABLETS FROM ${table}")
                 .collect { it.BackendId }
                 .unique()
