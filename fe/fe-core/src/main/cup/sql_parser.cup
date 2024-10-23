@@ -8107,6 +8107,8 @@ keyword ::=
     {: RESULT = id; :}
     | KW_BITMAP:id
     {: RESULT = id; :}
+    | KW_BITMAP_EMPTY:id
+    {: RESULT = id; :}
     | KW_QUANTILE_STATE:id
     {: RESULT = id; :}
     | KW_AGG_STATE:id
