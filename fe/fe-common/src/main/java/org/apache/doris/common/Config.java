@@ -2471,4 +2471,9 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, description = {
             "设置为 true，root 和 admin 将跳过 sql block rule", "Set to true, root and admin will skip SQL block rule"})
     public static boolean sql_block_rule_ignore_admin = false;
+
+    @ConfField(description = {"用于测试，强制将所有的查询forward到master以验证forward query的行为",
+            "For testing purposes, all queries are forcibly forwarded to the master to verify"
+                    + "the behavior of forwarding queries."})
+    public static boolean force_forward_all_queries = false;
 }
