@@ -426,7 +426,7 @@ public class MaterializedViewUtils {
             if (joinType.isInnerJoin() || joinType.isCrossJoin()) {
                 return visit(join, context);
             } else if ((joinType.isLeftJoin()
-                    || joinType.isLefSemiJoin()
+                    || joinType.isLeftSemiJoin()
                     || joinType.isLeftAntiJoin()) && useLeft) {
                 return visit(join.left(), context);
             } else if ((joinType.isRightJoin()
