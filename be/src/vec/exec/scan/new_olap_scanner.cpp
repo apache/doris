@@ -540,14 +540,15 @@ Status NewOlapScanner::close(RuntimeState* state) {
 void NewOlapScanner::_update_realtime_counters() {
     pipeline::OlapScanLocalState* local_state =
             static_cast<pipeline::OlapScanLocalState*>(_local_state);
-    auto& stats = _tablet_reader->stats();
+    const OlapReaderStatistics& stats = _tablet_reader->stats();
     COUNTER_UPDATE(local_state->_read_compressed_counter, stats.compressed_bytes_read);
-    _compressed_bytes_read += stats.compressed_bytes_read;
+    COUNTER_UPDATE(local_state->_scan_bytes, stats.compressed_bytes_read);
+    _scan_bytes += stats.compressed_bytes_read;
     _tablet_reader->mutable_stats()->compressed_bytes_read = 0;
 
-    COUNTER_UPDATE(local_state->_raw_rows_counter, stats.raw_rows_read);
+    COUNTER_UPDATE(local_state->_scan_rows, stats.raw_rows_read);
+    _scan_rows += stats.raw_rows_read;
     // if raw_rows_read is reset, scanNode will scan all table rows which may cause BE crash
-    _raw_rows_read += stats.raw_rows_read;
     _tablet_reader->mutable_stats()->raw_rows_read = 0;
 }
 
@@ -564,7 +565,8 @@ void NewOlapScanner::_collect_profile_before_close() {
 #define INCR_COUNTER(Parent)                                                                      \
     COUNTER_UPDATE(Parent->_io_timer, stats.io_ns);                                               \
     COUNTER_UPDATE(Parent->_read_compressed_counter, stats.compressed_bytes_read);                \
-    _compressed_bytes_read += stats.compressed_bytes_read;                                        \
+    COUNTER_UPDATE(Parent->_scan_bytes, stats.compressed_bytes_read);                             \
+    _scan_bytes += stats.compressed_bytes_read;                                                   \
     COUNTER_UPDATE(Parent->_decompressor_timer, stats.decompress_ns);                             \
     COUNTER_UPDATE(Parent->_read_uncompressed_counter, stats.uncompressed_bytes_read);            \
     COUNTER_UPDATE(Parent->_block_load_timer, stats.block_load_ns);                               \
@@ -572,8 +574,8 @@ void NewOlapScanner::_collect_profile_before_close() {
     COUNTER_UPDATE(Parent->_block_fetch_timer, stats.block_fetch_ns);                             \
     COUNTER_UPDATE(Parent->_delete_bitmap_get_agg_timer, stats.delete_bitmap_get_agg_ns);         \
     COUNTER_UPDATE(Parent->_block_convert_timer, stats.block_convert_ns);                         \
-    COUNTER_UPDATE(Parent->_raw_rows_counter, stats.raw_rows_read);                               \
-    _raw_rows_read += _tablet_reader->mutable_stats()->raw_rows_read;                             \
+    COUNTER_UPDATE(Parent->_scan_rows, stats.raw_rows_read);                                      \
+    _scan_rows += _tablet_reader->mutable_stats()->raw_rows_read;                                 \
     COUNTER_UPDATE(Parent->_vec_cond_timer, stats.vec_cond_ns);                                   \
     COUNTER_UPDATE(Parent->_short_cond_timer, stats.short_cond_ns);                               \
     COUNTER_UPDATE(Parent->_expr_filter_timer, stats.expr_filter_ns);                             \
@@ -663,11 +665,11 @@ void NewOlapScanner::_collect_profile_before_close() {
 #undef INCR_COUNTER
 #endif
     // Update metrics
-    DorisMetrics::instance()->query_scan_bytes->increment(_compressed_bytes_read);
-    DorisMetrics::instance()->query_scan_rows->increment(_raw_rows_read);
+    DorisMetrics::instance()->query_scan_bytes->increment(_scan_bytes);
+    DorisMetrics::instance()->query_scan_rows->increment(_scan_rows);
     auto& tablet = _tablet_reader_params.tablet;
-    tablet->query_scan_bytes->increment(_compressed_bytes_read);
-    tablet->query_scan_rows->increment(_raw_rows_read);
+    tablet->query_scan_bytes->increment(_scan_bytes);
+    tablet->query_scan_rows->increment(_scan_rows);
     tablet->query_scan_count->increment(1);
     if (_query_statistics) {
         _query_statistics->add_scan_bytes_from_local_storage(
