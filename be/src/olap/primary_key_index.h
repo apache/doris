@@ -111,9 +111,10 @@ public:
 
     Status parse_bf(io::FileReaderSPtr file_reader, const segment_v2::PrimaryKeyIndexMetaPB& meta);
 
-    Status new_iterator(std::unique_ptr<segment_v2::IndexedColumnIterator>* index_iterator) const {
+    Status new_iterator(std::unique_ptr<segment_v2::IndexedColumnIterator>* index_iterator,
+                        OlapReaderStatistics* stats = nullptr) const {
         DCHECK(_index_parsed);
-        index_iterator->reset(new segment_v2::IndexedColumnIterator(_index_reader.get()));
+        index_iterator->reset(new segment_v2::IndexedColumnIterator(_index_reader.get(), stats));
         return Status::OK();
     }
 
