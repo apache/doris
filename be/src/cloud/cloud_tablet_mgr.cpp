@@ -181,8 +181,14 @@ Result<std::shared_ptr<CloudTablet>> CloudTabletMgr::get_tablet(int64_t tablet_i
 
             auto* handle = _cache->insert(key, value.release(), 1, sizeof(CloudTablet),
                                           CachePriority::NORMAL);
-            auto ret = std::shared_ptr<CloudTablet>(
-                    tablet.get(), [this, handle](...) { _cache->release(handle); });
+            auto ret =
+                    std::shared_ptr<CloudTablet>(tablet.get(), [this, handle](CloudTablet* tablet) {
+                        int64_t now = duration_cast<std::chrono::milliseconds>(
+                                              std::chrono::system_clock::now().time_since_epoch())
+                                              .count();
+                        tablet->last_cache_release_ms = now;
+                        _cache->release(handle);
+                    });
             _tablet_map->put(std::move(tablet));
             return ret;
         };
@@ -195,8 +201,13 @@ Result<std::shared_ptr<CloudTablet>> CloudTabletMgr::get_tablet(int64_t tablet_i
     }
 
     CloudTablet* tablet_raw_ptr = reinterpret_cast<Value*>(_cache->value(handle))->tablet.get();
-    auto tablet = std::shared_ptr<CloudTablet>(tablet_raw_ptr,
-                                               [this, handle](...) { _cache->release(handle); });
+    auto tablet = std::shared_ptr<CloudTablet>(tablet_raw_ptr, [this, handle](CloudTablet* tablet) {
+        int64_t now = duration_cast<std::chrono::milliseconds>(
+                              std::chrono::system_clock::now().time_since_epoch())
+                              .count();
+        tablet->last_cache_release_ms = now;
+        _cache->release(handle);
+    });
     return tablet;
 }
 
@@ -355,6 +366,59 @@ Status CloudTabletMgr::get_topn_tablets_to_compact(
     }
 
     return Status::OK();
+}
+
+void CloudTabletMgr::build_all_report_tablets_info(std::map<TTabletId, TTablet>* tablets_info,
+                                                   uint64_t* tablet_num) {
+    DCHECK(tablets_info != nullptr);
+    VLOG_NOTICE << "begin to build all report cloud tablets info";
+
+    HistogramStat tablet_version_num_hist;
+
+    auto handler = [&](const std::weak_ptr<CloudTablet>& tablet_wk) {
+        auto tablet = tablet_wk.lock();
+        if (!tablet) return;
+        (*tablet_num)++;
+        TTabletInfo tablet_info;
+        tablet->build_tablet_report_info(&tablet_info);
+        int64_t now = duration_cast<std::chrono::milliseconds>(
+                              std::chrono::system_clock::now().time_since_epoch())
+                              .count();
+        if (now - config::cloud_tablet_report_exceed_time_limit * 1000 <
+            tablet->last_cache_release_ms) {
+            // the tablet is still being accessed and used in recently, so not report it
+            return;
+        }
+        auto& t_tablet = (*tablets_info)[tablet->tablet_id()];
+        // On the cloud, a specific BE has only one tablet replica;
+        // there are no multiple replicas for a specific BE.
+        // This is only to reuse the non-cloud report protocol.
+        tablet_version_num_hist.add(tablet_info.total_version_count);
+        t_tablet.tablet_infos.emplace_back(std::move(tablet_info));
+    };
+
+    auto weak_tablets = get_weak_tablets();
+    std::for_each(weak_tablets.begin(), weak_tablets.end(), handler);
+
+    DorisMetrics::instance()->tablet_version_num_distribution->set_histogram(
+            tablet_version_num_hist);
+    LOG(INFO) << "success to build all cloud report tablets info. all_tablet_count=" << *tablet_num
+              << " exceed drop time limit count=" << tablets_info->size();
+}
+
+void CloudTabletMgr::obtain_specific_quantity_tablets(std::vector<TabletInfo>& tablets_info,
+                                                      int64_t num) {
+    auto weak_tablets = get_weak_tablets();
+    for (auto& weak_tablet : weak_tablets) {
+        auto t = weak_tablet.lock();
+        if (t == nullptr) {
+            continue;
+        }
+        if (tablets_info.size() >= num) {
+            return;
+        }
+        tablets_info.push_back(t->get_tablet_info());
+    }
 }
 
 } // namespace doris
