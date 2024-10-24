@@ -102,7 +102,6 @@ Status SpillSortLocalState::initiate_merge_sort_spill_streams(RuntimeState* stat
                 VLOG_DEBUG << "query " << print_id(query_id) << " sort node " << _parent->node_id()
                            << " merge spill data finish";
             }
-            _dependency->Dependency::set_ready();
         }};
         vectorized::Block merge_sorted_block;
         vectorized::SpillStreamSPtr tmp_stream;
@@ -175,6 +174,7 @@ Status SpillSortLocalState::initiate_merge_sort_spill_streams(RuntimeState* stat
 
     auto exception_catch_func = [this, spill_func]() {
         _status = [&]() { RETURN_IF_CATCH_EXCEPTION({ return spill_func(); }); }();
+        _dependency->Dependency::set_ready();
     };
 
     DBUG_EXECUTE_IF("fault_inject::spill_sort_source::merge_sort_spill_data_submit_func", {
