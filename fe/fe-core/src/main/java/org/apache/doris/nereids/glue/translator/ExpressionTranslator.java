@@ -290,7 +290,8 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
 
     @Override
     public Expr visitSlotReference(SlotReference slotReference, PlanTranslatorContext context) {
-        return context.findSlotRef(slotReference.getExprId());
+        return context.getCloneExprIdToSlot() == null ? context.findSlotRef(slotReference.getExprId())
+            : context.findCloneSlotRef(slotReference.getExprId());
     }
 
     @Override
