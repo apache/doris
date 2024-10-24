@@ -652,13 +652,12 @@ Status Compaction::do_compaction_impl(int64_t permits) {
                 }
 
                 std::vector<lucene::store::Directory*> dest_index_dirs(dest_segment_num);
-                std::vector<lucene::store::Directory*> src_index_dirs(src_segment_num);
                 try {
+                    std::vector<std::unique_ptr<DorisCompoundReader>> src_idx_dirs(src_segment_num);
                     for (int src_segment_id = 0; src_segment_id < src_segment_num;
                          src_segment_id++) {
-                        auto src_dir = DORIS_TRY(
+                        src_idx_dirs[src_segment_id] = DORIS_TRY(
                                 inverted_index_file_readers[src_segment_id]->open(index_meta));
-                        src_index_dirs[src_segment_id] = src_dir.release();
                     }
                     for (int dest_segment_id = 0; dest_segment_id < dest_segment_num;
                          dest_segment_id++) {
@@ -666,9 +665,8 @@ Status Compaction::do_compaction_impl(int64_t permits) {
                                 inverted_index_file_writers[dest_segment_id]->open(index_meta));
                         dest_index_dirs[dest_segment_id] = dest_dir;
                     }
-                    auto st =
-                            compact_column(index_meta->index_id(), src_index_dirs, dest_index_dirs,
-                                           fs, index_tmp_path, trans_vec, dest_segment_num_rows);
+                    auto st = compact_column(index_meta->index_id(), src_idx_dirs, dest_index_dirs,
+                                             fs, index_tmp_path, trans_vec, dest_segment_num_rows);
                     if (!st.ok()) {
                         error_handler(index_meta->index_id(), column_uniq_id);
                         status = Status::Error<INVERTED_INDEX_COMPACTION_ERROR>(st.msg());
