@@ -150,6 +150,6 @@ suite("aggregate_decimal256") {
     qt_sql_count_2 """ select k1, count(cast(v1 as decimalv3(39, 6))), count(cast(v2 as decimalv3(39, 6))) from test_aggregate_decimal256_avg group by k1 order by 1, 2, 3; """
     qt_sql_count_3 """ select count(cast(v1 as decimalv3(39, 6))), count(cast(v2 as decimalv3(39, 6))) from test_aggregate_decimal256_avg order by 1, 2; """
 
-    // qt_sql_distinct_count_1 """ select k1, count(distinct cast(v1 as decimalv3(39, 6))) from test_aggregate_decimal256_avg group by k1 order by 1, 2;"""
-    // qt_sql_distinct_count_2 """ select k1, count(distinct cast(v1 as decimalv3(39, 6))), count(distinct cast(v2 as decimalv3(39, 6))) from test_aggregate_decimal256_avg group by k1 order by 1, 2, 3;"""
+    qt_sql_distinct_count_1 """ select k1, count(distinct cast(v1 as decimalv3(39, 6))) from test_aggregate_decimal256_avg group by k1 order by 1, 2;"""
+    qt_sql_distinct_count_2 """ select k1, count(distinct cast(v1 as decimalv3(39, 6))), count(distinct cast(v2 as decimalv3(39, 6))) from test_aggregate_decimal256_avg group by k1 order by 1, 2, 3;"""
 }

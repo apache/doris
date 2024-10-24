@@ -133,8 +133,8 @@ struct MethodBaseInner {
     }
 
     template <typename State, typename F, typename FF>
-    ALWAYS_INLINE auto& lazy_emplace(State& state, size_t i, F&& creator,
-                                     FF&& creator_for_null_key) {
+    ALWAYS_INLINE auto lazy_emplace(State& state, size_t i, F&& creator,
+                                    FF&& creator_for_null_key) {
         if constexpr (!is_string_hash_map()) {
             prefetch<false>(i);
         }
@@ -607,24 +607,10 @@ struct MethodSingleNullableColumn : public SingleColumnMethod {
     }
 };
 
-using SerializedHashTableContext = MethodSerialized<JoinHashMap<StringRef>>;
-
 template <class T>
 using PrimaryTypeHashTableContext = MethodOneNumber<T, JoinHashMap<T, HashCRC32<T>>>;
 
 template <class Key, bool has_null>
 using FixedKeyHashTableContext = MethodKeysFixed<JoinHashMap<Key, HashCRC32<Key>>, has_null>;
-
-template <class Key, bool has_null>
-using SetFixedKeyHashTableContext =
-        MethodKeysFixed<HashMap<Key, pipeline::RowRefListWithFlags, HashCRC32<Key>>, has_null>;
-
-template <class T>
-using SetPrimaryTypeHashTableContext =
-        MethodOneNumber<T, HashMap<T, pipeline::RowRefListWithFlags, HashCRC32<T>>>;
-
-using SetSerializedHashTableContext =
-        MethodSerialized<HashMap<StringRef, pipeline::RowRefListWithFlags>>;
-using SetMethodOneString = MethodStringNoCache<HashMap<StringRef, pipeline::RowRefListWithFlags>>;
 
 } // namespace doris::vectorized
