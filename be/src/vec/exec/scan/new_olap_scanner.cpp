@@ -540,8 +540,7 @@ void NewOlapScanner::_update_realtime_counters() {
     COUNTER_UPDATE(olap_parent ? olap_parent->_read_compressed_counter
                                : local_state->_read_compressed_counter,
                    stats.compressed_bytes_read);
-    COUNTER_UPDATE(olap_parent ? olap_parent->_scan_bytes
-                               : local_state->_scan_bytes,
+    COUNTER_UPDATE(olap_parent ? olap_parent->_scan_bytes : local_state->_scan_bytes,
                    stats.compressed_bytes_read);
     _scan_bytes += stats.compressed_bytes_read;
     _tablet_reader->mutable_stats()->compressed_bytes_read = 0;
