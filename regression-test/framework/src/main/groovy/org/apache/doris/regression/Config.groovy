@@ -1136,6 +1136,14 @@ class Config {
         return urlWithDb
     }
 
+    public static String buildUrlWithDb(String host, int queryPort, String dbName) {
+        def url = String.format(
+            "jdbc:mysql://%s:%s/?useLocalSessionState=true&allowLoadLocalInfile=false",
+            host, queryPort)
+        url = buildUrlWithDb(url, dbName)
+        return url
+    }
+
     private static String addSslUrl(String url) {
         if (url.contains("TLS")) {
             return url
