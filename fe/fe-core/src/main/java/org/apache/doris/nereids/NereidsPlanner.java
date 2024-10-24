@@ -274,7 +274,9 @@ public class NereidsPlanner extends Planner {
                 && !cascadesContext.isLeadingDisableJoinReorder()) {
             List<LogicalOlapScan> scans = cascadesContext.getRewritePlan()
                     .collectToList(LogicalOlapScan.class::isInstance);
-            StatsCalculator.disableJoinReorderIfTableRowCountNotAvailable(scans, cascadesContext);
+            Optional<String> disableJoinReorderReason = StatsCalculator
+                    .disableJoinReorderIfStatsInvalid(scans, cascadesContext);
+            disableJoinReorderReason.ifPresent(statementContext::setDisableJoinReorderReason);
         }
 
         optimize();
