@@ -1627,6 +1627,8 @@ void MetaServiceImpl::get_tablet_stats(::google::protobuf::RpcController* contro
         }
         auto tablet_stats = response->add_tablet_stats();
         internal_get_tablet_stats(code, msg, txn.get(), instance_id, idx, *tablet_stats, true);
+        LOG(INFO) << fmt::format("[FE show data: tablet id {}, tabletStatsPB {}]", idx.tablet_id(),
+                                 tablet_stats->DebugString());
         if (code != MetaServiceCode::OK) {
             response->clear_tablet_stats();
             break;
@@ -2186,6 +2188,72 @@ std::pair<MetaServiceCode, std::string> MetaServiceImpl::get_instance_info(
     std::string msg;
     decrypt_instance_info(*instance, cloned_instance_id, code, msg, txn);
     return {code, std::move(msg)};
+}
+
+std::pair<std::string, std::string> init_key_pair(std::string instance_id, int64_t table_id) {
+    std::string begin_key = stats_tablet_key({instance_id, table_id, 0, 0, 0});
+    std::string end_key = stats_tablet_key({instance_id, table_id + 1, 0, 0, 0});
+    return std::make_pair(begin_key, end_key);
+}
+
+MetaServiceResponseStatus MetaServiceImpl::fix_tablet_stats(std::string cloud_unique_id_str,
+                                                            std::string table_id_str) {
+    // parse params
+    int64_t table_id;
+    std::string instance_id;
+    MetaServiceResponseStatus st = parse_fix_tablet_stats_param(
+            resource_mgr_, table_id_str, cloud_unique_id_str, table_id, instance_id);
+    if (st.code() != MetaServiceCode::OK) {
+        return st;
+    }
+
+    std::pair<std::string, std::string> key_pair = init_key_pair(instance_id, table_id);
+    while (key_pair.first <= key_pair.second) {
+        // get tablet stats
+        std::vector<std::shared_ptr<TabletStatsPB>> tablet_stat_shared_ptr_vec_batch;
+        MetaServiceResponseStatus st =
+                get_old_tablet_stats_batch(txn_kv_, key_pair, tablet_stat_shared_ptr_vec_batch);
+        if (st.code() != MetaServiceCode::OK) {
+            return st;
+        }
+
+        // fix tablet stats
+        st = write_new_tablet_stats(txn_kv_, tablet_stat_shared_ptr_vec_batch, instance_id);
+        if (st.code() != MetaServiceCode::OK) {
+            return st;
+        }
+
+        std::vector<std::shared_ptr<TabletStatsPB>> conflict_tablet_stat_shared_ptr_vec;
+        std::vector<std::shared_ptr<TabletStatsPB>> check_batch_vec;
+        size_t retry = 0;
+        bool is_first_check = true;
+        do {
+            conflict_tablet_stat_shared_ptr_vec.clear();
+
+            // On the first check, we check the entire batch. On subsequent retries, we check only the conflicting data
+            if (is_first_check) {
+                check_batch_vec = tablet_stat_shared_ptr_vec_batch;
+                is_first_check = false;
+            } else {
+                check_batch_vec = conflict_tablet_stat_shared_ptr_vec;
+            }
+
+            // Check tablet stats
+            st = check_new_tablet_stats(txn_kv_, instance_id, check_batch_vec,
+                                        conflict_tablet_stat_shared_ptr_vec);
+            if (st.code() != MetaServiceCode::OK) {
+                return st;
+            }
+
+            // If there are conflicts, rewrite the tablet stats
+            st = write_new_tablet_stats(txn_kv_, conflict_tablet_stat_shared_ptr_vec, instance_id);
+            if (st.code() != MetaServiceCode::OK) {
+                return st;
+            }
+            retry++;
+        } while (!conflict_tablet_stat_shared_ptr_vec.empty() && retry < 100);
+    }
+    return st;
 }
 
 } // namespace doris::cloud
