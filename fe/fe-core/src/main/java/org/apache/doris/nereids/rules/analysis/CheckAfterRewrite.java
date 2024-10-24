@@ -41,6 +41,7 @@ import org.apache.doris.nereids.trees.plans.algebra.Generate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalDeferMaterializeOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
@@ -179,6 +180,18 @@ public class CheckAfterRewrite extends OneAnalysisRuleFactory {
                     throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
                 }
             });
+        } else if (plan instanceof LogicalJoin) {
+            LogicalJoin<?, ?> join = (LogicalJoin<?, ?>) plan;
+            for (Expression conjunct : join.getHashJoinConjuncts()) {
+                if (conjunct.anyMatch(e -> ((Expression) e).getDataType().isVariantType())) {
+                    throw new AnalysisException("variant type could not in join equal conditions: " + conjunct.toSql());
+                }
+            }
+            for (Expression conjunct : join.getMarkJoinConjuncts()) {
+                if (conjunct.anyMatch(e -> ((Expression) e).getDataType().isVariantType())) {
+                    throw new AnalysisException("variant type could not in join equal conditions: " + conjunct.toSql());
+                }
+            }
         }
     }
 
