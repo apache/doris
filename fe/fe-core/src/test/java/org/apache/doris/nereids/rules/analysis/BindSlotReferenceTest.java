@@ -28,7 +28,6 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.JoinType;
-import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
@@ -170,7 +169,7 @@ class BindSlotReferenceTest implements MemoPatternMatchSupported {
                         JoinType.LEFT_OUTER_JOIN, using1, sub3, ImmutableList.of(),
                         ImmutableList.of(new UnboundSlot("id")), hint);
 
-        Plan plan = PlanChecker.from(MemoTestUtils.createConnectContext())
+        PlanChecker.from(MemoTestUtils.createConnectContext())
                 .analyze(using2)
                 .matches(
                         logicalJoin(
@@ -182,7 +181,6 @@ class BindSlotReferenceTest implements MemoPatternMatchSupported {
                             return join.left().left().getOutput().contains(leftSlot)
                                     && !join.left().right().getOutput().contains(leftSlot);
                         })
-                )
-                .getPlan();
+                );
     }
 }
