@@ -108,4 +108,6 @@ DECLARE_mInt32(tablet_txn_info_min_expired_seconds);
 
 DECLARE_mBool(enable_use_cloud_unique_id_from_fe);
 
+DECLARE_mBool(enable_cloud_delete_old_version_delete_bitmap);
+
 } // namespace doris::config

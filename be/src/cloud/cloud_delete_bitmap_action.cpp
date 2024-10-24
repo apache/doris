@@ -91,6 +91,7 @@ Status CloudDeleteBitmapAction::_handle_show_delete_bitmap_count(HttpRequest* re
     if (tablet == nullptr) {
         return Status::NotFound("Tablet not found. tablet_id={}", tablet_id);
     }
+    LOG(INFO) << "request show_delete_bitmap_count,tablet_id=" << tablet_id;
 
     auto count = tablet->tablet_meta()->delete_bitmap().get_delete_bitmap_count();
     auto cardinality = tablet->tablet_meta()->delete_bitmap().cardinality();

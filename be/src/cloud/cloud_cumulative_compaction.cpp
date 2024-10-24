@@ -393,6 +393,10 @@ void CloudCumulativeCompaction::process_old_version_delete_bitmap() {
                 if (d->isEmpty()) {
                     continue;
                 }
+                LOG(INFO) << "tablet_id=" << _tablet->tablet_meta()->tablet_id()
+                          << " get_agg result:key=" << rowset->rowset_id().to_string() << "|"
+                          << seg_id << "|" << pre_max_version << ",bitmap size=" << d->cardinality()
+                          << ",bitmap byte=" << d->getSizeInBytes();
                 new_delete_bitmap->set(end, *d);
             }
         }
@@ -420,6 +424,11 @@ void CloudCumulativeCompaction::process_old_version_delete_bitmap() {
                                 _input_rowsets.back()->end_version());
                 for (auto it = new_delete_bitmap->delete_bitmap.begin();
                      it != new_delete_bitmap->delete_bitmap.end(); it++) {
+                    LOG(INFO) << "tablet_id=" << _tablet->tablet_meta()->tablet_id()
+                              << " set key=" << std::get<0>(it->first).to_string() << "|"
+                              << std::get<1>(it->first) << "|" << std::get<2>(it->first)
+                              << ",size=" << it->second.cardinality()
+                              << ",byte=" << it->second.getSizeInBytes();
                     _tablet->tablet_meta()->delete_bitmap().set(it->first, it->second);
                 }
                 _tablet->tablet_meta()->delete_bitmap().add_to_remove_queue(version.to_string(),
